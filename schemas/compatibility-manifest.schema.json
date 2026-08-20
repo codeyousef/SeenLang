@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://seenlang.dev/schemas/compatibility-manifest.schema.json",
   "title": "Seen release compatibility manifest",
+  "description": "Exact canonical input consumed by the Seen compiler and version-coupled package client; omitted or mismatched values are never inferred or repaired.",
   "type": "object",
   "additionalProperties": false,
   "required": ["components", "platforms", "release_version", "schema", "schema_version", "targets"],

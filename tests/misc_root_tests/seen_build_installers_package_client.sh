@@ -7,8 +7,13 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 FIXTURE_ROOT="$TMP_DIR/repo"
 CALL_LOG="$TMP_DIR/installer-calls.log"
-mkdir -p "$FIXTURE_ROOT/scripts" "$FIXTURE_ROOT/installer/linux"
+mkdir -p "$FIXTURE_ROOT/scripts" "$FIXTURE_ROOT/installer/linux" \
+    "$FIXTURE_ROOT/releases"
 cp "$ROOT_DIR/scripts/build_installers.sh" "$FIXTURE_ROOT/scripts/build_installers.sh"
+cp "$ROOT_DIR/scripts/check_compatibility_manifest.py" \
+    "$FIXTURE_ROOT/scripts/check_compatibility_manifest.py"
+cp "$ROOT_DIR/releases/compatibility-manifest.json" \
+    "$FIXTURE_ROOT/releases/compatibility-manifest.json"
 
 cat > "$FIXTURE_ROOT/stage3_seen" <<'STAGE3_EOF'
 #!/usr/bin/env bash
@@ -63,6 +68,8 @@ done
 [[ -n "$source_dir" ]]
 [[ -x "$FIXTURE_ROOT/$source_dir/seen" ]]
 [[ -x "$FIXTURE_ROOT/$source_dir/seen-pkg" ]]
+cmp -s "$FIXTURE_ROOT/$source_dir/compatibility-manifest.json" \
+    "$FIXTURE_ROOT/releases/compatibility-manifest.json"
 "$FIXTURE_ROOT/$source_dir/seen-pkg" \
     --expect-version 0.10.1 version --machine >/dev/null
 basename "$0" >> "$CALL_LOG"
@@ -80,6 +87,8 @@ export FIXTURE_ROOT CALL_LOG
     --output-dir "$TMP_DIR/output" >/dev/null
 
 [[ -x "$FIXTURE_ROOT/installer/tmp/linux/seen-pkg" ]]
+cmp -s "$FIXTURE_ROOT/installer/tmp/linux/compatibility-manifest.json" \
+    "$FIXTURE_ROOT/releases/compatibility-manifest.json"
 [[ "$(wc -l < "$CALL_LOG" | tr -d ' ')" == "3" ]]
 
 echo "build_installers package-client staging test passed"

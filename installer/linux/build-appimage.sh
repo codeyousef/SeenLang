@@ -245,6 +245,7 @@ validate_sources() {
     local required_files=(
         "$SOURCE_DIR/seen"
         "$SOURCE_DIR/seen-pkg"
+        "$SOURCE_DIR/compatibility-manifest.json"
         "$PROJECT_ROOT/seen_std"
         "$PROJECT_ROOT/languages"
     )
@@ -598,6 +599,8 @@ install_app_files() {
     chmod +x "$appdir/usr/bin/seen"
     cp "$SOURCE_DIR/seen-pkg" "$appdir/usr/bin/"
     chmod +x "$appdir/usr/bin/seen-pkg"
+    cp "$SOURCE_DIR/compatibility-manifest.json" "$appdir/usr/bin/"
+    chmod 644 "$appdir/usr/bin/compatibility-manifest.json"
     
     if [ -f "$SOURCE_DIR/seen-lsp" ]; then
         cp "$SOURCE_DIR/seen-lsp" "$appdir/usr/bin/"

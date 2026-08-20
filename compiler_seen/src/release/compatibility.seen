@@ -1,13 +1,17 @@
 ///
 /// Native release-compatibility model for schema version 1.
-/// JSON decoding and release-manifest generation are owned by CORE-002B. This
-/// module validates an already decoded, bounded model without file or process
-/// side effects.
+/// CORE-002A owns the schema model and validation contract. CORE-002B adds
+/// explicit-input generation, canonical JSON, strict runtime consumption, and
+/// transactional file output. Missing values are never inferred or repaired.
 ///
 
 import core.option.{Option, None}
 import core.result.{Result, Ok, Err}
 import collections.vec.{Vec}
+import io.file.{readTextChecked, size, writeTextAtomically}
+import json.parser.{parseJson}
+import json.value.{JsonValue}
+import str.string.{StringBuilder}
 
 let COMPATIBILITY_SCHEMA_V1: String = "seen-compatibility-manifest-v1"
 let COMPATIBILITY_MAX_ERROR_MESSAGE_BYTES: Int = 4096
@@ -15,6 +19,14 @@ let COMPATIBILITY_MAX_ERROR_CAUSES: Int = 8
 let COMPATIBILITY_MAX_TARGETS: Int = 32
 let COMPATIBILITY_MAX_IDENTITY_BYTES: Int = 128
 let COMPATIBILITY_MAX_VERSION_BYTES: Int = 64
+let COMPATIBILITY_MAX_MANIFEST_BYTES: Int = 1048576
+let COMPATIBILITY_MAX_PATH_BYTES: Int = 4096
+let COMPATIBILITY_RUNTIME_INVALID: String = "core.002b.invalid"
+let COMPATIBILITY_RUNTIME_LIMIT: String = "core.002b.limit"
+let COMPATIBILITY_RUNTIME_CANCELLED: String = "core.002b.cancelled"
+let COMPATIBILITY_RUNTIME_PLATFORM: String = "core.002b.platform"
+let COMPATIBILITY_RUNTIME_MISMATCH: String = "core.002b.mismatch"
+let COMPATIBILITY_RUNTIME_IO: String = "core.002b.io"
 
 class AsciiString {
     var value: String
@@ -45,6 +57,8 @@ class OperationLimits {
     var maxTargets: Int
     var maxIdentityBytes: Int
     var maxVersionBytes: Int
+    var maxManifestBytes: Int
+    var maxPathBytes: Int
 }
 
 class OperationContext {
@@ -95,8 +109,85 @@ class CompatibilityManifest {
     var targets: Array<CompatibilityTarget>
 }
 
-fun compatibilityError(code: String, operation: String, message: String)
-    r: SeenError {
+/// Every compatibility value is caller supplied. The generator adds only the
+/// versioned schema envelope and therefore cannot silently infer an ABI,
+/// package protocol, target, or platform claim.
+class CompatibilityReleaseInputs {
+    var releaseVersion: String
+    var components: CompatibilityComponents
+    var platforms: CompatibilityPlatforms
+    var targets: Array<CompatibilityTarget>
+}
+
+/// Bootstrap-safe projection used by the compiler entry module. Generic
+/// Result storage stays inside this module so older bootstrap compilers do not
+/// need to lower an imported Result specialization.
+class CompatibilityRuntimeSelection {
+    var success: Bool
+    var packageClientVersion: String
+    var packageClientProtocol: String
+    var errorCode: String
+    var errorMessage: String
+}
+
+class CompatibilityManifestOutcome {
+    var success: Bool
+    var values: Array<CompatibilityManifest>
+    var errors: Array<SeenError>
+}
+
+class CompatibilityStringOutcome {
+    var success: Bool
+    var values: Array<String>
+    var errors: Array<SeenError>
+}
+
+fun compatibilityManifestSuccess(value: CompatibilityManifest)
+    r: CompatibilityManifestOutcome {
+
+    let values = Array<CompatibilityManifest>()
+    values.push(value)
+    return CompatibilityManifestOutcome{
+        success: true,
+        values: values,
+        errors: Array<SeenError>()
+    }
+}
+
+fun compatibilityManifestFailure(error: SeenError)
+    r: CompatibilityManifestOutcome {
+
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return CompatibilityManifestOutcome{
+        success: false,
+        values: Array<CompatibilityManifest>(),
+        errors: errors
+    }
+}
+
+fun compatibilityStringSuccess(value: String) r: CompatibilityStringOutcome {
+    let values = Array<String>()
+    values.push(value)
+    return CompatibilityStringOutcome{
+        success: true,
+        values: values,
+        errors: Array<SeenError>()
+    }
+}
+
+fun compatibilityStringFailure(error: SeenError) r: CompatibilityStringOutcome {
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return CompatibilityStringOutcome{
+        success: false,
+        values: Array<String>(),
+        errors: errors
+    }
+}
+
+fun compatibilityErrorWithCode(code: String, operation: String,
+    message: String, redaction: RedactionClass) r: SeenError {
 
     var boundedMessage = message
     if boundedMessage.length() > COMPATIBILITY_MAX_ERROR_MESSAGE_BYTES {
@@ -111,8 +202,15 @@ fun compatibilityError(code: String, operation: String, message: String)
         causes: Vec<SeenError>.new(),
         nativeCode: None<Int64>(),
         retry: RetryClass.Never,
-        redaction: RedactionClass.Public
+        redaction: redaction
     }
+}
+
+fun compatibilityError(code: String, operation: String, message: String)
+    r: SeenError {
+
+    return compatibilityErrorWithCode(
+        code, operation, message, RedactionClass.Public)
 }
 
 fun compatibilityAsciiIdentity(value: String, maximumBytes: Int) r: Bool {
@@ -122,12 +220,74 @@ fun compatibilityAsciiIdentity(value: String, maximumBytes: Int) r: Bool {
     var index = 0
     while index < value.length() {
         let byte = value.byteAt(index)
-        if byte < 33 or byte > 126 {
+        let alpha = (byte >= 65 and byte <= 90) or
+            (byte >= 97 and byte <= 122)
+        let digit = byte >= 48 and byte <= 57
+        if not alpha and not digit and byte != 46 and byte != 95 and
+            byte != 43 and byte != 45 {
+
             return false
         }
         index = index + 1
     }
     return true
+}
+
+fun compatibilitySemver(value: String, maximumBytes: Int) r: Bool {
+    if value.length() < 5 or value.length() > maximumBytes {
+        return false
+    }
+    var index = 0
+    var component = 0
+    while component < 3 {
+        let start = index
+        while index < value.length() {
+            let byte = value.byteAt(index)
+            if byte < 48 or byte > 57 { break }
+            index = index + 1
+        }
+        if index == start { return false }
+        if index - start > 1 and value.byteAt(start) == 48 { return false }
+        component = component + 1
+        if component < 3 {
+            if index >= value.length() or value.byteAt(index) != 46 {
+                return false
+            }
+            index = index + 1
+        }
+    }
+    if index == value.length() { return true }
+    if value.byteAt(index) == 45 {
+        index = index + 1
+        let prereleaseStart = index
+        while index < value.length() and value.byteAt(index) != 43 {
+            let byte = value.byteAt(index)
+            let alpha = (byte >= 65 and byte <= 90) or
+                (byte >= 97 and byte <= 122)
+            let digit = byte >= 48 and byte <= 57
+            if not alpha and not digit and byte != 46 and byte != 45 {
+                return false
+            }
+            index = index + 1
+        }
+        if index == prereleaseStart { return false }
+    }
+    if index < value.length() and value.byteAt(index) == 43 {
+        index = index + 1
+        let buildStart = index
+        while index < value.length() {
+            let byte = value.byteAt(index)
+            let alpha = (byte >= 65 and byte <= 90) or
+                (byte >= 97 and byte <= 122)
+            let digit = byte >= 48 and byte <= 57
+            if not alpha and not digit and byte != 46 and byte != 45 {
+                return false
+            }
+            index = index + 1
+        }
+        if index == buildStart { return false }
+    }
+    return index == value.length()
 }
 
 fun compatibilityTargetNameKnown(name: String) r: Bool {
@@ -151,11 +311,11 @@ fun compatibilityTargetRank(name: String) r: Int {
     return -1
 }
 
-fun validateCompatibilityManifest(manifest: CompatibilityManifest,
-    context: OperationContext) r: Result<CompatibilityManifest, SeenError> {
+fun compatibilityValidateChecked(manifest: CompatibilityManifest,
+    context: OperationContext) r: CompatibilityManifestOutcome {
 
     if context.cancellation or context.monotonicDeadline < 0 {
-        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+        return compatibilityManifestFailure(compatibilityError(
             "core.002a.cancelled", "validate", "validation cancelled"))
     }
     if context.limits.maxTargets < 1 or
@@ -163,32 +323,36 @@ fun validateCompatibilityManifest(manifest: CompatibilityManifest,
         context.limits.maxIdentityBytes < 1 or
         context.limits.maxIdentityBytes > COMPATIBILITY_MAX_IDENTITY_BYTES or
         context.limits.maxVersionBytes < 1 or
-        context.limits.maxVersionBytes > COMPATIBILITY_MAX_VERSION_BYTES {
+        context.limits.maxVersionBytes > COMPATIBILITY_MAX_VERSION_BYTES or
+        context.limits.maxManifestBytes < 1 or
+        context.limits.maxManifestBytes > COMPATIBILITY_MAX_MANIFEST_BYTES or
+        context.limits.maxPathBytes < 1 or
+        context.limits.maxPathBytes > COMPATIBILITY_MAX_PATH_BYTES {
 
-        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+        return compatibilityManifestFailure(compatibilityError(
             "core.002a.limit", "validate", "operation limits are invalid"))
     }
     if manifest.targets.length() < 1 or
         manifest.targets.length() > context.limits.maxTargets {
 
-        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+        return compatibilityManifestFailure(compatibilityError(
             "core.002a.limit", "validate", "target limit exceeded"))
     }
     if manifest.schema != COMPATIBILITY_SCHEMA_V1 or
         manifest.schemaVersion != 1 or
-        not compatibilityAsciiIdentity(
+        not compatibilitySemver(
             manifest.releaseVersion, context.limits.maxVersionBytes) or
         not compatibilityAsciiIdentity(
             context.traceId.value, context.limits.maxIdentityBytes) {
 
-        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+        return compatibilityManifestFailure(compatibilityError(
             "core.002a.invalid", "validate", "manifest identity is invalid"))
     }
     if manifest.components.llvmMinimumMajor < 18 or
         manifest.components.llvmMinimumMajor > 255 or
         manifest.components.standardLibraryModuleManifestVersion < 1 or
         manifest.components.standardLibraryModuleManifestVersion > 255 or
-        not compatibilityAsciiIdentity(manifest.components.compiler.version,
+        not compatibilitySemver(manifest.components.compiler.version,
             context.limits.maxVersionBytes) or
         manifest.components.compiler.version != manifest.releaseVersion or
         not compatibilityAsciiIdentity(
@@ -208,17 +372,17 @@ fun validateCompatibilityManifest(manifest: CompatibilityManifest,
             context.limits.maxIdentityBytes) or
         not compatibilityAsciiIdentity(manifest.components.runtimeAbi,
             context.limits.maxIdentityBytes) or
-        not compatibilityAsciiIdentity(
+        not compatibilitySemver(
             manifest.components.standardLibraryVersion,
             context.limits.maxVersionBytes) or
-        not compatibilityAsciiIdentity(
+        not compatibilitySemver(
             manifest.components.packageClientVersion,
             context.limits.maxVersionBytes) or
         manifest.components.packageClientVersion != manifest.releaseVersion or
         not compatibilityAsciiIdentity(manifest.components.packageClientProtocol,
             context.limits.maxIdentityBytes) {
 
-        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+        return compatibilityManifestFailure(compatibilityError(
             "core.002a.invalid", "validate", "component identity is invalid"))
     }
     if manifest.platforms.linuxArm64 != "declared-toolchain-dependent" or
@@ -226,7 +390,7 @@ fun validateCompatibilityManifest(manifest: CompatibilityManifest,
         manifest.platforms.macos != "declared-toolchain-dependent" or
         manifest.platforms.windows != "declared-toolchain-dependent" {
 
-        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+        return compatibilityManifestFailure(compatibilityError(
             "core.002a.platform", "validate",
             "platform applicability is invalid"))
     }
@@ -240,20 +404,20 @@ fun validateCompatibilityManifest(manifest: CompatibilityManifest,
             (target.support != "required" and
                 target.support != "declared-toolchain-dependent") {
 
-            return Err<CompatibilityManifest, SeenError>(compatibilityError(
+            return compatibilityManifestFailure(compatibilityError(
                 "core.002a.platform", "validate", "target is unsupported"))
         }
         if index > 0 and compatibilityTargetRank(
             manifest.targets[index - 1].name) >= compatibilityTargetRank(
                 target.name) {
 
-            return Err<CompatibilityManifest, SeenError>(compatibilityError(
+            return compatibilityManifestFailure(compatibilityError(
                 "core.002a.invalid", "validate",
                 "targets are duplicated or unordered"))
         }
         if target.support == "required" {
             if target.name != "linux-x86_64" {
-                return Err<CompatibilityManifest, SeenError>(compatibilityError(
+                return compatibilityManifestFailure(compatibilityError(
                     "core.002a.platform", "validate",
                     "only linux-x86_64 may be required"))
             }
@@ -262,9 +426,732 @@ fun validateCompatibilityManifest(manifest: CompatibilityManifest,
         index = index + 1
     }
     if requiredTargets != 1 {
-        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+        return compatibilityManifestFailure(compatibilityError(
             "core.002a.platform", "validate",
             "linux-x86_64 must be the single required target"))
     }
-    return Ok<CompatibilityManifest, SeenError>(manifest)
+    return compatibilityManifestSuccess(manifest)
+}
+
+fun validateCompatibilityManifest(manifest: CompatibilityManifest,
+    context: OperationContext) r: Result<CompatibilityManifest, SeenError> {
+
+    let checked = compatibilityValidateChecked(manifest, context)
+    if not checked.success {
+        return Err<CompatibilityManifest, SeenError>(checked.errors[0])
+    }
+    return Ok<CompatibilityManifest, SeenError>(checked.values[0])
+}
+
+fun compatibilityRuntimeError(suffix: String, operation: String,
+    message: String) r: SeenError {
+
+    var code = COMPATIBILITY_RUNTIME_INVALID
+    if suffix == "limit" { code = COMPATIBILITY_RUNTIME_LIMIT }
+    if suffix == "cancelled" { code = COMPATIBILITY_RUNTIME_CANCELLED }
+    if suffix == "platform" { code = COMPATIBILITY_RUNTIME_PLATFORM }
+    if suffix == "mismatch" { code = COMPATIBILITY_RUNTIME_MISMATCH }
+    if suffix == "io" { code = COMPATIBILITY_RUNTIME_IO }
+    return compatibilityErrorWithCode(
+        code, operation, message, RedactionClass.Public)
+}
+
+fun compatibilityRuntimePathError(suffix: String, operation: String,
+    message: String) r: SeenError {
+
+    var code = COMPATIBILITY_RUNTIME_INVALID
+    if suffix == "limit" { code = COMPATIBILITY_RUNTIME_LIMIT }
+    if suffix == "cancelled" { code = COMPATIBILITY_RUNTIME_CANCELLED }
+    if suffix == "platform" { code = COMPATIBILITY_RUNTIME_PLATFORM }
+    if suffix == "mismatch" { code = COMPATIBILITY_RUNTIME_MISMATCH }
+    if suffix == "io" { code = COMPATIBILITY_RUNTIME_IO }
+    let error = compatibilityErrorWithCode(
+        code, operation, message, RedactionClass.Sensitive)
+    if suffix == "io" {
+        error.retry = RetryClass.Transient
+    }
+    return error
+}
+
+fun compatibilityMappedValidationError(error: SeenError, operation: String)
+    r: SeenError {
+
+    if error.code.value == "core.002a.limit" {
+        return compatibilityRuntimeError("limit", operation, error.message)
+    }
+    if error.code.value == "core.002a.cancelled" {
+        return compatibilityRuntimeError("cancelled", operation, error.message)
+    }
+    if error.code.value == "core.002a.platform" {
+        return compatibilityRuntimeError("platform", operation, error.message)
+    }
+    return compatibilityRuntimeError("invalid", operation, error.message)
+}
+
+fun compatibilityCopyCompiler(value: CompatibilityCompiler)
+    r: CompatibilityCompiler {
+
+    return CompatibilityCompiler{
+        version: value.version,
+        layoutAbi: value.layoutAbi,
+        objectCacheAbi: value.objectCacheAbi,
+        prebuiltPackageSchema: value.prebuiltPackageSchema,
+        packageInterfaceSchema: value.packageInterfaceSchema,
+        packageObjectManifestSchema: value.packageObjectManifestSchema
+    }
+}
+
+fun compatibilityCopyComponents(value: CompatibilityComponents)
+    r: CompatibilityComponents {
+
+    return CompatibilityComponents{
+        compiler: compatibilityCopyCompiler(value.compiler),
+        runtimeAbi: value.runtimeAbi,
+        standardLibraryVersion: value.standardLibraryVersion,
+        standardLibraryModuleManifestVersion:
+            value.standardLibraryModuleManifestVersion,
+        packageClientVersion: value.packageClientVersion,
+        packageClientProtocol: value.packageClientProtocol,
+        llvmMinimumMajor: value.llvmMinimumMajor
+    }
+}
+
+fun compatibilityCopyPlatforms(value: CompatibilityPlatforms)
+    r: CompatibilityPlatforms {
+
+    return CompatibilityPlatforms{
+        linuxArm64: value.linuxArm64,
+        linuxX8664: value.linuxX8664,
+        macos: value.macos,
+        windows: value.windows
+    }
+}
+
+fun compatibilityCopyTargets(values: Array<CompatibilityTarget>)
+    r: Array<CompatibilityTarget> {
+
+    let copied = Array<CompatibilityTarget>()
+    var index = 0
+    while index < values.length() {
+        let value = values[index]
+        copied.push(CompatibilityTarget{
+            name: value.name,
+            triple: value.triple,
+            support: value.support
+        })
+        index = index + 1
+    }
+    return copied
+}
+
+fun compatibilityInputsFromManifest(manifest: CompatibilityManifest)
+    r: CompatibilityReleaseInputs {
+
+    return CompatibilityReleaseInputs{
+        releaseVersion: manifest.releaseVersion,
+        components: compatibilityCopyComponents(manifest.components),
+        platforms: compatibilityCopyPlatforms(manifest.platforms),
+        targets: compatibilityCopyTargets(manifest.targets)
+    }
+}
+
+fun compatibilityGenerateChecked(inputs: CompatibilityReleaseInputs,
+    context: OperationContext) r: CompatibilityManifestOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "cancelled", "generate", "manifest generation cancelled"))
+    }
+    let manifest = CompatibilityManifest{
+        schema: COMPATIBILITY_SCHEMA_V1,
+        schemaVersion: 1,
+        releaseVersion: inputs.releaseVersion,
+        components: compatibilityCopyComponents(inputs.components),
+        platforms: compatibilityCopyPlatforms(inputs.platforms),
+        targets: compatibilityCopyTargets(inputs.targets)
+    }
+    let validated = compatibilityValidateChecked(manifest, context)
+    if not validated.success {
+        return compatibilityManifestFailure(
+            compatibilityMappedValidationError(
+                validated.errors[0], "generate"))
+    }
+    return compatibilityManifestSuccess(validated.values[0])
+}
+
+fun generateCompatibilityManifest(inputs: CompatibilityReleaseInputs,
+    context: OperationContext) r: Result<CompatibilityManifest, SeenError> {
+
+    let checked = compatibilityGenerateChecked(inputs, context)
+    if not checked.success {
+        return Err<CompatibilityManifest, SeenError>(checked.errors[0])
+    }
+    return Ok<CompatibilityManifest, SeenError>(checked.values[0])
+}
+
+fun compatibilityRenderChecked(manifest: CompatibilityManifest,
+    context: OperationContext) r: CompatibilityStringOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return compatibilityStringFailure(compatibilityRuntimeError(
+            "cancelled", "render", "manifest rendering cancelled"))
+    }
+    let validated = compatibilityValidateChecked(manifest, context)
+    if not validated.success {
+        return compatibilityStringFailure(compatibilityMappedValidationError(
+            validated.errors[0], "render"))
+    }
+    let value = validated.values[0]
+    let output = StringBuilder.new()
+    output.append("{\n")
+    output.append("  \"components\": {\n")
+    output.append("    \"compiler\": {\n")
+    output.append("      \"layout_abi\": \"" +
+        value.components.compiler.layoutAbi + "\",\n")
+    output.append("      \"object_cache_abi\": \"" +
+        value.components.compiler.objectCacheAbi + "\",\n")
+    output.append("      \"package_interface_schema\": \"" +
+        value.components.compiler.packageInterfaceSchema + "\",\n")
+    output.append("      \"package_object_manifest_schema\": \"" +
+        value.components.compiler.packageObjectManifestSchema + "\",\n")
+    output.append("      \"prebuilt_package_schema\": \"" +
+        value.components.compiler.prebuiltPackageSchema + "\",\n")
+    output.append("      \"version\": \"" +
+        value.components.compiler.version + "\"\n")
+    output.append("    },\n")
+    output.append("    \"llvm\": {\n")
+    output.append("      \"minimum_major\": " +
+        value.components.llvmMinimumMajor.toString() + "\n")
+    output.append("    },\n")
+    output.append("    \"package_client\": {\n")
+    output.append("      \"protocol\": \"" +
+        value.components.packageClientProtocol + "\",\n")
+    output.append("      \"version\": \"" +
+        value.components.packageClientVersion + "\"\n")
+    output.append("    },\n")
+    output.append("    \"runtime\": {\n")
+    output.append("      \"abi\": \"" + value.components.runtimeAbi + "\"\n")
+    output.append("    },\n")
+    output.append("    \"standard_library\": {\n")
+    output.append("      \"module_manifest_version\": " +
+        value.components.standardLibraryModuleManifestVersion.toString() +
+        ",\n")
+    output.append("      \"version\": \"" +
+        value.components.standardLibraryVersion + "\"\n")
+    output.append("    }\n")
+    output.append("  },\n")
+    output.append("  \"platforms\": {\n")
+    output.append("    \"linux-arm64\": \"" +
+        value.platforms.linuxArm64 + "\",\n")
+    output.append("    \"linux-x86_64\": \"" +
+        value.platforms.linuxX8664 + "\",\n")
+    output.append("    \"macos\": \"" + value.platforms.macos + "\",\n")
+    output.append("    \"windows\": \"" + value.platforms.windows + "\"\n")
+    output.append("  },\n")
+    output.append("  \"release_version\": \"" + value.releaseVersion + "\",\n")
+    output.append("  \"schema\": \"" + value.schema + "\",\n")
+    output.append("  \"schema_version\": " + value.schemaVersion.toString() +
+        ",\n")
+    output.append("  \"targets\": [\n")
+    var index = 0
+    while index < value.targets.length() {
+        let target = value.targets[index]
+        output.append("    {\n")
+        output.append("      \"name\": \"" + target.name + "\",\n")
+        output.append("      \"support\": \"" + target.support + "\",\n")
+        output.append("      \"triple\": \"" + target.triple + "\"\n")
+        if index + 1 < value.targets.length() {
+            output.append("    },\n")
+        } else {
+            output.append("    }\n")
+        }
+        index = index + 1
+    }
+    output.append("  ]\n")
+    output.append("}\n")
+    let rendered = output.toString()
+    if rendered.length() > context.limits.maxManifestBytes {
+        return compatibilityStringFailure(compatibilityRuntimeError(
+            "limit", "render", "rendered manifest exceeds byte limit"))
+    }
+    return compatibilityStringSuccess(rendered)
+}
+
+fun renderCompatibilityManifest(manifest: CompatibilityManifest,
+    context: OperationContext) r: Result<String, SeenError> {
+
+    let checked = compatibilityRenderChecked(manifest, context)
+    if not checked.success {
+        return Err<String, SeenError>(checked.errors[0])
+    }
+    return Ok<String, SeenError>(checked.values[0])
+}
+
+fun compatibilityGenerateBytesChecked(inputs: CompatibilityReleaseInputs,
+    context: OperationContext) r: CompatibilityStringOutcome {
+
+    let generated = compatibilityGenerateChecked(inputs, context)
+    if not generated.success {
+        return compatibilityStringFailure(generated.errors[0])
+    }
+    return compatibilityRenderChecked(generated.values[0], context)
+}
+
+fun generateCompatibilityManifestBytes(inputs: CompatibilityReleaseInputs,
+    context: OperationContext) r: Result<String, SeenError> {
+
+    let checked = compatibilityGenerateBytesChecked(inputs, context)
+    if not checked.success {
+        return Err<String, SeenError>(checked.errors[0])
+    }
+    return Ok<String, SeenError>(checked.values[0])
+}
+
+fun compatibilityExpectedFields(first: String) r: Array<String> {
+    let fields = Array<String>()
+    fields.push(first)
+    return fields
+}
+
+fun compatibilityJsonExactFields(value: JsonValue,
+    fields: Array<String>) r: Bool {
+
+    if not value.isObject() or value.keys().length() != fields.length() {
+        return false
+    }
+    var expectedIndex = 0
+    while expectedIndex < fields.length() {
+        var count = 0
+        var actualIndex = 0
+        while actualIndex < value.keys().length() {
+            if value.keys()[actualIndex] == fields[expectedIndex] {
+                count = count + 1
+            }
+            actualIndex = actualIndex + 1
+        }
+        if count != 1 { return false }
+        expectedIndex = expectedIndex + 1
+    }
+    return true
+}
+
+fun compatibilityJsonString(value: JsonValue, key: String) r: String {
+    let candidate = value.get(key)
+    if candidate == null { return "" }
+    let unwrapped = candidate.unwrap()
+    if not unwrapped.isString() { return "" }
+    return unwrapped.getString()
+}
+
+fun compatibilityJsonInteger(value: JsonValue, key: String) r: Int {
+    let candidate = value.get(key)
+    if candidate == null { return -1 }
+    let unwrapped = candidate.unwrap()
+    if not unwrapped.isNumber() { return -1 }
+    let integer = unwrapped.getInt()
+    if unwrapped.getNumber() != integer.toFloat() { return -1 }
+    return integer
+}
+
+fun compatibilityDecodeCompiler(value: JsonValue)
+    r: CompatibilityCompiler? {
+
+    let fields = compatibilityExpectedFields("layout_abi")
+    fields.push("object_cache_abi")
+    fields.push("package_interface_schema")
+    fields.push("package_object_manifest_schema")
+    fields.push("prebuilt_package_schema")
+    fields.push("version")
+    if not compatibilityJsonExactFields(value, fields) { return null }
+    let decoded = CompatibilityCompiler{
+        version: compatibilityJsonString(value, "version"),
+        layoutAbi: compatibilityJsonString(value, "layout_abi"),
+        objectCacheAbi: compatibilityJsonString(value, "object_cache_abi"),
+        prebuiltPackageSchema:
+            compatibilityJsonString(value, "prebuilt_package_schema"),
+        packageInterfaceSchema:
+            compatibilityJsonString(value, "package_interface_schema"),
+        packageObjectManifestSchema:
+            compatibilityJsonString(value, "package_object_manifest_schema")
+    }
+    if decoded.version == "" or decoded.layoutAbi == "" or
+        decoded.objectCacheAbi == "" or decoded.prebuiltPackageSchema == "" or
+        decoded.packageInterfaceSchema == "" or
+        decoded.packageObjectManifestSchema == "" {
+
+        return null
+    }
+    return decoded
+}
+
+fun compatibilityDecodeComponents(value: JsonValue)
+    r: CompatibilityComponents? {
+
+    let fields = compatibilityExpectedFields("compiler")
+    fields.push("llvm")
+    fields.push("package_client")
+    fields.push("runtime")
+    fields.push("standard_library")
+    if not compatibilityJsonExactFields(value, fields) { return null }
+    let compilerJson = value.get("compiler")
+    let llvmJson = value.get("llvm")
+    let packageJson = value.get("package_client")
+    let runtimeJson = value.get("runtime")
+    let stdlibJson = value.get("standard_library")
+    if compilerJson == null or llvmJson == null or packageJson == null or
+        runtimeJson == null or stdlibJson == null {
+
+        return null
+    }
+    let compiler = compatibilityDecodeCompiler(compilerJson.unwrap())
+    if compiler == null { return null }
+    let llvmFields = compatibilityExpectedFields("minimum_major")
+    let packageFields = compatibilityExpectedFields("protocol")
+    packageFields.push("version")
+    let runtimeFields = compatibilityExpectedFields("abi")
+    let stdlibFields = compatibilityExpectedFields("module_manifest_version")
+    stdlibFields.push("version")
+    if not compatibilityJsonExactFields(llvmJson.unwrap(), llvmFields) or
+        not compatibilityJsonExactFields(packageJson.unwrap(), packageFields) or
+        not compatibilityJsonExactFields(runtimeJson.unwrap(), runtimeFields) or
+        not compatibilityJsonExactFields(stdlibJson.unwrap(), stdlibFields) {
+
+        return null
+    }
+    let packageProtocol = compatibilityJsonString(
+        packageJson.unwrap(), "protocol")
+    let packageVersion = compatibilityJsonString(
+        packageJson.unwrap(), "version")
+    let runtimeAbi = compatibilityJsonString(runtimeJson.unwrap(), "abi")
+    let stdlibVersion = compatibilityJsonString(
+        stdlibJson.unwrap(), "version")
+    if packageProtocol == "" or packageVersion == "" or runtimeAbi == "" or
+        stdlibVersion == "" {
+
+        return null
+    }
+    return CompatibilityComponents{
+        compiler: compiler.unwrap(),
+        runtimeAbi: runtimeAbi,
+        standardLibraryVersion: stdlibVersion,
+        standardLibraryModuleManifestVersion: compatibilityJsonInteger(
+            stdlibJson.unwrap(), "module_manifest_version"),
+        packageClientVersion: packageVersion,
+        packageClientProtocol: packageProtocol,
+        llvmMinimumMajor: compatibilityJsonInteger(
+            llvmJson.unwrap(), "minimum_major")
+    }
+}
+
+fun compatibilityDecodePlatforms(value: JsonValue)
+    r: CompatibilityPlatforms? {
+
+    let fields = compatibilityExpectedFields("linux-arm64")
+    fields.push("linux-x86_64")
+    fields.push("macos")
+    fields.push("windows")
+    if not compatibilityJsonExactFields(value, fields) { return null }
+    let decoded = CompatibilityPlatforms{
+        linuxArm64: compatibilityJsonString(value, "linux-arm64"),
+        linuxX8664: compatibilityJsonString(value, "linux-x86_64"),
+        macos: compatibilityJsonString(value, "macos"),
+        windows: compatibilityJsonString(value, "windows")
+    }
+    if decoded.linuxArm64 == "" or decoded.linuxX8664 == "" or
+        decoded.macos == "" or decoded.windows == "" {
+
+        return null
+    }
+    return decoded
+}
+
+fun compatibilityDecodeTarget(value: JsonValue) r: CompatibilityTarget? {
+    let fields = compatibilityExpectedFields("name")
+    fields.push("support")
+    fields.push("triple")
+    if not compatibilityJsonExactFields(value, fields) { return null }
+    let decoded = CompatibilityTarget{
+        name: compatibilityJsonString(value, "name"),
+        triple: compatibilityJsonString(value, "triple"),
+        support: compatibilityJsonString(value, "support")
+    }
+    if decoded.name == "" or decoded.triple == "" or decoded.support == "" {
+        return null
+    }
+    return decoded
+}
+
+fun compatibilityParseChecked(content: String, context: OperationContext)
+    r: CompatibilityManifestOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "cancelled", "parse", "manifest parsing cancelled"))
+    }
+    if context.limits.maxManifestBytes < 1 or
+        context.limits.maxManifestBytes > COMPATIBILITY_MAX_MANIFEST_BYTES or
+        content.length() > context.limits.maxManifestBytes {
+
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "limit", "parse", "manifest byte limit exceeded"))
+    }
+    if content.length() >= 3 and content.byteAt(0) == 239 and
+        content.byteAt(1) == 187 and content.byteAt(2) == 191 {
+
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "invalid", "parse", "manifest must not contain a UTF-8 BOM"))
+    }
+    let parsed = parseJson(content)
+    if parsed.success != 1 or parsed.value == null {
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "invalid", "parse", "manifest JSON is invalid"))
+    }
+    let root = parsed.value.unwrap()
+    let fields = compatibilityExpectedFields("components")
+    fields.push("platforms")
+    fields.push("release_version")
+    fields.push("schema")
+    fields.push("schema_version")
+    fields.push("targets")
+    if not compatibilityJsonExactFields(root, fields) {
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "invalid", "parse", "manifest has missing or unknown fields"))
+    }
+    let componentsJson = root.get("components")
+    let platformsJson = root.get("platforms")
+    let targetsJson = root.get("targets")
+    if componentsJson == null or platformsJson == null or targetsJson == null or
+        not targetsJson.unwrap().isArray() {
+
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "invalid", "parse", "manifest field types are invalid"))
+    }
+    if targetsJson.unwrap().length() < 1 or
+        targetsJson.unwrap().length() > context.limits.maxTargets {
+
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "limit", "parse", "target limit exceeded"))
+    }
+    let components = compatibilityDecodeComponents(componentsJson.unwrap())
+    let platforms = compatibilityDecodePlatforms(platformsJson.unwrap())
+    if components == null or platforms == null {
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "invalid", "parse", "manifest component shape is invalid"))
+    }
+    let targets = Array<CompatibilityTarget>()
+    var index = 0
+    while index < targetsJson.unwrap().length() {
+        let targetJson = targetsJson.unwrap().getAt(index)
+        if targetJson == null {
+            return compatibilityManifestFailure(compatibilityRuntimeError(
+                    "invalid", "parse", "target entry is missing"))
+        }
+        let target = compatibilityDecodeTarget(targetJson.unwrap())
+        if target == null {
+            return compatibilityManifestFailure(compatibilityRuntimeError(
+                    "invalid", "parse", "target entry shape is invalid"))
+        }
+        targets.push(target.unwrap())
+        index = index + 1
+    }
+    let manifest = CompatibilityManifest{
+        schema: compatibilityJsonString(root, "schema"),
+        schemaVersion: compatibilityJsonInteger(root, "schema_version"),
+        releaseVersion: compatibilityJsonString(root, "release_version"),
+        components: components.unwrap(),
+        platforms: platforms.unwrap(),
+        targets: targets
+    }
+    let validated = compatibilityValidateChecked(manifest, context)
+    if not validated.success {
+        return compatibilityManifestFailure(
+            compatibilityMappedValidationError(
+                validated.errors[0], "parse"))
+    }
+    return compatibilityManifestSuccess(validated.values[0])
+}
+
+fun parseCompatibilityManifest(content: String, context: OperationContext)
+    r: Result<CompatibilityManifest, SeenError> {
+
+    let checked = compatibilityParseChecked(content, context)
+    if not checked.success {
+        return Err<CompatibilityManifest, SeenError>(checked.errors[0])
+    }
+    return Ok<CompatibilityManifest, SeenError>(checked.values[0])
+}
+
+fun compatibilityConsumeChecked(content: String,
+    expected: CompatibilityReleaseInputs, context: OperationContext)
+    r: CompatibilityManifestOutcome {
+
+    let parsed = compatibilityParseChecked(content, context)
+    if not parsed.success {
+        return compatibilityManifestFailure(parsed.errors[0])
+    }
+    let expectedBytes = compatibilityGenerateBytesChecked(expected, context)
+    if not expectedBytes.success {
+        return compatibilityManifestFailure(expectedBytes.errors[0])
+    }
+    let actualBytes = compatibilityRenderChecked(parsed.values[0], context)
+    if not actualBytes.success {
+        return compatibilityManifestFailure(actualBytes.errors[0])
+    }
+    if content != actualBytes.values[0] {
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "invalid", "consume",
+            "manifest bytes are not in canonical form"))
+    }
+    if actualBytes.values[0] != expectedBytes.values[0] {
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "mismatch", "consume",
+            "manifest does not match the required runtime compatibility"))
+    }
+    return compatibilityManifestSuccess(parsed.values[0])
+}
+
+fun consumeCompatibilityManifest(content: String,
+    expected: CompatibilityReleaseInputs, context: OperationContext)
+    r: Result<CompatibilityManifest, SeenError> {
+
+    let checked = compatibilityConsumeChecked(content, expected, context)
+    if not checked.success {
+        return Err<CompatibilityManifest, SeenError>(checked.errors[0])
+    }
+    return Ok<CompatibilityManifest, SeenError>(checked.values[0])
+}
+
+fun compatibilityPathIsSafe(path: String, maximumBytes: Int) r: Bool {
+    if path.length() == 0 or path.length() > maximumBytes { return false }
+    var segmentStart = 0
+    var index = 0
+    while index <= path.length() {
+        var boundary = index == path.length()
+        if not boundary {
+            let byte = path.byteAt(index)
+            if byte == 0 or byte == 10 or byte == 13 { return false }
+            boundary = byte == 47 or byte == 92
+        }
+        if boundary {
+            if index - segmentStart == 2 and
+                path.byteAt(segmentStart) == 46 and
+                path.byteAt(segmentStart + 1) == 46 {
+
+                return false
+            }
+            segmentStart = index + 1
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun compatibilityWriteChecked(path: String,
+    inputs: CompatibilityReleaseInputs, context: OperationContext)
+    r: CompatibilityStringOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return compatibilityStringFailure(compatibilityRuntimeError(
+            "cancelled", "write", "manifest output cancelled"))
+    }
+    if context.limits.maxPathBytes < 1 or
+        context.limits.maxPathBytes > COMPATIBILITY_MAX_PATH_BYTES or
+        not compatibilityPathIsSafe(path, context.limits.maxPathBytes) {
+
+        return compatibilityStringFailure(compatibilityRuntimePathError(
+            "invalid", "write", "manifest output path is invalid"))
+    }
+    let rendered = compatibilityGenerateBytesChecked(inputs, context)
+    if not rendered.success {
+        return compatibilityStringFailure(rendered.errors[0])
+    }
+    let bytes = rendered.values[0]
+    if not writeTextAtomically(path, bytes) {
+        return compatibilityStringFailure(compatibilityRuntimePathError(
+            "io", "write", "manifest output could not be committed"))
+    }
+    return compatibilityStringSuccess(bytes)
+}
+
+fun writeCompatibilityManifest(path: String,
+    inputs: CompatibilityReleaseInputs, context: OperationContext)
+    r: Result<String, SeenError> {
+
+    let checked = compatibilityWriteChecked(path, inputs, context)
+    if not checked.success {
+        return Err<String, SeenError>(checked.errors[0])
+    }
+    return Ok<String, SeenError>(checked.values[0])
+}
+
+fun compatibilityReadChecked(path: String,
+    expected: CompatibilityReleaseInputs, context: OperationContext)
+    r: CompatibilityManifestOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "cancelled", "read", "manifest consumption cancelled"))
+    }
+    if context.limits.maxPathBytes < 1 or
+        context.limits.maxPathBytes > COMPATIBILITY_MAX_PATH_BYTES or
+        not compatibilityPathIsSafe(path, context.limits.maxPathBytes) {
+
+        return compatibilityManifestFailure(compatibilityRuntimePathError(
+                "invalid", "read", "manifest input path is invalid"))
+    }
+    let manifestSize = size(path)
+    if manifestSize < 0 {
+        return compatibilityManifestFailure(compatibilityRuntimePathError(
+                "io", "read", "manifest input is unavailable"))
+    }
+    if manifestSize > context.limits.maxManifestBytes {
+        return compatibilityManifestFailure(compatibilityRuntimeError(
+            "limit", "read", "manifest byte limit exceeded"))
+    }
+    let read = readTextChecked(path)
+    if not read.success {
+        return compatibilityManifestFailure(compatibilityRuntimePathError(
+                "io", "read", "manifest input could not be read"))
+    }
+    if read.content.length() != manifestSize {
+        return compatibilityManifestFailure(compatibilityRuntimePathError(
+                "io", "read", "manifest input changed while reading"))
+    }
+    return compatibilityConsumeChecked(read.content, expected, context)
+}
+
+fun readAndConsumeCompatibilityManifest(path: String,
+    expected: CompatibilityReleaseInputs, context: OperationContext)
+    r: Result<CompatibilityManifest, SeenError> {
+
+    let checked = compatibilityReadChecked(path, expected, context)
+    if not checked.success {
+        return Err<CompatibilityManifest, SeenError>(checked.errors[0])
+    }
+    return Ok<CompatibilityManifest, SeenError>(checked.values[0])
+}
+
+fun readCompatibilityRuntimeSelection(path: String,
+    expected: CompatibilityReleaseInputs, context: OperationContext)
+    r: CompatibilityRuntimeSelection {
+
+    let consumed = compatibilityReadChecked(path, expected, context)
+    if not consumed.success {
+        let error = consumed.errors[0]
+        return CompatibilityRuntimeSelection{
+            success: false,
+            packageClientVersion: "",
+            packageClientProtocol: "",
+            errorCode: error.code.value,
+            errorMessage: error.message
+        }
+    }
+    let manifest = consumed.values[0]
+    return CompatibilityRuntimeSelection{
+        success: true,
+        packageClientVersion: manifest.components.packageClientVersion,
+        packageClientProtocol: manifest.components.packageClientProtocol,
+        errorCode: "",
+        errorMessage: ""
+    }
 }

@@ -792,7 +792,14 @@ bool __FileExists(SeenString path) {
 bool __DeleteFile(SeenString path) {
     char* cpath = seen_runtime_cstring(path, "__DeleteFile path");
 
-    int result = remove(cpath);
+    // Do not call C remove(3) here. Seen modules export unqualified function
+    // names, and env.remove can therefore interpose the libc symbol at link
+    // time with an incompatible SeenString ABI.
+#ifdef _WIN32
+    int result = _unlink(cpath);
+#else
+    int result = unlink(cpath);
+#endif
     free(cpath);
     return result == 0;
 }

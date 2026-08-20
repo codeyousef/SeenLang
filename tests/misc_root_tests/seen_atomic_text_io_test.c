@@ -19,6 +19,19 @@ enum {
     TEST_CONTENT_CAPACITY = 8192
 };
 
+extern bool __DeleteFile(SeenString path);
+
+static int hostile_remove_calls = 0;
+
+// Model an unqualified Seen function named `remove`. __DeleteFile must not
+// resolve through this symbol instead of the platform file-deletion API.
+int remove(const char* path) {
+    (void)path;
+    hostile_remove_calls++;
+    errno = EPERM;
+    return -1;
+}
+
 static void fail(const char* message) {
     fprintf(stderr, "atomic text I/O test failed: %s\n", message);
     exit(1);
@@ -172,6 +185,17 @@ int main(int argc, char** argv) {
     const char* directory = argv[1];
     char destination[TEST_PATH_CAPACITY];
     join_path(destination, sizeof(destination), directory, "destination.txt");
+
+    char deletion_target[TEST_PATH_CAPACITY];
+    join_path(deletion_target, sizeof(deletion_target), directory,
+        "delete-symbol-isolation.txt");
+    setup_file(deletion_target, "delete-me");
+    require_true(__DeleteFile(seen_string(deletion_target)),
+        "file deletion resolved through a hostile remove symbol");
+    require_true(access(deletion_target, F_OK) != 0,
+        "file deletion left its target behind");
+    require_true(hostile_remove_calls == 0,
+        "file deletion called the interposed remove symbol");
 
     require_true(seen_write_text_atomic(seen_string(destination),
             seen_string("created")), "initial atomic create failed");

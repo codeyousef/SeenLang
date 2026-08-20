@@ -1,10 +1,63 @@
-/// Compiling external-package example for the compatibility-manifest contract.
+/// External package example: generate and consume the release compatibility
+/// record using the native Seen API.
+
+import seen_compiler.release.compatibility.{AsciiString, OperationLimits,
+    OperationContext, CompatibilityCompiler, CompatibilityComponents,
+    CompatibilityTarget, CompatibilityPlatforms, CompatibilityReleaseInputs,
+    generateCompatibilityManifestBytes, consumeCompatibilityManifest}
 
 fun main() r: Int {
-    let expectedSchema = "seen-compatibility-manifest-v1"
-    let requiredTarget = "linux-x86_64"
-    if expectedSchema.length() == 0 or requiredTarget.length() == 0 {
-        return 1
+    let targets = Array<CompatibilityTarget>()
+    targets.push(CompatibilityTarget{
+        name: "linux-x86_64",
+        triple: "x86_64-unknown-linux-gnu",
+        support: "required"
+    })
+    let inputs = CompatibilityReleaseInputs{
+        releaseVersion: "0.10.1",
+        components: CompatibilityComponents{
+            compiler: CompatibilityCompiler{
+                version: "0.10.1",
+                layoutAbi: "seen-layout-abi-v2",
+                objectCacheAbi: "seen-object-cache-abi-v2",
+                prebuiltPackageSchema: "seen-prebuilt-package-v2",
+                packageInterfaceSchema: "seen-package-interface-v2",
+                packageObjectManifestSchema:
+                    "seen-package-object-manifest-v2"
+            },
+            runtimeAbi: "runtime-v2",
+            standardLibraryVersion: "0.2.0",
+            standardLibraryModuleManifestVersion: 1,
+            packageClientVersion: "0.10.1",
+            packageClientProtocol: "SEENPKG1",
+            llvmMinimumMajor: 18
+        },
+        platforms: CompatibilityPlatforms{
+            linuxArm64: "declared-toolchain-dependent",
+            linuxX8664: "required",
+            macos: "declared-toolchain-dependent",
+            windows: "declared-toolchain-dependent"
+        },
+        targets: targets
+    }
+    let context = OperationContext{
+        cancellation: false,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: 4096
+        },
+        traceId: AsciiString{ value: "external-package-example" }
+    }
+    let generated = generateCompatibilityManifestBytes(inputs, context)
+    if generated.isErr() { return 1 }
+    let consumed = consumeCompatibilityManifest(
+        generated.unwrap(), inputs, context)
+    if consumed.isErr() or consumed.unwrap().releaseVersion != "0.10.1" {
+        return 2
     }
     return 0
 }
