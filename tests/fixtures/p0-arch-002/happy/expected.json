@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "scan_roots": [
+    "compiler_seen/src",
+    "seen_std/src"
+  ],
+  "foreign_symbols": [
+    {
+      "name": "host_clock",
+      "abi": "Seen",
+      "sources": [
+        "compiler_seen/src/main_compiler.seen",
+        "seen_std/src/io.seen"
+      ]
+    },
+    {
+      "name": "host_write",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io.seen"
+      ]
+    }
+  ],
+  "backends": [
+    {
+      "name": "llvm",
+      "status": "shipped",
+      "sources": [
+        "compiler_seen/src/codegen/interfaces.seen"
+      ]
+    },
+    {
+      "name": "wasm",
+      "status": "source-only",
+      "sources": [
+        "compiler_seen/src/codegen/interfaces.seen"
+      ]
+    }
+  ]
+}

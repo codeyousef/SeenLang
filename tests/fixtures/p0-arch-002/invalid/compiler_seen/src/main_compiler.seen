@@ -1,0 +1,2 @@
+extern fun 9invalid() r: Int
+println("Supported backend: llvm")

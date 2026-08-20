@@ -1,0 +1,2 @@
+extern "C" fun host_write(fd: Int) r: Int
+extern fun host_clock() r: Int

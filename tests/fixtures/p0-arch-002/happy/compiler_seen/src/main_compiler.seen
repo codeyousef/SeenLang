@@ -1,0 +1,2 @@
+extern fun host_clock() r: Int
+println("Supported backend: llvm")

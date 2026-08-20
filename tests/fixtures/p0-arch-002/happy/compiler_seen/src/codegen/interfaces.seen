@@ -1,0 +1,8 @@
+class Backend {
+}
+
+class LLVMBackend extends Backend {
+}
+
+class WASMBackend extends Backend {
+}
