@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/compatibility-manifest.schema.json",
+  "title": "Seen release compatibility manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["components", "platforms", "release_version", "schema", "schema_version", "targets"],
+  "properties": {
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compiler", "llvm", "package_client", "runtime", "standard_library"],
+      "properties": {
+        "compiler": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["layout_abi", "object_cache_abi", "package_interface_schema", "package_object_manifest_schema", "prebuilt_package_schema", "version"],
+          "properties": {
+            "layout_abi": {"$ref": "#/$defs/identity"},
+            "object_cache_abi": {"$ref": "#/$defs/identity"},
+            "package_interface_schema": {"$ref": "#/$defs/identity"},
+            "package_object_manifest_schema": {"$ref": "#/$defs/identity"},
+            "prebuilt_package_schema": {"$ref": "#/$defs/identity"},
+            "version": {"$ref": "#/$defs/semver"}
+          }
+        },
+        "llvm": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum_major"],
+          "properties": {"minimum_major": {"type": "integer", "minimum": 18, "maximum": 255}}
+        },
+        "package_client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["protocol", "version"],
+          "properties": {
+            "protocol": {"$ref": "#/$defs/identity"},
+            "version": {"$ref": "#/$defs/semver"}
+          }
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["abi"],
+          "properties": {"abi": {"$ref": "#/$defs/identity"}}
+        },
+        "standard_library": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["module_manifest_version", "version"],
+          "properties": {
+            "module_manifest_version": {"type": "integer", "minimum": 1, "maximum": 255},
+            "version": {"$ref": "#/$defs/semver"}
+          }
+        }
+      }
+    },
+    "platforms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["linux-arm64", "linux-x86_64", "macos", "windows"],
+      "properties": {
+        "linux-arm64": {"const": "declared-toolchain-dependent"},
+        "linux-x86_64": {"const": "required"},
+        "macos": {"const": "declared-toolchain-dependent"},
+        "windows": {"const": "declared-toolchain-dependent"}
+      }
+    },
+    "release_version": {"$ref": "#/$defs/semver"},
+    "schema": {"const": "seen-compatibility-manifest-v1"},
+    "schema_version": {"const": 1},
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "support", "triple"],
+        "properties": {
+          "name": {"enum": ["android-arm64", "ios-arm64", "ios-sim-arm64", "linux-arm64", "linux-riscv64", "linux-x86_64", "macos-arm64", "macos-x86_64", "windows-x86_64"]},
+          "support": {"enum": ["required", "declared-toolchain-dependent"]},
+          "triple": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._+-]+$"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "identity": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._+-]+$"},
+    "semver": {"type": "string", "minLength": 5, "maxLength": 64, "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"}
+  }
+}

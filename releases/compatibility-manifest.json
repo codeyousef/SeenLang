@@ -1,0 +1,46 @@
+{
+  "components": {
+    "compiler": {
+      "layout_abi": "seen-layout-abi-v2",
+      "object_cache_abi": "seen-object-cache-abi-v2",
+      "package_interface_schema": "seen-package-interface-v2",
+      "package_object_manifest_schema": "seen-package-object-manifest-v2",
+      "prebuilt_package_schema": "seen-prebuilt-package-v2",
+      "version": "0.10.1"
+    },
+    "llvm": {
+      "minimum_major": 18
+    },
+    "package_client": {
+      "protocol": "SEENPKG1",
+      "version": "0.10.1"
+    },
+    "runtime": {
+      "abi": "runtime-v2"
+    },
+    "standard_library": {
+      "module_manifest_version": 1,
+      "version": "0.2.0"
+    }
+  },
+  "platforms": {
+    "linux-arm64": "declared-toolchain-dependent",
+    "linux-x86_64": "required",
+    "macos": "declared-toolchain-dependent",
+    "windows": "declared-toolchain-dependent"
+  },
+  "release_version": "0.10.1",
+  "schema": "seen-compatibility-manifest-v1",
+  "schema_version": 1,
+  "targets": [
+    {"name": "android-arm64", "support": "declared-toolchain-dependent", "triple": "aarch64-linux-android"},
+    {"name": "ios-arm64", "support": "declared-toolchain-dependent", "triple": "arm64-apple-ios"},
+    {"name": "ios-sim-arm64", "support": "declared-toolchain-dependent", "triple": "arm64-apple-ios-simulator"},
+    {"name": "linux-arm64", "support": "declared-toolchain-dependent", "triple": "aarch64-unknown-linux-gnu"},
+    {"name": "linux-riscv64", "support": "declared-toolchain-dependent", "triple": "riscv64-unknown-linux-gnu"},
+    {"name": "linux-x86_64", "support": "required", "triple": "x86_64-unknown-linux-gnu"},
+    {"name": "macos-arm64", "support": "declared-toolchain-dependent", "triple": "arm64-apple-darwin"},
+    {"name": "macos-x86_64", "support": "declared-toolchain-dependent", "triple": "x86_64-apple-darwin"},
+    {"name": "windows-x86_64", "support": "declared-toolchain-dependent", "triple": "x86_64-w64-windows-gnu"}
+  ]
+}

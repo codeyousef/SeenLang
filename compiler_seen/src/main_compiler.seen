@@ -41,6 +41,7 @@ import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
 import typechecker.semantic_registry.{SemanticDeclarationRegistry, semanticNormalizeModuleIdentity}
 import typechecker.lexical_semantic.{LexicalSemanticResult, collectLexicalSemanticModule, checkLexicalSemanticModule}
+import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_runtime_lsp_json.{emitLspJsonRuntimeDecls}
 import codegen.ir_decl_runtime_primitives.{emitPrimitiveRuntimeDecls}
@@ -5428,6 +5429,7 @@ fun isCompilerImportRoot(segment: String) r: Bool {
     if segment == "types" { return true }
     if segment == "testing" { return true }
     if segment == "ffi" { return true }
+    if segment == "release" { return true }
     return false
 }
 
@@ -6241,6 +6243,7 @@ fun appendCompilerInternalSupportModules(paths: Array<String>, processedPaths: A
     modules.push("lexer.language_pack")
     modules.push("lexer.keyword_manager")
     modules.push("lexer.lexer")
+    modules.push("release.compatibility")
     modules.push("trace")
     modules.push("io.file")
     modules.push("process.process")
@@ -7681,6 +7684,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("lexer.language_pack")
         modules.push("lexer.keyword_manager")
         modules.push("lexer.lexer")
+        modules.push("release.compatibility")
         modules.push("trace")
         // lexer.real_lexer removed: 2-line re-export shim, no compiler module imports it
         modules.push("parser.real_parser")

@@ -38,8 +38,10 @@ grep -Fxq '        run: scripts/run_ci_required.sh' "$WORKFLOW" ||
     fail "workflow does not invoke the required gate"
 
 for required_command in \
+    'python3 scripts/check_compatibility_manifest.py' \
     'python3 scripts/check_ci_workflows.py' \
     'python3 scripts/check_ci_containment.py' \
+    'tests/misc_root_tests/seen_compatibility_manifest_contract.sh' \
     'tests/misc_root_tests/seen_native_boundaries_ledger.sh' \
     'tests/misc_root_tests/seen_native_inventory_gate.sh' \
     'tests/misc_root_tests/seen_ci_workflow_contract.sh' \

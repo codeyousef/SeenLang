@@ -167,6 +167,22 @@ workflow byte-for-byte with the reviewed contract. Run
 `tests/misc_root_tests/seen_ci_containment_contract.sh` after any CI-policy
 change.
 
+## Release compatibility contract
+
+Every release has a strict machine-readable compatibility record at
+`releases/compatibility-manifest.json`. It identifies the compiler and package
+client versions, runtime and compiler ABIs, package artifact schemas, standard
+library module-manifest version, minimum LLVM major, and all advertised target
+triples. The JSON contract is defined by
+`schemas/compatibility-manifest.schema.json` and rendered deterministically by
+`scripts/check_compatibility_manifest.py`.
+
+`compiler_seen/src/release/compatibility.seen` owns the native Seen model and
+bounded, side-effect-free validation entry point. It returns typed
+`core.002a.*` errors for invalid, over-limit, cancelled, or unsupported target
+data. Generation and runtime consumption deliberately remain outside this
+schema-definition layer.
+
 ## Incremental and Parallel Compilation
 
 The compiler uses source-level and IR-level caches:

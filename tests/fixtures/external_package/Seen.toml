@@ -1,0 +1,11 @@
+manifest-version = 1
+
+[project]
+name = "compatibility_consumer"
+version = "0.1.0"
+language = "en"
+visibility = "explicit"
+modules = ["src/main.seen"]
+
+[build]
+targets = ["linux-x86_64"]

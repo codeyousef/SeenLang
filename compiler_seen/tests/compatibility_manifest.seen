@@ -1,0 +1,101 @@
+import seen_compiler.release.compatibility.{AsciiString, OperationLimits, OperationContext,
+    CompatibilityCompiler, CompatibilityComponents, CompatibilityTarget,
+    CompatibilityPlatforms, CompatibilityManifest,
+    validateCompatibilityManifest}
+
+fun compatibilityTestManifest() r: CompatibilityManifest {
+    let targets = Array<CompatibilityTarget>()
+    targets.push(CompatibilityTarget{
+        name: "linux-x86_64",
+        triple: "x86_64-unknown-linux-gnu",
+        support: "required"
+    })
+    return CompatibilityManifest{
+        schema: "seen-compatibility-manifest-v1",
+        schemaVersion: 1,
+        releaseVersion: "0.10.1",
+        components: CompatibilityComponents{
+            compiler: CompatibilityCompiler{
+                version: "0.10.1",
+                layoutAbi: "seen-layout-abi-v2",
+                objectCacheAbi: "seen-object-cache-abi-v2",
+                prebuiltPackageSchema: "seen-prebuilt-package-v2",
+                packageInterfaceSchema: "seen-package-interface-v2",
+                packageObjectManifestSchema: "seen-package-object-manifest-v2"
+            },
+            runtimeAbi: "runtime-v2",
+            standardLibraryVersion: "0.2.0",
+            standardLibraryModuleManifestVersion: 1,
+            packageClientVersion: "0.10.1",
+            packageClientProtocol: "SEENPKG1",
+            llvmMinimumMajor: 18
+        },
+        platforms: CompatibilityPlatforms{
+            linuxArm64: "declared-toolchain-dependent",
+            linuxX8664: "required",
+            macos: "declared-toolchain-dependent",
+            windows: "declared-toolchain-dependent"
+        },
+        targets: targets
+    }
+}
+
+fun compatibilityTestContext(cancelled: Bool, maxTargets: Int)
+    r: OperationContext {
+
+    return OperationContext{
+        cancellation: cancelled,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: maxTargets,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64
+        },
+        traceId: AsciiString{ value: "core-002a-test" }
+    }
+}
+
+fun main() r: Int {
+    let happy = validateCompatibilityManifest(
+        compatibilityTestManifest(), compatibilityTestContext(false, 32))
+    if happy.isErr() { return 1 }
+
+    let invalid = compatibilityTestManifest()
+    invalid.schemaVersion = 2
+    let invalidResult = validateCompatibilityManifest(
+        invalid, compatibilityTestContext(false, 32))
+    if not invalidResult.isErr() or
+        invalidResult.unwrapErr().code.value != "core.002a.invalid" {
+
+        return 2
+    }
+
+    let limited = validateCompatibilityManifest(
+        compatibilityTestManifest(), compatibilityTestContext(false, 0))
+    if not limited.isErr() or
+        limited.unwrapErr().code.value != "core.002a.limit" {
+
+        return 3
+    }
+
+    let cancelled = validateCompatibilityManifest(
+        compatibilityTestManifest(), compatibilityTestContext(true, 32))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "core.002a.cancelled" {
+
+        return 4
+    }
+
+    let unsupported = compatibilityTestManifest()
+    unsupported.targets[0].name = "plan9-amd64"
+    let unsupportedResult = validateCompatibilityManifest(
+        unsupported, compatibilityTestContext(false, 32))
+    if not unsupportedResult.isErr() or
+        unsupportedResult.unwrapErr().code.value != "core.002a.platform" {
+
+        return 5
+    }
+    return 0
+}
+
+main()
