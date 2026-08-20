@@ -28,6 +28,8 @@ PACKAGER_LOG="$TEST_ROOT/packager.log"
 PACKAGE_CLIENT_LOG="$TEST_ROOT/package-client.log"
 BUILDER_ARTIFACT_ROOT="$TEST_ROOT/builder artifacts"
 mkdir -p "$SOURCE_DIR" "$FAKE_BIN" "$OUTPUT_DIR" "$BUILDER_ARTIFACT_ROOT"
+cp "$ROOT_DIR/releases/compatibility-manifest.json" \
+    "$SOURCE_DIR/compatibility-manifest.json"
 
 cat > "$SOURCE_DIR/seen" <<'COMPILER_EOF'
 #!/usr/bin/env bash

@@ -177,11 +177,23 @@ triples. The JSON contract is defined by
 `schemas/compatibility-manifest.schema.json` and rendered deterministically by
 `scripts/check_compatibility_manifest.py`.
 
-`compiler_seen/src/release/compatibility.seen` owns the native Seen model and
-bounded, side-effect-free validation entry point. It returns typed
-`core.002a.*` errors for invalid, over-limit, cancelled, or unsupported target
-data. Generation and runtime consumption deliberately remain outside this
-schema-definition layer.
+`compiler_seen/src/release/compatibility.seen` owns both layers of the native
+contract. `validateCompatibilityManifest` retains the bounded, side-effect-free
+`core.002a.*` schema checks. `generateCompatibilityManifest` accepts an
+explicit `CompatibilityReleaseInputs`, and `renderCompatibilityManifest`
+produces one canonical UTF-8 representation. The strict decoder rejects
+unknown and duplicate fields before constructing the typed model;
+`consumeCompatibilityManifest` compares the canonical decoded record with the
+complete runtime expectation. Atomic output validates before writing and uses
+the runtime's transactional replacement primitive, so cancellation and errors
+leave no partial manifest.
+
+Before `seen pkg` launches the version-coupled package client, the compiler
+consumes `releases/compatibility-manifest.json` in a source checkout or the
+same installer-shipped bytes beside the executable. The manifest supplies the
+sidecar version and request protocol only after every compiler, runtime,
+standard-library, ABI, platform, and target value matches. There is no PATH,
+default-value, or partial-manifest fallback.
 
 ## Incremental and Parallel Compilation
 

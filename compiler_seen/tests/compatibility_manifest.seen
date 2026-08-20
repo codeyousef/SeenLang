@@ -1,7 +1,12 @@
-import seen_compiler.release.compatibility.{AsciiString, OperationLimits, OperationContext,
+import seen_compiler.release.compatibility.{AsciiString, RetryClass,
+    RedactionClass, OperationLimits, OperationContext,
     CompatibilityCompiler, CompatibilityComponents, CompatibilityTarget,
     CompatibilityPlatforms, CompatibilityManifest,
-    validateCompatibilityManifest}
+    validateCompatibilityManifest, compatibilityInputsFromManifest,
+    generateCompatibilityManifestBytes, parseCompatibilityManifest,
+    consumeCompatibilityManifest, writeCompatibilityManifest,
+    readAndConsumeCompatibilityManifest}
+import io.file.{exists, deleteFile}
 
 fun compatibilityTestManifest() r: CompatibilityManifest {
     let targets = Array<CompatibilityTarget>()
@@ -49,7 +54,9 @@ fun compatibilityTestContext(cancelled: Bool, maxTargets: Int)
         limits: OperationLimits{
             maxTargets: maxTargets,
             maxIdentityBytes: 128,
-            maxVersionBytes: 64
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: 4096
         },
         traceId: AsciiString{ value: "core-002a-test" }
     }
@@ -95,6 +102,111 @@ fun main() r: Int {
 
         return 5
     }
+
+    let inputs = compatibilityInputsFromManifest(compatibilityTestManifest())
+    let generated = generateCompatibilityManifestBytes(
+        inputs, compatibilityTestContext(false, 32))
+    if generated.isErr() { return 6 }
+    let generatedAgain = generateCompatibilityManifestBytes(
+        inputs, compatibilityTestContext(false, 32))
+    if generatedAgain.isErr() or generated.unwrap() != generatedAgain.unwrap() {
+        return 7
+    }
+    let parsed = parseCompatibilityManifest(
+        generated.unwrap(), compatibilityTestContext(false, 32))
+    if parsed.isErr() or parsed.unwrap().releaseVersion != "0.10.1" {
+        return 8
+    }
+    let consumed = consumeCompatibilityManifest(
+        generated.unwrap(), inputs, compatibilityTestContext(false, 32))
+    if consumed.isErr() { return 9 }
+    let noncanonical = consumeCompatibilityManifest(
+        " " + generated.unwrap(), inputs,
+        compatibilityTestContext(false, 32))
+    if not noncanonical.isErr() or
+        noncanonical.unwrapErr().code.value != "core.002b.invalid" {
+
+        return 19
+    }
+    println("PASS: CORE-002B_happy")
+
+    let mismatchedManifest = compatibilityTestManifest()
+    mismatchedManifest.components.runtimeAbi = "runtime-v3"
+    let mismatchedInputs = compatibilityInputsFromManifest(mismatchedManifest)
+    let mismatch = consumeCompatibilityManifest(
+        generated.unwrap(), mismatchedInputs,
+        compatibilityTestContext(false, 32))
+    if not mismatch.isErr() or
+        mismatch.unwrapErr().code.value != "core.002b.mismatch" {
+
+        return 10
+    }
+
+    let malformed = parseCompatibilityManifest(
+        "{\"schema\":\"seen-compatibility-manifest-v1\"}",
+        compatibilityTestContext(false, 32))
+    if not malformed.isErr() or
+        malformed.unwrapErr().code.value != "core.002b.invalid" {
+
+        return 11
+    }
+    println("PASS: CORE-002B_invalid")
+
+    let limitedContext = compatibilityTestContext(false, 32)
+    limitedContext.limits.maxManifestBytes = 1
+    let tooLarge = parseCompatibilityManifest(generated.unwrap(), limitedContext)
+    if not tooLarge.isErr() or
+        tooLarge.unwrapErr().code.value != "core.002b.limit" {
+
+        return 12
+    }
+    println("PASS: CORE-002B_limit")
+
+    let cancelledRuntime = parseCompatibilityManifest(
+        generated.unwrap(), compatibilityTestContext(true, 32))
+    if not cancelledRuntime.isErr() or
+        cancelledRuntime.unwrapErr().code.value != "core.002b.cancelled" {
+
+        return 13
+    }
+    println("PASS: CORE-002B_cancel")
+
+    let outputPath = "/tmp/seen-core-002b-compatibility-manifest.json"
+    let _ = deleteFile(outputPath)
+    let written = writeCompatibilityManifest(
+        outputPath, inputs, compatibilityTestContext(false, 32))
+    if written.isErr() or not exists(outputPath) { return 14 }
+    let loaded = readAndConsumeCompatibilityManifest(
+        outputPath, inputs, compatibilityTestContext(false, 32))
+    if loaded.isErr() { return 15 }
+    if not deleteFile(outputPath) or exists(outputPath) { return 16 }
+
+    let missingInput = readAndConsumeCompatibilityManifest(
+        outputPath, inputs, compatibilityTestContext(false, 32))
+    if not missingInput.isErr() or
+        missingInput.unwrapErr().code.value != "core.002b.io" or
+        missingInput.unwrapErr().retry != RetryClass.Transient or
+        missingInput.unwrapErr().redaction != RedactionClass.Sensitive {
+
+        return 20
+    }
+
+    let cancelledWrite = writeCompatibilityManifest(
+        outputPath, inputs, compatibilityTestContext(true, 32))
+    if not cancelledWrite.isErr() or exists(outputPath) or
+        cancelledWrite.unwrapErr().code.value != "core.002b.cancelled" {
+
+        return 17
+    }
+    let unsafeWrite = writeCompatibilityManifest(
+        "/tmp/../seen-core-002b-invalid.json", inputs,
+        compatibilityTestContext(false, 32))
+    if not unsafeWrite.isErr() or
+        unsafeWrite.unwrapErr().code.value != "core.002b.invalid" {
+
+        return 18
+    }
+    println("PASS: CORE-002B_cleanup")
     return 0
 }
 

@@ -6,6 +6,8 @@ VERSION=""
 STAGE3_BIN=""
 OUTPUT_DIR="$ROOT_DIR/artifacts/installers"
 TARGETS=(linux)
+COMPATIBILITY_MANIFEST="$ROOT_DIR/releases/compatibility-manifest.json"
+COMPATIBILITY_CHECKER="$ROOT_DIR/scripts/check_compatibility_manifest.py"
 
 usage() {
   cat <<'USAGE'
@@ -72,6 +74,18 @@ if [[ ! -x "$STAGE3_BIN" ]]; then
   exit 1
 fi
 
+if ! python3 "$COMPATIBILITY_CHECKER" "$COMPATIBILITY_MANIFEST" >/dev/null; then
+  echo "Release compatibility manifest is invalid" >&2
+  exit 1
+fi
+COMPATIBILITY_VERSION=$(python3 -c \
+  'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["release_version"])' \
+  "$COMPATIBILITY_MANIFEST")
+if [[ "$COMPATIBILITY_VERSION" != "$VERSION" ]]; then
+  echo "Release compatibility manifest version $COMPATIBILITY_VERSION does not match installer version $VERSION" >&2
+  exit 1
+fi
+
 mkdir -p "$OUTPUT_DIR"
 
 if [[ ${#SELECTED[@]} -gt 0 ]]; then
@@ -83,6 +97,7 @@ stage_linux() {
   rm -rf "$staging"
   mkdir -p "$staging"
   cp "$STAGE3_BIN" "$staging/seen"
+  cp "$COMPATIBILITY_MANIFEST" "$staging/compatibility-manifest.json"
   chmod +x "$staging/seen"
   "$ROOT_DIR/scripts/build_package_client.sh" \
     --version "$VERSION" \

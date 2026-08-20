@@ -41,7 +41,10 @@ import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
 import typechecker.semantic_registry.{SemanticDeclarationRegistry, semanticNormalizeModuleIdentity}
 import typechecker.lexical_semantic.{LexicalSemanticResult, collectLexicalSemanticModule, checkLexicalSemanticModule}
-import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest}
+import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest,
+    AsciiString, OperationLimits, OperationContext, CompatibilityCompiler,
+    CompatibilityComponents, CompatibilityTarget, CompatibilityPlatforms,
+    CompatibilityReleaseInputs, readCompatibilityRuntimeSelection}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_runtime_lsp_json.{emitLspJsonRuntimeDecls}
 import codegen.ir_decl_runtime_primitives.{emitPrimitiveRuntimeDecls}
@@ -1399,6 +1402,110 @@ fun packageClientExpectedVersion() r: String {
     return "0.10.1"
 }
 
+fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
+    let targets = Array<CompatibilityTarget>()
+    targets.push(CompatibilityTarget{
+        name: "android-arm64",
+        triple: "aarch64-linux-android",
+        support: "declared-toolchain-dependent"
+    })
+    targets.push(CompatibilityTarget{
+        name: "ios-arm64",
+        triple: "arm64-apple-ios",
+        support: "declared-toolchain-dependent"
+    })
+    targets.push(CompatibilityTarget{
+        name: "ios-sim-arm64",
+        triple: "arm64-apple-ios-simulator",
+        support: "declared-toolchain-dependent"
+    })
+    targets.push(CompatibilityTarget{
+        name: "linux-arm64",
+        triple: "aarch64-unknown-linux-gnu",
+        support: "declared-toolchain-dependent"
+    })
+    targets.push(CompatibilityTarget{
+        name: "linux-riscv64",
+        triple: "riscv64-unknown-linux-gnu",
+        support: "declared-toolchain-dependent"
+    })
+    targets.push(CompatibilityTarget{
+        name: "linux-x86_64",
+        triple: "x86_64-unknown-linux-gnu",
+        support: "required"
+    })
+    targets.push(CompatibilityTarget{
+        name: "macos-arm64",
+        triple: "arm64-apple-darwin",
+        support: "declared-toolchain-dependent"
+    })
+    targets.push(CompatibilityTarget{
+        name: "macos-x86_64",
+        triple: "x86_64-apple-darwin",
+        support: "declared-toolchain-dependent"
+    })
+    targets.push(CompatibilityTarget{
+        name: "windows-x86_64",
+        triple: "x86_64-w64-windows-gnu",
+        support: "declared-toolchain-dependent"
+    })
+    return CompatibilityReleaseInputs{
+        releaseVersion: seenCompilerVersion(),
+        components: CompatibilityComponents{
+            compiler: CompatibilityCompiler{
+                version: seenCompilerVersion(),
+                layoutAbi: compilerLayoutAbiIdentity(),
+                objectCacheAbi: compilerObjectCacheAbiIdentity(),
+                prebuiltPackageSchema: prebuiltPackageSchemaIdentity(),
+                packageInterfaceSchema:
+                    prebuiltPackageInterfaceSchemaIdentity(),
+                packageObjectManifestSchema:
+                    prebuiltPackageObjectManifestSchemaIdentity()
+            },
+            runtimeAbi: "runtime-v2",
+            standardLibraryVersion: "0.2.0",
+            standardLibraryModuleManifestVersion: 1,
+            packageClientVersion: packageClientExpectedVersion(),
+            packageClientProtocol: "SEENPKG1",
+            llvmMinimumMajor: 18
+        },
+        platforms: CompatibilityPlatforms{
+            linuxArm64: "declared-toolchain-dependent",
+            linuxX8664: "required",
+            macos: "declared-toolchain-dependent",
+            windows: "declared-toolchain-dependent"
+        },
+        targets: targets
+    }
+}
+
+fun packageCompatibilityContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: 4096
+        },
+        traceId: AsciiString{ value: "package-client-runtime" }
+    }
+}
+
+fun packageCompatibilityManifestPath() r: String {
+    let compilerRoot = getCompilerRoot()
+    if compilerRoot != "" {
+        return compilerRoot + "/releases/compatibility-manifest.json"
+    }
+    let executable = currentCompilerExecutablePathForCache()
+    if executable == "" { return "" }
+    let executableDirectory = getSourceDir(executable)
+    if executableDirectory == "" { return "" }
+    return executableDirectory + "/compatibility-manifest.json"
+}
+
 fun packageClientHelperPath() r: String {
     let overridePath = getOrDefault("SEEN_PACKAGE_CLIENT", "")
     if overridePath != "" and exists(overridePath) {
@@ -1422,8 +1529,10 @@ fun packageClientHelperPath() r: String {
     return ""
 }
 
-fun packageClientRequestContent(requestArgs: Array<String>) r: String {
-    var content = "SEENPKG1\n" + requestArgs.length().toString() + "\n"
+fun packageClientRequestContent(protocol: String,
+    requestArgs: Array<String>) r: String {
+
+    var content = protocol + "\n" + requestArgs.length().toString() + "\n"
     var idx = 0
     while idx < requestArgs.length() {
         let arg = requestArgs[idx]
@@ -1436,9 +1545,19 @@ fun packageClientRequestContent(requestArgs: Array<String>) r: String {
 fun invokePackageClient(rawArgs: Array<String>) r: Int {
     let helperPath = packageClientHelperPath()
 
+    let compatibility = readCompatibilityRuntimeSelection(
+        packageCompatibilityManifestPath(),
+        packageCompatibilityExpectedInputs(), packageCompatibilityContext())
+    if not compatibility.success {
+        println("Error: [" + compatibility.errorCode +
+            "] release compatibility check failed: " +
+            compatibility.errorMessage)
+        return 78
+    }
+
     let requestArgs = Array<String>()
     requestArgs.push("--expect-version")
-    requestArgs.push(packageClientExpectedVersion())
+    requestArgs.push(compatibility.packageClientVersion)
     var argIdx = 0
     while argIdx < rawArgs.length() {
         requestArgs.push(rawArgs[argIdx])
@@ -1446,9 +1565,11 @@ fun invokePackageClient(rawArgs: Array<String>) r: Int {
     }
 
     let status = runProgramRequest(helperPath,
-        packageClientRequestContent(requestArgs))
+        packageClientRequestContent(
+            compatibility.packageClientProtocol, requestArgs))
     if status == 127 {
-        println("Error: the Seen " + packageClientExpectedVersion() +
+        println("Error: the Seen " +
+            compatibility.packageClientVersion +
             " package client is missing; reinstall the complete Seen release")
     }
     return status
@@ -6243,6 +6364,11 @@ fun appendCompilerInternalSupportModules(paths: Array<String>, processedPaths: A
     modules.push("lexer.language_pack")
     modules.push("lexer.keyword_manager")
     modules.push("lexer.lexer")
+    // Internal support modules are appended after recursive import discovery.
+    // Keep the compatibility module's concrete JSON dependencies explicit so
+    // compiler-source test graphs receive their declarations as well.
+    modules.push("json.value")
+    modules.push("json.parser")
     modules.push("release.compatibility")
     modules.push("trace")
     modules.push("io.file")

@@ -2281,7 +2281,8 @@ smoke_test_compiler() {
     local check_log="/tmp/safe_rebuild_${stage_slug}_hello_check.log"
     local compile_log="/tmp/safe_rebuild_${stage_slug}_hello_compile.log"
     local run_log="/tmp/safe_rebuild_${stage_slug}_hello_run.log"
-    local compiler_env=(-u SEEN_PACKAGE_CLIENT)
+    local compiler_env=(-u SEEN_PACKAGE_CLIENT
+        "SEEN_COMPILER_SOURCE_ROOT=$REPO_ROOT")
     local check_cmd=("$compiler_path" check "$smoke_source")
     local compile_cmd=("$compiler_path" compile "$smoke_source" "$smoke_bin" --fast --no-cache)
     local smoke_flags="--fast --no-cache"
@@ -2580,6 +2581,7 @@ run_stage1_acceptance_checks() {
         "$MAIN_COMPILER_VMEM_KB" "$acceptance_log" \
         env \
             SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_COMPILER_SOURCE_ROOT="$REPO_ROOT" \
             SEEN_LOW_MEMORY=1 \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
@@ -2610,6 +2612,7 @@ run_tier_targeted_checks() {
             /tmp/safe_rebuild_verify_dead_code.log \
             env -u SEEN_FORK_SERIALIZER_ROOT_PID \
             SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_COMPILER_SOURCE_ROOT="$REPO_ROOT" \
             LD_PRELOAD="$FORK_SERIALIZER_SO" \
             SEEN_FORK_SERIALIZER_TARGET="$compiler_path" \
             "$compiler_path" check "$REPO_ROOT/compiler_seen/tests/dead_code_warnings.seen"; then

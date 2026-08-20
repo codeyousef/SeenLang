@@ -23,6 +23,7 @@ fi
 
 python3 -m py_compile \
     scripts/benchmark_compatibility_manifest.py \
+    scripts/benchmark_compatibility_runtime.py \
     scripts/check_compatibility_manifest.py \
     tests/misc_root_tests/seen_compatibility_manifest_unit.py \
     scripts/check_native_boundaries.py \
@@ -35,6 +36,10 @@ python3 scripts/check_ci_containment.py \
 python3 scripts/check_compatibility_manifest.py \
     releases/compatibility-manifest.json >/dev/null
 tests/misc_root_tests/seen_compatibility_manifest_contract.sh
+tests/misc_root_tests/seen_compatibility_manifest_runtime.sh
+python3 scripts/benchmark_compatibility_runtime.py \
+    releases/compatibility-manifest.json \
+    tests/fixtures/core-002b/happy/benchmark.json
 tests/misc_root_tests/seen_native_boundaries_ledger.sh
 tests/misc_root_tests/seen_native_inventory_gate.sh
 tests/misc_root_tests/seen_ci_workflow_contract.sh

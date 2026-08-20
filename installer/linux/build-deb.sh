@@ -187,6 +187,7 @@ validate_sources() {
     local required_files=(
         "$SOURCE_DIR/seen"
         "$SOURCE_DIR/seen-pkg"
+        "$SOURCE_DIR/compatibility-manifest.json"
         "$PROJECT_ROOT/seen_std"
         "$PROJECT_ROOT/languages"
     )
@@ -424,6 +425,8 @@ install_package_files() {
     chmod 755 "$package_dir/usr/bin/seen"
     cp "$SOURCE_DIR/seen-pkg" "$package_dir/usr/bin/"
     chmod 755 "$package_dir/usr/bin/seen-pkg"
+    cp "$SOURCE_DIR/compatibility-manifest.json" "$package_dir/usr/bin/"
+    chmod 644 "$package_dir/usr/bin/compatibility-manifest.json"
     
     if [ -f "$SOURCE_DIR/seen-lsp" ]; then
         cp "$SOURCE_DIR/seen-lsp" "$package_dir/usr/bin/"
