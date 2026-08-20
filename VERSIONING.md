@@ -55,7 +55,30 @@ Examples:
 
 ## Release process
 
-1. Update `CHANGELOG.md` with the new version entry
-2. Tag the commit: `git tag v0.X.Y`
-3. Run `./scripts/safe_rebuild.sh` to verify bootstrap
-4. Run `bash tests/e2e_multilang/run_all_e2e.sh` to verify 66/66 tests pass
+1. Update `CHANGELOG.md` with the new version entry.
+2. Update `releases/compatibility-manifest.json` with the exact compiler,
+   runtime, standard-library, package-client, LLVM, ABI, and target identities.
+3. Validate it with
+   `python3 scripts/check_compatibility_manifest.py releases/compatibility-manifest.json`.
+4. Tag the commit: `git tag v0.X.Y`.
+5. Run `./scripts/safe_rebuild.sh` to verify bootstrap.
+6. Run `bash tests/e2e_multilang/run_all_e2e.sh` to verify 66/66 tests pass.
+
+## Compatibility manifest
+
+`releases/compatibility-manifest.json` is the machine-readable release
+compatibility contract. Its strict JSON shape is versioned by
+`schemas/compatibility-manifest.schema.json`; unknown fields, unordered or
+duplicate targets, unsupported targets, mismatched compiler/package-client
+versions, and inputs above the byte limit fail closed. Linux x86-64 is the
+required Gate 0 target. Linux ARM64, macOS, and Windows remain declared as
+toolchain-dependent rather than being presented as locally verified.
+
+The native model and bounded validation API live in
+`compiler_seen/src/release/compatibility.seen`. Runtime JSON decoding and
+deterministic manifest generation are separate release-tooling work; consumers
+must not repair or infer omitted compatibility values.
+
+The schema validator's pinned microbenchmark uses five warmups and thirty
+samples with a hard five-percent regression ceiling:
+`python3 scripts/benchmark_compatibility_manifest.py releases/compatibility-manifest.json tests/fixtures/core-002a/happy/benchmark.json`.

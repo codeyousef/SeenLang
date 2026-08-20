@@ -421,6 +421,8 @@ fi
 SEEN_EXPECTED_VERSION="$EXPECTED_VERSION" \
     "$REPO_ROOT/tests/misc_root_tests/seen_cli_surface.sh"
 run_fixture type-ref "$REPO_ROOT/compiler_seen/tests/type_ref.seen"
+run_fixture compatibility-manifest \
+    "$REPO_ROOT/compiler_seen/tests/compatibility_manifest.seen"
 run_fixture lexical-semantic \
     "$REPO_ROOT/compiler_seen/tests/lexical_semantic.seen"
 run_fixture declaration-frontend-smoke \

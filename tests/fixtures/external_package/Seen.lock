@@ -1,0 +1,7 @@
+version = 2
+manifest_sha256 = "877176c0fbcb4a482a34a1fe7854a9670358fe1981df58a8163c6054e4c319ca"
+
+[root]
+name = "compatibility_consumer"
+version = "0.1.0"
+dependencies = []

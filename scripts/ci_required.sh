@@ -22,6 +22,9 @@ if ! scripts/run_in_hard_memory_scope.sh --verify-only >/dev/null; then
 fi
 
 python3 -m py_compile \
+    scripts/benchmark_compatibility_manifest.py \
+    scripts/check_compatibility_manifest.py \
+    tests/misc_root_tests/seen_compatibility_manifest_unit.py \
     scripts/check_native_boundaries.py \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
@@ -29,6 +32,9 @@ python3 -m py_compile \
 python3 scripts/check_ci_workflows.py >/dev/null
 python3 scripts/check_ci_containment.py \
     docs/architecture/ci-containment.json >/dev/null
+python3 scripts/check_compatibility_manifest.py \
+    releases/compatibility-manifest.json >/dev/null
+tests/misc_root_tests/seen_compatibility_manifest_contract.sh
 tests/misc_root_tests/seen_native_boundaries_ledger.sh
 tests/misc_root_tests/seen_native_inventory_gate.sh
 tests/misc_root_tests/seen_ci_workflow_contract.sh

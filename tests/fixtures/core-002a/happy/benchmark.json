@@ -1,0 +1,8 @@
+{
+  "baseline_median_ns": 13000000,
+  "iterations_per_sample": 1000,
+  "max_regression_percent": 5,
+  "samples": 30,
+  "version": 1,
+  "warmups": 5
+}

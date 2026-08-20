@@ -1,0 +1,10 @@
+/// Compiling external-package example for the compatibility-manifest contract.
+
+fun main() r: Int {
+    let expectedSchema = "seen-compatibility-manifest-v1"
+    let requiredTarget = "linux-x86_64"
+    if expectedSchema.length() == 0 or requiredTarget.length() == 0 {
+        return 1
+    }
+    return 0
+}

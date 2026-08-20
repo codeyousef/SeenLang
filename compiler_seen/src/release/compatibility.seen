@@ -1,0 +1,270 @@
+///
+/// Native release-compatibility model for schema version 1.
+/// JSON decoding and release-manifest generation are owned by CORE-002B. This
+/// module validates an already decoded, bounded model without file or process
+/// side effects.
+///
+
+import core.option.{Option, None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+
+let COMPATIBILITY_SCHEMA_V1: String = "seen-compatibility-manifest-v1"
+let COMPATIBILITY_MAX_ERROR_MESSAGE_BYTES: Int = 4096
+let COMPATIBILITY_MAX_ERROR_CAUSES: Int = 8
+let COMPATIBILITY_MAX_TARGETS: Int = 32
+let COMPATIBILITY_MAX_IDENTITY_BYTES: Int = 128
+let COMPATIBILITY_MAX_VERSION_BYTES: Int = 64
+
+class AsciiString {
+    var value: String
+}
+
+enum RetryClass {
+    Never
+    Transient
+}
+
+enum RedactionClass {
+    Public
+    Sensitive
+}
+
+class SeenError {
+    var code: AsciiString
+    var subsystem: AsciiString
+    var operation: AsciiString
+    var message: String
+    var causes: Vec<SeenError>
+    var nativeCode: Option<Int64>
+    var retry: RetryClass
+    var redaction: RedactionClass
+}
+
+class OperationLimits {
+    var maxTargets: Int
+    var maxIdentityBytes: Int
+    var maxVersionBytes: Int
+}
+
+class OperationContext {
+    var cancellation: Bool
+    var monotonicDeadline: Int64
+    var limits: OperationLimits
+    var traceId: AsciiString
+}
+
+class CompatibilityCompiler {
+    var version: String
+    var layoutAbi: String
+    var objectCacheAbi: String
+    var prebuiltPackageSchema: String
+    var packageInterfaceSchema: String
+    var packageObjectManifestSchema: String
+}
+
+class CompatibilityComponents {
+    var compiler: CompatibilityCompiler
+    var runtimeAbi: String
+    var standardLibraryVersion: String
+    var standardLibraryModuleManifestVersion: Int
+    var packageClientVersion: String
+    var packageClientProtocol: String
+    var llvmMinimumMajor: Int
+}
+
+class CompatibilityTarget {
+    var name: String
+    var triple: String
+    var support: String
+}
+
+class CompatibilityPlatforms {
+    var linuxArm64: String
+    var linuxX8664: String
+    var macos: String
+    var windows: String
+}
+
+class CompatibilityManifest {
+    var schema: String
+    var schemaVersion: Int
+    var releaseVersion: String
+    var components: CompatibilityComponents
+    var platforms: CompatibilityPlatforms
+    var targets: Array<CompatibilityTarget>
+}
+
+fun compatibilityError(code: String, operation: String, message: String)
+    r: SeenError {
+
+    var boundedMessage = message
+    if boundedMessage.length() > COMPATIBILITY_MAX_ERROR_MESSAGE_BYTES {
+        boundedMessage = boundedMessage.substring(
+            0, COMPATIBILITY_MAX_ERROR_MESSAGE_BYTES)
+    }
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "release.compatibility" },
+        operation: AsciiString{ value: operation },
+        message: boundedMessage,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun compatibilityAsciiIdentity(value: String, maximumBytes: Int) r: Bool {
+    if value.length() == 0 or value.length() > maximumBytes {
+        return false
+    }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 33 or byte > 126 {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun compatibilityTargetNameKnown(name: String) r: Bool {
+    return name == "android-arm64" or name == "ios-arm64" or
+        name == "ios-sim-arm64" or name == "linux-arm64" or
+        name == "linux-riscv64" or name == "linux-x86_64" or
+        name == "macos-arm64" or name == "macos-x86_64" or
+        name == "windows-x86_64"
+}
+
+fun compatibilityTargetRank(name: String) r: Int {
+    if name == "android-arm64" { return 0 }
+    if name == "ios-arm64" { return 1 }
+    if name == "ios-sim-arm64" { return 2 }
+    if name == "linux-arm64" { return 3 }
+    if name == "linux-riscv64" { return 4 }
+    if name == "linux-x86_64" { return 5 }
+    if name == "macos-arm64" { return 6 }
+    if name == "macos-x86_64" { return 7 }
+    if name == "windows-x86_64" { return 8 }
+    return -1
+}
+
+fun validateCompatibilityManifest(manifest: CompatibilityManifest,
+    context: OperationContext) r: Result<CompatibilityManifest, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+            "core.002a.cancelled", "validate", "validation cancelled"))
+    }
+    if context.limits.maxTargets < 1 or
+        context.limits.maxTargets > COMPATIBILITY_MAX_TARGETS or
+        context.limits.maxIdentityBytes < 1 or
+        context.limits.maxIdentityBytes > COMPATIBILITY_MAX_IDENTITY_BYTES or
+        context.limits.maxVersionBytes < 1 or
+        context.limits.maxVersionBytes > COMPATIBILITY_MAX_VERSION_BYTES {
+
+        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+            "core.002a.limit", "validate", "operation limits are invalid"))
+    }
+    if manifest.targets.length() < 1 or
+        manifest.targets.length() > context.limits.maxTargets {
+
+        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+            "core.002a.limit", "validate", "target limit exceeded"))
+    }
+    if manifest.schema != COMPATIBILITY_SCHEMA_V1 or
+        manifest.schemaVersion != 1 or
+        not compatibilityAsciiIdentity(
+            manifest.releaseVersion, context.limits.maxVersionBytes) or
+        not compatibilityAsciiIdentity(
+            context.traceId.value, context.limits.maxIdentityBytes) {
+
+        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+            "core.002a.invalid", "validate", "manifest identity is invalid"))
+    }
+    if manifest.components.llvmMinimumMajor < 18 or
+        manifest.components.llvmMinimumMajor > 255 or
+        manifest.components.standardLibraryModuleManifestVersion < 1 or
+        manifest.components.standardLibraryModuleManifestVersion > 255 or
+        not compatibilityAsciiIdentity(manifest.components.compiler.version,
+            context.limits.maxVersionBytes) or
+        manifest.components.compiler.version != manifest.releaseVersion or
+        not compatibilityAsciiIdentity(
+            manifest.components.compiler.layoutAbi,
+            context.limits.maxIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            manifest.components.compiler.objectCacheAbi,
+            context.limits.maxIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            manifest.components.compiler.prebuiltPackageSchema,
+            context.limits.maxIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            manifest.components.compiler.packageInterfaceSchema,
+            context.limits.maxIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            manifest.components.compiler.packageObjectManifestSchema,
+            context.limits.maxIdentityBytes) or
+        not compatibilityAsciiIdentity(manifest.components.runtimeAbi,
+            context.limits.maxIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            manifest.components.standardLibraryVersion,
+            context.limits.maxVersionBytes) or
+        not compatibilityAsciiIdentity(
+            manifest.components.packageClientVersion,
+            context.limits.maxVersionBytes) or
+        manifest.components.packageClientVersion != manifest.releaseVersion or
+        not compatibilityAsciiIdentity(manifest.components.packageClientProtocol,
+            context.limits.maxIdentityBytes) {
+
+        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+            "core.002a.invalid", "validate", "component identity is invalid"))
+    }
+    if manifest.platforms.linuxArm64 != "declared-toolchain-dependent" or
+        manifest.platforms.linuxX8664 != "required" or
+        manifest.platforms.macos != "declared-toolchain-dependent" or
+        manifest.platforms.windows != "declared-toolchain-dependent" {
+
+        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+            "core.002a.platform", "validate",
+            "platform applicability is invalid"))
+    }
+    var index = 0
+    var requiredTargets = 0
+    while index < manifest.targets.length() {
+        let target = manifest.targets[index]
+        if not compatibilityTargetNameKnown(target.name) or
+            not compatibilityAsciiIdentity(
+                target.triple, context.limits.maxIdentityBytes) or
+            (target.support != "required" and
+                target.support != "declared-toolchain-dependent") {
+
+            return Err<CompatibilityManifest, SeenError>(compatibilityError(
+                "core.002a.platform", "validate", "target is unsupported"))
+        }
+        if index > 0 and compatibilityTargetRank(
+            manifest.targets[index - 1].name) >= compatibilityTargetRank(
+                target.name) {
+
+            return Err<CompatibilityManifest, SeenError>(compatibilityError(
+                "core.002a.invalid", "validate",
+                "targets are duplicated or unordered"))
+        }
+        if target.support == "required" {
+            if target.name != "linux-x86_64" {
+                return Err<CompatibilityManifest, SeenError>(compatibilityError(
+                    "core.002a.platform", "validate",
+                    "only linux-x86_64 may be required"))
+            }
+            requiredTargets = requiredTargets + 1
+        }
+        index = index + 1
+    }
+    if requiredTargets != 1 {
+        return Err<CompatibilityManifest, SeenError>(compatibilityError(
+            "core.002a.platform", "validate",
+            "linux-x86_64 must be the single required target"))
+    }
+    return Ok<CompatibilityManifest, SeenError>(manifest)
+}

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a strict release compatibility-manifest schema, canonical 0.10.1
+  component/ABI/target record, native Seen validation model, and deterministic
+  invalid/limit/cancellation/cleanup fixtures.
 - Added the versioned, schema-defined native-boundary ledger and a deterministic fail-closed validator for production ABI symbols.
 - Added a deterministic foreign-symbol/backend source inventory and restored the required CI gate that rejects unreviewed inventory drift.
 - Replaced obsolete disabled workflow fallbacks with one bounded, commit-pinned required CI contract and deterministic validation fixtures.
