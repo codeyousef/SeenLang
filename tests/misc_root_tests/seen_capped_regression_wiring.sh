@@ -104,7 +104,8 @@ for required in \
     verify_fork_serializer.sh rebuild_builder_applicability.sh \
     rebuild_builder_capability.sh prepare_bounded_toolchain.sh \
     'stat -c '\''%d:%i'\'' /tmp' '--verify-only' \
-    'MAX_MAIN_KB=4194304' 'MAX_OPT_KB=2097152' 'MAX_TASKS=24'; do
+    '[ "$SEEN_MAIN_VMEM_KB" -le "$SEEN_MEMORY_GUARD_RSS_KB" ]' \
+    'MAX_OPT_KB=2097152' 'MAX_TASKS=24'; do
 
     grep -Fq -- "$required" "$ENTRY" || fail "entry helper omitted $required"
 done

@@ -21,5 +21,5 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Run required static gates
-        run: scripts/ci_required.sh
+      - name: Run required contained gates
+        run: scripts/run_ci_required.sh

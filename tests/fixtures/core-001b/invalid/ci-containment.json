@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "entrypoints": {
+    "guard": "scripts/memory_guard.sh",
+    "inner_gate": "scripts/ci_required.sh",
+    "outer_gate": "scripts/run_ci_required.sh",
+    "scope": "scripts/run_in_hard_memory_scope.sh"
+  },
+  "memory": {
+    "available_divisor": 2,
+    "memory_high_percent": 99,
+    "swap_max_bytes": 0,
+    "total_divisor": 4
+  },
+  "platforms": {
+    "linux-aarch64": "static-policy",
+    "linux-x86_64": "required",
+    "macos": "unsupported-fail-closed",
+    "windows": "unsupported-fail-closed"
+  },
+  "process": {
+    "allocation_limit": "aggregate-cap",
+    "main_vmem_limit": "aggregate-cap",
+    "optimizer_vmem_max_kib": 2097152,
+    "timeout_seconds": 540
+  },
+  "tasks": {
+    "hard_max": 25,
+    "jobs": 1,
+    "optimizer_jobs": 1
+  }
+}

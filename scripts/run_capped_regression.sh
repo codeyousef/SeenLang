@@ -19,7 +19,6 @@ BUILDER_APPLICABILITY="$SCRIPT_DIR/rebuild_builder_applicability.sh"
 BUILDER_CAPABILITY="$SCRIPT_DIR/rebuild_builder_capability.sh"
 BOUNDED_TOOLCHAIN_PREPARE="$SCRIPT_DIR/prepare_bounded_toolchain.sh"
 ATTESTED_RUNNER="$SCRIPT_DIR/run_attested_seen.sh"
-MAX_MAIN_KB=4194304
 MAX_OPT_KB=2097152
 MAX_TASKS=24
 MODE=run
@@ -122,13 +121,10 @@ validate_caps() {
     is_positive_integer "${SEEN_MEMORY_LIMIT_BYTES:-}" ||
         fail "missing compiler allocation budget"
 
-    [ "$SEEN_MEMORY_GUARD_RSS_KB" -le "$MAX_MAIN_KB" ] ||
-        fail "aggregate memory cap exceeds 4 GiB"
     [ "$SEEN_MEMORY_GUARD_TASKS_MAX" -le "$MAX_TASKS" ] ||
         fail "aggregate task cap exceeds $MAX_TASKS"
-    [ "$SEEN_MAIN_VMEM_KB" -le "$SEEN_MEMORY_GUARD_RSS_KB" ] &&
-        [ "$SEEN_MAIN_VMEM_KB" -le "$MAX_MAIN_KB" ] ||
-        fail "main memory cap exceeds the aggregate or 4 GiB ceiling"
+    [ "$SEEN_MAIN_VMEM_KB" -le "$SEEN_MEMORY_GUARD_RSS_KB" ] ||
+        fail "main memory cap exceeds the aggregate cap"
     [ "$SEEN_OPT_VMEM_KB" -le "$SEEN_MAIN_VMEM_KB" ] &&
         [ "$SEEN_OPT_VMEM_KB" -le "$MAX_OPT_KB" ] ||
         fail "optimizer memory cap exceeds the main or 2 GiB ceiling"

@@ -1671,13 +1671,6 @@ derive_main_compiler_vmem_kb() {
         fi
     fi
 
-    # A rebuild is compiler development, not the only workload on the host.
-    # Four GiB is a hard ceiling for both derived and caller-supplied caps.
-    local max_main_kb=$((4 * 1024 * 1024))
-    if [ "$cap_kb" -gt "$max_main_kb" ]; then
-        cap_kb=$max_main_kb
-    fi
-
     if [ "$cap_kb" -lt 1 ]; then
         cap_kb=1
     fi
@@ -1741,11 +1734,6 @@ derive_memory_guard_rss_kb() {
         if [ "$available_cap_kb" -gt 0 ] && [ "$available_cap_kb" -lt "$cap_kb" ]; then
             cap_kb=$available_cap_kb
         fi
-    fi
-
-    local max_guard_kb=$((4 * 1024 * 1024))
-    if [ "$cap_kb" -gt "$max_guard_kb" ]; then
-        cap_kb=$max_guard_kb
     fi
 
     if [ "$cap_kb" -lt 1 ]; then
@@ -1900,7 +1888,8 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
         exit 1
     fi
     MEMORY_GUARD_RESERVE_KB="${SEEN_GUARD_RESERVE_KB:-$(derive_memory_guard_reserve_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB")}"
-    MEMORY_GUARD_RSS_KB="${SEEN_GUARD_RSS_KB:-$(derive_memory_guard_rss_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB" "$MEMORY_GUARD_RESERVE_KB")}"
+    DERIVED_MEMORY_CAP_KB=$(derive_memory_guard_rss_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB" "$MEMORY_GUARD_RESERVE_KB")
+    MEMORY_GUARD_RSS_KB="${SEEN_GUARD_RSS_KB:-$DERIVED_MEMORY_CAP_KB}"
     MEMORY_GUARD_TASKS_MAX="${SEEN_GUARD_TASKS_MAX:-24}"
     MEMORY_GUARD_CGROUP_STOP_KB="${SEEN_GUARD_CGROUP_STOP_KB:-$MEMORY_GUARD_RSS_KB}"
     if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
@@ -1910,8 +1899,8 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     export SEEN_MEMORY_GUARD_RESERVE_KB="$MEMORY_GUARD_RESERVE_KB"
     export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
     export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
-    if [ "$MEMORY_GUARD_RSS_KB" -gt 4194304 ]; then
-        echo -e "${RED}ERROR: SEEN_GUARD_RSS_KB may not exceed the 4 GiB aggregate hard ceiling (4194304 KiB).${NC}" >&2
+    if [ "$MEMORY_GUARD_RSS_KB" -gt "$DERIVED_MEMORY_CAP_KB" ]; then
+        echo -e "${RED}ERROR: SEEN_GUARD_RSS_KB may not exceed the current-memory-derived cap ($DERIVED_MEMORY_CAP_KB KiB).${NC}" >&2
         exit 1
     fi
     if [ "$MEMORY_GUARD_TASKS_MAX" -gt 24 ]; then
@@ -1961,8 +1950,8 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         echo -e "${RED}ERROR: Low-memory rebuild caps must be positive integer KB values.${NC}"
         exit 1
     fi
-    if [ "$MAIN_COMPILER_VMEM_KB" -gt 4194304 ]; then
-        echo -e "${RED}ERROR: SEEN_MAIN_VMEM_KB may not exceed the 4 GiB hard ceiling (4194304 KiB).${NC}" >&2
+    if [ "$MAIN_COMPILER_VMEM_KB" -gt "$DERIVED_MEMORY_CAP_KB" ]; then
+        echo -e "${RED}ERROR: SEEN_MAIN_VMEM_KB may not exceed the current-memory-derived cap ($DERIVED_MEMORY_CAP_KB KiB).${NC}" >&2
         exit 1
     fi
     if [ "$OPT_VMEM_KB" -gt 2097152 ]; then

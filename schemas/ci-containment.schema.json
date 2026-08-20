@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/ci-containment.schema.json",
+  "title": "Seen required-CI containment contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "entrypoints", "memory", "platforms", "process", "tasks"],
+  "properties": {
+    "version": {"const": 1},
+    "entrypoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["guard", "inner_gate", "outer_gate", "scope"],
+      "properties": {
+        "guard": {"const": "scripts/memory_guard.sh"},
+        "inner_gate": {"const": "scripts/ci_required.sh"},
+        "outer_gate": {"const": "scripts/run_ci_required.sh"},
+        "scope": {"const": "scripts/run_in_hard_memory_scope.sh"}
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available_divisor", "memory_high_percent", "swap_max_bytes", "total_divisor"],
+      "properties": {
+        "available_divisor": {"const": 2},
+        "memory_high_percent": {"const": 99},
+        "swap_max_bytes": {"const": 0},
+        "total_divisor": {"const": 4}
+      }
+    },
+    "platforms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["linux-aarch64", "linux-x86_64", "macos", "windows"],
+      "properties": {
+        "linux-aarch64": {"const": "static-policy"},
+        "linux-x86_64": {"const": "required"},
+        "macos": {"const": "unsupported-fail-closed"},
+        "windows": {"const": "unsupported-fail-closed"}
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allocation_limit", "main_vmem_limit", "optimizer_vmem_max_kib", "timeout_seconds"],
+      "properties": {
+        "allocation_limit": {"const": "aggregate-cap"},
+        "main_vmem_limit": {"const": "aggregate-cap"},
+        "optimizer_vmem_max_kib": {"const": 2097152},
+        "timeout_seconds": {"const": 540}
+      }
+    },
+    "tasks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hard_max", "jobs", "optimizer_jobs"],
+      "properties": {
+        "hard_max": {"const": 24},
+        "jobs": {"const": 1},
+        "optimizer_jobs": {"const": 1}
+      }
+    }
+  }
+}
