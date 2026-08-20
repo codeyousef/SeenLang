@@ -920,9 +920,9 @@ main_kb=$SEEN_MAIN_VMEM_KB
 opt_kb=$SEEN_OPT_VMEM_KB
 memory_limit_bytes=$SEEN_MEMORY_LIMIT_BYTES
 reserve_kb=$SEEN_MEMORY_GUARD_RESERVE_KB
-guard_tasks_max=${SEEN_MEMORY_GUARD_TASKS_MAX:-16}
+guard_tasks_max=${SEEN_MEMORY_GUARD_TASKS_MAX:-24}
 guard_cgroup_stop_kb=${SEEN_MEMORY_GUARD_CGROUP_STOP_KB:-$((main_kb * 90 / 100))}
-if ! is_positive_integer "$guard_tasks_max" || [ "$guard_tasks_max" -gt 16 ] ||
+if ! is_positive_integer "$guard_tasks_max" || [ "$guard_tasks_max" -gt 24 ] ||
     ! is_positive_integer "$guard_cgroup_stop_kb" ||
     [ "$guard_cgroup_stop_kb" -gt "$main_kb" ]; then
 

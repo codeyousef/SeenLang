@@ -20,7 +20,7 @@ usage() {
 Usage: run_in_hard_memory_scope.sh [--label TEXT] [--verify-only] -- command [args...]
 
 Enters a verified Linux user-systemd scope capped at no more than 4 GiB,
-MemorySwapMax=0, and TasksMax=16. --verify-only performs the same read-back but
+MemorySwapMax=0, and TasksMax=24. --verify-only performs the same read-back but
 does not run a workload.
 EOF
 }
@@ -148,13 +148,13 @@ if [ "$derived_rss_kb" -lt 1 ]; then
 fi
 
 rss_kb=${SEEN_MEMORY_GUARD_RSS_KB:-$derived_rss_kb}
-tasks_max=${SEEN_MEMORY_GUARD_TASKS_MAX:-16}
+tasks_max=${SEEN_MEMORY_GUARD_TASKS_MAX:-24}
 if ! is_positive_integer "$rss_kb" || [ "$rss_kb" -gt "$derived_rss_kb" ]; then
     echo "ERROR: aggregate memory cap must be positive and no larger than the current-memory-derived cap ($derived_rss_kb KiB)" >&2
     exit 126
 fi
-if ! is_positive_integer "$tasks_max" || [ "$tasks_max" -gt 16 ]; then
-    echo "ERROR: aggregate task cap must be a positive value no larger than 16" >&2
+if ! is_positive_integer "$tasks_max" || [ "$tasks_max" -gt 24 ]; then
+    echo "ERROR: aggregate task cap must be a positive value no larger than 24" >&2
     exit 126
 fi
 

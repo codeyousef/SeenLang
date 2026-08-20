@@ -1,0 +1,1 @@
+{"version":1,"boundaries":[{"id":"llvm-c-api","subsystem":"compiler.codegen","purpose":"x","abi":"C","platforms":["linux-x86_64"],"symbols":["LLVMContextCreate"],"production":true},{"id":"llvm-c-api","subsystem":"compiler.codegen","purpose":"duplicate","abi":"C","platforms":["linux-x86_64"],"symbols":["LLVMDisposeContext"],"production":true}]}

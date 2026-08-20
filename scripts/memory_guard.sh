@@ -743,9 +743,9 @@ if [ -n "$TASKS_MAX" ] && ! is_positive_integer "$TASKS_MAX"; then
     exit 2
 fi
 if [ "$REQUIRE_KERNEL_SCOPE" = "1" ] &&
-    { [ -z "$TASKS_MAX" ] || [ "$TASKS_MAX" -gt 16 ]; }; then
+    { [ -z "$TASKS_MAX" ] || [ "$TASKS_MAX" -gt 24 ]; }; then
 
-    echo "memory_guard: a required kernel scope needs --tasks-max between 1 and 16" >&2
+    echo "memory_guard: a required kernel scope needs --tasks-max between 1 and 24" >&2
     exit 2
 fi
 if [ -n "$CGROUP_STOP_KB" ] && ! is_positive_integer "$CGROUP_STOP_KB"; then
@@ -921,7 +921,7 @@ if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] &&
     if [ "$high_kb" -lt 1 ]; then
         high_kb=1
     fi
-    tasks_max="${TASKS_MAX:-16}"
+    tasks_max="${TASKS_MAX:-24}"
 
     # A transient scope executes the command as a child of systemd-run.  Unlike
     # a transient service, it preserves the caller's mount namespace, including

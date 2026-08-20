@@ -300,8 +300,8 @@ esac
 [ "$record_memory_max" -gt 0 ] && [ "$record_memory_max" -le 4294967296 ] ||
     fail "recorded memory.max exceeds 4 GiB"
 [ "$record_swap_max" = "0" ] || fail "recorded memory.swap.max is not zero"
-[ "$record_pids_max" -gt 0 ] && [ "$record_pids_max" -le 16 ] ||
-    fail "recorded pids.max exceeds 16"
+[ "$record_pids_max" -gt 0 ] && [ "$record_pids_max" -le 24 ] ||
+    fail "recorded pids.max exceeds 24"
 
 printf '%s\n' "${record_lines[@]:0:9}" > "$body_file" ||
     fail "could not create the project-local record-body probe"

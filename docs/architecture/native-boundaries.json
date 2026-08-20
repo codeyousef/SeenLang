@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "boundaries": [
+    {
+      "id": "llvm-c-api",
+      "subsystem": "compiler.codegen",
+      "purpose": "Emit and optimize LLVM IR for native targets.",
+      "abi": "C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["LLVMContextCreate", "LLVMDisposeContext", "LLVMModuleCreateWithNameInContext"],
+      "production": true
+    },
+    {
+      "id": "posix-process-control",
+      "subsystem": "compiler.bootstrap",
+      "purpose": "Contain compiler child-process creation during guarded rebuilds.",
+      "abi": "POSIX C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos"],
+      "symbols": ["fork", "popen", "posix_spawn", "posix_spawnp", "waitpid"],
+      "production": true
+    }
+  ]
+}
