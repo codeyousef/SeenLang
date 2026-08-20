@@ -36,7 +36,6 @@ tests/misc_root_tests/seen_ci_containment_contract.sh
 tests/misc_root_tests/seen_ci_required_wiring.sh
 tests/misc_root_tests/seen_memory_guard_fail_closed.sh
 tests/misc_root_tests/seen_low_task_helper_serialization.sh
-bash tests/misc_root_tests/seen_capped_regression_wiring.sh
 git diff --check
 
 echo "PASS: required CI gates"

@@ -48,7 +48,6 @@ trap cleanup EXIT
 
 bash -n "$CAPABILITY" "$APPLICABILITY" "$SERIALIZER_VERIFY" ||
     fail "helper syntax"
-command -v rg >/dev/null 2>&1 || fail "rg is required"
 
 guarded_log_body=$(sed -n '/^run_guarded_command_to_log()/,/^}/p' \
     "$SAFE_REBUILD")
@@ -66,12 +65,12 @@ grep -Fq '"$HARD_MEMORY_SCOPE_WRAPPER"' "$SAFE_REBUILD" ||
 # previously created three-stage pipelines plus a command-substitution shell.
 # Keep all evidence tools serial, with timeout+builder the sole allowed
 # two-process pair.
-if rg -n '\|[[:space:]]*(awk|sort|grep|sha256sum|tr|wc)([[:space:]]|$)' \
+if grep -En '\|[[:space:]]*(awk|sort|grep|sha256sum|tr|wc)([[:space:]]|$)' \
     "$CAPABILITY" "$APPLICABILITY" "$SERIALIZER_VERIFY"; then
 
     fail "a task-bursting helper pipeline remains"
 fi
-if rg -n '\$\([^)]*(timeout|readelf|sha256sum|awk|sort|grep|sed|wc|tr)([[:space:]]|\))' \
+if grep -En '\$\([^)]*(timeout|readelf|sha256sum|awk|sort|grep|sed|wc|tr)([[:space:]]|\))' \
     "$CAPABILITY" "$APPLICABILITY" "$SERIALIZER_VERIFY"; then
 
     fail "an external evidence tool remains inside command substitution"
@@ -85,7 +84,7 @@ while IFS= read -r process_substitution; do
             ;;
         *) fail "unexpected helper process substitution: $process_substitution" ;;
     esac
-done < <(rg -n '< <\(' "$CAPABILITY" "$APPLICABILITY" "$SERIALIZER_VERIFY")
+done < <(grep -En '< <\(' "$CAPABILITY" "$APPLICABILITY" "$SERIALIZER_VERIFY")
 [ "$process_substitution_count" -eq 3 ] ||
     fail "expected exactly three one-child stat identity probes"
 grep -Fq 'timeout -k 1 10 "$builder" --help > "$help_file"' "$CAPABILITY" ||

@@ -64,7 +64,7 @@ grep -Fq 'SEEN_CI_CONTAINMENT_IN_SCOPE=1' "$CONTAINED" ||
 grep -Fq 'scripts/run_in_hard_memory_scope.sh --verify-only' "$REQUIRED" ||
     fail "inner required gate does not re-verify the live hard scope"
 
-if rg -n 'safe_rebuild|compiler_seen/target/seen|(^|[[:space:]])sudo([[:space:]]|$)|/tmp/' \
+if grep -En 'safe_rebuild|compiler_seen/target/seen|(^|[[:space:]])sudo([[:space:]]|$)|/tmp/' \
     "$WORKFLOW" "$REQUIRED" "$CONTAINED"; then
 
     fail "static required CI unexpectedly invokes a build, privilege escalation, or host temporary path"
