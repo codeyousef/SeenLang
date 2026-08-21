@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.org/schemas/test-run-report.schema.json",
+  "title": "Seen canonical test run report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "results", "passed", "failed", "skipped", "exit_code"],
+  "properties": {
+    "schema": {"const": "seen-test-run-v1"},
+    "passed": {"type": "integer", "minimum": 0},
+    "failed": {"type": "integer", "minimum": 0},
+    "skipped": {"type": "integer", "minimum": 0},
+    "exit_code": {"enum": [0, 1]},
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "status", "exit_code"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "status": {"enum": ["passed", "failed", "skipped"]},
+          "exit_code": {"type": "integer", "minimum": 0, "maximum": 255}
+        }
+      }
+    }
+  }
+}

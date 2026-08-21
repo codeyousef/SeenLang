@@ -324,6 +324,14 @@ import codegen.ir_type_header_registry.{applyTypeHeaderStructLineReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
 import tools.cli_args.{CliArguments, parseCliArguments}
+import seen_compiler.testing.cli_runner.{runCanonicalTests}
+import seen_compiler.testing.runner.{TestRunnerOptions as _seedTestRunnerOptions,
+    TestRunPlanEntry as _seedTestRunPlanEntry,
+    TestRunPlan as _seedTestRunPlan,
+    TestExecutionResult as _seedTestExecutionResult,
+    TestRunReport as _seedTestRunReport,
+    TestRunPlanOutcome as _seedTestRunPlanOutcome,
+    TestRunReportOutcome as _seedTestRunReportOutcome}
 import tools.c_import_gen.{CImportResult, newCImportGenerator}
 import tools.c_import_frontend.{cImportParseHeader}
 import tools.c_import_ast.{cImportParseClangAstDump}
@@ -1544,6 +1552,14 @@ fun packageClientHelperPath() r: String {
         let targetHelperExe = targetHelper + ".exe"
         if exists(targetHelperExe) {
             return targetHelperExe
+        }
+        let checkoutHelper = compilerRoot + "/compiler_seen/target/seen-pkg"
+        if exists(checkoutHelper) {
+            return checkoutHelper
+        }
+        let checkoutHelperExe = checkoutHelper + ".exe"
+        if exists(checkoutHelperExe) {
+            return checkoutHelperExe
         }
     }
     return ""
@@ -7963,6 +7979,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("release.release_optimization")
         modules.push("testing.categories")
         modules.push("testing.discovery")
+        modules.push("testing.runner")
+        modules.push("testing.cli_runner")
         modules.push("imports.graph")
         modules.push("trace")
         // lexer.real_lexer removed: 2-line re-export shim, no compiler module imports it
@@ -15374,6 +15392,7 @@ fun printUsage() r: Void {
     println("Usage: seen compile <input.seen> [output] [--profile deterministic] [--no-cache] [--verbose] [--locked|--offline|--frozen]")
     println("       seen check <input.seen> [--profile deterministic] [--locked|--offline|--frozen]")
     println("       seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>] [--locked|--offline|--frozen]")
+    println("       seen test <project> [--filter <text>] [--profile ci] [--jobs 1] [--timeout 10m] [--report <format:path>]")
     println("       seen bundle <executable> <AppName> [--icon=<icon.icns>] [--version=<1.0>]")
     println("       seen sign <path> [--identity=<identity>]")
     println("       seen notarize <path> --apple-id=<email> --team-id=<id> --password=<pwd>")
@@ -15499,6 +15518,13 @@ fun printLspUsage() r: Void {
     return
 }
 
+fun printTestUsage() r: Void {
+    println("Usage: seen test <project> [--filter <text>] [--profile default|ci] [--jobs 1] [--timeout <duration>]")
+    println("       [--include-ignored] [--include-slow] [--allow-privileged]")
+    println("       [--report json:<path>] [--report junit:<path>]")
+    return
+}
+
 fun printCommandUsage(command: String) r: Void {
     if command == "compile" { printCompileUsage(); return }
     if command == "check" { printCheckUsage(); return }
@@ -15512,6 +15538,7 @@ fun printCommandUsage(command: String) r: Void {
     if command == "import-c" { printImportCUsage(); return }
     if command == "pkg" { printPkgUsage(); return }
     if command == "lsp" { printLspUsage(); return }
+    if command == "test" { printTestUsage(); return }
     printUsage()
     return
 }
@@ -15637,6 +15664,25 @@ fun parseRunCli(argv: Array<String>) r: CliArguments {
     addCliOptionAlias(values, valueNames, "-l", "--language")
     return parseCliArguments(argv, 2, flags, flagNames, values, valueNames,
         Array<String>())
+}
+
+fun parseTestCli(argv: Array<String>) r: CliArguments {
+    let flags = Array<String>()
+    let flagNames = Array<String>()
+    addCliOptionAlias(flags, flagNames, "--include-ignored", "--include-ignored")
+    addCliOptionAlias(flags, flagNames, "--include-slow", "--include-slow")
+    addCliOptionAlias(flags, flagNames, "--allow-privileged", "--allow-privileged")
+    let values = Array<String>()
+    let valueNames = Array<String>()
+    addCliOptionAlias(values, valueNames, "--filter", "--filter")
+    addCliOptionAlias(values, valueNames, "--profile", "--profile")
+    addCliOptionAlias(values, valueNames, "--jobs", "--jobs")
+    addCliOptionAlias(values, valueNames, "--timeout", "--timeout")
+    addCliOptionAlias(values, valueNames, "--report", "--report")
+    let repeatable = Array<String>()
+    repeatable.push("--report")
+    return parseCliArguments(argv, 2, flags, flagNames, values, valueNames,
+        repeatable)
 }
 
 fun parsePlatformCli(argv: Array<String>, command: String) r: CliArguments {
@@ -15782,6 +15828,24 @@ fun parseStrictPositiveCliInt(value: String) r: Int {
     return parsed
 }
 
+fun parseTestTimeoutSeconds(value: String) r: Int {
+    if value == "" { return -1 }
+    var suffix = ""
+    var digits = value
+    let last = value.substring(value.length() - 1, value.length())
+    if last == "s" or last == "m" or last == "h" {
+        suffix = last
+        digits = value.substring(0, value.length() - 1)
+    }
+    let parsed = parseStrictPositiveCliInt(digits)
+    if parsed < 1 { return -1 }
+    var multiplier = 1
+    if suffix == "m" { multiplier = 60 }
+    if suffix == "h" { multiplier = 3600 }
+    if parsed > 3600 / multiplier { return -1 }
+    return parsed * multiplier
+}
+
 fun normalizedCliArgv(argv: Array<String>, parsed: CliArguments,
     modeOption: String) r: Array<String> {
 
@@ -15814,7 +15878,7 @@ fun normalizedCliArgv(argv: Array<String>, parsed: CliArguments,
 
 fun isUnsupportedSourceWrapperCommand(command: String) r: Bool {
     return command == "build" or command == "init" or command == "fmt" or
-        command == "format" or command == "clean" or command == "test"
+        command == "format" or command == "clean"
 }
 
 fun unsupportedSourceWrapperCommand(command: String) r: Int {
@@ -15836,11 +15900,6 @@ fun unsupportedSourceWrapperCommand(command: String) r: Int {
     if command == "clean" {
         println("Error: 'seen clean' is not supported by the shipped compiler.")
         println("Remove project build artifacts manually for now.")
-        return 1
-    }
-    if command == "test" {
-        println("Error: 'seen test' is not supported by the shipped compiler.")
-        println("Use project-specific test scripts until the shipped test runner is implemented.")
         return 1
     }
     println("Error: command '" + command + "' is not supported by the shipped compiler.")
@@ -16172,6 +16231,35 @@ fun main() r: Int {
         }
         let compResult = compileCommandWithFullTargeting(inputFile, outputFile, profile, useCache, language, targetCpu, simdPolicy, simdReport, sanitizePolicy, pgoMode, pgoPath, combinedMlPath, crossTarget)
         return compResult
+    }
+
+    if command == "test" {
+        let parsed = parseTestCli(argv)
+        if parsed.help { printTestUsage(); return 0 }
+        if not parsed.ok {
+            println("Error: " + parsed.error)
+            printTestUsage()
+            return 2
+        }
+        if requireCliArity(command, parsed, 1, 1) != 0 { return 2 }
+        let jobs = parseStrictPositiveCliInt(parsed.valueOr("--jobs", "1"))
+        let timeoutSeconds = parseTestTimeoutSeconds(
+            parsed.valueOr("--timeout", "600"))
+        let profile = parsed.valueOr("--profile", "default")
+        if jobs != 1 or timeoutSeconds < 1 or
+            (profile != "default" and profile != "ci") {
+
+            println("Error: [test.001b.invalid] invalid test runner options")
+            printTestUsage()
+            return 2
+        }
+        return runCanonicalTests(parsed.positionals[0], argv[0],
+            getCompilerRoot(), packageClientHelperPath(),
+            parsed.valueOr("--filter", ""), profile, jobs, timeoutSeconds,
+            parsed.hasOption("--include-ignored"),
+            parsed.hasOption("--include-slow"),
+            parsed.hasOption("--allow-privileged"),
+            parsed.valuesFor("--report"), packageCompatibilityContext())
     }
 
     if command == "check" {

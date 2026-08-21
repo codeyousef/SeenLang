@@ -1,3 +1,4 @@
+// Harness-only: importing main_compiler contributes a second program entry.
 import main_compiler.{ExecuteCommand}
 
 fun main() r: Int {

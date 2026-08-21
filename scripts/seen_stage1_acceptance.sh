@@ -486,6 +486,31 @@ run_fixture test-discovery \
     "$REPO_ROOT/compiler_seen/tests/test_discovery.seen"
 run_fixture test-discovery-example \
     "$REPO_ROOT/compiler_seen/examples/test_discovery.seen"
+run_fixture test-runner "$REPO_ROOT/compiler_seen/tests/test_001b_runner.seen"
+run_fixture test-runner-example \
+    "$REPO_ROOT/compiler_seen/examples/test_runner.seen"
+
+test_runner_log="$ACCEPTANCE_ROOT/test-runner-cli.log"
+if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001B \
+    --profile ci --jobs 1 --timeout 10m \
+    --report json:.seen_cache/test/TEST-001B.json \
+    --report junit:.seen_cache/test/TEST-001B.xml >"$test_runner_log" 2>&1; then
+    echo "ERROR: canonical seen test acceptance failed: $test_runner_log" >&2
+    cat "$test_runner_log" >&2
+    exit 1
+fi
+grep -Fq 'test result: 1 passed; 0 failed' "$test_runner_log" || {
+    echo "ERROR: canonical seen test summary is missing" >&2
+    exit 1
+}
+test_runner_invalid_status=0
+"$DIRECT_COMPILER" test "$REPO_ROOT" --jobs 2 \
+    >"$ACCEPTANCE_ROOT/test-runner-invalid.log" 2>&1 ||
+    test_runner_invalid_status=$?
+[ "$test_runner_invalid_status" -eq 2 ] || {
+    echo "ERROR: canonical seen test invalid-input exit code changed" >&2
+    exit 1
+}
 
 instrumentation_dir="$ACCEPTANCE_ROOT/core-rel-002"
 instrumentation_output="$instrumentation_dir/instrumented"

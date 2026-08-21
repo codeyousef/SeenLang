@@ -1,3 +1,4 @@
+// Ignored until this legacy placeholder invokes a real compiler output.
 // import main_compiler.{CompileSeenProgram}
 
 fun main() r: Int {

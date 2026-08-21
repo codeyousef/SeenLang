@@ -1,0 +1,105 @@
+import seen_compiler.testing.runner.{TestRunnerOptions, buildTestRunPlanChecked,
+    finalizeTestRunChecked, renderTestRunReport, renderTestRunJunit}
+import seen_compiler.testing.discovery.{TestDiscoveryCandidate,
+    TestDiscoveryManifest}
+import testing.categories.{TestPrimaryCategory, TestPlatformCategory}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+
+fun runnerContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 64, maxGraphEdges: 128, maxGraphDepth: 16
+        },
+        traceId: AsciiString{ value: "test-001b" }
+    }
+}
+
+fun runnerCandidate(path: String) r: TestDiscoveryCandidate {
+    return TestDiscoveryCandidate{
+        path: path, category: TestPrimaryCategory.Unit, ignored: false,
+        slow: false, platform: TestPlatformCategory.All, privileged: false
+    }
+}
+
+fun runnerOptions(filter: String) r: TestRunnerOptions {
+    return TestRunnerOptions{
+        filter: filter, profile: "ci", jobs: 1, timeoutSeconds: 600,
+        includeIgnored: false, includeSlow: false, allowPrivileged: false,
+        target: "linux-x86_64"
+    }
+}
+
+fun main() r: Int {
+    let tests = Array<TestDiscoveryCandidate>()
+    tests.push(runnerCandidate("compiler_seen/tests/test_001b_runner.seen"))
+    tests.push(runnerCandidate("compiler_seen/tests/test_other.seen"))
+    let manifest = TestDiscoveryManifest{
+        schema: "seen-test-discovery-v1", tests: tests
+    }
+    let happy = buildTestRunPlanChecked(
+        manifest, runnerOptions("TEST-001B"), runnerContext())
+    if not happy.success or happy.values[0].selectedCount != 1 {
+        println("FAIL: TEST-001B_happy")
+        return 1
+    }
+    let exits = Array<Int>()
+    exits.push(0)
+    let report = finalizeTestRunChecked(
+        happy.values[0], exits, runnerContext())
+    if not report.success or report.values[0].exitCode != 0 or
+        report.values[0].passed != 1 or report.values[0].skipped != 1 {
+
+        println("FAIL: TEST-001B_happy")
+        return 1
+    }
+    println("PASS: TEST-001B_happy")
+
+    var invalidOptions = runnerOptions("")
+    invalidOptions.jobs = 2
+    let invalid = buildTestRunPlanChecked(
+        manifest, invalidOptions, runnerContext())
+    if invalid.success or invalid.errors[0].code.value != "test.001b.invalid" {
+        println("FAIL: TEST-001B_invalid")
+        return 1
+    }
+    println("PASS: TEST-001B_invalid")
+
+    var limitContext = runnerContext()
+    limitContext.limits.maxGraphModules = 1
+    let limited = buildTestRunPlanChecked(
+        manifest, runnerOptions(""), limitContext)
+    if limited.success or limited.errors[0].code.value != "test.001b.limit" {
+        println("FAIL: TEST-001B_limit")
+        return 1
+    }
+    println("PASS: TEST-001B_limit")
+
+    var cancelContext = runnerContext()
+    cancelContext.cancellation = true
+    let cancelled = buildTestRunPlanChecked(
+        manifest, runnerOptions(""), cancelContext)
+    if cancelled.success or
+        cancelled.errors[0].code.value != "test.001b.cancelled" {
+
+        println("FAIL: TEST-001B_cancel")
+        return 1
+    }
+    println("PASS: TEST-001B_cancel")
+
+    let json = renderTestRunReport(report.values[0])
+    let junit = renderTestRunJunit(report.values[0])
+    if not json.contains("seen-test-run-v1") or
+        not junit.contains("<testsuite") {
+
+        println("FAIL: TEST-001B_cleanup")
+        return 1
+    }
+    println("PASS: TEST-001B_cleanup")
+    return 0
+}
+
+main()

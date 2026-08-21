@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the native `seen-test-run-v1` canonical `seen test` runner with
+  deterministic selection, bounded serial execution, stable exit codes,
+  retained logs, explicit timeout and privilege policy, and transactional JSON
+  and JUnit reports.
 - Added native `seen-test-discovery-v1` manifests with deterministic path
   ordering, strict unit/integration classification, and composable
   ignored/slow/platform/privileged categories. Legacy all-tests now records

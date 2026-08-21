@@ -120,10 +120,10 @@ expect_failure_contains "init unsupported" "not supported by the shipped compile
 expect_failure_contains "fmt unsupported" "not supported by the shipped compiler" seen_command fmt file.seen
 expect_failure_contains "format unsupported" "not supported by the shipped compiler" seen_command format file.seen
 expect_failure_contains "clean unsupported" "not supported by the shipped compiler" seen_command clean
-expect_failure_contains "test unsupported" "not supported by the shipped compiler" seen_command test
+expect_failure_contains "test missing project" "test command is missing a required operand" seen_command test
 expect_failure_contains "c backend unsupported" "Supported backend: llvm" seen_command compile file.seen out --backend=c
 
-for command in compile check run bundle sign notarize lipo ipa translate import-c lsp pkg; do
+for command in compile check run test bundle sign notarize lipo ipa translate import-c lsp pkg; do
     expect_success_contains "$command --help" "Usage: seen $command" seen_command "$command" --help
     expect_success_contains "$command -h" "Usage: seen $command" seen_command "$command" -h
 done
