@@ -1,5 +1,6 @@
 import seen_compiler.testing.runner.{TestRunnerOptions, buildTestRunPlanChecked,
-    finalizeTestRunChecked, renderTestRunReport}
+    finalizeTestRunChecked}
+import seen_compiler.testing.reporters.{renderTestRunJson}
 import seen_compiler.testing.discovery.{TestDiscoveryCandidate,
     TestDiscoveryManifest}
 import testing.categories.{TestPrimaryCategory, TestPlatformCategory}
@@ -32,7 +33,7 @@ fun main() r: Int {
     exits.push(0)
     let report = finalizeTestRunChecked(plan.values[0], exits, context)
     if not report.success { return 1 }
-    print(renderTestRunReport(report.values[0]))
+    print(renderTestRunJson(report.values[0]))
     return report.values[0].exitCode
 }
 

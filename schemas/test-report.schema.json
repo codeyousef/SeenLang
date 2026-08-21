@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/test-report.schema.json",
+  "title": "Seen rendered test report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "format", "media_type", "content"],
+  "properties": {
+    "schema": {"const": "seen-test-report-v1"},
+    "format": {"enum": ["human", "json", "junit"]},
+    "media_type": {"enum": ["text/plain", "application/json", "application/xml"]},
+    "content": {"type": "string", "maxLength": 16777216}
+  }
+}

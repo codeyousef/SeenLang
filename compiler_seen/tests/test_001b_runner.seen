@@ -1,5 +1,6 @@
 import seen_compiler.testing.runner.{TestRunnerOptions, buildTestRunPlanChecked,
-    finalizeTestRunChecked, renderTestRunReport, renderTestRunJunit}
+    finalizeTestRunChecked}
+import seen_compiler.testing.reporters.{renderTestRunJson, renderTestRunJunit}
 import seen_compiler.testing.discovery.{TestDiscoveryCandidate,
     TestDiscoveryManifest}
 import testing.categories.{TestPrimaryCategory, TestPlatformCategory}
@@ -90,8 +91,8 @@ fun main() r: Int {
     }
     println("PASS: TEST-001B_cancel")
 
-    let json = renderTestRunReport(report.values[0])
-    let junit = renderTestRunJunit(report.values[0])
+    let json = renderTestRunJson(report.values[0])
+    let junit = renderTestRunJunit(report.values[0], "seen")
     if not json.contains("seen-test-run-v1") or
         not junit.contains("<testsuite") {
 

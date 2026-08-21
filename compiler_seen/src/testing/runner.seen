@@ -5,7 +5,6 @@ import core.result.{Result, Ok, Err}
 import collections.vec.{Vec}
 import release.compatibility.{AsciiString, OperationContext, SeenError,
     RetryClass, RedactionClass}
-import release.diagnostic_schema.{machineDiagnosticJsonString}
 import testing.categories.{testPlatformCategoryName}
 import testing.discovery.{TestDiscoveryCandidate, TestDiscoveryManifest}
 
@@ -288,50 +287,4 @@ fun finalizeTestRun(plan: TestRunPlan, exitCodes: Array<Int>,
         return Err<TestRunReport, SeenError>(checked.errors[0])
     }
     return Ok<TestRunReport, SeenError>(checked.values[0])
-}
-
-fun renderTestRunReport(report: TestRunReport) r: String {
-    var output = "{\"exit_code\":" + report.exitCode.toString() +
-        ",\"failed\":" + report.failed.toString() + ",\"passed\":" +
-        report.passed.toString() + ",\"results\":["
-    var index = 0
-    while index < report.results.length() {
-        if index > 0 { output = output + "," }
-        let result = report.results[index]
-        output = output + "{\"exit_code\":" + result.exitCode.toString() +
-            ",\"path\":" + machineDiagnosticJsonString(result.path) +
-            ",\"status\":" + machineDiagnosticJsonString(result.status) + "}"
-        index = index + 1
-    }
-    return output + "],\"schema\":" +
-        machineDiagnosticJsonString(report.schema) + ",\"skipped\":" +
-        report.skipped.toString() + "}\n"
-}
-
-fun testRunnerXmlString(value: String) r: String {
-    return value.replace("&", "&amp;").replace("<", "&lt;").replace(
-        ">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
-}
-
-fun renderTestRunJunit(report: TestRunReport) r: String {
-    var output = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-        "<testsuite name=\"seen\" tests=\"" +
-        report.results.length().toString() + "\" failures=\"" +
-        report.failed.toString() + "\" skipped=\"" +
-        report.skipped.toString() + "\">\n"
-    var index = 0
-    while index < report.results.length() {
-        let result = report.results[index]
-        output = output + "  <testcase name=\"" +
-            testRunnerXmlString(result.path) + "\">"
-        if result.status == "failed" {
-            output = output + "<failure message=\"exit " +
-                result.exitCode.toString() + "\"/>"
-        } else if result.status == "skipped" {
-            output = output + "<skipped/>"
-        }
-        output = output + "</testcase>\n"
-        index = index + 1
-    }
-    return output + "</testsuite>\n"
 }

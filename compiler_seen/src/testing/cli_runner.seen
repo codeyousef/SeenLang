@@ -9,8 +9,9 @@ import seen_compiler.testing.discovery.{TestDiscoveryCandidate, discoverTestsChe
     testDiscoveryExpectedCategory, testDiscoveryExpectedPlatform,
     testDiscoveryHasMarker, testDiscoveryPathBefore}
 import seen_compiler.testing.runner.{TestRunnerOptions,
-    buildTestRunPlanChecked, finalizeTestRunChecked, renderTestRunReport,
-    renderTestRunJunit}
+    buildTestRunPlanChecked, finalizeTestRunChecked}
+import seen_compiler.testing.reporters.{TestReporterFormat,
+    TestReporterRequest, renderTestReportChecked}
 
 fun testCliShellQuote(value: String) r: String {
     var quoted = "'"
@@ -292,11 +293,7 @@ fun runCanonicalTests(rootArgument: String, selfPath: String,
                 return 3
             }
             exitCodes.push(code)
-            if code == 0 { println("PASS " + entry.test.path) }
-            else { println("FAIL " + entry.test.path + " (exit " + code.toString() + ")") }
             selectedIndex = selectedIndex + 1
-        } else if entry.skipReason != "filter" {
-            println("SKIP " + entry.test.path + " (" + entry.skipReason + ")")
         }
         index = index + 1
     }
@@ -307,8 +304,23 @@ fun runCanonicalTests(rootArgument: String, selfPath: String,
         return 3
     }
     let report = finalized.values[0]
-    let jsonReport = renderTestRunReport(report)
-    let junitReport = renderTestRunJunit(report)
+    let jsonRendered = renderTestReportChecked(report, TestReporterRequest{
+        format: TestReporterFormat.Json, suiteName: "seen"
+    }, context)
+    let junitRendered = renderTestReportChecked(report, TestReporterRequest{
+        format: TestReporterFormat.Junit, suiteName: "seen"
+    }, context)
+    let humanRendered = renderTestReportChecked(report, TestReporterRequest{
+        format: TestReporterFormat.Human, suiteName: "seen"
+    }, context)
+    if not jsonRendered.success or not junitRendered.success or
+        not humanRendered.success {
+
+        println("Error: [test.001e.invalid] test report rendering failed")
+        return 3
+    }
+    let jsonReport = jsonRendered.values[0].content
+    let junitReport = junitRendered.values[0].content
     index = 0
     while index < reports.length() {
         if not testCliWriteReport(root, reports[index], jsonReport,
@@ -318,8 +330,6 @@ fun runCanonicalTests(rootArgument: String, selfPath: String,
         }
         index = index + 1
     }
-    println("test result: " + report.passed.toString() + " passed; " +
-        report.failed.toString() + " failed; " + report.skipped.toString() +
-        " skipped")
+    print(humanRendered.values[0].content)
     return report.exitCode
 }
