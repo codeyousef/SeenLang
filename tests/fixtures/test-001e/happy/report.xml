@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="seen" tests="3" failures="1" skipped="1">
+  <testcase name="compiler_seen/tests/alpha.seen"></testcase>
+  <testcase name="compiler_seen/tests/beta.seen"><failure message="exit 7"/></testcase>
+  <testcase name="tests/misc_root_tests/gamma.sh"><skipped/></testcase>
+</testsuite>

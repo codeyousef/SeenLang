@@ -1,0 +1,266 @@
+/// Deterministic human, JSON, and JUnit reporting for TEST-001E.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import release.compatibility.{AsciiString, OperationContext, SeenError,
+    RetryClass, RedactionClass}
+import release.diagnostic_schema.{machineDiagnosticJsonString}
+import seen_compiler.testing.assertions.{assertionSafeName}
+import seen_compiler.testing.runner.{TEST_RUN_SCHEMA, TestRunReport}
+import seen_compiler.testing.discovery.{testDiscoveryPathBefore}
+
+let TEST_REPORT_SCHEMA: String = "seen-test-report-v1"
+let TEST_REPORT_MAX_RESULTS: Int = 100000
+
+enum TestReporterFormat { Human Json Junit }
+
+class TestReporterRequest {
+    var format: TestReporterFormat
+    var suiteName: String
+}
+
+class TestReporterOutput {
+    var schema: String
+    var format: String
+    var mediaType: String
+    var content: String
+}
+
+class TestReporterOutcome {
+    var success: Bool
+    var values: Array<TestReporterOutput>
+    var errors: Array<SeenError>
+}
+
+fun test001eError(code: String, message: String) r: SeenError {
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "testing.reporters" },
+        operation: AsciiString{ value: "render" },
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun reporterFailure(error: SeenError) r: TestReporterOutcome {
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return TestReporterOutcome{
+        success: false, values: Array<TestReporterOutput>(), errors: errors
+    }
+}
+
+fun reporterSuccess(value: TestReporterOutput) r: TestReporterOutcome {
+    let values = Array<TestReporterOutput>()
+    values.push(value)
+    return TestReporterOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun reporterFormatName(format: TestReporterFormat) r: String {
+    if format == TestReporterFormat.Json { return "json" }
+    if format == TestReporterFormat.Junit { return "junit" }
+    return "human"
+}
+
+fun reporterMediaType(format: TestReporterFormat) r: String {
+    if format == TestReporterFormat.Json { return "application/json" }
+    if format == TestReporterFormat.Junit { return "application/xml" }
+    return "text/plain"
+}
+
+fun reporterXmlString(value: String) r: String {
+    var escaped = ""
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte == 38 { escaped = escaped + "&amp;" }
+        else if byte == 60 { escaped = escaped + "&lt;" }
+        else if byte == 62 { escaped = escaped + "&gt;" }
+        else if byte == 34 { escaped = escaped + "&quot;" }
+        else if byte == 39 { escaped = escaped + "&apos;" }
+        else { escaped = escaped + value.substring(index, index + 1) }
+        index = index + 1
+    }
+    return escaped
+}
+
+fun reporterEscapedPathBytes(value: String, format: TestReporterFormat) r: Int {
+    if format == TestReporterFormat.Human { return value.length() }
+    var bytes = 0
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var width = 1
+        if format == TestReporterFormat.Json {
+            if byte == 34 or byte == 92 { width = 2 }
+            else if byte < 32 { width = 6 }
+        } else {
+            if byte == 38 { width = 5 }
+            else if byte == 60 or byte == 62 { width = 4 }
+            else if byte == 34 or byte == 39 { width = 6 }
+        }
+        bytes = bytes + width
+        index = index + 1
+    }
+    return bytes
+}
+
+fun renderTestRunJson(report: TestRunReport) r: String {
+    var output = "{\"exit_code\":" + report.exitCode.toString() +
+        ",\"failed\":" + report.failed.toString() + ",\"passed\":" +
+        report.passed.toString() + ",\"results\":["
+    var index = 0
+    while index < report.results.length() {
+        if index > 0 { output = output + "," }
+        let result = report.results[index]
+        output = output + "{\"exit_code\":" + result.exitCode.toString() +
+            ",\"path\":" + machineDiagnosticJsonString(result.path) +
+            ",\"status\":" + machineDiagnosticJsonString(result.status) + "}"
+        index = index + 1
+    }
+    return output + "],\"schema\":" +
+        machineDiagnosticJsonString(report.schema) + ",\"skipped\":" +
+        report.skipped.toString() + "}\n"
+}
+
+fun renderTestRunJunit(report: TestRunReport, suiteName: String) r: String {
+    var output = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    output = output + "<testsuite name='"
+    output = output + reporterXmlString(suiteName)
+    output = output + "' tests='"
+    output = output + report.results.length().toString()
+    output = output + "' failures='"
+    output = output + report.failed.toString()
+    output = output + "' skipped='"
+    output = output + report.skipped.toString()
+    output = output + "'>\n"
+    var index = 0
+    while index < report.results.length() {
+        let result = report.results[index]
+        output = output + "  <testcase name=\"" +
+            reporterXmlString(result.path) + "\">"
+        if result.status == "failed" {
+            output = output + "<failure message=\"exit " +
+                result.exitCode.toString() + "\"/>"
+        } else if result.status == "skipped" {
+            output = output + "<skipped/>"
+        }
+        output = output + "</testcase>\n"
+        index = index + 1
+    }
+    return output + "</testsuite>\n"
+}
+
+fun renderTestRunHuman(report: TestRunReport) r: String {
+    var output = ""
+    var index = 0
+    while index < report.results.length() {
+        let result = report.results[index]
+        if result.status == "passed" { output = output + "PASS " + result.path }
+        else if result.status == "skipped" { output = output + "SKIP " + result.path }
+        else { output = output + "FAIL " + result.path + " (exit " + result.exitCode.toString() + ")" }
+        output = output + "\n"
+        index = index + 1
+    }
+    return output + "test result: " + report.passed.toString() +
+        " passed; " + report.failed.toString() + " failed; " +
+        report.skipped.toString() + " skipped\n"
+}
+
+fun renderTestReportChecked(report: TestRunReport,
+    request: TestReporterRequest,
+    context: OperationContext) r: TestReporterOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return reporterFailure(test001eError(
+            "test.001e.cancelled", "test report rendering cancelled"))
+    }
+    if report.schema != TEST_RUN_SCHEMA or not assertionSafeName(
+        request.suiteName) or report.passed < 0 or report.failed < 0 or
+        report.skipped < 0 or report.exitCode < 0 or report.exitCode > 1 or
+        report.passed + report.failed + report.skipped != report.results.length() {
+
+        return reporterFailure(test001eError(
+            "test.001e.invalid", "test report is inconsistent"))
+    }
+    if context.limits.maxGraphModules < 1 or
+        context.limits.maxGraphModules > TEST_REPORT_MAX_RESULTS or
+        report.results.length() > context.limits.maxGraphModules or
+        context.limits.maxManifestBytes < 1 or
+        context.limits.maxManifestBytes > 16777216 {
+
+        return reporterFailure(test001eError(
+            "test.001e.limit", "test report limit exceeded"))
+    }
+    var estimatedBytes = 256
+    var passed = 0
+    var failed = 0
+    var skipped = 0
+    var previous = ""
+    var index = 0
+    while index < report.results.length() {
+        let result = report.results[index]
+        if result.path == "" or (previous != "" and not
+            testDiscoveryPathBefore(previous, result.path)) or
+            result.exitCode < 0 or result.exitCode > 255 or
+            (result.status != "passed" and result.status != "failed" and
+             result.status != "skipped") or
+            ((result.status == "passed" or result.status == "skipped") and
+             result.exitCode != 0) {
+
+            return reporterFailure(test001eError(
+                "test.001e.invalid", "test result is not canonical"))
+        }
+        if result.status == "passed" { passed = passed + 1 }
+        else if result.status == "failed" { failed = failed + 1 }
+        else { skipped = skipped + 1 }
+        // Charge the selected format's exact escape expansion before
+        // constructing the report. The fixed allowance covers the testcase
+        // fields, counters, delimiters, and status text.
+        estimatedBytes = estimatedBytes +
+            reporterEscapedPathBytes(result.path, request.format) + 128
+        if estimatedBytes > context.limits.maxManifestBytes {
+            return reporterFailure(test001eError(
+                "test.001e.limit", "test report byte limit exceeded"))
+        }
+        previous = result.path
+        index = index + 1
+    }
+    if passed != report.passed or failed != report.failed or
+        skipped != report.skipped or (failed > 0 and report.exitCode != 1) or
+        (failed == 0 and report.exitCode != 0) {
+
+        return reporterFailure(test001eError(
+            "test.001e.invalid", "test report counters are inconsistent"))
+    }
+    var content = renderTestRunHuman(report)
+    if request.format == TestReporterFormat.Json {
+        content = renderTestRunJson(report)
+    } else if request.format == TestReporterFormat.Junit {
+        content = renderTestRunJunit(report, request.suiteName)
+    }
+    if content.length() > context.limits.maxManifestBytes {
+        return reporterFailure(test001eError(
+            "test.001e.limit", "rendered report limit exceeded"))
+    }
+    return reporterSuccess(TestReporterOutput{
+        schema: TEST_REPORT_SCHEMA,
+        format: reporterFormatName(request.format),
+        mediaType: reporterMediaType(request.format),
+        content: content
+    })
+}
+
+fun renderTestReport(report: TestRunReport, request: TestReporterRequest,
+    context: OperationContext) r: Result<TestReporterOutput, SeenError> {
+
+    let checked = renderTestReportChecked(report, request, context)
+    if not checked.success {
+        return Err<TestReporterOutput, SeenError>(checked.errors[0])
+    }
+    return Ok<TestReporterOutput, SeenError>(checked.values[0])
+}

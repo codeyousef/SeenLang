@@ -28,7 +28,7 @@ python3 "$CHECKER" --validate "$HAPPY" --benchmark-limit-ms 10 |
     grep -Fq 'warmups=5 samples=30' || fail "benchmark"
 
 for symbol in TestRunnerOptions TestRunPlan TestExecutionResult TestRunReport \
-    buildTestRunPlan finalizeTestRun renderTestRunReport renderTestRunJunit; do
+    buildTestRunPlan finalizeTestRun; do
     grep -Fq "$symbol" "$NATIVE" || fail "native API $symbol"
 done
 for code in test.001b.invalid test.001b.limit test.001b.cancelled; do

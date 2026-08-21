@@ -1,0 +1,104 @@
+import seen_compiler.testing.runner.{TestExecutionResult, TestRunReport}
+import seen_compiler.testing.reporters.{TestReporterFormat,
+    TestReporterRequest, renderTestReportChecked}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+
+fun test001eContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false, monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 64, maxGraphEdges: 128, maxGraphDepth: 16
+        }, traceId: AsciiString{ value: "test-001e" }
+    }
+}
+
+fun test001eReport() r: TestRunReport {
+    let results = Array<TestExecutionResult>()
+    results.push(TestExecutionResult{
+        path: "compiler_seen/tests/alpha.seen", status: "passed", exitCode: 0
+    })
+    results.push(TestExecutionResult{
+        path: "compiler_seen/tests/beta-and-<xml>.seen",
+        status: "failed", exitCode: 7
+    })
+    results.push(TestExecutionResult{
+        path: "tests/misc_root_tests/gamma.sh", status: "skipped", exitCode: 0
+    })
+    return TestRunReport{
+        schema: "seen-test-run-v1", results: results,
+        passed: 1, failed: 1, skipped: 1, exitCode: 1
+    }
+}
+
+fun request(format: TestReporterFormat) r: TestReporterRequest {
+    return TestReporterRequest{format: format, suiteName: "seen"}
+}
+
+fun main() r: Int {
+    let report = test001eReport()
+    let human = renderTestReportChecked(
+        report, request(TestReporterFormat.Human), test001eContext())
+    let json = renderTestReportChecked(
+        report, request(TestReporterFormat.Json), test001eContext())
+    let junit = renderTestReportChecked(
+        report, request(TestReporterFormat.Junit), test001eContext())
+    if not human.success or not json.success or not junit.success or
+        not human.values[0].content.contains("1 passed; 1 failed; 1 skipped") or
+        not json.values[0].content.contains("seen-test-run-v1") or
+        not junit.values[0].content.contains("&lt;xml&gt;") or
+        not junit.values[0].content.contains(
+            "name='seen' tests='3' failures='1' skipped='1'") {
+
+        println("FAIL: TEST-001E_happy")
+        return 1
+    }
+    println("PASS: TEST-001E_happy")
+
+    var invalidReport = test001eReport()
+    invalidReport.passed = 2
+    let invalid = renderTestReportChecked(
+        invalidReport, request(TestReporterFormat.Json), test001eContext())
+    if invalid.success or invalid.errors[0].code.value != "test.001e.invalid" {
+        println("FAIL: TEST-001E_invalid")
+        return 1
+    }
+    println("PASS: TEST-001E_invalid")
+
+    var limitContext = test001eContext()
+    limitContext.limits.maxManifestBytes = 16
+    let limited = renderTestReportChecked(
+        report, request(TestReporterFormat.Human), limitContext)
+    if limited.success or limited.errors[0].code.value != "test.001e.limit" {
+        println("FAIL: TEST-001E_limit")
+        return 1
+    }
+    println("PASS: TEST-001E_limit")
+
+    var cancelContext = test001eContext()
+    cancelContext.cancellation = true
+    let cancelled = renderTestReportChecked(
+        report, request(TestReporterFormat.Json), cancelContext)
+    if cancelled.success or
+        cancelled.errors[0].code.value != "test.001e.cancelled" {
+
+        println("FAIL: TEST-001E_cancel")
+        return 1
+    }
+    println("PASS: TEST-001E_cancel")
+
+    let repeated = renderTestReportChecked(
+        report, request(TestReporterFormat.Junit), test001eContext())
+    if not repeated.success or repeated.values[0].content !=
+        junit.values[0].content or not repeated.values[0].content.endsWith(
+            "</testsuite>\n") {
+
+        println("FAIL: TEST-001E_cleanup")
+        return 1
+    }
+    println("PASS: TEST-001E_cleanup")
+    return 0
+}
+
+main()

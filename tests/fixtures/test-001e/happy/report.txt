@@ -1,0 +1,4 @@
+PASS compiler_seen/tests/alpha.seen
+FAIL compiler_seen/tests/beta.seen (exit 7)
+SKIP tests/misc_root_tests/gamma.sh
+test result: 1 passed; 1 failed; 1 skipped

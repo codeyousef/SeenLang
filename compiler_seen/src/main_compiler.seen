@@ -343,6 +343,9 @@ import seen_compiler.testing.fixture.{FixtureFile as _seedFixtureFile,
     FixtureRequest as _seedFixtureRequest,
     FixturePlan as _seedFixturePlan,
     FixturePlanOutcome as _seedFixturePlanOutcome}
+import seen_compiler.testing.reporters.{TestReporterRequest as _seedTestReporterRequest,
+    TestReporterOutput as _seedTestReporterOutput,
+    TestReporterOutcome as _seedTestReporterOutcome}
 import tools.c_import_gen.{CImportResult, newCImportGenerator}
 import tools.c_import_frontend.{cImportParseHeader}
 import tools.c_import_ast.{cImportParseClangAstDump}
@@ -7995,6 +7998,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("testing.assertions")
         modules.push("testing.snapshot")
         modules.push("testing.fixture")
+        modules.push("testing.reporters")
         modules.push("imports.graph")
         modules.push("trace")
         // lexer.real_lexer removed: 2-line re-export shim, no compiler module imports it

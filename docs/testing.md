@@ -90,3 +90,13 @@ new physical root and returns an ownership token required for idempotence-safe
 cleanup; tests cover success, failure, cancellation, limits, and zero retained
 fixture roots. Linux x86-64 is verified now; Linux ARM64, macOS, and Windows
 share the declared source contract and require their target runner adapter.
+
+## Human, JSON, and JUnit reports
+
+TEST-001E defines `seen-test-report-v1`, one native validated rendering path
+for deterministic human text, canonical `seen-test-run-v1` JSON, and escaped
+JUnit XML. Report counters, status/exit-code pairs, byte-ordered paths, suite
+identity, cancellation, and output bounds are validated before rendering.
+Human output is the canonical CLI display; JSON and JUnit are written only to
+the safe transactional report paths documented above. XML declarations and
+entities are rejected by the host oracle, and all formats end deterministically.
