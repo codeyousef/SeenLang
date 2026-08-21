@@ -1855,6 +1855,9 @@ OPT_VMEM_KB=""
 RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-1800}"
 TIER_TIMEOUT_SECS="${SEEN_TIER_TIMEOUT_SECS:-2700}"
 IR_RECOVERY_DISABLED="${SEEN_DISABLE_IR_RECOVERY:-0}"
+# Internal capability marker. Never accept it from the caller; the exact
+# frozen Stage-1 command and captured-frozen-IR recovery set it explicitly.
+unset SEEN_FROZEN_IR_COMPAT
 SYSTEM_MEMORY_KB=$(detect_effective_system_memory_kb || true)
 SYSTEM_AVAILABLE_KB=$(detect_available_memory_kb || true)
 MEMORY_GUARD_RSS_KB=""
@@ -2916,7 +2919,6 @@ recover_with_preserved_production_compiler() {
         "${recovery_package_env[@]}" PATH="$OPT_WRAPPER_DIR:$PATH" \
             SEEN_COMPILER_SOURCE_ROOT="$recovery_source_root" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
-            SEEN_SKIP_IR_FIXUPS=1 \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$OPT_VMEM_KB" \
             SEEN_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-}" \
@@ -3039,13 +3041,13 @@ recover_complete_ll_set_to_compiler() {
         return 1
     fi
 
-    echo -e "${YELLOW}${label} left a complete $expected_modules/$expected_modules .ll set at $ll_dir; falling back to direct IR recovery.${NC}"
+    echo -e "${YELLOW}${label} left a complete $expected_modules/$expected_modules unmodified .ll set at $ll_dir; using direct object recovery.${NC}"
 
     local recovery_exit=0
     local recovery_log="/tmp/seen_${label//[^A-Za-z0-9_]/_}_recovery_$$.log"
     set +e
-    run_guarded_command "${label} IR recovery" "$RECOVERY_TIMEOUT_SECS" "$OPT_VMEM_KB" \
-        bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" "$ll_dir" 2>&1 | tee "$recovery_log"
+    run_guarded_command "${label} unmodified IR recovery" "$RECOVERY_TIMEOUT_SECS" "$OPT_VMEM_KB" \
+        bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" "$ll_dir" --skip-fixups 2>&1 | tee "$recovery_log"
     recovery_exit=${PIPESTATUS[0]}
     set -e
 
@@ -3259,7 +3261,8 @@ rm -f "$STAGE2" "$STAGE3"
 # --- Opt wrapper setup (platform-specific) ---
 
 if [ "$HOST_OS" = "Darwin" ]; then
-    # macOS: use comprehensive ABI mismatch fixer (macos_opt_wrapper.py)
+    # macOS: expose the historical ABI adapter only to the exact frozen
+    # Stage-1 invocation. Current/production compilers exec the real optimizer.
     OPT_WRAPPER_DIR=$(mktemp -d /tmp/seen_opt_wrapper.XXXXXX)
     if [ -d "/opt/homebrew/opt/llvm/bin" ]; then
         LLVM_BIN="/opt/homebrew/opt/llvm/bin"
@@ -3273,17 +3276,37 @@ if [ "$HOST_OS" = "Darwin" ]; then
         if [ -x "$p" ]; then PYTHON3_PATH="$p"; break; fi
     done
     [ -z "$PYTHON3_PATH" ] && PYTHON3_PATH=$(which python3 2>/dev/null || echo "python3")
+    REAL_OPT=""
+    for candidate in "$LLVM_BIN/opt" /opt/homebrew/opt/llvm/bin/opt \
+        /usr/local/opt/llvm/bin/opt /usr/bin/opt; do
+
+        if [ -x "$candidate" ]; then
+            REAL_OPT="$candidate"
+            break
+        fi
+    done
+    [ -z "$REAL_OPT" ] && REAL_OPT=$(command -v opt 2>/dev/null || true)
+    if [ -z "$REAL_OPT" ] || [ ! -x "$REAL_OPT" ]; then
+        echo -e "${RED}ERROR: real macOS LLVM opt binary not found.${NC}" >&2
+        exit 1
+    fi
     cp bootstrap/macos_opt_wrapper.py "$OPT_WRAPPER_DIR/macos_opt_wrapper_impl.py"
     cat > "$OPT_WRAPPER_DIR/opt" << WRAPPER_EOF
 #!/bin/sh
 export PATH="$LLVM_BIN:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\$PATH"
+if [ "\${SEEN_FROZEN_IR_COMPAT:-0}" != "1" ]; then
+    exec "$REAL_OPT" "\$@"
+fi
 exec "$PYTHON3_PATH" "$OPT_WRAPPER_DIR/macos_opt_wrapper_impl.py" "\$@"
 WRAPPER_EOF
     chmod +x "$OPT_WRAPPER_DIR/opt"
     export PATH="$OPT_WRAPPER_DIR:$LLVM_BIN:$PATH"
-    echo "macOS: opt wrapper enabled (python3=$PYTHON3_PATH)"
+    echo "macOS: frozen Stage-1 compatibility wrapper ready (python3=$PYTHON3_PATH)"
 else
-    # Linux: LLVM 21+ rejects duplicate 'declare' statements with different attributes.
+    # Linux: the immutable frozen Stage-1 compiler needs an explicit,
+    # bootstrap-only compatibility adapter. Every current/production compiler
+    # reaches the real optimizer unchanged unless the exact frozen invocation
+    # opts in with SEEN_FROZEN_IR_COMPAT=1.
     REAL_OPT=$(command -v opt)
     OPT_WRAPPER_DIR="/tmp/seen_opt_override"
     mkdir -p "$OPT_WRAPPER_DIR"
@@ -3415,7 +3438,7 @@ if count > 0 and fixed != content:
     print("  stale-builder aggregate ret fix applied to " + path, file=sys.stderr)
 PY_RET_FIX
 }
-if [ "\${SEEN_SKIP_IR_FIXUPS:-0}" = "1" ]; then
+if [ "\${SEEN_FROZEN_IR_COMPAT:-0}" != "1" ]; then
     acquire_seen_low_memory_opt_lock
     exec "$REAL_OPT" "\$@"
 fi
@@ -3468,7 +3491,8 @@ if count > 0:
 
         # Apply comprehensive IR fixups (declare dedup, type mismatches, SSA, etc.)
         if ! python3 "$SCRIPT_DIR/fix_ir.py" "\$arg" 2>&1; then
-            echo "IR FIXUP WARNING: fix_ir.py failed for \$arg (continuing)" >&2
+            echo "FROZEN IR COMPAT ERROR: fix_ir.py failed for \$arg" >&2
+            exit 1
         fi
 
         # Fix bare 0 as type in declare params (e.g. (i64, 0) → (i64, i64))
@@ -3581,6 +3605,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
         env -u SEEN_FORK_SERIALIZER_ROOT_PID -u SEEN_PACKAGE_CLIENT \
+            SEEN_FROZEN_IR_COMPAT=1 \
             LD_PRELOAD="$FORK_SERIALIZER_SO" \
             SEEN_FORK_SERIALIZER_TARGET="$FROZEN_ABS" \
             SEEN_COMPILER_SOURCE_ROOT="$BOOTSTRAP_SOURCE_ROOT" \
@@ -3610,6 +3635,7 @@ else
 
     FROZEN_COMPILE_ENV=(env -u SEEN_FORK_SERIALIZER_ROOT_PID \
         -u SEEN_PACKAGE_CLIENT \
+        "SEEN_FROZEN_IR_COMPAT=1" \
         "PATH=$OPT_WRAPPER_DIR:$PATH" \
         "SEEN_COMPILER_SOURCE_ROOT=$BOOTSTRAP_SOURCE_ROOT")
     if [ -n "$FORK_SERIALIZER_SO" ]; then
@@ -3746,7 +3772,8 @@ else
             RECOVERY_EXIT=0
             RECOVERY_LOG="/tmp/seen_stage2_recovery_$$.log"
             set +e
-            run_guarded_command "Stage2 IR recovery" "$RECOVERY_TIMEOUT_SECS" "$OPT_VMEM_KB" \
+            run_guarded_command "Stage2 frozen-IR compatibility" "$RECOVERY_TIMEOUT_SECS" "$OPT_VMEM_KB" \
+                env SEEN_FROZEN_IR_COMPAT=1 \
                 bash "$SCRIPT_DIR/recovery_opt.sh" "$OPT_WRAPPER_DIR" "$SCRIPT_DIR" "$LL_RECOVERY_SOURCE_DIR" 2>&1 | tee "$RECOVERY_LOG"
             RECOVERY_EXIT=${PIPESTATUS[0]}
             set -e
@@ -4244,21 +4271,20 @@ if [ "$HOST_OS" = "Darwin" ]; then
         fi
         VERIFIED="$STAGE3"
     else
-        echo -e "${YELLOW}Stage3 build completed but failed hello-world smoke; falling back to Stage2.${NC}"
-        echo -e "${GREEN}Using Stage2 as production compiler (it passed smoke).${NC}"
-        VERIFIED="$STAGE2"
+        echo -e "${RED}ERROR: Stage3 failed hello-world smoke; repaired frozen Stage2 output is never production-eligible.${NC}" >&2
+        exit 1
     fi
 else
     # Linux: Attempt S2→S3 bootstrap verification with a timeout.
-    # If Bug A (SeenString field corruption) is fixed, S2 should be able to
-    # cold-compile. Fall back to S2 if S2→S3 times out or fails.
+    # S2 must cold-compile an unmodified Stage3. Repaired frozen Stage2 output
+    # is a bootstrap seed only and is never eligible for production install.
     rm -rf .seen_cache/ /tmp/seen_ir_cache/
     rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll
     rm -f /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
 
     echo ""
     echo "Step 2: Attempting S2→S3 bootstrap verification (Linux)..."
-    echo -e "${DIM}Timeout: 30 minutes. Falls back to S2 if this fails.${NC}"
+    echo -e "${DIM}Timeout: 30 minutes. Requires an unmodified Stage3 or current-compiler recovery.${NC}"
 
     S3_MARKER=$(mktemp -d /tmp/seen_stage3_marker.XXXXXX 2>/dev/null || true)
     if run_guarded_command_to_log_with_failure_watch "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3.log \
@@ -4284,7 +4310,7 @@ else
             fi
             VERIFIED="$STAGE3"
         else
-            echo -e "${YELLOW}Stage3 build completed but failed hello-world smoke; falling back to Stage2.${NC}"
+            echo -e "${YELLOW}Stage3 build completed but failed hello-world smoke; trying current-compiler recovery.${NC}"
             if [ "${SEEN_REQUIRE_STAGE3:-0}" = "1" ]; then
                 echo -e "${RED}ERROR: SEEN_REQUIRE_STAGE3=1 and Stage3 smoke failed.${NC}"
                 exit 1
@@ -4292,8 +4318,8 @@ else
             if recover_with_preserved_production_compiler; then
                 echo -e "${GREEN}Using recovered stage3 as production compiler.${NC}"
             else
-                echo -e "${GREEN}Using Stage2 as production compiler (it passed smoke).${NC}"
-                VERIFIED="$STAGE2"
+                echo -e "${RED}ERROR: no unmodified current-compiler Stage3 is available; repaired frozen Stage2 output is never production-eligible.${NC}" >&2
+                exit 1
             fi
         fi
     else
@@ -4324,8 +4350,8 @@ else
                     echo -e "${RED}ERROR: SEEN_REQUIRE_STAGE3=1 and recovered Stage3 smoke failed.${NC}"
                     exit 1
                 fi
-                echo -e "${GREEN}Using Stage2 as production compiler (verified via frozen bootstrap).${NC}"
-                VERIFIED="$STAGE2"
+                echo -e "${RED}ERROR: recovered Stage3 failed smoke; repaired frozen Stage2 output is never production-eligible.${NC}" >&2
+                exit 1
             fi
         else
             rm -rf "$S3_MARKER"
@@ -4336,8 +4362,8 @@ else
             if recover_with_preserved_production_compiler; then
                 echo -e "${GREEN}Using recovered stage3 as production compiler.${NC}"
             else
-                echo -e "${GREEN}Using Stage2 as production compiler (verified via frozen bootstrap).${NC}"
-                VERIFIED="$STAGE2"
+                echo -e "${RED}ERROR: Stage3 recovery failed; repaired frozen Stage2 output is never production-eligible.${NC}" >&2
+                exit "$S3_EXIT"
             fi
         fi
     fi

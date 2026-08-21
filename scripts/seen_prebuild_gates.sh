@@ -249,16 +249,14 @@ sweep_saved_ll_dir() {
         rm -rf "$work_dir"
         exit 1
     fi
-    for ll in "$work_dir"/seen_module_*.ll; do
-        [ -f "$ll" ] || continue
-        run_with_opt_cap python3 "$SCRIPT_DIR/fix_ir.py" "$ll" "$work_dir"/seen_module_*.ll
-    done
+    # CORE-003C: saved current-compiler IR is verified byte-for-byte as emitted.
+    # Never run the frozen compatibility adapter over production artifacts.
     run_with_opt_cap python3 "$SCRIPT_DIR/verify_ir_call_shapes.py" "$work_dir"
     for ll in "$work_dir"/seen_module_*.ll; do
         [ -f "$ll" ] || continue
         run_with_opt_cap llvm-as "$ll" -o /dev/null
     done
-    echo "PASS: preflight swept $count saved Stage2 .ll file(s)"
+    echo "PASS: preflight verified $count unmodified production .ll file(s)"
     rm -rf "$work_dir"
 }
 
@@ -271,6 +269,8 @@ require_cmd opt
 
 echo "Prebuild gates: Python and shell syntax..."
 python3 -m py_compile "$SCRIPT_DIR/fix_ir.py" \
+    "$SCRIPT_DIR/check_production_ir_policy.py" \
+    "$SCRIPT_DIR/benchmark_production_ir_policy.py" \
     "$SCRIPT_DIR/check_codegen_abi_boundaries.py" \
     "$SCRIPT_DIR/verify_ir_call_shapes.py" \
     "$REPO_ROOT/tests/package_registry_contracts.py"
@@ -300,6 +300,7 @@ bash -n "$SCRIPT_DIR/artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_compiler_artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patterns.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_production_ir_policy_contract.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_codegen_abi_preflight.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh" \
@@ -390,7 +391,10 @@ fi
 echo "Prebuild gates: codegen ABI regression fixtures..."
 bash "$REPO_ROOT/tests/misc_root_tests/seen_codegen_abi_preflight.sh"
 
-echo "Prebuild gates: Stage2 IR repair patterns under ${OPT_VMEM_KB} KiB cap..."
+echo "Prebuild gates: unmodified production IR policy..."
+bash "$REPO_ROOT/tests/misc_root_tests/seen_production_ir_policy_contract.sh"
+
+echo "Prebuild gates: frozen Stage-1 IR compatibility patterns under ${OPT_VMEM_KB} KiB cap..."
 run_with_opt_cap bash "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patterns.sh"
 
 echo "Prebuild gates: IR call shape verifier..."

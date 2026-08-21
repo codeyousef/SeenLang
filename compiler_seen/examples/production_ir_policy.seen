@@ -1,0 +1,39 @@
+import seen_compiler.imports.graph.{validateUnmodifiedProductionIr,
+    renderProductionIrPlan}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let paths = Array<String>()
+    paths.push("build/module.ll")
+    let emitted = Array<String>()
+    emitted.push("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+    let optimizerInput = Array<String>()
+    optimizerInput.push(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+    let context = OperationContext{
+        cancellation: false,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: 4096,
+            maxGraphModules: 16,
+            maxGraphEdges: 64,
+            maxGraphDepth: 16
+        },
+        traceId: AsciiString{ value: "production-ir-example" }
+    }
+    let plan = validateUnmodifiedProductionIr(
+        paths, emitted, optimizerInput, false, "linux-x86_64", context)
+    if plan.isErr() {
+        println(plan.unwrapErr().code.value + ": " +
+            plan.unwrapErr().message)
+        return 1
+    }
+    println(renderProductionIrPlan(plan.unwrap()))
+    return 0
+}
+
+main()

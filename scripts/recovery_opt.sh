@@ -118,6 +118,12 @@ if [ "$SKIP_FIXUPS" = "0" ] && [ ! -x "$OPT_WRAPPER_DIR/opt" ]; then
     echo "  ERROR: opt wrapper not found at $OPT_WRAPPER_DIR/opt"
     exit 1
 fi
+if [ "$SKIP_FIXUPS" = "0" ] &&
+    [ "${SEEN_FROZEN_IR_COMPAT:-0}" != "1" ]; then
+
+    echo "  ERROR: IR mutation is permitted only for captured frozen Stage-1 output" >&2
+    exit 126
+fi
 
 REAL_OPT=$(command -v opt)
 REAL_LLC=$(command -v llc)
