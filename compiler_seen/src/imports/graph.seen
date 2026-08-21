@@ -7,7 +7,8 @@
 
 import core.result.{Result, Ok, Err}
 import release.compatibility.{OperationContext, SeenError, RedactionClass}
-import release.diagnostic_schema.{core003aError, core003bError, core003cError}
+import release.diagnostic_schema.{core003aError, core003bError, core003cError,
+    core003dError}
 
 let CORE_003A_SCHEMA: String = "seen-import-graph-v1"
 let CORE_003A_MAX_MODULES: Int = 4096
@@ -15,6 +16,7 @@ let CORE_003A_MAX_EDGES: Int = 65536
 let CORE_003A_MAX_DEPTH: Int = 4096
 let CORE_003B_SCHEMA: String = "seen-global-initialization-plan-v1"
 let CORE_003C_SCHEMA: String = "seen-production-ir-policy-v1"
+let CORE_003D_SCHEMA: String = "seen-production-source-policy-v1"
 
 class ModuleImportGraph {
     var edgeStarts: Array<Int>
@@ -51,6 +53,13 @@ class ProductionIrPlan {
     var orderedPaths: Array<String>
     var artifactCount: Int
     var repairAllowed: Bool
+}
+
+class ProductionSourcePlan {
+    var schema: String
+    var orderedPaths: Array<String>
+    var sourceCount: Int
+    var rewriteAllowed: Bool
 }
 
 fun productionIrSha256IsCanonical(value: String) r: Bool {
@@ -190,6 +199,147 @@ fun renderProductionIrPlan(value: ProductionIrPlan) r: String {
     output = output + "],\n"
     output = output + "  \"repair_allowed\": false,\n"
     output = output + "  \"schema\": \"" + value.schema + "\"\n"
+    output = output + "}\n"
+    return output
+}
+
+fun productionSourceSha256IsCanonical(value: String) r: Bool {
+    if value.length() != 64 { return false }
+    var idx = 0
+    while idx < value.length() {
+        let byte = value.byteAt(idx)
+        let decimal = byte >= 48 and byte <= 57
+        let lowerHex = byte >= 97 and byte <= 102
+        if not decimal and not lowerHex { return false }
+        idx = idx + 1
+    }
+    return true
+}
+
+/// Public CORE-003D contract. Production compiler input must be byte-identical
+/// to the checked-out source. Rewriting, changed digests, unsafe paths,
+/// unsupported platforms, cancellation, and exceeded bounds fail closed.
+fun validateUnmodifiedProductionSources(paths: Array<String>,
+    checkoutSha256: Array<String>, compilerInputSha256: Array<String>,
+    rewriteRequested: Bool, platform: String,
+    context: OperationContext) r: Result<ProductionSourcePlan, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<ProductionSourcePlan, SeenError>(core003dError(
+            "core.003d.cancelled", "validate",
+            "production source validation cancelled", RedactionClass.Public))
+    }
+    if not importGraphPlatformKnown(platform) {
+        return Err<ProductionSourcePlan, SeenError>(core003dError(
+            "core.003d.platform", "validate",
+            "production source platform is unsupported", RedactionClass.Public))
+    }
+    if context.limits.maxGraphModules < 1 or
+        context.limits.maxGraphModules > CORE_003A_MAX_MODULES or
+        context.limits.maxPathBytes < 1 or rewriteRequested {
+
+        let code = if rewriteRequested {
+            "core.003d.invalid"
+        } else {
+            "core.003d.limit"
+        }
+        let message = if rewriteRequested {
+            "production source rewriting is forbidden"
+        } else {
+            "production source limits are invalid"
+        }
+        return Err<ProductionSourcePlan, SeenError>(core003dError(
+            code, "validate", message, RedactionClass.Public))
+    }
+    if paths.length() == 0 or
+        paths.length() > context.limits.maxGraphModules {
+
+        return Err<ProductionSourcePlan, SeenError>(core003dError(
+            "core.003d.limit", "validate",
+            "production source file limit exceeded", RedactionClass.Public))
+    }
+    if checkoutSha256.length() != paths.length() or
+        compilerInputSha256.length() != paths.length() {
+
+        return Err<ProductionSourcePlan, SeenError>(core003dError(
+            "core.003d.invalid", "validate",
+            "production source shape is invalid", RedactionClass.Public))
+    }
+
+    // Validate every untrusted field before allocating the result schedule.
+    var idx = 0
+    while idx < paths.length() {
+        if not importGraphPathIsCanonical(
+            paths[idx], context.limits.maxPathBytes) {
+
+            return Err<ProductionSourcePlan, SeenError>(core003dError(
+                "core.003d.invalid", "validate",
+                "production source path is not canonical",
+                RedactionClass.Sensitive))
+        }
+        if not productionSourceSha256IsCanonical(checkoutSha256[idx]) or
+            not productionSourceSha256IsCanonical(compilerInputSha256[idx]) or
+            checkoutSha256[idx] != compilerInputSha256[idx] {
+
+            return Err<ProductionSourcePlan, SeenError>(core003dError(
+                "core.003d.invalid", "validate",
+                "compiler input differs from checked-out source",
+                RedactionClass.Public))
+        }
+        var previous = 0
+        while previous < idx {
+            if paths[previous] == paths[idx] {
+                return Err<ProductionSourcePlan, SeenError>(core003dError(
+                    "core.003d.invalid", "validate",
+                    "production source path is duplicated",
+                    RedactionClass.Sensitive))
+            }
+            previous = previous + 1
+        }
+        idx = idx + 1
+    }
+
+    let ordered = Array<String>()
+    idx = 0
+    while idx < paths.length() {
+        let path = paths[idx]
+        var insertAt = ordered.length()
+        while insertAt > 0 and
+            importGraphIdentityLess(path, ordered[insertAt - 1]) {
+
+            insertAt = insertAt - 1
+        }
+        ordered.push(path)
+        var cursor = ordered.length() - 1
+        while cursor > insertAt {
+            ordered[cursor] = ordered[cursor - 1]
+            cursor = cursor - 1
+        }
+        ordered[insertAt] = path
+        idx = idx + 1
+    }
+    return Ok<ProductionSourcePlan, SeenError>(ProductionSourcePlan{
+        schema: CORE_003D_SCHEMA,
+        orderedPaths: ordered,
+        sourceCount: ordered.length(),
+        rewriteAllowed: false
+    })
+}
+
+fun renderProductionSourcePlan(value: ProductionSourcePlan) r: String {
+    var output = "{\n"
+    output = output + "  \"ordered_paths\": ["
+    var idx = 0
+    while idx < value.orderedPaths.length() {
+        if idx > 0 { output = output + ", " }
+        output = output + "\"" + value.orderedPaths[idx] + "\""
+        idx = idx + 1
+    }
+    output = output + "],\n"
+    output = output + "  \"rewrite_allowed\": false,\n"
+    output = output + "  \"schema\": \"" + value.schema + "\",\n"
+    output = output + "  \"source_count\": " +
+        value.sourceCount.toString() + "\n"
     output = output + "}\n"
     return output
 }

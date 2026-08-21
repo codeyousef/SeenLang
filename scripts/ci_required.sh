@@ -28,16 +28,19 @@ python3 -m py_compile \
     scripts/benchmark_import_graph.py \
     scripts/benchmark_global_initialization.py \
     scripts/benchmark_production_ir_policy.py \
+    scripts/benchmark_production_source_policy.py \
     scripts/check_compatibility_manifest.py \
     scripts/check_package_layout.py \
     scripts/check_import_graph.py \
     scripts/check_global_initialization.py \
     scripts/check_production_ir_policy.py \
+    scripts/check_production_source_policy.py \
     tests/misc_root_tests/seen_compatibility_manifest_unit.py \
     tests/misc_root_tests/seen_package_layout_unit.py \
     tests/misc_root_tests/seen_import_graph_unit.py \
     tests/misc_root_tests/seen_global_initialization_unit.py \
     tests/misc_root_tests/seen_production_ir_policy_unit.py \
+    tests/misc_root_tests/seen_production_source_policy_unit.py \
     scripts/check_native_boundaries.py \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
@@ -53,6 +56,7 @@ tests/misc_root_tests/seen_package_layout_contract.sh
 tests/misc_root_tests/seen_import_graph_contract.sh
 tests/misc_root_tests/seen_global_initialization_contract.sh
 tests/misc_root_tests/seen_production_ir_policy_contract.sh
+tests/misc_root_tests/seen_production_source_policy_contract.sh
 python3 scripts/benchmark_compatibility_runtime.py \
     releases/compatibility-manifest.json \
     tests/fixtures/core-002b/happy/benchmark.json

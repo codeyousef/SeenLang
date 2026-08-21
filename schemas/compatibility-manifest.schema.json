@@ -3,7 +3,7 @@
   "$id": "https://seenlang.dev/schemas/compatibility-manifest.schema.json",
   "title": "Seen release compatibility manifest",
   "description": "Exact canonical input consumed by the Seen compiler and version-coupled package client; omitted or mismatched values are never inferred or repaired.",
-  "$comment": "The components.compiler.package_interface_schema entry binds reusable source-package compatibility; seen-package-interface-v2 includes the independently versioned native seen-package-layout-v1 contract. The components.compiler.object_cache_abi identity binds seen-import-graph-v1 canonical module ordering, the seen-global-initialization-plan-v1 dependency-first constructor schedule, and the seen-production-ir-policy-v1 unmodified optimizer handoff.",
+  "$comment": "The components.compiler.package_interface_schema entry binds reusable source-package compatibility; seen-package-interface-v2 includes the independently versioned native seen-package-layout-v1 contract. The components.compiler.object_cache_abi identity binds seen-import-graph-v1 canonical module ordering, the seen-global-initialization-plan-v1 dependency-first constructor schedule, the seen-production-ir-policy-v1 unmodified optimizer handoff, and the seen-production-source-policy-v1 unmodified compiler-input handoff.",
   "type": "object",
   "additionalProperties": false,
   "required": ["components", "platforms", "release_version", "schema", "schema_version", "targets"],
@@ -20,7 +20,7 @@
           "properties": {
             "layout_abi": {"$ref": "#/$defs/identity"},
             "object_cache_abi": {
-              "description": "Object-cache compatibility identity binding seen-import-graph-v1 canonical module ordering, the seen-global-initialization-plan-v1 dependency-first constructor schedule, and the seen-production-ir-policy-v1 unmodified optimizer handoff.",
+              "description": "Object-cache compatibility identity binding seen-import-graph-v1 canonical module ordering, the seen-global-initialization-plan-v1 dependency-first constructor schedule, the seen-production-ir-policy-v1 unmodified optimizer handoff, and the seen-production-source-policy-v1 unmodified compiler-input handoff.",
               "const": "seen-object-cache-abi-v3"
             },
             "package_interface_schema": {

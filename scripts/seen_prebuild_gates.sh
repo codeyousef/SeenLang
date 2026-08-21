@@ -271,6 +271,8 @@ echo "Prebuild gates: Python and shell syntax..."
 python3 -m py_compile "$SCRIPT_DIR/fix_ir.py" \
     "$SCRIPT_DIR/check_production_ir_policy.py" \
     "$SCRIPT_DIR/benchmark_production_ir_policy.py" \
+    "$SCRIPT_DIR/check_production_source_policy.py" \
+    "$SCRIPT_DIR/benchmark_production_source_policy.py" \
     "$SCRIPT_DIR/check_codegen_abi_boundaries.py" \
     "$SCRIPT_DIR/verify_ir_call_shapes.py" \
     "$REPO_ROOT/tests/package_registry_contracts.py"
@@ -301,6 +303,7 @@ bash -n "$SCRIPT_DIR/artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_compiler_artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patterns.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_production_ir_policy_contract.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_production_source_policy_contract.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_codegen_abi_preflight.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh" \
@@ -393,6 +396,9 @@ bash "$REPO_ROOT/tests/misc_root_tests/seen_codegen_abi_preflight.sh"
 
 echo "Prebuild gates: unmodified production IR policy..."
 bash "$REPO_ROOT/tests/misc_root_tests/seen_production_ir_policy_contract.sh"
+
+echo "Prebuild gates: unmodified production source policy..."
+bash "$REPO_ROOT/tests/misc_root_tests/seen_production_source_policy_contract.sh"
 
 echo "Prebuild gates: frozen Stage-1 IR compatibility patterns under ${OPT_VMEM_KB} KiB cap..."
 run_with_opt_cap bash "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patterns.sh"

@@ -1,0 +1,9 @@
+{
+  "ordered_paths": [
+    "src/alpha.seen",
+    "src/zeta.seen"
+  ],
+  "rewrite_allowed": false,
+  "schema": "seen-production-source-policy-v1",
+  "source_count": 2
+}

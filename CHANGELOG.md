@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the native `seen-production-source-policy-v1` contract with bounded
+  `core.003d.*` diagnostics, deterministic fixtures, fuzzing, coverage, and a
+  compiling example. Compiler inputs are unmodified production source bytes;
+  production paths reject rewrite requests and digest drift and verify every
+  disposable bootstrap source copy byte-for-byte against the checkout.
 - Added the native `seen-production-ir-policy-v1` contract with bounded
   `core.003c.*` diagnostics, deterministic fixtures, fuzzing, coverage, and a
   compiling example. Production paths consume unmodified production IR, reject
