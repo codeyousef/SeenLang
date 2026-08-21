@@ -1,0 +1,7 @@
+version = 2
+manifest_sha256 = "c5ac179878bba0d33681d13cba7fc2c2ab1ec8fd252a980c55cdb0d778623890"
+
+[root]
+name = "external_package_consumer"
+version = "0.1.0"
+dependencies = []

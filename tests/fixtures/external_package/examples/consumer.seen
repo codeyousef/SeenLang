@@ -1,0 +1,10 @@
+/// Compiling consumer example for the canonical reusable-package layout.
+import external_package.{PackageValue, packageValue}
+
+fun main() r: Int {
+    let value: PackageValue = packageValue()
+    if value.value != 42 { return 1 }
+    return 0
+}
+
+main()

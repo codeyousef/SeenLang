@@ -272,6 +272,11 @@ cleanup() {
             elif [ "$status" -ne 0 ]; then
                 printf 'Stage-1 acceptance failure artifacts retained: %s\n' \
                     "$ACCEPTANCE_ROOT" >&2
+            elif ! find -P "$ACCEPTANCE_ROOT" -type d \
+                -exec chmod u+rwx -- {} +; then
+
+                echo "ERROR: could not make acceptance directories removable: $ACCEPTANCE_ROOT" >&2
+                cleanup_status=1
             elif ! rm -rf -- "$ACCEPTANCE_ROOT"; then
                 echo "ERROR: could not clean acceptance path: $ACCEPTANCE_ROOT" >&2
                 cleanup_status=1
@@ -409,6 +414,28 @@ run_fixture() {
     "$output"
 }
 
+stage_external_package_fixture() {
+    local staged_fixtures="$ACCEPTANCE_ROOT/fixtures"
+    local staged_package="$staged_fixtures/external_package"
+    local staged_consumer="$staged_fixtures/pkg-layout-001/external-consumer"
+    local relative
+
+    mkdir -p -- "$staged_package/src" "$staged_package/examples" \
+        "$staged_package/tests" "$staged_consumer/src" || return 1
+    for relative in Seen.toml Seen.lock README.md LICENSE src/mod.seen \
+        examples/consumer.seen tests/layout_contract.seen; do
+
+        cp -- "$REPO_ROOT/tests/fixtures/external_package/$relative" \
+            "$staged_package/$relative" || return 1
+    done
+    for relative in Seen.toml Seen.lock src/main.seen; do
+        cp -- \
+            "$REPO_ROOT/tests/fixtures/pkg-layout-001/external-consumer/$relative" \
+            "$staged_consumer/$relative" || return 1
+    done
+    printf '%s\n' "$staged_consumer/src/main.seen"
+}
+
 compiler_version="$("$DIRECT_COMPILER" --version)"
 IFS= read -r compiler_version_line <<< "$compiler_version"
 if [ "$compiler_version_line" != "Seen $EXPECTED_VERSION" ]; then
@@ -423,6 +450,11 @@ SEEN_EXPECTED_VERSION="$EXPECTED_VERSION" \
 run_fixture type-ref "$REPO_ROOT/compiler_seen/tests/type_ref.seen"
 run_fixture compatibility-manifest \
     "$REPO_ROOT/compiler_seen/tests/compatibility_manifest.seen"
+run_fixture package-layout \
+    "$REPO_ROOT/compiler_seen/tests/package_layout.seen"
+EXTERNAL_PACKAGE_CONSUMER_FIXTURE=$(stage_external_package_fixture)
+run_fixture external-package-consumer \
+    "$EXTERNAL_PACKAGE_CONSUMER_FIXTURE"
 run_fixture lexical-semantic \
     "$REPO_ROOT/compiler_seen/tests/lexical_semantic.seen"
 run_fixture declaration-frontend-smoke \

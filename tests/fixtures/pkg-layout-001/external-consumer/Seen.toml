@@ -1,0 +1,10 @@
+manifest-version = 1
+
+[project]
+name = "external_package_consumer"
+version = "0.1.0"
+language = "en"
+modules = ["src/main.seen"]
+
+[dependencies]
+fixture = { path = "../../external_package" }

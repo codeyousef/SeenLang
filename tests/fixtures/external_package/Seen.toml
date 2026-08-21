@@ -1,11 +1,20 @@
 manifest-version = 1
 
 [project]
-name = "compatibility_consumer"
+name = "external_package"
 version = "0.1.0"
 language = "en"
-visibility = "explicit"
-modules = ["src/main.seen"]
+modules = ["src/mod.seen"]
+license = "MIT"
+repository = "https://github.com/codeyousef/SeenLang"
 
-[build]
-targets = ["linux-x86_64"]
+[package]
+identity = "seen/external-package"
+visibility = "public"
+include = ["src/**/*.seen", "examples/**/*.seen", "README.md", "LICENSE"]
+assets = []
+capabilities = []
+
+[dependencies]
+
+[native.dependencies]

@@ -87,6 +87,15 @@ under `releases/`; installers ship the same bytes beside `seen`. Missing,
 unknown, unordered, duplicated, unsupported, or mismatched values fail closed
 with `core.002b.*` diagnostics and are never repaired.
 
+The compatibility manifest's `components.compiler.package_interface_schema`
+entry binds reusable source-package compatibility. Its
+`seen-package-interface-v2` value includes the independently versioned native
+`seen-package-layout-v1` contract. Reusable packages expose `src/mod.seen` as
+their explicit library entry and retain root `Seen.toml`, `Seen.lock`,
+`tests/`, `examples/`, `README.md`, and `LICENSE` paths. A different or
+incomplete layout is a breaking alpha contract change and must update the
+manifest binding, native validator, fixtures, and consumers together.
+
 The schema validator's pinned microbenchmark uses five warmups and thirty
 samples with a hard five-percent regression ceiling:
 `python3 scripts/benchmark_compatibility_manifest.py releases/compatibility-manifest.json tests/fixtures/core-002a/happy/benchmark.json`.

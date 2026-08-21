@@ -1,0 +1,8 @@
+/// Public surface of the canonical external reusable-package fixture.
+pub class PackageValue {
+    var value: Int
+}
+
+pub fun packageValue() r: PackageValue {
+    return PackageValue{ value: 42 }
+}

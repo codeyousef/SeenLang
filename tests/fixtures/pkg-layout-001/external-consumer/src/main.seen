@@ -1,0 +1,10 @@
+/// External project consuming the reusable package through a local alias.
+import fixture.{PackageValue, packageValue}
+
+fun main() r: Int {
+    let value: PackageValue = packageValue()
+    if value.value != 42 { return 1 }
+    return 0
+}
+
+main()

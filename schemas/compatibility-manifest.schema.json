@@ -3,6 +3,7 @@
   "$id": "https://seenlang.dev/schemas/compatibility-manifest.schema.json",
   "title": "Seen release compatibility manifest",
   "description": "Exact canonical input consumed by the Seen compiler and version-coupled package client; omitted or mismatched values are never inferred or repaired.",
+  "$comment": "The components.compiler.package_interface_schema entry binds reusable source-package compatibility; seen-package-interface-v2 includes the independently versioned native seen-package-layout-v1 contract.",
   "type": "object",
   "additionalProperties": false,
   "required": ["components", "platforms", "release_version", "schema", "schema_version", "targets"],
@@ -19,7 +20,10 @@
           "properties": {
             "layout_abi": {"$ref": "#/$defs/identity"},
             "object_cache_abi": {"$ref": "#/$defs/identity"},
-            "package_interface_schema": {"$ref": "#/$defs/identity"},
+            "package_interface_schema": {
+              "description": "Compatibility entry binding package interfaces and the native seen-package-layout-v1 reusable-source tree contract.",
+              "const": "seen-package-interface-v2"
+            },
             "package_object_manifest_schema": {"$ref": "#/$defs/identity"},
             "prebuilt_package_schema": {"$ref": "#/$defs/identity"},
             "version": {"$ref": "#/$defs/semver"}

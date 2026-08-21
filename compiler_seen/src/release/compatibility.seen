@@ -1155,3 +1155,172 @@ fun readCompatibilityRuntimeSelection(path: String,
         errorMessage: ""
     }
 }
+
+/// Canonical reusable-package tree contract. Callers supply every path and
+/// platform claim explicitly; validation never normalizes or repairs input.
+class ReusablePackagePlatforms {
+    var linuxArm64: String
+    var linuxX8664: String
+    var macos: String
+    var windows: String
+}
+
+class ReusablePackageLayout {
+    var schema: String
+    var manifestPath: String
+    var sourceRoot: String
+    var libraryEntry: String
+    var testsRoot: String
+    var examplesRoot: String
+    var readmePath: String
+    var licensePath: String
+    var platforms: ReusablePackagePlatforms
+}
+
+class ReusablePackageLayoutOutcome {
+    var success: Bool
+    var values: Array<ReusablePackageLayout>
+    var errors: Array<SeenError>
+}
+
+fun reusablePackageLayoutSuccess(value: ReusablePackageLayout)
+    r: ReusablePackageLayoutOutcome {
+
+    let values = Array<ReusablePackageLayout>()
+    values.push(value)
+    return ReusablePackageLayoutOutcome{
+        success: true,
+        values: values,
+        errors: Array<SeenError>()
+    }
+}
+
+fun reusablePackageLayoutFailure(error: SeenError)
+    r: ReusablePackageLayoutOutcome {
+
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return ReusablePackageLayoutOutcome{
+        success: false,
+        values: Array<ReusablePackageLayout>(),
+        errors: errors
+    }
+}
+
+fun packageLayoutError(code: String, operation: String, message: String)
+    r: SeenError {
+
+    let error = compatibilityErrorWithCode(
+        code, operation, message, RedactionClass.Public)
+    error.subsystem.value = "package.layout"
+    return error
+}
+
+fun packageLayoutPathExceedsLimit(path: String, maximumBytes: Int) r: Bool {
+    return path.length() == 0 or path.length() > maximumBytes
+}
+
+fun reusablePackageLayoutValidateChecked(layout: ReusablePackageLayout,
+    context: OperationContext) r: ReusablePackageLayoutOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return reusablePackageLayoutFailure(packageLayoutError(
+            "pkg.layout.001.cancelled", "validate", "layout validation cancelled"))
+    }
+    if context.limits.maxPathBytes < 1 or
+        context.limits.maxPathBytes > COMPATIBILITY_MAX_PATH_BYTES or
+        context.limits.maxIdentityBytes < 1 or
+        context.limits.maxIdentityBytes > COMPATIBILITY_MAX_IDENTITY_BYTES or
+        context.limits.maxManifestBytes < 1 or
+        context.limits.maxManifestBytes > COMPATIBILITY_MAX_MANIFEST_BYTES {
+
+        return reusablePackageLayoutFailure(packageLayoutError(
+            "pkg.layout.001.limit", "validate", "layout limits are invalid"))
+    }
+    if packageLayoutPathExceedsLimit(
+            layout.manifestPath, context.limits.maxPathBytes) or
+        packageLayoutPathExceedsLimit(
+            layout.sourceRoot, context.limits.maxPathBytes) or
+        packageLayoutPathExceedsLimit(
+            layout.libraryEntry, context.limits.maxPathBytes) or
+        packageLayoutPathExceedsLimit(
+            layout.testsRoot, context.limits.maxPathBytes) or
+        packageLayoutPathExceedsLimit(
+            layout.examplesRoot, context.limits.maxPathBytes) or
+        packageLayoutPathExceedsLimit(
+            layout.readmePath, context.limits.maxPathBytes) or
+        packageLayoutPathExceedsLimit(
+            layout.licensePath, context.limits.maxPathBytes) {
+
+        return reusablePackageLayoutFailure(packageLayoutError(
+            "pkg.layout.001.limit", "validate", "layout path limit exceeded"))
+    }
+    if layout.schema != "seen-package-layout-v1" or
+        layout.manifestPath != "Seen.toml" or layout.sourceRoot != "src" or
+        layout.libraryEntry != "src/mod.seen" or
+        layout.testsRoot != "tests" or layout.examplesRoot != "examples" or
+        layout.readmePath != "README.md" or layout.licensePath != "LICENSE" or
+        not compatibilityAsciiIdentity(
+            context.traceId.value, context.limits.maxIdentityBytes) {
+
+        return reusablePackageLayoutFailure(packageLayoutError(
+            "pkg.layout.001.invalid", "validate",
+            "layout paths or schema are not canonical"))
+    }
+    if layout.platforms.linuxArm64 != "declared-toolchain-dependent" or
+        layout.platforms.linuxX8664 != "required" or
+        layout.platforms.macos != "declared-toolchain-dependent" or
+        layout.platforms.windows != "declared-toolchain-dependent" {
+
+        return reusablePackageLayoutFailure(packageLayoutError(
+            "pkg.layout.001.platform", "validate",
+            "layout platform applicability is invalid"))
+    }
+    return reusablePackageLayoutSuccess(layout)
+}
+
+fun validateReusablePackageLayout(layout: ReusablePackageLayout,
+    context: OperationContext) r: Result<ReusablePackageLayout, SeenError> {
+
+    let checked = reusablePackageLayoutValidateChecked(layout, context)
+    if not checked.success {
+        return Err<ReusablePackageLayout, SeenError>(checked.errors[0])
+    }
+    return Ok<ReusablePackageLayout, SeenError>(checked.values[0])
+}
+
+fun renderReusablePackageLayout(layout: ReusablePackageLayout,
+    context: OperationContext) r: Result<String, SeenError> {
+
+    let validated = reusablePackageLayoutValidateChecked(layout, context)
+    if not validated.success {
+        return Err<String, SeenError>(validated.errors[0])
+    }
+    let value = validated.values[0]
+    let output = StringBuilder.new()
+    output.append("{\n")
+    output.append("  \"examples_root\": \"" + value.examplesRoot + "\",\n")
+    output.append("  \"library_entry\": \"" + value.libraryEntry + "\",\n")
+    output.append("  \"license\": \"" + value.licensePath + "\",\n")
+    output.append("  \"manifest\": \"" + value.manifestPath + "\",\n")
+    output.append("  \"platforms\": {\n")
+    output.append("    \"linux-arm64\": \"" +
+        value.platforms.linuxArm64 + "\",\n")
+    output.append("    \"linux-x86_64\": \"" +
+        value.platforms.linuxX8664 + "\",\n")
+    output.append("    \"macos\": \"" + value.platforms.macos + "\",\n")
+    output.append("    \"windows\": \"" + value.platforms.windows + "\"\n")
+    output.append("  },\n")
+    output.append("  \"readme\": \"" + value.readmePath + "\",\n")
+    output.append("  \"schema\": \"" + value.schema + "\",\n")
+    output.append("  \"source_root\": \"" + value.sourceRoot + "\",\n")
+    output.append("  \"tests_root\": \"" + value.testsRoot + "\"\n")
+    output.append("}\n")
+    let rendered = output.toString()
+    if rendered.length() > context.limits.maxManifestBytes {
+        return Err<String, SeenError>(packageLayoutError(
+            "pkg.layout.001.limit", "render",
+            "rendered layout exceeds byte limit"))
+    }
+    return Ok<String, SeenError>(rendered)
+}

@@ -43,6 +43,15 @@ capabilities = []
 [native.dependencies]
 ```
 
+The canonical reusable-package layout is `seen-package-layout-v1`: a root
+`Seen.toml` and `Seen.lock`, public `src/mod.seen` entry, and explicit `tests/`,
+`examples/`, `README.md`, and `LICENSE` paths. The release compatibility
+module validates this independent identity so tooling cannot silently
+substitute another tree convention. `tests/fixtures/external_package/` is the
+compiling source-only reference layout. The separate local-alias consumer at
+`tests/fixtures/pkg-layout-001/external-consumer/` stays outside both the
+package root and its published archive bytes.
+
 `project.name` is the package's local module root. `package.identity` is its
 canonical `owner/name` registry identity. They are intentionally independent.
 Consumer dependency keys are a third value: local aliases/import roots that do

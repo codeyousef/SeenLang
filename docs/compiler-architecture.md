@@ -195,6 +195,15 @@ sidecar version and request protocol only after every compiler, runtime,
 standard-library, ABI, platform, and target value matches. There is no PATH,
 default-value, or partial-manifest fallback.
 
+The manifest's `seen-package-interface-v2` component entry binds the
+independently versioned `seen-package-layout-v1` compatibility identity, which
+the same native module owns with its bounded `ReusablePackageLayout`
+validation/rendering API.
+Every path and platform claim is supplied explicitly. The API accepts only the
+canonical `Seen.toml`, `src/mod.seen`, tests, examples, readme, and license
+mapping and returns typed `pkg.layout.001.*` errors instead of normalizing a
+different tree.
+
 ## Incremental and Parallel Compilation
 
 The compiler uses source-level and IR-level caches:
