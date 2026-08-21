@@ -1,0 +1,72 @@
+import seen_compiler.release.release_optimization.{ReleaseOptimizationPolicy,
+    validateReleaseOptimization, renderReleaseOptimizationPlan}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext,
+    RetryClass, RedactionClass}
+
+fun releaseContext(cancelled: Bool, maxPathBytes: Int) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 65536, maxPathBytes: maxPathBytes,
+            maxGraphModules: 64, maxGraphEdges: 128, maxGraphDepth: 16
+        },
+        traceId: AsciiString{ value: "core-rel-003-test" }
+    }
+}
+
+fun releasePolicy(path: String) r: ReleaseOptimizationPolicy {
+    return ReleaseOptimizationPolicy{
+        release: true, pgoMode: "use", pgoPath: path,
+        ltoMode: "full", target: "linux-x86_64"
+    }
+}
+
+fun main() r: Int {
+    let happy = validateReleaseOptimization(
+        releasePolicy("profiles/app.profdata"), releaseContext(false, 4096))
+    if happy.isErr() { return 1 }
+    let rendered = renderReleaseOptimizationPlan(happy.unwrap())
+    if not rendered.contains("\"lto_mode\":\"full\"") or
+        not rendered.contains("seen-release-optimization-plan-v1") {
+        return 2
+    }
+    println("PASS: CORE-REL-003_happy")
+
+    let invalid = validateReleaseOptimization(releasePolicy("../raw.profraw"),
+        releaseContext(false, 4096))
+    if not invalid.isErr() or
+        invalid.unwrapErr().code.value != "core.rel.003.invalid" or
+        invalid.unwrapErr().retry != RetryClass.Never or
+        invalid.unwrapErr().redaction != RedactionClass.Public {
+        return 3
+    }
+    let noRelease = validateReleaseOptimization(ReleaseOptimizationPolicy{
+        release: false, pgoMode: "generate", pgoPath: "",
+        ltoMode: "thin", target: "linux-x86_64"
+    }, releaseContext(false, 4096))
+    if not noRelease.isErr() or
+        noRelease.unwrapErr().code.value != "core.rel.003.invalid" {
+        return 4
+    }
+    println("PASS: CORE-REL-003_invalid")
+
+    let limited = validateReleaseOptimization(
+        releasePolicy("profiles/app.profdata"), releaseContext(false, 4))
+    if not limited.isErr() or
+        limited.unwrapErr().code.value != "core.rel.003.limit" { return 5 }
+    println("PASS: CORE-REL-003_limit")
+
+    let cancelled = validateReleaseOptimization(
+        releasePolicy("profiles/app.profdata"), releaseContext(true, 4096))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "core.rel.003.cancelled" { return 6 }
+    println("PASS: CORE-REL-003_cancel")
+
+    if rendered != renderReleaseOptimizationPlan(happy.unwrap()) { return 7 }
+    println("PASS: CORE-REL-003_cleanup")
+    return 0
+}
+
+main()

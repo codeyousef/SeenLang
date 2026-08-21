@@ -42,7 +42,7 @@ temporary binaries are written under `target/seen-build/perf-results/`.
 - `stdlib`: collection behavior, byte buffers, string/JSON, math, sort/search
 - `runtime`: allocation-budget behavior
 - `build`: tiered rebuild duration, peak memory, cache hit rate, compiler size
-- `release-lto`: default merged LTO plus explicit `--no-merged-release-lto`
+- `release-lto`: default merged LTO plus explicit bounded `--lto=thin`
 - `packages`: release artifact staging and reuse
 
 ## Legacy Suites

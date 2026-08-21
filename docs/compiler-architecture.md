@@ -387,6 +387,18 @@ component states distinguish `source-only`, `compile-only`, and
 evidence; hardware execution must come from a separate hardware gate. This
 contract is bound by `seen-object-cache-abi-v3`.
 
+### PGO and explicit LTO modes
+
+Release compilation normalizes to the native `ReleaseOptimizationPolicy`.
+`--lto=full` requires a complete merged-IR path; `--lto=thin` retains bounded
+per-module ThinLTO. Missing tools, partial IR, or optimizer/object failures are
+typed `core.rel.003.*` errors and never switch modes implicitly.
+
+`--pgo-generate` and `--pgo-use` require `--release`. Profile use accepts a
+canonical relative `.profdata` path, rejects raw profiles, and keys compiler,
+runtime, and merged-LTO caches by the profile bytes. PGO flags cover Seen
+modules, retained runtime objects, and compiled ABI shims.
+
 ## Incremental and Parallel Compilation
 
 The compiler uses source-level and IR-level caches:
@@ -414,7 +426,7 @@ serial execution with `--no-fork`; guarded scripts also export
 Seen diagnostics instead of depending on host OOM behavior.
 
 Release builds keep the full merged-IR LTO path by default for performance.
-Memory-constrained callers can pass `--no-merged-release-lto` to stay on the
+Memory-constrained callers can pass `--lto=thin` to stay on the
 bounded per-module ThinLTO path. Warm release builds can reuse a
 signature-keyed merged-LTO object while preserving the default merged-LTO mode.
 

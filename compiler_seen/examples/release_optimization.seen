@@ -1,0 +1,27 @@
+import seen_compiler.release.release_optimization.{ReleaseOptimizationPolicy,
+    validateReleaseOptimization, renderReleaseOptimizationPlan}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let policy = ReleaseOptimizationPolicy{
+        release: true, pgoMode: "generate", pgoPath: "",
+        ltoMode: "thin", target: "linux-x86_64"
+    }
+    let checked = validateReleaseOptimization(policy, OperationContext{
+        cancellation: false, monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 64, maxGraphEdges: 128, maxGraphDepth: 16
+        },
+        traceId: AsciiString{ value: "release-optimization-example" }
+    })
+    if checked.isErr() {
+        println(checked.unwrapErr().code.value + ": " + checked.unwrapErr().message)
+        return 1
+    }
+    println(renderReleaseOptimizationPlan(checked.unwrap()))
+    return 0
+}
+
+main()

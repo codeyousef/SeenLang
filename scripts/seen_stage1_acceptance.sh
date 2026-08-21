@@ -478,6 +478,10 @@ run_fixture build-instrumentation \
     "$REPO_ROOT/compiler_seen/tests/release/build_instrumentation.seen"
 run_fixture build-instrumentation-example \
     "$REPO_ROOT/compiler_seen/examples/build_instrumentation.seen"
+run_fixture release-optimization \
+    "$REPO_ROOT/compiler_seen/tests/release/release_optimization.seen"
+run_fixture release-optimization-example \
+    "$REPO_ROOT/compiler_seen/examples/release_optimization.seen"
 
 instrumentation_dir="$ACCEPTANCE_ROOT/core-rel-002"
 instrumentation_output="$instrumentation_dir/instrumented"
@@ -499,6 +503,41 @@ mkdir -p -- "$instrumentation_dir"
 "$instrumentation_output"
 python3 "$REPO_ROOT/scripts/check_build_instrumentation.py" \
     --evidence "$instrumentation_dir/evidence.json"
+
+release_dir="$ACCEPTANCE_ROOT/core-rel-003"
+release_fixture="$REPO_ROOT/tests/fixtures/core-rel-003/happy/main.seen"
+release_generate="$release_dir/pgo-generate"
+release_use="$release_dir/pgo-use"
+release_full="$release_dir/full-lto"
+release_raw="$release_dir/default.profraw"
+release_profile_rel="core-rel-003/default.profdata"
+release_profile="$ACCEPTANCE_ROOT/$release_profile_rel"
+release_trace="$release_dir/full-lto.jsonl"
+mkdir -p -- "$release_dir"
+(
+    cd "$ACCEPTANCE_ROOT"
+    "$DIRECT_COMPILER" compile "$release_fixture" "$release_generate" \
+        --release --lto thin --pgo-generate --no-cache \
+        "${COMPILER_WORKER_FLAGS[@]}"
+    LLVM_PROFILE_FILE="$release_raw" "$release_generate"
+    llvm-profdata merge -sparse "$release_raw" -o "$release_profile"
+    "$DIRECT_COMPILER" compile "$release_fixture" "$release_use" \
+        --release --lto thin --pgo-use "$release_profile_rel" --no-cache \
+        "${COMPILER_WORKER_FLAGS[@]}"
+    "$release_use"
+    SEEN_BUILD_TRACE="$release_trace" SEEN_TRACE_BUILD="$release_trace" \
+        "$DIRECT_COMPILER" compile "$release_fixture" "$release_full" \
+        --release --lto full --no-cache "${COMPILER_WORKER_FLAGS[@]}"
+) >"$release_dir/acceptance.log" 2>&1 || {
+    echo "ERROR: CORE-REL-003 release acceptance failed: $release_dir/acceptance.log" >&2
+    print_fixture_compile_log core-rel-003 "$release_dir/acceptance.log"
+    exit 1
+}
+"$release_full"
+grep -Fq '"phase":"release lto mode","status":"merged"' "$release_trace" || {
+    echo "ERROR: CORE-REL-003 full LTO did not emit merged trace evidence" >&2
+    exit 1
+}
 EXTERNAL_PACKAGE_CONSUMER_FIXTURE=$(stage_external_package_fixture)
 run_fixture external-package-consumer \
     "$EXTERNAL_PACKAGE_CONSUMER_FIXTURE"

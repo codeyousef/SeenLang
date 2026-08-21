@@ -1,58 +1,63 @@
-#!/bin/bash
-# PGO (Profile-Guided Optimization) build script for Seen programs.
-# Usage: ./scripts/pgo_build.sh <source.seen> <output> [training_args...]
-#
-# This script performs a 4-phase PGO build:
-#   Phase 1: Compile with instrumentation (--pgo-generate)
-#   Phase 2: Run the instrumented binary to collect profiles
-#   Phase 3: Merge raw profiles into usable form
-#   Phase 4: Recompile with profile data (--pgo-use)
+#!/usr/bin/env bash
+# Run a strict four-phase PGO cycle inside an already verified build scope.
 
-set -e
+set -euo pipefail
 
-if [ $# -lt 2 ]; then
-    echo "Usage: $0 <source.seen> <output> [training_args...]"
-    echo "Example: $0 benchmarks/matrix_multiply.seen matrix_multiply"
-    exit 1
+ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
+ARTIFACT_HELPER="$ROOT_DIR/scripts/artifact_root.sh"
+HARD_SCOPE="$ROOT_DIR/scripts/run_in_hard_memory_scope.sh"
+
+if [ "$#" -lt 2 ]; then
+    echo "Usage: SEEN_PGO_COMPILER=/absolute/seen $0 <source.seen> <output> [training args...]" >&2
+    exit 2
 fi
-
-SOURCE="$1"
-OUTPUT="$2"
+SOURCE=$1
+OUTPUT=$2
 shift 2
-TRAINING_ARGS="$@"
+TRAINING_ARGS=("$@")
+case "$SOURCE" in /*) ;; *) SOURCE="$PWD/$SOURCE" ;; esac
+case "$OUTPUT" in /*) ;; *) OUTPUT="$PWD/$OUTPUT" ;; esac
 
-COMPILER="./compiler_seen/target/seen"
-if [ ! -f "$COMPILER" ]; then
-    COMPILER="./bootstrap/stage1_frozen"
-fi
+[ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ] || {
+    echo "RESOURCE STOP: PGO builds require a verified aggregate memory scope" >&2
+    exit 126
+}
+"$HARD_SCOPE" --label "PGO build read-back" --verify-only -- >/dev/null || {
+    echo "RESOURCE STOP: PGO build scope read-back failed" >&2
+    exit 126
+}
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_HELPER"
+seen_artifact_root_init "$ROOT_DIR" || exit 126
+scope=$(seen_artifact_scope_init pgo-build) || exit 126
+work=$(seen_artifact_mktemp_dir "$scope" run) || exit 126
 
-PROFRAW="/tmp/seen_pgo_${OUTPUT##*/}.profraw"
-PROFDATA="/tmp/seen_pgo_${OUTPUT##*/}.profdata"
+COMPILER=${SEEN_PGO_COMPILER:-}
+case "$COMPILER" in /*) ;; *)
+    echo "RESOURCE STOP: SEEN_PGO_COMPILER must be an absolute path" >&2
+    exit 126 ;;
+esac
+[ -x "$COMPILER" ] && [ ! -L "$COMPILER" ] || {
+    echo "RESOURCE STOP: unsafe PGO compiler" >&2
+    exit 126
+}
 
-echo "=== PGO Build: $SOURCE -> $OUTPUT ==="
+instrumented="$work/instrumented"
+profraw="$work/default.profraw"
+profdata="$work/default.profdata"
+profile_relative=${profdata#"$ROOT_DIR"/}
+case "$profile_relative" in .seen/agent-tools/*) ;; *)
+    echo "RESOURCE STOP: PGO profile escaped project artifacts" >&2
+    exit 126 ;;
+esac
 
-# Phase 1: Instrumented build
-echo "[Phase 1/4] Compiling with instrumentation..."
-$COMPILER build "$SOURCE" "${OUTPUT}_instrumented" --pgo-generate
-echo "  Instrumented binary: ${OUTPUT}_instrumented"
-
-# Phase 2: Collect profiles
-echo "[Phase 2/4] Running instrumented binary to collect profile..."
-LLVM_PROFILE_FILE="$PROFRAW" ./"${OUTPUT}_instrumented" $TRAINING_ARGS
-echo "  Raw profile: $PROFRAW"
-
-# Phase 3: Merge profiles
-echo "[Phase 3/4] Merging profile data..."
-llvm-profdata merge -sparse "$PROFRAW" -o "$PROFDATA"
-echo "  Merged profile: $PROFDATA"
-
-# Phase 4: Optimized build with profile
-echo "[Phase 4/4] Compiling with profile-guided optimization..."
-$COMPILER build "$SOURCE" "$OUTPUT" --pgo-use="$PROFDATA"
-echo "  PGO-optimized binary: $OUTPUT"
-
-# Cleanup
-rm -f "${OUTPUT}_instrumented" "$PROFRAW"
-
-echo "=== PGO Build Complete ==="
-echo "Run: ./$OUTPUT"
+"$COMPILER" compile "$SOURCE" "$instrumented" --release --lto thin \
+    --pgo-generate --no-cache
+LLVM_PROFILE_FILE="$profraw" "$instrumented" "${TRAINING_ARGS[@]}"
+llvm-profdata merge -sparse "$profraw" -o "$profdata"
+(
+    cd "$ROOT_DIR"
+    "$COMPILER" compile "$SOURCE" "$OUTPUT" --release --lto thin \
+        --pgo-use "$profile_relative" --no-cache
+)
+echo "PGO build complete: $OUTPUT"
