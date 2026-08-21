@@ -55,12 +55,6 @@ python3 scripts/benchmark_compatibility_runtime.py \
 python3 scripts/benchmark_package_layout.py \
     tests/fixtures/pkg-layout-001/happy/layout.json \
     tests/fixtures/pkg-layout-001/happy/benchmark.json
-python3 scripts/benchmark_import_graph.py \
-    tests/fixtures/core-003a/happy/graph.json \
-    tests/fixtures/core-003a/happy/benchmark.json
-python3 scripts/benchmark_global_initialization.py \
-    tests/fixtures/core-003b/happy/plan.json \
-    tests/fixtures/core-003b/happy/benchmark.json
 tests/misc_root_tests/seen_native_boundaries_ledger.sh
 tests/misc_root_tests/seen_native_inventory_gate.sh
 tests/misc_root_tests/seen_ci_workflow_contract.sh

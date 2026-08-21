@@ -124,7 +124,7 @@ grep -Fq 'emitGlobalConstructorsWithFeatureStateImpl(' \
     "$TAIL_DRIVER" || fail "module index does not reach constructor emission"
 grep -Fq 'emitGlobalConstructorsImpl(' "$FEATURE_STATE" ||
     fail "feature-state owner does not emit constructors"
-if rg -n 'global_ctors.*(sort|repair|rewrite)|65535, ptr @' \
+if grep -En 'global_ctors.*(sort|repair|rewrite)|65535, ptr @' \
     "$ROOT_DIR/scripts/fix_ir.py" "$ROOT_DIR/scripts/rewrite_codegen_tmp.py" \
     >"$TEST_ROOT/repair.txt"; then
     fail "conflicting production global-constructor repair remains"
