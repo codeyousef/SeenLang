@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/test-fixture.schema.json",
+  "title": "Seen deterministic isolated fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "seed", "target", "files", "environment"],
+  "properties": {
+    "schema": {"const": "seen-test-fixture-v1"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$"},
+    "seed": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+    "target": {"enum": ["linux-x86_64", "linux-arm64", "macos", "windows"]},
+    "files": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "content"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$"},
+          "content": {"type": "string"}
+        }
+      }
+    },
+    "environment": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "value"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^(LANG|LC_ALL|TZ|SEEN_TEST_(?![A-Z0-9_]*(SECRET|TOKEN|PASSWORD))[A-Z0-9_]*)$"},
+          "value": {"type": "string", "maxLength": 4096}
+        }
+      }
+    }
+  }
+}

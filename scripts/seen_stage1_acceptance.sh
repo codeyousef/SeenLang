@@ -493,6 +493,10 @@ run_fixture test-assertions \
     "$REPO_ROOT/compiler_seen/tests/test_001c_assertions.seen"
 run_fixture test-assertions-example \
     "$REPO_ROOT/compiler_seen/examples/test_assertions.seen"
+run_fixture test-fixtures \
+    "$REPO_ROOT/compiler_seen/tests/test_001d_fixtures.seen"
+run_fixture test-fixtures-example \
+    "$REPO_ROOT/compiler_seen/examples/test_fixture.seen"
 
 test_runner_log="$ACCEPTANCE_ROOT/test-runner-cli.log"
 if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001B \

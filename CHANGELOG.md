@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native `seen-test-fixture-v1` deterministic isolated fixture plans
+  with explicit seeds and targets, canonical file/environment inventories,
+  owned cleanup roots, strict materialization fixtures, and bounded
+  fuzz/coverage/performance gates.
 - Added native `seen-test-assertion-v1` structured assertions and
   `seen-test-snapshot-v1` exact-text snapshot comparison with bounded portable
   names, explicit update policy, stable diagnostics, deterministic rendering,

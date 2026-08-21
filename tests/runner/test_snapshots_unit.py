@@ -40,7 +40,7 @@ class TestSnapshotContract(unittest.TestCase):
 
     def test_safe_names(self):
         self.assertTrue(MODULE.safe_name("linux-x86_64.case"))
-        for value in (None, "", "../a", "a/b", "bad name", "é"):
+        for value in (None, "", ".", ".hidden", "../a", "a/b", "bad name", "é"):
             self.assertFalse(MODULE.safe_name(value))
 
     def test_fuzz_and_benchmark(self):

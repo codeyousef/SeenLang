@@ -1,0 +1,15 @@
+{
+  "schema": "seen-test-fixture-v1",
+  "name": "deterministic-case",
+  "seed": 1101,
+  "target": "linux-x86_64",
+  "files": [
+    {"path": "input/a.txt", "content": "alpha\n"},
+    {"path": "input/b.txt", "content": "beta\n"}
+  ],
+  "environment": [
+    {"name": "LANG", "value": "C"},
+    {"name": "SEEN_TEST_MODE", "value": "ci"},
+    {"name": "TZ", "value": "UTC"}
+  ]
+}

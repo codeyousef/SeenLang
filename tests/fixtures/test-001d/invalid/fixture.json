@@ -1,0 +1,8 @@
+{
+  "schema": "seen-test-fixture-v1",
+  "name": "escape-case",
+  "seed": 1101,
+  "target": "linux-x86_64",
+  "files": [{"path": "../escape", "content": "must fail\n"}],
+  "environment": []
+}
