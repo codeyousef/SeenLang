@@ -1,0 +1,95 @@
+import testing.discovery.{TestDiscoveryCandidate, discoverTestsChecked,
+    renderTestDiscoveryManifest}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+import testing.categories.{TestPrimaryCategory, TestPlatformCategory}
+
+fun testContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 1000, maxGraphEdges: 2000, maxGraphDepth: 64
+        },
+        traceId: AsciiString{ value: "test-001a" }
+    }
+}
+
+fun candidate(path: String, category: TestPrimaryCategory, ignored: Bool,
+    slow: Bool, platform: TestPlatformCategory,
+    privileged: Bool) r: TestDiscoveryCandidate {
+
+    return TestDiscoveryCandidate{
+        path: path, category: category, ignored: ignored, slow: slow,
+        platform: platform, privileged: privileged
+    }
+}
+
+fun main() r: Int {
+    let entries = Array<TestDiscoveryCandidate>()
+    entries.push(candidate("compiler_seen/tests/alpha_test.seen",
+        TestPrimaryCategory.Unit, false, false, TestPlatformCategory.All,
+        false))
+    entries.push(candidate("compiler_seen/tests/ignored/beta_test.seen",
+        TestPrimaryCategory.Unit, true, false, TestPlatformCategory.All,
+        false))
+    entries.push(candidate("seen_std/tests/slow/omega_test.seen",
+        TestPrimaryCategory.Unit, false, true, TestPlatformCategory.All,
+        false))
+    entries.push(candidate("seen_std/tests/zeta_test.seen",
+        TestPrimaryCategory.Unit, false, false, TestPlatformCategory.All,
+        false))
+    entries.push(candidate(
+        "tests/misc_root_tests/seen_linux_privileged_probe.sh",
+        TestPrimaryCategory.Integration, false, false,
+        TestPlatformCategory.Linux, true))
+    let happy = discoverTestsChecked(entries, testContext())
+    if not happy.success or happy.values[0].tests.length() != 5 {
+        println("FAIL: TEST-001A_happy")
+        return 1
+    }
+    println("PASS: TEST-001A_happy")
+
+    let invalidEntries = Array<TestDiscoveryCandidate>()
+    invalidEntries.push(candidate("../escape_test.seen",
+        TestPrimaryCategory.Unit, false, false, TestPlatformCategory.All,
+        false))
+    let invalid = discoverTestsChecked(
+        invalidEntries, testContext())
+    if invalid.success or invalid.errors[0].code.value != "test.001a.invalid" {
+        println("FAIL: TEST-001A_invalid")
+        return 1
+    }
+    println("PASS: TEST-001A_invalid")
+
+    var limitContext = testContext()
+    limitContext.limits.maxGraphModules = 1
+    let limited = discoverTestsChecked(entries, limitContext)
+    if limited.success or limited.errors[0].code.value != "test.001a.limit" {
+        println("FAIL: TEST-001A_limit")
+        return 1
+    }
+    println("PASS: TEST-001A_limit")
+
+    var cancelContext = testContext()
+    cancelContext.cancellation = true
+    let cancelled = discoverTestsChecked(entries, cancelContext)
+    if cancelled.success or
+        cancelled.errors[0].code.value != "test.001a.cancelled" {
+
+        println("FAIL: TEST-001A_cancel")
+        return 1
+    }
+    println("PASS: TEST-001A_cancel")
+
+    let bytes = renderTestDiscoveryManifest(happy.values[0])
+    if not bytes.contains("seen-test-discovery-v1") {
+        println("FAIL: TEST-001A_cleanup")
+        return 1
+    }
+    println("PASS: TEST-001A_cleanup")
+    return 0
+}
+
+main()

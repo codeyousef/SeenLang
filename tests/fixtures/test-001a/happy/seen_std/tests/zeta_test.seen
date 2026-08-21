@@ -1,0 +1,1 @@
+fun zeta() r: Int { return 2 }

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native `seen-test-discovery-v1` manifests with deterministic path
+  ordering, strict unit/integration classification, and composable
+  ignored/slow/platform/privileged categories. Legacy all-tests now records
+  and validates the same canonical inventory for the forthcoming `seen test`
+  runner.
 - Added native `seen-release-optimization-plan-v1` validation and explicit
   `--lto=full|thin` release modes with stable `core.rel.003.*` diagnostics.
   PGO generation/use now covers Seen modules and retained native objects,

@@ -1,0 +1,29 @@
+/// Public TEST-001A category types shared by discovery and the test runner.
+
+enum TestPrimaryCategory {
+    Unit
+    Integration
+}
+
+enum TestPlatformCategory {
+    All
+    Linux
+    LinuxX8664
+    LinuxArm64
+    Macos
+    Windows
+}
+
+fun testPrimaryCategoryName(category: TestPrimaryCategory) r: String {
+    if category == TestPrimaryCategory.Unit { return "unit" }
+    return "integration"
+}
+
+fun testPlatformCategoryName(platform: TestPlatformCategory) r: String {
+    if platform == TestPlatformCategory.Linux { return "linux" }
+    if platform == TestPlatformCategory.LinuxX8664 { return "linux-x86_64" }
+    if platform == TestPlatformCategory.LinuxArm64 { return "linux-arm64" }
+    if platform == TestPlatformCategory.Macos { return "macos" }
+    if platform == TestPlatformCategory.Windows { return "windows" }
+    return "all"
+}

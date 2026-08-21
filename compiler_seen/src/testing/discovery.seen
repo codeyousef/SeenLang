@@ -1,0 +1,244 @@
+/// Deterministic test discovery and category policy for TEST-001A.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import release.compatibility.{AsciiString, OperationContext, SeenError,
+    RetryClass, RedactionClass}
+import release.diagnostic_schema.{machineDiagnosticJsonString}
+import testing.categories.{TestPrimaryCategory, TestPlatformCategory,
+    testPrimaryCategoryName, testPlatformCategoryName}
+
+let TEST_DISCOVERY_SCHEMA: String = "seen-test-discovery-v1"
+let TEST_DISCOVERY_MAX_PATH_BYTES: Int = 4096
+let TEST_DISCOVERY_MAX_TESTS: Int = 100000
+
+class TestDiscoveryCandidate {
+    var path: String
+    var category: TestPrimaryCategory
+    var ignored: Bool
+    var slow: Bool
+    var platform: TestPlatformCategory
+    var privileged: Bool
+}
+
+class TestDiscoveryManifest {
+    var schema: String
+    var tests: Array<TestDiscoveryCandidate>
+}
+
+class TestDiscoveryOutcome {
+    var success: Bool
+    var values: Array<TestDiscoveryManifest>
+    var errors: Array<SeenError>
+}
+
+fun test001aError(code: String, message: String) r: SeenError {
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "testing.discovery" },
+        operation: AsciiString{ value: "discover" },
+        message: message,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun testDiscoveryFailure(error: SeenError) r: TestDiscoveryOutcome {
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return TestDiscoveryOutcome{
+        success: false, values: Array<TestDiscoveryManifest>(), errors: errors
+    }
+}
+
+fun testDiscoverySuccess(manifest: TestDiscoveryManifest)
+    r: TestDiscoveryOutcome {
+
+    let values = Array<TestDiscoveryManifest>()
+    values.push(manifest)
+    return TestDiscoveryOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun testDiscoveryCanonicalPath(path: String) r: Bool {
+    if path == "" or path.length() > TEST_DISCOVERY_MAX_PATH_BYTES or
+        path.startsWith("/") or path.endsWith("/") or
+        path.contains("..") or path.contains("//") or
+        path.contains("\\") {
+
+        return false
+    }
+    var index = 0
+    while index < path.length() {
+        let byte = path.byteAt(index)
+        var valid = false
+        if byte >= 65 and byte <= 90 { valid = true }
+        if byte >= 97 and byte <= 122 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 or byte == 46 or byte == 47 or byte == 95 {
+            valid = true
+        }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun testDiscoveryExpectedCategory(path: String) r: String {
+    if path.startsWith("compiler_seen/tests/") or
+        path.startsWith("seen_std/tests/") {
+
+        if path.endsWith(".seen") { return "unit" }
+        return ""
+    }
+    if path.startsWith("tests/misc_root_tests/") {
+        if path.endsWith(".sh") or path.endsWith("_unit.py") or
+            path.endsWith("_test.seen") {
+
+            return "integration"
+        }
+    }
+    return ""
+}
+
+fun testDiscoveryExpectedPlatform(path: String) r: String {
+    if path.contains("_linux_arm64_") or path.contains("_linux_arm64.") {
+        return "linux-arm64"
+    }
+    if path.contains("_linux_x86_64_") or
+        path.contains("_linux_x86_64.") {
+
+        return "linux-x86_64"
+    }
+    if path.contains("_windows_") or path.contains("_windows.") {
+        return "windows"
+    }
+    if path.contains("_macos_") or path.contains("_macos.") {
+        return "macos"
+    }
+    if path.contains("_linux_") or path.contains("_linux.") {
+        return "linux"
+    }
+    return "all"
+}
+
+fun testDiscoveryHasMarker(path: String, marker: String) r: Bool {
+    return path.contains("/" + marker + "/") or
+        path.contains("_" + marker + "_") or
+        path.contains("_" + marker + ".")
+}
+
+fun testDiscoveryPathBefore(left: String, right: String) r: Bool {
+    var index = 0
+    var shared = left.length()
+    if right.length() < shared { shared = right.length() }
+    while index < shared {
+        let leftByte = left.byteAt(index)
+        let rightByte = right.byteAt(index)
+        if leftByte < rightByte { return true }
+        if leftByte > rightByte { return false }
+        index = index + 1
+    }
+    return left.length() < right.length()
+}
+
+fun testDiscoveryCandidateMatchesPath(candidate: TestDiscoveryCandidate)
+    r: Bool {
+
+    return testPrimaryCategoryName(candidate.category) ==
+            testDiscoveryExpectedCategory(candidate.path) and
+        candidate.ignored == testDiscoveryHasMarker(candidate.path, "ignored") and
+        candidate.slow == testDiscoveryHasMarker(candidate.path, "slow") and
+        candidate.privileged ==
+            testDiscoveryHasMarker(candidate.path, "privileged") and
+        testPlatformCategoryName(candidate.platform) ==
+            testDiscoveryExpectedPlatform(candidate.path)
+}
+
+fun discoverTestsChecked(candidates: Array<TestDiscoveryCandidate>,
+    context: OperationContext) r: TestDiscoveryOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return testDiscoveryFailure(test001aError(
+            "test.001a.cancelled", "test discovery cancelled"))
+    }
+    if context.limits.maxGraphModules < 1 or
+        context.limits.maxGraphModules > TEST_DISCOVERY_MAX_TESTS or
+        candidates.length() > context.limits.maxGraphModules {
+
+        return testDiscoveryFailure(test001aError(
+            "test.001a.limit", "test discovery item limit exceeded"))
+    }
+    if context.limits.maxPathBytes < 1 or
+        context.limits.maxPathBytes > TEST_DISCOVERY_MAX_PATH_BYTES {
+
+        return testDiscoveryFailure(test001aError(
+            "test.001a.limit", "test discovery path limit is invalid"))
+    }
+    var previous = ""
+    var index = 0
+    while index < candidates.length() {
+        let candidate = candidates[index]
+        if candidate.path.length() > context.limits.maxPathBytes {
+            return testDiscoveryFailure(test001aError(
+                "test.001a.limit", "test path limit exceeded"))
+        }
+        if not testDiscoveryCanonicalPath(candidate.path) or
+            not testDiscoveryCandidateMatchesPath(candidate) {
+
+            return testDiscoveryFailure(test001aError(
+                "test.001a.invalid", "test descriptor is not canonical"))
+        }
+        if previous != "" and
+            not testDiscoveryPathBefore(previous, candidate.path) {
+            return testDiscoveryFailure(test001aError(
+                "test.001a.invalid",
+                "test descriptors must be strictly path ordered"))
+        }
+        previous = candidate.path
+        index = index + 1
+    }
+    return testDiscoverySuccess(TestDiscoveryManifest{
+        schema: TEST_DISCOVERY_SCHEMA, tests: candidates
+    })
+}
+
+fun discoverTests(candidates: Array<TestDiscoveryCandidate>,
+    context: OperationContext) r: Result<TestDiscoveryManifest, SeenError> {
+
+    let checked = discoverTestsChecked(candidates, context)
+    if not checked.success {
+        return Err<TestDiscoveryManifest, SeenError>(checked.errors[0])
+    }
+    return Ok<TestDiscoveryManifest, SeenError>(checked.values[0])
+}
+
+fun testDiscoveryBool(value: Bool) r: String {
+    if value { return "true" }
+    return "false"
+}
+
+fun renderTestDiscoveryManifest(manifest: TestDiscoveryManifest) r: String {
+    var output = "{\"schema\":" +
+        machineDiagnosticJsonString(manifest.schema) + ",\"tests\":["
+    var index = 0
+    while index < manifest.tests.length() {
+        if index > 0 { output = output + "," }
+        let test = manifest.tests[index]
+        output = output + "{\"category\":" +
+            machineDiagnosticJsonString(testPrimaryCategoryName(
+                test.category)) + ",\"ignored\":" +
+            testDiscoveryBool(test.ignored) + ",\"path\":" +
+            machineDiagnosticJsonString(test.path) + ",\"platform\":" +
+            machineDiagnosticJsonString(testPlatformCategoryName(
+                test.platform)) +
+            ",\"privileged\":" + testDiscoveryBool(test.privileged) +
+            ",\"slow\":" + testDiscoveryBool(test.slow) + "}"
+        index = index + 1
+    }
+    return output + "]}\n"
+}
