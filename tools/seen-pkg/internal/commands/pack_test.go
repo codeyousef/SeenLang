@@ -50,6 +50,48 @@ func TestRegistrySmokeFixtureIsFreshAndSourceProofReady(t *testing.T) {
 	}
 }
 
+func TestCanonicalExternalPackageLayoutIsReusableAndDeterministic(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..", "tests", "fixtures", "external_package")
+	parsed, err := manifest.Load(filepath.Join(root, "Seen.toml"), manifest.Options{
+		DefaultRegistryOrigin: "https://seen.dev.yousef.codes/packages",
+		RequireManifestV1:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Project.Name != "external_package" || parsed.Package == nil ||
+		parsed.Package.Identity != "seen/external-package" {
+		t.Fatalf("unexpected external package binding: project=%+v package=%+v", parsed.Project, parsed.Package)
+	}
+	files, err := selectedPackageFiles(root, parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFiles := []string{
+		"LICENSE",
+		"README.md",
+		"Seen.toml",
+		"examples/consumer.seen",
+		"src/mod.seen",
+	}
+	if got, want := strings.Join(files, "\n"), strings.Join(wantFiles, "\n"); got != want {
+		t.Fatalf("external package files:\n%s\nwant:\n%s", got, want)
+	}
+	one := filepath.Join(t.TempDir(), "external-package-one.tgz")
+	two := filepath.Join(t.TempDir(), "external-package-two.tgz")
+	first, err := Pack(context.Background(), root, one)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Pack(context.Background(), root, two)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SHA256 != second.SHA256 || first.Length != second.Length {
+		t.Fatalf("canonical external package archives differ: %#v %#v", first, second)
+	}
+}
+
 func TestPackIsDeterministicAndSourceOnly(t *testing.T) {
 	t.Parallel()
 	project := t.TempDir()

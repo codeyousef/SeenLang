@@ -179,6 +179,32 @@ capabilities = []
 required to match. Hosted archives are source-only and are checked against the
 package's declared include/assets lists and signed metadata before installation.
 
+### Canonical reusable-package layout
+
+Reusable source packages use the versioned `seen-package-layout-v1` tree:
+
+```text
+package/
+├── Seen.toml
+├── Seen.lock
+├── src/
+│   └── mod.seen
+├── tests/
+├── examples/
+├── README.md
+└── LICENSE
+```
+
+`src/mod.seen` is the public library entry and must be listed first in
+`[project].modules`. Package archives include only paths selected by
+`[package].include` and `[package].assets`; consumer projects, generated state,
+and undeclared files stay outside the archive. Linux x86-64 is required for
+Gate 0. Linux ARM64, macOS, and Windows applicability remains declared as
+toolchain-dependent. The reusable package fixture lives at
+`tests/fixtures/external_package/`; a separate executable under
+`tests/fixtures/pkg-layout-001/external-consumer/` imports it through a local
+dependency alias without placing generated consumer state inside the package.
+
 ## [native.dependencies] Section
 
 ```toml

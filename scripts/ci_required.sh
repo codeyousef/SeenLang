@@ -24,8 +24,11 @@ fi
 python3 -m py_compile \
     scripts/benchmark_compatibility_manifest.py \
     scripts/benchmark_compatibility_runtime.py \
+    scripts/benchmark_package_layout.py \
     scripts/check_compatibility_manifest.py \
+    scripts/check_package_layout.py \
     tests/misc_root_tests/seen_compatibility_manifest_unit.py \
+    tests/misc_root_tests/seen_package_layout_unit.py \
     scripts/check_native_boundaries.py \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
@@ -37,9 +40,13 @@ python3 scripts/check_compatibility_manifest.py \
     releases/compatibility-manifest.json >/dev/null
 tests/misc_root_tests/seen_compatibility_manifest_contract.sh
 tests/misc_root_tests/seen_compatibility_manifest_runtime.sh
+tests/misc_root_tests/seen_package_layout_contract.sh
 python3 scripts/benchmark_compatibility_runtime.py \
     releases/compatibility-manifest.json \
     tests/fixtures/core-002b/happy/benchmark.json
+python3 scripts/benchmark_package_layout.py \
+    tests/fixtures/pkg-layout-001/happy/layout.json \
+    tests/fixtures/pkg-layout-001/happy/benchmark.json
 tests/misc_root_tests/seen_native_boundaries_ledger.sh
 tests/misc_root_tests/seen_native_inventory_gate.sh
 tests/misc_root_tests/seen_ci_workflow_contract.sh

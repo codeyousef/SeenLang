@@ -1,7 +1,7 @@
 version = 2
-manifest_sha256 = "877176c0fbcb4a482a34a1fe7854a9670358fe1981df58a8163c6054e4c319ca"
+manifest_sha256 = "c1783f7ecead4fc703c87aa63f4d3601f509626dd7ca7a1d95a46ecbeb46ff2f"
 
 [root]
-name = "compatibility_consumer"
+name = "external_package"
 version = "0.1.0"
 dependencies = []

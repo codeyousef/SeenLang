@@ -1,0 +1,5 @@
+import external_package.{packageValue}
+
+fun packageLayoutFixtureTest() r: Bool {
+    return packageValue().value == 42
+}

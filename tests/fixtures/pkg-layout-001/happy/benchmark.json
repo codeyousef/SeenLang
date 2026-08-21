@@ -1,0 +1,8 @@
+{
+  "baseline_ratio_ppm": 1500000,
+  "iterations_per_sample": 500,
+  "max_regression_percent": 5,
+  "samples": 30,
+  "version": 1,
+  "warmups": 5
+}

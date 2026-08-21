@@ -1,0 +1,105 @@
+import seen_compiler.release.compatibility.{AsciiString, OperationLimits,
+    OperationContext, RetryClass, RedactionClass, ReusablePackagePlatforms,
+    ReusablePackageLayout, validateReusablePackageLayout,
+    renderReusablePackageLayout}
+
+fun packageLayoutFixture() r: ReusablePackageLayout {
+    return ReusablePackageLayout{
+        schema: "seen-package-layout-v1",
+        manifestPath: "Seen.toml",
+        sourceRoot: "src",
+        libraryEntry: "src/mod.seen",
+        testsRoot: "tests",
+        examplesRoot: "examples",
+        readmePath: "README.md",
+        licensePath: "LICENSE",
+        platforms: ReusablePackagePlatforms{
+            linuxArm64: "declared-toolchain-dependent",
+            linuxX8664: "required",
+            macos: "declared-toolchain-dependent",
+            windows: "declared-toolchain-dependent"
+        }
+    }
+}
+
+fun packageLayoutContext(cancelled: Bool, maxPathBytes: Int)
+    r: OperationContext {
+
+    return OperationContext{
+        cancellation: cancelled,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: maxPathBytes
+        },
+        traceId: AsciiString{ value: "pkg-layout-001-test" }
+    }
+}
+
+fun main() r: Int {
+    let happy = validateReusablePackageLayout(
+        packageLayoutFixture(), packageLayoutContext(false, 4096))
+    if happy.isErr() { return 1 }
+    let rendered = renderReusablePackageLayout(
+        packageLayoutFixture(), packageLayoutContext(false, 4096))
+    if rendered.isErr() or not rendered.unwrap().contains(
+            "\"schema\": \"seen-package-layout-v1\"") {
+
+        return 2
+    }
+    println("PASS: PKG-LAYOUT-001_happy")
+
+    let invalid = packageLayoutFixture()
+    invalid.libraryEntry = "src/lib.seen"
+    let invalidResult = validateReusablePackageLayout(
+        invalid, packageLayoutContext(false, 4096))
+    if not invalidResult.isErr() or
+        invalidResult.unwrapErr().code.value != "pkg.layout.001.invalid" or
+        invalidResult.unwrapErr().retry != RetryClass.Never or
+        invalidResult.unwrapErr().redaction != RedactionClass.Public {
+
+        return 3
+    }
+    println("PASS: PKG-LAYOUT-001_invalid")
+
+    let limited = validateReusablePackageLayout(
+        packageLayoutFixture(), packageLayoutContext(false, 1))
+    if not limited.isErr() or
+        limited.unwrapErr().code.value != "pkg.layout.001.limit" {
+
+        return 4
+    }
+    println("PASS: PKG-LAYOUT-001_limit")
+
+    let cancelled = validateReusablePackageLayout(
+        packageLayoutFixture(), packageLayoutContext(true, 4096))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "pkg.layout.001.cancelled" {
+
+        return 5
+    }
+    println("PASS: PKG-LAYOUT-001_cancel")
+
+    let unsupported = packageLayoutFixture()
+    unsupported.platforms.windows = "required"
+    let unsupportedResult = validateReusablePackageLayout(
+        unsupported, packageLayoutContext(false, 4096))
+    if not unsupportedResult.isErr() or
+        unsupportedResult.unwrapErr().code.value != "pkg.layout.001.platform" {
+
+        return 6
+    }
+
+    let renderedAgain = renderReusablePackageLayout(
+        packageLayoutFixture(), packageLayoutContext(false, 4096))
+    if renderedAgain.isErr() or renderedAgain.unwrap() != rendered.unwrap() {
+        return 7
+    }
+    println("PASS: PKG-LAYOUT-001_cleanup")
+    return 0
+}
+
+main()
