@@ -68,41 +68,15 @@ if [ -n "$MISSING" ]; then
     exit 1
 fi
 
-# Set up opt/clang wrapper for frozen compiler bugs
+# Set up stable tool names only. Production IR is passed to opt unchanged;
+# frozen-bootstrap compatibility is confined to safe_rebuild.sh.
 setup_tool_wrappers() {
     REAL_OPT="$OPT"
     mkdir -p /tmp/seen_opt_override
-    cat > /tmp/seen_opt_override/opt << 'WRAPPER_EOF'
+    cat > /tmp/seen_opt_override/opt << WRAPPER_EOF
 #!/bin/bash
-ARGS=("$@")
-for arg in "${ARGS[@]}"; do
-    if [[ "$arg" == *.ll && "$arg" != *.opt.ll && -f "$arg" ]]; then
-        awk '
-        NR == FNR { if (/^declare /) { if (match($0, /@([A-Za-z0-9_.]+)/, m)) { count[m[1]]++; seen_count[m[1]] = 0 } } next }
-        /^declare / { if (match($0, /@([A-Za-z0-9_.]+)/, m)) { fname = m[1]; seen_count[fname]++; if (count[fname] > 1 && seen_count[fname] < count[fname]) next } }
-        { print }
-        ' "$arg" "$arg" > "${arg}.dedup" && mv "${arg}.dedup" "$arg"
-
-        python3 -c "
-import re, sys
-with open(sys.argv[1]) as f: content = f.read()
-pattern = re.compile(r'  (%\d+) = call %SeenString @seen_int_to_string\(i64 (%\d+)\)\n  (%\d+) = call %SeenString @seen_char_to_str\(i64 (%\d+)\)\n  (%\d+) = call %SeenString @seen_str_concat_ss\(%SeenString \1, %SeenString \3\)')
-def fix(m): return f'  {m.group(1)} = add i64 0, 0\n  {m.group(3)} = add i64 0, 0\n  {m.group(5)} = add i64 {m.group(2)}, {m.group(4)}'
-new_content, count = pattern.subn(fix, content)
-if count > 0:
-    with open(sys.argv[1], 'w') as f: f.write(new_content)
-    print(f'  byteAt fix: patched {count} site(s)', file=sys.stderr)
-" "$arg" 2>&1 || true
-
-        # Comprehensive IR fixups (struct-zero, ptr-null, declare conflicts, allocsize, etc.)
-        FIX_IR="$(dirname "$(readlink -f "$0")")/../scripts/fix_ir.py"
-        [ ! -f "$FIX_IR" ] && FIX_IR="$(cd "$(dirname "$0")/.." && pwd)/scripts/fix_ir.py"
-        [ -f "$FIX_IR" ] && python3 "$FIX_IR" "$arg" 2>&1 || true
-    fi
-done
+exec "$REAL_OPT" "\$@"
 WRAPPER_EOF
-    sed -i "1a REAL_OPT=\"$REAL_OPT\"" /tmp/seen_opt_override/opt
-    echo "exec \"\$REAL_OPT\" \"\$@\"" >> /tmp/seen_opt_override/opt
     chmod +x /tmp/seen_opt_override/opt
 
     # Symlink clang and lld if they're versioned

@@ -22,7 +22,7 @@ new stages verify correctly.
 | `target/release/seen` | Release copy of the verified compiler |
 | `scripts/safe_rebuild.sh` | Guarded staged rebuild |
 | `scripts/seen_prebuild_gates.sh` | Early source/IR prebuild gates |
-| `scripts/fix_ir.py` | Frozen-bootstrap IR repair guard for known malformed IR patterns |
+| `scripts/fix_ir.py` | Frozen Stage-1 IR compatibility adapter; never a production compiler path |
 
 ## Safe Rebuild
 
@@ -204,7 +204,9 @@ The prebuild gate catches failures that used to appear late in Stage 2/Stage 3:
 - compiler-codegen ABI boundary drift
 - missing imported/seeded compiler modules
 - compiler import cycles
-- malformed frozen-bootstrap IR patterns repaired by `fix_ir.py`
+- frozen Stage-1 IR compatibility patterns handled only by the explicit
+  bootstrap adapter
+- unmodified current-compiler IR verification before optimizer/object use
 - stale package/runtime artifact assumptions
 
 The verify and full rebuild tiers run the gate inside their aggregate hard

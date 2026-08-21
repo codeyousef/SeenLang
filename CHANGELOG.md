@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the native `seen-production-ir-policy-v1` contract with bounded
+  `core.003c.*` diagnostics, deterministic fixtures, fuzzing, coverage, and a
+  compiling example. Production paths consume unmodified production IR, reject
+  repair requests and byte-identity drift, and never
+  install a repaired frozen-bootstrap Stage-2 seed as production output.
 - Added native deterministic global-initialization planning with a checked
   dependency-first schedule, bounded `core.003b.*` diagnostics, cancellation,
   strict fixtures, fuzz and benchmark gates, a compiling API example, and an

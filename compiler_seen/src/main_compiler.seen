@@ -13502,12 +13502,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let sourcePath = uncachedSrcPaths[vi]
             if statusText != "ok" {
                 if statusText.startsWith("opt") {
-                    println("    Error: optimization failed for module " + midx + ": " + sourcePath)
+                    println("error: core.003c.invalid: optimizer rejected unmodified IR for module " + midx + ": " + sourcePath)
                 } else {
                     if statusText.startsWith("object") {
-                        println("    Error: object emission failed for module " + midx + ": " + sourcePath)
+                        println("error: core.003c.platform: object emission failed for unmodified IR module " + midx + ": " + sourcePath)
                     } else {
-                        println("    Error: module optimization did not complete for module " + midx + ": " + sourcePath)
+                        println("error: core.003c.invalid: unmodified IR optimization did not complete for module " + midx + ": " + sourcePath)
                     }
                 }
                 if statusText != "" {
@@ -13525,7 +13525,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let checkObj: CommandResult = runCommand("test -f " +
                 mainCompilerShellQuote(objFile))
             if not commandWasSuccessful(checkObj) {
-                println("    Error: module " + midx + " reported success but did not produce an object file: " + sourcePath)
+                println("error: core.003c.invalid: module " + midx + " reported unmodified IR success but did not produce an object file: " + sourcePath)
                 let logFile = moduleTempPath(compileTempDir, midx, ".opt.log")
                 let logTail: CommandResult = runCommand("tail -n 40 " +
                     mainCompilerShellQuote(logFile))
@@ -13537,7 +13537,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             vi = vi + 1
         }
         if not commandWasSuccessful(parallelResult) {
-            println("    Error: parallel optimization script reported failure")
+            println("error: core.003c.platform: unmodified IR optimization script reported failure")
             return 1
         }
 

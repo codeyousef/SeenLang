@@ -128,6 +128,37 @@ instead of exposing the live v3 release manifest; newly produced compilers use
 the live checkout record. This permits a fail-closed ABI transition without
 teaching either compiler to ignore or repair a compatibility mismatch.
 
+### Unmodified production IR
+
+Location: `compiler_seen/src/imports/graph.seen`,
+`compiler_seen/src/main_compiler.seen`, and `scripts/safe_rebuild.sh`
+
+CORE-003C makes native codegen output the only production optimizer input. The
+public `validateUnmodifiedProductionIr` entry point returns
+`Result<ProductionIrPlan, SeenError>` and accepts only canonical bounded
+artifact paths whose emitted and optimizer-input SHA-256 identities are exact
+matches. Repair requests, changed bytes, unsupported platforms, invalid bounds,
+and cancellation fail closed with stable `core.003c.*` diagnostics. The plan is
+rendered deterministically as `seen-production-ir-policy-v1` and always reports
+`repair_allowed: false`.
+
+Current compiler, recovery, Windows cross-build, and saved-IR preflight paths
+pass emitted IR directly to LLVM. Optimizer and object-emission failures retain
+the raw artifact and return typed diagnostics; there is no retry with rewritten
+IR. The immutable frozen Stage-1 compiler has one explicitly marked bootstrap
+compatibility adapter because its historical output predates the native fixes.
+That marker is cleared at rebuild entry, granted only to the exact frozen
+compile or its captured raw artifacts, and any adapter failure aborts. A
+repaired Stage-2 seed can build Stage 3 but can never be selected for production
+installation; only unmodified current-compiler output is eligible.
+
+The compiling API example is
+`compiler_seen/examples/production_ir_policy.seen`. CORE-003C adds no foreign
+symbol, so the native-boundary ledger remains unchanged. The existing
+`seen-object-cache-abi-v3` identity also binds the unmodified production-IR
+handoff policy; IR bytes and object semantics are unchanged for current
+compilers.
+
 ## Code Generation
 
 Location: `compiler_seen/src/codegen/`
@@ -277,8 +308,10 @@ different tree.
 The compiler component's `seen-object-cache-abi-v3` identity binds both the
 `seen-import-graph-v1` canonical discovery order and the
 `seen-global-initialization-plan-v1` dependency-first emission order. Any
-incompatible ordering change must advance that ABI identity so cached objects cannot cross the
-ordering boundary.
+incompatible ordering change must advance that ABI identity so cached objects
+cannot cross the ordering boundary. The same identity binds
+`seen-production-ir-policy-v1`: current codegen bytes reach LLVM without a
+repair transform.
 
 ## Incremental and Parallel Compilation
 

@@ -23,9 +23,10 @@ docs.
   silently accepting an unknown flag does not prove serial execution.
 - If a rebuild fails, inspect the first concrete failing module/log before
   retrying. Blind retries can hide deterministic compiler issues.
-- `scripts/fix_ir.py` remains a compatibility guard for malformed IR emitted by
-  older frozen-bootstrap paths. It is not a substitute for fixing source
-  codegen bugs.
+- `scripts/fix_ir.py` is confined to an explicitly marked frozen Stage-1 IR
+  compatibility path. Its output is never production-eligible; it is a
+  bootstrap seed only. Current compiler, recovery, cross-build, and release
+  paths pass emitted IR to LLVM unchanged and fail closed on rejection.
 
 ## Shipped CLI Shape
 

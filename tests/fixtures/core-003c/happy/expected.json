@@ -1,0 +1,9 @@
+{
+  "artifact_count": 2,
+  "ordered_paths": [
+    "modules/alpha.ll",
+    "modules/zeta.ll"
+  ],
+  "repair_allowed": false,
+  "schema": "seen-production-ir-policy-v1"
+}
