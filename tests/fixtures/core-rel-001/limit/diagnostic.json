@@ -1,0 +1,33 @@
+{
+  "context": {
+    "backend": "cuda",
+    "device_capability": "sm_89",
+    "entry_point": "kernel",
+    "fallback_reason": "",
+    "maturity": "experimental-hardware",
+    "source": {"column": 1, "file": "src/kernel.seen", "line": 1},
+    "target": "linux-x86_64"
+  },
+  "error": {
+    "causes": [
+      {"causes": [], "code": "E_1", "message": "1", "native_code": null, "operation": "emit", "redaction": "public", "retry": "never", "subsystem": "compiler.gpu"},
+      {"causes": [], "code": "E_2", "message": "2", "native_code": null, "operation": "emit", "redaction": "public", "retry": "never", "subsystem": "compiler.gpu"},
+      {"causes": [], "code": "E_3", "message": "3", "native_code": null, "operation": "emit", "redaction": "public", "retry": "never", "subsystem": "compiler.gpu"},
+      {"causes": [], "code": "E_4", "message": "4", "native_code": null, "operation": "emit", "redaction": "public", "retry": "never", "subsystem": "compiler.gpu"},
+      {"causes": [], "code": "E_5", "message": "5", "native_code": null, "operation": "emit", "redaction": "public", "retry": "never", "subsystem": "compiler.gpu"},
+      {"causes": [], "code": "E_6", "message": "6", "native_code": null, "operation": "emit", "redaction": "public", "retry": "never", "subsystem": "compiler.gpu"},
+      {"causes": [], "code": "E_7", "message": "7", "native_code": null, "operation": "emit", "redaction": "public", "retry": "never", "subsystem": "compiler.gpu"},
+      {"causes": [], "code": "E_8", "message": "8", "native_code": null, "operation": "emit", "redaction": "public", "retry": "never", "subsystem": "compiler.gpu"},
+      {"causes": [], "code": "E_9", "message": "9", "native_code": null, "operation": "emit", "redaction": "public", "retry": "never", "subsystem": "compiler.gpu"}
+    ],
+    "code": "E_CAUSES",
+    "message": "too many causes",
+    "native_code": null,
+    "operation": "emit",
+    "redaction": "public",
+    "retry": "never",
+    "subsystem": "compiler.gpu"
+  },
+  "platform": "linux-x86_64",
+  "schema": "seen-machine-diagnostic-input-v1"
+}

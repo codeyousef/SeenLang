@@ -1,0 +1,23 @@
+{
+  "context": {
+    "backend": "cuda",
+    "device_capability": "sm_89",
+    "entry_point": "quantized_matvec",
+    "fallback_reason": "",
+    "maturity": "verified",
+    "source": {"column": 9, "file": "src/kernel.seen", "line": 17},
+    "target": "linux-x86_64"
+  },
+  "error": {
+    "causes": [],
+    "code": "E_GPU_CAPABILITY",
+    "message": "capability unavailable",
+    "native_code": 42,
+    "operation": "lower",
+    "redaction": "public",
+    "retry": "never",
+    "subsystem": "compiler.gpu"
+  },
+  "platform": "linux-x86_64",
+  "schema": "seen-machine-diagnostic-input-v1"
+}

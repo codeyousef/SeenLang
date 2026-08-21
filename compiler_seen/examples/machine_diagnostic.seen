@@ -1,0 +1,44 @@
+import release.diagnostic_schema.{BackendMaturity, MachineDiagnosticContext,
+    validateMachineDiagnostic, renderMachineDiagnostic}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext,
+    RedactionClass}
+import release.diagnostic_schema.{coreRel001Error}
+
+fun main() r: Int {
+    let context = OperationContext{
+        cancellation: false,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: 4096,
+            maxGraphModules: 4096,
+            maxGraphEdges: 65536,
+            maxGraphDepth: 4096
+        },
+        traceId: AsciiString{ value: "diagnostic-example" }
+    }
+    let metadata = MachineDiagnosticContext{
+        backend: "vulkan",
+        target: "linux-x86_64",
+        deviceCapability: "subgroup_arithmetic",
+        entryPoint: "vector_sum",
+        sourceFile: "src/kernel.seen",
+        sourceLine: 8,
+        sourceColumn: 5,
+        maturity: BackendMaturity.CompileOnly,
+        fallbackReason: ""
+    }
+    let checked = validateMachineDiagnostic(coreRel001Error(
+        "core.rel.001.example", "emit", "example diagnostic",
+        RedactionClass.Public), metadata, "linux-x86_64", context)
+    if checked.isErr() {
+        return 1
+    }
+    print(renderMachineDiagnostic(checked.unwrap()))
+    return 0
+}
+
+main()

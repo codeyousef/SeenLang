@@ -470,6 +470,10 @@ run_fixture production-source-policy \
     "$REPO_ROOT/compiler_seen/tests/release/production_source_policy.seen"
 run_fixture production-source-policy-example \
     "$REPO_ROOT/compiler_seen/examples/production_source_policy.seen"
+run_fixture machine-diagnostic \
+    "$REPO_ROOT/compiler_seen/tests/release/machine_diagnostic.seen"
+run_fixture machine-diagnostic-example \
+    "$REPO_ROOT/compiler_seen/examples/machine_diagnostic.seen"
 EXTERNAL_PACKAGE_CONSUMER_FIXTURE=$(stage_external_package_fixture)
 run_fixture external-package-consumer \
     "$EXTERNAL_PACKAGE_CONSUMER_FIXTURE"

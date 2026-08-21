@@ -1,0 +1,23 @@
+{
+  "context": {
+    "backend": "",
+    "device_capability": "",
+    "entry_point": "",
+    "fallback_reason": "",
+    "maturity": "unsupported",
+    "source": {"column": 0, "file": "", "line": 0},
+    "target": "linux-x86_64"
+  },
+  "error": {
+    "causes": [],
+    "code": "E_CANCEL",
+    "message": "cancel",
+    "native_code": null,
+    "operation": "emit",
+    "redaction": "public",
+    "retry": "never",
+    "subsystem": "compiler"
+  },
+  "platform": "linux-x86_64",
+  "schema": "seen-machine-diagnostic-input-v1"
+}

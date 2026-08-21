@@ -187,6 +187,35 @@ foreign symbol, so the native-boundary ledger remains unchanged. The existing
 `seen-object-cache-abi-v3` identity also binds the unmodified production-source
 handoff policy.
 
+### Stable machine diagnostics
+
+Location: `compiler_seen/src/release/diagnostic_schema.seen`
+
+CORE-REL-001 defines the `seen-machine-diagnostic-v1` envelope around the
+existing `SeenError` contract. `validateMachineDiagnostic` returns
+`Result<MachineDiagnostic, SeenError>` and validates every caller-owned field
+before serialization: stable code/subsystem/operation identities, a 4 KiB
+message, at most eight causes per node and eight nested levels, optional native
+code, retry/redaction classes, canonical relative source locations, and bounded
+accelerator context. Existing diagnostic codes are payload values and are not
+renamed by the envelope.
+
+Accelerator metadata records backend, target, device capability, entry point,
+source line/column, explicit fallback reason, and exactly one maturity state:
+`unsupported`, `compile-only`, `experimental-hardware`, `verified`, or
+`production-certified`. Compile-only evidence is therefore distinguishable
+from real hardware execution. Sensitive errors replace the message, source
+path, and fallback reason with `<redacted>` before canonical JSON is emitted.
+Validation, limit, cancellation, and unsupported-platform failures use stable
+`core.rel.001.*` codes and never retry implicitly.
+
+The compiling example is `compiler_seen/examples/machine_diagnostic.seen`.
+The release compatibility schema binds `seen-machine-diagnostic-v1` to the
+existing `seen-object-cache-abi-v3` compiler identity. This avoids adding a
+structural compatibility bridge that older bootstrap compilers cannot parse.
+CORE-REL-001 adds no foreign symbol and does not change the native-boundary
+ledger.
+
 ## Code Generation
 
 Location: `compiler_seen/src/codegen/`
