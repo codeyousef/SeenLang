@@ -1,0 +1,7 @@
+{
+  "edges": [{"from": "root.seen", "to": "leaf.seen"}],
+  "modules": ["root.seen", "leaf.seen"],
+  "platform": "linux-x86_64",
+  "root": "root.seen",
+  "schema": "seen-import-graph-v1"
+}

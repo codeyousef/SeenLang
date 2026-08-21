@@ -64,6 +64,18 @@ run_helper_capped() {
     )
 }
 
+wine_runtime_fits_task_scope() {
+    local task_limit=${SEEN_MEMORY_GUARD_TASKS_MAX:-}
+    case "$task_limit" in
+        ''|*[!0-9]*) return 0 ;;
+    esac
+    # Wine's service topology can consume more than the verified 24-task
+    # aggregate even with one emulated CPU and disabled desktop services.
+    # Windows CI executes this binary; the bounded Linux gate still compiles
+    # it and runs every native atomic-I/O case.
+    [ "$task_limit" -gt 24 ]
+}
+
 mkdir -p -- "$TEST_ROOT/work"
 if [ ! -x "$COMPILER" ]; then
     echo "missing executable checkout compiler: $COMPILER" >&2
@@ -102,7 +114,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
             "$ROOT_DIR/seen_runtime/seen_runtime.c" \
             -Wl,--gc-sections -lkernel32 -ladvapi32 -lshell32 -lws2_32 \
             -o "$TEST_ROOT/seen-atomic-text-io-windows.exe"
-    if command -v wine >/dev/null 2>&1; then
+    if command -v wine >/dev/null 2>&1 && wine_runtime_fits_task_scope; then
         if ! command -v taskset >/dev/null 2>&1; then
             echo "Wine execution requires taskset for bounded CPU topology" >&2
             exit 1
@@ -168,6 +180,8 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
         done
         env WINEPREFIX="$WINE_PREFIX" wineserver -w
         wine_server_started=0
+    elif command -v wine >/dev/null 2>&1; then
+        echo "Skipping optional Wine runtime below its verified task headroom; Windows binary compiled"
     fi
 fi
 

@@ -3,9 +3,6 @@ C Import Generator - Parses C headers for @_c_import decorator
 Uses clang to parse C headers and generates Seen extern declarations
 ///
 
-import tools.c_import_frontend.{cImportParseHeader}
-import tools.c_import_emit.{cImportGenerateExternDeclarations}
-
 // Result of importing a C header
 class CImportResult {
     var success: Bool
@@ -243,16 +240,6 @@ class CImportGenerator {
         }
 
         return cmd + " " + this.headerPath + " 2>&1"
-    }
-
-    // Parse the C header using clang's AST dump
-    fun parseHeader() r: CImportResult {
-        return cImportParseHeader(this)
-    }
-
-    // Generate Seen extern declarations
-    fun generateExternDeclarations() r: String {
-        return cImportGenerateExternDeclarations(this)
     }
 
 }

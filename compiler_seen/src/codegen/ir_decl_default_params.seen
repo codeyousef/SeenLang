@@ -2,7 +2,7 @@
 // Keeps default-parameter string-constant collection out of llvm_ir_gen.seen.
 
 import parser.real_parser.{ProgramNode, FunctionNode}
-import codegen.ir_decl_items.{normalizeSeenTypeNameImpl}
+import codegen.ir_type_mapping.{normalizeSeenTypeNameImpl}
 import codegen.ir_declarations.{addStringConstantImpl}
 
 fun collectDefaultParamStringConstantsFromFunctionImpl(fn: FunctionNode,

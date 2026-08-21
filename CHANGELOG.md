@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native bounded recursive import-graph resolution with deterministic
+  UTF-8 ordering, stable structured diagnostics, cancellation and cleanup
+  behavior, strict fixtures, fuzz and benchmark gates, and a compiling API
+  example shared by compile, check, and JIT paths. Existing compiler codegen
+  and C-import module cycles were removed so the same fail-closed resolver also
+  governs compiler-internal graphs.
 - Added a strict release compatibility-manifest schema, canonical 0.10.1
   component/ABI/target record, native Seen validation model, and deterministic
   invalid/limit/cancellation/cleanup fixtures.
@@ -26,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kept large self-hosted compiler graphs inside the verified memory scope by
+  isolating full semantic AST lifetimes and retaining cross-module declaration
+  metadata only in its canonical indexed registry instead of rebuilding
+  redundant quadratic pipe-string copies.
 - Kept Wine-backed atomic I/O verification within the bounded task scope by suppressing unrelated Wine service helpers and waiting for server cleanup.
 
 ## [0.10.1] - 2026-07-26

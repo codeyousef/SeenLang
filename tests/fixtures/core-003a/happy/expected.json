@@ -1,0 +1,11 @@
+{
+  "edge_count": 4,
+  "module_count": 4,
+  "order": [
+    0,
+    1,
+    3,
+    2
+  ],
+  "schema": "seen-import-graph-v1"
+}

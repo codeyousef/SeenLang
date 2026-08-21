@@ -6,10 +6,27 @@ Extracted from llvm_ir_gen.seen to deduplicate single- and multi-module paths.
 import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, pipeGet}
-import codegen.ir_decl_items.{isRuntimeBackedStringCompatFunctionImpl}
 import codegen.ir_decl_late_declares.{moduleBuilderAlreadyDeclaresFunctionCoreImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
 import codegen.symbol_interner.{internSymbol, newSymbolIdSet, symbolIdSetAdd, symbolIdSetContains, SymbolIdSet}
+
+fun isRuntimeBackedStringCompatFunctionImpl(funcName: String) r: Bool {
+    if funcName == "String_toUpperCase" or
+        funcName == "String_toLowerCase" or funcName == "String_toInt" or
+        funcName == "String_toFloat" or funcName == "String_reverse" or
+        funcName == "String_isEmpty" or funcName == "String_count" or
+        funcName == "String_replace" {
+
+        return true
+    }
+    if funcName == "split" or funcName == "startsWith" or
+        funcName == "endsWith" or funcName == "contains" or
+        funcName == "indexOf" or funcName == "lastIndexOf" {
+
+        return true
+    }
+    return false
+}
 
 fun quoteModuleEmitIdentIfNeeded(name: String) r: String {
     if name == "" {

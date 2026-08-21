@@ -3,7 +3,7 @@
   "$id": "https://seenlang.dev/schemas/compatibility-manifest.schema.json",
   "title": "Seen release compatibility manifest",
   "description": "Exact canonical input consumed by the Seen compiler and version-coupled package client; omitted or mismatched values are never inferred or repaired.",
-  "$comment": "The components.compiler.package_interface_schema entry binds reusable source-package compatibility; seen-package-interface-v2 includes the independently versioned native seen-package-layout-v1 contract.",
+  "$comment": "The components.compiler.package_interface_schema entry binds reusable source-package compatibility; seen-package-interface-v2 includes the independently versioned native seen-package-layout-v1 contract. The components.compiler.object_cache_abi identity binds seen-import-graph-v1 canonical module ordering.",
   "type": "object",
   "additionalProperties": false,
   "required": ["components", "platforms", "release_version", "schema", "schema_version", "targets"],
@@ -19,7 +19,10 @@
           "required": ["layout_abi", "object_cache_abi", "package_interface_schema", "package_object_manifest_schema", "prebuilt_package_schema", "version"],
           "properties": {
             "layout_abi": {"$ref": "#/$defs/identity"},
-            "object_cache_abi": {"$ref": "#/$defs/identity"},
+            "object_cache_abi": {
+              "description": "Object-cache compatibility identity binding seen-import-graph-v1 canonical module ordering.",
+              "const": "seen-object-cache-abi-v2"
+            },
             "package_interface_schema": {
               "description": "Compatibility entry binding package interfaces and the native seen-package-layout-v1 reusable-source tree contract.",
               "const": "seen-package-interface-v2"

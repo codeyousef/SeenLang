@@ -5,7 +5,7 @@ registry orchestration.
 ///
 
 import parser.real_parser.{ClassNode}
-import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_type_mapping.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_decl_scan.{recordConstGenericNumericParamsImpl, appendInheritedStructLayoutPrefixImpl, registerBitfieldLayoutMetadataImpl, appendOwnStructLayoutFieldImpl}
 import codegen.ir_decl_registry.{captureParentClassRegistryStateImpl, registerParentClassIntoStateImpl}
 import codegen.ir_class_type_layout.{prepareClassTypeAliasStateSnapshotImpl}

@@ -1,8 +1,6 @@
 import memory.allocation.{setMemoryLimitBytes, memoryStats, ensureAllocationBudget, releaseFloatArrayStorage}
 import str.string.{StringBuilder}
 import collections.byte_buffer.{ByteArray}
-import core.result.{Result}
-import core.unit.{Unit}
 
 fun main() r: Int {
     setMemoryLimitBytes(128 * 1024 * 1024)
@@ -11,11 +9,6 @@ fun main() r: Int {
     if not budgetOk.isOkay() {
         return 1
     }
-    let resultImportAnchor: Result<Unit, AllocError> = budgetOk
-    if resultImportAnchor.isErr() {
-        return 15
-    }
-
     let builder = StringBuilder.new()
     let appendOk = builder.tryAppend("alpha")
     if not appendOk.isOkay() {

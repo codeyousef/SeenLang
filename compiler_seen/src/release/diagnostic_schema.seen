@@ -1,0 +1,62 @@
+/// Stable release-diagnostic schema shared by native compiler gates.
+//
+/// CORE-003A adds the first graph diagnostics. Messages are bounded before a
+/// SeenError is constructed, causes are empty, and validation/policy failures
+/// are never retryable.
+
+import core.option.{None}
+import collections.vec.{Vec}
+import release.compatibility.{AsciiString, RetryClass, RedactionClass,
+    SeenError}
+
+let RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES: Int = 4096
+
+class ReleaseDiagnosticDescriptor {
+    var code: AsciiString
+    var subsystem: AsciiString
+    var operation: AsciiString
+    var retry: RetryClass
+    var redaction: RedactionClass
+}
+
+fun core003aDiagnosticDescriptor(code: String, operation: String,
+    redaction: RedactionClass) r: ReleaseDiagnosticDescriptor {
+
+    return ReleaseDiagnosticDescriptor{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "compiler.imports" },
+        operation: AsciiString{ value: operation },
+        retry: RetryClass.Never,
+        redaction: redaction
+    }
+}
+
+fun core003aError(code: String, operation: String, message: String,
+    redaction: RedactionClass) r: SeenError {
+
+    var boundedMessage = message
+    if boundedMessage.length() > RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES {
+        boundedMessage = boundedMessage.substring(
+            0, RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES)
+    }
+    let descriptor = core003aDiagnosticDescriptor(
+        code, operation, redaction)
+    return SeenError{
+        code: descriptor.code,
+        subsystem: descriptor.subsystem,
+        operation: descriptor.operation,
+        message: boundedMessage,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: descriptor.retry,
+        redaction: descriptor.redaction
+    }
+}
+
+fun renderReleaseDiagnostic(error: SeenError) r: String {
+    var message = error.message
+    if error.redaction == RedactionClass.Sensitive {
+        message = "<redacted>"
+    }
+    return error.code.value + ": " + message
+}

@@ -13,6 +13,7 @@ modules = [
     "src/bootstrap",
     "src/lexer",
     "src/parser",
+    "src/imports",
     "src/release",
     "src/typechecker",
     "src/main.seen",

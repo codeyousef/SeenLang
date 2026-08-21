@@ -1,0 +1,12 @@
+{
+  "edges": [
+    {"from": "root.seen", "to": "beta.seen"},
+    {"from": "beta.seen", "to": "leaf.seen"},
+    {"from": "root.seen", "to": "alpha.seen"},
+    {"from": "alpha.seen", "to": "leaf.seen"}
+  ],
+  "modules": ["root.seen", "alpha.seen", "beta.seen", "leaf.seen"],
+  "platform": "linux-x86_64",
+  "root": "root.seen",
+  "schema": "seen-import-graph-v1"
+}

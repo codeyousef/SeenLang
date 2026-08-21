@@ -3,7 +3,7 @@
 import parser.real_parser.{BlockNode, StatementNode, ParserExpressionNode}
 import trace.{traceGen}
 import codegen.ir_codegen_global_state.{findStructWithGlobalStateImpl, appendCollectedDeclarationWithGlobalStateImpl}
-import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_type_mapping.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_expr_type_driver.{inferExpressionTypeState, resolveLiteralMethodReceiverTypeState}
 import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
 import codegen.ir_infer_type.{inferStaticFactoryMethodTypeImpl}
