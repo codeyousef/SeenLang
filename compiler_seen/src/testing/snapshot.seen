@@ -1,0 +1,142 @@
+/// Native exact-byte snapshot comparison and explicit update planning.
+
+import core.result.{Result, Ok, Err}
+import release.compatibility.{OperationContext, SeenError}
+import release.diagnostic_schema.{machineDiagnosticJsonString}
+import seen_compiler.testing.assertions.{TEST_ASSERTION_MAX_NAME_BYTES,
+    test001cError, assertionSafeName, assertionBool}
+
+let TEST_SNAPSHOT_SCHEMA: String = "seen-test-snapshot-v1"
+let TEST_SNAPSHOT_MAX_BYTES: Int = 1048576
+
+enum SnapshotUpdatePolicy {
+    ReadOnly
+    CreateMissing
+    Replace
+}
+
+class SnapshotRequest {
+    var name: String
+    var expectedPresent: Bool
+    var expected: String
+    var actual: String
+    var updatePolicy: SnapshotUpdatePolicy
+}
+
+class SnapshotResult {
+    var schema: String
+    var name: String
+    var status: String
+    var passed: Bool
+    var expected: String
+    var actual: String
+    var writeRequired: Bool
+}
+
+class SnapshotOutcome {
+    var success: Bool
+    var values: Array<SnapshotResult>
+    var errors: Array<SeenError>
+}
+
+fun snapshotFailure(error: SeenError) r: SnapshotOutcome {
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return SnapshotOutcome{
+        success: false, values: Array<SnapshotResult>(), errors: errors
+    }
+}
+
+fun snapshotSuccess(value: SnapshotResult) r: SnapshotOutcome {
+    let values = Array<SnapshotResult>()
+    values.push(value)
+    return SnapshotOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun compareSnapshotChecked(request: SnapshotRequest,
+    context: OperationContext) r: SnapshotOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return snapshotFailure(test001cError("snapshot",
+            "test.001c.cancelled", "snapshot comparison cancelled"))
+    }
+    if not assertionSafeName(request.name) or
+        (not request.expectedPresent and request.expected != "") {
+
+        return snapshotFailure(test001cError("snapshot",
+            "test.001c.invalid", "snapshot request is invalid"))
+    }
+    if context.limits.maxIdentityBytes < 1 or
+        context.limits.maxIdentityBytes > TEST_ASSERTION_MAX_NAME_BYTES or
+        request.name.length() > context.limits.maxIdentityBytes or
+        context.limits.maxManifestBytes < 1 or
+        context.limits.maxManifestBytes > TEST_SNAPSHOT_MAX_BYTES or
+        request.expected.length() > context.limits.maxManifestBytes or
+        request.actual.length() > context.limits.maxManifestBytes {
+
+        return snapshotFailure(test001cError("snapshot",
+            "test.001c.limit", "snapshot input limit exceeded"))
+    }
+    var status = "mismatch"
+    var passed = false
+    var writeRequired = false
+    if request.expectedPresent and request.expected == request.actual {
+        status = "matched"
+        passed = true
+    } else if not request.expectedPresent and
+        (request.updatePolicy == SnapshotUpdatePolicy.CreateMissing or
+         request.updatePolicy == SnapshotUpdatePolicy.Replace) {
+
+        status = "created"
+        passed = true
+        writeRequired = true
+    } else if request.expectedPresent and
+        request.updatePolicy == SnapshotUpdatePolicy.Replace {
+
+        status = "updated"
+        passed = true
+        writeRequired = true
+    } else if not request.expectedPresent {
+        status = "missing"
+    }
+    return snapshotSuccess(SnapshotResult{
+        schema: TEST_SNAPSHOT_SCHEMA,
+        name: request.name,
+        status: status,
+        passed: passed,
+        expected: request.expected,
+        actual: request.actual,
+        writeRequired: writeRequired
+    })
+}
+
+fun compareSnapshot(request: SnapshotRequest,
+    context: OperationContext) r: Result<SnapshotResult, SeenError> {
+
+    let checked = compareSnapshotChecked(request, context)
+    if not checked.success {
+        return Err<SnapshotResult, SeenError>(checked.errors[0])
+    }
+    return Ok<SnapshotResult, SeenError>(checked.values[0])
+}
+
+fun snapshotPath(result: SnapshotResult) r: String {
+    return ".seen_snapshots/" + result.name + ".snap"
+}
+
+fun snapshotWriteContent(result: SnapshotResult) r: String {
+    if result.writeRequired { return result.actual }
+    return ""
+}
+
+fun renderSnapshotResult(result: SnapshotResult) r: String {
+    return "{\"actual\":" + machineDiagnosticJsonString(result.actual) +
+        ",\"expected\":" + machineDiagnosticJsonString(result.expected) +
+        ",\"name\":" + machineDiagnosticJsonString(result.name) +
+        ",\"passed\":" + assertionBool(result.passed) +
+        ",\"schema\":" + machineDiagnosticJsonString(result.schema) +
+        ",\"status\":" + machineDiagnosticJsonString(result.status) +
+        ",\"write_required\":" + assertionBool(result.writeRequired) + "}\n"
+}

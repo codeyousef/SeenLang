@@ -1,0 +1,5 @@
+{
+  "schema": "seen-test-snapshot-v1",
+  "name": "../escape",
+  "content": "must fail closed\n"
+}

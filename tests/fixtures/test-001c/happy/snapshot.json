@@ -1,0 +1,5 @@
+{
+  "schema": "seen-test-snapshot-v1",
+  "name": "greeting",
+  "content": "hello, Seen!\n"
+}

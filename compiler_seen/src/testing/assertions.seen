@@ -1,0 +1,197 @@
+/// Native, non-panicking assertion evaluation for TEST-001C.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import release.compatibility.{AsciiString, OperationContext, SeenError,
+    RetryClass, RedactionClass}
+import release.diagnostic_schema.{machineDiagnosticJsonString}
+
+let TEST_ASSERTION_SCHEMA: String = "seen-test-assertion-v1"
+let TEST_ASSERTION_MAX_NAME_BYTES: Int = 128
+let TEST_ASSERTION_MAX_VALUE_BYTES: Int = 1048576
+
+enum AssertionOperator {
+    Equal
+    NotEqual
+    Contains
+    StartsWith
+    EndsWith
+    True
+    False
+}
+
+class AssertionRequest {
+    var name: String
+    var operator: AssertionOperator
+    var expected: String
+    var actual: String
+}
+
+class AssertionResult {
+    var schema: String
+    var name: String
+    var operator: String
+    var passed: Bool
+    var expected: String
+    var actual: String
+    var message: String
+}
+
+class AssertionOutcome {
+    var success: Bool
+    var values: Array<AssertionResult>
+    var errors: Array<SeenError>
+}
+
+fun test001cError(operation: String, code: String, message: String)
+    r: SeenError {
+
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "testing.assertions" },
+        operation: AsciiString{ value: operation },
+        message: message,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun assertionFailure(error: SeenError) r: AssertionOutcome {
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return AssertionOutcome{
+        success: false, values: Array<AssertionResult>(), errors: errors
+    }
+}
+
+fun assertionSuccess(value: AssertionResult) r: AssertionOutcome {
+    let values = Array<AssertionResult>()
+    values.push(value)
+    return AssertionOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun assertionSafeName(value: String) r: Bool {
+    if value == "" or value.length() > TEST_ASSERTION_MAX_NAME_BYTES { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 65 and byte <= 90
+        if byte >= 97 and byte <= 122 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 or byte == 46 or byte == 95 { valid = true }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun assertionOperatorName(operator: AssertionOperator) r: String {
+    if operator == AssertionOperator.NotEqual { return "not-equal" }
+    if operator == AssertionOperator.Contains { return "contains" }
+    if operator == AssertionOperator.StartsWith { return "starts-with" }
+    if operator == AssertionOperator.EndsWith { return "ends-with" }
+    if operator == AssertionOperator.True { return "true" }
+    if operator == AssertionOperator.False { return "false" }
+    return "equal"
+}
+
+fun assertionOperatorValid(operator: AssertionOperator,
+    expected: String) r: Bool {
+
+    if operator == AssertionOperator.True or
+        operator == AssertionOperator.False {
+
+        return expected == ""
+    }
+    return true
+}
+
+fun assertionMatches(request: AssertionRequest) r: Bool {
+    if request.operator == AssertionOperator.NotEqual {
+        return request.expected != request.actual
+    }
+    if request.operator == AssertionOperator.Contains {
+        return request.actual.contains(request.expected)
+    }
+    if request.operator == AssertionOperator.StartsWith {
+        return request.actual.startsWith(request.expected)
+    }
+    if request.operator == AssertionOperator.EndsWith {
+        return request.actual.endsWith(request.expected)
+    }
+    if request.operator == AssertionOperator.True {
+        return request.actual == "true"
+    }
+    if request.operator == AssertionOperator.False {
+        return request.actual == "false"
+    }
+    return request.expected == request.actual
+}
+
+fun evaluateAssertionChecked(request: AssertionRequest,
+    context: OperationContext) r: AssertionOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return assertionFailure(test001cError("assert",
+            "test.001c.cancelled", "assertion evaluation cancelled"))
+    }
+    if not assertionSafeName(request.name) or
+        not assertionOperatorValid(request.operator, request.expected) {
+
+        return assertionFailure(test001cError("assert",
+            "test.001c.invalid", "assertion request is invalid"))
+    }
+    if context.limits.maxIdentityBytes < 1 or
+        context.limits.maxIdentityBytes > TEST_ASSERTION_MAX_NAME_BYTES or
+        request.name.length() > context.limits.maxIdentityBytes or
+        context.limits.maxManifestBytes < 1 or
+        context.limits.maxManifestBytes > TEST_ASSERTION_MAX_VALUE_BYTES or
+        request.expected.length() > context.limits.maxManifestBytes or
+        request.actual.length() > context.limits.maxManifestBytes {
+
+        return assertionFailure(test001cError("assert",
+            "test.001c.limit", "assertion input limit exceeded"))
+    }
+    let passed = assertionMatches(request)
+    var message = "assertion passed"
+    if not passed { message = "assertion failed" }
+    return assertionSuccess(AssertionResult{
+        schema: TEST_ASSERTION_SCHEMA,
+        name: request.name,
+        operator: assertionOperatorName(request.operator),
+        passed: passed,
+        expected: request.expected,
+        actual: request.actual,
+        message: message
+    })
+}
+
+fun evaluateAssertion(request: AssertionRequest,
+    context: OperationContext) r: Result<AssertionResult, SeenError> {
+
+    let checked = evaluateAssertionChecked(request, context)
+    if not checked.success {
+        return Err<AssertionResult, SeenError>(checked.errors[0])
+    }
+    return Ok<AssertionResult, SeenError>(checked.values[0])
+}
+
+fun assertionBool(value: Bool) r: String {
+    if value { return "true" }
+    return "false"
+}
+
+fun renderAssertionResult(result: AssertionResult) r: String {
+    return "{\"actual\":" + machineDiagnosticJsonString(result.actual) +
+        ",\"expected\":" + machineDiagnosticJsonString(result.expected) +
+        ",\"message\":" + machineDiagnosticJsonString(result.message) +
+        ",\"name\":" + machineDiagnosticJsonString(result.name) +
+        ",\"operator\":" + machineDiagnosticJsonString(result.operator) +
+        ",\"passed\":" + assertionBool(result.passed) +
+        ",\"schema\":" + machineDiagnosticJsonString(result.schema) + "}\n"
+}

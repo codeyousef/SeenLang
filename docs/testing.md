@@ -55,3 +55,21 @@ transactionally with repeatable `--report json:<path>` and
 
 The legacy `scripts/run_all_tests.sh` continues to record and validate the same
 discovery inventory while migration to the shipped runner proceeds.
+
+## Assertions and snapshots
+
+TEST-001C provides native `seen-test-assertion-v1` assertion evaluation and
+`seen-test-snapshot-v1` exact-text snapshots. Assertions return structured
+results: a comparison failure is test data (`passed: false`), while invalid,
+cancelled, or over-limit requests return stable `test.001c.*` errors through a
+fallible API. Names are bounded portable identifiers and values are limited to
+1 MiB before allocation or any filesystem side effect.
+
+Snapshots compare bytes exactly; newline, spacing, and Unicode differences are
+significant. The typed update policy is `ReadOnly`, `CreateMissing`, or
+`Replace`. Updates are never implicit: comparison returns `writeRequired`, and
+the caller may then transactionally write the returned content to
+`.seen_snapshots/<name>.snap`. CPU-only use has no accelerator dependency. The
+contract is implemented for Linux x86-64 and is platform-neutral source on
+Windows, macOS, and other declared Seen targets; filesystem persistence remains
+the caller's bounded platform adapter.
