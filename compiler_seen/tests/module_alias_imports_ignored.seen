@@ -1,3 +1,4 @@
+// Harness-only: importing main_compiler contributes a second program entry.
 import bootstrap.frontend.{run_frontend}
 import main_compiler.{resolveImportedSymbolName, resolveImportedQualifiedSymbolName}
 import parser.real_parser.{ImportSymbolNode}

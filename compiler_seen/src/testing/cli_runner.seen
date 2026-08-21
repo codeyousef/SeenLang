@@ -1,0 +1,325 @@
+/// Shipped `seen test` orchestration. Selection and reporting remain in the
+/// native TEST-001B policy module; this layer owns the narrow OS process edge.
+
+import io.file.{readText, writeTextAtomically, exists}
+import process.process.{runCommand, CommandResult, commandWasSuccessful}
+import release.compatibility.{OperationContext}
+import testing.categories.{TestPrimaryCategory, TestPlatformCategory}
+import seen_compiler.testing.discovery.{TestDiscoveryCandidate, discoverTestsChecked,
+    testDiscoveryExpectedCategory, testDiscoveryExpectedPlatform,
+    testDiscoveryHasMarker, testDiscoveryPathBefore}
+import seen_compiler.testing.runner.{TestRunnerOptions,
+    buildTestRunPlanChecked, finalizeTestRunChecked, renderTestRunReport,
+    renderTestRunJunit}
+
+fun testCliShellQuote(value: String) r: String {
+    var quoted = "'"
+    var index = 0
+    while index < value.length() {
+        let ch = value.substring(index, index + 1)
+        if ch == "'" { quoted = quoted + "'\"'\"'" }
+        else { quoted = quoted + ch }
+        index = index + 1
+    }
+    return quoted + "'"
+}
+
+fun testCliTrimOutput(value: String) r: String {
+    var end = value.length()
+    while end > 0 and (value.byteAt(end - 1) == 10 or
+        value.byteAt(end - 1) == 13) { end = end - 1 }
+    return value.substring(0, end)
+}
+
+fun testCliSafeRelativePath(value: String) r: Bool {
+    if value == "" or value.startsWith("/") or value.contains("\\") or
+        value.contains("..") or value.contains("//") { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 65 and byte <= 90
+        if byte >= 97 and byte <= 122 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 or byte == 46 or byte == 47 or byte == 95 { valid = true }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun testCliPlatform(value: String) r: TestPlatformCategory {
+    if value == "linux" { return TestPlatformCategory.Linux }
+    if value == "linux-x86_64" { return TestPlatformCategory.LinuxX8664 }
+    if value == "linux-arm64" { return TestPlatformCategory.LinuxArm64 }
+    if value == "macos" { return TestPlatformCategory.Macos }
+    if value == "windows" { return TestPlatformCategory.Windows }
+    return TestPlatformCategory.All
+}
+
+fun testCliInsertCandidate(values: Array<TestDiscoveryCandidate>,
+    candidate: TestDiscoveryCandidate) r: Void {
+    values.push(candidate)
+    var index = values.length() - 1
+    while index > 0 and testDiscoveryPathBefore(
+        values[index].path, values[index - 1].path) {
+
+        let previous = values[index - 1]
+        values[index - 1] = values[index]
+        values[index] = previous
+        index = index - 1
+    }
+    return
+}
+
+fun testCliCollectFindOutput(root: String, output: String,
+    candidates: Array<TestDiscoveryCandidate>) r: Bool {
+    let lines = output.split("\n")
+    var index = 0
+    while index < lines.length() {
+        let absolute = lines[index].trim()
+        if absolute != "" {
+            let prefix = root + "/"
+            if not absolute.startsWith(prefix) { return false }
+            let path = absolute.substring(prefix.length(), absolute.length())
+            if not testCliSafeRelativePath(path) { return false }
+            let category = testDiscoveryExpectedCategory(path)
+            if category == "" { return false }
+            testCliInsertCandidate(candidates, TestDiscoveryCandidate{
+                path: path,
+                category: if category == "unit" {
+                    TestPrimaryCategory.Unit
+                } else { TestPrimaryCategory.Integration },
+                ignored: testDiscoveryHasMarker(path, "ignored"),
+                slow: testDiscoveryHasMarker(path, "slow"),
+                platform: testCliPlatform(testDiscoveryExpectedPlatform(path)),
+                privileged: testDiscoveryHasMarker(path, "privileged")
+            })
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun testCliDiscover(root: String, context: OperationContext,
+    candidates: Array<TestDiscoveryCandidate>) r: Bool {
+    let compilerTests = root + "/compiler_seen/tests"
+    let stdTests = root + "/seen_std/tests"
+    let miscTests = root + "/tests/misc_root_tests"
+    let roots = testCliShellQuote(compilerTests) + " " +
+        testCliShellQuote(stdTests) + " " + testCliShellQuote(miscTests)
+    let symlinks = runCommand("find " + roots + " -type l -print")
+    if not commandWasSuccessful(symlinks) or symlinks.output.trim() != "" {
+        return false
+    }
+    let unit = runCommand("find " + testCliShellQuote(compilerTests) + " " +
+        testCliShellQuote(stdTests) + " -type f -name '*.seen' -print")
+    if not commandWasSuccessful(unit) or
+        not testCliCollectFindOutput(root, unit.output, candidates) { return false }
+    let misc = runCommand("find " + testCliShellQuote(miscTests) +
+        " -type f \\( -name '*.sh' -o -name '*_unit.py' -o " +
+        "-name '*_test.seen' \\) -print")
+    if not commandWasSuccessful(misc) or
+        not testCliCollectFindOutput(root, misc.output, candidates) { return false }
+    let discovered = discoverTestsChecked(candidates, context)
+    return discovered.success
+}
+
+fun testCliEnsureDirectory(path: String) r: Bool {
+    return commandWasSuccessful(runCommand("mkdir -p -- " +
+        testCliShellQuote(path)))
+}
+
+fun testCliReadExit(path: String) r: Int {
+    let value = readText(path).trim()
+    if value == "" { return -1 }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 48 or byte > 57 { return -1 }
+        index = index + 1
+    }
+    let code = value.toInt()
+    if code < 0 or code > 255 { return -1 }
+    return code
+}
+
+fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
+    packageClientPath: String, relative: String, timeoutSeconds: Int,
+    ordinal: Int) r: Int {
+    let runRoot = root + "/.seen_cache/test/run"
+    if not testCliEnsureDirectory(runRoot) { return -1 }
+    let token = ordinal.toString()
+    let binary = runRoot + "/test-" + token
+    let logPath = runRoot + "/test-" + token + ".log"
+    let exitPath = runRoot + "/test-" + token + ".exit"
+    let absolute = root + "/" + relative
+    var command = ""
+    if relative.endsWith(".seen") {
+        command = "SEEN_COMPILER_SOURCE_ROOT=" +
+            testCliShellQuote(compilerSourceRoot) +
+            " SEEN_PACKAGE_CLIENT=" +
+            testCliShellQuote(packageClientPath) +
+            " " + testCliShellQuote(selfPath) + " compile " +
+            testCliShellQuote(absolute) + " " + testCliShellQuote(binary) +
+            " --fast --jobs 1 --opt-jobs 1 && " +
+            testCliShellQuote(binary)
+    } else if relative.endsWith(".sh") {
+        command = "bash " + testCliShellQuote(absolute)
+    } else if relative.endsWith("_unit.py") {
+        command = "python3 " + testCliShellQuote(absolute)
+    } else { return -1 }
+    let wrapped = "cd " + testCliShellQuote(root) + " && timeout --signal=TERM " +
+        "--kill-after=5s " + timeoutSeconds.toString() + "s sh -c " +
+        testCliShellQuote(command) + " >" + testCliShellQuote(logPath) +
+        " 2>&1; status=$?; printf '%s\\n' \"$status\" >" +
+        testCliShellQuote(exitPath) + "; exit 0"
+    let executed = runCommand(wrapped)
+    if not commandWasSuccessful(executed) { return -1 }
+    return testCliReadExit(exitPath)
+}
+
+fun testCliWriteReport(root: String, specification: String,
+    jsonReport: String, junitReport: String) r: Bool {
+    var format = ""
+    var relative = ""
+    if specification.startsWith("json:") {
+        format = "json"
+        relative = specification.substring(5, specification.length())
+    } else if specification.startsWith("junit:") {
+        format = "junit"
+        relative = specification.substring(6, specification.length())
+    } else { return false }
+    if not testCliSafeRelativePath(relative) or
+        (not relative.startsWith(".seen_cache/test/") and
+         not relative.startsWith(".seen/")) { return false }
+    let slash = relative.lastIndexOf("/")
+    if slash < 1 { return false }
+    let parent = root + "/" + relative.substring(0, slash)
+    let resolvedParent = runCommand("realpath -m -- " +
+        testCliShellQuote(parent))
+    if not commandWasSuccessful(resolvedParent) or
+        not testCliTrimOutput(resolvedParent.output).startsWith(root + "/") or
+        not testCliEnsureDirectory(parent) { return false }
+    let contents = if format == "json" { jsonReport } else { junitReport }
+    return writeTextAtomically(root + "/" + relative, contents)
+}
+
+fun testCliReportSpecificationSafe(specification: String) r: Bool {
+    var relative = ""
+    if specification.startsWith("json:") {
+        relative = specification.substring(5, specification.length())
+    } else if specification.startsWith("junit:") {
+        relative = specification.substring(6, specification.length())
+    } else { return false }
+    return testCliSafeRelativePath(relative) and
+        (relative.startsWith(".seen_cache/test/") or
+         relative.startsWith(".seen/"))
+}
+
+fun runCanonicalTests(rootArgument: String, selfPath: String,
+    compilerSourceRoot: String, packageClientPath: String,
+    filter: String, profile: String, jobs: Int, timeoutSeconds: Int,
+    includeIgnored: Bool, includeSlow: Bool, allowPrivileged: Bool,
+    reports: Array<String>, context: OperationContext) r: Int {
+    let resolved = runCommand("realpath -- " + testCliShellQuote(rootArgument))
+    if not commandWasSuccessful(resolved) { println("Error: [test.001b.io] test root does not exist"); return 3 }
+    let root = testCliTrimOutput(resolved.output)
+    if root == "" or not exists(root + "/Seen.toml") {
+        println("Error: [test.001b.invalid] test root must contain Seen.toml")
+        return 2
+    }
+    if compilerSourceRoot == "" or packageClientPath == "" {
+        println("Error: [test.001b.io] compiler release components are unavailable")
+        return 3
+    }
+    let resolvedSelf = runCommand("realpath -- " + testCliShellQuote(selfPath))
+    var absoluteSelfPath = ""
+    if commandWasSuccessful(resolvedSelf) {
+        absoluteSelfPath = testCliTrimOutput(resolvedSelf.output)
+    } else {
+        let locatedSelf = runCommand("command -v -- " +
+            testCliShellQuote(selfPath))
+        if commandWasSuccessful(locatedSelf) {
+            absoluteSelfPath = testCliTrimOutput(locatedSelf.output)
+        }
+    }
+    if absoluteSelfPath == "" {
+        println("Error: [test.001b.io] compiler executable is unavailable")
+        return 3
+    }
+    var reportIndex = 0
+    while reportIndex < reports.length() {
+        if not testCliReportSpecificationSafe(reports[reportIndex]) {
+            println("Error: [test.001b.invalid] report specification is unsafe")
+            return 2
+        }
+        reportIndex = reportIndex + 1
+    }
+    let candidates = Array<TestDiscoveryCandidate>()
+    if not testCliDiscover(root, context, candidates) {
+        println("Error: [test.001b.io] deterministic test discovery failed")
+        return 3
+    }
+    let discovered = discoverTestsChecked(candidates, context)
+    if not discovered.success {
+        println("Error: [" + discovered.errors[0].code.value + "] " +
+            discovered.errors[0].message)
+        return 3
+    }
+    let planned = buildTestRunPlanChecked(discovered.values[0],
+        TestRunnerOptions{filter: filter, profile: profile, jobs: jobs,
+            timeoutSeconds: timeoutSeconds, includeIgnored: includeIgnored,
+            includeSlow: includeSlow, allowPrivileged: allowPrivileged,
+            target: "linux-x86_64"}, context)
+    if not planned.success {
+        println("Error: [" + planned.errors[0].code.value + "] " +
+            planned.errors[0].message)
+        if planned.errors[0].code.value == "test.001b.cancelled" { return 130 }
+        return 2
+    }
+    let plan = planned.values[0]
+    let exitCodes = Array<Int>()
+    var selectedIndex = 0
+    var index = 0
+    while index < plan.entries.length() {
+        let entry = plan.entries[index]
+        if entry.selected {
+            let code = testCliExecute(root, absoluteSelfPath,
+                compilerSourceRoot, packageClientPath, entry.test.path,
+                timeoutSeconds, selectedIndex)
+            if code < 0 {
+                println("Error: [test.001b.io] test process boundary failed")
+                return 3
+            }
+            exitCodes.push(code)
+            if code == 0 { println("PASS " + entry.test.path) }
+            else { println("FAIL " + entry.test.path + " (exit " + code.toString() + ")") }
+            selectedIndex = selectedIndex + 1
+        } else if entry.skipReason != "filter" {
+            println("SKIP " + entry.test.path + " (" + entry.skipReason + ")")
+        }
+        index = index + 1
+    }
+    let finalized = finalizeTestRunChecked(plan, exitCodes, context)
+    if not finalized.success {
+        println("Error: [" + finalized.errors[0].code.value + "] " +
+            finalized.errors[0].message)
+        return 3
+    }
+    let report = finalized.values[0]
+    let jsonReport = renderTestRunReport(report)
+    let junitReport = renderTestRunJunit(report)
+    index = 0
+    while index < reports.length() {
+        if not testCliWriteReport(root, reports[index], jsonReport,
+            junitReport) {
+            println("Error: [test.001b.io] report path or write failed")
+            return 3
+        }
+        index = index + 1
+    }
+    println("test result: " + report.passed.toString() + " passed; " +
+        report.failed.toString() + " failed; " + report.skipped.toString() +
+        " skipped")
+    return report.exitCode
+}

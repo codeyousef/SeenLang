@@ -1,0 +1,1 @@
+{"exit_code":0,"failed":0,"passed":1,"results":[{"exit_code":7,"path":"compiler_seen/tests/alpha.seen","status":"passed"}],"schema":"seen-test-run-v1","skipped":0}

@@ -22,6 +22,11 @@ are `linux`, `linux_x86_64`, `linux_arm64`, `macos`, and `windows`; unmarked
 tests use `all`. These markers describe selection policy and do not grant
 privileges or silently skip an unsupported platform.
 
+Legacy sources that cannot be linked as standalone programs carry the explicit
+`ignored` marker. They remain discoverable and reported, but run only after an
+operator supplies `--include-ignored`; the runner never keeps a hidden skip
+list.
+
 Native Seen exposes `TestPrimaryCategory` and `TestPlatformCategory`; ignored,
 slow, and privileged remain independent flags so categories compose without
 stringly typed combinations.
@@ -31,7 +36,22 @@ strict host oracle used before TEST-001B ships the canonical `seen test`
 execution command. It emits canonical JSON to standard output. Validation is
 available with `--validate <manifest>` and never repairs input.
 
-The legacy `scripts/run_all_tests.sh` records the discovered manifest below
-the validated project artifact root before it starts its maintained test list.
-TEST-001B will consume the same native contract for filtering, execution, exit
-codes, timeouts, and reports.
+## Canonical test runner
+
+`seen test <project>` consumes that native inventory through the
+`seen-test-run-v1` policy. Selection is deterministic and supports `--filter`,
+the `default` and `ci` profiles, explicit ignored/slow/privileged opt-ins, one
+bounded worker, and a timeout of at most one hour. The runner executes Seen,
+shell, and Python test shapes through a narrow process boundary while retaining
+per-test logs below `.seen_cache/test/run/`.
+
+Exit codes are stable: `0` means all selected tests passed, `1` means at least
+one selected test failed, `2` is invalid CLI or selection input, `3` is an
+infrastructure or report-write failure, and `130` is cancellation. Timeouts are
+test failures and never silently retry. JSON and JUnit reports are written
+transactionally with repeatable `--report json:<path>` and
+`--report junit:<path>` options; paths must remain below `.seen_cache/test/` or
+`.seen/` and may not traverse symlinks or parent segments.
+
+The legacy `scripts/run_all_tests.sh` continues to record and validate the same
+discovery inventory while migration to the shipped runner proceeds.

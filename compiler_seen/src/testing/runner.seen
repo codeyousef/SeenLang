@@ -1,10 +1,337 @@
-class TestRunner {
-    fun new() r: TestRunner {
-        return TestRunner{}
-    }
+/// Canonical test selection, exit-code, and report policy for TEST-001B.
 
-    fun runAllTests() r: Bool {
-        println("[test-runner] no tests registered")
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import release.compatibility.{AsciiString, OperationContext, SeenError,
+    RetryClass, RedactionClass}
+import release.diagnostic_schema.{machineDiagnosticJsonString}
+import testing.categories.{testPlatformCategoryName}
+import testing.discovery.{TestDiscoveryCandidate, TestDiscoveryManifest}
+
+let TEST_RUN_SCHEMA: String = "seen-test-run-v1"
+let TEST_RUN_EXIT_SUCCESS: Int = 0
+let TEST_RUN_EXIT_FAILURE: Int = 1
+let TEST_RUN_EXIT_USAGE: Int = 2
+let TEST_RUN_EXIT_INFRASTRUCTURE: Int = 3
+let TEST_RUN_EXIT_CANCELLED: Int = 130
+let TEST_RUN_MAX_FILTER_BYTES: Int = 256
+let TEST_RUN_MAX_TIMEOUT_SECONDS: Int = 3600
+
+class TestRunnerOptions {
+    var filter: String
+    var profile: String
+    var jobs: Int
+    var timeoutSeconds: Int
+    var includeIgnored: Bool
+    var includeSlow: Bool
+    var allowPrivileged: Bool
+    var target: String
+}
+
+class TestRunPlanEntry {
+    var test: TestDiscoveryCandidate
+    var selected: Bool
+    var skipReason: String
+}
+
+class TestRunPlan {
+    var schema: String
+    var options: TestRunnerOptions
+    var entries: Array<TestRunPlanEntry>
+    var selectedCount: Int
+}
+
+class TestExecutionResult {
+    var path: String
+    var status: String
+    var exitCode: Int
+}
+
+class TestRunReport {
+    var schema: String
+    var results: Array<TestExecutionResult>
+    var passed: Int
+    var failed: Int
+    var skipped: Int
+    var exitCode: Int
+}
+
+class TestRunPlanOutcome {
+    var success: Bool
+    var values: Array<TestRunPlan>
+    var errors: Array<SeenError>
+}
+
+class TestRunReportOutcome {
+    var success: Bool
+    var values: Array<TestRunReport>
+    var errors: Array<SeenError>
+}
+
+fun test001bError(code: String, message: String) r: SeenError {
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "testing.runner" },
+        operation: AsciiString{ value: "run" },
+        message: message,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun testRunPlanFailure(error: SeenError) r: TestRunPlanOutcome {
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return TestRunPlanOutcome{
+        success: false, values: Array<TestRunPlan>(), errors: errors
+    }
+}
+
+fun testRunPlanSuccess(plan: TestRunPlan) r: TestRunPlanOutcome {
+    let values = Array<TestRunPlan>()
+    values.push(plan)
+    return TestRunPlanOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun testRunReportFailure(error: SeenError) r: TestRunReportOutcome {
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return TestRunReportOutcome{
+        success: false, values: Array<TestRunReport>(), errors: errors
+    }
+}
+
+fun testRunReportSuccess(report: TestRunReport) r: TestRunReportOutcome {
+    let values = Array<TestRunReport>()
+    values.push(report)
+    return TestRunReportOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun testRunnerSafeFilter(value: String) r: Bool {
+    if value.length() > TEST_RUN_MAX_FILTER_BYTES { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = false
+        if byte >= 65 and byte <= 90 { valid = true }
+        if byte >= 97 and byte <= 122 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 or byte == 46 or byte == 47 or byte == 95 {
+            valid = true
+        }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun testRunnerNormalizedFilter(value: String) r: String {
+    return value.toLowerCase().replace("-", "_")
+}
+
+fun testRunnerFilterMatches(path: String, filter: String) r: Bool {
+    if filter == "" { return true }
+    return path.toLowerCase().replace("-", "_").contains(
+        testRunnerNormalizedFilter(filter))
+}
+
+fun testRunnerPlatformMatches(testPlatform: String, target: String) r: Bool {
+    if testPlatform == "all" { return true }
+    if testPlatform == target { return true }
+    if testPlatform == "linux" and
+        (target == "linux-x86_64" or target == "linux-arm64") {
+
         return true
     }
+    return false
+}
+
+fun buildTestRunPlanChecked(manifest: TestDiscoveryManifest,
+    options: TestRunnerOptions, context: OperationContext)
+    r: TestRunPlanOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return testRunPlanFailure(test001bError(
+            "test.001b.cancelled", "test run planning cancelled"))
+    }
+    if options.jobs != 1 or options.timeoutSeconds < 1 or
+        options.timeoutSeconds > TEST_RUN_MAX_TIMEOUT_SECONDS or
+        (options.profile != "default" and options.profile != "ci") or
+        options.target != "linux-x86_64" or
+        not testRunnerSafeFilter(options.filter) {
+
+        return testRunPlanFailure(test001bError(
+            "test.001b.invalid", "test runner options are invalid"))
+    }
+    if context.limits.maxGraphModules < 1 or
+        manifest.tests.length() > context.limits.maxGraphModules {
+
+        return testRunPlanFailure(test001bError(
+            "test.001b.limit", "test runner item limit exceeded"))
+    }
+    let entries = Array<TestRunPlanEntry>()
+    var selectedCount = 0
+    var index = 0
+    while index < manifest.tests.length() {
+        let test = manifest.tests[index]
+        var selected = true
+        var reason = ""
+        if not testRunnerFilterMatches(test.path, options.filter) {
+            selected = false
+            reason = "filter"
+        } else if test.ignored and not options.includeIgnored {
+            selected = false
+            reason = "ignored"
+        } else if test.slow and not options.includeSlow {
+            selected = false
+            reason = "slow"
+        } else if test.privileged and not options.allowPrivileged {
+            selected = false
+            reason = "privileged"
+        } else if not testRunnerPlatformMatches(
+            testPlatformCategoryName(test.platform), options.target) {
+
+            selected = false
+            reason = "platform"
+        }
+        if selected { selectedCount = selectedCount + 1 }
+        entries.push(TestRunPlanEntry{
+            test: test, selected: selected, skipReason: reason
+        })
+        index = index + 1
+    }
+    if selectedCount == 0 {
+        return testRunPlanFailure(test001bError(
+            "test.001b.invalid", "test filter selected no runnable tests"))
+    }
+    return testRunPlanSuccess(TestRunPlan{
+        schema: TEST_RUN_SCHEMA, options: options, entries: entries,
+        selectedCount: selectedCount
+    })
+}
+
+fun buildTestRunPlan(manifest: TestDiscoveryManifest,
+    options: TestRunnerOptions, context: OperationContext)
+    r: Result<TestRunPlan, SeenError> {
+
+    let checked = buildTestRunPlanChecked(manifest, options, context)
+    if not checked.success {
+        return Err<TestRunPlan, SeenError>(checked.errors[0])
+    }
+    return Ok<TestRunPlan, SeenError>(checked.values[0])
+}
+
+fun finalizeTestRunChecked(plan: TestRunPlan, exitCodes: Array<Int>,
+    context: OperationContext) r: TestRunReportOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return testRunReportFailure(test001bError(
+            "test.001b.cancelled", "test run finalization cancelled"))
+    }
+    if exitCodes.length() != plan.selectedCount {
+        return testRunReportFailure(test001bError(
+            "test.001b.invalid", "test result count does not match run plan"))
+    }
+    let results = Array<TestExecutionResult>()
+    var passed = 0
+    var failed = 0
+    var skipped = 0
+    var executedIndex = 0
+    var index = 0
+    while index < plan.entries.length() {
+        let entry = plan.entries[index]
+        if not entry.selected {
+            results.push(TestExecutionResult{
+                path: entry.test.path, status: "skipped", exitCode: 0
+            })
+            skipped = skipped + 1
+        } else {
+            let code = exitCodes[executedIndex]
+            executedIndex = executedIndex + 1
+            if code < 0 or code > 255 {
+                return testRunReportFailure(test001bError(
+                    "test.001b.invalid", "test exit code is out of range"))
+            }
+            var status = "failed"
+            if code == 0 {
+                status = "passed"
+                passed = passed + 1
+            } else {
+                failed = failed + 1
+            }
+            results.push(TestExecutionResult{
+                path: entry.test.path, status: status, exitCode: code
+            })
+        }
+        index = index + 1
+    }
+    var overall = TEST_RUN_EXIT_SUCCESS
+    if failed > 0 { overall = TEST_RUN_EXIT_FAILURE }
+    return testRunReportSuccess(TestRunReport{
+        schema: TEST_RUN_SCHEMA, results: results, passed: passed,
+        failed: failed, skipped: skipped, exitCode: overall
+    })
+}
+
+fun finalizeTestRun(plan: TestRunPlan, exitCodes: Array<Int>,
+    context: OperationContext) r: Result<TestRunReport, SeenError> {
+
+    let checked = finalizeTestRunChecked(plan, exitCodes, context)
+    if not checked.success {
+        return Err<TestRunReport, SeenError>(checked.errors[0])
+    }
+    return Ok<TestRunReport, SeenError>(checked.values[0])
+}
+
+fun renderTestRunReport(report: TestRunReport) r: String {
+    var output = "{\"exit_code\":" + report.exitCode.toString() +
+        ",\"failed\":" + report.failed.toString() + ",\"passed\":" +
+        report.passed.toString() + ",\"results\":["
+    var index = 0
+    while index < report.results.length() {
+        if index > 0 { output = output + "," }
+        let result = report.results[index]
+        output = output + "{\"exit_code\":" + result.exitCode.toString() +
+            ",\"path\":" + machineDiagnosticJsonString(result.path) +
+            ",\"status\":" + machineDiagnosticJsonString(result.status) + "}"
+        index = index + 1
+    }
+    return output + "],\"schema\":" +
+        machineDiagnosticJsonString(report.schema) + ",\"skipped\":" +
+        report.skipped.toString() + "}\n"
+}
+
+fun testRunnerXmlString(value: String) r: String {
+    return value.replace("&", "&amp;").replace("<", "&lt;").replace(
+        ">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
+}
+
+fun renderTestRunJunit(report: TestRunReport) r: String {
+    var output = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+        "<testsuite name=\"seen\" tests=\"" +
+        report.results.length().toString() + "\" failures=\"" +
+        report.failed.toString() + "\" skipped=\"" +
+        report.skipped.toString() + "\">\n"
+    var index = 0
+    while index < report.results.length() {
+        let result = report.results[index]
+        output = output + "  <testcase name=\"" +
+            testRunnerXmlString(result.path) + "\">"
+        if result.status == "failed" {
+            output = output + "<failure message=\"exit " +
+                result.exitCode.toString() + "\"/>"
+        } else if result.status == "skipped" {
+            output = output + "<skipped/>"
+        }
+        output = output + "</testcase>\n"
+        index = index + 1
+    }
+    return output + "</testsuite>\n"
 }
