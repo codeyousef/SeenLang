@@ -11,7 +11,8 @@ import codegen.ir_string_emit.{emitAdditionalGeneratedStringConstantsImpl}
 
 fun emitSharedModuleTailState(output: StringBuilder,
     stringConstants: Array<String>, stringConstCountBeforeGen: Int,
-    moduleIndex: Int, clearModuleCse: Bool, writeLogBeforeMetadata: Bool,
+    moduleIndex: Int, globalInitializationIndex: Int,
+    clearModuleCse: Bool, writeLogBeforeMetadata: Bool,
     functionOptions: FunctionLoweringOptions) r: Void {
 
     emitTraitVtableConstantsWithFeatureStateImpl(output)
@@ -35,7 +36,8 @@ fun emitSharedModuleTailState(output: StringBuilder,
         writeMLDecisionLog()
     }
 
-    emitGlobalConstructorsWithFeatureStateImpl(output)
+    emitGlobalConstructorsWithFeatureStateImpl(
+        output, globalInitializationIndex)
     emitTBAAMetadataWithFeatureStateImpl(output)
     emitLoopMetadataWithMetricsStateImpl(output, functionOptions)
 

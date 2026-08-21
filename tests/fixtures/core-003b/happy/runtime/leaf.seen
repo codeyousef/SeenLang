@@ -1,0 +1,9 @@
+fun initializeLeaf() r: Int {
+    return 10
+}
+
+var leafReady = initializeLeaf()
+
+fun leafValue() r: Int {
+    return leafReady
+}

@@ -113,7 +113,7 @@ grep -Fq 'compiler_seen/tests/compatibility_manifest.seen' \
     "$STAGE1_ACCEPTANCE" ||
     fail "native compiling regression is not in Stage-1 acceptance"
 
-for identity in seen-layout-abi-v2 seen-object-cache-abi-v2 \
+for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
     seen-prebuilt-package-v2 seen-package-interface-v2 \
     seen-package-object-manifest-v2 runtime-v2 SEENPKG1; do
 

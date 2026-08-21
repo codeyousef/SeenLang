@@ -680,8 +680,11 @@ fun emitGeneratedClosuresWithFeatureStateImpl(output: StringBuilder) r: Void {
     emitGeneratedClosuresImpl(output, g_closureDefs)
 }
 
-fun emitGlobalConstructorsWithFeatureStateImpl(output: StringBuilder) r: Void {
-    emitGlobalConstructorsImpl(output, g_initFuncCount, g_initFuncNames)
+fun emitGlobalConstructorsWithFeatureStateImpl(output: StringBuilder,
+    initializationIndex: Int) r: Void {
+
+    emitGlobalConstructorsImpl(
+        output, g_initFuncCount, g_initFuncNames, initializationIndex)
 }
 
 fun emitTBAAMetadataWithFeatureStateImpl(output: StringBuilder) r: Void {

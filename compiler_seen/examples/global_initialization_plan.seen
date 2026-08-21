@@ -1,0 +1,50 @@
+/// Build a deterministic dependency-first global-initialization schedule.
+
+import seen_compiler.imports.graph.{newModuleImportGraph,
+    moduleImportGraphBeginModule, moduleImportGraphAddEdge,
+    planDeterministicGlobalInitialization,
+    renderGlobalInitializationPlan}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+
+fun exampleInitializationContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: 4096,
+            maxGraphModules: 16,
+            maxGraphEdges: 64,
+            maxGraphDepth: 16
+        },
+        traceId: AsciiString{ value: "global-initialization-example" }
+    }
+}
+
+fun main() r: Int {
+    let modules = Array<String>()
+    modules.push("app.seen")
+    modules.push("lib/config.seen")
+    modules.push("lib/defaults.seen")
+
+    let graph = newModuleImportGraph(modules.length())
+    moduleImportGraphBeginModule(graph, 0)
+    moduleImportGraphAddEdge(graph, 0, 1)
+    moduleImportGraphBeginModule(graph, 1)
+    moduleImportGraphAddEdge(graph, 1, 2)
+    moduleImportGraphBeginModule(graph, 2)
+
+    let planned = planDeterministicGlobalInitialization(
+        modules, graph, "linux-x86_64", exampleInitializationContext())
+    if planned.isErr() {
+        println(planned.unwrapErr().code.value)
+        return 1
+    }
+    println(renderGlobalInitializationPlan(planned.unwrap()))
+    return 0
+}
+
+main()

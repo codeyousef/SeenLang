@@ -441,7 +441,8 @@ fun emitTraitVtableConstantsWithFeatureStateImpl(output: StringBuilder) r: Void 
 fun emitGeneratedClosuresWithFeatureStateImpl(output: StringBuilder) r: Void {
 }
 
-fun emitGlobalConstructorsWithFeatureStateImpl(output: StringBuilder) r: Void {
+fun emitGlobalConstructorsWithFeatureStateImpl(output: StringBuilder,
+    initializationIndex: Int) r: Void {
 }
 
 fun emitTBAAMetadataWithFeatureStateImpl(output: StringBuilder) r: Void {

@@ -94,6 +94,40 @@ part of the bounded-memory bootstrap contract. The compiling API example is
 `compiler_seen/examples/import_graph_resolution.seen`. CORE-003A adds no foreign
 symbol, so the native-boundary ledger remains unchanged.
 
+### Deterministic global initialization
+
+Location: `compiler_seen/src/imports/graph.seen` and
+`compiler_seen/src/codegen/ir_module_emit.seen`
+
+CORE-003B derives a dependency-first postorder from the same validated import
+graph state machine used by CORE-003A. The public
+`planDeterministicGlobalInitialization` entry point returns
+`Result<GlobalInitializationPlan, SeenError>`; malformed graphs, unsupported
+platforms, invalid bounds, cycles, and cancellation fail closed with stable
+`core.003b.*` diagnostics. No second traversal or source-order repair path is
+used.
+
+Compile, check, and JIT consume the checked initialization schedule while
+preserving the canonical module discovery/codegen order and the bounded compiler
+bootstrap schedule. Each emitted module receives a unique, bounded LLVM
+constructor priority derived from its dependency-first rank, so global
+initialization does not depend on equal-priority linker order. The synthesized
+per-module initializer remains internal and all its assignments retain source
+order.
+
+The compiling API example is
+`compiler_seen/examples/global_initialization_plan.seen`, and Stage-1 acceptance
+also executes a three-module runtime chain whose globals observe initialized
+dependency state. The object-cache compatibility identity is
+`seen-object-cache-abi-v3`. CORE-003B adds no foreign symbol, so the
+native-boundary ledger remains unchanged.
+
+The frozen Stage-1 compiler remains bound to its hash-verified v2 compatibility
+manifest under `bootstrap/`. The bootstrap overlay copies that immutable record
+instead of exposing the live v3 release manifest; newly produced compilers use
+the live checkout record. This permits a fail-closed ABI transition without
+teaching either compiler to ignore or repair a compatibility mismatch.
+
 ## Code Generation
 
 Location: `compiler_seen/src/codegen/`
@@ -240,9 +274,10 @@ canonical `Seen.toml`, `src/mod.seen`, tests, examples, readme, and license
 mapping and returns typed `pkg.layout.001.*` errors instead of normalizing a
 different tree.
 
-The compiler component's `seen-object-cache-abi-v2` identity also binds the
-`seen-import-graph-v1` canonical module order. Any incompatible graph ordering
-change must advance that ABI identity so cached objects cannot cross the
+The compiler component's `seen-object-cache-abi-v3` identity binds both the
+`seen-import-graph-v1` canonical discovery order and the
+`seen-global-initialization-plan-v1` dependency-first emission order. Any
+incompatible ordering change must advance that ABI identity so cached objects cannot cross the
 ordering boundary.
 
 ## Incremental and Parallel Compilation

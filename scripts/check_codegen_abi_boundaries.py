@@ -261,6 +261,9 @@ MODULE_TAIL_HELPERS = {
     "emitGlobalConstructorsImpl": "emitGlobalConstructorsWithFeatureStateImpl",
     "emitTBAAMetadataImpl": "emitTBAAMetadataWithFeatureStateImpl",
 }
+MODULE_TAIL_OWNER_MAX_ARGS = {
+    "emitGlobalConstructorsWithFeatureStateImpl": 2,
+}
 MODULE_TAIL_FORBIDDEN_STATE = {
     "g_traitImplRegistry",
     "g_traitImplCount",
@@ -2413,12 +2416,13 @@ def module_tail_boundary_findings(root: Path) -> list[Finding]:
     feature_text = "\n".join(source_lines(feature_path))
 
     for helper, owner_helper in sorted(MODULE_TAIL_HELPERS.items()):
+        owner_max_args = MODULE_TAIL_OWNER_MAX_ARGS.get(owner_helper, 1)
         definition = find_function_definition(feature_text, owner_helper)
         if definition is None:
             findings.append(Finding(feature_path, 1, f"missing {owner_helper}"))
         else:
             line_no, params = definition
-            if len(params) > 1:
+            if len(params) > owner_max_args:
                 findings.append(
                     Finding(
                         feature_path,
@@ -2447,12 +2451,13 @@ def module_tail_boundary_findings(root: Path) -> list[Finding]:
             )
 
         for line_no, _, args, call_text in find_calls(facade_text, owner_helper):
-            if len(args) > 1:
+            if len(args) > owner_max_args:
                 findings.append(
                     Finding(
                         facade_path,
                         line_no,
-                        f"{owner_helper} call has {len(args)} args; pass only output",
+                        f"{owner_helper} call has {len(args)} args; maximum is "
+                        f"{owner_max_args}",
                     )
                 )
             passed = [

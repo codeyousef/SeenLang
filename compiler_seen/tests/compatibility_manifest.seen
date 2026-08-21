@@ -23,7 +23,7 @@ fun compatibilityTestManifest() r: CompatibilityManifest {
             compiler: CompatibilityCompiler{
                 version: "0.10.1",
                 layoutAbi: "seen-layout-abi-v2",
-                objectCacheAbi: "seen-object-cache-abi-v2",
+                objectCacheAbi: "seen-object-cache-abi-v3",
                 prebuiltPackageSchema: "seen-prebuilt-package-v2",
                 packageInterfaceSchema: "seen-package-interface-v2",
                 packageObjectManifestSchema: "seen-package-object-manifest-v2"

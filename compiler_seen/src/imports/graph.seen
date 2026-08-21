@@ -7,12 +7,13 @@
 
 import core.result.{Result, Ok, Err}
 import release.compatibility.{OperationContext, SeenError, RedactionClass}
-import release.diagnostic_schema.{core003aError}
+import release.diagnostic_schema.{core003aError, core003bError}
 
 let CORE_003A_SCHEMA: String = "seen-import-graph-v1"
 let CORE_003A_MAX_MODULES: Int = 4096
 let CORE_003A_MAX_EDGES: Int = 65536
 let CORE_003A_MAX_DEPTH: Int = 4096
+let CORE_003B_SCHEMA: String = "seen-global-initialization-plan-v1"
 
 class ModuleImportGraph {
     var edgeStarts: Array<Int>
@@ -31,8 +32,17 @@ class ModuleImportGraph {
 class ImportGraphResolution {
     var schema: String
     var orderedIndices: Array<Int>
+    // Dependency-first postorder for global initialization. Compilation keeps
+    // orderedIndices as the stable root-first discovery contract.
+    var initializationIndices: Array<Int>
     var moduleCount: Int
     var edgeCount: Int
+}
+
+class GlobalInitializationPlan {
+    var schema: String
+    var orderedIndices: Array<Int>
+    var moduleCount: Int
 }
 
 // Non-generic carrier for the single checked state machine. Supported frozen
@@ -385,6 +395,7 @@ fun resolveRecursiveImportGraphChecked(modulePaths: Array<String>,
         moduleIdx = moduleIdx + 1
     }
     let ordered = Array<Int>()
+    let initializationOrder = Array<Int>()
     var nextRoot = 0
     while nextRoot >= 0 {
         if colors[nextRoot] != 0 {
@@ -409,6 +420,7 @@ fun resolveRecursiveImportGraphChecked(modulePaths: Array<String>,
             let edgeCount = graph.edgeCounts[nodeIdx]
             if edgeOffset >= edgeCount {
                 colors[nodeIdx] = 2
+                initializationOrder.push(nodeIdx)
                 stack.pop()
                 edgeOffsets.pop()
             } else {
@@ -438,8 +450,53 @@ fun resolveRecursiveImportGraphChecked(modulePaths: Array<String>,
     return importGraphSuccess(ImportGraphResolution{
         schema: CORE_003A_SCHEMA,
         orderedIndices: ordered,
+        initializationIndices: initializationOrder,
         moduleCount: modulePaths.length(),
         edgeCount: graph.edgeTargets.length()
+    })
+}
+
+/// Public CORE-003B contract. It shares the validated graph state machine with
+/// CORE-003A and exposes only the dependency-first initialization schedule.
+/// There is no independent traversal or ordering fallback.
+fun planDeterministicGlobalInitialization(modulePaths: Array<String>,
+    inputGraph: ModuleImportGraph, platform: String,
+    context: OperationContext) r: Result<GlobalInitializationPlan, SeenError> {
+
+    let checked = resolveRecursiveImportGraphChecked(
+        modulePaths, inputGraph, platform, context)
+    if not checked.success {
+        if checked.errorStorage.length() == 0 {
+            return Err<GlobalInitializationPlan, SeenError>(core003bError(
+                "core.003b.invalid", "plan",
+                "initializer planner returned an empty error result",
+                RedactionClass.Public))
+        }
+        let graphError = checked.errorStorage[0]
+        var code = "core.003b.invalid"
+        if graphError.code.value == "core.003a.cancelled" {
+            code = "core.003b.cancelled"
+        }
+        if graphError.code.value == "core.003a.limit" {
+            code = "core.003b.limit"
+        }
+        if graphError.code.value == "core.003a.platform" {
+            code = "core.003b.platform"
+        }
+        return Err<GlobalInitializationPlan, SeenError>(core003bError(
+            code, "plan", graphError.message, graphError.redaction))
+    }
+    if checked.resolutionStorage.length() == 0 {
+        return Err<GlobalInitializationPlan, SeenError>(core003bError(
+            "core.003b.invalid", "plan",
+            "initializer planner returned an empty success result",
+            RedactionClass.Public))
+    }
+    let resolution = checked.resolutionStorage[0]
+    return Ok<GlobalInitializationPlan, SeenError>(GlobalInitializationPlan{
+        schema: CORE_003B_SCHEMA,
+        orderedIndices: resolution.initializationIndices,
+        moduleCount: resolution.moduleCount
     })
 }
 
@@ -477,6 +534,7 @@ fun resolveRecursiveImportGraph(modulePaths: Array<String>,
 fun resolveRecursiveImportGraphBootstrap(modulePaths: Array<String>,
     edgeStarts: Array<Int>, edgeCounts: Array<Int>, edgeTargets: Array<Int>,
     platform: String, context: OperationContext, orderedIndices: Array<Int>,
+    initializationIndices: Array<Int>,
     errorCodes: Array<String>, errorMessages: Array<String>) r: Bool {
 
     let graph = ModuleImportGraph{
@@ -508,7 +566,29 @@ fun resolveRecursiveImportGraphBootstrap(modulePaths: Array<String>,
         orderedIndices.push(resolution.orderedIndices[idx])
         idx = idx + 1
     }
+    idx = 0
+    while idx < resolution.initializationIndices.length() {
+        initializationIndices.push(resolution.initializationIndices[idx])
+        idx = idx + 1
+    }
     return true
+}
+
+fun renderGlobalInitializationPlan(value: GlobalInitializationPlan) r: String {
+    var output = "{\n"
+    output = output + "  \"module_count\": " +
+        value.moduleCount.toString() + ",\n"
+    output = output + "  \"order\": ["
+    var idx = 0
+    while idx < value.orderedIndices.length() {
+        if idx > 0 { output = output + ", " }
+        output = output + value.orderedIndices[idx].toString()
+        idx = idx + 1
+    }
+    output = output + "],\n"
+    output = output + "  \"schema\": \"" + value.schema + "\"\n"
+    output = output + "}\n"
+    return output
 }
 
 fun renderImportGraphResolution(value: ImportGraphResolution) r: String {

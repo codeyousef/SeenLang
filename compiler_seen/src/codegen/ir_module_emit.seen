@@ -507,8 +507,27 @@ fun resolveSpecialTopLevelFunctionActionImpl(fn: FunctionNode) r: String {
     return ""
 }
 
-fun emitGlobalConstructorsImpl(output: StringBuilder, initFuncCount: Int, initFuncNames: String) r: Void {
+let GLOBAL_CONSTRUCTOR_PRIORITY_BASE: Int = 1000
+let GLOBAL_CONSTRUCTOR_PRIORITY_MAX_MODULES: Int = 4096
+
+fun globalConstructorPriorityImpl(initializationIndex: Int) r: Int {
+    if initializationIndex < 0 or
+        initializationIndex >= GLOBAL_CONSTRUCTOR_PRIORITY_MAX_MODULES {
+
+        return -1
+    }
+    return GLOBAL_CONSTRUCTOR_PRIORITY_BASE + initializationIndex
+}
+
+fun emitGlobalConstructorsImpl(output: StringBuilder, initFuncCount: Int,
+    initFuncNames: String, initializationIndex: Int) r: Void {
+
     if initFuncCount <= 0 {
+        return
+    }
+
+    let priority = globalConstructorPriorityImpl(initializationIndex)
+    if priority < 0 {
         return
     }
 
@@ -528,7 +547,9 @@ fun emitGlobalConstructorsImpl(output: StringBuilder, initFuncCount: Int, initFu
         if initIdx > 0 {
             output.append(",\n")
         }
-        output.append("  { i32, ptr, ptr } { i32 65535, ptr @" + quoteModuleEmitIdentIfNeeded(initName) + ", ptr null }")
+        output.append("  { i32, ptr, ptr } { i32 " +
+            priority.toString() + ", ptr @" +
+            quoteModuleEmitIdentIfNeeded(initName) + ", ptr null }")
         initIdx = initIdx + 1
     }
     output.append("\n]\n")
