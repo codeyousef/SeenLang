@@ -1,0 +1,105 @@
+import seen_compiler.release.build_instrumentation.{BuildInstrumentationPolicy,
+    BuildInstrumentationEvidence,
+    sourceOnlyInstrumentationEvidence, compileOnlyInstrumentationEvidence,
+    validateBuildInstrumentation, renderBuildInstrumentationEvidence}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext,
+    RetryClass, RedactionClass}
+
+fun instrumentationContext(cancelled: Bool, maxPathBytes: Int)
+    r: OperationContext {
+
+    return OperationContext{
+        cancellation: cancelled,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: maxPathBytes,
+            maxGraphModules: 64,
+            maxGraphEdges: 128,
+            maxGraphDepth: 16
+        },
+        traceId: AsciiString{ value: "core-rel-002-test" }
+    }
+}
+
+fun policy(path: String) r: BuildInstrumentationPolicy {
+    return BuildInstrumentationPolicy{
+        debugInfo: true,
+        coverage: true,
+        sanitizer: "undefined",
+        target: "linux-x86_64",
+        reportPath: path
+    }
+}
+
+fun main() r: Int {
+    let happy = validateBuildInstrumentation(policy("reports/build.json"),
+        instrumentationContext(false, 4096))
+    if happy.isErr() { return 1 }
+    let evidence = BuildInstrumentationEvidence{
+        policy: happy.unwrap(),
+        compilerHost: sourceOnlyInstrumentationEvidence(),
+        seenModules: compileOnlyInstrumentationEvidence(),
+        nativeRuntime: compileOnlyInstrumentationEvidence(),
+        abiShims: compileOnlyInstrumentationEvidence()
+    }
+    let rendered = renderBuildInstrumentationEvidence(evidence)
+    if not rendered.contains("\"schema\":\"seen-build-instrumentation-evidence-v1\"") or
+        not rendered.contains("\"compiler_host\":\"source-only\"") or
+        not rendered.contains("\"abi_shims\":\"compile-only\"") {
+
+        return 2
+    }
+    println("PASS: CORE-REL-002_happy")
+
+    let invalid = validateBuildInstrumentation(policy("../escape.json"),
+        instrumentationContext(false, 4096))
+    if not invalid.isErr() or
+        invalid.unwrapErr().code.value != "core.rel.002.invalid" or
+        invalid.unwrapErr().retry != RetryClass.Never or
+        invalid.unwrapErr().redaction != RedactionClass.Public {
+
+        return 3
+    }
+    let unsupported = validateBuildInstrumentation(BuildInstrumentationPolicy{
+        debugInfo: true, coverage: false, sanitizer: "",
+        target: "macos-arm64", reportPath: "report.json"
+    }, instrumentationContext(false, 4096))
+    if not unsupported.isErr() or
+        unsupported.unwrapErr().code.value != "core.rel.002.platform" {
+
+        return 4
+    }
+    println("PASS: CORE-REL-002_invalid")
+
+    let limited = validateBuildInstrumentation(policy("reports/build.json"),
+        instrumentationContext(false, 4))
+    if not limited.isErr() or
+        limited.unwrapErr().code.value != "core.rel.002.limit" {
+
+        return 5
+    }
+    println("PASS: CORE-REL-002_limit")
+
+    let cancelled = validateBuildInstrumentation(policy("report.json"),
+        instrumentationContext(true, 4096))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "core.rel.002.cancelled" {
+
+        return 6
+    }
+    println("PASS: CORE-REL-002_cancel")
+
+    if rendered != renderBuildInstrumentationEvidence(evidence) or
+        rendered.contains("hardware-executed") {
+
+        return 7
+    }
+    println("PASS: CORE-REL-002_cleanup")
+    return 0
+}
+
+main()

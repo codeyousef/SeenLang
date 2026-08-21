@@ -1,0 +1,8 @@
+fun main() r: Int {
+    let values = [10, 20, 30]
+    if values[1] != 20 { return 1 }
+    println("PASS: CORE-REL-002_instrumented_compile")
+    return 0
+}
+
+main()

@@ -1,0 +1,235 @@
+///
+/// Stable debug, coverage, and sanitizer build policy for CORE-REL-002.
+/// The compiler owns validation and evidence classification. Tool invocations
+/// consume only a validated plan and may never upgrade compile-only evidence
+/// to hardware-executed evidence implicitly.
+///
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import release.compatibility.{AsciiString, OperationContext, SeenError,
+    RetryClass, RedactionClass}
+import release.diagnostic_schema.{machineDiagnosticJsonString}
+
+let BUILD_INSTRUMENTATION_SCHEMA: String =
+    "seen-build-instrumentation-evidence-v1"
+let BUILD_INSTRUMENTATION_MAX_PATH_BYTES: Int = 4096
+
+class InstrumentationEvidence {
+    var value: String
+}
+
+fun sourceOnlyInstrumentationEvidence() r: InstrumentationEvidence {
+    return InstrumentationEvidence{ value: "source-only" }
+}
+
+fun compileOnlyInstrumentationEvidence() r: InstrumentationEvidence {
+    return InstrumentationEvidence{ value: "compile-only" }
+}
+
+fun hardwareExecutedInstrumentationEvidence() r: InstrumentationEvidence {
+    return InstrumentationEvidence{ value: "hardware-executed" }
+}
+
+class BuildInstrumentationPolicy {
+    var debugInfo: Bool
+    var coverage: Bool
+    var sanitizer: String
+    var target: String
+    var reportPath: String
+}
+
+class BuildInstrumentationEvidence {
+    var policy: BuildInstrumentationPolicy
+    var compilerHost: InstrumentationEvidence
+    var seenModules: InstrumentationEvidence
+    var nativeRuntime: InstrumentationEvidence
+    var abiShims: InstrumentationEvidence
+}
+
+/// Bootstrap-safe storage keeps generic Result specialization inside this
+/// module while the compiler entry point consumes a concrete outcome.
+class BuildInstrumentationOutcome {
+    var success: Bool
+    var values: Array<BuildInstrumentationPolicy>
+    var errors: Array<SeenError>
+}
+
+fun buildInstrumentationSuccess(policy: BuildInstrumentationPolicy)
+    r: BuildInstrumentationOutcome {
+
+    let values = Array<BuildInstrumentationPolicy>()
+    values.push(policy)
+    return BuildInstrumentationOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun buildInstrumentationFailure(error: SeenError)
+    r: BuildInstrumentationOutcome {
+
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return BuildInstrumentationOutcome{
+        success: false, values: Array<BuildInstrumentationPolicy>(),
+        errors: errors
+    }
+}
+
+fun coreRel002Error(code: String, operation: String, message: String)
+    r: SeenError {
+
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "compiler.instrumentation" },
+        operation: AsciiString{ value: operation },
+        message: message,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun buildInstrumentationTargetKnown(target: String) r: Bool {
+    return target == "linux-x86_64" or target == "linux-arm64" or
+        target == "linux-riscv64" or target == "windows-x86_64" or
+        target == "macos-x86_64" or target == "macos-arm64" or
+        target == "ios-arm64" or target == "ios-sim-arm64" or
+        target == "android-arm64"
+}
+
+fun buildInstrumentationSanitizerKnown(value: String) r: Bool {
+    return value == "" or value == "address" or value == "undefined" or
+        value == "thread" or value == "memory"
+}
+
+fun buildInstrumentationPathCanonical(value: String) r: Bool {
+    if value == "" { return true }
+    if value.length() > BUILD_INSTRUMENTATION_MAX_PATH_BYTES or
+        value.startsWith("/") or value.endsWith("/") or
+        value.contains("..") or value.contains("//") {
+
+        return false
+    }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = false
+        if byte >= 65 and byte <= 90 { valid = true }
+        if byte >= 97 and byte <= 122 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 or byte == 46 or byte == 47 or byte == 95 {
+            valid = true
+        }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun buildInstrumentationValidateChecked(policy: BuildInstrumentationPolicy,
+    context: OperationContext)
+    r: BuildInstrumentationOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return buildInstrumentationFailure(coreRel002Error(
+            "core.rel.002.cancelled", "validate",
+            "build instrumentation validation cancelled"))
+    }
+    if context.limits.maxPathBytes < 1 or
+        context.limits.maxPathBytes > BUILD_INSTRUMENTATION_MAX_PATH_BYTES or
+        policy.reportPath.length() > context.limits.maxPathBytes {
+
+        return buildInstrumentationFailure(coreRel002Error(
+            "core.rel.002.limit", "validate",
+            "build instrumentation path limit exceeded"))
+    }
+    if not buildInstrumentationTargetKnown(policy.target) {
+        return buildInstrumentationFailure(coreRel002Error(
+            "core.rel.002.platform", "validate",
+            "build instrumentation target is unsupported"))
+    }
+    if not policy.debugInfo and not policy.coverage and
+        policy.sanitizer == "" {
+
+        return buildInstrumentationFailure(coreRel002Error(
+            "core.rel.002.invalid", "validate",
+            "at least one instrumentation mode is required"))
+    }
+    if not buildInstrumentationSanitizerKnown(policy.sanitizer) or
+        not buildInstrumentationPathCanonical(policy.reportPath) {
+
+        return buildInstrumentationFailure(coreRel002Error(
+            "core.rel.002.invalid", "validate",
+            "build instrumentation policy is invalid"))
+    }
+    if policy.target != "linux-x86_64" {
+
+        return buildInstrumentationFailure(coreRel002Error(
+            "core.rel.002.platform", "validate",
+            "build instrumentation execution requires Linux x86-64"))
+    }
+    return buildInstrumentationSuccess(policy)
+}
+
+fun validateBuildInstrumentation(policy: BuildInstrumentationPolicy,
+    context: OperationContext)
+    r: Result<BuildInstrumentationPolicy, SeenError> {
+
+    let checked = buildInstrumentationValidateChecked(policy, context)
+    if not checked.success {
+        return Err<BuildInstrumentationPolicy, SeenError>(checked.errors[0])
+    }
+    return Ok<BuildInstrumentationPolicy, SeenError>(checked.values[0])
+}
+
+fun instrumentationEvidenceName(value: InstrumentationEvidence) r: String {
+    return value.value
+}
+
+fun buildInstrumentationBool(value: Bool) r: String {
+    if value { return "true" }
+    return "false"
+}
+
+/// Construct compiler build evidence in the defining module so bootstrap
+/// compilers never lower imported enum discriminants at the entry boundary.
+fun compileOnlyBuildInstrumentationEvidence(policy: BuildInstrumentationPolicy,
+    compilerHostCompiled: Bool) r: BuildInstrumentationEvidence {
+
+    var compilerHost = sourceOnlyInstrumentationEvidence()
+    if compilerHostCompiled {
+        compilerHost = compileOnlyInstrumentationEvidence()
+    }
+    return BuildInstrumentationEvidence{
+        policy: policy,
+        compilerHost: compilerHost,
+        seenModules: compileOnlyInstrumentationEvidence(),
+        nativeRuntime: compileOnlyInstrumentationEvidence(),
+        abiShims: compileOnlyInstrumentationEvidence()
+    }
+}
+
+/// Canonical compact JSON; field order and evidence spellings are versioned.
+fun renderBuildInstrumentationEvidence(value: BuildInstrumentationEvidence)
+    r: String {
+
+    return "{\"components\":{\"abi_shims\":" +
+        machineDiagnosticJsonString(instrumentationEvidenceName(
+            value.abiShims)) + ",\"compiler_host\":" +
+        machineDiagnosticJsonString(instrumentationEvidenceName(
+            value.compilerHost)) + ",\"native_runtime\":" +
+        machineDiagnosticJsonString(instrumentationEvidenceName(
+            value.nativeRuntime)) + ",\"seen_modules\":" +
+        machineDiagnosticJsonString(instrumentationEvidenceName(
+            value.seenModules)) + "},\"modes\":{\"coverage\":" +
+        buildInstrumentationBool(value.policy.coverage) +
+        ",\"debug\":" + buildInstrumentationBool(
+            value.policy.debugInfo) + ",\"sanitizer\":" +
+        machineDiagnosticJsonString(value.policy.sanitizer) +
+        "},\"schema\":\"" + BUILD_INSTRUMENTATION_SCHEMA +
+        "\",\"target\":" + machineDiagnosticJsonString(
+            value.policy.target) + "}\n"
+}

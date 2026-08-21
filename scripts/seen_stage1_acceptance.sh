@@ -474,6 +474,31 @@ run_fixture machine-diagnostic \
     "$REPO_ROOT/compiler_seen/tests/release/machine_diagnostic.seen"
 run_fixture machine-diagnostic-example \
     "$REPO_ROOT/compiler_seen/examples/machine_diagnostic.seen"
+run_fixture build-instrumentation \
+    "$REPO_ROOT/compiler_seen/tests/release/build_instrumentation.seen"
+run_fixture build-instrumentation-example \
+    "$REPO_ROOT/compiler_seen/examples/build_instrumentation.seen"
+
+instrumentation_dir="$ACCEPTANCE_ROOT/core-rel-002"
+instrumentation_output="$instrumentation_dir/instrumented"
+instrumentation_log="$instrumentation_dir/compile.log"
+instrumentation_report="core-rel-002/evidence.json"
+mkdir -p -- "$instrumentation_dir"
+(
+    cd "$ACCEPTANCE_ROOT"
+    "$DIRECT_COMPILER" compile \
+        "$REPO_ROOT/tests/fixtures/core-rel-002/happy/main.seen" \
+        "$instrumentation_output" --fast --no-cache --debug --coverage \
+        --sanitize undefined --instrumentation-report \
+        "$instrumentation_report" "${COMPILER_WORKER_FLAGS[@]}"
+) >"$instrumentation_log" 2>&1 || {
+    echo "ERROR: CORE-REL-002 instrumented compile failed: $instrumentation_log" >&2
+    print_fixture_compile_log core-rel-002 "$instrumentation_log"
+    exit 1
+}
+"$instrumentation_output"
+python3 "$REPO_ROOT/scripts/check_build_instrumentation.py" \
+    --evidence "$instrumentation_dir/evidence.json"
 EXTERNAL_PACKAGE_CONSUMER_FIXTURE=$(stage_external_package_fixture)
 run_fixture external-package-consumer \
     "$EXTERNAL_PACKAGE_CONSUMER_FIXTURE"

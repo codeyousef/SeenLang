@@ -47,6 +47,10 @@ import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifes
     CompatibilityReleaseInputs, readCompatibilityRuntimeSelection}
 import seen_compiler.release.diagnostic_schema.{core003aError as _seedCore003aError,
     core003bError as _seedCore003bError}
+import seen_compiler.release.build_instrumentation.{BuildInstrumentationPolicy,
+    buildInstrumentationValidateChecked,
+    compileOnlyBuildInstrumentationEvidence,
+    renderBuildInstrumentationEvidence}
 import seen_compiler.imports.graph.{resolveRecursiveImportGraphBootstrap}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_runtime_lsp_json.{emitLspJsonRuntimeDecls}
@@ -595,6 +599,8 @@ fun buildCacheSignature(profile: String, language: String, targetCpu: String, si
     signature = signature + "|targetCpu=" + targetCpu
     signature = signature + "|simd=" + simdPolicy
     signature = signature + "|sanitize=" + sanitizePolicy
+    signature = signature + "|debug=" + g_debugInfoCli.toString()
+    signature = signature + "|coverage=" + g_coverageCli.toString()
     signature = signature + "|pgo=" + pgoMode
     signature = signature + "|target=" + effectiveTarget
     if panicOnOverflow {
@@ -7931,6 +7937,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("lexer.lexer")
         modules.push("release.compatibility")
         modules.push("release.diagnostic_schema")
+        modules.push("release.build_instrumentation")
         modules.push("imports.graph")
         modules.push("trace")
         // lexer.real_lexer removed: 2-line re-export shim, no compiler module imports it
@@ -11527,6 +11534,10 @@ var g_nullSafetyCli = 0
 var g_uninitCheckCli = 0
 var g_stackCheckCli = 0
 var g_sanitizerModeCli = 0
+// Debug and coverage instrumentation are compiler-owned build modes.
+var g_debugInfoCli = 0
+var g_coverageCli = 0
+var g_instrumentationReportPath: String = ""
 // Feature flags CLI
 var g_enabledFeaturesCli: String = ""
 // Compilation database output
@@ -12290,10 +12301,17 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if g_O2Mode == 1 {
         println("  O2 mode: moderate optimization for bootstrap stages")
     }
+    if g_debugInfoCli == 1 {
+        println("  Debug information: enabled")
+    }
+    if g_coverageCli == 1 {
+        println("  Coverage instrumentation: enabled")
+    }
 
     // Create generator - registries will persist across both passes
     let generator = newLLVMIRGenerator()
     generator.setPanicOnOverflow(panicOnOverflow)
+    generator.setSanitizerMode(sanitizePolicy)
     // Wire P0 deferred CLI flags to codegen module-level state
     if g_panicOnOverflowCli == 1 {
         generator.setPanicOnOverflow(true)
@@ -12324,6 +12342,35 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if effectiveTarget == "" {
         effectiveTarget = detectHostTargetName()
     }
+    if g_debugInfoCli == 1 or g_coverageCli == 1 or sanitizePolicy != "" or
+        g_instrumentationReportPath != "" {
+
+        let instrumentationPolicy = BuildInstrumentationPolicy{
+            debugInfo: g_debugInfoCli == 1,
+            coverage: g_coverageCli == 1,
+            sanitizer: sanitizePolicy,
+            target: effectiveTarget,
+            reportPath: g_instrumentationReportPath
+        }
+        let instrumentationValidation =
+            buildInstrumentationValidateChecked(
+            instrumentationPolicy, packageCompatibilityContext())
+        if not instrumentationValidation.success {
+            let instrumentationError = instrumentationValidation.errors[0]
+            println("Error: [" + instrumentationError.code.value + "] " +
+                instrumentationError.message)
+            return 1
+        }
+        if g_instrumentationReportPath == inputFile or
+            g_instrumentationReportPath == outputFile {
+
+            println("Error: [core.rel.002.invalid] instrumentation report " +
+                "must not overwrite the input or output")
+            return 1
+        }
+    }
+    let moduleInstrumentationFlags =
+        buildInstrumentationClangFlags(sanitizePolicy)
     setComptimeTargetName(effectiveTarget)
     let envJobs = readPositiveEnvInt("SEEN_JOBS")
     if envJobs > 0 {
@@ -13394,6 +13441,18 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     mainCompilerShellQuote(optFile) + " -o " +
                     mainCompilerShellQuote(objFile)
             }
+            if moduleInstrumentationFlags != "" {
+                var instrumentedModulePicFlag = ""
+                if g_picMode == 1 {
+                    instrumentedModulePicFlag = " -fPIC"
+                }
+                moduleObjCmd = targetClangDriver +
+                    " -O1 -Wno-unused-command-line-argument -c -x ir " +
+                    targetClangArgs + moduleInstrumentationFlags +
+                    instrumentedModulePicFlag + " " +
+                    mainCompilerShellQuote(optFile) + " -o " +
+                    mainCompilerShellQuote(objFile)
+            }
             if normalizedCrossTarget == "android-arm64" {
                 var modulePicFlag = ""
                 if g_picMode == 1 {
@@ -13932,9 +13991,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let hasTeeSgxRuntime = commandWasSuccessful(teeSgxRuntimeExists)
     let teeSevRuntimeExists: CommandResult = runCommand("test -f " + teeSevRuntimeSrc)
     let hasTeeSevRuntime = commandWasSuccessful(teeSevRuntimeExists)
-    var sanitizerClangFlags = ""
+    var sanitizerClangFlags = buildInstrumentationClangFlags(sanitizePolicy)
     if sanitizePolicy != "" {
-        sanitizerClangFlags = " -fsanitize=" + sanitizePolicy + " -fno-omit-frame-pointer -g"
         println("  Sanitizer: " + sanitizePolicy)
         g_sanitizerModeCli = 1
     }
@@ -13997,7 +14055,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let rtCompile: CommandResult =
                 runCommand("clang -O3 -flto=thin " + clangMarch +
                     " -ffunction-sections -fdata-sections -pthread" +
-                    picCompileFlag + " -c -I " +
+                    sanitizerClangFlags + picCompileFlag + " -c -I " +
                     mainCompilerShellQuote(rtPrefix) + " " +
                     mainCompilerShellQuote(runtimeSrc) + " -o " +
                     mainCompilerShellQuote(runtimeObj))
@@ -14026,7 +14084,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 let teeRtCompile: CommandResult =
                     runCommand("clang -O3 -flto=thin " + clangMarch +
                         " -ffunction-sections -fdata-sections -pthread" +
-                        picCompileFlag + " -c -I " +
+                        sanitizerClangFlags + picCompileFlag + " -c -I " +
                         mainCompilerShellQuote(rtPrefix) + " " +
                         mainCompilerShellQuote(teeRuntimeSrc) + " -o " +
                         mainCompilerShellQuote(teeRuntimeObj))
@@ -14059,7 +14117,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 mainCompilerShellQuote(runtimeSrc) + " -o " +
                 mainCompilerShellQuote(sanitizedRuntimeObj))
         if not commandWasSuccessful(rtCompile) {
-            println("    Warning: Sanitized runtime compilation failed")
+            println("    Error: instrumented runtime compilation failed")
+            println(rtCompile.output)
+            return 1
         }
         if hasTeeRuntime {
             var sanitizedTeeRuntimeObj = compilerArtifactPath(
@@ -14076,7 +14136,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     mainCompilerShellQuote(teeRuntimeSrc) + " -o " +
                     mainCompilerShellQuote(sanitizedTeeRuntimeObj))
             if not commandWasSuccessful(teeRtCompile) {
-                println("    Warning: Sanitized TEE runtime compilation failed")
+                println("    Error: instrumented TEE runtime compilation failed")
+                println(teeRtCompile.output)
+                return 1
             }
         }
     }
@@ -14110,7 +14172,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if teeRuntimeCompileFlags != "" {
             teeInlineArg = teeInlineArg + teeRuntimeCompileFlags
         }
-        if sanitizePolicy != "" {
+        if sanitizerClangFlags != "" {
             teeInlineArg = teeInlineArg + sanitizerClangFlags
         }
         teeInlineArg = teeInlineArg + teeRuntimeSourceArg
@@ -14142,7 +14204,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             runtimeArg = mainCompilerShellQuote(runtimeObj) + teeInlineArg
         } else {
             runtimeArg = "-I " + mainCompilerShellQuote(rtPrefix) +
-                picCompileFlag + teeRuntimeCompileFlags + " " +
+                sanitizerClangFlags + picCompileFlag +
+                teeRuntimeCompileFlags + " " +
                 mainCompilerShellQuote(runtimeSrc) + teeRuntimeSourceArg
         }
     }
@@ -14308,7 +14371,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if commandWasSuccessful(regionSrcCheck) {
             let hostRegionCmd = "clang -O3 -flto=thin " + clangMarch +
                 " -ffunction-sections -fdata-sections" + picCompileFlag +
-                " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
+                sanitizerClangFlags + " -c -I " +
+                mainCompilerShellQuote(rtPrefix) + " " +
                 mainCompilerShellQuote(regionSrc) + " -o " +
                 mainCompilerShellQuote(regionObj)
             let rtRegion: CommandResult = runCommand(hostRegionCmd)
@@ -14377,7 +14441,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     let rtGpu: CommandResult =
                         runCommand("clang -O3 -flto=thin " + clangMarch +
                             " -ffunction-sections -fdata-sections" +
-                            picCompileFlag + " -c -I " +
+                            picCompileFlag + sanitizerClangFlags +
+                            " -c -I " +
                             mainCompilerShellQuote(rtPrefix) + " " +
                             mainCompilerShellQuote(gpuSrc) + " -o " +
                             mainCompilerShellQuote(hostGpuObj) +
@@ -14392,7 +14457,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     let rtGpu2: CommandResult =
                         runCommand("clang -O3 -flto=thin " + clangMarch +
                             " -ffunction-sections -fdata-sections" +
-                            picCompileFlag + " -c -I " +
+                            picCompileFlag + sanitizerClangFlags +
+                            " -c -I " +
                             mainCompilerShellQuote(rtPrefix) + " " +
                             mainCompilerShellQuote(gpuSrc) + " -o " +
                             mainCompilerShellQuote(hostGpuObj) +
@@ -14488,7 +14554,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             if not runtimeObjectIsFresh(hotReloadObj, hotReloadSig) {
                 let hotReloadCmd = "clang -O3 -flto=thin " + clangMarch +
                     " -ffunction-sections -fdata-sections" +
-                    picCompileFlag + " -c -I " +
+                    picCompileFlag + sanitizerClangFlags + " -c -I " +
                     mainCompilerShellQuote(rtPrefix) + " " +
                     mainCompilerShellQuote(hotReloadSrc) + " -o " +
                     mainCompilerShellQuote(hotReloadObj)
@@ -14666,6 +14732,25 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println(linkResult.output)
             }
             return 1
+        }
+        if g_instrumentationReportPath != "" {
+            let evidencePolicy = BuildInstrumentationPolicy{
+                debugInfo: g_debugInfoCli == 1,
+                coverage: g_coverageCli == 1,
+                sanitizer: sanitizePolicy,
+                target: effectiveTarget,
+                reportPath: g_instrumentationReportPath
+            }
+            let evidence = compileOnlyBuildInstrumentationEvidence(
+                evidencePolicy, inputFile.contains("main_compiler.seen"))
+            if not writeTextAtomically(g_instrumentationReportPath,
+                renderBuildInstrumentationEvidence(evidence)) {
+
+                let _ = deleteFile(outputFile)
+                println("Error: [core.rel.002.io] failed to write " +
+                    "instrumentation evidence")
+                return 1
+            }
         }
         // : Emit compilation database if requested
         if g_emitCompileDb == 1 {
@@ -15256,7 +15341,11 @@ fun printUsage() r: Void {
     println("  --backend=<name>         Backend selection (llvm only in this binary)")
     println("  --backend <name>         Same as above")
     println("  --deterministic          Deterministic mode (scalar SIMD, no HashMap)")
+    println("  -g, --debug              Emit debug information for modules, runtime, and ABI shims")
+    println("  --coverage               Emit LLVM coverage instrumentation")
     println("  --sanitize=<policy>      Sanitizer (address, undefined, thread, memory)")
+    println("  --instrumentation-report <path>")
+    println("                           Write canonical source/compile/hardware evidence JSON")
     println("  --pgo-generate           Generate PGO instrumentation profile")
     println("  --pgo-use=<path>         Use PGO profile for optimization")
     println("  --ml-log=<path>          Collect ML training data from optimization remarks")
@@ -15292,7 +15381,8 @@ fun printCompileUsage() r: Void {
     println("Usage: seen compile <input.seen> [output] [options]")
     println("Options: --profile <profile>, --language <lang>, --backend <name>,")
     println("         --target <platform>, --no-cache, --verbose, --locked, --offline,")
-    println("         --frozen, -h, --help")
+    println("         --frozen, -g, --debug, --coverage, --sanitize <policy>,")
+    println("         --instrumentation-report <path>, -h, --help")
     return
 }
 
@@ -15405,6 +15495,9 @@ fun parseCompileCli(argv: Array<String>) r: CliArguments {
     addCliOptionAlias(flags, flagNames, "--verbose", "--verbose")
     addCliOptionAlias(flags, flagNames, "--simd-report", "--simd-report")
     addCliOptionAlias(flags, flagNames, "--deterministic", "--deterministic")
+    addCliOptionAlias(flags, flagNames, "--debug", "--debug")
+    addCliOptionAlias(flags, flagNames, "-g", "--debug")
+    addCliOptionAlias(flags, flagNames, "--coverage", "--coverage")
     addCliOptionAlias(flags, flagNames, "--pgo-generate", "--pgo-generate")
     addCliOptionAlias(flags, flagNames, "--release", "--release")
     addCliOptionAlias(flags, flagNames, "--no-merged-release-lto", "--no-merged-release-lto")
@@ -15433,6 +15526,7 @@ fun parseCompileCli(argv: Array<String>) r: CliArguments {
     addCliOptionAlias(values, valueNames, "--simd-report", "--simd-report-level")
     addCliOptionAlias(values, valueNames, "--backend", "--backend")
     addCliOptionAlias(values, valueNames, "--sanitize", "--sanitize")
+    addCliOptionAlias(values, valueNames, "--instrumentation-report", "--instrumentation-report")
     addCliOptionAlias(values, valueNames, "--pgo-use", "--pgo-use")
     addCliOptionAlias(values, valueNames, "--ml-log", "--ml-log")
     addCliOptionAlias(values, valueNames, "--ml-decision-log", "--ml-decision-log")
@@ -15583,6 +15677,21 @@ fun isSupportedSimdPolicy(value: String) r: Bool {
 fun isSupportedSanitizePolicy(value: String) r: Bool {
     return value == "" or value == "address" or value == "undefined" or
         value == "thread" or value == "memory"
+}
+
+fun buildInstrumentationClangFlags(sanitizePolicy: String) r: String {
+    var flags = ""
+    if g_debugInfoCli == 1 {
+        flags = flags + " -g"
+    }
+    if g_coverageCli == 1 {
+        flags = flags + " -fprofile-instr-generate -fcoverage-mapping"
+    }
+    if sanitizePolicy != "" {
+        flags = flags + " -fsanitize=" + sanitizePolicy +
+            " -fno-omit-frame-pointer -g"
+    }
+    return flags
 }
 
 fun parseStrictPositiveCliInt(value: String) r: Int {
@@ -15860,7 +15969,7 @@ fun main() r: Int {
         let backend = parsed.valueOr("--backend", "llvm")
         let sanitizePolicy = parsed.valueOr("--sanitize", "")
         if not isSupportedSanitizePolicy(sanitizePolicy) {
-            println("Error: invalid value '" + sanitizePolicy +
+            println("Error: [core.rel.002.invalid] invalid value '" + sanitizePolicy +
                 "' for --sanitize; expected address, undefined, thread, or memory")
             return 1
         }
@@ -15875,6 +15984,10 @@ fun main() r: Int {
             pgoMode = "use"
             pgoPath = parsed.valueOr("--pgo-use", "")
         }
+        if parsed.hasOption("--coverage") and pgoMode != "" {
+            println("Error: [core.rel.002.invalid] --coverage conflicts with PGO instrumentation")
+            return 1
+        }
         let mlLogPath = parsed.valueOr("--ml-log", "")
         let mlDecisionLogPath = parsed.valueOr("--ml-decision-log", "")
         let crossTarget = parsed.valueOr("--target", "")
@@ -15885,6 +15998,10 @@ fun main() r: Int {
         }
 
         if parsed.hasOption("--verbose") { g_compilerVerbose = 1 }
+        if parsed.hasOption("--debug") { g_debugInfoCli = 1 }
+        if parsed.hasOption("--coverage") { g_coverageCli = 1 }
+        g_instrumentationReportPath = parsed.valueOr(
+            "--instrumentation-report", "")
         if parsed.hasOption("--release") { g_releaseMode = true }
         if parsed.hasOption("--no-merged-release-lto") { g_disableMergedReleaseLto = true }
         if parsed.hasOption("--emit-llvm") { g_emitLlvm = true }

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native `seen-build-instrumentation-evidence-v1` policy and evidence,
+  with stable `core.rel.002.*` diagnostics and explicit debug, LLVM coverage,
+  ASan, UBSan, TSan, and MSan compiler flags. Instrumentation now reaches Seen
+  modules, the retained C runtime, and ledgered ABI shims; compiler builds emit
+  compile-only evidence and cannot self-certify hardware execution.
 - Added the native `seen-machine-diagnostic-v1` envelope with bounded
   `SeenError` fields and cause trees, deterministic JSON, stable
   `core.rel.001.*` validation diagnostics, source locations, explicit backend
