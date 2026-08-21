@@ -482,6 +482,10 @@ run_fixture release-optimization \
     "$REPO_ROOT/compiler_seen/tests/release/release_optimization.seen"
 run_fixture release-optimization-example \
     "$REPO_ROOT/compiler_seen/examples/release_optimization.seen"
+run_fixture test-discovery \
+    "$REPO_ROOT/compiler_seen/tests/test_discovery.seen"
+run_fixture test-discovery-example \
+    "$REPO_ROOT/compiler_seen/examples/test_discovery.seen"
 
 instrumentation_dir="$ACCEPTANCE_ROOT/core-rel-002"
 instrumentation_output="$instrumentation_dir/instrumented"

@@ -1,0 +1,1 @@
+fun alpha() r: Int { return 1 }

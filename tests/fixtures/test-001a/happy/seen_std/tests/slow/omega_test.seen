@@ -1,0 +1,1 @@
+fun omega() r: Int { return 4 }

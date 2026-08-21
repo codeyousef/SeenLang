@@ -1,0 +1,1 @@
+{"schema":"seen-test-discovery-v1","tests":[{"category":"unit","ignored":false,"path":"compiler_seen/tests/alpha_test.seen","platform":"all","privileged":false,"slow":false}]}

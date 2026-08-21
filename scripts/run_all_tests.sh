@@ -12,6 +12,7 @@ BUILDER_CAPABILITY="$SCRIPT_DIR/rebuild_builder_capability.sh"
 BUILDER_APPLICABILITY="$SCRIPT_DIR/rebuild_builder_applicability.sh"
 SERIALIZER_VERIFY="$SCRIPT_DIR/verify_fork_serializer.sh"
 BOUNDED_TOOLCHAIN_PREPARE="$SCRIPT_DIR/prepare_bounded_toolchain.sh"
+TEST_DISCOVERY="$SCRIPT_DIR/discover_seen_tests.py"
 
 is_positive_integer() {
     case "$1" in
@@ -89,6 +90,13 @@ export SEEN_HARD_MEMORY_SCOPE_ACTIVE
 
 cd "$REPO_ROOT"
 require_vmem_cap "$SEEN_MAIN_VMEM_KB" "main compiler"
+[ -x "$TEST_DISCOVERY" ] && [ ! -L "$TEST_DISCOVERY" ] || {
+    echo "ERROR: deterministic test discovery is missing or unsafe" >&2
+    exit 2
+}
+test_discovery_manifest="$SEEN_ARTIFACT_ROOT/test-discovery.json"
+python3 "$TEST_DISCOVERY" --discover "$REPO_ROOT" >"$test_discovery_manifest"
+python3 "$TEST_DISCOVERY" --validate "$test_discovery_manifest" >/dev/null
 
 # Use the explicitly selected checkout compiler. Frozen bootstrap binaries are
 # for rebuild recovery, not acceptance of current source behavior.
