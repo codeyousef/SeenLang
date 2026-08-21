@@ -1,0 +1,174 @@
+import release.diagnostic_schema.{BackendMaturity, MachineDiagnostic,
+    MachineDiagnosticContext, validateMachineDiagnostic,
+    renderMachineDiagnostic, coreRel001Error}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext,
+    SeenError, RetryClass, RedactionClass}
+import core.option.{Some}
+import collections.vec.{Vec}
+
+fun diagnosticTestContext(cancelled: Bool, maxPathBytes: Int)
+    r: OperationContext {
+
+    return OperationContext{
+        cancellation: cancelled,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: maxPathBytes,
+            maxGraphModules: 4096,
+            maxGraphEdges: 65536,
+            maxGraphDepth: 4096
+        },
+        traceId: AsciiString{ value: "core-rel-001-test" }
+    }
+}
+
+fun diagnosticTestMetadata(sourceFile: String)
+    r: MachineDiagnosticContext {
+
+    return MachineDiagnosticContext{
+        backend: "cuda",
+        target: "linux-x86_64",
+        deviceCapability: "sm_89",
+        entryPoint: "quantized_matvec",
+        sourceFile: sourceFile,
+        sourceLine: 17,
+        sourceColumn: 9,
+        maturity: BackendMaturity.Verified,
+        fallbackReason: ""
+    }
+}
+
+fun diagnosticTestError(message: String, redaction: RedactionClass)
+    r: SeenError {
+
+    return SeenError{
+        code: AsciiString{ value: "E_GPU_CAPABILITY" },
+        subsystem: AsciiString{ value: "compiler.gpu" },
+        operation: AsciiString{ value: "lower" },
+        message: message,
+        causes: Vec<SeenError>.new(),
+        nativeCode: Some<Int64>(42),
+        retry: RetryClass.Never,
+        redaction: redaction
+    }
+}
+
+fun machineDiagnosticIsCanonical(value: MachineDiagnostic) r: Bool {
+    let rendered = renderMachineDiagnostic(value)
+    return value.schema == "seen-machine-diagnostic-v1" and
+        rendered.contains("\"backend\":\"cuda\"") and
+        rendered.contains("\"maturity\":\"verified\"") and
+        rendered.contains("\"native_code\":42") and
+        rendered.contains("\"file\":\"src/kernel.seen\"") and
+        rendered.contains("\"code\":\"E_GPU_CAPABILITY\"")
+}
+
+fun main() r: Int {
+    let happy = validateMachineDiagnostic(
+        diagnosticTestError("capability unavailable", RedactionClass.Public),
+        diagnosticTestMetadata("src/kernel.seen"), "linux-x86_64",
+        diagnosticTestContext(false, 4096))
+    if happy.isErr() or not machineDiagnosticIsCanonical(happy.unwrap()) {
+        return 1
+    }
+    let repeated = validateMachineDiagnostic(
+        diagnosticTestError("capability unavailable", RedactionClass.Public),
+        diagnosticTestMetadata("src/kernel.seen"), "linux-x86_64",
+        diagnosticTestContext(false, 4096))
+    if repeated.isErr() or renderMachineDiagnostic(repeated.unwrap()) !=
+        renderMachineDiagnostic(happy.unwrap()) {
+
+        return 2
+    }
+    println("PASS: CORE-REL-001_happy")
+
+    let invalid = validateMachineDiagnostic(
+        diagnosticTestError("invalid path", RedactionClass.Public),
+        diagnosticTestMetadata("../secret.seen"), "linux-x86_64",
+        diagnosticTestContext(false, 4096))
+    if not invalid.isErr() or
+        invalid.unwrapErr().code.value != "core.rel.001.invalid" or
+        invalid.unwrapErr().subsystem.value != "compiler.diagnostics" or
+        invalid.unwrapErr().retry != RetryClass.Never {
+
+        return 3
+    }
+    let unsupported = validateMachineDiagnostic(
+        diagnosticTestError("unsupported", RedactionClass.Public),
+        diagnosticTestMetadata("src/kernel.seen"), "plan9",
+        diagnosticTestContext(false, 4096))
+    if not unsupported.isErr() or
+        unsupported.unwrapErr().code.value != "core.rel.001.platform" {
+
+        return 4
+    }
+    println("PASS: CORE-REL-001_invalid")
+
+    var oversized = ""
+    var byteIndex = 0
+    while byteIndex < 4097 {
+        oversized = oversized + "x"
+        byteIndex = byteIndex + 1
+    }
+    let limited = validateMachineDiagnostic(
+        diagnosticTestError(oversized, RedactionClass.Public),
+        diagnosticTestMetadata("src/kernel.seen"), "linux-x86_64",
+        diagnosticTestContext(false, 4096))
+    if not limited.isErr() or
+        limited.unwrapErr().code.value != "core.rel.001.limit" {
+
+        return 5
+    }
+    let manyCauses = diagnosticTestError("many", RedactionClass.Public)
+    var causeIndex = 0
+    while causeIndex < 9 {
+        manyCauses.causes.push(coreRel001Error(
+            "core.rel.001.cause", "validate", "cause",
+            RedactionClass.Public))
+        causeIndex = causeIndex + 1
+    }
+    let causeLimited = validateMachineDiagnostic(
+        manyCauses, diagnosticTestMetadata("src/kernel.seen"),
+        "linux-x86_64", diagnosticTestContext(false, 4096))
+    if not causeLimited.isErr() or
+        causeLimited.unwrapErr().code.value != "core.rel.001.limit" {
+
+        return 6
+    }
+    println("PASS: CORE-REL-001_limit")
+
+    let cancelled = validateMachineDiagnostic(
+        diagnosticTestError("cancel", RedactionClass.Public),
+        diagnosticTestMetadata("src/kernel.seen"), "linux-x86_64",
+        diagnosticTestContext(true, 4096))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "core.rel.001.cancelled" {
+
+        return 7
+    }
+    println("PASS: CORE-REL-001_cancel")
+
+    let sensitiveMetadata = diagnosticTestMetadata("private/model.seen")
+    sensitiveMetadata.fallbackReason = "secret fallback detail"
+    let sensitive = validateMachineDiagnostic(
+        diagnosticTestError("secret message", RedactionClass.Sensitive),
+        sensitiveMetadata, "linux-x86_64",
+        diagnosticTestContext(false, 4096))
+    if sensitive.isErr() {
+        return 8
+    }
+    let redacted = renderMachineDiagnostic(sensitive.unwrap())
+    if redacted.contains("secret") or redacted.contains("private/") or
+        not redacted.contains("<redacted>") {
+
+        return 9
+    }
+    println("PASS: CORE-REL-001_cleanup")
+    return 0
+}
+
+main()

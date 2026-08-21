@@ -312,6 +312,18 @@ grep -Fq 'seen-fork-serializer-attestation-v2' "$SAFE_REBUILD" ||
     fail "serializer behavior change did not bump its attestation version"
 grep -Fq 'seen-fork-serializer-attestation-v2' "$SERIALIZER_VERIFY" ||
     fail "serializer verifier does not require the v2 attestation"
+grep -Fq 'recorded memory.max differs from the active cgroup read-back' \
+    "$SERIALIZER_VERIFY" ||
+    fail "serializer attestation is not bound to active memory.max"
+grep -Fq 'recorded memory.swap.max differs from the active cgroup read-back' \
+    "$SERIALIZER_VERIFY" ||
+    fail "serializer attestation is not bound to active memory.swap.max"
+grep -Fq 'recorded pids.max differs from the active cgroup read-back' \
+    "$SERIALIZER_VERIFY" ||
+    fail "serializer attestation is not bound to active pids.max"
+grep -Fq 'active cgroup memory.max exceeds the current-memory-derived cap' \
+    "$SERIALIZER_VERIFY" ||
+    fail "active serializer scope is not checked against the derived cap"
 grep -Fq 'fork serializer target rejection self-test' "$SAFE_REBUILD" ||
     fail "serializer attestation omits mismatched-target rejection"
 

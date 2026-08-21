@@ -43,6 +43,7 @@ for required_command in \
     'tests/misc_root_tests/seen_global_initialization_contract.sh' \
     'tests/misc_root_tests/seen_production_ir_policy_contract.sh' \
     'tests/misc_root_tests/seen_production_source_policy_contract.sh' \
+    'tests/misc_root_tests/seen_machine_diagnostic_contract.sh' \
     'python3 scripts/check_ci_workflows.py' \
     'python3 scripts/check_ci_containment.py' \
     'tests/misc_root_tests/seen_compatibility_manifest_contract.sh' \

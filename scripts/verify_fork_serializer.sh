@@ -304,8 +304,8 @@ esac
 [ "$expected_memory_max_kb" -gt 0 ] ||
     fail "current-memory-derived aggregate cap is not positive"
 expected_memory_max_bytes=$((expected_memory_max_kb * 1024))
-[ "$record_memory_max" -eq "$expected_memory_max_bytes" ] ||
-    fail "recorded memory.max differs from the current-memory-derived aggregate cap"
+[ "$record_memory_max" -le "$expected_memory_max_bytes" ] ||
+    fail "recorded memory.max exceeds the current-memory-derived aggregate cap"
 [ "$record_swap_max" = "0" ] || fail "recorded memory.swap.max is not zero"
 [ "$record_pids_max" -gt 0 ] && [ "$record_pids_max" -le 24 ] ||
     fail "recorded pids.max exceeds 24"
@@ -360,6 +360,44 @@ case "$current_cgroup" in
     *"/$scope_unit"|*"/$scope_unit/"*) ;;
     *) fail "current process is not inside the recorded scope" ;;
 esac
+
+# systemd writes MemoryMax through the kernel's page-granular cgroup
+# interface. A KiB-derived request can therefore read back a few KiB lower
+# than requested. Bind the attestation to the exact active cgroup values and
+# require that exact read-back to remain no larger than the derived ceiling;
+# never replace the record with the unrounded request.
+active_cgroup_root="/sys/fs/cgroup$current_cgroup"
+active_memory_max=""
+active_swap_max=""
+active_pids_max=""
+for active_limit_and_name in \
+    "$active_cgroup_root/memory.max:memory.max" \
+    "$active_cgroup_root/memory.swap.max:memory.swap.max" \
+    "$active_cgroup_root/pids.max:pids.max"; do
+
+    active_limit_path=${active_limit_and_name%:*}
+    active_limit_name=${active_limit_and_name##*:}
+    [ -r "$active_limit_path" ] ||
+        fail "active cgroup $active_limit_name is unreadable"
+    active_limit_value=""
+    IFS= read -r active_limit_value < "$active_limit_path" || true
+    case "$active_limit_value" in
+        ''|*[!0-9]*) fail "active cgroup $active_limit_name is not finite numeric" ;;
+    esac
+    case "$active_limit_name" in
+        memory.max) active_memory_max=$active_limit_value ;;
+        memory.swap.max) active_swap_max=$active_limit_value ;;
+        pids.max) active_pids_max=$active_limit_value ;;
+    esac
+done
+[ "$record_memory_max" -eq "$active_memory_max" ] ||
+    fail "recorded memory.max differs from the active cgroup read-back"
+[ "$record_swap_max" -eq "$active_swap_max" ] ||
+    fail "recorded memory.swap.max differs from the active cgroup read-back"
+[ "$record_pids_max" -eq "$active_pids_max" ] ||
+    fail "recorded pids.max differs from the active cgroup read-back"
+[ "$active_memory_max" -le "$expected_memory_max_bytes" ] ||
+    fail "active cgroup memory.max exceeds the current-memory-derived cap"
 
 if ! remove_verification_root 1; then
     echo "fork serializer verification: could not safely remove project-local probes" >&2

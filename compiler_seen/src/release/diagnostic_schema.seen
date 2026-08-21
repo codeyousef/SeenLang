@@ -5,11 +5,47 @@
 /// validation/policy failures are never retryable.
 
 import core.option.{None}
+import core.result.{Result, Ok, Err}
 import collections.vec.{Vec}
 import release.compatibility.{AsciiString, RetryClass, RedactionClass,
-    SeenError}
+    SeenError, OperationContext, compatibilityAsciiIdentity}
 
 let RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES: Int = 4096
+let RELEASE_DIAGNOSTIC_MAX_CAUSES: Int = 8
+let RELEASE_DIAGNOSTIC_MAX_IDENTITY_BYTES: Int = 128
+let RELEASE_DIAGNOSTIC_MAX_PATH_BYTES: Int = 4096
+let RELEASE_DIAGNOSTIC_SCHEMA: String = "seen-machine-diagnostic-v1"
+
+/// Backend maturity is deliberately closed: machine consumers must not infer
+/// meaning from free-form labels or silently upgrade compile-only evidence.
+enum BackendMaturity {
+    Unsupported
+    CompileOnly
+    ExperimentalHardware
+    Verified
+    ProductionCertified
+}
+
+/// Optional accelerator fields use the empty string when they do not apply.
+/// Source coordinates are one-based when sourceFile is present and zero when
+/// no source location applies.
+class MachineDiagnosticContext {
+    var backend: String
+    var target: String
+    var deviceCapability: String
+    var entryPoint: String
+    var sourceFile: String
+    var sourceLine: Int
+    var sourceColumn: Int
+    var maturity: BackendMaturity
+    var fallbackReason: String
+}
+
+class MachineDiagnostic {
+    var schema: String
+    var error: SeenError
+    var context: MachineDiagnosticContext
+}
 
 class ReleaseDiagnosticDescriptor {
     var code: AsciiString
@@ -161,4 +197,275 @@ fun renderReleaseDiagnostic(error: SeenError) r: String {
         message = "<redacted>"
     }
     return error.code.value + ": " + message
+}
+
+fun coreRel001Error(code: String, operation: String, message: String,
+    redaction: RedactionClass) r: SeenError {
+
+    var boundedMessage = message
+    if boundedMessage.length() > RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES {
+        boundedMessage = boundedMessage.substring(
+            0, RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES)
+    }
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "compiler.diagnostics" },
+        operation: AsciiString{ value: operation },
+        message: boundedMessage,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: RetryClass.Never,
+        redaction: redaction
+    }
+}
+
+fun machineDiagnosticPlatformKnown(platform: String) r: Bool {
+    return platform == "linux-x86_64" or platform == "linux-arm64" or
+        platform == "linux-riscv64" or platform == "windows-x86_64" or
+        platform == "windows" or platform == "macos" or
+        platform == "macos-x86_64" or platform == "macos-arm64" or
+        platform == "ios-arm64" or platform == "ios-sim-arm64" or
+        platform == "android-arm64"
+}
+
+fun machineDiagnosticOptionalIdentity(value: String) r: Bool {
+    return value == "" or compatibilityAsciiIdentity(
+        value, RELEASE_DIAGNOSTIC_MAX_IDENTITY_BYTES)
+}
+
+fun machineDiagnosticSourcePathIsCanonical(value: String) r: Bool {
+    if value == "" { return true }
+    if value.length() > RELEASE_DIAGNOSTIC_MAX_PATH_BYTES or
+        value.startsWith("/") or value.endsWith("/") or
+        value.contains("..") or value.contains("//") {
+
+        return false
+    }
+    var idx = 0
+    while idx < value.length() {
+        let byte = value.byteAt(idx)
+        var valid = false
+        if byte >= 65 and byte <= 90 { valid = true }
+        if byte >= 97 and byte <= 122 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 or byte == 46 or byte == 47 or byte == 95 {
+            valid = true
+        }
+        if not valid { return false }
+        idx = idx + 1
+    }
+    return true
+}
+
+fun machineDiagnosticErrorIsBounded(error: SeenError, depth: Int) r: Bool {
+    if depth > RELEASE_DIAGNOSTIC_MAX_CAUSES or
+        not compatibilityAsciiIdentity(
+            error.code.value, RELEASE_DIAGNOSTIC_MAX_IDENTITY_BYTES) or
+        not compatibilityAsciiIdentity(
+            error.subsystem.value, RELEASE_DIAGNOSTIC_MAX_IDENTITY_BYTES) or
+        not compatibilityAsciiIdentity(
+            error.operation.value, RELEASE_DIAGNOSTIC_MAX_IDENTITY_BYTES) or
+        error.message.length() > RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES or
+        error.causes.length() > RELEASE_DIAGNOSTIC_MAX_CAUSES {
+
+        return false
+    }
+    if depth == RELEASE_DIAGNOSTIC_MAX_CAUSES and
+        error.causes.length() > 0 {
+
+        return false
+    }
+    var idx = 0
+    while idx < error.causes.length() {
+        if not machineDiagnosticErrorIsBounded(
+            error.causes.get(idx), depth + 1) {
+            return false
+        }
+        idx = idx + 1
+    }
+    return true
+}
+
+/// Validate every caller-owned field before returning a serializable value.
+/// Invalid input is never truncated or repaired; only diagnostics created by
+/// coreRel001Error bound their own fixed messages during construction.
+fun validateMachineDiagnostic(error: SeenError,
+    diagnosticContext: MachineDiagnosticContext, platform: String,
+    operationContext: OperationContext) r: Result<MachineDiagnostic, SeenError> {
+
+    if operationContext.cancellation or
+        operationContext.monotonicDeadline < 0 {
+
+        return Err<MachineDiagnostic, SeenError>(coreRel001Error(
+            "core.rel.001.cancelled", "validate",
+            "machine diagnostic validation cancelled", RedactionClass.Public))
+    }
+    if not machineDiagnosticPlatformKnown(platform) {
+        return Err<MachineDiagnostic, SeenError>(coreRel001Error(
+            "core.rel.001.platform", "validate",
+            "machine diagnostic platform is unsupported",
+            RedactionClass.Public))
+    }
+    if operationContext.limits.maxIdentityBytes < 1 or
+        operationContext.limits.maxIdentityBytes >
+            RELEASE_DIAGNOSTIC_MAX_IDENTITY_BYTES or
+        operationContext.limits.maxPathBytes < 1 or
+        operationContext.limits.maxPathBytes >
+            RELEASE_DIAGNOSTIC_MAX_PATH_BYTES {
+
+        return Err<MachineDiagnostic, SeenError>(coreRel001Error(
+            "core.rel.001.limit", "validate",
+            "machine diagnostic limits are invalid", RedactionClass.Public))
+    }
+    if not machineDiagnosticErrorIsBounded(error, 0) or
+        diagnosticContext.fallbackReason.length() >
+            RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES or
+        diagnosticContext.sourceFile.length() >
+            operationContext.limits.maxPathBytes {
+
+        return Err<MachineDiagnostic, SeenError>(coreRel001Error(
+            "core.rel.001.limit", "validate",
+            "machine diagnostic field limit exceeded", RedactionClass.Public))
+    }
+    if not machineDiagnosticOptionalIdentity(diagnosticContext.backend) or
+        not machineDiagnosticOptionalIdentity(diagnosticContext.target) or
+        not machineDiagnosticOptionalIdentity(
+            diagnosticContext.deviceCapability) or
+        not machineDiagnosticOptionalIdentity(diagnosticContext.entryPoint) or
+        not machineDiagnosticSourcePathIsCanonical(
+            diagnosticContext.sourceFile) or
+        diagnosticContext.sourceLine < 0 or
+        diagnosticContext.sourceColumn < 0 or
+        (diagnosticContext.sourceFile == "" and
+            (diagnosticContext.sourceLine != 0 or
+                diagnosticContext.sourceColumn != 0)) or
+        (diagnosticContext.sourceFile != "" and
+            (diagnosticContext.sourceLine < 1 or
+                diagnosticContext.sourceColumn < 1)) {
+
+        return Err<MachineDiagnostic, SeenError>(coreRel001Error(
+            "core.rel.001.invalid", "validate",
+            "machine diagnostic fields are invalid", RedactionClass.Public))
+    }
+    return Ok<MachineDiagnostic, SeenError>(MachineDiagnostic{
+        schema: RELEASE_DIAGNOSTIC_SCHEMA,
+        error: error,
+        context: diagnosticContext
+    })
+}
+
+fun machineDiagnosticJsonString(value: String) r: String {
+    var output = "\""
+    var idx = 0
+    var segmentStart = 0
+    while idx < value.length() {
+        let byte = value.byteAt(idx)
+        var escaped = ""
+        if byte == 34 { escaped = "\\\"" }
+        if byte == 92 { escaped = "\\\\" }
+        if byte == 10 { escaped = "\\n" }
+        if byte == 13 { escaped = "\\r" }
+        if byte == 9 { escaped = "\\t" }
+        if byte == 8 { escaped = "\\b" }
+        if byte == 12 { escaped = "\\f" }
+        if escaped != "" {
+            if segmentStart < idx {
+                output = output + value.substring(segmentStart, idx)
+            }
+            output = output + escaped
+            segmentStart = idx + 1
+        } else if byte < 32 {
+            // Stable diagnostics reject embedded control bytes rather than
+            // relying on platform-specific formatting of arbitrary values.
+            if segmentStart < idx {
+                output = output + value.substring(segmentStart, idx)
+            }
+            output = output + "<control>"
+            segmentStart = idx + 1
+        }
+        idx = idx + 1
+    }
+    if segmentStart < value.length() {
+        output = output + value.substring(segmentStart, value.length())
+    }
+    return output + "\""
+}
+
+fun machineDiagnosticMaturityName(value: BackendMaturity) r: String {
+    if value == BackendMaturity.Unsupported { return "unsupported" }
+    if value == BackendMaturity.CompileOnly { return "compile-only" }
+    if value == BackendMaturity.ExperimentalHardware {
+        return "experimental-hardware"
+    }
+    if value == BackendMaturity.Verified { return "verified" }
+    return "production-certified"
+}
+
+fun machineDiagnosticRetryName(value: RetryClass) r: String {
+    if value == RetryClass.Transient { return "transient" }
+    return "never"
+}
+
+fun machineDiagnosticRedactionName(value: RedactionClass) r: String {
+    if value == RedactionClass.Sensitive { return "sensitive" }
+    return "public"
+}
+
+fun renderMachineDiagnosticError(error: SeenError) r: String {
+    var message = error.message
+    if error.redaction == RedactionClass.Sensitive {
+        message = "<redacted>"
+    }
+    var output = "{\"causes\":["
+    var idx = 0
+    while idx < error.causes.length() {
+        if idx > 0 { output = output + "," }
+        output = output + renderMachineDiagnosticError(error.causes.get(idx))
+        idx = idx + 1
+    }
+    output = output + "],\"code\":" +
+        machineDiagnosticJsonString(error.code.value) + ",\"message\":" +
+        machineDiagnosticJsonString(message) + ",\"native_code\":"
+    if error.nativeCode.isSome() {
+        output = output + error.nativeCode.unwrap().toString()
+    } else {
+        output = output + "null"
+    }
+    output = output + ",\"operation\":" +
+        machineDiagnosticJsonString(error.operation.value) +
+        ",\"redaction\":" + machineDiagnosticJsonString(
+            machineDiagnosticRedactionName(error.redaction)) +
+        ",\"retry\":" + machineDiagnosticJsonString(
+            machineDiagnosticRetryName(error.retry)) +
+        ",\"subsystem\":" +
+        machineDiagnosticJsonString(error.subsystem.value) + "}"
+    return output
+}
+
+/// Canonical compact JSON. Field order and spellings are part of the v1 ABI.
+fun renderMachineDiagnostic(value: MachineDiagnostic) r: String {
+    var sourceFile = value.context.sourceFile
+    var fallbackReason = value.context.fallbackReason
+    if value.error.redaction == RedactionClass.Sensitive {
+        if sourceFile != "" { sourceFile = "<redacted>" }
+        if fallbackReason != "" { fallbackReason = "<redacted>" }
+    }
+    var output = "{\"context\":{\"backend\":" +
+        machineDiagnosticJsonString(value.context.backend) +
+        ",\"device_capability\":" +
+        machineDiagnosticJsonString(value.context.deviceCapability) +
+        ",\"entry_point\":" +
+        machineDiagnosticJsonString(value.context.entryPoint) +
+        ",\"fallback_reason\":" +
+        machineDiagnosticJsonString(fallbackReason) +
+        ",\"maturity\":" + machineDiagnosticJsonString(
+            machineDiagnosticMaturityName(value.context.maturity)) +
+        ",\"source\":{\"column\":" +
+        value.context.sourceColumn.toString() + ",\"file\":" +
+        machineDiagnosticJsonString(sourceFile) + ",\"line\":" +
+        value.context.sourceLine.toString() + "},\"target\":" +
+        machineDiagnosticJsonString(value.context.target) + "},\"error\":" +
+        renderMachineDiagnosticError(value.error) + ",\"schema\":" +
+        machineDiagnosticJsonString(value.schema) + "}\n"
+    return output
 }

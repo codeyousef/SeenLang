@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the native `seen-machine-diagnostic-v1` envelope with bounded
+  `SeenError` fields and cause trees, deterministic JSON, stable
+  `core.rel.001.*` validation diagnostics, source locations, explicit backend
+  maturity/fallback metadata, sensitive-field redaction, fuzz and benchmark
+  gates, and a compiling example. The compatibility manifest now binds the
+  diagnostic schema used by compiler and accelerator gates.
 - Added the native `seen-production-source-policy-v1` contract with bounded
   `core.003d.*` diagnostics, deterministic fixtures, fuzzing, coverage, and a
   compiling example. Compiler inputs are unmodified production source bytes;
