@@ -1354,7 +1354,7 @@ prepare_bootstrap_source_overlay() {
         local base
         base=$(basename "$entry")
         case "$base" in
-            bootstrap|compiler_seen|seen_std)
+            bootstrap|compiler_seen|seen_std|releases)
                 ;;
             *)
                 ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/$base"
@@ -1401,6 +1401,37 @@ prepare_bootstrap_source_overlay() {
     # the package client's local-source hardening sees the same regular-file
     # layout that a published package archive contains.
     copy_bootstrap_seen_tree "$REPO_ROOT/seen_std" "$BOOTSTRAP_SOURCE_ROOT/seen_std"
+
+    # A frozen compiler must validate against the exact compatibility contract
+    # it was built with, even while it is compiling a checkout that advances a
+    # breaking alpha ABI. Keep that immutable contract separate from the live
+    # release manifest; produced compilers use the live checkout root.
+    local frozen_compatibility
+    frozen_compatibility="$REPO_ROOT/bootstrap/stage1_frozen.compatibility-manifest.json"
+    local frozen_compatibility_hash
+    frozen_compatibility_hash="$REPO_ROOT/bootstrap/stage1_frozen.compatibility-manifest.sha256"
+    [ -f "$frozen_compatibility" ] && [ ! -L "$frozen_compatibility" ] || {
+        echo -e "${RED}ERROR: missing frozen compatibility manifest.${NC}" >&2
+        return 1
+    }
+    [ -f "$frozen_compatibility_hash" ] &&
+        [ ! -L "$frozen_compatibility_hash" ] &&
+        verify_hash "$frozen_compatibility_hash" || {
+
+        echo -e "${RED}ERROR: frozen compatibility manifest integrity check failed.${NC}" >&2
+        return 1
+    }
+    mkdir -p "$BOOTSTRAP_SOURCE_ROOT/releases"
+    for entry in "$REPO_ROOT/releases"/*; do
+        [ -e "$entry" ] || continue
+        local base
+        base=$(basename "$entry")
+        if [ "$base" != "compatibility-manifest.json" ]; then
+            ln -s "$entry" "$BOOTSTRAP_SOURCE_ROOT/releases/$base"
+        fi
+    done
+    cp -pL "$frozen_compatibility" \
+        "$BOOTSTRAP_SOURCE_ROOT/releases/compatibility-manifest.json"
     echo -e "${YELLOW}Bootstrap source overlay enabled: temporary /// bodies stripped for older bootstrap compilers.${NC}"
 }
 
@@ -4326,7 +4357,9 @@ safe_rebuild_install_checkout_file "$VERIFIED" \
     compiler_seen/target/seen || exit 1
 safe_rebuild_install_checkout_file "$PACKAGE_CLIENT_BUILD_OUTPUT" \
     compiler_seen/target/seen-pkg || exit 1
-safe_rebuild_install_checkout_file "$STAGE2" stage2_head || exit 1
+if [ -f "$STAGE2" ] && [ ! -L "$STAGE2" ]; then
+    safe_rebuild_install_checkout_file "$STAGE2" stage2_head || exit 1
+fi
 if [ -f "$STAGE3" ]; then
     safe_rebuild_install_checkout_file "$STAGE3" stage3_head || exit 1
 fi

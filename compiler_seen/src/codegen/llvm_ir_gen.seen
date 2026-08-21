@@ -8,7 +8,8 @@ bridging here; put new lowering rules in the extracted modules.
 ///
 import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode, StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_module_driver.{generateMultipleState, generateSingleState, emitMultipleState, emitSingleState}
+import codegen.ir_module_driver.{generateMultipleState, generateSingleState,
+    emitMultipleState, emitSingleState, emitSingleWithInitializationState}
 import codegen.ir_call_args_driver.{prepareCallArgumentsWithDefaultsState}
 import codegen.ir_call_driver.{generateCallWithGlobalState}
 import codegen.ir_enum_ctor_gen.{generateEnumConstructorState}
@@ -163,6 +164,23 @@ class LLVMIRGenerator {
         resetSharedModuleGenerationScratchState()
         emitSingleState(this as Int, this.output, this.stringConstants,
             program, moduleIndex)
+        return this.output.writeToFile(outputPath)
+    }
+
+    fun generateSingleToFileWithInitializationIndex(program: ProgramNode,
+        moduleIndex: Int, globalInitializationIndex: Int,
+        outputPath: String) r: Bool {
+
+        if globalInitializationIndex < 0 or
+            globalInitializationIndex >= 4096 {
+
+            return false
+        }
+        reset()
+        resetSharedModuleGenerationScratchState()
+        emitSingleWithInitializationState(this as Int, this.output,
+            this.stringConstants, program, moduleIndex,
+            globalInitializationIndex)
         return this.output.writeToFile(outputPath)
     }
     fun generateExpression(expr: ParserExpressionNode) r: String { return generateExpressionWithGlobalState(this as Int, this.output, expr, this.varNames, this.varRegs, this.varTypes, this.stringConstants) }

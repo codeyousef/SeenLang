@@ -40,6 +40,8 @@ grep -Fxq '        run: scripts/run_ci_required.sh' "$WORKFLOW" ||
 for required_command in \
     'python3 scripts/check_compatibility_manifest.py' \
     'tests/misc_root_tests/seen_import_graph_contract.sh' \
+    'tests/misc_root_tests/seen_global_initialization_contract.sh' \
+    'python3 scripts/benchmark_global_initialization.py' \
     'python3 scripts/check_ci_workflows.py' \
     'python3 scripts/check_ci_containment.py' \
     'tests/misc_root_tests/seen_compatibility_manifest_contract.sh' \

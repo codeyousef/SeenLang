@@ -206,7 +206,7 @@ python3 "$BENCHMARK" "$FIXTURES/happy/graph.json" \
 grep -Fq 'warmups=5 samples=30 status=pass' "$TEST_ROOT/benchmark.log" ||
     fail "benchmark omitted policy evidence"
 
-python3 -c 'import json,sys; manifest=json.load(open(sys.argv[1], encoding="utf-8")); assert manifest["components"]["compiler"]["object_cache_abi"] == "seen-object-cache-abi-v2"' \
+python3 -c 'import json,sys; manifest=json.load(open(sys.argv[1], encoding="utf-8")); assert manifest["components"]["compiler"]["object_cache_abi"] == "seen-object-cache-abi-v3"' \
     "$COMPATIBILITY" || fail "compatibility manifest does not bind import ordering"
 grep -Fq 'seen-import-graph-v1 canonical module ordering' \
     "$COMPATIBILITY_SCHEMA" ||

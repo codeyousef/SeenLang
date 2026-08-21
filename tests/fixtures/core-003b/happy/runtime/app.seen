@@ -1,0 +1,10 @@
+import alpha.{alphaValue}
+
+var appReady = alphaValue() + 1
+
+fun main() r: Int {
+    if appReady == 12 {
+        return 0
+    }
+    return 1
+}

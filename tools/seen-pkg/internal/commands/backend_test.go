@@ -43,7 +43,7 @@ func prebuiltArtifactV2(t *testing.T, root string) {
 	interfaceIndex := "schema\tseen-package-interface-v2\n" +
 		"version\t2\n" +
 		"layout_abi\tseen-layout-abi-v2\n" +
-		"object_cache_abi\tseen-object-cache-abi-v2\n" +
+		"object_cache_abi\tseen-object-cache-abi-v3\n" +
 		"module\tsrc/value.seen\tpackage\tvalue\tmodule-fingerprint\n" +
 		"function\tsrc/value.seen\tpublic\tvalue\tdeclaration-fingerprint\tcanonical-declaration\n"
 	digest := sha256.Sum256([]byte(interfaceIndex))
@@ -58,16 +58,16 @@ func prebuiltArtifactV2(t *testing.T, root string) {
 		"object_manifest_schema = \"seen-package-object-manifest-v2\"\n" +
 		"object_manifest_version = 2\n" +
 		"layout_abi = \"seen-layout-abi-v2\"\n" +
-		"object_cache_abi = \"seen-object-cache-abi-v2\"\n" +
+		"object_cache_abi = \"seen-object-cache-abi-v3\"\n" +
 		"interface_path = \"src\"\n" +
 		"interface_index = \"interface.index.tsv\"\n" +
 		"object_manifest = \"objects.tsv\"\n" +
 		"declaration_digest = \"" + hex.EncodeToString(digest[:]) + "\"\n" +
-		"build_signature = \"target=linux-x86_64|pic=1|layout=seen-layout-abi-v2|object-cache=seen-object-cache-abi-v2\"\n"
+		"build_signature = \"target=linux-x86_64|pic=1|layout=seen-layout-abi-v2|object-cache=seen-object-cache-abi-v3\"\n"
 	objectManifest := "schema\tseen-package-object-manifest-v2\n" +
 		"version\t2\n" +
 		"layout_abi\tseen-layout-abi-v2\n" +
-		"object_cache_abi\tseen-object-cache-abi-v2\n" +
+		"object_cache_abi\tseen-object-cache-abi-v3\n" +
 		"objects/value.o\tsrc/value.seen\n"
 	writeTestFile(t, filepath.Join(root, "Seen.pkg.toml"), manifest)
 	writeTestFile(t, filepath.Join(root, "interface.index.tsv"), interfaceIndex)

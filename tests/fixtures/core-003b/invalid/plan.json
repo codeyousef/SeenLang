@@ -1,0 +1,6 @@
+{
+  "edges": [[1], []],
+  "modules": ["app.seen", "app.seen"],
+  "platform": "linux-x86_64",
+  "schema": "seen-global-initialization-input-v1"
+}

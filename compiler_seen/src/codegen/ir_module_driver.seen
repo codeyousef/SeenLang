@@ -47,7 +47,7 @@ fun emitMultipleState(ctx: CodegenLoweringContext,
     }
 
     emitSharedModuleTailState(output, stringConstants,
-        stringConstCountBeforeGen, 0, false, false,
+        stringConstCountBeforeGen, 0, 0, false, false,
         currentLoweringFunctionOptions(ctx))
 }
 
@@ -62,6 +62,15 @@ fun generateSingleState(ctx: CodegenLoweringContext,
 fun emitSingleState(ctx: CodegenLoweringContext,
     output: StringBuilder, stringConstants: Array<String>,
     program: ProgramNode, moduleIndex: Int) r: Void {
+
+    emitSingleWithInitializationState(ctx, output, stringConstants,
+        program, moduleIndex, moduleIndex)
+}
+
+fun emitSingleWithInitializationState(ctx: CodegenLoweringContext,
+    output: StringBuilder, stringConstants: Array<String>,
+    program: ProgramNode, moduleIndex: Int,
+    globalInitializationIndex: Int) r: Void {
 
     ///
     Per-module object emission prefixes string constants with the module index
@@ -82,6 +91,7 @@ fun emitSingleState(ctx: CodegenLoweringContext,
     emitLateUserDeclaresWithModuleStateImpl(output, definedFuncs)
     emitUnusedTopLevelFunctionWarningsImpl(output, program)
     emitSharedModuleTailState(output, stringConstants,
-        stringConstCountBeforeGen, moduleIndex, true, true,
+        stringConstCountBeforeGen, moduleIndex, globalInitializationIndex,
+        true, true,
         currentLoweringFunctionOptions(ctx))
 }

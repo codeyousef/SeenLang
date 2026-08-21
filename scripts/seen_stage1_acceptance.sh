@@ -456,6 +456,12 @@ run_fixture import-graph \
     "$REPO_ROOT/compiler_seen/tests/release/import_graph.seen"
 run_fixture import-graph-example \
     "$REPO_ROOT/compiler_seen/examples/import_graph_resolution.seen"
+run_fixture global-initialization \
+    "$REPO_ROOT/compiler_seen/tests/release/global_initialization.seen"
+run_fixture global-initialization-example \
+    "$REPO_ROOT/compiler_seen/examples/global_initialization_plan.seen"
+run_fixture global-initialization-runtime \
+    "$REPO_ROOT/tests/fixtures/core-003b/happy/runtime/app.seen"
 EXTERNAL_PACKAGE_CONSUMER_FIXTURE=$(stage_external_package_fixture)
 run_fixture external-package-consumer \
     "$EXTERNAL_PACKAGE_CONSUMER_FIXTURE"

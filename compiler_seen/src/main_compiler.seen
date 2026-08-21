@@ -45,7 +45,8 @@ import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifes
     AsciiString, OperationLimits, OperationContext, CompatibilityCompiler,
     CompatibilityComponents, CompatibilityTarget, CompatibilityPlatforms,
     CompatibilityReleaseInputs, readCompatibilityRuntimeSelection}
-import seen_compiler.release.diagnostic_schema.{core003aError as _seedCore003aError}
+import seen_compiler.release.diagnostic_schema.{core003aError as _seedCore003aError,
+    core003bError as _seedCore003bError}
 import seen_compiler.imports.graph.{resolveRecursiveImportGraphBootstrap}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_runtime_lsp_json.{emitLspJsonRuntimeDecls}
@@ -402,7 +403,7 @@ fun compilerLayoutAbiIdentity() r: String {
 }
 
 fun compilerObjectCacheAbiIdentity() r: String {
-    return "seen-object-cache-abi-v2"
+    return "seen-object-cache-abi-v3"
 }
 
 fun prebuiltPackageSchemaIdentity() r: String {
@@ -7762,6 +7763,58 @@ fun orderModulePathsByResolution(modulePaths: Array<String>,
     return ordered
 }
 
+fun globalInitializationRanksFromOrder(moduleCount: Int,
+    initializationOrder: Array<Int>) r: Array<Int> {
+
+    let empty = Array<Int>()
+    if moduleCount < 1 or initializationOrder.length() != moduleCount {
+        return empty
+    }
+    var orderIdx = 0
+    while orderIdx < initializationOrder.length() {
+        let moduleIdx = initializationOrder[orderIdx]
+        if moduleIdx < 0 or moduleIdx >= moduleCount {
+            return empty
+        }
+        var previousIdx = 0
+        while previousIdx < orderIdx {
+            if initializationOrder[previousIdx] == moduleIdx {
+                return empty
+            }
+            previousIdx = previousIdx + 1
+        }
+        orderIdx = orderIdx + 1
+    }
+    let ranks = Array<Int>()
+    var moduleIdx = 0
+    while moduleIdx < moduleCount {
+        ranks.push(-1)
+        moduleIdx = moduleIdx + 1
+    }
+    orderIdx = 0
+    while orderIdx < initializationOrder.length() {
+        ranks[initializationOrder[orderIdx]] = orderIdx
+        orderIdx = orderIdx + 1
+    }
+    return ranks
+}
+
+fun orderIntValuesByResolution(values: Array<Int>,
+    orderedIndices: Array<Int>) r: Array<Int> {
+
+    let ordered = Array<Int>()
+    var idx = 0
+    while idx < orderedIndices.length() {
+        let sourceIdx = orderedIndices[idx]
+        if sourceIdx < 0 or sourceIdx >= values.length() {
+            return Array<Int>()
+        }
+        ordered.push(values[sourceIdx])
+        idx = idx + 1
+    }
+    return ordered
+}
+
 ///
 Collect all module paths needed for compilation (without storing ASTs).
 For regular compilations this walks imports recursively so standalone builds
@@ -12520,13 +12573,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let importGraph = buildCompilerImportScanGraph(modulePaths, language)
     let importGraphIdentities = compilerImportGraphIdentities(modulePaths)
     let graphOrder = Array<Int>()
+    let globalInitializationOrder = Array<Int>()
     let graphErrorCodes = Array<String>()
     let graphErrorMessages = Array<String>()
     let graphResolved = resolveRecursiveImportGraphBootstrap(
         importGraphIdentities, importGraph.edgeStarts, importGraph.edgeCounts,
         importGraph.edgeTargets,
         compilerImportGraphPlatform(normalizedCrossTarget),
-        compilerImportGraphContext(), graphOrder, graphErrorCodes,
+        compilerImportGraphContext(), graphOrder, globalInitializationOrder,
+        graphErrorCodes,
         graphErrorMessages)
     if not graphResolved {
         println("error: " + graphErrorCodes[0] + ": " +
@@ -12535,12 +12590,24 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             "code=" + graphErrorCodes[0])
         return 1
     }
-    // Compiler-owned graphs still pass the same fail-closed resolver, but the
-    // curated bootstrap schedule is a bounded-memory execution contract.
-    // Reordering that schedule raises retained declaration memory above the
-    // verified bootstrap cap; project graphs consume the canonical order.
+    // Preserve the canonical discovery/codegen schedule, including the
+    // bounded-memory compiler bootstrap order. The checked dependency-first
+    // rank is carried separately into constructor emission, so initialization
+    // never relies on link order and cache/source identities remain stable.
+    var globalInitializationRanks = globalInitializationRanksFromOrder(
+        modulePaths.length(), globalInitializationOrder)
+    if globalInitializationRanks.length() != modulePaths.length() {
+        println("error: core.003b.invalid: global initialization order is invalid")
+        return 1
+    }
     if not moduleGraphContainsCompilerSources(modulePaths) {
         modulePaths = orderModulePathsByResolution(modulePaths, graphOrder)
+        globalInitializationRanks = orderIntValuesByResolution(
+            globalInitializationRanks, graphOrder)
+        if globalInitializationRanks.length() != modulePaths.length() {
+            println("error: core.003b.invalid: global initialization ranks are invalid")
+            return 1
+        }
     }
     println("    Found " + modulePaths.length().toString() + " modules")
     buildTraceFinish("module discovery", pass0Start, "ok",
@@ -12932,8 +12999,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println("    [" + moduleIndex.toString() + "] Codegen start")
             }
             let codegenStartTime = getTraceTimeSeconds()
-            let irWritten = generator.generateSingleToFile(frontend.program,
-                moduleIndex, llFile)
+            let irWritten =
+                generator.generateSingleToFileWithInitializationIndex(
+                    frontend.program, moduleIndex,
+                    globalInitializationRanks[moduleIndex], llFile)
             let codegenEndTime = getTraceTimeSeconds()
             if g_compilerVerbose == 1 {
                 println("    [" + moduleIndex.toString() + "] Codegen done in " + (codegenEndTime - codegenStartTime).toString() + "s")
@@ -12997,8 +13066,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         writeText(statusFile, "parse_done\n" + path)
                         writeText(statusFile, "codegen_start\n" + path)
                     }
-                    let irWritten = generator.generateSingleToFile(
-                        frontend.program, moduleIndex, llFile)
+                    let irWritten =
+                        generator.generateSingleToFileWithInitializationIndex(
+                            frontend.program, moduleIndex,
+                            globalInitializationRanks[moduleIndex], llFile)
                     if g_generatedTestMainMode == 0 {
                         writeText(statusFile, "codegen_done\n" + path)
                     }
@@ -14662,21 +14733,37 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
     let checkGraph = buildCompilerImportScanGraph(checkModulePaths, language)
     let checkGraphIdentities = compilerImportGraphIdentities(checkModulePaths)
     let checkOrder = Array<Int>()
+    let checkGlobalInitializationOrder = Array<Int>()
     let checkErrorCodes = Array<String>()
     let checkErrorMessages = Array<String>()
     if not resolveRecursiveImportGraphBootstrap(
         checkGraphIdentities, checkGraph.edgeStarts, checkGraph.edgeCounts,
         checkGraph.edgeTargets, detectHostTargetName(),
-        compilerImportGraphContext(), checkOrder, checkErrorCodes,
+        compilerImportGraphContext(), checkOrder,
+        checkGlobalInitializationOrder, checkErrorCodes,
         checkErrorMessages) {
 
         println("error: " + checkErrorCodes[0] + ": " +
             checkErrorMessages[0])
         return 1
     }
+    var checkGlobalInitializationRanks = globalInitializationRanksFromOrder(
+        checkModulePaths.length(), checkGlobalInitializationOrder)
+    if checkGlobalInitializationRanks.length() != checkModulePaths.length() {
+        println("error: core.003b.invalid: global initialization order is invalid")
+        return 1
+    }
     if not moduleGraphContainsCompilerSources(checkModulePaths) {
-        checkModulePaths = orderModulePathsByResolution(checkModulePaths,
-            checkOrder)
+        checkModulePaths = orderModulePathsByResolution(
+            checkModulePaths, checkOrder)
+        checkGlobalInitializationRanks = orderIntValuesByResolution(
+            checkGlobalInitializationRanks, checkOrder)
+        if checkGlobalInitializationRanks.length() !=
+            checkModulePaths.length() {
+
+            println("error: core.003b.invalid: global initialization ranks are invalid")
+            return 1
+        }
     }
 
     let frontend = runFrontendCompat(sourceCode, resolvedInput, language)
@@ -14950,20 +15037,34 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
     let jitGraph = buildCompilerImportScanGraph(modulePaths, language)
     let jitGraphIdentities = compilerImportGraphIdentities(modulePaths)
     let jitOrder = Array<Int>()
+    let jitGlobalInitializationOrder = Array<Int>()
     let jitErrorCodes = Array<String>()
     let jitErrorMessages = Array<String>()
     if not resolveRecursiveImportGraphBootstrap(
         jitGraphIdentities, jitGraph.edgeStarts, jitGraph.edgeCounts,
         jitGraph.edgeTargets, detectHostTargetName(),
-        compilerImportGraphContext(), jitOrder, jitErrorCodes,
+        compilerImportGraphContext(), jitOrder,
+        jitGlobalInitializationOrder, jitErrorCodes,
         jitErrorMessages) {
 
         println("error: " + jitErrorCodes[0] + ": " +
             jitErrorMessages[0])
         return 1
     }
+    var jitGlobalInitializationRanks = globalInitializationRanksFromOrder(
+        modulePaths.length(), jitGlobalInitializationOrder)
+    if jitGlobalInitializationRanks.length() != modulePaths.length() {
+        println("error: core.003b.invalid: global initialization order is invalid")
+        return 1
+    }
     if not moduleGraphContainsCompilerSources(modulePaths) {
         modulePaths = orderModulePathsByResolution(modulePaths, jitOrder)
+        jitGlobalInitializationRanks = orderIntValuesByResolution(
+            jitGlobalInitializationRanks, jitOrder)
+        if jitGlobalInitializationRanks.length() != modulePaths.length() {
+            println("error: core.003b.invalid: global initialization ranks are invalid")
+            return 1
+        }
     }
     if shouldRunWholeProjectPreflight(modulePaths) {
         let jitSealedValidation = validateSealedModules(modulePaths, language)
@@ -15012,8 +15113,9 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
         }
         let llFile = jitWorkRoot + "/seen_jit_module_" +
             moduleIndex.toString() + ".ll"
-        if not generator.generateSingleToFile(frontend.program, moduleIndex,
-            llFile) {
+        if not generator.generateSingleToFileWithInitializationIndex(
+            frontend.program, moduleIndex,
+            jitGlobalInitializationRanks[moduleIndex], llFile) {
             println("    Error: Failed to write IR: " + llFile)
             return 1
         }

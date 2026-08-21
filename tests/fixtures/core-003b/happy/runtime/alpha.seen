@@ -1,0 +1,7 @@
+import leaf.{leafValue}
+
+var alphaReady = leafValue() + 1
+
+fun alphaValue() r: Int {
+    return alphaReady
+}

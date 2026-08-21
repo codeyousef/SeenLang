@@ -28,7 +28,7 @@ const (
 	prebuiltInterfaceSchema         = "seen-package-interface-v2"
 	prebuiltObjectManifestSchema    = "seen-package-object-manifest-v2"
 	prebuiltLayoutABI               = "seen-layout-abi-v2"
-	prebuiltObjectCacheABI          = "seen-object-cache-abi-v2"
+	prebuiltObjectCacheABI          = "seen-object-cache-abi-v3"
 	prebuiltArtifactFormatVersion   = 2
 	prebuiltArtifactRebuildGuidance = "rebuild using Seen 0.11"
 )

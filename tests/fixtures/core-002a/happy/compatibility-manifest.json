@@ -2,7 +2,7 @@
   "components": {
     "compiler": {
       "layout_abi": "seen-layout-abi-v2",
-      "object_cache_abi": "seen-object-cache-abi-v2",
+      "object_cache_abi": "seen-object-cache-abi-v3",
       "package_interface_schema": "seen-package-interface-v2",
       "package_object_manifest_schema": "seen-package-object-manifest-v2",
       "prebuilt_package_schema": "seen-prebuilt-package-v2",
