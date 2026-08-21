@@ -371,6 +371,22 @@ cannot cross the ordering boundary. The same identity binds
 repair transform. It also binds `seen-production-source-policy-v1`: source
 bytes reach compilation without a rewrite transform.
 
+### Debug, coverage, and sanitizer builds
+
+`seen compile` exposes `-g`/`--debug`, `--coverage`, and
+`--sanitize address|undefined|thread|memory`. The validated native
+`BuildInstrumentationPolicy` applies the selected Clang instrumentation to
+every Seen LLVM module, retained runtime object, and compiled ledgered ABI shim.
+Unsupported targets and malformed or excessive report paths fail with stable
+`core.rel.002.*` errors; instrumentation is never silently dropped.
+
+`--instrumentation-report <relative-path>` writes canonical
+`seen-build-instrumentation-evidence-v1` JSON after a successful link. Its
+component states distinguish `source-only`, `compile-only`, and
+`hardware-executed`. A compiler invocation may emit only source or compile
+evidence; hardware execution must come from a separate hardware gate. This
+contract is bound by `seen-object-cache-abi-v3`.
+
 ## Incremental and Parallel Compilation
 
 The compiler uses source-level and IR-level caches:
