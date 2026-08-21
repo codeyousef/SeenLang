@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/test-snapshot.schema.json",
+  "title": "Seen canonical test snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "name", "content"],
+  "properties": {
+    "schema": {"const": "seen-test-snapshot-v1"},
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "content": {"type": "string", "maxLength": 1048576}
+  }
+}

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native `seen-test-assertion-v1` structured assertions and
+  `seen-test-snapshot-v1` exact-text snapshot comparison with bounded portable
+  names, explicit update policy, stable diagnostics, deterministic rendering,
+  fuzz/coverage/performance gates, and a compiling example.
 - Added the native `seen-test-run-v1` canonical `seen test` runner with
   deterministic selection, bounded serial execution, stable exit codes,
   retained logs, explicit timeout and privilege policy, and transactional JSON

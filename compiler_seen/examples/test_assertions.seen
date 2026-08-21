@@ -1,0 +1,32 @@
+import seen_compiler.testing.assertions.{AssertionOperator, AssertionRequest,
+    evaluateAssertionChecked, renderAssertionResult}
+import seen_compiler.testing.snapshot.{SnapshotUpdatePolicy, SnapshotRequest,
+    compareSnapshotChecked, renderSnapshotResult}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let context = OperationContext{
+        cancellation: false, monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 64, maxGraphEdges: 128, maxGraphDepth: 16
+        }, traceId: AsciiString{ value: "assertion-example" }
+    }
+    let assertion = evaluateAssertionChecked(AssertionRequest{
+        name: "language", operator: AssertionOperator.Equal,
+        expected: "Seen", actual: "Seen"
+    }, context)
+    if not assertion.success { return 1 }
+    print(renderAssertionResult(assertion.values[0]))
+    let snapshot = compareSnapshotChecked(SnapshotRequest{
+        name: "language", expectedPresent: true, expected: "Seen\n",
+        actual: "Seen\n", updatePolicy: SnapshotUpdatePolicy.ReadOnly
+    }, context)
+    if not snapshot.success { return 1 }
+    print(renderSnapshotResult(snapshot.values[0]))
+    if assertion.values[0].passed and snapshot.values[0].passed { return 0 }
+    return 1
+}
+
+main()

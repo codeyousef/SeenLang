@@ -1,0 +1,104 @@
+import seen_compiler.testing.assertions.{AssertionOperator, AssertionRequest,
+    evaluateAssertionChecked, renderAssertionResult}
+import seen_compiler.testing.snapshot.{SnapshotUpdatePolicy, SnapshotRequest,
+    compareSnapshotChecked, snapshotPath, snapshotWriteContent,
+    renderSnapshotResult}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+
+fun test001cContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 64, maxGraphEdges: 128, maxGraphDepth: 16
+        },
+        traceId: AsciiString{ value: "test-001c" }
+    }
+}
+
+fun main() r: Int {
+    let happy = evaluateAssertionChecked(AssertionRequest{
+        name: "equal-values", operator: AssertionOperator.Equal,
+        expected: "seen", actual: "seen"
+    }, test001cContext())
+    let failed = evaluateAssertionChecked(AssertionRequest{
+        name: "different-values", operator: AssertionOperator.Equal,
+        expected: "seen", actual: "other"
+    }, test001cContext())
+    let matched = compareSnapshotChecked(SnapshotRequest{
+        name: "greeting", expectedPresent: true, expected: "hello\n",
+        actual: "hello\n", updatePolicy: SnapshotUpdatePolicy.ReadOnly
+    }, test001cContext())
+    let created = compareSnapshotChecked(SnapshotRequest{
+        name: "new-greeting", expectedPresent: false, expected: "",
+        actual: "hello\n", updatePolicy: SnapshotUpdatePolicy.CreateMissing
+    }, test001cContext())
+    if not happy.success or not happy.values[0].passed or
+        not failed.success or failed.values[0].passed or
+        not matched.success or not matched.values[0].passed or
+        not created.success or not created.values[0].writeRequired {
+
+        println("FAIL: TEST-001C_happy")
+        return 1
+    }
+    println("PASS: TEST-001C_happy")
+
+    let invalid = evaluateAssertionChecked(AssertionRequest{
+        name: "../escape", operator: AssertionOperator.Equal,
+        expected: "a", actual: "a"
+    }, test001cContext())
+    if invalid.success or invalid.errors[0].code.value != "test.001c.invalid" {
+        println("FAIL: TEST-001C_invalid")
+        return 1
+    }
+    println("PASS: TEST-001C_invalid")
+
+    var limitContext = test001cContext()
+    limitContext.limits.maxManifestBytes = 3
+    let limited = compareSnapshotChecked(SnapshotRequest{
+        name: "limit", expectedPresent: true, expected: "four",
+        actual: "four", updatePolicy: SnapshotUpdatePolicy.ReadOnly
+    }, limitContext)
+    if limited.success or limited.errors[0].code.value != "test.001c.limit" {
+        println("FAIL: TEST-001C_limit")
+        return 1
+    }
+    println("PASS: TEST-001C_limit")
+
+    var cancelContext = test001cContext()
+    cancelContext.cancellation = true
+    let cancelled = evaluateAssertionChecked(AssertionRequest{
+        name: "cancel", operator: AssertionOperator.True,
+        expected: "", actual: "true"
+    }, cancelContext)
+    if cancelled.success or
+        cancelled.errors[0].code.value != "test.001c.cancelled" {
+
+        println("FAIL: TEST-001C_cancel")
+        return 1
+    }
+    println("PASS: TEST-001C_cancel")
+
+    let readOnlyMismatch = compareSnapshotChecked(SnapshotRequest{
+        name: "greeting", expectedPresent: true, expected: "old",
+        actual: "new", updatePolicy: SnapshotUpdatePolicy.ReadOnly
+    }, test001cContext())
+    if not renderAssertionResult(happy.values[0]).contains(
+            "seen-test-assertion-v1") or
+        not renderSnapshotResult(created.values[0]).contains(
+            "seen-test-snapshot-v1") or
+        snapshotPath(created.values[0]) !=
+            ".seen_snapshots/new-greeting.snap" or
+        snapshotWriteContent(created.values[0]) != "hello\n" or
+        readOnlyMismatch.values[0].writeRequired {
+
+        println("FAIL: TEST-001C_cleanup")
+        return 1
+    }
+    println("PASS: TEST-001C_cleanup")
+    return 0
+}
+
+main()

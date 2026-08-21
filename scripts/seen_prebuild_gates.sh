@@ -321,6 +321,7 @@ bash -n "$SCRIPT_DIR/artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_editor_feature_parity.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_extern_runtime_declaration_dedup.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_test_runner_contract.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_assertions_snapshot_contract.sh" \
     "$REPO_ROOT/tests/e2e_multilang/run_all_e2e.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_pkg_local_registry.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_pkg_scoped_identity.sh"
@@ -366,6 +367,9 @@ bash "$REPO_ROOT/tests/misc_root_tests/seen_cli_array_bool_bootstrap.sh"
 
 echo "Prebuild gates: canonical test runner contract..."
 bash "$REPO_ROOT/tests/misc_root_tests/seen_test_runner_contract.sh"
+
+echo "Prebuild gates: assertion and snapshot contract..."
+bash "$REPO_ROOT/tests/misc_root_tests/seen_assertions_snapshot_contract.sh"
 
 echo "Prebuild gates: lexer interface token type contract..."
 bash "$REPO_ROOT/tests/misc_root_tests/seen_lexer_interface_token_type.sh"
