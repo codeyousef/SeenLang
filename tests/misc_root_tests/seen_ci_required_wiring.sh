@@ -45,6 +45,7 @@ for required_command in \
     'tests/misc_root_tests/seen_production_source_policy_contract.sh' \
     'tests/misc_root_tests/seen_machine_diagnostic_contract.sh' \
     'tests/misc_root_tests/seen_build_instrumentation_contract.sh' \
+    'tests/misc_root_tests/seen_release_optimization_contract.sh' \
     'python3 scripts/check_ci_workflows.py' \
     'python3 scripts/check_ci_containment.py' \
     'tests/misc_root_tests/seen_compatibility_manifest_contract.sh' \

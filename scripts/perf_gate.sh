@@ -616,7 +616,7 @@ run_benchmark_suite() {
 
 run_release_lto_suite() {
     run_release_lto_variant default merged
-    run_release_lto_variant optout optout --no-merged-release-lto
+    run_release_lto_variant thin thin --lto thin
 }
 
 run_packages_suite() {
@@ -717,8 +717,8 @@ run_release_lto_variant() {
             exit 1
         fi
     else
-        if ! printf '%s\n' "$status_line" | grep -q '"status":"optout"'; then
-            echo "Error: release-lto/optout expected explicit opt-out, observed: ${status_line:-none}" >&2
+        if ! printf '%s\n' "$status_line" | grep -q '"status":"thin"'; then
+            echo "Error: release-lto/thin expected explicit ThinLTO, observed: ${status_line:-none}" >&2
             exit 1
         fi
     fi

@@ -1,0 +1,159 @@
+/// Strict PGO and LTO policy for CORE-REL-003.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import release.compatibility.{AsciiString, OperationContext, SeenError,
+    RetryClass, RedactionClass}
+import release.diagnostic_schema.{machineDiagnosticJsonString}
+
+let RELEASE_OPTIMIZATION_SCHEMA: String = "seen-release-optimization-plan-v1"
+let RELEASE_OPTIMIZATION_MAX_PATH_BYTES: Int = 4096
+
+class ReleaseOptimizationPolicy {
+    var release: Bool
+    var pgoMode: String
+    var pgoPath: String
+    var ltoMode: String
+    var target: String
+}
+
+class ReleaseOptimizationOutcome {
+    var success: Bool
+    var values: Array<ReleaseOptimizationPolicy>
+    var errors: Array<SeenError>
+}
+
+fun coreRel003Error(code: String, message: String) r: SeenError {
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "compiler.release" },
+        operation: AsciiString{ value: "validate" },
+        message: message,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun releaseOptimizationSuccess(value: ReleaseOptimizationPolicy)
+    r: ReleaseOptimizationOutcome {
+
+    let values = Array<ReleaseOptimizationPolicy>()
+    values.push(value)
+    return ReleaseOptimizationOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun releaseOptimizationFailure(error: SeenError)
+    r: ReleaseOptimizationOutcome {
+
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return ReleaseOptimizationOutcome{
+        success: false, values: Array<ReleaseOptimizationPolicy>(),
+        errors: errors
+    }
+}
+
+fun releaseOptimizationPathCanonical(value: String) r: Bool {
+    if value == "" or value.length() > RELEASE_OPTIMIZATION_MAX_PATH_BYTES or
+        value.startsWith("/") or value.endsWith("/") or
+        value.contains("..") or value.contains("//") {
+
+        return false
+    }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = false
+        if byte >= 65 and byte <= 90 { valid = true }
+        if byte >= 97 and byte <= 122 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 or byte == 46 or byte == 47 or byte == 95 {
+            valid = true
+        }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun releaseOptimizationValidateChecked(policy: ReleaseOptimizationPolicy,
+    context: OperationContext) r: ReleaseOptimizationOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return releaseOptimizationFailure(coreRel003Error(
+            "core.rel.003.cancelled", "release optimization validation cancelled"))
+    }
+    if context.limits.maxPathBytes < 1 or
+        context.limits.maxPathBytes > RELEASE_OPTIMIZATION_MAX_PATH_BYTES or
+        policy.pgoPath.length() > context.limits.maxPathBytes {
+
+        return releaseOptimizationFailure(coreRel003Error(
+            "core.rel.003.limit", "release optimization path limit exceeded"))
+    }
+    if policy.target != "linux-x86_64" {
+        return releaseOptimizationFailure(coreRel003Error(
+            "core.rel.003.platform",
+            "PGO and explicit LTO modes require Linux x86-64"))
+    }
+    if policy.ltoMode != "full" and policy.ltoMode != "thin" {
+        return releaseOptimizationFailure(coreRel003Error(
+            "core.rel.003.invalid", "LTO mode must be full or thin"))
+    }
+    if policy.pgoMode != "" and policy.pgoMode != "generate" and
+        policy.pgoMode != "use" {
+
+        return releaseOptimizationFailure(coreRel003Error(
+            "core.rel.003.invalid", "PGO mode is invalid"))
+    }
+    if not policy.release {
+        return releaseOptimizationFailure(coreRel003Error(
+            "core.rel.003.invalid", "PGO and explicit LTO require --release"))
+    }
+    if policy.pgoMode == "use" {
+        if not releaseOptimizationPathCanonical(policy.pgoPath) or
+            not policy.pgoPath.endsWith(".profdata") {
+
+            return releaseOptimizationFailure(coreRel003Error(
+                "core.rel.003.invalid",
+                "PGO use requires a canonical relative .profdata path"))
+        }
+    } else {
+        if policy.pgoPath != "" {
+            return releaseOptimizationFailure(coreRel003Error(
+                "core.rel.003.invalid", "PGO path is valid only for use mode"))
+        }
+    }
+    return releaseOptimizationSuccess(policy)
+}
+
+fun validateReleaseOptimization(policy: ReleaseOptimizationPolicy,
+    context: OperationContext) r: Result<ReleaseOptimizationPolicy, SeenError> {
+
+    let checked = releaseOptimizationValidateChecked(policy, context)
+    if not checked.success {
+        return Err<ReleaseOptimizationPolicy, SeenError>(checked.errors[0])
+    }
+    return Ok<ReleaseOptimizationPolicy, SeenError>(checked.values[0])
+}
+
+fun releaseOptimizationBool(value: Bool) r: String {
+    if value { return "true" }
+    return "false"
+}
+
+fun renderReleaseOptimizationPlan(policy: ReleaseOptimizationPolicy)
+    r: String {
+
+    return "{\"lto_mode\":" + machineDiagnosticJsonString(policy.ltoMode) +
+        ",\"pgo_mode\":" + machineDiagnosticJsonString(policy.pgoMode) +
+        ",\"pgo_path\":" + machineDiagnosticJsonString(policy.pgoPath) +
+        ",\"release\":" + releaseOptimizationBool(policy.release) +
+        ",\"schema\":" + machineDiagnosticJsonString(
+            RELEASE_OPTIMIZATION_SCHEMA) + ",\"target\":" +
+        machineDiagnosticJsonString(policy.target) + "}\n"
+}

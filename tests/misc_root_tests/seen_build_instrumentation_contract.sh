@@ -70,7 +70,7 @@ for flag in --debug --coverage --sanitize --instrumentation-report; do
 done
 grep -Fq 'generator.setSanitizerMode(sanitizePolicy)' "$COMPILER" ||
     fail "sanitizer was not wired into Seen codegen"
-grep -Fq 'sanitizerClangFlags + " -c -I "' "$COMPILER" ||
+grep -Fq 'sanitizerClangFlags + pgoClangFlags + " -c -I "' "$COMPILER" ||
     fail "retained native objects omit instrumentation"
 grep -Fq 'renderBuildInstrumentationEvidence(evidence)' "$COMPILER" ||
     fail "compiler omits canonical evidence emission"

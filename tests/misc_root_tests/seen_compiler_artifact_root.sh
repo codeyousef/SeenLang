@@ -45,7 +45,7 @@ rg -q 'compilerArtifactPath\("seen_ir_cache/' \
 rg -q 'compilerArtifactPath\("seen_thinlto_cache"\)' \
     "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
     fail "compiler ThinLTO cache is not routed through the artifact root"
-for quoted_name in irCacheFile irCacheObj irCacheDest profdataPath \
+for quoted_name in irCacheFile irCacheObj irCacheDest \
     sanitizedRuntimeObj sanitizedTeeRuntimeObj rtTargetOut teeTargetOut \
     targetRegionOut targetGpuOut targetHotReloadOut platformShimOut jitObj \
     tmpX86 tmpArm tmpOut buildDir appDir; do
@@ -53,6 +53,12 @@ for quoted_name in irCacheFile irCacheObj irCacheDest profdataPath \
         "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
         fail "compiler artifact operand is not shell-quoted: $quoted_name"
 done
+! rg -q 'compilerArtifactPath\("seen_pgo\.profdata"\)' \
+    "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
+    fail "compiler still performs implicit raw-profile merging"
+rg -q 'canonical relative \.profdata path' \
+    "$ROOT_DIR/compiler_seen/src/release/release_optimization.seen" ||
+    fail "release policy does not require caller-supplied canonical profile data"
 
 if [ "${SEEN_ARTIFACT_STATIC_ONLY:-0}" = "1" ]; then
     printf 'compiler artifact-root static checks passed\n'

@@ -1,0 +1,9 @@
+import helper.{compute}
+
+fun main() r: Int {
+    if compute(1000) != 499500 { return 1 }
+    println("PASS: CORE-REL-003_release_binary")
+    return 0
+}
+
+main()

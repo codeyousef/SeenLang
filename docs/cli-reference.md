@@ -56,7 +56,7 @@ Common options:
 | `--object-manifest <path>` | Write an object-to-module TSV manifest and skip final executable link |
 | `--release` | Enable the release optimization/LTO path |
 | `--fast` | Use the lightweight optimization path used by bootstrap verification |
-| `--no-merged-release-lto` | Disable full merged release LTO for lower-memory release builds |
+| `--lto=<mode>` | Release LTO policy: `full` or bounded per-module `thin` |
 | `--emit-llvm` | Preserve per-module LLVM IR beside the requested output |
 | `--emit-module-ir-dir <dir>` | Emit raw per-module LLVM IR into `<dir>` for packaging/cross-build tools |
 | `--stop-after-ir` | Stop after `--emit-module-ir-dir`; requires an IR output directory |
@@ -258,11 +258,16 @@ add a standalone formatter command.
 ## PGO Workflow
 
 ```bash
-seen compile prog.seen prog --pgo-generate
+seen compile prog.seen prog --release --lto=thin --pgo-generate
 ./prog
 llvm-profdata merge -o default.profdata default_*.profraw
-seen compile prog.seen prog --pgo-use=default.profdata
+seen compile prog.seen prog --release --lto=thin --pgo-use=default.profdata
 ```
+
+PGO modes require `--release`. Profile-use accepts only a canonical relative
+`.profdata` path and fails closed when it is missing or invalid. Select
+`--lto=full` for merged whole-program optimization or `--lto=thin` for bounded
+per-module ThinLTO; no mode silently falls back to the other.
 
 ## Unsupported Source-Wrapper Commands
 

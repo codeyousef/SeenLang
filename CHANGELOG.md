@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native `seen-release-optimization-plan-v1` validation and explicit
+  `--lto=full|thin` release modes with stable `core.rel.003.*` diagnostics.
+  PGO generation/use now covers Seen modules and retained native objects,
+  requires canonical merged profile input, keys caches by profile bytes, and
+  fails closed instead of falling back between profiles or LTO modes.
 - Added native `seen-build-instrumentation-evidence-v1` policy and evidence,
   with stable `core.rel.002.*` diagnostics and explicit debug, LLVM coverage,
   ASan, UBSan, TSan, and MSan compiler flags. Instrumentation now reaches Seen

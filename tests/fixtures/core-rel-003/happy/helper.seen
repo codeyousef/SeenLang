@@ -1,0 +1,9 @@
+fun compute(n: Int) r: Int {
+    var sum = 0
+    var index = 0
+    while index < n {
+        sum = sum + index
+        index = index + 1
+    }
+    return sum
+}

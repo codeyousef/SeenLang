@@ -51,6 +51,8 @@ import seen_compiler.release.build_instrumentation.{BuildInstrumentationPolicy,
     buildInstrumentationValidateChecked,
     compileOnlyBuildInstrumentationEvidence,
     renderBuildInstrumentationEvidence}
+import seen_compiler.release.release_optimization.{ReleaseOptimizationPolicy,
+    releaseOptimizationValidateChecked}
 import seen_compiler.imports.graph.{resolveRecursiveImportGraphBootstrap}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_runtime_lsp_json.{emitLspJsonRuntimeDecls}
@@ -588,7 +590,8 @@ fun compilerBinarySignatureForCache() r: String {
 }
 
 fun buildCacheSignature(profile: String, language: String, targetCpu: String, simdPolicy: String,
-    sanitizePolicy: String, pgoMode: String, effectiveTarget: String, panicOnOverflow: Bool) r: String {
+    sanitizePolicy: String, pgoMode: String, pgoPath: String,
+    effectiveTarget: String, panicOnOverflow: Bool) r: String {
     var signature = "cache-v5"
     signature = signature + "|layoutAbi=" + compilerLayoutAbiIdentity()
     signature = signature + "|objectCacheAbi=" +
@@ -602,6 +605,10 @@ fun buildCacheSignature(profile: String, language: String, targetCpu: String, si
     signature = signature + "|debug=" + g_debugInfoCli.toString()
     signature = signature + "|coverage=" + g_coverageCli.toString()
     signature = signature + "|pgo=" + pgoMode
+    if pgoMode == "use" {
+        signature = signature + "|pgoProfile=" +
+            hashString(loadFileContent(pgoPath))
+    }
     signature = signature + "|target=" + effectiveTarget
     if panicOnOverflow {
         signature = signature + "|panic=1"
@@ -610,6 +617,7 @@ fun buildCacheSignature(profile: String, language: String, targetCpu: String, si
     }
     if g_releaseMode {
         signature = signature + "|release=1"
+        signature = signature + "|lto=" + g_ltoMode
     } else {
         signature = signature + "|release=0"
     }
@@ -7938,6 +7946,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("release.compatibility")
         modules.push("release.diagnostic_schema")
         modules.push("release.build_instrumentation")
+        modules.push("release.release_optimization")
         modules.push("imports.graph")
         modules.push("trace")
         // lexer.real_lexer removed: 2-line re-export shim, no compiler module imports it
@@ -11507,8 +11516,8 @@ fun compileCommandWithOptions(inputFile: String, outputFile: String, profile: St
 
 // Release mode flag: enables release optimization.
 var g_releaseMode: Bool = false
-// Full merged release LTO is the default performance path for --release.
-var g_disableMergedReleaseLto: Bool = false
+// Release LTO policy is explicit after CLI normalization: full or thin.
+var g_ltoMode: String = ""
 // Emit LLVM IR flag: saves .ll files alongside output for debugging
 var g_emitLlvm: Bool = false
 // Emit per-module raw IR to a directory for downstream packaging/cross-build tools.
@@ -12369,8 +12378,43 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
     }
+    if g_releaseMode or pgoMode != "" or g_ltoMode != "" {
+        var effectiveLtoMode = g_ltoMode
+        if effectiveLtoMode == "" { effectiveLtoMode = "full" }
+        let releasePolicy = ReleaseOptimizationPolicy{
+            release: g_releaseMode,
+            pgoMode: pgoMode,
+            pgoPath: pgoPath,
+            ltoMode: effectiveLtoMode,
+            target: effectiveTarget
+        }
+        let releaseValidation = releaseOptimizationValidateChecked(
+            releasePolicy, packageCompatibilityContext())
+        if not releaseValidation.success {
+            let releaseError = releaseValidation.errors[0]
+            println("Error: [" + releaseError.code.value + "] " +
+                releaseError.message)
+            return 1
+        }
+        if pgoMode == "use" and not exists(pgoPath) {
+            println("Error: [core.rel.003.io] PGO profile does not exist")
+            return 1
+        }
+        g_ltoMode = effectiveLtoMode
+    }
     let moduleInstrumentationFlags =
         buildInstrumentationClangFlags(sanitizePolicy)
+    let pgoClangFlags = buildPgoClangFlags(pgoMode, pgoPath)
+    var pgoRuntimeSignatureFlags = pgoClangFlags
+    if pgoMode == "use" {
+        pgoRuntimeSignatureFlags = pgoRuntimeSignatureFlags +
+            "|profile=" + hashString(loadFileContent(pgoPath))
+    }
+    var moduleCacheEnabled = useCache
+    if g_releaseMode and g_ltoMode == "full" {
+        // Full LTO needs every raw IR input to prove a complete merge.
+        moduleCacheEnabled = false
+    }
     setComptimeTargetName(effectiveTarget)
     let envJobs = readPositiveEnvInt("SEEN_JOBS")
     if envJobs > 0 {
@@ -12386,7 +12430,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if g_largeProjectOptWorkerLimit < 1 {
         g_largeProjectOptWorkerLimit = 1
     }
-    let cacheSignature = buildCacheSignature(profile, language, targetCpu, simdPolicy, sanitizePolicy, pgoMode, effectiveTarget, panicOnOverflow)
+    let cacheSignature = buildCacheSignature(profile, language, targetCpu,
+        simdPolicy, sanitizePolicy, pgoMode, pgoPath, effectiveTarget,
+        panicOnOverflow)
     let targetClangArgs = buildTargetClangArgs(effectiveTarget)
     let targetClangDriver = buildTargetClangDriver(effectiveTarget)
     let targetRuntimeFlags = buildTargetRuntimeCompileFlags(effectiveTarget)
@@ -12687,7 +12733,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             compileTempDir)
         return 1
     }
-    if useCache and tryUseCompleteGeneratedTestObjectCache(modulePaths,
+    if moduleCacheEnabled and tryUseCompleteGeneratedTestObjectCache(modulePaths,
         cacheSignature, normalizedCrossTarget, compileTempDir) {
         storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
         return 0
@@ -12837,7 +12883,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     ///
     var registryHash = ""
     var cacheValid = false
-    if useCache {
+    if moduleCacheEnabled {
         let cacheHashStart = getTraceTimeSeconds()
         var registryHashInput = cacheSignature
         var gi = 0
@@ -12941,7 +12987,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             continue
         }
         var generatedTestObjectCacheKey = ""
-        if useCache and g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+        if moduleCacheEnabled and g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
             generatedTestObjectCacheKey = generatedTestObjectCacheKeyForModule(path, cacheSignature)
             if tryCopyGeneratedTestObjectFromCache(generatedTestObjectCacheKey,
                 moduleIndex, compileTempDir) {
@@ -12955,7 +13001,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
 
         // Check source-level cache first (fastest: just file comparison)
-        if useCache and cacheValid {
+        if moduleCacheEnabled and cacheValid {
             let pathHash = sourceObjectCacheKey(cacheSignature, registryHash,
                 path)
             let sourceContent = readText(path)
@@ -12984,7 +13030,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         ///
         var irCacheKey = ""
         var irCacheHit = 0
-        if useCache and registryHash != "" {
+        if moduleCacheEnabled and registryHash != "" {
             let irSource = readText(path)
             irCacheKey = hashString("v5:" + cacheSignature + ":" +
                 registryHash + ":" + stableModuleCacheIdentity(path) + ":" +
@@ -13011,7 +13057,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             printCompileProgress("Pass 2", "IR cache hit",
                 moduleIndex + 1, modulePaths.length(), path)
             // Promote to source-level cache to speed up next build within same stage
-            if useCache {
+            if moduleCacheEnabled {
                 ensureCacheDir()
                 let srcPathHash = sourceObjectCacheKey(cacheSignature,
                     registryHash, path)
@@ -13162,7 +13208,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                             println("    IR file: " + llFile)
                             processExit(1)
                         }
-                        if useCache and generatedTestObjectCacheKey != "" {
+                        if moduleCacheEnabled and generatedTestObjectCacheKey != "" {
                             storeGeneratedTestObjectInCache(generatedTestObjectCacheKey, objFile)
                         }
                     }
@@ -13629,7 +13675,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
 
             // Cache the .o file for future builds (source-level cache)
-            if useCache {
+            if moduleCacheEnabled {
                 ensureCacheDir()
                 let sourcePath = uncachedSrcPaths[ci]
                 let pathHash = sourceObjectCacheKey(cacheSignature,
@@ -13780,38 +13826,37 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     ============================================================
     Why a separate release path? Full module merging unlocks whole-program
     optimization and keeps release performance strong, but it loads every
-    module into one LLVM module. Memory-constrained callers can opt out with
-    --no-merged-release-lto and stay on the bounded per-module ThinLTO path.
+    module into one LLVM module. Memory-constrained callers select --lto=thin
+    to stay on the bounded per-module ThinLTO path.
     ///
     if g_releaseMode {
-        if g_disableMergedReleaseLto {
-            buildTraceEmit("release lto mode", "optout", 0,
-                "mode=per-module opt_out=1")
+        if g_ltoMode == "thin" {
+            buildTraceEmit("release lto mode", "thin", 0,
+                "mode=thin explicit=1")
         } else {
-            if modulePaths.length() <= 1 or normalizedCrossTarget != "" or
-                g_objectManifestPath != "" or sourcesContainExportDecorator(modulePaths) {
+            if normalizedCrossTarget != "" or g_objectManifestPath != "" or
+                sourcesContainExportDecorator(modulePaths) {
 
-                buildTraceEmit("release lto mode", "skipped", 0,
-                    "mode=per-module reason=ineligible modules=" +
-                    modulePaths.length().toString())
+                println("Error: [core.rel.003.invalid] full LTO is ineligible for cross-target, object-manifest, or exported-module builds")
+                return 1
+            }
+            if modulePaths.length() <= 1 {
+                buildTraceEmit("release lto mode", "merged", 0,
+                    "mode=full single_module=1")
             }
         }
     }
-    if g_releaseMode and not g_disableMergedReleaseLto and
+    if g_releaseMode and g_ltoMode == "full" and
         modulePaths.length() > 1 and normalizedCrossTarget == "" and
         g_objectManifestPath == "" and not sourcesContainExportDecorator(modulePaths) {
 
         if llFiles.length() != modulePaths.length() {
-            println("  [2.5] Skipping merged release path: only " + llFiles.length().toString() + "/" + modulePaths.length().toString() + " modules have raw IR available")
-            buildTraceEmit("release lto mode", "skipped", 0,
-                "mode=per-module reason=missing_raw_ir available=" +
-                llFiles.length().toString() + " modules=" +
-                modulePaths.length().toString())
+            println("Error: [core.rel.003.invalid] full LTO requires every raw module IR input")
+            return 1
         } else {
             if llvmLinkTool == "" or llvmLlcTool == "" {
-                println("  [2.5] Skipping merged release path: missing llvm-link or llc")
-                buildTraceEmit("release lto mode", "skipped", 0,
-                    "mode=per-module reason=missing_tools")
+                println("Error: [core.rel.003.platform] full LTO requires llvm-link and llc")
+                return 1
             } else {
                 println("  [2.5] Release mode: cross-module LTO merge (" + llFiles.length().toString() + " modules)...")
                 let releaseMergeStart = getTraceTimeSeconds()
@@ -13869,11 +13914,18 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         if commandWasSuccessful(mergedOptResult) {
                             // Compile merged optimized IR to single object file
                             let mergedObj = compileTempDir + "/seen_merged_release.o"
-                            let mergedLlcCmd = llvmLlcTool +
+                            var mergedLlcCmd = llvmLlcTool +
                                 " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -fp-contract=fast -mcpu=" +
                                 llvmLlcCpu + " " +
                                 mainCompilerShellQuote(mergedOpt) + " -o " +
                                 mainCompilerShellQuote(mergedObj)
+                            if pgoMode == "generate" {
+                                mergedLlcCmd = targetClangDriver +
+                                    " -O3 -Wno-unused-command-line-argument" +
+                                    pgoClangFlags + " -c -x ir " +
+                                    mainCompilerShellQuote(mergedOpt) + " -o " +
+                                    mainCompilerShellQuote(mergedObj)
+                            }
                             let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
                             if commandWasSuccessful(mergedLlcResult) {
                                 // Replace all per-module object files with single merged object
@@ -13890,14 +13942,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                                     "mode=merged cache=miss modules=" +
                                     llFiles.length().toString())
                             } else {
-                                println("    Warning: LLC on merged module failed, using per-module objects")
-                                buildTraceEmit("release lto mode", "fallback", 0,
-                                    "mode=per-module reason=llc_failed")
+                                println("Error: [core.rel.003.tool] full LTO object emission failed")
+                                println(mergedLlcResult.output)
+                                return 1
                             }
                         } else {
-                            println("    Warning: opt on merged module failed, using per-module objects")
-                            buildTraceEmit("release lto mode", "fallback", 0,
-                                "mode=per-module reason=opt_failed")
+                            println("Error: [core.rel.003.tool] full LTO optimization failed")
+                            println(mergedOptResult.output)
+                            return 1
                         }
                         // --emit-llvm: save merged IR for debugging
                         if g_emitLlvm {
@@ -13908,10 +13960,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                             println("    Emitted merged IR: " + outputFile + ".merged.opt.ll")
                         }
                     } else {
-                        println("    Warning: llvm-link failed, using per-module objects")
+                        println("Error: [core.rel.003.tool] full LTO module merge failed")
                         println(llLinkResult.output)
-                        buildTraceEmit("release lto mode", "fallback", 0,
-                            "mode=per-module reason=llvm_link_failed")
+                        return 1
                     }
                 }
                 buildTraceFinish("release merge lto", releaseMergeStart,
@@ -13925,7 +13976,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     LINKING: Combine all object files
     ============================================================
     Release builds keep the merged cross-module LTO path by default for
-    throughput. Users can choose --no-merged-release-lto to keep per-module
+    throughput. Users can choose --lto=thin to keep per-module
     objects and lower peak memory. Non-release and opt-out release builds link
     the bounded object set produced above.
     ///
@@ -13947,7 +13998,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         return 0
     }
     if g_generatedTestMainMode == 1 {
-        if useCache {
+        if moduleCacheEnabled {
             storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
         }
         println("  [3] Skipping final link for generated test main; module objects are ready")
@@ -13996,28 +14047,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  Sanitizer: " + sanitizePolicy)
         g_sanitizerModeCli = 1
     }
-    var pgoClangFlags = ""
     if pgoMode == "generate" {
-        pgoClangFlags = " -fprofile-generate"
         println("  PGO: generate (instrumented build)")
     }
     if pgoMode == "use" {
-        // Auto-merge .profraw files to .profdata if needed
-        if pgoPath.endsWith(".profraw") {
-            let profdataPath = compilerArtifactPath("seen_pgo.profdata")
-            let mergeCmd = "llvm-profdata merge " +
-                mainCompilerShellQuote(pgoPath) + " -o " +
-                mainCompilerShellQuote(profdataPath)
-            println("  PGO: merging profile data...")
-            let mergeResult: CommandResult = runCommand(mergeCmd)
-            if commandWasSuccessful(mergeResult) {
-                pgoPath = profdataPath
-            } else {
-                println("    Warning: llvm-profdata merge failed, using raw profile")
-            }
-        }
-        pgoClangFlags = " -fprofile-use=" +
-            mainCompilerShellQuote(pgoPath)
         println("  PGO: use profile from " + pgoPath)
     }
 
@@ -14044,7 +14077,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if sanitizePolicy == "" {
         let runtimeSig = runtimeObjectBuildSignature("seen_runtime",
             runtimeSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
-            pgoClangFlags, effectiveTarget, teeRuntimeCompileFlags)
+            pgoRuntimeSignatureFlags, effectiveTarget, teeRuntimeCompileFlags)
         let runtimeObjForSig = runtimeObjectCachePath("seen_runtime",
             runtimeSig)
         if runtimeObjForSig != "" {
@@ -14055,7 +14088,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let rtCompile: CommandResult =
                 runCommand("clang -O3 -flto=thin " + clangMarch +
                     " -ffunction-sections -fdata-sections -pthread" +
-                    sanitizerClangFlags + picCompileFlag + " -c -I " +
+                    sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+                    " -c -I " +
                     mainCompilerShellQuote(rtPrefix) + " " +
                     mainCompilerShellQuote(runtimeSrc) + " -o " +
                     mainCompilerShellQuote(runtimeObj))
@@ -14073,7 +14107,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if hasTeeRuntime {
             let teeSig = runtimeObjectBuildSignature("seen_tee_common",
                 teeRuntimeSrc, clangMarch, picCompileFlag,
-                sanitizerClangFlags, pgoClangFlags, effectiveTarget,
+                sanitizerClangFlags, pgoRuntimeSignatureFlags, effectiveTarget,
                 teeRuntimeCompileFlags)
             let teeRuntimeObjForSig = runtimeObjectCachePath(
                 "seen_tee_common", teeSig)
@@ -14084,7 +14118,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 let teeRtCompile: CommandResult =
                     runCommand("clang -O3 -flto=thin " + clangMarch +
                         " -ffunction-sections -fdata-sections -pthread" +
-                        sanitizerClangFlags + picCompileFlag + " -c -I " +
+                        sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+                        " -c -I " +
                         mainCompilerShellQuote(rtPrefix) + " " +
                         mainCompilerShellQuote(teeRuntimeSrc) + " -o " +
                         mainCompilerShellQuote(teeRuntimeObj))
@@ -14112,7 +14147,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         let rtCompile: CommandResult =
             runCommand("clang -O3 " + clangMarch +
                 " -ffunction-sections -fdata-sections -pthread" +
-                sanitizerClangFlags + picCompileFlag + " -c -I " +
+                sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+                " -c -I " +
                 mainCompilerShellQuote(rtPrefix) + " " +
                 mainCompilerShellQuote(runtimeSrc) + " -o " +
                 mainCompilerShellQuote(sanitizedRuntimeObj))
@@ -14131,7 +14167,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let teeRtCompile: CommandResult =
                 runCommand("clang -O3 " + clangMarch +
                     " -ffunction-sections -fdata-sections -pthread" +
-                    sanitizerClangFlags + picCompileFlag + " -c -I " +
+                    sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+                    " -c -I " +
                     mainCompilerShellQuote(rtPrefix) + " " +
                     mainCompilerShellQuote(teeRuntimeSrc) + " -o " +
                     mainCompilerShellQuote(sanitizedTeeRuntimeObj))
@@ -14175,6 +14212,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if sanitizerClangFlags != "" {
             teeInlineArg = teeInlineArg + sanitizerClangFlags
         }
+        if pgoClangFlags != "" {
+            teeInlineArg = teeInlineArg + pgoClangFlags
+        }
         teeInlineArg = teeInlineArg + teeRuntimeSourceArg
     }
     if sanitizePolicy != "" {
@@ -14193,7 +14233,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 teeInlineArg
         } else {
             runtimeArg = "-I " + mainCompilerShellQuote(rtPrefix) +
-                sanitizerClangFlags + picCompileFlag +
+                sanitizerClangFlags + pgoClangFlags + picCompileFlag +
                 teeRuntimeCompileFlags + " " +
                 mainCompilerShellQuote(runtimeSrc) + teeRuntimeSourceArg
         }
@@ -14364,14 +14404,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let regionSrc = rtPrefix + "/seen_region.c"
     let regionSig = runtimeObjectBuildSignature("seen_region",
         regionSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
-        pgoClangFlags, effectiveTarget, "")
+        pgoRuntimeSignatureFlags, effectiveTarget, "")
     if not runtimeObjectIsFresh(regionObj, regionSig) {
         let regionSrcCheck: CommandResult = runCommand("test -f " +
             mainCompilerShellQuote(regionSrc))
         if commandWasSuccessful(regionSrcCheck) {
             let hostRegionCmd = "clang -O3 -flto=thin " + clangMarch +
                 " -ffunction-sections -fdata-sections" + picCompileFlag +
-                sanitizerClangFlags + " -c -I " +
+                sanitizerClangFlags + pgoClangFlags + " -c -I " +
                 mainCompilerShellQuote(rtPrefix) + " " +
                 mainCompilerShellQuote(regionSrc) + " -o " +
                 mainCompilerShellQuote(regionObj)
@@ -14429,7 +14469,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         let gpuSrc = rtPrefix + "/seen_gpu.c"
         let gpuSig = runtimeObjectBuildSignature("seen_gpu", gpuSrc,
-            clangMarch, picCompileFlag, sanitizerClangFlags, pgoClangFlags,
+            clangMarch, picCompileFlag, sanitizerClangFlags,
+            pgoRuntimeSignatureFlags,
             effectiveTarget, getHostVulkanCflags())
         if not runtimeObjectIsFresh(hostGpuObj, gpuSig) {
             let gpuSrcCheck: CommandResult = runCommand("test -f " +
@@ -14442,6 +14483,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         runCommand("clang -O3 -flto=thin " + clangMarch +
                             " -ffunction-sections -fdata-sections" +
                             picCompileFlag + sanitizerClangFlags +
+                            pgoClangFlags +
                             " -c -I " +
                             mainCompilerShellQuote(rtPrefix) + " " +
                             mainCompilerShellQuote(gpuSrc) + " -o " +
@@ -14458,6 +14500,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         runCommand("clang -O3 -flto=thin " + clangMarch +
                             " -ffunction-sections -fdata-sections" +
                             picCompileFlag + sanitizerClangFlags +
+                            pgoClangFlags +
                             " -c -I " +
                             mainCompilerShellQuote(rtPrefix) + " " +
                             mainCompilerShellQuote(gpuSrc) + " -o " +
@@ -14550,11 +14593,13 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
             let hotReloadSig = runtimeObjectBuildSignature("seen_hotreload",
                 hotReloadSrc, clangMarch, picCompileFlag,
-                sanitizerClangFlags, pgoClangFlags, effectiveTarget, "")
+                sanitizerClangFlags, pgoRuntimeSignatureFlags,
+                effectiveTarget, "")
             if not runtimeObjectIsFresh(hotReloadObj, hotReloadSig) {
                 let hotReloadCmd = "clang -O3 -flto=thin " + clangMarch +
                     " -ffunction-sections -fdata-sections" +
-                    picCompileFlag + sanitizerClangFlags + " -c -I " +
+                    picCompileFlag + sanitizerClangFlags + pgoClangFlags +
+                    " -c -I " +
                     mainCompilerShellQuote(rtPrefix) + " " +
                     mainCompilerShellQuote(hotReloadSrc) + " -o " +
                     mainCompilerShellQuote(hotReloadObj)
@@ -14672,7 +14717,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         var platformShimCmd = "clang -O3 -flto=thin " + clangMarch +
             " -ffunction-sections -fdata-sections -fPIC" +
-            sanitizerClangFlags + " -c" + platformShimFlags + " " +
+            sanitizerClangFlags + pgoClangFlags + " -c" +
+            platformShimFlags + " " +
             mainCompilerShellQuote(platformShimSrc) + " -o " +
             mainCompilerShellQuote(platformShimOut)
         if normalizedCrossTarget != "" and targetClangArgs != "" {
@@ -15348,6 +15394,7 @@ fun printUsage() r: Void {
     println("                           Write canonical source/compile/hardware evidence JSON")
     println("  --pgo-generate           Generate PGO instrumentation profile")
     println("  --pgo-use=<path>         Use PGO profile for optimization")
+    println("  --lto=<mode>             Release LTO mode (full or thin)")
     println("  --ml-log=<path>          Collect ML training data from optimization remarks")
     println("  --ml-decision-log=<path> Write optimization decision log (JSONL format)")
     println("  --target=<platform>      Cross-compile target")
@@ -15362,8 +15409,6 @@ fun printUsage() r: Void {
     println("                           Write per-module raw LLVM IR for packaging tools")
     println("  --stop-after-ir          Stop after writing --emit-module-ir-dir")
     println("  --fast                   Lightweight optimization (for bootstrap verification)")
-    println("  --no-merged-release-lto")
-    println("                           Disable full merged release LTO for lower memory")
     println("  --no-fork                Disable parallel IR/opt bootstrap steps (sequential)")
     println("  --jobs <n>               Limit parallel module IR workers")
     println("  --opt-jobs <n>           Limit parallel optimizer/object workers")
@@ -15500,7 +15545,6 @@ fun parseCompileCli(argv: Array<String>) r: CliArguments {
     addCliOptionAlias(flags, flagNames, "--coverage", "--coverage")
     addCliOptionAlias(flags, flagNames, "--pgo-generate", "--pgo-generate")
     addCliOptionAlias(flags, flagNames, "--release", "--release")
-    addCliOptionAlias(flags, flagNames, "--no-merged-release-lto", "--no-merged-release-lto")
     addCliOptionAlias(flags, flagNames, "--emit-llvm", "--emit-llvm")
     addCliOptionAlias(flags, flagNames, "--fast", "--fast")
     addCliOptionAlias(flags, flagNames, "--O2", "--O2")
@@ -15528,6 +15572,7 @@ fun parseCompileCli(argv: Array<String>) r: CliArguments {
     addCliOptionAlias(values, valueNames, "--sanitize", "--sanitize")
     addCliOptionAlias(values, valueNames, "--instrumentation-report", "--instrumentation-report")
     addCliOptionAlias(values, valueNames, "--pgo-use", "--pgo-use")
+    addCliOptionAlias(values, valueNames, "--lto", "--lto")
     addCliOptionAlias(values, valueNames, "--ml-log", "--ml-log")
     addCliOptionAlias(values, valueNames, "--ml-decision-log", "--ml-decision-log")
     addCliOptionAlias(values, valueNames, "--target", "--target")
@@ -15692,6 +15737,14 @@ fun buildInstrumentationClangFlags(sanitizePolicy: String) r: String {
             " -fno-omit-frame-pointer -g"
     }
     return flags
+}
+
+fun buildPgoClangFlags(pgoMode: String, pgoPath: String) r: String {
+    if pgoMode == "generate" { return " -fprofile-generate" }
+    if pgoMode == "use" {
+        return " -fprofile-use=" + mainCompilerShellQuote(pgoPath)
+    }
+    return ""
 }
 
 fun parseStrictPositiveCliInt(value: String) r: Int {
@@ -15976,13 +16029,20 @@ fun main() r: Int {
         var pgoMode = ""
         var pgoPath = ""
         if parsed.hasOption("--pgo-generate") and parsed.hasOption("--pgo-use") {
-            println("Error: conflicting options '--pgo-generate' and '--pgo-use'")
+            println("Error: [core.rel.003.invalid] conflicting options '--pgo-generate' and '--pgo-use'")
             return 1
         }
         if parsed.hasOption("--pgo-generate") { pgoMode = "generate" }
         if parsed.hasOption("--pgo-use") {
             pgoMode = "use"
             pgoPath = parsed.valueOr("--pgo-use", "")
+        }
+        let requestedLtoMode = parsed.valueOr("--lto", "")
+        if requestedLtoMode != "" and requestedLtoMode != "full" and
+            requestedLtoMode != "thin" {
+
+            println("Error: [core.rel.003.invalid] --lto must be full or thin")
+            return 1
         }
         if parsed.hasOption("--coverage") and pgoMode != "" {
             println("Error: [core.rel.002.invalid] --coverage conflicts with PGO instrumentation")
@@ -16003,7 +16063,7 @@ fun main() r: Int {
         g_instrumentationReportPath = parsed.valueOr(
             "--instrumentation-report", "")
         if parsed.hasOption("--release") { g_releaseMode = true }
-        if parsed.hasOption("--no-merged-release-lto") { g_disableMergedReleaseLto = true }
+        g_ltoMode = requestedLtoMode
         if parsed.hasOption("--emit-llvm") { g_emitLlvm = true }
         if parsed.hasOption("--fast") { g_fastMode = 1 }
         if parsed.hasOption("--O2") { g_O2Mode = 1 }
