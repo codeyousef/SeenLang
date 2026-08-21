@@ -76,7 +76,8 @@ fun assertionSuccess(value: AssertionResult) r: AssertionOutcome {
 }
 
 fun assertionSafeName(value: String) r: Bool {
-    if value == "" or value.length() > TEST_ASSERTION_MAX_NAME_BYTES { return false }
+    if value == "" or value.startsWith(".") or
+        value.length() > TEST_ASSERTION_MAX_NAME_BYTES { return false }
     var index = 0
     while index < value.length() {
         let byte = value.byteAt(index)

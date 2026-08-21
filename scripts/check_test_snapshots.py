@@ -22,6 +22,7 @@ class ContractError(ValueError):
 
 def safe_name(value: object) -> bool:
     return (isinstance(value, str) and value != "" and
+            not value.startswith(".") and
             len(value.encode("utf-8")) <= MAX_NAME_BYTES and
             all(ch.isascii() and (ch.isalnum() or ch in "-._")
                 for ch in value))

@@ -73,3 +73,20 @@ the caller may then transactionally write the returned content to
 contract is implemented for Linux x86-64 and is platform-neutral source on
 Windows, macOS, and other declared Seen targets; filesystem persistence remains
 the caller's bounded platform adapter.
+
+## Deterministic isolated fixtures
+
+TEST-001D defines the native `seen-test-fixture-v1` plan. A fixture has a
+portable name, explicit deterministic seed and target, a byte-ordered unique
+file set, and a byte-ordered environment allowlist limited to `LANG`,
+`LC_ALL`, `TZ`, and `SEEN_TEST_*`. Ambient home, path, locale, timezone,
+randomness, network, and clock state are not silently captured.
+
+Plans validate every bound before materialization and use the owned root
+`.seen_cache/test/fixtures/<name>`. A pre-existing root, traversal, symlinked
+base, duplicate/unordered path, unsupported target, or unapproved environment
+key or secret-bearing environment name fails closed. The materialization oracle creates files exclusively below a
+new physical root and returns an ownership token required for idempotence-safe
+cleanup; tests cover success, failure, cancellation, limits, and zero retained
+fixture roots. Linux x86-64 is verified now; Linux ARM64, macOS, and Windows
+share the declared source contract and require their target runner adapter.

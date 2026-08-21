@@ -1,0 +1,290 @@
+/// Deterministic, bounded fixture planning for TEST-001D.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import release.compatibility.{AsciiString, OperationContext, SeenError,
+    RetryClass, RedactionClass}
+import release.diagnostic_schema.{machineDiagnosticJsonString}
+import seen_compiler.testing.assertions.{assertionSafeName, assertionBool}
+
+let TEST_FIXTURE_SCHEMA: String = "seen-test-fixture-v1"
+let TEST_FIXTURE_MAX_FILES: Int = 256
+let TEST_FIXTURE_MAX_ENVIRONMENT: Int = 64
+let TEST_FIXTURE_MAX_PATH_BYTES: Int = 4096
+let TEST_FIXTURE_MAX_CONTENT_BYTES: Int = 1048576
+let TEST_FIXTURE_MAX_ENVIRONMENT_VALUE_BYTES: Int = 4096
+
+class FixtureFile {
+    var path: String
+    var content: String
+}
+
+class FixtureEnvironment {
+    var name: String
+    var value: String
+}
+
+class FixtureRequest {
+    var name: String
+    var seed: Int
+    var target: String
+    var files: Array<FixtureFile>
+    var environment: Array<FixtureEnvironment>
+}
+
+class FixturePlan {
+    var schema: String
+    var name: String
+    var seed: Int
+    var target: String
+    var root: String
+    var files: Array<FixtureFile>
+    var environment: Array<FixtureEnvironment>
+    var cleanupRequired: Bool
+}
+
+class FixturePlanOutcome {
+    var success: Bool
+    var values: Array<FixturePlan>
+    var errors: Array<SeenError>
+}
+
+fun test001dError(code: String, message: String) r: SeenError {
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "testing.fixture" },
+        operation: AsciiString{ value: "plan" },
+        message: message,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun fixtureFailure(error: SeenError) r: FixturePlanOutcome {
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return FixturePlanOutcome{
+        success: false, values: Array<FixturePlan>(), errors: errors
+    }
+}
+
+fun fixtureSuccess(plan: FixturePlan) r: FixturePlanOutcome {
+    let values = Array<FixturePlan>()
+    values.push(plan)
+    return FixturePlanOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun fixtureTextBefore(left: String, right: String) r: Bool {
+    var index = 0
+    let shared = if left.length() < right.length() {
+        left.length()
+    } else { right.length() }
+    while index < shared {
+        if left.byteAt(index) < right.byteAt(index) { return true }
+        if left.byteAt(index) > right.byteAt(index) { return false }
+        index = index + 1
+    }
+    return left.length() < right.length()
+}
+
+fun fixtureSafePath(value: String) r: Bool {
+    if value == "" or value.length() > TEST_FIXTURE_MAX_PATH_BYTES or
+        value.startsWith("/") or value.endsWith("/") or
+        value.startsWith(".") or value.contains("/.") or
+        value.contains("\\") or value.contains("..") or
+        value.contains("//") { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 65 and byte <= 90
+        if byte >= 97 and byte <= 122 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 or byte == 46 or byte == 47 or byte == 95 {
+            valid = true
+        }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun fixtureEnvironmentNameSafe(value: String) r: Bool {
+    if value == "" or value.length() > 64 { return false }
+    if value != "LANG" and value != "LC_ALL" and value != "TZ" and
+        not value.startsWith("SEEN_TEST_") { return false }
+    if value.contains("SECRET") or value.contains("TOKEN") or
+        value.contains("PASSWORD") { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 65 and byte <= 90
+        if byte >= 48 and byte <= 57 and index > 0 { valid = true }
+        if byte == 95 { valid = true }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun fixtureEnvironmentValueSafe(value: String) r: Bool {
+    if value.length() > TEST_FIXTURE_MAX_ENVIRONMENT_VALUE_BYTES {
+        return false
+    }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 32 or byte > 126 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun fixtureTargetSafe(value: String) r: Bool {
+    return value == "linux-x86_64" or value == "linux-arm64" or
+        value == "macos" or value == "windows"
+}
+
+fun planFixtureChecked(request: FixtureRequest,
+    context: OperationContext) r: FixturePlanOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return fixtureFailure(test001dError(
+            "test.001d.cancelled", "fixture planning cancelled"))
+    }
+    if not assertionSafeName(request.name) or request.seed < 0 or
+        request.seed > 2147483647 {
+
+        return fixtureFailure(test001dError(
+            "test.001d.invalid", "fixture identity is invalid"))
+    }
+    if not fixtureTargetSafe(request.target) {
+        return fixtureFailure(test001dError(
+            "test.001d.platform", "fixture target is unsupported"))
+    }
+    if context.limits.maxTargets < 1 or
+        context.limits.maxTargets > TEST_FIXTURE_MAX_FILES or
+        request.files.length() > context.limits.maxTargets or
+        request.files.length() > TEST_FIXTURE_MAX_FILES or
+        context.limits.maxGraphEdges < 1 or
+        context.limits.maxGraphEdges > TEST_FIXTURE_MAX_ENVIRONMENT or
+        request.environment.length() > context.limits.maxGraphEdges or
+        request.environment.length() > TEST_FIXTURE_MAX_ENVIRONMENT or
+        context.limits.maxManifestBytes < 1 or
+        context.limits.maxManifestBytes > TEST_FIXTURE_MAX_CONTENT_BYTES or
+        context.limits.maxIdentityBytes < 1 or
+        context.limits.maxIdentityBytes > 128 or
+        request.name.length() > context.limits.maxIdentityBytes or
+        context.limits.maxPathBytes < 1 or
+        context.limits.maxPathBytes > TEST_FIXTURE_MAX_PATH_BYTES {
+
+        return fixtureFailure(test001dError(
+            "test.001d.limit", "fixture collection limit exceeded"))
+    }
+    let files = Array<FixtureFile>()
+    var totalBytes = 0
+    var previousPath = ""
+    var index = 0
+    while index < request.files.length() {
+        let file = request.files[index]
+        if not fixtureSafePath(file.path) or
+            file.path.length() > context.limits.maxPathBytes or
+            (previousPath != "" and not fixtureTextBefore(
+                previousPath, file.path)) {
+
+            return fixtureFailure(test001dError(
+                "test.001d.invalid", "fixture files are not canonical"))
+        }
+        totalBytes = totalBytes + file.content.length()
+        if file.content.length() > context.limits.maxManifestBytes or
+            totalBytes > context.limits.maxManifestBytes {
+
+            return fixtureFailure(test001dError(
+                "test.001d.limit", "fixture content limit exceeded"))
+        }
+        files.push(FixtureFile{path: file.path, content: file.content})
+        previousPath = file.path
+        index = index + 1
+    }
+    let environment = Array<FixtureEnvironment>()
+    var previousName = ""
+    index = 0
+    while index < request.environment.length() {
+        let item = request.environment[index]
+        if not fixtureEnvironmentNameSafe(item.name) or
+            not fixtureEnvironmentValueSafe(item.value) or
+            (previousName != "" and not fixtureTextBefore(
+                previousName, item.name)) {
+
+            return fixtureFailure(test001dError(
+                "test.001d.invalid", "fixture environment is not canonical"))
+        }
+        environment.push(FixtureEnvironment{
+            name: item.name, value: item.value
+        })
+        previousName = item.name
+        index = index + 1
+    }
+    return fixtureSuccess(FixturePlan{
+        schema: TEST_FIXTURE_SCHEMA,
+        name: request.name,
+        seed: request.seed,
+        target: request.target,
+        root: ".seen_cache/test/fixtures/" + request.name,
+        files: files,
+        environment: environment,
+        cleanupRequired: true
+    })
+}
+
+fun planFixture(request: FixtureRequest,
+    context: OperationContext) r: Result<FixturePlan, SeenError> {
+
+    let checked = planFixtureChecked(request, context)
+    if not checked.success {
+        return Err<FixturePlan, SeenError>(checked.errors[0])
+    }
+    return Ok<FixturePlan, SeenError>(checked.values[0])
+}
+
+fun fixtureCleanupPath(plan: FixturePlan) r: String {
+    if plan.cleanupRequired { return plan.root }
+    return ""
+}
+
+fun renderFixturePlan(plan: FixturePlan) r: String {
+    var renderedFiles = "["
+    var index = 0
+    while index < plan.files.length() {
+        if index > 0 { renderedFiles = renderedFiles + "," }
+        renderedFiles = renderedFiles + "{\"content\":" +
+            machineDiagnosticJsonString(plan.files[index].content) +
+            ",\"path\":" +
+            machineDiagnosticJsonString(plan.files[index].path) + "}"
+        index = index + 1
+    }
+    renderedFiles = renderedFiles + "]"
+    var renderedEnvironment = "["
+    index = 0
+    while index < plan.environment.length() {
+        if index > 0 { renderedEnvironment = renderedEnvironment + "," }
+        renderedEnvironment = renderedEnvironment + "{\"name\":" +
+            machineDiagnosticJsonString(plan.environment[index].name) +
+            ",\"value\":" +
+            machineDiagnosticJsonString(plan.environment[index].value) + "}"
+        index = index + 1
+    }
+    renderedEnvironment = renderedEnvironment + "]"
+    return "{\"cleanup_required\":" + assertionBool(plan.cleanupRequired) +
+        ",\"environment\":" + renderedEnvironment +
+        ",\"files\":" + renderedFiles +
+        ",\"name\":" + machineDiagnosticJsonString(plan.name) +
+        ",\"root\":" + machineDiagnosticJsonString(plan.root) +
+        ",\"schema\":" + machineDiagnosticJsonString(plan.schema) +
+        ",\"seed\":" + plan.seed.toString() +
+        ",\"target\":" + machineDiagnosticJsonString(plan.target) + "}\n"
+}
