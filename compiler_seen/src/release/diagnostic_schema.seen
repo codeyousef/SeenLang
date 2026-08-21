@@ -1,6 +1,6 @@
 /// Stable release-diagnostic schema shared by native compiler gates.
 //
-/// CORE-003A, CORE-003B, and CORE-003C share bounded release diagnostics. Messages are
+/// CORE-003A through CORE-003D share bounded release diagnostics. Messages are
 /// bounded before a SeenError is constructed, causes are empty, and
 /// validation/policy failures are never retryable.
 
@@ -108,6 +108,40 @@ fun core003cError(code: String, operation: String, message: String,
             0, RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES)
     }
     let descriptor = core003cDiagnosticDescriptor(
+        code, operation, redaction)
+    return SeenError{
+        code: descriptor.code,
+        subsystem: descriptor.subsystem,
+        operation: descriptor.operation,
+        message: boundedMessage,
+        causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(),
+        retry: descriptor.retry,
+        redaction: descriptor.redaction
+    }
+}
+
+fun core003dDiagnosticDescriptor(code: String, operation: String,
+    redaction: RedactionClass) r: ReleaseDiagnosticDescriptor {
+
+    return ReleaseDiagnosticDescriptor{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "compiler.source" },
+        operation: AsciiString{ value: operation },
+        retry: RetryClass.Never,
+        redaction: redaction
+    }
+}
+
+fun core003dError(code: String, operation: String, message: String,
+    redaction: RedactionClass) r: SeenError {
+
+    var boundedMessage = message
+    if boundedMessage.length() > RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES {
+        boundedMessage = boundedMessage.substring(
+            0, RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES)
+    }
+    let descriptor = core003dDiagnosticDescriptor(
         code, operation, redaction)
     return SeenError{
         code: descriptor.code,

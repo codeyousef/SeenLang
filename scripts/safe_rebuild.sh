@@ -1311,36 +1311,38 @@ kill_frozen_orphans() {
 copy_bootstrap_seen_tree() {
     local src_dir=$1
     local dst_dir=$2
-    mkdir -p "$dst_dir"
+    local canonical_src link target file src_file dst_file
+    canonical_src=$(cd "$src_dir" && pwd -P) || return 1
 
-    (cd "$src_dir" && find . -type d -print) | while IFS= read -r dir; do
-        mkdir -p "$dst_dir/$dir"
-    done
-
-    (cd "$src_dir" && find . -type f -print) | while IFS= read -r file; do
-        local src_file="$src_dir/$file"
-        local dst_file="$dst_dir/$file"
-        mkdir -p "$(dirname "$dst_file")"
-        case "$file" in
-            *.seen)
-                awk '
-                    /^[ \t]*\/\/\/[ \t]*$/ {
-                        in_triple = !in_triple
-                        print ""
-                        next
-                    }
-                    in_triple {
-                        print ""
-                        next
-                    }
-                    { print }
-                ' "$src_file" > "$dst_file"
-                ;;
+    while IFS= read -r -d '' link; do
+        target=$(readlink -f "$link" 2>/dev/null || true)
+        case "$target" in
+            "$canonical_src"/*) ;;
             *)
-                cp -a "$src_file" "$dst_file"
+                echo -e "${RED}ERROR: bootstrap source link escapes its tree: $link.${NC}" >&2
+                return 1
                 ;;
         esac
-    done
+        if [ ! -e "$target" ]; then
+            echo -e "${RED}ERROR: bootstrap source link is dangling: $link.${NC}" >&2
+            return 1
+        fi
+    done < <(find "$src_dir" -type l -print0)
+
+    mkdir -p "$dst_dir"
+    cp -aL "$src_dir/." "$dst_dir/" || return 1
+    if find "$dst_dir" -type l -print -quit | grep -q .; then
+        echo -e "${RED}ERROR: bootstrap source view retained a symbolic link.${NC}" >&2
+        return 1
+    fi
+    while IFS= read -r -d '' file; do
+        src_file="$src_dir/$file"
+        dst_file="$dst_dir/$file"
+        if ! cmp -s "$src_file" "$dst_file"; then
+            echo -e "${RED}ERROR: bootstrap source view changed $src_file.${NC}" >&2
+            return 1
+        fi
+    done < <(cd "$src_dir" && find -L . -type f -print0)
 }
 
 prepare_bootstrap_source_overlay() {
@@ -1432,7 +1434,7 @@ prepare_bootstrap_source_overlay() {
     done
     cp -pL "$frozen_compatibility" \
         "$BOOTSTRAP_SOURCE_ROOT/releases/compatibility-manifest.json"
-    echo -e "${YELLOW}Bootstrap source overlay enabled: temporary /// bodies stripped for older bootstrap compilers.${NC}"
+    echo -e "${YELLOW}Bootstrap source view enabled: all Seen source bytes verified unchanged.${NC}"
 }
 
 cleanup_bootstrap_source_overlay() {

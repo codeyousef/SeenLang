@@ -12256,6 +12256,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     resetSymbolInterner()
     resetTypeRegistryLookupCaches()
     let resolvedInput = resolveRealInputPath(inputFile)
+    if resolvedInput == "" or not exists(resolvedInput) {
+        println("error: core.003d.invalid: production source input is unavailable")
+        return 1
+    }
     if not configureCompilerArtifactRoot(resolvedInput) {
         return 1
     }
@@ -14717,17 +14721,12 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
     if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
         return 1
     }
-    var sourceCode = readText(resolvedInput)
-    if sourceCode == "" {
-        let catResult = runCommand("cat " + mainCompilerShellQuote(resolvedInput))
-        if commandWasSuccessful(catResult) {
-            sourceCode = catResult.output
-        }
-    }
-    if sourceCode == "" {
-        println("[ERROR] Failed to read source: " + resolvedInput)
+    let sourceResult = readTextChecked(resolvedInput)
+    if not sourceResult.success or sourceResult.content == "" {
+        println("error: core.003d.invalid: production source input is unavailable")
         return 1
     }
+    let sourceCode = sourceResult.content
 
     var checkModulePaths = collectModulePaths(resolvedInput, true)
     let checkGraph = buildCompilerImportScanGraph(checkModulePaths, language)

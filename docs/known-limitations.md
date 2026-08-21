@@ -27,6 +27,9 @@ docs.
   compatibility path. Its output is never production-eligible; it is a
   bootstrap seed only. Current compiler, recovery, cross-build, and release
   paths pass emitted IR to LLVM unchanged and fail closed on rejection.
+- Unsupported production source rewriting fails closed. The bootstrap
+  source view may relocate files for frozen-manifest and symlink-hardening
+  purposes, but every Seen source copy must remain byte-identical to checkout.
 
 ## Shipped CLI Shape
 

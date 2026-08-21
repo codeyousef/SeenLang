@@ -26,6 +26,13 @@ new stages verify correctly.
 
 ## Safe Rebuild
 
+The temporary bootstrap source view is byte-identical to the checkout. It can
+replace the live compatibility manifest with the immutable manifest paired to
+the frozen compiler and can provide a symlink-free package layout, but it does
+not edit Seen source. Every copied source file is checked with `cmp`; a mismatch
+fails the rebuild. Production source rewriting and documentation-body stripping
+are forbidden.
+
 `scripts/safe_rebuild.sh` has three tiers:
 
 | Tier | Purpose | Output |
@@ -206,6 +213,7 @@ The prebuild gate catches failures that used to appear late in Stage 2/Stage 3:
 - compiler import cycles
 - frozen Stage-1 IR compatibility patterns handled only by the explicit
   bootstrap adapter
+- byte-identical bootstrap source view enforcement
 - unmodified current-compiler IR verification before optimizer/object use
 - stale package/runtime artifact assumptions
 

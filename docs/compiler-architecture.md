@@ -159,6 +159,34 @@ symbol, so the native-boundary ledger remains unchanged. The existing
 handoff policy; IR bytes and object semantics are unchanged for current
 compilers.
 
+### Unmodified production source
+
+Location: `compiler_seen/src/imports/graph.seen` and
+`scripts/safe_rebuild.sh`
+
+CORE-003D makes checked-out source bytes the only production compiler input.
+The public `validateUnmodifiedProductionSources` entry point returns
+`Result<ProductionSourcePlan, SeenError>` and accepts only canonical bounded
+paths whose checkout and compiler-input SHA-256 identities match exactly.
+Rewrite requests, changed bytes, unsupported platforms, invalid bounds, and
+cancellation fail closed with stable `core.003d.*` diagnostics. The
+deterministic `seen-production-source-policy-v1` plan always reports
+`rewrite_allowed: false`.
+
+The bootstrap source view may relocate regular files to provide an immutable
+frozen compatibility manifest and a symlink-free package layout, but it copies
+every Seen source file unchanged and verifies each copy with `cmp`. The former
+triple-slash body stripping and the obsolete Rust codegen rewrite utility are
+removed. Current compilers, frozen builders, recovery builders, and platform
+builds therefore see source bytes that are identical to the checkout; a source
+compatibility failure stops the build instead of synthesizing alternate source.
+
+The compiling API example is
+`compiler_seen/examples/production_source_policy.seen`. CORE-003D adds no
+foreign symbol, so the native-boundary ledger remains unchanged. The existing
+`seen-object-cache-abi-v3` identity also binds the unmodified production-source
+handoff policy.
+
 ## Code Generation
 
 Location: `compiler_seen/src/codegen/`
@@ -311,7 +339,8 @@ The compiler component's `seen-object-cache-abi-v3` identity binds both the
 incompatible ordering change must advance that ABI identity so cached objects
 cannot cross the ordering boundary. The same identity binds
 `seen-production-ir-policy-v1`: current codegen bytes reach LLVM without a
-repair transform.
+repair transform. It also binds `seen-production-source-policy-v1`: source
+bytes reach compilation without a rewrite transform.
 
 ## Incremental and Parallel Compilation
 

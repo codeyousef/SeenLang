@@ -1,0 +1,126 @@
+import seen_compiler.imports.graph.{ProductionSourcePlan,
+    validateUnmodifiedProductionSources, renderProductionSourcePlan}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext,
+    RetryClass, RedactionClass}
+
+fun sourcePolicyContext(cancelled: Bool, maxSources: Int) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: 4096,
+            maxGraphModules: maxSources,
+            maxGraphEdges: 64,
+            maxGraphDepth: 16
+        },
+        traceId: AsciiString{ value: "core-003d-test" }
+    }
+}
+
+fun sourcePaths() r: Array<String> {
+    let paths = Array<String>()
+    paths.push("src/zeta.seen")
+    paths.push("src/alpha.seen")
+    return paths
+}
+
+fun sourceHashes(secondChanged: Bool) r: Array<String> {
+    let hashes = Array<String>()
+    hashes.push("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    if secondChanged {
+        hashes.push("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+    } else {
+        hashes.push("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    }
+    return hashes
+}
+
+fun sourcePlanIsCanonical(value: ProductionSourcePlan) r: Bool {
+    return value.sourceCount == 2 and not value.rewriteAllowed and
+        value.orderedPaths.length() == 2 and
+        value.orderedPaths[0] == "src/alpha.seen" and
+        value.orderedPaths[1] == "src/zeta.seen"
+}
+
+fun main() r: Int {
+    let happy = validateUnmodifiedProductionSources(
+        sourcePaths(), sourceHashes(false), sourceHashes(false), false,
+        "linux-x86_64", sourcePolicyContext(false, 16))
+    if happy.isErr() or not sourcePlanIsCanonical(happy.unwrap()) {
+        return 1
+    }
+    let repeated = validateUnmodifiedProductionSources(
+        sourcePaths(), sourceHashes(false), sourceHashes(false), false,
+        "linux-x86_64", sourcePolicyContext(false, 16))
+    if repeated.isErr() or renderProductionSourcePlan(repeated.unwrap()) !=
+        renderProductionSourcePlan(happy.unwrap()) {
+
+        return 2
+    }
+    println("PASS: CORE-003D_happy")
+
+    let changed = validateUnmodifiedProductionSources(
+        sourcePaths(), sourceHashes(false), sourceHashes(true), false,
+        "linux-x86_64", sourcePolicyContext(false, 16))
+    if not changed.isErr() or
+        changed.unwrapErr().code.value != "core.003d.invalid" or
+        changed.unwrapErr().subsystem.value != "compiler.source" or
+        changed.unwrapErr().retry != RetryClass.Never or
+        changed.unwrapErr().redaction != RedactionClass.Public {
+
+        return 3
+    }
+    let rewrite = validateUnmodifiedProductionSources(
+        sourcePaths(), sourceHashes(false), sourceHashes(false), true,
+        "linux-x86_64", sourcePolicyContext(false, 16))
+    if not rewrite.isErr() or
+        rewrite.unwrapErr().code.value != "core.003d.invalid" {
+
+        return 4
+    }
+    let unsupported = validateUnmodifiedProductionSources(
+        sourcePaths(), sourceHashes(false), sourceHashes(false), false,
+        "plan9", sourcePolicyContext(false, 16))
+    if not unsupported.isErr() or
+        unsupported.unwrapErr().code.value != "core.003d.platform" {
+
+        return 5
+    }
+    println("PASS: CORE-003D_invalid")
+
+    let limited = validateUnmodifiedProductionSources(
+        sourcePaths(), sourceHashes(false), sourceHashes(false), false,
+        "linux-x86_64", sourcePolicyContext(false, 1))
+    if not limited.isErr() or
+        limited.unwrapErr().code.value != "core.003d.limit" {
+
+        return 6
+    }
+    println("PASS: CORE-003D_limit")
+
+    let cancelled = validateUnmodifiedProductionSources(
+        sourcePaths(), sourceHashes(false), sourceHashes(false), false,
+        "linux-x86_64", sourcePolicyContext(true, 16))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "core.003d.cancelled" {
+
+        return 7
+    }
+    println("PASS: CORE-003D_cancel")
+
+    let rendered = renderProductionSourcePlan(happy.unwrap())
+    if rendered != renderProductionSourcePlan(repeated.unwrap()) or
+        not rendered.contains("\"rewrite_allowed\": false") or
+        not rendered.contains("\"schema\": \"seen-production-source-policy-v1\"") {
+
+        return 8
+    }
+    println("PASS: CORE-003D_cleanup")
+    return 0
+}
+
+main()
