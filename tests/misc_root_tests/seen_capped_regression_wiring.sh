@@ -194,6 +194,12 @@ grep -Fq '"$SEEN_WINE_PREFIX_TEMPLATE/." "$WINE_PREFIX/"' "$ATOMIC_TEXT_IO" ||
     fail "atomic I/O Wine fixture does not clone the bounded prefix template"
 grep -Fq 'env WINEPREFIX="$WINE_PREFIX" wineserver -w' "$ATOMIC_TEXT_IO" ||
     fail "atomic I/O Wine fixture does not wait for server cleanup"
+grep -Fq 'wine_runtime_fits_task_scope' "$ATOMIC_TEXT_IO" ||
+    fail "atomic I/O Wine fixture ignores aggregate task headroom"
+grep -Fq '[ "$task_limit" -gt 24 ]' "$ATOMIC_TEXT_IO" ||
+    fail "atomic I/O Wine fixture can saturate the verified 24-task scope"
+grep -Fq 'Windows binary compiled' "$ATOMIC_TEXT_IO" ||
+    fail "atomic I/O bounded fallback does not retain its cross-compile gate"
 grep -Fq 'elif [ "$status" -ne 0 ]; then' "$STAGE1_ACCEPTANCE" ||
     fail "Stage-1 acceptance cleanup does not retain failed fixture artifacts"
 grep -Fq 'Stage-1 acceptance failure artifacts retained:' \

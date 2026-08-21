@@ -1,14 +1,16 @@
 // Declaration-item registration helpers.
 // Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen.
 
-import parser.real_parser.{FunctionNode, ItemNode, ParamNode, TypeNode}
+import parser.real_parser.{FunctionNode, ItemNode, ParamNode}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_mapping.{mapTypeImpl, isClassTypeImpl}
+import codegen.ir_type_mapping.{mapTypeImpl, isClassTypeImpl,
+    normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
 import codegen.ir_call_args.{hasFloatParamFuncImpl}
-import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl, shouldSkipStringBuilderMethodDeclImpl, shouldSkipVecMethodDeclImpl, recordCrossModuleDeclareImpl}
+import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl, shouldSkipStringBuilderMethodDeclImpl, shouldSkipVecMethodDeclImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, registerFunctionStateImpl, registerEnumDeclarationStateImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_module_emit.{isRuntimeBackedStringCompatFunctionImpl}
 
 class DeclarationItemContext {
     var structNames: Array<String>
@@ -70,57 +72,6 @@ fun prepareDeclarationItemForRegistrationImpl(item: ItemNode,
         preparedItem.funcRetTypeName = funcRetTypeName
     }
     return preparedItem
-}
-
-fun normalizeSeenTypeNameImpl(seenType: String) r: String {
-    var normalized = seenType
-    if normalized.startsWith("move:") {
-        normalized = normalized.substring(5, normalized.length())
-    }
-    if normalized.startsWith("borrow:") {
-        normalized = normalized.substring(7, normalized.length())
-    }
-    if normalized.startsWith("comptime:") {
-        normalized = normalized.substring(9, normalized.length())
-    }
-    if normalized.contains("~default~") {
-        let defPos = normalized.indexOf("~default~", 0)
-        normalized = normalized.substring(0, defPos)
-    }
-    if normalized == "i1" {
-        return "Bool"
-    }
-    if normalized == "i64" {
-        return "Int"
-    }
-    if normalized == "%SeenString" {
-        return "String"
-    }
-    return normalized
-}
-
-fun normalizeDeclaredTypePartsImpl(typeName: String, isNullable: Bool)
-    r: String {
-
-    let normalized = normalizeSeenTypeNameImpl(typeName)
-    if isNullable {
-        // Keep one representation rule for every T?: the parser may already
-        // have expanded the spelling to Option<T>, while bootstrap-created
-        // TypeNodes can still carry T plus isNullable.  Never discard the
-        // nullable bit and never wrap an existing option twice.
-        if normalized == "Option" or normalized == "Optional" or
-            normalized.startsWith("Option<") or
-            normalized.startsWith("Optional<") {
-            return normalized
-        }
-        return "Option<" + normalized + ">"
-    }
-    return normalized
-}
-
-fun normalizeDeclaredTypeNodeImpl(typeNode: TypeNode) r: String {
-    return normalizeDeclaredTypePartsImpl(typeNode.typeName,
-        typeNode.isNullable)
 }
 
 fun mapDeclaredTypeImpl(seenType: String, structNames: Array<String>,
@@ -210,16 +161,6 @@ fun collectDeclaredParamTypeInfoImpl(params: Array<ParamNode>,
     }
 }
 
-fun isRuntimeBackedStringCompatFunctionImpl(funcName: String) r: Bool {
-    if funcName == "String_toUpperCase" or funcName == "String_toLowerCase" or funcName == "String_toInt" or funcName == "String_toFloat" or funcName == "String_reverse" or funcName == "String_isEmpty" or funcName == "String_count" or funcName == "String_replace" {
-        return true
-    }
-    if funcName == "split" or funcName == "startsWith" or funcName == "endsWith" or funcName == "contains" or funcName == "indexOf" or funcName == "lastIndexOf" {
-        return true
-    }
-    return false
-}
-
 fun registerAsyncFunctionIntoStateImpl(name: String,
     declaredRetType: String, state: DeclarationPassState) r: Void {
 
@@ -240,23 +181,14 @@ fun recordCrossModuleDeclareIntoStateImpl(symbolName: String,
     declStr: String, visibility: String, state: DeclarationPassState)
     r: Void {
 
-    let namesBox = Array<String>()
-    namesBox.push(state.xmDeclareNames)
-    let declsBox = Array<String>()
-    declsBox.push(state.xmDeclareStrs)
-    let visBox = Array<String>()
-    visBox.push(state.xmDeclareVis)
-    let countBox = Array<Int>()
-    countBox.push(state.xmDeclareCount)
-    recordCrossModuleDeclareImpl(symbolName, declStr, visibility, namesBox,
-        declsBox, visBox, countBox)
-    state.xmDeclareNames = namesBox[0]
-    state.xmDeclareStrs = declsBox[0]
-    state.xmDeclareVis = visBox[0]
-    state.xmDeclareCount = countBox[0]
+    // Indexed arrays are the canonical declaration registry consumed by module
+    // emission. Rebuilding the same registry into growing pipe-delimited
+    // strings on every insertion retained O(n^2) temporary bytes during a
+    // self-host declaration scan even though no active consumer reads them.
     state.xmDeclareNamesArr.push(symbolName)
     state.xmDeclareStrsArr.push(declStr)
     state.xmDeclareVisArr.push(visibility)
+    state.xmDeclareCount = state.xmDeclareCount + 1
 }
 
 fun getFloatParamRegistryNameImpl(fn: FunctionNode, structNames: Array<String>)

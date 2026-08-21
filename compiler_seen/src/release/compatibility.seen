@@ -59,6 +59,9 @@ class OperationLimits {
     var maxVersionBytes: Int
     var maxManifestBytes: Int
     var maxPathBytes: Int
+    var maxGraphModules: Int
+    var maxGraphEdges: Int
+    var maxGraphDepth: Int
 }
 
 class OperationContext {

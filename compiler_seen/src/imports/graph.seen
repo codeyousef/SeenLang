@@ -1,0 +1,529 @@
+/// Deterministic bounded recursive import-graph resolution.
+//
+/// The filesystem scanner remains in the compiler driver. This module owns the
+/// pure graph state machine: exact node identity, bounded edge validation,
+/// canonical neighbor ordering, correct ancestor-only cycle detection, and a
+/// stable root-first traversal. It performs no I/O and has no fallback path.
+
+import core.result.{Result, Ok, Err}
+import release.compatibility.{OperationContext, SeenError, RedactionClass}
+import release.diagnostic_schema.{core003aError}
+
+let CORE_003A_SCHEMA: String = "seen-import-graph-v1"
+let CORE_003A_MAX_MODULES: Int = 4096
+let CORE_003A_MAX_EDGES: Int = 65536
+let CORE_003A_MAX_DEPTH: Int = 4096
+
+class ModuleImportGraph {
+    var edgeStarts: Array<Int>
+    var edgeCounts: Array<Int>
+    var edgeTargets: Array<Int>
+
+    static fun new() r: ModuleImportGraph {
+        return ModuleImportGraph{
+            edgeStarts: Array<Int>(),
+            edgeCounts: Array<Int>(),
+            edgeTargets: Array<Int>()
+        }
+    }
+}
+
+class ImportGraphResolution {
+    var schema: String
+    var orderedIndices: Array<Int>
+    var moduleCount: Int
+    var edgeCount: Int
+}
+
+// Non-generic carrier for the single checked state machine. Supported frozen
+// bootstrap compilers can lower this concrete layout without depending on
+// generic Result method bodies; the public API below still exposes Result.
+class ImportGraphCheck {
+    var success: Bool
+    var resolutionStorage: Array<ImportGraphResolution>
+    var errorStorage: Array<SeenError>
+}
+
+fun newModuleImportGraph(moduleCount: Int) r: ModuleImportGraph {
+    let graph = ModuleImportGraph.new()
+    var idx = 0
+    while idx < moduleCount {
+        graph.edgeStarts.push(0)
+        graph.edgeCounts.push(0)
+        idx = idx + 1
+    }
+    return graph
+}
+
+fun modulePathIndex(modulePaths: Array<String>, targetPath: String) r: Int {
+    if targetPath == "" {
+        return -1
+    }
+    var idx = 0
+    while idx < modulePaths.length() {
+        if modulePaths[idx] == targetPath {
+            return idx
+        }
+        idx = idx + 1
+    }
+    return -1
+}
+
+fun moduleImportGraphBeginModule(graph: ModuleImportGraph, sourceIdx: Int)
+    r: Void {
+
+    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() {
+        return
+    }
+    graph.edgeStarts[sourceIdx] = graph.edgeTargets.length()
+    graph.edgeCounts[sourceIdx] = 0
+    return
+}
+
+fun moduleImportGraphEdgeCount(graph: ModuleImportGraph, sourceIdx: Int)
+    r: Int {
+
+    if sourceIdx < 0 or sourceIdx >= graph.edgeCounts.length() {
+        return 0
+    }
+    return graph.edgeCounts[sourceIdx]
+}
+
+fun moduleImportGraphHasEdgeFrom(graph: ModuleImportGraph, sourceIdx: Int,
+    targetIdx: Int) r: Bool {
+
+    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() {
+        return false
+    }
+    if sourceIdx >= graph.edgeCounts.length() {
+        return false
+    }
+    let start = graph.edgeStarts[sourceIdx]
+    let count = graph.edgeCounts[sourceIdx]
+    var offset = 0
+    while offset < count {
+        let edgeIdx = start + offset
+        if edgeIdx >= 0 and edgeIdx < graph.edgeTargets.length() {
+            if graph.edgeTargets[edgeIdx] == targetIdx {
+                return true
+            }
+        }
+        offset = offset + 1
+    }
+    return false
+}
+
+fun moduleImportGraphAddEdge(graph: ModuleImportGraph, sourceIdx: Int,
+    targetIdx: Int) r: Void {
+
+    if targetIdx < 0 {
+        return
+    }
+    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() {
+        return
+    }
+    if sourceIdx >= graph.edgeCounts.length() {
+        return
+    }
+    if moduleImportGraphHasEdgeFrom(graph, sourceIdx, targetIdx) {
+        return
+    }
+    graph.edgeTargets.push(targetIdx)
+    graph.edgeCounts[sourceIdx] = graph.edgeCounts[sourceIdx] + 1
+    return
+}
+
+fun importGraphError(code: String, message: String)
+    r: ImportGraphCheck {
+
+    let errors = Array<SeenError>()
+    errors.push(core003aError(
+        code, "resolve", message, RedactionClass.Public))
+    return ImportGraphCheck{
+        success: false,
+        resolutionStorage: Array<ImportGraphResolution>(),
+        errorStorage: errors
+    }
+}
+
+fun importGraphSuccess(resolution: ImportGraphResolution)
+    r: ImportGraphCheck {
+
+    let resolutions = Array<ImportGraphResolution>()
+    resolutions.push(resolution)
+    return ImportGraphCheck{
+        success: true,
+        resolutionStorage: resolutions,
+        errorStorage: Array<SeenError>()
+    }
+}
+
+fun importGraphIdentityLess(left: String, right: String) r: Bool {
+    var idx = 0
+    let shared = if left.length() < right.length() {
+        left.length()
+    } else {
+        right.length()
+    }
+    while idx < shared {
+        let leftByte = left.byteAt(idx)
+        let rightByte = right.byteAt(idx)
+        if leftByte < rightByte { return true }
+        if leftByte > rightByte { return false }
+        idx = idx + 1
+    }
+    return left.length() < right.length()
+}
+
+fun importGraphPathIsCanonical(path: String, maximumBytes: Int) r: Bool {
+    if path.length() == 0 or path.length() > maximumBytes {
+        return false
+    }
+    let firstByte = path.byteAt(0)
+    if firstByte == 47 or firstByte == 92 {
+        return false
+    }
+    var segment = ""
+    var idx = 0
+    while idx <= path.length() {
+        var separator = idx == path.length()
+        if not separator {
+            let byte = path.byteAt(idx)
+            if byte == 92 { return false }
+            if byte == 47 { separator = true }
+            if byte == 0 { return false }
+        }
+        if separator {
+            if segment == "" or segment == "." or segment == ".." {
+                return false
+            }
+            segment = ""
+        } else {
+            segment = segment + path.substring(idx, idx + 1)
+        }
+        idx = idx + 1
+    }
+    return true
+}
+
+fun importGraphPlatformKnown(platform: String) r: Bool {
+    return platform == "linux-x86_64" or platform == "linux-arm64" or
+        platform == "linux-riscv64" or platform == "android-arm64" or
+        platform == "ios-arm64" or platform == "ios-sim-arm64" or
+        platform == "macos" or platform == "macos-arm64" or
+        platform == "macos-x86_64" or platform == "windows" or
+        platform == "windows-x86_64"
+}
+
+fun importGraphSortEdges(modulePaths: Array<String>, graph: ModuleImportGraph)
+    r: Void {
+
+    var sourceIdx = 0
+    while sourceIdx < modulePaths.length() {
+        let start = graph.edgeStarts[sourceIdx]
+        let count = graph.edgeCounts[sourceIdx]
+        var offset = 1
+        while offset < count {
+            let target = graph.edgeTargets[start + offset]
+            var cursor = offset
+            while cursor > 0 and importGraphIdentityLess(
+                modulePaths[target],
+                modulePaths[graph.edgeTargets[start + cursor - 1]]) {
+
+                graph.edgeTargets[start + cursor] =
+                    graph.edgeTargets[start + cursor - 1]
+                cursor = cursor - 1
+            }
+            graph.edgeTargets[start + cursor] = target
+            offset = offset + 1
+        }
+        sourceIdx = sourceIdx + 1
+    }
+    return
+}
+
+fun importGraphCyclePath(modulePaths: Array<String>, stack: Array<Int>,
+    targetIdx: Int) r: String {
+
+    var start = 0
+    while start < stack.length() and stack[start] != targetIdx {
+        start = start + 1
+    }
+    var path = ""
+    var idx = start
+    while idx < stack.length() {
+        if path != "" { path = path + " -> " }
+        path = path + modulePaths[stack[idx]]
+        idx = idx + 1
+    }
+    if path != "" { path = path + " -> " }
+    return path + modulePaths[targetIdx]
+}
+
+fun importGraphNextRoot(modulePaths: Array<String>, colors: Array<Int>) r: Int {
+    var selected = -1
+    var idx = 0
+    while idx < modulePaths.length() {
+        if colors[idx] == 0 {
+            if selected < 0 or importGraphIdentityLess(
+                modulePaths[idx], modulePaths[selected]) {
+
+                selected = idx
+            }
+        }
+        idx = idx + 1
+    }
+    return selected
+}
+
+/// Authoritative bounded state machine shared by both public entry points.
+fun resolveRecursiveImportGraphChecked(modulePaths: Array<String>,
+    inputGraph: ModuleImportGraph, platform: String,
+    context: OperationContext) r: ImportGraphCheck {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return importGraphError(
+            "core.003a.cancelled", "import graph resolution cancelled")
+    }
+    if not importGraphPlatformKnown(platform) {
+        return importGraphError(
+            "core.003a.platform", "import graph platform is unsupported")
+    }
+    if context.limits.maxGraphModules < 1 or
+        context.limits.maxGraphModules > CORE_003A_MAX_MODULES or
+        context.limits.maxGraphEdges < 0 or
+        context.limits.maxGraphEdges > CORE_003A_MAX_EDGES or
+        context.limits.maxGraphDepth < 1 or
+        context.limits.maxGraphDepth > CORE_003A_MAX_DEPTH or
+        context.limits.maxPathBytes < 1 {
+
+        return importGraphError(
+            "core.003a.limit", "import graph limits are invalid")
+    }
+    if modulePaths.length() == 0 or
+        modulePaths.length() > context.limits.maxGraphModules {
+
+        return importGraphError(
+            "core.003a.limit", "import graph module limit exceeded")
+    }
+    if inputGraph.edgeStarts.length() != modulePaths.length() or
+        inputGraph.edgeCounts.length() != modulePaths.length() or
+        inputGraph.edgeTargets.length() > context.limits.maxGraphEdges {
+
+        return importGraphError(
+            "core.003a.invalid", "import graph shape is invalid")
+    }
+
+    var moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let path = modulePaths[moduleIdx]
+        if path.length() == 0 or
+            path.length() > context.limits.maxPathBytes {
+
+            return importGraphError(
+                "core.003a.limit", "module identity byte limit exceeded")
+        }
+        if not importGraphPathIsCanonical(
+            path, context.limits.maxPathBytes) {
+
+            return importGraphError(
+                "core.003a.invalid", "module identity is not canonical")
+        }
+        var duplicateIdx = 0
+        while duplicateIdx < moduleIdx {
+            if modulePaths[duplicateIdx] == path {
+                return importGraphError(
+                    "core.003a.invalid", "module identity is duplicated")
+            }
+            duplicateIdx = duplicateIdx + 1
+        }
+        moduleIdx = moduleIdx + 1
+    }
+
+    let graph = newModuleImportGraph(modulePaths.length())
+    var expectedStart = 0
+    moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        let start = inputGraph.edgeStarts[moduleIdx]
+        let count = inputGraph.edgeCounts[moduleIdx]
+        if start != expectedStart or count < 0 or
+            start + count > inputGraph.edgeTargets.length() {
+
+            return importGraphError(
+                "core.003a.invalid", "import graph edge range is invalid")
+        }
+        moduleImportGraphBeginModule(graph, moduleIdx)
+        var offset = 0
+        while offset < count {
+            if context.cancellation {
+                return importGraphError(
+                    "core.003a.cancelled", "import graph resolution cancelled")
+            }
+            let targetIdx = inputGraph.edgeTargets[start + offset]
+            if targetIdx < 0 or targetIdx >= modulePaths.length() or
+                moduleImportGraphHasEdgeFrom(graph, moduleIdx, targetIdx) {
+
+                return importGraphError(
+                    "core.003a.invalid", "import graph edge is invalid")
+            }
+            moduleImportGraphAddEdge(graph, moduleIdx, targetIdx)
+            offset = offset + 1
+        }
+        expectedStart = expectedStart + count
+        moduleIdx = moduleIdx + 1
+    }
+    if expectedStart != inputGraph.edgeTargets.length() {
+        return importGraphError(
+            "core.003a.invalid", "import graph contains orphan edges")
+    }
+
+    importGraphSortEdges(modulePaths, graph)
+    let colors = Array<Int>()
+    moduleIdx = 0
+    while moduleIdx < modulePaths.length() {
+        colors.push(0)
+        moduleIdx = moduleIdx + 1
+    }
+    let ordered = Array<Int>()
+    var nextRoot = 0
+    while nextRoot >= 0 {
+        if colors[nextRoot] != 0 {
+            nextRoot = importGraphNextRoot(modulePaths, colors)
+            continue
+        }
+        let stack = Array<Int>()
+        let edgeOffsets = Array<Int>()
+        stack.push(nextRoot)
+        edgeOffsets.push(0)
+        colors[nextRoot] = 1
+        ordered.push(nextRoot)
+
+        while stack.length() > 0 {
+            if context.cancellation {
+                return importGraphError(
+                    "core.003a.cancelled", "import graph resolution cancelled")
+            }
+            let frameIdx = stack.length() - 1
+            let nodeIdx = stack[frameIdx]
+            let edgeOffset = edgeOffsets[frameIdx]
+            let edgeCount = graph.edgeCounts[nodeIdx]
+            if edgeOffset >= edgeCount {
+                colors[nodeIdx] = 2
+                stack.pop()
+                edgeOffsets.pop()
+            } else {
+                edgeOffsets[frameIdx] = edgeOffset + 1
+                let targetIdx = graph.edgeTargets[
+                    graph.edgeStarts[nodeIdx] + edgeOffset]
+                if colors[targetIdx] == 1 {
+                    return importGraphError("core.003a.cycle",
+                        "cyclic import detected: " +
+                        importGraphCyclePath(modulePaths, stack, targetIdx))
+                }
+                if colors[targetIdx] == 0 {
+                    if stack.length() >= context.limits.maxGraphDepth {
+                        return importGraphError("core.003a.limit",
+                            "import graph depth limit exceeded")
+                    }
+                    colors[targetIdx] = 1
+                    ordered.push(targetIdx)
+                    stack.push(targetIdx)
+                    edgeOffsets.push(0)
+                }
+            }
+        }
+        nextRoot = importGraphNextRoot(modulePaths, colors)
+    }
+
+    return importGraphSuccess(ImportGraphResolution{
+        schema: CORE_003A_SCHEMA,
+        orderedIndices: ordered,
+        moduleCount: modulePaths.length(),
+        edgeCount: graph.edgeTargets.length()
+    })
+}
+
+/// Public fallible contract. All validation and traversal policy lives in the
+/// concrete checked state machine above.
+fun resolveRecursiveImportGraph(modulePaths: Array<String>,
+    inputGraph: ModuleImportGraph, platform: String,
+    context: OperationContext) r: Result<ImportGraphResolution, SeenError> {
+
+    let checked = resolveRecursiveImportGraphChecked(
+        modulePaths, inputGraph, platform, context)
+    if not checked.success {
+        if checked.errorStorage.length() == 0 {
+            return Err<ImportGraphResolution, SeenError>(core003aError(
+                "core.003a.invalid", "resolve",
+                "resolver returned an empty error result",
+                RedactionClass.Public))
+        }
+        return Err<ImportGraphResolution, SeenError>(checked.errorStorage[0])
+    }
+    if checked.resolutionStorage.length() == 0 {
+        return Err<ImportGraphResolution, SeenError>(core003aError(
+            "core.003a.invalid", "resolve",
+            "resolver returned an empty success result",
+            RedactionClass.Public))
+    }
+    return Ok<ImportGraphResolution, SeenError>(
+        checked.resolutionStorage[0])
+}
+
+/// Primitive-array bridge for frozen bootstrap compilers whose semantic pass
+/// cannot name a newly imported class in the compiler entry module. The
+/// public Result API remains authoritative; this bridge delegates to the same
+/// checked state machine and exposes no alternate behavior.
+fun resolveRecursiveImportGraphBootstrap(modulePaths: Array<String>,
+    edgeStarts: Array<Int>, edgeCounts: Array<Int>, edgeTargets: Array<Int>,
+    platform: String, context: OperationContext, orderedIndices: Array<Int>,
+    errorCodes: Array<String>, errorMessages: Array<String>) r: Bool {
+
+    let graph = ModuleImportGraph{
+        edgeStarts: edgeStarts,
+        edgeCounts: edgeCounts,
+        edgeTargets: edgeTargets
+    }
+    let checked = resolveRecursiveImportGraphChecked(
+        modulePaths, graph, platform, context)
+    if not checked.success {
+        if checked.errorStorage.length() == 0 {
+            errorCodes.push("core.003a.invalid")
+            errorMessages.push("resolver returned an empty error result")
+            return false
+        }
+        let error = checked.errorStorage[0]
+        errorCodes.push(error.code.value)
+        errorMessages.push(error.message)
+        return false
+    }
+    if checked.resolutionStorage.length() == 0 {
+        errorCodes.push("core.003a.invalid")
+        errorMessages.push("resolver returned an empty success result")
+        return false
+    }
+    let resolution = checked.resolutionStorage[0]
+    var idx = 0
+    while idx < resolution.orderedIndices.length() {
+        orderedIndices.push(resolution.orderedIndices[idx])
+        idx = idx + 1
+    }
+    return true
+}
+
+fun renderImportGraphResolution(value: ImportGraphResolution) r: String {
+    var output = "{\n"
+    output = output + "  \"edge_count\": " + value.edgeCount.toString() + ",\n"
+    output = output + "  \"module_count\": " + value.moduleCount.toString() + ",\n"
+    output = output + "  \"order\": ["
+    var idx = 0
+    while idx < value.orderedIndices.length() {
+        if idx > 0 { output = output + ", " }
+        output = output + value.orderedIndices[idx].toString()
+        idx = idx + 1
+    }
+    output = output + "],\n"
+    output = output + "  \"schema\": \"" + value.schema + "\"\n"
+    output = output + "}\n"
+    return output
+}

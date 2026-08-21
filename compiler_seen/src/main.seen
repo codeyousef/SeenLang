@@ -38,6 +38,8 @@ import collections.list_utils.{push}
 import str.string.{StringBuilder}
 import codegen.c_gen.{CGenerator}
 import tools.c_import_gen.{CImportGenerator, CImportResult}
+import tools.c_import_frontend.{cImportParseHeader}
+import tools.c_import_emit.{cImportGenerateExternDeclarations}
 import tools.translator.{translateSource}
 import codegen.wasm_gen.{WASMGenerator, createWASMGenerator, createUWWGenerator}
 import codegen.interfaces.{Target, parseTarget, isWASMTarget}
@@ -1215,7 +1217,7 @@ fun importCCommand(headerFile: String) r: Int {
     printLn("Generating Seen bindings for: " + headerFile)
 
     let gen = CImportGenerator.new(headerFile)
-    let result: CImportResult = gen.parseHeader()
+    let result: CImportResult = cImportParseHeader(gen)
 
     if not result.isSuccessful() {
         var ei = 0
@@ -1234,7 +1236,7 @@ fun importCCommand(headerFile: String) r: Int {
     }
 
     // Generate and print bindings
-    let declarations = gen.generateExternDeclarations()
+    let declarations = cImportGenerateExternDeclarations(gen)
     printLn(declarations)
 
     printLn("// " + result.typedefCount().toString() + " typedef aliases imported")

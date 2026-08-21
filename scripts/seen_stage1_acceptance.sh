@@ -452,6 +452,10 @@ run_fixture compatibility-manifest \
     "$REPO_ROOT/compiler_seen/tests/compatibility_manifest.seen"
 run_fixture package-layout \
     "$REPO_ROOT/compiler_seen/tests/package_layout.seen"
+run_fixture import-graph \
+    "$REPO_ROOT/compiler_seen/tests/release/import_graph.seen"
+run_fixture import-graph-example \
+    "$REPO_ROOT/compiler_seen/examples/import_graph_resolution.seen"
 EXTERNAL_PACKAGE_CONSUMER_FIXTURE=$(stage_external_package_fixture)
 run_fixture external-package-consumer \
     "$EXTERNAL_PACKAGE_CONSUMER_FIXTURE"

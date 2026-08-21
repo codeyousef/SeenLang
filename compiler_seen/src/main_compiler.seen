@@ -45,6 +45,8 @@ import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifes
     AsciiString, OperationLimits, OperationContext, CompatibilityCompiler,
     CompatibilityComponents, CompatibilityTarget, CompatibilityPlatforms,
     CompatibilityReleaseInputs, readCompatibilityRuntimeSelection}
+import seen_compiler.release.diagnostic_schema.{core003aError as _seedCore003aError}
+import seen_compiler.imports.graph.{resolveRecursiveImportGraphBootstrap}
 import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_runtime_lsp_json.{emitLspJsonRuntimeDecls}
 import codegen.ir_decl_runtime_primitives.{emitPrimitiveRuntimeDecls}
@@ -315,7 +317,7 @@ import codegen.ir_type_header_registry.{applyTypeHeaderStructLineReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
 import tools.cli_args.{CliArguments, parseCliArguments}
-import tools.c_import_gen.{CImportGenerator, CImportResult, newCImportGenerator}
+import tools.c_import_gen.{CImportResult, newCImportGenerator}
 import tools.c_import_frontend.{cImportParseHeader}
 import tools.c_import_ast.{cImportParseClangAstDump}
 import tools.c_import_layout.{cImportParseClangRecordLayouts}
@@ -1488,7 +1490,10 @@ fun packageCompatibilityContext() r: OperationContext {
             maxIdentityBytes: 128,
             maxVersionBytes: 64,
             maxManifestBytes: 65536,
-            maxPathBytes: 4096
+            maxPathBytes: 4096,
+            maxGraphModules: 4096,
+            maxGraphEdges: 65536,
+            maxGraphDepth: 4096
         },
         traceId: AsciiString{ value: "package-client-runtime" }
     }
@@ -5551,6 +5556,7 @@ fun isCompilerImportRoot(segment: String) r: Bool {
     if segment == "testing" { return true }
     if segment == "ffi" { return true }
     if segment == "release" { return true }
+    if segment == "imports" { return true }
     return false
 }
 
@@ -6116,7 +6122,7 @@ fun containsPath(paths: Array<String>, path: String) r: Bool {
 fun pushUniquePath(paths: Array<String>, processedPaths: Array<String>, path: String) r: Void {
     if path != "" {
         let normalizedPath = resolveRealInputPath(path)
-        if not containsPath(processedPaths, normalizedPath) {
+        if modulePathIndex(processedPaths, normalizedPath) < 0 {
             paths.push(normalizedPath)
             processedPaths.push(normalizedPath)
         }
@@ -6806,13 +6812,16 @@ fun resolveSourceTextImportedOrQualifiedSymbolName(importText: String,
     return resolveSourceTextImportedSymbolName(importText, symbolName)
 }
 
-class ModuleImportGraph {
+/// Bootstrap-local graph storage. Resolution policy lives exclusively in
+/// imports.graph; the entry module retains this shape only because supported
+/// frozen compilers cannot name a class newly imported by main_compiler.
+class CompilerImportScanGraph {
     var edgeStarts: Array<Int>
     var edgeCounts: Array<Int>
     var edgeTargets: Array<Int>
 
-    static fun new() r: ModuleImportGraph {
-        return ModuleImportGraph{
+    static fun new() r: CompilerImportScanGraph {
+        return CompilerImportScanGraph{
             edgeStarts: Array<Int>(),
             edgeCounts: Array<Int>(),
             edgeTargets: Array<Int>()
@@ -6820,8 +6829,8 @@ class ModuleImportGraph {
     }
 }
 
-fun newModuleImportGraph(moduleCount: Int) r: ModuleImportGraph {
-    let graph = ModuleImportGraph.new()
+fun newCompilerImportScanGraph(moduleCount: Int) r: CompilerImportScanGraph {
+    let graph = CompilerImportScanGraph.new()
     var idx = 0
     while idx < moduleCount {
         graph.edgeStarts.push(0)
@@ -6831,47 +6840,41 @@ fun newModuleImportGraph(moduleCount: Int) r: ModuleImportGraph {
     return graph
 }
 
-fun modulePathIndex(modulePaths: Array<String>, targetPath: String) r: Int {
-    if targetPath == "" {
-        return -1
-    }
+fun compilerImportScanPathIndex(modulePaths: Array<String>,
+    targetPath: String) r: Int {
+    if targetPath == "" { return -1 }
     var idx = 0
     while idx < modulePaths.length() {
-        if modulePaths[idx] == targetPath {
-            return idx
-        }
+        if modulePaths[idx] == targetPath { return idx }
         idx = idx + 1
     }
     return -1
 }
 
-fun moduleImportGraphBeginModule(graph: ModuleImportGraph, sourceIdx: Int)
+fun compilerImportScanGraphBeginModule(graph: CompilerImportScanGraph,
+    sourceIdx: Int)
     r: Void {
 
-    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() {
-        return
-    }
+    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() { return }
     graph.edgeStarts[sourceIdx] = graph.edgeTargets.length()
     graph.edgeCounts[sourceIdx] = 0
     return
 }
 
-fun moduleImportGraphEdgeCount(graph: ModuleImportGraph, sourceIdx: Int)
+fun compilerImportScanGraphEdgeCount(graph: CompilerImportScanGraph,
+    sourceIdx: Int)
     r: Int {
 
-    if sourceIdx < 0 or sourceIdx >= graph.edgeCounts.length() {
-        return 0
-    }
+    if sourceIdx < 0 or sourceIdx >= graph.edgeCounts.length() { return 0 }
     return graph.edgeCounts[sourceIdx]
 }
 
-fun moduleImportGraphHasEdgeFrom(graph: ModuleImportGraph, sourceIdx: Int,
-    targetIdx: Int) r: Bool {
+fun compilerImportScanGraphHasEdgeFrom(graph: CompilerImportScanGraph,
+    sourceIdx: Int, targetIdx: Int) r: Bool {
 
-    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() {
-        return false
-    }
-    if sourceIdx >= graph.edgeCounts.length() {
+    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() or
+        sourceIdx >= graph.edgeCounts.length() {
+
         return false
     }
     let start = graph.edgeStarts[sourceIdx]
@@ -6879,29 +6882,24 @@ fun moduleImportGraphHasEdgeFrom(graph: ModuleImportGraph, sourceIdx: Int,
     var offset = 0
     while offset < count {
         let edgeIdx = start + offset
-        if edgeIdx >= 0 and edgeIdx < graph.edgeTargets.length() {
-            if graph.edgeTargets[edgeIdx] == targetIdx {
-                return true
-            }
+        if edgeIdx >= 0 and edgeIdx < graph.edgeTargets.length() and
+            graph.edgeTargets[edgeIdx] == targetIdx {
+
+            return true
         }
         offset = offset + 1
     }
     return false
 }
 
-fun moduleImportGraphAddEdge(graph: ModuleImportGraph, sourceIdx: Int,
-    targetIdx: Int) r: Void {
+fun compilerImportScanGraphAddEdge(graph: CompilerImportScanGraph,
+    sourceIdx: Int, targetIdx: Int) r: Void {
 
-    if targetIdx < 0 {
-        return
-    }
-    if sourceIdx < 0 or sourceIdx >= graph.edgeStarts.length() {
-        return
-    }
-    if sourceIdx >= graph.edgeCounts.length() {
-        return
-    }
-    if moduleImportGraphHasEdgeFrom(graph, sourceIdx, targetIdx) {
+    if targetIdx < 0 or sourceIdx < 0 or
+        sourceIdx >= graph.edgeStarts.length() or
+        sourceIdx >= graph.edgeCounts.length() or
+        compilerImportScanGraphHasEdgeFrom(graph, sourceIdx, targetIdx) {
+
         return
     }
     graph.edgeTargets.push(targetIdx)
@@ -6909,22 +6907,22 @@ fun moduleImportGraphAddEdge(graph: ModuleImportGraph, sourceIdx: Int,
     return
 }
 
-fun appendModuleImportGraphEdge(modulePaths: Array<String>,
-    graph: ModuleImportGraph, sourceIdx: Int, targetPath: String) r: Void {
+fun appendCompilerImportScanGraphEdge(modulePaths: Array<String>,
+    graph: CompilerImportScanGraph, sourceIdx: Int, targetPath: String) r: Void {
 
     if targetPath == "" {
         return
     }
     let normalizedTarget = resolveRealInputPath(targetPath)
-    let targetIdx = modulePathIndex(modulePaths, normalizedTarget)
+    let targetIdx = compilerImportScanPathIndex(modulePaths, normalizedTarget)
     if targetIdx >= 0 {
-        moduleImportGraphAddEdge(graph, sourceIdx, targetIdx)
+        compilerImportScanGraphAddEdge(graph, sourceIdx, targetIdx)
     }
     return
 }
 
 fun appendSourceTextImportEdges(modulePaths: Array<String>,
-    graph: ModuleImportGraph, sourceIdx: Int, modulePath: String) r: Void {
+    graph: CompilerImportScanGraph, sourceIdx: Int, modulePath: String) r: Void {
 
     let rawContent = readText(modulePath)
     if rawContent == "" {
@@ -6950,7 +6948,7 @@ fun appendSourceTextImportEdges(modulePaths: Array<String>,
             if importText != "" {
                 let importPath = sourceTextImportPath(importText, sourceDir)
                 if importPath != "" {
-                    appendModuleImportGraphEdge(modulePaths, graph, sourceIdx,
+                    appendCompilerImportScanGraphEdge(modulePaths, graph, sourceIdx,
                         importPath)
                 }
             }
@@ -6961,127 +6959,22 @@ fun appendSourceTextImportEdges(modulePaths: Array<String>,
     return
 }
 
-fun buildModuleImportGraph(modulePaths: Array<String>, language: String)
-    r: ModuleImportGraph {
+fun buildCompilerImportScanGraph(modulePaths: Array<String>, language: String)
+    r: CompilerImportScanGraph {
 
-    let graph = newModuleImportGraph(modulePaths.length())
+    // Module discovery already uses the canonical lightweight source scanner.
+    // Reuse that representation for edges: parsing every module into a full
+    // AST here would retain a duplicate project AST before declaration pass 1
+    // and violate the bounded-memory self-hosting contract.
+    let graph = newCompilerImportScanGraph(modulePaths.length())
     var depIdx = 0
     while depIdx < modulePaths.length() {
         let depPath = modulePaths[depIdx]
-        let depSourceDir = getSourceDir(depPath)
-        let depFe = parseModule(depPath, language)
-        moduleImportGraphBeginModule(graph, depIdx)
-        if depFe.success {
-            var depItemIdx = 0
-            while depItemIdx < depFe.program.items.length() {
-                let depItem = depFe.program.items[depItemIdx]
-                if depItem.itemType == "Import" {
-                    let depTarget = resolveAstImportItemPath(depItem,
-                        depSourceDir)
-                    if depTarget != "" {
-                        appendModuleImportGraphEdge(modulePaths, graph,
-                            depIdx, depTarget)
-                    }
-                }
-                depItemIdx = depItemIdx + 1
-            }
-        }
+        compilerImportScanGraphBeginModule(graph, depIdx)
         appendSourceTextImportEdges(modulePaths, graph, depIdx, depPath)
         depIdx = depIdx + 1
     }
     return graph
-}
-
-fun moduleCyclePathFromParents(modulePaths: Array<String>,
-    parents: Array<Int>, nodeIdx: Int, targetIdx: Int) r: String {
-
-    var reversePath = Array<String>()
-    reversePath.push(modulePaths[targetIdx])
-    var cursor = nodeIdx
-    while cursor >= 0 {
-        reversePath.push(modulePaths[cursor])
-        if cursor == targetIdx {
-            cursor = 0 - 1
-        } else {
-            cursor = parents[cursor]
-        }
-    }
-
-    var result = ""
-    var idx = reversePath.length() - 1
-    while idx >= 0 {
-        if result != "" {
-            result = result + " -> "
-        }
-        result = result + reversePath[idx]
-        idx = idx - 1
-    }
-    return result
-}
-
-fun detectModuleImportCycle(modulePaths: Array<String>, language: String)
-    r: String {
-
-    let depGraph = buildModuleImportGraph(modulePaths, language)
-    var colors = Array<Int>()
-    var parents = Array<Int>()
-    var idx = 0
-    while idx < modulePaths.length() {
-        colors.push(0)
-        parents.push(0 - 1)
-        idx = idx + 1
-    }
-
-    var stack = Array<Int>()
-    var stackTop = 0
-    idx = 0
-    while idx < modulePaths.length() {
-        if colors[idx] == 0 {
-            colors[idx] = 3
-            stack.push(idx)
-            stackTop = stackTop + 1
-            while stackTop > 0 {
-                let nodeIdx = stack[stackTop - 1]
-                if colors[nodeIdx] == 0 or colors[nodeIdx] == 3 {
-                    colors[nodeIdx] = 1
-                    let start = depGraph.edgeStarts[nodeIdx]
-                    let count = depGraph.edgeCounts[nodeIdx]
-                    var edgeOffset = 0
-                    while edgeOffset < count {
-                        let edgeIdx = start + edgeOffset
-                        if edgeIdx >= 0 and edgeIdx < depGraph.edgeTargets.length() {
-                            let targetIdx = depGraph.edgeTargets[edgeIdx]
-                            if targetIdx >= 0 and targetIdx < modulePaths.length() {
-                                if colors[targetIdx] == 1 {
-                                    return moduleCyclePathFromParents(
-                                        modulePaths, parents, nodeIdx,
-                                        targetIdx)
-                                }
-                                if colors[targetIdx] == 0 {
-                                    parents[targetIdx] = nodeIdx
-                                    colors[targetIdx] = 3
-                                    stack.push(targetIdx)
-                                    stackTop = stackTop + 1
-                                }
-                            }
-                        }
-                        edgeOffset = edgeOffset + 1
-                    }
-                } else {
-                    colors[nodeIdx] = 2
-                    stackTop = stackTop - 1
-                }
-            }
-        }
-        idx = idx + 1
-    }
-    return ""
-}
-
-fun printModuleImportCycleError(cyclePath: String) r: Void {
-    println("error[E094]: cyclic import detected")
-    println("  = cycle: " + cyclePath)
-    return
 }
 
 fun queueImportTextPath(paths: Array<String>, processedPaths: Array<String>, inputFile: String, currentPath: String, sourceDir: String, isBootstrap: Bool, importText: String) r: Void {
@@ -7272,6 +7165,13 @@ fun validateLexicalSemanticModulePaths(modulePaths: Array<String>,
     language: String, registry: SemanticDeclarationRegistry,
     showCompileProgress: Int) r: Int {
 
+    // The bootstrap runtime deliberately does not collect arbitrary object
+    // graphs. Re-parsing a large project in this parent after declaration
+    // collection would therefore retain every Pass 1b AST until process exit.
+    // Isolate one read-only semantic check at a time: fork preserves the
+    // complete declaration registry through copy-on-write, waitPid keeps the
+    // worker count bounded, and process exit releases the module AST.
+    let isolateLargeGraphChecks = modulePaths.length() > 48 and g_noFork == 0
     var moduleIndex = 0
     while moduleIndex < modulePaths.length() {
         let modulePath = modulePaths[moduleIndex]
@@ -7279,22 +7179,92 @@ fun validateLexicalSemanticModulePaths(modulePaths: Array<String>,
             printCompileProgress("Pass 1b", "checking semantics",
                 moduleIndex + 1, modulePaths.length(), modulePath)
         }
-        let frontend = parseModule(modulePath, language)
-        if not frontend.success {
-            printFrontendDiagnostics(frontend)
-            println("    Error: Failed to parse " + modulePath)
-            return 1
-        }
-        let semanticChecked = checkResolvedLexicalSemanticModule(frontend,
-            modulePath, registry)
-        if not semanticChecked.success {
-            println("  Semantic validation failed for: " + modulePath)
-            printLexicalSemanticDiagnostics(semanticChecked)
-            return 1
+        if isolateLargeGraphChecks {
+            let semanticPid = processFork()
+            if semanticPid < 0 {
+                println("    Error: semantic worker fork failed for: " +
+                    modulePath)
+                return 1
+            }
+            if semanticPid == 0 {
+                var semanticExit = 0
+                let frontend = parseModule(modulePath, language)
+                if not frontend.success {
+                    printFrontendDiagnostics(frontend)
+                    println("    Error: Failed to parse " + modulePath)
+                    semanticExit = 1
+                } else {
+                    let semanticChecked = checkResolvedLexicalSemanticModule(
+                        frontend, modulePath, registry)
+                    if not semanticChecked.success {
+                        println("  Semantic validation failed for: " +
+                            modulePath)
+                        printLexicalSemanticDiagnostics(semanticChecked)
+                        semanticExit = 1
+                    }
+                }
+                processExit(semanticExit)
+            }
+            let semanticWorkerStatus = waitPid(semanticPid)
+            if semanticWorkerStatus != 0 {
+                println("    Error: semantic worker failed for: " +
+                    modulePath)
+                return 1
+            }
+        } else {
+            let frontend = parseModule(modulePath, language)
+            if not frontend.success {
+                printFrontendDiagnostics(frontend)
+                println("    Error: Failed to parse " + modulePath)
+                return 1
+            }
+            let semanticChecked = checkResolvedLexicalSemanticModule(frontend,
+                modulePath, registry)
+            if not semanticChecked.success {
+                println("  Semantic validation failed for: " + modulePath)
+                printLexicalSemanticDiagnostics(semanticChecked)
+                return 1
+            }
         }
         moduleIndex = moduleIndex + 1
     }
     return 0
+}
+
+/// Build and validate the complete semantic registry inside an isolated
+/// coordinator. Large compiler graphs use this gate before code generation so
+/// the non-collecting bootstrap parent never retains both the semantic registry
+/// and the generator declaration registry into Pass 2.
+fun validateIsolatedLexicalSemanticGraph(modulePaths: Array<String>,
+    language: String, parseFullDeclarations: Bool,
+    showCompileProgress: Int) r: Int {
+
+    let registry = SemanticDeclarationRegistry.new()
+    var moduleIndex = 0
+    while moduleIndex < modulePaths.length() {
+        let modulePath = modulePaths[moduleIndex]
+        var frontend = parseModuleDeclarations(modulePath, language)
+        if parseFullDeclarations {
+            frontend = parseModule(modulePath, language)
+        }
+        if not frontend.success {
+            printFrontendDiagnostics(frontend)
+            println("    Error: Failed to collect semantic declarations: " +
+                modulePath)
+            return 1
+        }
+        let semanticCollected = collectResolvedLexicalSemanticModule(
+            frontend, modulePath, registry)
+        if not semanticCollected.success {
+            println("  Semantic declaration collection failed for: " +
+                modulePath)
+            printLexicalSemanticDiagnostics(semanticCollected)
+            return 1
+        }
+        moduleIndex = moduleIndex + 1
+    }
+    return validateLexicalSemanticModulePaths(modulePaths, language, registry,
+        showCompileProgress)
 }
 
 fun moduleDeclarationFingerprint(modulePath: String,
@@ -7696,6 +7666,102 @@ fun effectiveLargeProjectWorkerLimit(moduleCount: Int, isBootstrap: Bool) r: Int
     return g_largeProjectWorkerLimit
 }
 
+fun compilerImportGraphContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: 4096,
+            maxGraphModules: 4096,
+            maxGraphEdges: 65536,
+            maxGraphDepth: 4096
+        },
+        traceId: AsciiString{ value: "compiler-import-graph" }
+    }
+}
+
+fun compilerImportGraphPlatform(normalizedCrossTarget: String) r: String {
+    if normalizedCrossTarget != "" {
+        return normalizedCrossTarget
+    }
+    return detectHostTargetName()
+}
+
+fun compilerManifestModuleIdentity(normalizedPath: String) r: String {
+    if normalizedPath == "" {
+        return ""
+    }
+    let manifestPath = findNearestSeenTomlForInput(normalizedPath)
+    if manifestPath == "" {
+        return ""
+    }
+    let manifestRoot = canonicalFilesystemPath(getSourceDir(manifestPath))
+    let relativePath = pathRelativeToProjectRoot(normalizedPath, manifestRoot)
+    if relativePath == normalizedPath or isAbsolutePath(relativePath) {
+        return ""
+    }
+    let manifestContent = loadFileContent(manifestPath)
+    var packageIdentity = extractTomlPackageIdentity(manifestContent)
+    if packageIdentity == "" {
+        packageIdentity = extractTomlProjectName(manifestContent)
+    }
+    if packageIdentity == "" {
+        return relativePath
+    }
+    return packageIdentity + "/" + relativePath
+}
+
+fun compilerImportGraphIdentities(modulePaths: Array<String>)
+    r: Array<String> {
+
+    let identities = Array<String>()
+    var graphRoot = ""
+    if modulePaths.length() > 0 {
+        graphRoot = getSourceDir(resolveRealInputPath(modulePaths[0]))
+    }
+    var idx = 0
+    while idx < modulePaths.length() {
+        let normalizedPath = resolveRealInputPath(modulePaths[idx])
+        var identity = stableModuleCacheIdentity(normalizedPath)
+        if isAbsolutePath(identity) {
+            let manifestIdentity = compilerManifestModuleIdentity(
+                normalizedPath)
+            if manifestIdentity != "" {
+                identity = manifestIdentity
+            } else {
+                if graphRoot != "" {
+                    let relativeIdentity = pathRelativeToProjectRoot(
+                        normalizedPath, graphRoot)
+                    if relativeIdentity != normalizedPath and
+                        not isAbsolutePath(relativeIdentity) {
+
+                        identity = relativeIdentity
+                    }
+                }
+            }
+        }
+        identities.push(identity)
+        idx = idx + 1
+    }
+    return identities
+}
+
+fun orderModulePathsByResolution(modulePaths: Array<String>,
+    orderedIndices: Array<Int>) r: Array<String> {
+
+    let ordered = Array<String>()
+    var idx = 0
+    while idx < orderedIndices.length() {
+        ordered.push(modulePaths[orderedIndices[idx]])
+        idx = idx + 1
+    }
+    return ordered
+}
+
 ///
 Collect all module paths needed for compilation (without storing ASTs).
 For regular compilations this walks imports recursively so standalone builds
@@ -7811,6 +7877,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("lexer.keyword_manager")
         modules.push("lexer.lexer")
         modules.push("release.compatibility")
+        modules.push("release.diagnostic_schema")
+        modules.push("imports.graph")
         modules.push("trace")
         // lexer.real_lexer removed: 2-line re-export shim, no compiler module imports it
         modules.push("parser.real_parser")
@@ -12448,17 +12516,35 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     ///
     println("  [Pass 0] Discovering module graph...")
     let pass0Start = getTraceTimeSeconds()
-    let modulePaths = collectModulePaths(resolvedInput, false)
+    var modulePaths = collectModulePaths(resolvedInput, false)
+    let importGraph = buildCompilerImportScanGraph(modulePaths, language)
+    let importGraphIdentities = compilerImportGraphIdentities(modulePaths)
+    let graphOrder = Array<Int>()
+    let graphErrorCodes = Array<String>()
+    let graphErrorMessages = Array<String>()
+    let graphResolved = resolveRecursiveImportGraphBootstrap(
+        importGraphIdentities, importGraph.edgeStarts, importGraph.edgeCounts,
+        importGraph.edgeTargets,
+        compilerImportGraphPlatform(normalizedCrossTarget),
+        compilerImportGraphContext(), graphOrder, graphErrorCodes,
+        graphErrorMessages)
+    if not graphResolved {
+        println("error: " + graphErrorCodes[0] + ": " +
+            graphErrorMessages[0])
+        buildTraceFinish("module discovery", pass0Start, "failed",
+            "code=" + graphErrorCodes[0])
+        return 1
+    }
+    // Compiler-owned graphs still pass the same fail-closed resolver, but the
+    // curated bootstrap schedule is a bounded-memory execution contract.
+    // Reordering that schedule raises retained declaration memory above the
+    // verified bootstrap cap; project graphs consume the canonical order.
+    if not moduleGraphContainsCompilerSources(modulePaths) {
+        modulePaths = orderModulePathsByResolution(modulePaths, graphOrder)
+    }
     println("    Found " + modulePaths.length().toString() + " modules")
     buildTraceFinish("module discovery", pass0Start, "ok",
         "modules=" + modulePaths.length().toString())
-    if not moduleGraphContainsCompilerSources(modulePaths) {
-        let importCyclePath = detectModuleImportCycle(modulePaths, language)
-        if importCyclePath != "" {
-            printModuleImportCycleError(importCyclePath)
-            return 1
-        }
-    }
     var boundedLargeProjectWorkers = effectiveLargeProjectWorkerLimit(
         modulePaths.length(), resolvedInput.contains("main_compiler.seen"))
     var boundedLargeProjectOptWorkers = 0
@@ -12516,6 +12602,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
     let pass1Start = getTraceTimeSeconds()
     let semanticRegistry = SemanticDeclarationRegistry.new()
+    let isolateCompileSemanticGate = modulePaths.length() > 48 and
+        g_noFork == 0
     var passIdx = 0
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
@@ -12529,13 +12617,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         if frontend.success {
             generator.registerDeclarations(frontend.program)
-            let semanticCollected = collectResolvedLexicalSemanticModule(
-                frontend, path, semanticRegistry)
-            if not semanticCollected.success {
-                println("  Semantic declaration collection failed for: " +
-                    path)
-                printLexicalSemanticDiagnostics(semanticCollected)
-                return 1
+            if not isolateCompileSemanticGate {
+                let semanticCollected = collectResolvedLexicalSemanticModule(
+                    frontend, path, semanticRegistry)
+                if not semanticCollected.success {
+                    println("  Semantic declaration collection failed for: " +
+                        path)
+                    printLexicalSemanticDiagnostics(semanticCollected)
+                    return 1
+                }
             }
 
             if isDeterministicProfile {
@@ -12566,8 +12656,23 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     ///
     println("  [Pass 1b] Checking lexical semantics...")
     let semanticCheckStart = getTraceTimeSeconds()
-    let semanticValidationStatus = validateLexicalSemanticModulePaths(
-        modulePaths, language, semanticRegistry, 1)
+    var semanticValidationStatus = 0
+    if isolateCompileSemanticGate {
+        let semanticCoordinatorPid = processFork()
+        if semanticCoordinatorPid < 0 {
+            println("    Error: semantic coordinator fork failed")
+            return 1
+        }
+        if semanticCoordinatorPid == 0 {
+            let isolatedSemanticStatus = validateIsolatedLexicalSemanticGraph(
+                modulePaths, language, isDeterministicProfile, 1)
+            processExit(isolatedSemanticStatus)
+        }
+        semanticValidationStatus = waitPid(semanticCoordinatorPid)
+    } else {
+        semanticValidationStatus = validateLexicalSemanticModulePaths(
+            modulePaths, language, semanticRegistry, 1)
+    }
     if semanticValidationStatus != 0 {
         return semanticValidationStatus
     }
@@ -14553,14 +14658,25 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
         return 1
     }
 
-    let checkModulePaths = collectModulePaths(resolvedInput, true)
+    var checkModulePaths = collectModulePaths(resolvedInput, true)
+    let checkGraph = buildCompilerImportScanGraph(checkModulePaths, language)
+    let checkGraphIdentities = compilerImportGraphIdentities(checkModulePaths)
+    let checkOrder = Array<Int>()
+    let checkErrorCodes = Array<String>()
+    let checkErrorMessages = Array<String>()
+    if not resolveRecursiveImportGraphBootstrap(
+        checkGraphIdentities, checkGraph.edgeStarts, checkGraph.edgeCounts,
+        checkGraph.edgeTargets, detectHostTargetName(),
+        compilerImportGraphContext(), checkOrder, checkErrorCodes,
+        checkErrorMessages) {
+
+        println("error: " + checkErrorCodes[0] + ": " +
+            checkErrorMessages[0])
+        return 1
+    }
     if not moduleGraphContainsCompilerSources(checkModulePaths) {
-        let checkCyclePath = detectModuleImportCycle(checkModulePaths,
-            language)
-        if checkCyclePath != "" {
-            printModuleImportCycleError(checkCyclePath)
-            return 1
-        }
+        checkModulePaths = orderModulePathsByResolution(checkModulePaths,
+            checkOrder)
     }
 
     let frontend = runFrontendCompat(sourceCode, resolvedInput, language)
@@ -14827,16 +14943,27 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
     if verbose {
         println("  [Pass 1] Scanning declarations...")
     }
-    let modulePaths = collectModulePaths(jitInput, not verbose)
+    var modulePaths = collectModulePaths(jitInput, not verbose)
     if verbose {
         println("    Found " + modulePaths.length().toString() + " modules")
     }
+    let jitGraph = buildCompilerImportScanGraph(modulePaths, language)
+    let jitGraphIdentities = compilerImportGraphIdentities(modulePaths)
+    let jitOrder = Array<Int>()
+    let jitErrorCodes = Array<String>()
+    let jitErrorMessages = Array<String>()
+    if not resolveRecursiveImportGraphBootstrap(
+        jitGraphIdentities, jitGraph.edgeStarts, jitGraph.edgeCounts,
+        jitGraph.edgeTargets, detectHostTargetName(),
+        compilerImportGraphContext(), jitOrder, jitErrorCodes,
+        jitErrorMessages) {
+
+        println("error: " + jitErrorCodes[0] + ": " +
+            jitErrorMessages[0])
+        return 1
+    }
     if not moduleGraphContainsCompilerSources(modulePaths) {
-        let jitCyclePath = detectModuleImportCycle(modulePaths, language)
-        if jitCyclePath != "" {
-            printModuleImportCycleError(jitCyclePath)
-            return 1
-        }
+        modulePaths = orderModulePathsByResolution(modulePaths, jitOrder)
     }
     if shouldRunWholeProjectPreflight(modulePaths) {
         let jitSealedValidation = validateSealedModules(modulePaths, language)
@@ -16591,7 +16718,7 @@ fun importCCommand(argv: Array<String>) r: Int {
     println("Generating Seen bindings for: " + headerFile)
 
     let gen = newCImportGenerator(headerFile)
-    let result: CImportResult = gen.parseHeader()
+    let result: CImportResult = cImportParseHeader(gen)
 
     if not result.isSuccessful() {
         var ei = 0
@@ -16608,7 +16735,7 @@ fun importCCommand(argv: Array<String>) r: Int {
         wi = wi + 1
     }
 
-    let declarations = gen.generateExternDeclarations()
+    let declarations = cImportGenerateExternDeclarations(gen)
     println(declarations)
     println("// " + result.typedefCount().toString() + " typedef aliases imported")
     println("// " + result.functionCount().toString() + " functions imported")

@@ -1,0 +1,176 @@
+import seen_compiler.imports.graph.{ModuleImportGraph, ImportGraphResolution,
+    newModuleImportGraph, moduleImportGraphBeginModule,
+    moduleImportGraphAddEdge, resolveRecursiveImportGraph,
+    renderImportGraphResolution}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext,
+    RetryClass, RedactionClass}
+
+fun graphPaths() r: Array<String> {
+    let paths = Array<String>()
+    paths.push("root.seen")
+    paths.push("alpha.seen")
+    paths.push("beta.seen")
+    paths.push("leaf.seen")
+    return paths
+}
+
+fun graphContext(cancelled: Bool, maxModules: Int) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled,
+        monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32,
+            maxIdentityBytes: 128,
+            maxVersionBytes: 64,
+            maxManifestBytes: 65536,
+            maxPathBytes: 4096,
+            maxGraphModules: maxModules,
+            maxGraphEdges: 64,
+            maxGraphDepth: 16
+        },
+        traceId: AsciiString{ value: "core-003a-test" }
+    }
+}
+
+fun diamondGraph(reverseRootEdges: Bool) r: ModuleImportGraph {
+    let graph = newModuleImportGraph(4)
+    moduleImportGraphBeginModule(graph, 0)
+    if reverseRootEdges {
+        moduleImportGraphAddEdge(graph, 0, 2)
+        moduleImportGraphAddEdge(graph, 0, 1)
+    } else {
+        moduleImportGraphAddEdge(graph, 0, 1)
+        moduleImportGraphAddEdge(graph, 0, 2)
+    }
+    moduleImportGraphBeginModule(graph, 1)
+    moduleImportGraphAddEdge(graph, 1, 3)
+    moduleImportGraphBeginModule(graph, 2)
+    moduleImportGraphAddEdge(graph, 2, 3)
+    moduleImportGraphBeginModule(graph, 3)
+    return graph
+}
+
+fun orderIsCanonical(value: ImportGraphResolution) r: Bool {
+    return value.orderedIndices.length() == 4 and
+        value.orderedIndices[0] == 0 and value.orderedIndices[1] == 1 and
+        value.orderedIndices[2] == 3 and value.orderedIndices[3] == 2
+}
+
+fun main() r: Int {
+    let happy = resolveRecursiveImportGraph(
+        graphPaths(), diamondGraph(true), "linux-x86_64",
+        graphContext(false, 16))
+    if happy.isErr() or not orderIsCanonical(happy.unwrap()) {
+        return 1
+    }
+    let happyAgain = resolveRecursiveImportGraph(
+        graphPaths(), diamondGraph(false), "linux-x86_64",
+        graphContext(false, 16))
+    if happyAgain.isErr() or
+        renderImportGraphResolution(happyAgain.unwrap()) !=
+            renderImportGraphResolution(happy.unwrap()) {
+
+        return 2
+    }
+    println("PASS: CORE-003A_happy")
+
+    let duplicatePaths = graphPaths()
+    duplicatePaths[2] = "alpha.seen"
+    let invalid = resolveRecursiveImportGraph(
+        duplicatePaths, diamondGraph(false), "linux-x86_64",
+        graphContext(false, 16))
+    if not invalid.isErr() or
+        invalid.unwrapErr().code.value != "core.003a.invalid" or
+        invalid.unwrapErr().retry != RetryClass.Never or
+        invalid.unwrapErr().redaction != RedactionClass.Public {
+
+        return 3
+    }
+    let traversalPaths = graphPaths()
+    traversalPaths[2] = "pkg/../beta.seen"
+    let traversal = resolveRecursiveImportGraph(
+        traversalPaths, diamondGraph(false), "linux-x86_64",
+        graphContext(false, 16))
+    if not traversal.isErr() or
+        traversal.unwrapErr().code.value != "core.003a.invalid" {
+
+        return 9
+    }
+    let absolutePaths = graphPaths()
+    absolutePaths[2] = "/beta.seen"
+    let absolute = resolveRecursiveImportGraph(
+        absolutePaths, diamondGraph(false), "linux-x86_64",
+        graphContext(false, 16))
+    if not absolute.isErr() or
+        absolute.unwrapErr().code.value != "core.003a.invalid" {
+
+        return 10
+    }
+    let cycleGraph = newModuleImportGraph(2)
+    moduleImportGraphBeginModule(cycleGraph, 0)
+    moduleImportGraphAddEdge(cycleGraph, 0, 1)
+    moduleImportGraphBeginModule(cycleGraph, 1)
+    moduleImportGraphAddEdge(cycleGraph, 1, 0)
+    let cyclePaths = Array<String>()
+    cyclePaths.push("cycle/a.seen")
+    cyclePaths.push("cycle/b.seen")
+    let cycle = resolveRecursiveImportGraph(
+        cyclePaths, cycleGraph, "linux-x86_64", graphContext(false, 16))
+    if not cycle.isErr() or
+        cycle.unwrapErr().code.value != "core.003a.cycle" or
+        not cycle.unwrapErr().message.contains(
+            "cycle/a.seen -> cycle/b.seen -> cycle/a.seen") {
+
+        return 4
+    }
+    let platform = resolveRecursiveImportGraph(
+        graphPaths(), diamondGraph(false), "plan9",
+        graphContext(false, 16))
+    if not platform.isErr() or
+        platform.unwrapErr().code.value != "core.003a.platform" {
+
+        return 5
+    }
+    println("PASS: CORE-003A_invalid")
+
+    let limited = resolveRecursiveImportGraph(
+        graphPaths(), diamondGraph(false), "linux-x86_64",
+        graphContext(false, 1))
+    if not limited.isErr() or
+        limited.unwrapErr().code.value != "core.003a.limit" {
+
+        return 6
+    }
+    let pathLimitContext = graphContext(false, 16)
+    pathLimitContext.limits.maxPathBytes = 4
+    let pathLimited = resolveRecursiveImportGraph(
+        graphPaths(), diamondGraph(false), "linux-x86_64",
+        pathLimitContext)
+    if not pathLimited.isErr() or
+        pathLimited.unwrapErr().code.value != "core.003a.limit" {
+
+        return 11
+    }
+    println("PASS: CORE-003A_limit")
+
+    let cancelled = resolveRecursiveImportGraph(
+        graphPaths(), diamondGraph(false), "linux-x86_64",
+        graphContext(true, 16))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "core.003a.cancelled" {
+
+        return 7
+    }
+    println("PASS: CORE-003A_cancel")
+
+    let cleanup = renderImportGraphResolution(happy.unwrap())
+    if cleanup != renderImportGraphResolution(happyAgain.unwrap()) or
+        not cleanup.contains("\"schema\": \"seen-import-graph-v1\"") {
+
+        return 8
+    }
+    println("PASS: CORE-003A_cleanup")
+    return 0
+}
+
+main()

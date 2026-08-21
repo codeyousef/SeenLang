@@ -1,4 +1,4 @@
-import main_compiler.{
+import seen_compiler.imports.graph.{
     newModuleImportGraph, moduleImportGraphBeginModule,
     moduleImportGraphAddEdge, moduleImportGraphHasEdgeFrom,
     moduleImportGraphEdgeCount, modulePathIndex

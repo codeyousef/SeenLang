@@ -214,8 +214,10 @@ fun resolveSemanticTypeForOwner(result: LexicalSemanticResult,
 
     var genericIndex = 0
     while genericIndex < genericNames.length() {
+        // Keep the default explicit for stale bootstrap builders: their method
+        // call lowering does not materialize a newly added default argument.
         result.registry.registerGenericParameter(genericOwner,
-            genericNames[genericIndex])
+            genericNames[genericIndex], "")
         genericIndex = genericIndex + 1
     }
     let typeRef = parseTypeRef(typeName, line, column, file)

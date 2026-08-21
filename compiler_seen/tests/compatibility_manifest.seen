@@ -56,7 +56,10 @@ fun compatibilityTestContext(cancelled: Bool, maxTargets: Int)
             maxIdentityBytes: 128,
             maxVersionBytes: 64,
             maxManifestBytes: 65536,
-            maxPathBytes: 4096
+            maxPathBytes: 4096,
+            maxGraphModules: 4096,
+            maxGraphEdges: 65536,
+            maxGraphDepth: 4096
         },
         traceId: AsciiString{ value: "core-002a-test" }
     }

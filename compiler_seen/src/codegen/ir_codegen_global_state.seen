@@ -8,7 +8,7 @@ import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions}
 import codegen.ir_codegen_state_bridge.{CodegenStateBridgeSnapshot, syncCodegenStateBridgeImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, getFunctionReturnTypeStateImpl, registerFunctionStateImpl}
 import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
-import codegen.ir_decl_items.{DeclarationItemContext, normalizeDeclaredTypeNodeImpl, mapDeclaredTypeImpl}
+import codegen.ir_decl_items.{DeclarationItemContext, mapDeclaredTypeImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl}
 import codegen.ir_function_gen.{resolveImplementationFunctionNameImpl, hasFunctionDecoratorGenImpl, prepareExternFunctionGenerationImpl}
 import codegen.ir_function_snapshots.{FunctionGenerationIdentitySnapshot}
@@ -24,7 +24,7 @@ import codegen.ir_decl_runtime.{emitCoreRuntimeDecls}
 import codegen.ir_decl_string_io.{emitStringAndIODecls}
 import codegen.ir_function_entry_exit.{emitPreAllocatedAllocasImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_mapping.{mapTypeImpl}
+import codegen.ir_type_mapping.{mapTypeImpl, normalizeDeclaredTypeNodeImpl}
 import codegen.ir_type_header.{tryLoadTypeHeaderIntoOutputImpl, emitBuiltinTypeHeaderImpl}
 import codegen.ir_module_constants.{ModuleConstantRegistrySnapshot, emitGlobalVariablesSnapshotImpl, findModuleConstantSnapshotImpl, tryInferModuleConstantVariableTypeSnapshotImpl}
 import codegen.ir_module_emit.{emitCrossModuleConstantDeclaresIndexedImpl}

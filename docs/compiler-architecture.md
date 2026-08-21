@@ -65,6 +65,35 @@ imports as well as from the embedded compiler-module list. That keeps older
 bootstrap compilers from treating new helper calls as external declarations with
 the wrong ABI during self-hosted rebuilds.
 
+### Deterministic import graph
+
+Location: `compiler_seen/src/imports/graph.seen`
+
+Compiler module discovery is finalized by
+`resolveRecursiveImportGraph`, the native Seen CORE-003A state machine. Its
+fallible entry point returns `Result<ImportGraphResolution, SeenError>` and
+accepts the immutable `OperationContext` used by release validation. The input
+uses exact canonical module identities and bounded adjacency arrays; absolute
+paths, backslashes, empty or traversal segments, duplicate identities, unknown
+edges, duplicate edges, malformed ranges, unsupported platforms, and cycles
+are rejected rather than normalized or repaired.
+
+Edges are sorted by UTF-8 module identity before an iterative depth-first walk.
+The declared root remains first, reachable dependencies follow deterministically,
+and disconnected nodes use the same byte ordering. Limits cover module count,
+edge count, identity bytes, and traversal depth. Cancellation is checked before
+allocation and throughout edge validation and traversal. Failures use stable
+`core.003a.*` codes from `release/diagnostic_schema.seen`, never retry validation
+or policy errors, bound messages to 4 KiB, and carry explicit redaction policy.
+
+The compile, check, and JIT paths all call the same resolver and have no legacy
+cycle-detection fallback. Project graphs consume its canonical order.
+Compiler-owned graphs are also validated fail-closed, while their existing
+deterministic curated execution schedule is retained because that schedule is
+part of the bounded-memory bootstrap contract. The compiling API example is
+`compiler_seen/examples/import_graph_resolution.seen`. CORE-003A adds no foreign
+symbol, so the native-boundary ledger remains unchanged.
+
 ## Code Generation
 
 Location: `compiler_seen/src/codegen/`
@@ -81,6 +110,13 @@ Generation is organized around:
 2. Type/layout and registry preparation.
 3. Function and module body lowering to LLVM IR.
 4. Object emission, optimization, and linking.
+
+Cross-module function declarations are retained in one indexed registry used
+directly by module emission. The compiler does not duplicate that registry as
+growing pipe-delimited strings; doing so creates quadratic retained allocation
+during a self-host scan. On large graphs, full lexical-semantic ASTs and their
+declaration registry are built and checked in bounded child processes, so only
+the code-generation declaration state survives into module IR generation.
 
 Package artifacts participate in code generation through interface indexes and
 object manifests: dependency declarations are scanned, provided modules are
@@ -203,6 +239,11 @@ Every path and platform claim is supplied explicitly. The API accepts only the
 canonical `Seen.toml`, `src/mod.seen`, tests, examples, readme, and license
 mapping and returns typed `pkg.layout.001.*` errors instead of normalizing a
 different tree.
+
+The compiler component's `seen-object-cache-abi-v2` identity also binds the
+`seen-import-graph-v1` canonical module order. Any incompatible graph ordering
+change must advance that ABI identity so cached objects cannot cross the
+ordering boundary.
 
 ## Incremental and Parallel Compilation
 

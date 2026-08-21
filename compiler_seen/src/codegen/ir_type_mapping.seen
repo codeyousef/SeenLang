@@ -3,8 +3,54 @@ Type mapping and class/data type classification helpers
 Extracted from ir_type_info.seen
 ///
 
+import parser.real_parser.{TypeNode}
 import codegen.ir_type_info.{findStructIdx}
 import codegen.ir_string_collect.{trimSpacesImpl, getBaseTypeNameImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
+
+fun normalizeSeenTypeNameImpl(seenType: String) r: String {
+    var normalized = seenType
+    if normalized.startsWith("move:") {
+        normalized = normalized.substring(5, normalized.length())
+    }
+    if normalized.startsWith("borrow:") {
+        normalized = normalized.substring(7, normalized.length())
+    }
+    if normalized.startsWith("comptime:") {
+        normalized = normalized.substring(9, normalized.length())
+    }
+    if normalized.contains("~default~") {
+        let defPos = normalized.indexOf("~default~", 0)
+        normalized = normalized.substring(0, defPos)
+    }
+    if normalized == "i1" { return "Bool" }
+    if normalized == "i64" { return "Int" }
+    if normalized == "%SeenString" { return "String" }
+    return normalized
+}
+
+fun normalizeDeclaredTypePartsImpl(typeName: String, isNullable: Bool)
+    r: String {
+
+    let normalized = normalizeSeenTypeNameImpl(typeName)
+    if isNullable {
+        // Keep one representation rule for every T?: the parser may already
+        // have expanded the spelling to Option<T>, while bootstrap-created
+        // TypeNodes can still carry T plus isNullable. Never wrap twice.
+        if normalized == "Option" or normalized == "Optional" or
+            normalized.startsWith("Option<") or
+            normalized.startsWith("Optional<") {
+
+            return normalized
+        }
+        return "Option<" + normalized + ">"
+    }
+    return normalized
+}
+
+fun normalizeDeclaredTypeNodeImpl(typeNode: TypeNode) r: String {
+    return normalizeDeclaredTypePartsImpl(typeNode.typeName,
+        typeNode.isNullable)
+}
 
 ///
 ============================================================

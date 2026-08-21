@@ -1,7 +1,7 @@
 // ir_return_type_driver.seen - declaration return-type AST traversal.
 
 import parser.real_parser.{BlockNode, FunctionNode, ParserExpressionNode}
-import codegen.ir_decl_items.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_type_mapping.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_decl_return_types.{inferReturnExprTypeImpl, resolveMethodReturnTypeImpl, resolveFunctionReturnTypeImpl}
 import codegen.ir_expr_type_driver.{inferExpressionTypeState}
 
