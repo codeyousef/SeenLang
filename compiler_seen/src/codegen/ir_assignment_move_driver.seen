@@ -5,7 +5,7 @@ import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureMoveOnlyClassesImpl, getFeatureTriviallyCopyableClassesImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, recordMovedVariableImpl}
-import codegen.ir_variable_gen.{emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl, findActiveVariableIndexImpl, getExprVariableNameImpl}
+import codegen.ir_variable_gen.{emitMoveSourceNullifyImpl, emitTriviallyCopyableAssignmentNoteImpl, findActiveVariableIndexImpl, getExprVariableNameImpl, pipeTypeListContainsImpl}
 
 fun applyMoveAssignmentSemanticsState(output: StringBuilder,
     varNames: Array<String>, varRegs: Array<String>,
@@ -32,7 +32,7 @@ fun applyMoveAssignmentSemanticsState(output: StringBuilder,
     }
 
     let rhsType = varTypes[rhsIdx]
-    if not moveOnlyClasses.contains(rhsType + "|") {
+    if not pipeTypeListContainsImpl(moveOnlyClasses, rhsType) {
         return
     }
 
@@ -44,8 +44,7 @@ fun emitTriviallyCopyableAssignmentNoteState(output: StringBuilder,
     varType: String) r: Void {
 
     let triviallyCopyableClasses = getFeatureTriviallyCopyableClassesImpl()
-    if triviallyCopyableClasses != "" and
-        triviallyCopyableClasses.contains(varType + "|") {
+    if pipeTypeListContainsImpl(triviallyCopyableClasses, varType) {
 
         emitTriviallyCopyableAssignmentNoteImpl(output, varType)
     }

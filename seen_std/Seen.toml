@@ -18,9 +18,11 @@ modules = [
     "src/error.seen",
     "src/operation_context.seen",
     "src/ownership.seen",
+    "src/secret.seen",
     "src/core/error.seen",
     "src/core/operation_context.seen",
     "src/core/ownership.seen",
+    "src/core/secret.seen",
 
     # Collections
     "src/collections/list_utils.seen",

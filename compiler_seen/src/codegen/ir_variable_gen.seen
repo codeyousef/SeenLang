@@ -136,11 +136,16 @@ fun emitMoveSourceNullifyImpl(output: StringBuilder, rhsSrcReg: String) r: Void 
     output.append("  store i64 0, ptr " + rhsSrcReg + " ; @move: nullify source\n")
 }
 
+fun pipeTypeListContainsImpl(typeNames: String, typeName: String) r: Bool {
+    if typeNames == "" or typeName == "" { return false }
+    return ("|" + typeNames).contains("|" + typeName + "|")
+}
+
 fun shouldNullifyMovedArgumentSourceImpl(nullifyMovedSources: Bool,
     moveOnlyClasses: String, argType: String) r: Bool {
 
     return nullifyMovedSources and moveOnlyClasses != "" and
-        moveOnlyClasses.contains(argType + "|")
+        pipeTypeListContainsImpl(moveOnlyClasses, argType)
 }
 
 fun resolveMovedArgumentSourceNameImpl(exprKind: String, variableName: String,

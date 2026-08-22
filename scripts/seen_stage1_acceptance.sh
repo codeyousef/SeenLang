@@ -525,6 +525,10 @@ run_fixture owned-resource \
     "$REPO_ROOT/seen_std/tests/error/p0_own_001_owned_resource.seen"
 run_fixture owned-resource-example \
     "$REPO_ROOT/seen_std/examples/owned_resource.seen"
+run_fixture secret-markers \
+    "$REPO_ROOT/seen_std/tests/error/p0_secret_001_secret_markers.seen"
+run_fixture secret-markers-example \
+    "$REPO_ROOT/seen_std/examples/secret_values.seen"
 
 test_runner_log="$ACCEPTANCE_ROOT/test-runner-cli.log"
 if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001B \
