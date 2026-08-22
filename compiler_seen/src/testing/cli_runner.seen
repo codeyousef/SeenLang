@@ -150,7 +150,7 @@ fun testCliReadExit(path: String) r: Int {
 
 fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
     packageClientPath: String, relative: String, timeoutSeconds: Int,
-    ordinal: Int) r: Int {
+    ordinal: Int, profile: String) r: Int {
     let runRoot = root + "/.seen_cache/test/run"
     if not testCliEnsureDirectory(runRoot) { return -1 }
     let token = ordinal.toString()
@@ -158,24 +158,58 @@ fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
     let logPath = runRoot + "/test-" + token + ".log"
     let exitPath = runRoot + "/test-" + token + ".exit"
     let absolute = root + "/" + relative
+    var workingRoot = root
+    let migratedRoot = testMigrationWorkingRoot(relative)
+    if migratedRoot != "" { workingRoot = root + "/" + migratedRoot }
+    if not testCliEnsureDirectory(workingRoot + "/.seen_cache/test/run") {
+        return -1
+    }
     var command = ""
     if relative.endsWith(".seen") {
+        var instrumentationFlags = ""
+        var executionPrefix = ""
+        var executionPostfix = ""
+        if profile == "coverage" {
+            let report = ".seen_cache/test/run/test-" + token +
+                ".instrumentation.json"
+            let rawProfile = runRoot + "/test-" + token + ".profraw"
+            let mergedProfile = runRoot + "/test-" + token + ".profdata"
+            let coverageReport = runRoot + "/test-" + token +
+                ".coverage.txt"
+            instrumentationFlags = " --coverage --instrumentation-report " +
+                testCliShellQuote(report)
+            executionPrefix = "LLVM_PROFILE_FILE=" +
+                testCliShellQuote(rawProfile) + " "
+            executionPostfix = " && llvm-profdata merge -sparse " +
+                testCliShellQuote(rawProfile) + " -o " +
+                testCliShellQuote(mergedProfile) + " && llvm-cov report " +
+                testCliShellQuote(binary) + " -instr-profile " +
+                testCliShellQuote(mergedProfile) + " >" +
+                testCliShellQuote(coverageReport)
+        } else if profile.startsWith("sanitizer-") {
+            let sanitizer = profile.substring(10, profile.length())
+            let report = ".seen_cache/test/run/test-" + token +
+                ".instrumentation.json"
+            instrumentationFlags = " --sanitize " +
+                testCliShellQuote(sanitizer) + " --instrumentation-report " +
+                testCliShellQuote(report)
+        }
+        if relative.endsWith("test_002a_gpu_emitters.seen") {
+            instrumentationFlags = instrumentationFlags + " --emit-glsl"
+        }
         command = "SEEN_COMPILER_SOURCE_ROOT=" +
             testCliShellQuote(compilerSourceRoot) +
             " SEEN_PACKAGE_CLIENT=" +
             testCliShellQuote(packageClientPath) +
             " " + testCliShellQuote(selfPath) + " compile " +
             testCliShellQuote(absolute) + " " + testCliShellQuote(binary) +
-            " --fast --jobs 1 --opt-jobs 1 && " +
-            testCliShellQuote(binary)
+            " --fast --no-fork" + instrumentationFlags + " && " +
+            executionPrefix + testCliShellQuote(binary) + executionPostfix
     } else if relative.endsWith(".sh") {
         command = "bash " + testCliShellQuote(absolute)
     } else if relative.endsWith("_unit.py") {
         command = "python3 " + testCliShellQuote(absolute)
     } else { return -1 }
-    var workingRoot = root
-    let migratedRoot = testMigrationWorkingRoot(relative)
-    if migratedRoot != "" { workingRoot = root + "/" + migratedRoot }
     let wrapped = "cd " + testCliShellQuote(workingRoot) +
         " && timeout --signal=TERM " +
         "--kill-after=5s " + timeoutSeconds.toString() + "s sh -c " +
@@ -295,7 +329,7 @@ fun runCanonicalTests(rootArgument: String, selfPath: String,
         if entry.selected {
             let code = testCliExecute(root, absoluteSelfPath,
                 compilerSourceRoot, packageClientPath, entry.test.path,
-                timeoutSeconds, selectedIndex)
+                timeoutSeconds, selectedIndex, profile)
             if code < 0 {
                 println("Error: [test.001b.io] test process boundary failed")
                 return 3

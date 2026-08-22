@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-test-instrumentation-v1` and canonical `seen test` coverage,
+  UndefinedBehaviorSanitizer, and ThreadSanitizer profiles. Per-test builds
+  carry instrumentation reports and bounded profile outputs; component
+  evidence requires software execution of compiler host, GPU emitters, Seen
+  modules, runtime, and ABI shims while forbidding compile-only or hardware
+  self-certification.
+
 - Added `seen-secret-marker-v1` with move-only `SecretString` and
   `SecretBytes`, always-redacted formatting, explicit typed reveal policy,
   bounded construction, cancellation, idempotent clearing, mutable-byte

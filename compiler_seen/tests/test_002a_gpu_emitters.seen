@@ -1,0 +1,14 @@
+@compute(workgroup: 64)
+fun test002aVectorAdd(a: Buffer<Float>, b: Buffer<Float>,
+    result: Buffer<Float>) {
+
+    let index = globalInvocationId.x
+    result[index] = a[index] + b[index]
+}
+
+fun main() r: Int {
+    println("PASS: TEST-002A_gpu_emitters_software")
+    return 0
+}
+
+main()

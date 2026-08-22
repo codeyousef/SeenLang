@@ -489,6 +489,8 @@ run_fixture test-discovery-example \
 run_fixture test-runner "$REPO_ROOT/compiler_seen/tests/test_001b_runner.seen"
 run_fixture test-runner-example \
     "$REPO_ROOT/compiler_seen/examples/test_runner.seen"
+run_fixture test-instrumentation \
+    "$REPO_ROOT/compiler_seen/tests/test_002a_instrumentation.seen"
 run_fixture test-assertions \
     "$REPO_ROOT/compiler_seen/tests/test_001c_assertions.seen"
 run_fixture test-assertions-example \

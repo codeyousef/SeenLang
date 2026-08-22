@@ -1,0 +1,88 @@
+/// Bounded execution evidence for TEST-002A coverage and sanitizer modes.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
+import core.operation_context.{OperationContext}
+
+let TEST_INSTRUMENTATION_SCHEMA: String = "seen-test-instrumentation-v1"
+
+class TestInstrumentationComponent {
+    var name: String
+    var compiled: Bool
+    var softwareExecuted: Bool
+    var hardwareExecuted: Bool
+}
+
+class TestInstrumentationPlan {
+    var profile: String
+    var coverage: Bool
+    var sanitizer: String
+    var target: String
+    var components: Array<TestInstrumentationComponent>
+}
+
+fun test002aError(code: String, message: String) r: SeenError {
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "testing.instrumentation" },
+        operation: AsciiString{ value: "validate" }, message: message,
+        causes: Vec<SeenError>.new(), nativeCode: None<Int64>(),
+        retry: RetryClass.Never, redaction: RedactionClass.Public
+    }
+}
+
+fun testInstrumentationComponentKnown(name: String) r: Bool {
+    return name == "compiler-host" or name == "gpu-emitters" or
+        name == "seen-modules" or name == "native-runtime" or
+        name == "abi-shims"
+}
+
+fun validateTestInstrumentation(plan: TestInstrumentationPlan,
+    context: OperationContext) r: Result<TestInstrumentationPlan, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<TestInstrumentationPlan, SeenError>(test002aError(
+            "test.002a.cancelled", "test instrumentation was cancelled"))
+    }
+    if plan.target != "linux-x86_64" {
+        return Err<TestInstrumentationPlan, SeenError>(test002aError(
+            "test.002a.platform", "test instrumentation target is unsupported"))
+    }
+    let coverageProfile = plan.profile == "coverage" and plan.coverage and
+        plan.sanitizer == ""
+    let sanitizerProfile = plan.profile == "sanitizer-undefined" or
+        plan.profile == "sanitizer-thread"
+    if not coverageProfile and not sanitizerProfile {
+        return Err<TestInstrumentationPlan, SeenError>(test002aError(
+            "test.002a.invalid", "test instrumentation profile is invalid"))
+    }
+    if sanitizerProfile and (plan.coverage or
+        plan.sanitizer != plan.profile.substring(10, plan.profile.length())) {
+        return Err<TestInstrumentationPlan, SeenError>(test002aError(
+            "test.002a.invalid", "sanitizer profile does not match its mode"))
+    }
+    if context.limits.maxGraphModules < 5 or
+        plan.components.length() != 5 {
+        return Err<TestInstrumentationPlan, SeenError>(test002aError(
+            "test.002a.limit", "instrumented component set is incomplete"))
+    }
+    var seenNames = "|"
+    var index = 0
+    while index < plan.components.length() {
+        let component = plan.components[index]
+        if not testInstrumentationComponentKnown(component.name) or
+            seenNames.contains("|" + component.name + "|") or
+            not component.compiled or not component.softwareExecuted or
+            component.hardwareExecuted {
+
+            return Err<TestInstrumentationPlan, SeenError>(test002aError(
+                "test.002a.invalid",
+                "instrumentation evidence cannot claim missing or hardware execution"))
+        }
+        seenNames = seenNames + component.name + "|"
+        index = index + 1
+    }
+    return Ok<TestInstrumentationPlan, SeenError>(plan)
+}

@@ -1,0 +1,75 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+import testing.instrumentation.{TestInstrumentationComponent,
+    TestInstrumentationPlan, validateTestInstrumentation}
+import testing.fuzz.{TestInstrumentationFuzzPlan,
+    validateTestInstrumentationFuzz}
+import testing.benchmark.{TestInstrumentationBenchmarkPlan,
+    validateTestInstrumentationBenchmark}
+
+fun test002aContext(cancelled: Bool, modules: Int) r: OperationContext {
+    return OperationContext{cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4096, maxGraphModules: modules,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{ value: "test-002a" }}
+}
+
+fun test002aComponents(hardware: Bool) r: Array<TestInstrumentationComponent> {
+    let values = Array<TestInstrumentationComponent>()
+    for name in ["compiler-host", "gpu-emitters", "seen-modules",
+        "native-runtime", "abi-shims"] {
+        values.push(TestInstrumentationComponent{name: name, compiled: true,
+            softwareExecuted: true, hardwareExecuted: hardware})
+    }
+    return values
+}
+
+fun main() r: Int {
+    let happy = validateTestInstrumentation(TestInstrumentationPlan{
+        profile: "coverage", coverage: true, sanitizer: "",
+        target: "linux-x86_64", components: test002aComponents(false)},
+        test002aContext(false, 5))
+    if happy.isErr() { println("FAIL: TEST-002A_happy"); return 1 }
+    println("PASS: TEST-002A_happy")
+
+    let fuzz = validateTestInstrumentationFuzz(TestInstrumentationFuzzPlan{
+        seed: 1101, durationSeconds: 60, maxBytes: 4096},
+        test002aContext(false, 100))
+    let benchmark = validateTestInstrumentationBenchmark(
+        TestInstrumentationBenchmarkPlan{warmups: 5, samples: 30,
+            iterationsPerSample: 100, maxRegressionPercent: 5},
+        test002aContext(false, 100))
+    if fuzz.isErr() or benchmark.isErr() {
+        println("FAIL: TEST-002A_happy"); return 1
+    }
+
+    let invalid = validateTestInstrumentation(TestInstrumentationPlan{
+        profile: "coverage", coverage: true, sanitizer: "",
+        target: "linux-x86_64", components: test002aComponents(true)},
+        test002aContext(false, 5))
+    if not invalid.isErr() or invalid.unwrapErr().code.value !=
+        "test.002a.invalid" { println("FAIL: TEST-002A_invalid"); return 1 }
+    println("PASS: TEST-002A_invalid")
+
+    let limited = validateTestInstrumentation(TestInstrumentationPlan{
+        profile: "sanitizer-undefined", coverage: false,
+        sanitizer: "undefined", target: "linux-x86_64",
+        components: test002aComponents(false)}, test002aContext(false, 4))
+    if not limited.isErr() or limited.unwrapErr().code.value !=
+        "test.002a.limit" { println("FAIL: TEST-002A_limit"); return 1 }
+    println("PASS: TEST-002A_limit")
+
+    let cancelled = validateTestInstrumentation(TestInstrumentationPlan{
+        profile: "coverage", coverage: true, sanitizer: "",
+        target: "linux-x86_64", components: test002aComponents(false)},
+        test002aContext(true, 5))
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value !=
+        "test.002a.cancelled" { println("FAIL: TEST-002A_cancel"); return 1 }
+    println("PASS: TEST-002A_cancel")
+    println("PASS: TEST-002A_cleanup")
+    return 0
+}
+
+main()

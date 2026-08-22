@@ -14442,6 +14442,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
         }
     }
+    if g_noFork == 1 and (effectiveTarget == "linux-x86_64" or
+        effectiveTarget == "linux-arm64" or
+        effectiveTarget == "linux-riscv64" or
+        effectiveTarget == "android-arm64") {
+
+        // A no-fork build is a process-topology contract, not just a module
+        // scheduler hint. Bound LLD and its ThinLTO backend as well so a
+        // pids-limited test scope cannot fail while creating linker workers.
+        linkCmd = linkCmd + " -Wl,--threads=1,--thinlto-jobs=1 "
+    }
     if g_releaseMode and llFiles.length() > 1 and normalizedCrossTarget != "" {
         println("  [2.5] Skipping merged llc release path for cross-target build: " + effectiveTarget)
     }
@@ -15546,7 +15556,7 @@ fun printLspUsage() r: Void {
 }
 
 fun printTestUsage() r: Void {
-    println("Usage: seen test <project> [--filter <text>] [--profile default|ci] [--jobs 1] [--timeout <duration>]")
+    println("Usage: seen test <project> [--filter <text>] [--profile default|ci|coverage|sanitizer-undefined|sanitizer-thread] [--jobs 1] [--timeout <duration>]")
     println("       [--include-ignored] [--include-slow] [--allow-privileged]")
     println("       [--report json:<path>] [--report junit:<path>]")
     return
@@ -16274,7 +16284,10 @@ fun main() r: Int {
             parsed.valueOr("--timeout", "600"))
         let profile = parsed.valueOr("--profile", "default")
         if jobs != 1 or timeoutSeconds < 1 or
-            (profile != "default" and profile != "ci") {
+            (profile != "default" and profile != "ci" and
+             profile != "coverage" and
+             profile != "sanitizer-undefined" and
+             profile != "sanitizer-thread") {
 
             println("Error: [test.001b.invalid] invalid test runner options")
             printTestUsage()

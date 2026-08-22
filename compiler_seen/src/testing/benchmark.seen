@@ -1,0 +1,39 @@
+/// Pinned benchmark policy for TEST-002A instrumentation evidence parsing.
+
+import core.result.{Result, Ok, Err}
+import core.error.{SeenError}
+import core.operation_context.{OperationContext}
+import testing.instrumentation.{test002aError}
+
+let TEST_INSTRUMENTATION_BENCHMARK_WARMUPS: Int = 5
+let TEST_INSTRUMENTATION_BENCHMARK_SAMPLES: Int = 30
+let TEST_INSTRUMENTATION_BENCHMARK_MAX_REGRESSION_PERCENT: Int = 5
+
+class TestInstrumentationBenchmarkPlan {
+    var warmups: Int
+    var samples: Int
+    var iterationsPerSample: Int
+    var maxRegressionPercent: Int
+}
+
+fun validateTestInstrumentationBenchmark(
+    plan: TestInstrumentationBenchmarkPlan, context: OperationContext)
+    r: Result<TestInstrumentationBenchmarkPlan, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<TestInstrumentationBenchmarkPlan, SeenError>(test002aError(
+            "test.002a.cancelled", "test instrumentation benchmark was cancelled"))
+    }
+    if plan.warmups != TEST_INSTRUMENTATION_BENCHMARK_WARMUPS or
+        plan.samples != TEST_INSTRUMENTATION_BENCHMARK_SAMPLES or
+        plan.iterationsPerSample < 1 or
+        plan.iterationsPerSample > context.limits.maxGraphModules or
+        plan.maxRegressionPercent < 0 or
+        plan.maxRegressionPercent >
+            TEST_INSTRUMENTATION_BENCHMARK_MAX_REGRESSION_PERCENT {
+
+        return Err<TestInstrumentationBenchmarkPlan, SeenError>(test002aError(
+            "test.002a.limit", "test instrumentation benchmark limits are invalid"))
+    }
+    return Ok<TestInstrumentationBenchmarkPlan, SeenError>(plan)
+}
