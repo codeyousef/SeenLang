@@ -7198,6 +7198,40 @@ fun lexicalSemanticModuleIdentity(modulePath: String) r: String {
 }
 
 ///
+/// Assign every discovered module to the aggregate visibility domain owned by
+/// its Seen manifest. Modules explicitly owned by the entry manifest retain
+/// that domain even when a nested manifest exists, while dependency manifests
+/// remain distinct. This preserves legacy project/package aggregation without
+/// exposing unimported declarations across dependency boundaries.
+///
+fun registerLexicalSemanticAggregateDomains(inputFile: String,
+    modulePaths: Array<String>, registry: SemanticDeclarationRegistry)
+    r: Void {
+
+    let entryManifest = findNearestSeenTomlForInput(inputFile)
+    let entryContent = loadFileContent(entryManifest)
+    let entryRoot = getSourceDir(entryManifest)
+    let entryModules = extractTomlProjectModules(entryContent)
+    let entryBuild = extractTomlBuildEntry(entryContent)
+    var moduleIndex = 0
+    while moduleIndex < modulePaths.length() {
+        let modulePath = modulePaths[moduleIndex]
+        var ownerManifest = findNearestSeenTomlForInput(modulePath)
+        if entryManifest != "" and inputBelongsToProject(entryRoot,
+            modulePath, entryModules, entryBuild) {
+
+            ownerManifest = entryManifest
+        }
+        if ownerManifest != "" {
+            registry.registerAggregateModule(
+                lexicalSemanticModuleIdentity(modulePath),
+                resolveRealInputPath(ownerManifest))
+        }
+        moduleIndex = moduleIndex + 1
+    }
+}
+
+///
 Collect one parsed module through the shared package-aware semantic boundary.
 Compile and check must both use this helper so logical imports bind to the same
 physical declaration identities before any full-body validation occurs.
@@ -7301,10 +7335,11 @@ fun validateLexicalSemanticModulePaths(modulePaths: Array<String>,
 /// the non-collecting bootstrap parent never retains both the semantic registry
 /// and the generator declaration registry into Pass 2.
 fun validateIsolatedLexicalSemanticGraph(modulePaths: Array<String>,
-    language: String, parseFullDeclarations: Bool,
+    inputFile: String, language: String, parseFullDeclarations: Bool,
     showCompileProgress: Int) r: Int {
 
     let registry = SemanticDeclarationRegistry.new()
+    registerLexicalSemanticAggregateDomains(inputFile, modulePaths, registry)
     var moduleIndex = 0
     while moduleIndex < modulePaths.length() {
         let modulePath = modulePaths[moduleIndex]
@@ -12827,6 +12862,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
     let pass1Start = getTraceTimeSeconds()
     let semanticRegistry = SemanticDeclarationRegistry.new()
+    registerLexicalSemanticAggregateDomains(resolvedInput, modulePaths,
+        semanticRegistry)
     let isolateCompileSemanticGate = modulePaths.length() > 48 and
         g_noFork == 0
     var passIdx = 0
@@ -12890,7 +12927,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         if semanticCoordinatorPid == 0 {
             let isolatedSemanticStatus = validateIsolatedLexicalSemanticGraph(
-                modulePaths, language, isDeterministicProfile, 1)
+                modulePaths, resolvedInput, language, isDeterministicProfile,
+                1)
             processExit(isolatedSemanticStatus)
         }
         semanticValidationStatus = waitPid(semanticCoordinatorPid)
@@ -14991,6 +15029,8 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
     first so forward and cross-package references resolve against one registry.
     ///
     let checkSemanticRegistry = SemanticDeclarationRegistry.new()
+    registerLexicalSemanticAggregateDomains(resolvedInput, checkModulePaths,
+        checkSemanticRegistry)
     var checkSemanticIndex = 0
     while checkSemanticIndex < checkModulePaths.length() {
         let checkSemanticPath = checkModulePaths[checkSemanticIndex]

@@ -165,6 +165,7 @@ class SemanticDeclarationRegistry {
     var canonicalNames: Array<String>
     var kinds: Array<String>
     var typeIdentities: Array<String>
+    var declarationDetails: Array<String>
     var files: Array<String>
     var lines: Array<Int>
     var columns: Array<Int>
@@ -180,6 +181,8 @@ class SemanticDeclarationRegistry {
     var resolvedImportOwners: Array<String>
     var resolvedImportLogicalModules: Array<String>
     var resolvedImportTargetModules: Array<String>
+    var aggregateModules: Array<String>
+    var aggregateDomains: Array<String>
     var genericOwners: Array<String>
     var genericNames: Array<String>
     var genericModifiers: Array<String>
@@ -199,6 +202,7 @@ class SemanticDeclarationRegistry {
             canonicalNames: Array<String>(),
             kinds: Array<String>(),
             typeIdentities: Array<String>(),
+            declarationDetails: Array<String>(),
             files: Array<String>(),
             lines: Array<Int>(),
             columns: Array<Int>(),
@@ -214,6 +218,8 @@ class SemanticDeclarationRegistry {
             resolvedImportOwners: Array<String>(),
             resolvedImportLogicalModules: Array<String>(),
             resolvedImportTargetModules: Array<String>(),
+            aggregateModules: Array<String>(),
+            aggregateDomains: Array<String>(),
             genericOwners: Array<String>(),
             genericNames: Array<String>(),
             genericModifiers: Array<String>(),
@@ -245,6 +251,90 @@ class SemanticDeclarationRegistry {
         return -1
     }
 
+    ///
+    Register the manifest-owned aggregate visibility domain for one physical
+    module. The compiler establishes these bindings before declaration
+    collection so both streaming and forked Pass 1b checks inherit the same
+    immutable ownership map.
+    ///
+    fun registerAggregateModule(moduleName: String, domain: String) r: Void {
+        if moduleName == "" or domain == "" {
+            return
+        }
+        var i = 0
+        while i < this.aggregateModules.length() {
+            if this.aggregateModules[i] == moduleName {
+                this.aggregateDomains[i] = domain
+                return
+            }
+            i = i + 1
+        }
+        this.aggregateModules.push(moduleName)
+        this.aggregateDomains.push(domain)
+    }
+
+    fun aggregateDomainForModule(moduleName: String) r: String {
+        var i = 0
+        while i < this.aggregateModules.length() and
+            i < this.aggregateDomains.length() {
+
+            if this.aggregateModules[i] == moduleName {
+                return this.aggregateDomains[i]
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fun lookupAggregateIndex(moduleName: String, name: String) r: Int {
+        let ownerDomain = this.aggregateDomainForModule(moduleName)
+        if ownerDomain == "" {
+            return -1
+        }
+        var aggregateMatch = -1
+        var i = 0
+        while i < this.names.length() and i < this.modules.length() {
+            if this.names[i] == name and
+                this.aggregateDomainForModule(this.modules[i]) == ownerDomain {
+
+                if aggregateMatch >= 0 and aggregateMatch != i {
+                    if not this.aggregateDeclarationsAreEquivalent(
+                        aggregateMatch, i) {
+
+                        return -2
+                    }
+                } else {
+                    aggregateMatch = i
+                }
+            }
+            i = i + 1
+        }
+        return aggregateMatch
+    }
+
+    fun aggregateDeclarationsAreEquivalent(left: Int, right: Int) r: Bool {
+        if left < 0 or right < 0 or left >= this.kinds.length() or
+            right >= this.kinds.length() or
+            left >= this.declarationDetails.length() or
+            right >= this.declarationDetails.length() {
+
+            return false
+        }
+        if this.kinds[left] != "Global" or this.kinds[right] != "Global" {
+            return false
+        }
+        let leftDetail = this.declarationDetails[left]
+        let rightDetail = this.declarationDetails[right]
+        return leftDetail.startsWith("L") and leftDetail == rightDetail
+    }
+
+    fun setDeclarationDetail(canonicalName: String, detail: String) r: Void {
+        let index = this.findCanonical(canonicalName)
+        if index >= 0 and index < this.declarationDetails.length() {
+            this.declarationDetails[index] = detail
+        }
+    }
+
     fun registerDeclaration(moduleName: String, name: String, kind: String,
         typeIdentity: String, file: String, line: Int, column: Int) r: Bool {
 
@@ -256,6 +346,7 @@ class SemanticDeclarationRegistry {
         this.canonicalNames.push(canonicalName)
         this.kinds.push(kind)
         this.typeIdentities.push(typeIdentity)
+        this.declarationDetails.push(typeIdentity)
         this.files.push(file)
         this.lines.push(line)
         this.columns.push(column)
@@ -321,7 +412,7 @@ class SemanticDeclarationRegistry {
             }
             if importedMatch >= 0 { return importedMatch }
         }
-        return -1
+        return this.lookupAggregateIndex(moduleName, name)
     }
 
     fun registerImport(ownerModule: String, alias: String,

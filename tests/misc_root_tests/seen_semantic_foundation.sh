@@ -281,4 +281,177 @@ if ! grep -Fq "E_TYPE_ARITY" "$GENERIC_ARITY_LOG" ||
     exit 1
 fi
 
-echo "PASS: check/compile semantic parity, package identities, and generic arity"
+AGGREGATE_DIR="$WORK_DIR/project-aggregate"
+mkdir -p "$AGGREGATE_DIR/src"
+cat >"$AGGREGATE_DIR/Seen.toml" <<'EOF'
+manifest-version = 1
+
+[project]
+name = "project_aggregate_visibility"
+version = "0.1.0"
+language = "en"
+
+modules = [
+    "src/shared.seen",
+    "src/consumer.seen",
+    "src/constants_a.seen",
+    "src/constants_b.seen",
+EOF
+
+aggregate_index=0
+while [ "$aggregate_index" -lt 45 ]; do
+    printf '    "src/filler_%s.seen",\n' "$aggregate_index" \
+        >>"$AGGREGATE_DIR/Seen.toml"
+    cat >"$AGGREGATE_DIR/src/filler_$aggregate_index.seen" <<EOF
+class AggregateFiller$aggregate_index {
+    value: Int
+}
+EOF
+    aggregate_index=$((aggregate_index + 1))
+done
+cat >>"$AGGREGATE_DIR/Seen.toml" <<'EOF'
+]
+
+[build]
+entry = "main.seen"
+EOF
+
+cat >"$AGGREGATE_DIR/src/shared.seen" <<'EOF'
+class ProjectShared {
+    value: Int
+}
+EOF
+
+cat >"$AGGREGATE_DIR/src/consumer.seen" <<'EOF'
+class ProjectConsumer {
+    value: ProjectShared
+}
+
+let DERIVED_PROJECT_CONSTANT = SHARED_PROJECT_CONSTANT * 2
+
+fun projectConstantValue(r: Int) r: Int {
+    return SHARED_PROJECT_CONSTANT + DERIVED_PROJECT_CONSTANT + r - r
+}
+EOF
+
+cat >"$AGGREGATE_DIR/src/constants_a.seen" <<'EOF'
+let SHARED_PROJECT_CONSTANT = 7
+EOF
+
+cat >"$AGGREGATE_DIR/src/constants_b.seen" <<'EOF'
+let SHARED_PROJECT_CONSTANT = 7
+EOF
+
+cat >"$AGGREGATE_DIR/main.seen" <<'EOF'
+fun main() r: Int {
+    if projectConstantValue(3) == 21 {
+        return 0
+    }
+    return 1
+}
+EOF
+
+AGGREGATE_CHECK_FORK_LOG="$WORK_DIR/aggregate-check-fork.log"
+if ! run_compiler check "$AGGREGATE_DIR/main.seen" \
+    >"$AGGREGATE_CHECK_FORK_LOG" 2>&1; then
+
+    echo "FAIL: forked Pass 1b lost project aggregate declarations" >&2
+    tail -n 120 "$AGGREGATE_CHECK_FORK_LOG" >&2 || true
+    exit 1
+fi
+assert_check_stayed_frontend_only "$AGGREGATE_CHECK_FORK_LOG"
+
+AGGREGATE_COMPILE_FORK_LOG="$WORK_DIR/aggregate-compile-fork.log"
+if ! run_compiler compile "$AGGREGATE_DIR/main.seen" \
+    "$WORK_DIR/aggregate-fork" --fast --no-cache \
+    >"$AGGREGATE_COMPILE_FORK_LOG" 2>&1; then
+
+    echo "FAIL: forked compile lost project aggregate declarations" >&2
+    tail -n 120 "$AGGREGATE_COMPILE_FORK_LOG" >&2 || true
+    exit 1
+fi
+
+AGGREGATE_COMPILE_NO_FORK_LOG="$WORK_DIR/aggregate-compile-no-fork.log"
+if ! run_compiler compile "$AGGREGATE_DIR/main.seen" \
+    "$WORK_DIR/aggregate-no-fork" --fast --no-cache --no-fork \
+    >"$AGGREGATE_COMPILE_NO_FORK_LOG" 2>&1; then
+
+    echo "FAIL: no-fork compile lost project aggregate declarations" >&2
+    tail -n 120 "$AGGREGATE_COMPILE_NO_FORK_LOG" >&2 || true
+    exit 1
+fi
+"$WORK_DIR/aggregate-fork"
+"$WORK_DIR/aggregate-no-fork"
+
+cat >"$AGGREGATE_DIR/src/consumer.seen" <<'EOF'
+class ProjectConsumer {
+    value: ActuallyUnknownProjectType
+}
+
+let DERIVED_PROJECT_CONSTANT = SHARED_PROJECT_CONSTANT * 2
+
+fun projectConstantValue(r: Int) r: Int {
+    return SHARED_PROJECT_CONSTANT + DERIVED_PROJECT_CONSTANT + r - r
+}
+EOF
+
+AGGREGATE_UNKNOWN_FORK_LOG="$WORK_DIR/aggregate-unknown-fork.log"
+if run_compiler compile "$AGGREGATE_DIR/main.seen" \
+    "$WORK_DIR/aggregate-unknown-fork" --fast --no-cache \
+    >"$AGGREGATE_UNKNOWN_FORK_LOG" 2>&1; then
+
+    echo "FAIL: forked compile accepted an actually unknown project type" >&2
+    exit 1
+fi
+AGGREGATE_UNKNOWN_NO_FORK_LOG="$WORK_DIR/aggregate-unknown-no-fork.log"
+if run_compiler compile "$AGGREGATE_DIR/main.seen" \
+    "$WORK_DIR/aggregate-unknown-no-fork" --fast --no-cache --no-fork \
+    >"$AGGREGATE_UNKNOWN_NO_FORK_LOG" 2>&1; then
+
+    echo "FAIL: no-fork compile accepted an actually unknown project type" >&2
+    exit 1
+fi
+grep -E '^error\[E_TYPE_UNKNOWN\]:|^  --> ' \
+    "$AGGREGATE_UNKNOWN_FORK_LOG" >"$WORK_DIR/aggregate-fork.diag" || true
+grep -E '^error\[E_TYPE_UNKNOWN\]:|^  --> ' \
+    "$AGGREGATE_UNKNOWN_NO_FORK_LOG" >"$WORK_DIR/aggregate-no-fork.diag" || true
+if [ ! -s "$WORK_DIR/aggregate-fork.diag" ] ||
+    ! diff -u "$WORK_DIR/aggregate-fork.diag" \
+        "$WORK_DIR/aggregate-no-fork.diag"; then
+
+    echo "FAIL: forked and no-fork project diagnostics differ" >&2
+    tail -n 120 "$AGGREGATE_UNKNOWN_FORK_LOG" >&2 || true
+    tail -n 120 "$AGGREGATE_UNKNOWN_NO_FORK_LOG" >&2 || true
+    exit 1
+fi
+
+cat >"$AGGREGATE_DIR/src/consumer.seen" <<'EOF'
+class ProjectConsumer {
+    value: ProjectShared
+}
+
+let DERIVED_PROJECT_CONSTANT = SHARED_PROJECT_CONSTANT * 2
+
+fun projectConstantValue(r: Int) r: Int {
+    return SHARED_PROJECT_CONSTANT + DERIVED_PROJECT_CONSTANT + r - r
+}
+EOF
+cat >"$AGGREGATE_DIR/src/constants_b.seen" <<'EOF'
+let SHARED_PROJECT_CONSTANT = 8
+EOF
+AGGREGATE_CONFLICT_LOG="$WORK_DIR/aggregate-conflict.log"
+if run_compiler check "$AGGREGATE_DIR/main.seen" \
+    >"$AGGREGATE_CONFLICT_LOG" 2>&1; then
+
+    echo "FAIL: conflicting aggregate constants were accepted" >&2
+    exit 1
+fi
+if ! grep -Fq "E_BINDING_AMBIGUOUS" "$AGGREGATE_CONFLICT_LOG" ||
+    ! grep -Fq "SHARED_PROJECT_CONSTANT" "$AGGREGATE_CONFLICT_LOG"; then
+
+    echo "FAIL: conflicting aggregate constants lacked a precise diagnostic" >&2
+    tail -n 120 "$AGGREGATE_CONFLICT_LOG" >&2 || true
+    exit 1
+fi
+
+echo "PASS: check/compile semantic parity, manifest-scoped aggregate visibility, package identities, and generic arity"
