@@ -1,0 +1,40 @@
+import release.gate0_certification.{Gate0CertificationLimits, Gate0CompilerPin,
+    Gate0CertificationStep, Gate0PlatformApplicability,
+    Gate0CertificationEvidence, validateGate0Certification}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let steps = Array<Gate0CertificationStep>()
+    for name in ["build", "test", "fuzz-smoke", "package"] {
+        steps.push(Gate0CertificationStep{name: name, status: "passed",
+            artifactSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+    }
+    let platforms = Array<Gate0PlatformApplicability>()
+    platforms.push(Gate0PlatformApplicability{name: "linux-x86_64", support: "required"})
+    platforms.push(Gate0PlatformApplicability{name: "linux-arm64", support: "static-policy"})
+    platforms.push(Gate0PlatformApplicability{name: "macos", support: "unsupported-fail-closed"})
+    platforms.push(Gate0PlatformApplicability{name: "windows", support: "unsupported-fail-closed"})
+    let evidence = Gate0CertificationEvidence{schema: "seen-gate0-certification-v1",
+        target: "linux-x86_64", sourceCommit: "1111111111111111111111111111111111111111",
+        cleanCheckout: true, activeCi: true, repairAllowed: false,
+        disabledWorkflowCount: 0,
+        limits: Gate0CertificationLimits{memoryMaxBytes: 8589934592,
+            memorySwapMaxBytes: 0, pidsMax: 24, jobs: 1, optJobs: 1,
+            timeoutSeconds: 1800},
+        compiler: Gate0CompilerPin{path: "bootstrap/stage1_frozen",
+            sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            compatibilitySha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            pinned: true}, steps: steps, platforms: platforms}
+    let context = OperationContext{cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 4, maxIdentityBytes: 128,
+            maxVersionBytes: 64, maxManifestBytes: 1048576,
+            maxPathBytes: 4096, maxGraphModules: 4,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "gate0-example"}}
+    if validateGate0Certification(evidence, context).isErr() { return 1 }
+    println("clean-checkout Gate 0 evidence is verified")
+    return 0
+}
+
+main()

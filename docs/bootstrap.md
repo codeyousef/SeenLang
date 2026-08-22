@@ -104,9 +104,11 @@ rebuild.
 Required pull-request CI uses the same boundary through
 `scripts/run_ci_required.sh`. The wrapper derives a cap from current memory,
 creates a project-local artifact directory, enters the hard scope with a
-540-second deadline, and then invokes `scripts/ci_required.sh`. The inner gate
+10,800-second deadline, and then invokes `scripts/ci_required.sh`. The inner gate
 must successfully run `scripts/run_in_hard_memory_scope.sh --verify-only`
-before any required checks proceed. Its versioned contract is
+before any required checks proceed. The final required gate performs the
+clean-checkout full rebuild, canonical Seen test, fuzz smoke, and deterministic
+package certification described by `seen-gate0-certification-v1`. Its versioned contract is
 `docs/architecture/ci-containment.json`; unsupported hosts fail before running
 the gate.
 

@@ -1,0 +1,166 @@
+/// Native clean-checkout Gate 0 certification policy for P0-GATE0-001.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
+import core.operation_context.{OperationContext}
+
+let GATE0_CERTIFICATION_SCHEMA: String = "seen-gate0-certification-v1"
+
+class Gate0CertificationLimits {
+    var memoryMaxBytes: Int64
+    var memorySwapMaxBytes: Int64
+    var pidsMax: Int
+    var jobs: Int
+    var optJobs: Int
+    var timeoutSeconds: Int
+}
+
+class Gate0CompilerPin {
+    var path: String
+    var sha256: String
+    var compatibilitySha256: String
+    var pinned: Bool
+}
+
+class Gate0CertificationStep {
+    var name: String
+    var status: String
+    var artifactSha256: String
+}
+
+class Gate0PlatformApplicability {
+    var name: String
+    var support: String
+}
+
+class Gate0CertificationEvidence {
+    var schema: String
+    var target: String
+    var sourceCommit: String
+    var cleanCheckout: Bool
+    var activeCi: Bool
+    var repairAllowed: Bool
+    var disabledWorkflowCount: Int
+    var limits: Gate0CertificationLimits
+    var compiler: Gate0CompilerPin
+    var steps: Array<Gate0CertificationStep>
+    var platforms: Array<Gate0PlatformApplicability>
+}
+
+fun p0Gate0Error(code: String, message: String) r: SeenError {
+    return SeenError{code: AsciiString{value: code},
+        subsystem: AsciiString{value: "release.gate0-certification"},
+        operation: AsciiString{value: "certify-clean-checkout"},
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public}
+}
+
+fun gate0Digest(value: String, size: Int) r: Bool {
+    if value.length() != size { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let digit = byte >= 48 and byte <= 57
+        let lowerHex = byte >= 97 and byte <= 102
+        if not digit and not lowerHex { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun gate0SafePath(value: String) r: Bool {
+    if value == "" or value.length() > 4096 or value.startsWith("/") or
+        value.contains("\\") or value.contains("//") { return false }
+    let parts = value.split("/")
+    var index = 0
+    while index < parts.length() {
+        if parts[index] == "" or parts[index] == "." or parts[index] == ".." {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun gate0StepName(index: Int) r: String {
+    if index == 0 { return "build" }
+    if index == 1 { return "test" }
+    if index == 2 { return "fuzz-smoke" }
+    return "package"
+}
+
+fun gate0PlatformName(index: Int) r: String {
+    if index == 0 { return "linux-x86_64" }
+    if index == 1 { return "linux-arm64" }
+    if index == 2 { return "macos" }
+    return "windows"
+}
+
+fun gate0PlatformSupport(index: Int) r: String {
+    if index == 0 { return "required" }
+    if index == 1 { return "static-policy" }
+    return "unsupported-fail-closed"
+}
+
+fun validateGate0Certification(evidence: Gate0CertificationEvidence,
+    context: OperationContext) r: Result<Gate0CertificationEvidence, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<Gate0CertificationEvidence, SeenError>(p0Gate0Error(
+            "p0.gate0.001.cancelled", "Gate 0 certification was cancelled"))
+    }
+    if evidence.target != "linux-x86_64" {
+        return Err<Gate0CertificationEvidence, SeenError>(p0Gate0Error(
+            "p0.gate0.001.platform", "Gate 0 certification target is unsupported"))
+    }
+    if evidence.schema != GATE0_CERTIFICATION_SCHEMA or
+        not gate0Digest(evidence.sourceCommit, 40) or
+        not evidence.cleanCheckout or not evidence.activeCi or
+        evidence.repairAllowed or evidence.disabledWorkflowCount != 0 or
+        not evidence.compiler.pinned or
+        not gate0SafePath(evidence.compiler.path) or
+        not gate0Digest(evidence.compiler.sha256, 64) or
+        not gate0Digest(evidence.compiler.compatibilitySha256, 64) {
+
+        return Err<Gate0CertificationEvidence, SeenError>(p0Gate0Error(
+            "p0.gate0.001.invalid", "Gate 0 identity or policy evidence is invalid"))
+    }
+    if evidence.limits.memoryMaxBytes < 1 or
+        evidence.limits.memorySwapMaxBytes != 0 or
+        evidence.limits.pidsMax < 1 or evidence.limits.pidsMax > 24 or
+        evidence.limits.jobs != 1 or evidence.limits.optJobs != 1 or
+        evidence.limits.timeoutSeconds < 1 or
+        evidence.limits.timeoutSeconds > 3600 or
+        evidence.steps.length() != 4 or
+        evidence.platforms.length() != 4 or
+        evidence.steps.length() > context.limits.maxGraphModules or
+        evidence.platforms.length() > context.limits.maxTargets {
+
+        return Err<Gate0CertificationEvidence, SeenError>(p0Gate0Error(
+            "p0.gate0.001.limit", "Gate 0 resource or evidence limits are invalid"))
+    }
+    var stepIndex = 0
+    while stepIndex < evidence.steps.length() {
+        let step = evidence.steps[stepIndex]
+        if step.name != gate0StepName(stepIndex) or step.status != "passed" or
+            not gate0Digest(step.artifactSha256, 64) {
+            return Err<Gate0CertificationEvidence, SeenError>(p0Gate0Error(
+                "p0.gate0.001.unverified", "a required Gate 0 step is not verified"))
+        }
+        stepIndex = stepIndex + 1
+    }
+    var platformIndex = 0
+    while platformIndex < evidence.platforms.length() {
+        let platform = evidence.platforms[platformIndex]
+        if platform.name != gate0PlatformName(platformIndex) or
+            platform.support != gate0PlatformSupport(platformIndex) {
+            return Err<Gate0CertificationEvidence, SeenError>(p0Gate0Error(
+                "p0.gate0.001.platform", "platform applicability is not canonical"))
+        }
+        platformIndex = platformIndex + 1
+    }
+    return Ok<Gate0CertificationEvidence, SeenError>(evidence)
+}

@@ -1,0 +1,72 @@
+import release.gate0_certification.{Gate0CertificationLimits, Gate0CompilerPin,
+    Gate0CertificationStep, Gate0PlatformApplicability,
+    Gate0CertificationEvidence, validateGate0Certification}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun p0Gate0Context(cancelled: Bool, modules: Int) r: OperationContext {
+    return OperationContext{cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 4, maxIdentityBytes: 128,
+            maxVersionBytes: 64, maxManifestBytes: 1048576,
+            maxPathBytes: 4096, maxGraphModules: modules,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "p0-gate0-001"}}
+}
+
+fun p0Gate0Evidence() r: Gate0CertificationEvidence {
+    let steps = Array<Gate0CertificationStep>()
+    steps.push(Gate0CertificationStep{name: "build", status: "passed",
+        artifactSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+    steps.push(Gate0CertificationStep{name: "test", status: "passed",
+        artifactSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"})
+    steps.push(Gate0CertificationStep{name: "fuzz-smoke", status: "passed",
+        artifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"})
+    steps.push(Gate0CertificationStep{name: "package", status: "passed",
+        artifactSha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"})
+    let platforms = Array<Gate0PlatformApplicability>()
+    platforms.push(Gate0PlatformApplicability{name: "linux-x86_64", support: "required"})
+    platforms.push(Gate0PlatformApplicability{name: "linux-arm64", support: "static-policy"})
+    platforms.push(Gate0PlatformApplicability{name: "macos", support: "unsupported-fail-closed"})
+    platforms.push(Gate0PlatformApplicability{name: "windows", support: "unsupported-fail-closed"})
+    return Gate0CertificationEvidence{schema: "seen-gate0-certification-v1",
+        target: "linux-x86_64",
+        sourceCommit: "1111111111111111111111111111111111111111",
+        cleanCheckout: true, activeCi: true, repairAllowed: false,
+        disabledWorkflowCount: 0,
+        limits: Gate0CertificationLimits{memoryMaxBytes: 8589934592,
+            memorySwapMaxBytes: 0, pidsMax: 24, jobs: 1, optJobs: 1,
+            timeoutSeconds: 1800},
+        compiler: Gate0CompilerPin{path: "bootstrap/stage1_frozen",
+            sha256: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            compatibilitySha256: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            pinned: true}, steps: steps, platforms: platforms}
+}
+
+fun main() r: Int {
+    let happy = validateGate0Certification(p0Gate0Evidence(), p0Gate0Context(false, 4))
+    if happy.isErr() { println("FAIL: P0-GATE0-001_happy"); return 1 }
+    println("PASS: P0-GATE0-001_happy")
+    let invalidEvidence = p0Gate0Evidence()
+    invalidEvidence.repairAllowed = true
+    let invalid = validateGate0Certification(invalidEvidence, p0Gate0Context(false, 4))
+    if not invalid.isErr() or invalid.unwrapErr().code.value != "p0.gate0.001.invalid" {
+        println("FAIL: P0-GATE0-001_invalid"); return 1
+    }
+    println("PASS: P0-GATE0-001_invalid")
+    let limitedEvidence = p0Gate0Evidence()
+    limitedEvidence.limits.pidsMax = 25
+    let limited = validateGate0Certification(limitedEvidence, p0Gate0Context(false, 4))
+    if not limited.isErr() or limited.unwrapErr().code.value != "p0.gate0.001.limit" {
+        println("FAIL: P0-GATE0-001_limit"); return 1
+    }
+    println("PASS: P0-GATE0-001_limit")
+    let cancelled = validateGate0Certification(p0Gate0Evidence(), p0Gate0Context(true, 4))
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value != "p0.gate0.001.cancelled" {
+        println("FAIL: P0-GATE0-001_cancel"); return 1
+    }
+    println("PASS: P0-GATE0-001_cancel")
+    println("PASS: P0-GATE0-001_cleanup")
+    return 0
+}
+
+main()

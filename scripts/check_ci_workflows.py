@@ -32,10 +32,15 @@ jobs:
   required:
     name: required
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 210
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up pinned Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.5'
+          cache: false
       - name: Run required contained gates
         run: scripts/run_ci_required.sh
 """.encode("utf-8")
@@ -133,6 +138,8 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "active_workflows": workflows,
         "checkout": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
         "gate": "scripts/run_ci_required.sh",
+        "go": "1.26.5",
+        "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
         "job_count": 1,
         "platforms": {
             "linux-arm64": "static-policy",
@@ -142,7 +149,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         },
         "required_check": "CI / required",
         "runner": "ubuntu-24.04",
-        "timeout_minutes": 10,
+        "timeout_minutes": 210,
         "version": 1,
     }
 

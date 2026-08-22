@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native `seen-gate0-certification-v1` evidence and a clean-checkout
+  required-CI gate that hash-verifies the pinned bootstrap compiler, performs
+  the full contained serial rebuild and canonical `seen test` acceptance,
+  fuzz-smokes the bounded parser with seed 1101, proves deterministic package
+  bytes, records platform applicability, and forbids repair or disabled
+  workflow fallbacks.
+
 - Added `seen-release-artifact-manifest-v1` and native CORE-004B policy for an
   exact, ordered compiler, runtime, standard-library, and package-client set.
   Release components now carry canonical source pins, checksums, verified

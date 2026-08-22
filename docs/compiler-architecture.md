@@ -349,14 +349,20 @@ memory and rejects any byte-level drift before a pull request can merge.
 ## Required CI contract
 
 Gate 0 has one active workflow and one required job: `.github/workflows/ci.yml`
-publishes `CI / required` from an Ubuntu 24.04 runner. It uses a commit-pinned
-checkout action, read-only repository permissions, a ten-minute timeout, and
-the fail-closed `scripts/run_ci_required.sh` entry point. That outer entry point
+publishes `CI / required` from an Ubuntu 24.04 runner. It uses commit-pinned
+checkout and Go setup actions, exact Go 1.26.5, read-only repository
+permissions, a 210-minute job timeout, and the fail-closed
+`scripts/run_ci_required.sh` entry point. That outer entry point
 derives the aggregate cap from live system memory, enters a Linux cgroup v2
 user-systemd scope, and applies zero swap, serial workers, a 24-task ceiling,
-per-process virtual-memory limits, and a 540-second child timeout. The inner
+per-process virtual-memory limits, and a 10,800-second child timeout. The inner
 `scripts/ci_required.sh` gate re-reads the live kernel scope before running the
-deterministic policy and containment regressions; an environment marker alone
+deterministic policy and containment regressions. It then invokes
+`scripts/certify_gate0_clean_checkout.sh`, which refuses a dirty checkout,
+hash-verifies the frozen compiler and compatibility record, performs the full
+serial rebuild and Stage-1 acceptance surface, fuzz-smokes the bounded evidence
+parser with seed 1101, packages the same source package twice, and records
+canonical `seen-gate0-certification-v1` evidence. An environment marker alone
 is never accepted as evidence.
 
 The aggregate and main-compiler limits are the smaller of 60% of total memory
@@ -382,6 +388,15 @@ workflow byte-for-byte with the reviewed contract. Run
 `tests/misc_root_tests/seen_ci_workflow_contract.sh` and
 `tests/misc_root_tests/seen_ci_containment_contract.sh` after any CI-policy
 change.
+
+The native `release.gate0_certification` policy validates the clean-checkout,
+active-CI, pinned compiler, resource-limit, platform-applicability, and ordered
+build/test/fuzz-smoke/package evidence before Gate 0 can close. Repair is
+explicitly forbidden and disabled workflows must be absent. Linux x86-64 is
+required; Linux ARM64 receives static-policy coverage; macOS and Windows fail
+closed until equivalent containment exists. The compiling example is
+`compiler_seen/examples/gate0_certification.seen`. This certification adds no
+foreign symbol, so the native-boundary ledger remains unchanged.
 
 ## Release compatibility contract
 

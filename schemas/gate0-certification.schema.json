@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/gate0-certification.schema.json",
+  "title": "Seen clean-checkout Gate 0 certification evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["active_ci", "clean_checkout", "compiler", "disabled_workflow_count", "limits", "platforms", "repair_allowed", "schema", "source_commit", "steps", "target"],
+  "properties": {
+    "active_ci": {"const": true},
+    "clean_checkout": {"const": true},
+    "compiler": {
+      "type": "object", "additionalProperties": false,
+      "required": ["compatibility_sha256", "path", "pinned", "sha256"],
+      "properties": {
+        "compatibility_sha256": {"$ref": "#/$defs/sha256"},
+        "path": {"const": "bootstrap/stage1_frozen"},
+        "pinned": {"const": true},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "disabled_workflow_count": {"const": 0},
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["jobs", "memory_max_bytes", "memory_swap_max_bytes", "opt_jobs", "pids_max", "timeout_seconds"],
+      "properties": {
+        "jobs": {"const": 1}, "memory_max_bytes": {"type": "integer", "minimum": 1},
+        "memory_swap_max_bytes": {"const": 0}, "opt_jobs": {"const": 1},
+        "pids_max": {"type": "integer", "minimum": 1, "maximum": 24},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600}
+      }
+    },
+    "platforms": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "prefixItems": [
+        {"$ref": "#/$defs/linuxX64"}, {"$ref": "#/$defs/linuxArm64"},
+        {"$ref": "#/$defs/macos"}, {"$ref": "#/$defs/windows"}
+      ]
+    },
+    "repair_allowed": {"const": false},
+    "schema": {"const": "seen-gate0-certification-v1"},
+    "source_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "steps": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "prefixItems": [
+        {"$ref": "#/$defs/build"}, {"$ref": "#/$defs/test"},
+        {"$ref": "#/$defs/fuzz"}, {"$ref": "#/$defs/package"}
+      ]
+    },
+    "target": {"const": "linux-x86_64"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "stepBase": {"type": "object", "additionalProperties": false, "required": ["artifact_sha256", "name", "status"], "properties": {"artifact_sha256": {"$ref": "#/$defs/sha256"}, "name": {"type": "string"}, "status": {"const": "passed"}}},
+    "build": {"allOf": [{"$ref": "#/$defs/stepBase"}, {"properties": {"name": {"const": "build"}}}]},
+    "test": {"allOf": [{"$ref": "#/$defs/stepBase"}, {"properties": {"name": {"const": "test"}}}]},
+    "fuzz": {"allOf": [{"$ref": "#/$defs/stepBase"}, {"properties": {"name": {"const": "fuzz-smoke"}}}]},
+    "package": {"allOf": [{"$ref": "#/$defs/stepBase"}, {"properties": {"name": {"const": "package"}}}]},
+    "platformBase": {"type": "object", "additionalProperties": false, "required": ["name", "support"], "properties": {"name": {"type": "string"}, "support": {"type": "string"}}},
+    "linuxX64": {"allOf": [{"$ref": "#/$defs/platformBase"}, {"properties": {"name": {"const": "linux-x86_64"}, "support": {"const": "required"}}}]},
+    "linuxArm64": {"allOf": [{"$ref": "#/$defs/platformBase"}, {"properties": {"name": {"const": "linux-arm64"}, "support": {"const": "static-policy"}}}]},
+    "macos": {"allOf": [{"$ref": "#/$defs/platformBase"}, {"properties": {"name": {"const": "macos"}, "support": {"const": "unsupported-fail-closed"}}}]},
+    "windows": {"allOf": [{"$ref": "#/$defs/platformBase"}, {"properties": {"name": {"const": "windows"}, "support": {"const": "unsupported-fail-closed"}}}]}
+  }
+}
