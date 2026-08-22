@@ -73,6 +73,11 @@ python3 -m py_compile \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
     scripts/check_ci_containment.py
+python3 -m py_compile \
+    scripts/check_release_artifact_manifest.py \
+    scripts/benchmark_release_artifact_manifest.py \
+    scripts/measure_release_artifact_manifest_coverage.py \
+    tests/runner/test_release_artifact_manifest_unit.py
 python3 scripts/check_ci_workflows.py >/dev/null
 python3 scripts/check_ci_containment.py \
     docs/architecture/ci-containment.json >/dev/null
@@ -105,6 +110,7 @@ tests/misc_root_tests/seen_fuzz_corpus_contract.sh
 tests/misc_root_tests/seen_benchmark_evidence_contract.sh
 tests/misc_root_tests/seen_leak_soak_contract.sh
 tests/misc_root_tests/seen_bootstrap_reproducibility_contract.sh
+tests/misc_root_tests/seen_release_artifact_pins_contract.sh
 python3 scripts/benchmark_compatibility_runtime.py \
     releases/compatibility-manifest.json \
     tests/fixtures/core-002b/happy/benchmark.json

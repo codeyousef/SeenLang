@@ -1,177 +1,111 @@
 #!/usr/bin/env bash
-# Signs release artifacts using cosign (Sigstore) with optional KMS/HSM backend.
-#
-# Usage:
-#   sign_release.sh [--key <cosign-key>] [--kms <kms-uri>] [--keyless] <artifact>...
-#
-# Modes:
-#   --keyless     OIDC-based keyless signing (for CI with GitHub Actions OIDC)
-#   --key <path>  Sign with a local cosign key file
-#   --kms <uri>   Sign with KMS/HSM backend (e.g., gcpkms://, awskms://, hashivault://, pkcs11://)
-#
-# Each artifact produces:
-#   <artifact>.sha256   - SHA-256 checksum
-#   <artifact>.bundle   - Sigstore bundle (signature + certificate)
-#
-# Examples:
-#   # Keyless (CI)
-#   sign_release.sh --keyless seen-linux-x64
-#
-#   # Local key
-#   sign_release.sh --key cosign.key seen-linux-x64
-#
-#   # AWS KMS
-#   sign_release.sh --kms awskms:///arn:aws:kms:us-east-1:123456789:key/abcd-1234 seen-linux-x64
-#
-#   # PKCS#11 HSM
-#   sign_release.sh --kms pkcs11:token=mytoken;slot-id=0;pin-value=1234 seen-linux-x64
-
+# Sign, verify, and pin exactly the compiler/runtime/stdlib/package-client set.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}" && pwd -P)"
 MODE=""
 KEY_PATH=""
 KMS_URI=""
+VERSION=""
+SOURCE_COMMIT=""
+SOURCE_DIGEST=""
+TARGET="linux-x86_64"
+MANIFEST=""
+IDENTITY=""
+ISSUER=""
 ARTIFACTS=()
-VERIFY_AFTER_SIGN=true
 
+die() { echo "core.004b.invalid: $*" >&2; exit 1; }
 usage() {
-    echo "Usage: $0 [--key <path>] [--kms <uri>] [--keyless] [--no-verify] <artifact>..."
-    echo ""
-    echo "Options:"
-    echo "  --keyless       OIDC-based keyless signing (requires ambient credentials)"
-    echo "  --key <path>    Sign with a local cosign key file"
-    echo "  --kms <uri>     Sign with KMS/HSM backend"
-    echo "  --no-verify     Skip post-sign verification"
-    echo "  -h, --help      Show this help"
+    cat >&2 <<'EOF'
+Usage: sign_release.sh (--keyless | --key PATH | --kms URI)
+       --version VERSION --source-commit SHA1 --source-digest SHA256
+       --manifest PATH --signer-identity TEXT --signer-issuer TEXT
+       --artifact compiler=PATH --artifact runtime=PATH
+       --artifact stdlib=PATH --artifact package-client=PATH
+
+Every artifact is checksummed, signed, and verified. The canonical manifest is
+then generated, checksummed, signed, and verified. No verification bypass exists.
+EOF
     exit 1
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --keyless)
-            MODE="keyless"
-            shift
-            ;;
-        --key)
-            MODE="key"
-            KEY_PATH="$2"
-            shift 2
-            ;;
-        --kms)
-            MODE="kms"
-            KMS_URI="$2"
-            shift 2
-            ;;
-        --no-verify)
-            VERIFY_AFTER_SIGN=false
-            shift
-            ;;
-        -h|--help)
-            usage
-            ;;
-        -*)
-            echo "Error: Unknown option $1"
-            usage
-            ;;
-        *)
-            ARTIFACTS+=("$1")
-            shift
-            ;;
+        --keyless) MODE="keyless"; shift ;;
+        --key) [[ $# -ge 2 ]] || usage; MODE="key"; KEY_PATH="$2"; shift 2 ;;
+        --kms) [[ $# -ge 2 ]] || usage; MODE="kms"; KMS_URI="$2"; shift 2 ;;
+        --version) [[ $# -ge 2 ]] || usage; VERSION="$2"; shift 2 ;;
+        --source-commit) [[ $# -ge 2 ]] || usage; SOURCE_COMMIT="$2"; shift 2 ;;
+        --source-digest) [[ $# -ge 2 ]] || usage; SOURCE_DIGEST="$2"; shift 2 ;;
+        --target) [[ $# -ge 2 ]] || usage; TARGET="$2"; shift 2 ;;
+        --manifest) [[ $# -ge 2 ]] || usage; MANIFEST="$2"; shift 2 ;;
+        --signer-identity) [[ $# -ge 2 ]] || usage; IDENTITY="$2"; shift 2 ;;
+        --signer-issuer) [[ $# -ge 2 ]] || usage; ISSUER="$2"; shift 2 ;;
+        --artifact) [[ $# -ge 2 ]] || usage; ARTIFACTS+=("$2"); shift 2 ;;
+        -h|--help) usage ;;
+        *) die "unknown option: $1" ;;
     esac
 done
 
-if [[ -z "$MODE" ]]; then
-    echo "Error: Must specify --keyless, --key, or --kms"
-    usage
-fi
+[[ -n "$MODE" && -n "$VERSION" && -n "$SOURCE_COMMIT" && -n "$SOURCE_DIGEST" && -n "$MANIFEST" && -n "$IDENTITY" && -n "$ISSUER" ]] || usage
+[[ "${#ARTIFACTS[@]}" -eq 4 ]] || die "exactly four --artifact arguments are required"
+EXPECTED=(compiler runtime stdlib package-client)
+PATHS=()
+for index in 0 1 2 3; do
+    role="${ARTIFACTS[$index]%%=*}"
+    path="${ARTIFACTS[$index]#*=}"
+    [[ "$role" == "${EXPECTED[$index]}" && "$path" != "${ARTIFACTS[$index]}" ]] || die "artifact roles must be ordered compiler, runtime, stdlib, package-client"
+    [[ -f "$path" && ! -L "$path" && -s "$path" ]] || die "artifact is missing, empty, or a symlink: $role"
+    PATHS+=("$path")
+done
+command -v cosign >/dev/null 2>&1 || die "cosign is required"
 
-if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
-    echo "Error: No artifacts specified"
-    usage
-fi
-
-# Check cosign is installed
-if ! command -v cosign &>/dev/null; then
-    echo "Error: cosign is not installed."
-    echo "Install: go install github.com/sigstore/cosign/v2/cmd/cosign@latest"
-    echo "  or: https://docs.sigstore.dev/system_config/installation/"
-    exit 1
-fi
-
-FAILED=0
-
-for ARTIFACT in "${ARTIFACTS[@]}"; do
-    if [[ ! -f "$ARTIFACT" ]]; then
-        echo "Error: Artifact not found: $ARTIFACT"
-        FAILED=1
-        continue
-    fi
-
-    echo "=== Signing: $ARTIFACT ==="
-
-    # Generate SHA-256 checksum
-    sha256sum "$ARTIFACT" | awk '{print $1}' > "${ARTIFACT}.sha256"
-    echo "  Checksum: $(cat "${ARTIFACT}.sha256")"
-
-    # Sign with cosign
-    SIGN_ARGS=(sign-blob --yes --bundle "${ARTIFACT}.bundle")
-
+make_sign_args() {
+    SIGN_ARGS=(sign-blob --yes --bundle "$1.bundle")
     case "$MODE" in
-        keyless)
-            # Keyless uses ambient OIDC credentials (GitHub Actions, etc.)
-            ;;
-        key)
-            SIGN_ARGS+=(--key "$KEY_PATH")
-            ;;
-        kms)
-            SIGN_ARGS+=(--key "$KMS_URI")
-            ;;
+        keyless) ;;
+        key) SIGN_ARGS+=(--key "$KEY_PATH") ;;
+        kms) SIGN_ARGS+=(--key "$KMS_URI") ;;
+        *) die "unsupported signer mode" ;;
     esac
+    SIGN_ARGS+=("$1")
+}
 
-    SIGN_ARGS+=("$ARTIFACT")
+make_verify_args() {
+    VERIFY_ARGS=(verify-blob --bundle "$1.bundle")
+    case "$MODE" in
+        keyless) VERIFY_ARGS+=(--certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER") ;;
+        key) VERIFY_ARGS+=(--key "${SEEN_COSIGN_PUBLIC_KEY:-${KEY_PATH%.key}.pub}") ;;
+        kms) VERIFY_ARGS+=(--key "$KMS_URI") ;;
+    esac
+    VERIFY_ARGS+=("$1")
+}
 
-    if cosign "${SIGN_ARGS[@]}"; then
-        echo "  Signed: ${ARTIFACT}.bundle"
-    else
-        echo "  Error: Failed to sign $ARTIFACT"
-        FAILED=1
-        continue
-    fi
-
-    # Verify signature if requested
-    if [[ "$VERIFY_AFTER_SIGN" == "true" ]]; then
-        VERIFY_ARGS=(verify-blob --bundle "${ARTIFACT}.bundle")
-
-        case "$MODE" in
-            keyless)
-                VERIFY_ARGS+=(
-                    --certificate-identity-regexp "github.com/.*seenlang"
-                    --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
-                )
-                ;;
-            key)
-                VERIFY_ARGS+=(--key "${KEY_PATH%.key}.pub")
-                ;;
-            kms)
-                VERIFY_ARGS+=(--key "$KMS_URI")
-                ;;
-        esac
-
-        VERIFY_ARGS+=("$ARTIFACT")
-
-        if cosign "${VERIFY_ARGS[@]}" 2>/dev/null; then
-            echo "  Verified: OK"
-        else
-            echo "  Warning: Post-sign verification failed"
-        fi
-    fi
-
-    echo ""
+for artifact in "${PATHS[@]}"; do
+    sha256sum "$artifact" | awk '{print $1}' > "$artifact.sha256"
+    make_sign_args "$artifact"
+    cosign "${SIGN_ARGS[@]}" >/dev/null || die "signing failed: $(basename "$artifact")"
+    make_verify_args "$artifact"
+    cosign "${VERIFY_ARGS[@]}" >/dev/null 2>&1 || die "post-sign verification failed: $(basename "$artifact")"
 done
 
-if [[ $FAILED -ne 0 ]]; then
-    echo "Some artifacts failed to sign."
-    exit 1
-fi
+GENERATOR_ARGS=(--output "$MANIFEST" --version "$VERSION" --target "$TARGET"
+    --source-commit "$SOURCE_COMMIT" --source-digest "$SOURCE_DIGEST"
+    --signer-mode "$MODE" --signer-identity "$IDENTITY" --signer-issuer "$ISSUER")
+for artifact in "${ARTIFACTS[@]}"; do GENERATOR_ARGS+=(--artifact "$artifact"); done
+"$SCRIPT_DIR/generate_release_manifest.sh" "${GENERATOR_ARGS[@]}" >/dev/null
+sha256sum "$MANIFEST" | awk '{print $1}' > "$MANIFEST.sha256"
+make_sign_args "$MANIFEST"
+cosign "${SIGN_ARGS[@]}" >/dev/null || die "manifest signing failed"
+make_verify_args "$MANIFEST"
+cosign "${VERIFY_ARGS[@]}" >/dev/null 2>&1 || die "manifest post-sign verification failed"
 
-echo "All artifacts signed successfully."
+VERIFY_MODE=()
+case "$MODE" in
+    keyless) VERIFY_MODE+=(--certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER") ;;
+    key) VERIFY_MODE+=(--key "${SEEN_COSIGN_PUBLIC_KEY:-${KEY_PATH%.key}.pub}") ;;
+    kms) VERIFY_MODE+=(--key "$KMS_URI") ;;
+esac
+"$SCRIPT_DIR/verify_release.sh" "${VERIFY_MODE[@]}" --manifest "$MANIFEST" --artifact-dir "$(dirname "${PATHS[0]}")"
+echo "PASS: signed and pinned compiler, runtime, stdlib, and package-client artifacts"

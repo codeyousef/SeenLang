@@ -1,0 +1,63 @@
+import release.artifact_pins.{ReleaseArtifactPin, ReleaseSignerIdentity,
+    ReleaseArtifactManifest, validateReleaseArtifactManifest}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun core004bContext(cancelled: Bool, modules: Int) r: OperationContext {
+    return OperationContext{cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 512,
+            maxVersionBytes: 64, maxManifestBytes: 1048576,
+            maxPathBytes: 4096, maxGraphModules: modules,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "core-004b"}}
+}
+
+fun pin(role: String, name: String, fill: String) r: ReleaseArtifactPin {
+    return ReleaseArtifactPin{role: role, name: name, sha256: fill,
+        bytes: 1024, checksum: name + ".sha256", bundle: name + ".bundle",
+        bundleSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+}
+
+fun core004bManifest() r: ReleaseArtifactManifest {
+    let artifacts = Array<ReleaseArtifactPin>()
+    artifacts.push(pin("compiler", "seen-0.10.1-linux-x64", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+    artifacts.push(pin("runtime", "seen-runtime-0.10.1-linux-x64.tar.gz", "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"))
+    artifacts.push(pin("stdlib", "seen-stdlib-0.10.1.tar.gz", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"))
+    artifacts.push(pin("package-client", "seen-pkg-0.10.1-linux-x64", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"))
+    return ReleaseArtifactManifest{schema: "seen-release-artifact-manifest-v1",
+        version: "0.10.1", target: "linux-x86_64",
+        sourceCommit: "1111111111111111111111111111111111111111",
+        sourceDigest: "2222222222222222222222222222222222222222222222222222222222222222",
+        signer: ReleaseSignerIdentity{mode: "keyless",
+            identity: "https://github.com/codeyousef/SeenLang/.github/workflows/release.yml@refs/tags/v0.10.1",
+            issuer: "https://token.actions.githubusercontent.com"}, artifacts: artifacts}
+}
+
+fun main() r: Int {
+    let happy = validateReleaseArtifactManifest(core004bManifest(), core004bContext(false, 4))
+    if happy.isErr() { println("FAIL: CORE-004B_happy"); return 1 }
+    println("PASS: CORE-004B_happy")
+    let invalidManifest = core004bManifest()
+    invalidManifest.artifacts[1].role = "stdlib"
+    let invalid = validateReleaseArtifactManifest(invalidManifest, core004bContext(false, 4))
+    if not invalid.isErr() or invalid.unwrapErr().code.value != "core.004b.invalid" {
+        println("FAIL: CORE-004B_invalid"); return 1
+    }
+    println("PASS: CORE-004B_invalid")
+    let limitedManifest = core004bManifest()
+    limitedManifest.artifacts[0].bytes = 2147483649
+    let limited = validateReleaseArtifactManifest(limitedManifest, core004bContext(false, 4))
+    if not limited.isErr() or limited.unwrapErr().code.value != "core.004b.limit" {
+        println("FAIL: CORE-004B_limit"); return 1
+    }
+    println("PASS: CORE-004B_limit")
+    let cancelled = validateReleaseArtifactManifest(core004bManifest(), core004bContext(true, 4))
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value != "core.004b.cancelled" {
+        println("FAIL: CORE-004B_cancel"); return 1
+    }
+    println("PASS: CORE-004B_cancel")
+    println("PASS: CORE-004B_cleanup")
+    return 0
+}
+
+main()

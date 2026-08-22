@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-release-artifact-manifest-v1` and native CORE-004B policy for an
+  exact, ordered compiler, runtime, standard-library, and package-client set.
+  Release components now carry canonical source pins, checksums, verified
+  signature-bundle digests, signer identity, bounded sizes, deterministic
+  archives, and fail-closed verification before upload.
+
 - Added `seen-bootstrap-reproducibility-v1` and release-matrix peer comparison
   for byte-identical compiler outputs from two independent builders, including
   strict GNU build-ID/dynamic-relocation normalization where required, with
@@ -142,6 +148,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a deterministic foreign-symbol/backend source inventory and restored the required CI gate that rejects unreviewed inventory drift.
 - Replaced obsolete disabled workflow fallbacks with one bounded, commit-pinned required CI contract and deterministic validation fixtures.
 - Enforced the required CI gate inside a read-back-verified, zero-swap Linux memory and task scope with serial workers, bounded execution time, and deterministic containment fixtures.
+
+### Changed
+
+- Release packaging now requires the version-coupled package client produced
+  by the verified build. It no longer builds or substitutes a missing client,
+  accepts missing checksums, or continues after signature verification fails.
+- Capped rebuilds now use at most 60% of total memory while retaining a
+  10%-of-total live-availability reserve. Zero swap, serial workers, the
+  24-task aggregate ceiling, per-process limits, and kernel read-back remain
+  mandatory; the larger derived envelope prevents LLVM address-space failures
+  on high-memory hosts without permitting uncapped builds.
 
 ### Fixed
 

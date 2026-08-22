@@ -87,6 +87,25 @@ closed. A changed bootstrap-seed hash is rejected rather than confused with
 environmental independence. The evidence schema is `releases/manifest.schema.json`; the checker is
 `scripts/check_bootstrap_reproducibility.py`. No new foreign symbol is added.
 
+### Signed release component pins
+
+CORE-004B defines `seen-release-artifact-manifest-v1` in
+`release.artifact_pins`. A production release has exactly four ordered
+components: compiler, runtime, standard library, and version-coupled package
+client. Each component is a regular non-symlink file with a bounded byte size,
+SHA-256 checksum, verified signature bundle, and bundle digest. The canonical
+manifest also pins the source commit, source archive digest, target, version,
+signing mode, identity, and issuer. Unknown fields, unsafe names, reordered or
+duplicate roles, absent sidecars, mismatched bytes, and post-sign verification
+fail closed with `core.004b.*` diagnostics.
+
+The native module owns validation and policy. The Python checker mirrors the
+contract at the artifact boundary, while `sign_release.sh` and
+`verify_release.sh` invoke the external signature tool as a ledger-neutral
+process. Release packaging never builds or substitutes a missing package
+client and produces deterministic runtime and standard-library archives. This
+adds no native ABI symbol.
+
 ### Deterministic import graph
 
 Location: `compiler_seen/src/imports/graph.seen`
@@ -324,11 +343,12 @@ per-process virtual-memory limits, and a 540-second child timeout. The inner
 deterministic policy and containment regressions; an environment marker alone
 is never accepted as evidence.
 
-The aggregate and main-compiler limits are the smaller of 25% of total memory
-and 50% of currently available memory. They have no fixed byte ceiling; this
-keeps the same bounded host fraction on both small CI runners and larger
-development machines. Caller-supplied limits are accepted only when they are
-no larger than the freshly derived value.
+The aggregate and main-compiler limits are the smaller of 60% of total memory
+and currently available memory after retaining a 10%-of-total system reserve.
+They have no fixed byte ceiling; this keeps a bounded host fraction while
+allowing LLVM linking to use the capacity of larger development machines.
+Caller-supplied limits are accepted only when they are no larger than the
+freshly derived value.
 
 The exact reviewed limits and platform support are versioned in
 [`architecture/ci-containment.json`](architecture/ci-containment.json), with

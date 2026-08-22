@@ -129,6 +129,14 @@ restore_release_artifacts_from_cache() {
         "$cache_dir"/seen-lang-docs-"$VERSION"-*.rpm
         "$cache_dir"/SeenLanguage-"$VERSION"-*.AppImage
     )
+    if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
+        artifacts+=(
+            "$cache_dir/seen-compiler-$VERSION-$ARTIFACT_SUFFIX"
+            "$cache_dir/seen-runtime-$VERSION-$ARTIFACT_SUFFIX.tar.gz"
+            "$cache_dir/seen-stdlib-$VERSION-$ARTIFACT_SUFFIX.tar.gz"
+            "$cache_dir/seen-pkg-$VERSION-$ARTIFACT_SUFFIX"
+        )
+    fi
     shopt -u nullglob
     [[ "${#artifacts[@]}" -gt 0 ]] || return 1
     cp -a "${artifacts[@]}" "$OUTPUT_DIR/"
@@ -153,6 +161,14 @@ store_release_artifacts_to_cache() {
         "$OUTPUT_DIR"/seen-lang-docs-"$VERSION"-*.rpm
         "$OUTPUT_DIR"/SeenLanguage-"$VERSION"-*.AppImage
     )
+    if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
+        artifacts+=(
+            "$OUTPUT_DIR/seen-compiler-$VERSION-$ARTIFACT_SUFFIX"
+            "$OUTPUT_DIR/seen-runtime-$VERSION-$ARTIFACT_SUFFIX.tar.gz"
+            "$OUTPUT_DIR/seen-stdlib-$VERSION-$ARTIFACT_SUFFIX.tar.gz"
+            "$OUTPUT_DIR/seen-pkg-$VERSION-$ARTIFACT_SUFFIX"
+        )
+    fi
     shopt -u nullglob
     if [[ "${#artifacts[@]}" -gt 0 ]]; then
         cp -a "${artifacts[@]}" "$cache_dir.tmp/"
@@ -249,14 +265,8 @@ if [[ ! -x "$COMPILER_BIN" ]]; then
 fi
 
 if [[ ! -x "$PACKAGE_CLIENT_BIN" ]]; then
-    "$SCRIPT_DIR/build_package_client.sh" \
-        --version "$VERSION" \
-        --goos linux \
-        --goarch amd64 \
-        --output "$PACKAGE_CLIENT_BIN"
-fi
-if [[ ! -x "$PACKAGE_CLIENT_BIN" ]]; then
-    echo "Error: package client binary not found at $PACKAGE_CLIENT_BIN" >&2
+    echo "Error: pinned package client binary not found at $PACKAGE_CLIENT_BIN" >&2
+    echo "Run a capped full rebuild for this exact source tree; release packaging never builds or substitutes a missing client." >&2
     exit 1
 fi
 
@@ -468,6 +478,24 @@ if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
 fi
 echo "  -> $OUTPUT_DIR/$TARBALL"
 
+# Materialize the exact component set certified by CORE-004B. These files are
+# intentionally separate from installer archives so each trust boundary has a
+# stable role, digest, checksum, and signature bundle.
+if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
+    SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$ROOT_DIR" show -s --format=%ct HEAD)}"
+    COMPILER_COMPONENT="$OUTPUT_DIR/seen-compiler-$VERSION-$ARTIFACT_SUFFIX"
+    RUNTIME_COMPONENT="$OUTPUT_DIR/seen-runtime-$VERSION-$ARTIFACT_SUFFIX.tar.gz"
+    STDLIB_COMPONENT="$OUTPUT_DIR/seen-stdlib-$VERSION-$ARTIFACT_SUFFIX.tar.gz"
+    PACKAGE_CLIENT_COMPONENT="$OUTPUT_DIR/seen-pkg-$VERSION-$ARTIFACT_SUFFIX"
+    cp "$COMPILER_BIN" "$COMPILER_COMPONENT"
+    cp "$PACKAGE_CLIENT_BIN" "$PACKAGE_CLIENT_COMPONENT"
+    chmod +x "$COMPILER_COMPONENT" "$PACKAGE_CLIENT_COMPONENT"
+    (cd "$ROOT_DIR" && tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
+        --numeric-owner -cf - seen_runtime | gzip -n > "$RUNTIME_COMPONENT")
+    (cd "$ROOT_DIR" && tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
+        --numeric-owner -cf - seen_std/src | gzip -n > "$STDLIB_COMPONENT")
+fi
+
 if [[ "$SKIP_VERIFY" != "1" ]]; then
     echo ""
     echo "Verifying release CPU baseline..."
@@ -558,6 +586,10 @@ echo ""
 echo "Generating checksums..."
 (cd "$OUTPUT_DIR" && find . -maxdepth 1 -type f \
     \( -name "seen-$VERSION-*.tar.gz" \
+       -o -name "seen-compiler-$VERSION-$ARTIFACT_SUFFIX" \
+       -o -name "seen-runtime-$VERSION-$ARTIFACT_SUFFIX.tar.gz" \
+       -o -name "seen-stdlib-$VERSION-$ARTIFACT_SUFFIX.tar.gz" \
+       -o -name "seen-pkg-$VERSION-$ARTIFACT_SUFFIX" \
        -o -name "seen-lang_${VERSION}_*.deb" \
        -o -name "seen-lang-$VERSION-*.rpm" \
        -o -name "seen-lang-devel-$VERSION-*.rpm" \

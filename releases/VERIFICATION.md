@@ -17,29 +17,25 @@ brew install cosign
 pacman -S cosign
 ```
 
-### 2. Download the artifact and its bundle
+### 2. Download the component set and manifest
 
 ```bash
-# Example for Linux x64
-curl -LO https://github.com/seenlang/seen/releases/download/v1.0.0/seen-linux-x64
-curl -LO https://github.com/seenlang/seen/releases/download/v1.0.0/seen-linux-x64.bundle
-curl -LO https://github.com/seenlang/seen/releases/download/v1.0.0/seen-linux-x64.sha256
+# Download the `seen-<version>-release-artifacts.json` manifest, its `.sha256`
+# and `.bundle`, plus all files named by its four artifact records.
 ```
 
 ### 3. Verify the checksum
 
 ```bash
-echo "$(cat seen-linux-x64.sha256)  seen-linux-x64" | sha256sum --check
+echo "$(cat seen-<version>-release-artifacts.json.sha256)  seen-<version>-release-artifacts.json" | sha256sum --check
 ```
 
 ### 4. Verify the Sigstore signature
 
 ```bash
-cosign verify-blob \
-  --bundle seen-linux-x64.bundle \
-  --certificate-identity-regexp "github.com/.*seenlang" \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  seen-linux-x64
+./scripts/verify_release.sh \
+  --manifest seen-<version>-release-artifacts.json \
+  --artifact-dir .
 ```
 
 A successful verification prints `Verified OK`.
@@ -49,14 +45,20 @@ A successful verification prints `Verified OK`.
 The repository includes a convenience script:
 
 ```bash
-./scripts/verify_release.sh seen-linux-x64
+./scripts/verify_release.sh \
+  --manifest seen-<version>-release-artifacts.json \
+  --artifact-dir .
 ```
 
 ## What gets verified
 
-- **Checksum**: SHA-256 hash matches the published `.sha256` file
-- **Signature**: The binary was signed by the Seen project's CI pipeline (GitHub Actions OIDC)
-- **Transparency**: The signature is recorded in the Sigstore public transparency log (Rekor)
+- **Shape**: the canonical manifest contains exactly the ordered compiler,
+  runtime, standard-library, and package-client roles
+- **Pins**: source commit/archive, target, version, sizes, artifact hashes, and
+  signature-bundle hashes all match
+- **Checksums**: every required `.sha256` sidecar is present and exact
+- **Signatures**: the manifest and all four components verify against the
+  declared signing policy; a missing or invalid signature fails closed
 
 ## Signing modes
 
@@ -70,4 +72,7 @@ Release artifacts can be signed using:
 
 ## Manifest
 
-Each release includes a `manifest.json` with checksums and sizes for all artifacts. The manifest itself is also signed.
+Each release includes a canonical `seen-<version>-release-artifacts.json` with
+the exact component pins. The manifest itself is checksummed, signed, and
+verified before upload. Installer archives may be additional release assets;
+they never replace the four component trust anchors.

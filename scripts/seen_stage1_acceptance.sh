@@ -486,6 +486,10 @@ run_fixture bootstrap-reproducibility \
     "$REPO_ROOT/compiler_seen/tests/reproducibility/core_004a_two_builder.seen"
 run_fixture bootstrap-reproducibility-example \
     "$REPO_ROOT/compiler_seen/examples/bootstrap_reproducibility.seen"
+run_fixture release-artifact-pins \
+    "$REPO_ROOT/compiler_seen/tests/reproducibility/core_004b_artifact_pins.seen"
+run_fixture release-artifact-pins-example \
+    "$REPO_ROOT/compiler_seen/examples/release_artifact_pins.seen"
 run_fixture test-discovery \
     "$REPO_ROOT/compiler_seen/tests/test_discovery.seen"
 run_fixture test-discovery-example \

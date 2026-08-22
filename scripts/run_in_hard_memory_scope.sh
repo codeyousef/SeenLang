@@ -19,10 +19,11 @@ usage() {
     cat >&2 <<'EOF'
 Usage: run_in_hard_memory_scope.sh [--label TEXT] [--timeout-secs N] [--verify-only] -- command [args...]
 
-Enters a verified Linux user-systemd scope capped at the smaller of 25% of
-total memory and 50% of currently available memory, with MemorySwapMax=0 and
-TasksMax=24. --verify-only performs the same read-back but does not run a
-workload. --timeout-secs adds a bounded wall-clock deadline.
+Enters a verified Linux user-systemd scope capped at the smaller of 60% of
+total memory and currently available memory minus a 10%-of-total system
+reserve, with MemorySwapMax=0 and TasksMax=24. --verify-only performs the same
+read-back but does not run a workload. --timeout-secs adds a bounded wall-clock
+deadline.
 EOF
 }
 
@@ -149,10 +150,14 @@ if ! is_positive_integer "$total_kb" || ! is_positive_integer "$available_kb"; t
     exit 126
 fi
 
-derived_rss_kb=$((total_kb / 4))
-half_available_kb=$((available_kb / 2))
-if [ "$derived_rss_kb" -gt "$half_available_kb" ]; then
-    derived_rss_kb=$half_available_kb
+derived_rss_kb=$((total_kb * 60 / 100))
+system_reserve_kb=$((total_kb * 10 / 100))
+available_cap_kb=$((available_kb - system_reserve_kb))
+if [ "$available_cap_kb" -lt 1 ]; then
+    available_cap_kb=$((available_kb / 2))
+fi
+if [ "$derived_rss_kb" -gt "$available_cap_kb" ]; then
+    derived_rss_kb=$available_cap_kb
 fi
 if [ "$derived_rss_kb" -lt 1 ]; then
     echo "ERROR: derived aggregate memory cap is not positive" >&2

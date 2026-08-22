@@ -1695,10 +1695,14 @@ detect_effective_system_memory_kb() {
 derive_main_compiler_vmem_kb() {
     local total_kb=$1
     local available_kb=$2
-    local cap_kb=$((total_kb * 25 / 100))
+    local cap_kb=$((total_kb * 60 / 100))
 
     if is_positive_integer "$available_kb"; then
-        local available_cap_kb=$((available_kb * 50 / 100))
+        local reserve_kb=$((total_kb * 10 / 100))
+        local available_cap_kb=$((available_kb - reserve_kb))
+        if [ "$available_cap_kb" -lt 1 ]; then
+            available_cap_kb=$((available_kb / 2))
+        fi
         if [ "$available_cap_kb" -gt 0 ] && [ "$available_cap_kb" -lt "$cap_kb" ]; then
             cap_kb=$available_cap_kb
         fi
@@ -1760,10 +1764,14 @@ derive_memory_guard_reserve_kb() {
 derive_memory_guard_rss_kb() {
     local total_kb=$1
     local available_kb=$2
-    local cap_kb=$((total_kb * 25 / 100))
+    local reserve_kb=${3:-$((total_kb * 10 / 100))}
+    local cap_kb=$((total_kb * 60 / 100))
 
     if is_positive_integer "$available_kb"; then
-        local available_cap_kb=$((available_kb * 50 / 100))
+        local available_cap_kb=$((available_kb - reserve_kb))
+        if [ "$available_cap_kb" -lt 1 ]; then
+            available_cap_kb=$((available_kb / 2))
+        fi
         if [ "$available_cap_kb" -gt 0 ] && [ "$available_cap_kb" -lt "$cap_kb" ]; then
             cap_kb=$available_cap_kb
         fi
