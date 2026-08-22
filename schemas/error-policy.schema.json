@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/error-policy.schema.json",
+  "title": "Seen deterministic error policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attempt", "error", "max_attempts", "schema"],
+  "properties": {
+    "attempt": {"type": "integer", "minimum": 0, "maximum": 1024},
+    "error": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "message", "operation", "redaction", "retry", "subsystem"],
+      "properties": {
+        "code": {"$ref": "#/$defs/identity"}, "message": {"type": "string", "maxLength": 4096},
+        "operation": {"$ref": "#/$defs/identity"}, "redaction": {"enum": ["public", "sensitive"]},
+        "retry": {"enum": ["never", "transient"]}, "subsystem": {"$ref": "#/$defs/identity"}
+      }
+    },
+    "max_attempts": {"type": "integer", "minimum": 1, "maximum": 1024},
+    "schema": {"const": "seen-error-policy-v1"}
+  },
+  "$defs": {"identity": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9._-]+$"}}
+}

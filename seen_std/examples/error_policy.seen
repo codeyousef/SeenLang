@@ -1,0 +1,13 @@
+import error.{RetryClass, RedactionClass, ErrorDisposition,
+    errorLiteral, classifySeenError, errorDispositionName}
+
+fun main() r: Int {
+    let failure = errorLiteral("err.001b.network", "network", "connect",
+        "peer unavailable", RetryClass.Transient, RedactionClass.Public)
+    let decision = classifySeenError(failure, 1, 3)
+    if decision.isErr() { return 1 }
+    println(errorDispositionName(decision.unwrap().disposition))
+    return if decision.unwrap().disposition == ErrorDisposition.RetryAllowed { 0 } else { 1 }
+}
+
+main()

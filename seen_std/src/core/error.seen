@@ -23,6 +23,13 @@ enum RedactionClass {
     Sensitive
 }
 
+enum ErrorDisposition {
+    PermanentFailure
+    RetryAllowed
+    CancellationObserved
+    RetryExhausted
+}
+
 enum SeenErrorKind {
     Os
     Io
@@ -52,6 +59,14 @@ class TypedErrorSpec {
     var nativeCode: Option<Int64>
     var retry: RetryClass
     var redaction: RedactionClass
+}
+
+class ErrorPolicyDecision {
+    var disposition: ErrorDisposition
+    var attempt: Int
+    var maxAttempts: Int
+    var message: String
+    var redacted: Bool
 }
 
 fun errorIdentityValid(value: String) r: Bool {
@@ -90,6 +105,63 @@ fun err001aFailure(code: String, message: String) r: SeenError {
 fun err001bFailure(code: String, message: String) r: SeenError {
     return errorLiteral(code, "error", "classify", message,
         RetryClass.Never, RedactionClass.Public)
+}
+
+fun err001dFailure(code: String, message: String) r: SeenError {
+    return errorLiteral(code, "error-policy", "classify", message,
+        RetryClass.Never, RedactionClass.Public)
+}
+
+fun errorDispositionName(value: ErrorDisposition) r: String {
+    if value == ErrorDisposition.PermanentFailure { return "permanent" }
+    if value == ErrorDisposition.RetryAllowed { return "retry" }
+    if value == ErrorDisposition.CancellationObserved { return "cancelled" }
+    return "exhausted"
+}
+
+fun classifySeenError(value: SeenError, attempt: Int, maxAttempts: Int)
+    r: Result<ErrorPolicyDecision, SeenError> {
+
+    if attempt < 0 or maxAttempts < 1 or maxAttempts > 1024 or
+        attempt > maxAttempts {
+
+        return Err<ErrorPolicyDecision, SeenError>(err001dFailure(
+            "err.001d.limit", "retry attempt bound is invalid"))
+    }
+    let validity = seenErrorValidity(value, 0)
+    if validity != 0 {
+        let code = if validity == 2 {
+            "err.001d.limit"
+        } else {
+            "err.001d.invalid"
+        }
+        return Err<ErrorPolicyDecision, SeenError>(err001dFailure(
+            code, "error policy input is invalid"))
+    }
+
+    let cancelled = value.subsystem.value == "cancelled" or
+        value.code.value.endsWith(".cancelled")
+    if cancelled and value.retry != RetryClass.Never {
+        return Err<ErrorPolicyDecision, SeenError>(err001dFailure(
+            "err.001d.invalid", "cancelled errors cannot be retryable"))
+    }
+
+    var disposition = ErrorDisposition.PermanentFailure
+    if cancelled {
+        disposition = ErrorDisposition.CancellationObserved
+    } else if value.retry == RetryClass.Transient {
+        if attempt >= maxAttempts {
+            disposition = ErrorDisposition.RetryExhausted
+        } else {
+            disposition = ErrorDisposition.RetryAllowed
+        }
+    }
+    let redacted = value.redaction == RedactionClass.Sensitive
+    let rendered = if redacted { "[redacted]" } else { value.message }
+    return Ok<ErrorPolicyDecision, SeenError>(ErrorPolicyDecision{
+        disposition: disposition, attempt: attempt, maxAttempts: maxAttempts,
+        message: rendered, redacted: redacted
+    })
 }
 
 fun seenErrorKindName(kind: SeenErrorKind) r: String {

@@ -56,3 +56,18 @@ use `FsFile` or the checked text-read carrier, both of which expose
 `SeenError`. The audit pins these bootstrap signatures exactly so the exception
 cannot grow silently; replacing that frozen ABI requires a bootstrap migration,
 not a deprecated public bridge.
+
+## Retry cancellation exhaustion and redaction
+
+ERR-001D defines `seen-error-policy-v1`. `classifySeenError` maps a validated
+error and explicit bounded attempt state to exactly one `ErrorDisposition`:
+`PermanentFailure`, `RetryAllowed`, `CancellationObserved`, or
+`RetryExhausted`. A transient failure retries
+only while `attempt < maxAttempts`; reaching the bound is exhaustion rather
+than another implicit retry. Cancellation always wins over retry policy and a
+cancelled error marked transient is rejected as contradictory input.
+
+Redaction is orthogonal to disposition. Sensitive messages become the exact
+text `[redacted]`; public messages remain unchanged. The decision records the
+attempt and bound, never sleeps, schedules, retries, truncates, or repairs the
+input, and accepts at most 1024 attempts.

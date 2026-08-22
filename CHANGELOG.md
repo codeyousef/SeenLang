@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-error-policy-v1` with deterministic permanent, retry,
+  cancellation, and exhaustion dispositions; explicit bounded attempts;
+  fail-closed contradictory-policy validation; and orthogonal sensitive-message
+  redaction.
+
 - Added `seen-error-api-migration-v1`, replacing standard-library and bootstrap
   verifier string-error `Result` APIs with `SeenError`, removing the bespoke
   file result carrier, preserving a closed frozen-bootstrap exception inventory,

@@ -1,0 +1,1 @@
+{"attempt":1,"error":{"code":"err.001b.cancelled","message":"cancelled","operation":"read","redaction":"public","retry":"transient","subsystem":"cancelled"},"max_attempts":3,"schema":"seen-error-policy-v1"}
