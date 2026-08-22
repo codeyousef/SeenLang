@@ -3,10 +3,62 @@
 import str.string.{StringBuilder}
 import codegen.ir_decl_registry.{lookupCResourceDestructorStateImpl}
 import codegen.ir_method_array_mutator_emit.{emitPoolFreeFromValueSlotImpl}
-import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.type_registry_core.{getPoolEligibleClassSizeReg}
 import codegen.ir_codegen_global_state.{getPreAllocatedVarCountWithGlobalStateImpl, getPreAllocatedVarNameWithGlobalStateImpl, getPreAllocatedVarTypeWithGlobalStateImpl, findActiveVariableIndexWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructSizesImpl}
-import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatureCResourceClassesImpl, getFeatureCResourceDestructorsImpl, getFeatureRegBoxImpl}
+import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatureCResourceClassesImpl, getFeatureCResourceDestructorsImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+
+fun emitOwnedCResourceCleanupState(output: StringBuilder,
+    varNames: Array<String>, varRegs: Array<String>, skipVar: String) r: Void {
+
+    let cResourceClasses = getFeatureCResourceClassesImpl()
+    if cResourceClasses == "" { return }
+    var i = 0
+    while i < getPreAllocatedVarCountWithGlobalStateImpl() {
+        let crVarName = getPreAllocatedVarNameWithGlobalStateImpl(i)
+        let crVarType = getPreAllocatedVarTypeWithGlobalStateImpl(i)
+        if crVarName != skipVar {
+            let crDestructor = lookupCResourceDestructorStateImpl(
+                crVarType, cResourceClasses,
+                getFeatureCResourceDestructorsImpl())
+            if crDestructor != "" {
+                let crVarIdx = findActiveVariableIndexWithGlobalStateImpl(
+                    varNames, crVarName)
+                if crVarIdx >= 0 {
+                    let crVarReg = varRegs[crVarIdx]
+                    let crLoadReg = getNextRegFn(getFeatureRegBoxImpl())
+                    output.append("  " + crLoadReg +
+                        " = load i64, ptr " + crVarReg + "\n")
+                    let crActiveReg = getNextRegFn(getFeatureRegBoxImpl())
+                    let crReleaseLabel = getNextBlockFn(
+                        getFeatureBlockBoxImpl())
+                    let crDoneLabel = getNextBlockFn(
+                        getFeatureBlockBoxImpl())
+                    output.append("  " + crActiveReg + " = icmp ne i64 " +
+                        crLoadReg + ", 0\n")
+                    output.append("  br i1 " + crActiveReg + ", label %" +
+                        crReleaseLabel + ", label %" + crDoneLabel + "\n")
+                    output.append(crReleaseLabel + ":\n")
+                    if crDestructor == "free" {
+                        let crPointerReg = getNextRegFn(
+                            getFeatureRegBoxImpl())
+                        output.append("  " + crPointerReg +
+                            " = inttoptr i64 " + crLoadReg + " to ptr\n")
+                        output.append("  call void @free(ptr " + crPointerReg +
+                            ") ; @c_resource destructor\n")
+                    } else {
+                        output.append("  call void @" + crDestructor +
+                            "(i64 " + crLoadReg +
+                            ") ; @c_resource destructor\n")
+                    }
+                    output.append("  br label %" + crDoneLabel + "\n")
+                    output.append(crDoneLabel + ":\n")
+                }
+            }
+        }
+        i = i + 1
+    }
+}
 
 fun emitAutoFreeLocalsState(output: StringBuilder, varNames: Array<String>,
     varRegs: Array<String>, skipVar: String) r: Void {
@@ -31,31 +83,5 @@ fun emitAutoFreeLocalsState(output: StringBuilder, varNames: Array<String>,
         i = i + 1
     }
 
-    let cResourceClasses = getFeatureCResourceClassesImpl()
-    if cResourceClasses != "" {
-        i = 0
-        while i < getPreAllocatedVarCountWithGlobalStateImpl() {
-            let crVarName = getPreAllocatedVarNameWithGlobalStateImpl(i)
-            let crVarType = getPreAllocatedVarTypeWithGlobalStateImpl(i)
-            if crVarName != skipVar {
-                let crDestructor = lookupCResourceDestructorStateImpl(
-                    crVarType, cResourceClasses,
-                    getFeatureCResourceDestructorsImpl())
-                if crDestructor != "" {
-                    let crVarIdx = findActiveVariableIndexWithGlobalStateImpl(
-                        varNames, crVarName)
-                    if crVarIdx >= 0 {
-                        let crVarReg = varRegs[crVarIdx]
-                        let crLoadReg = getNextRegFn(getFeatureRegBoxImpl())
-                        output.append("  " + crLoadReg +
-                            " = load i64, ptr " + crVarReg + "\n")
-                        output.append("  call void @" + crDestructor +
-                            "(i64 " + crLoadReg +
-                            ") ; @c_resource destructor\n")
-                    }
-                }
-            }
-            i = i + 1
-        }
-    }
+    emitOwnedCResourceCleanupState(output, varNames, varRegs, skipVar)
 }

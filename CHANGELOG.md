@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-owned-resource-v1` and compile-time move-state analysis for
+  `@move` and `@c_resource` owners. Transfers invalidate the source binding,
+  control-flow joins reject possibly moved use, cleanup is idempotent, and the
+  contract includes bounded trace, fuzz, coverage, benchmark, and native tests.
+
 - Added `seen-error-policy-v1` with deterministic permanent, retry,
   cancellation, and exhaustion dispositions; explicit bounded attempts;
   fail-closed contradictory-policy validation; and orthogonal sensitive-message

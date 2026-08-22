@@ -1,0 +1,57 @@
+/// Move-only token for deterministic ownership of files, handles, buffers,
+/// tasks, GPU objects, and other resources with exactly one cleanup owner.
+
+import core.result.{Result, Ok, Err}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass,
+    errorIdentityValid, errorLiteral}
+import core.operation_context.{OperationContext}
+
+let SEEN_OWNERSHIP_MAX_RESOURCES: Int = 4096
+
+@move
+class OwnedResourceToken {
+    var resourceId: AsciiString
+    var generation: Int
+    var active: Bool
+
+    fun isActive() r: Bool { return this.active }
+
+    /// Cleanup is idempotent: true identifies the owner that released the
+    /// resource, while false identifies an already-released token.
+    fun release() r: Result<Bool, SeenError> {
+        if not this.active {
+            return Ok<Bool, SeenError>(false)
+        }
+        this.active = false
+        return Ok<Bool, SeenError>(true)
+    }
+}
+
+fun ownershipFailure(code: String, message: String) r: SeenError {
+    return errorLiteral(code, "ownership", "acquire", message,
+        RetryClass.Never, RedactionClass.Public)
+}
+
+fun acquireOwnedResource(resourceId: String, generation: Int,
+    maxResources: Int, context: OperationContext)
+    r: Result<OwnedResourceToken, SeenError> {
+
+    if context.cancellation {
+        return Err<OwnedResourceToken, SeenError>(ownershipFailure(
+            "p0.own.001.cancelled", "resource acquisition is cancelled"))
+    }
+    if maxResources < 1 or maxResources > SEEN_OWNERSHIP_MAX_RESOURCES or
+        generation < 1 or generation > maxResources {
+
+        return Err<OwnedResourceToken, SeenError>(ownershipFailure(
+            "p0.own.001.limit", "resource generation exceeds its bound"))
+    }
+    if not errorIdentityValid(resourceId) {
+        return Err<OwnedResourceToken, SeenError>(ownershipFailure(
+            "p0.own.001.invalid", "resource identity is not canonical ASCII"))
+    }
+    return Ok<OwnedResourceToken, SeenError>(OwnedResourceToken{
+        resourceId: AsciiString{ value: resourceId },
+        generation: generation, active: true
+    })
+}

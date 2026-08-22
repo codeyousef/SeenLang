@@ -1,0 +1,4 @@
+/// Public move-only resource ownership surface.
+
+pub import core.ownership.{SEEN_OWNERSHIP_MAX_RESOURCES,
+    OwnedResourceToken, acquireOwnedResource}

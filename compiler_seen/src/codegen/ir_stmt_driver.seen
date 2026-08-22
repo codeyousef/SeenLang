@@ -358,7 +358,8 @@ fun generateStatementState(ctx: CodegenLoweringContext,
     }
     if dispatchAction == 2 {
         state.errdeferTempAlloca = generateReturnStatementState(ctx,
-            output, stmt, stringConstants, deferCount, deferExprs,
+            output, stmt, varNames, varRegs, stringConstants,
+            deferCount, deferExprs,
             errdeferCount, errdeferExprs, state.errdeferTempAlloca)
     }
     if dispatchAction == 3 {

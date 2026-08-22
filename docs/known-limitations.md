@@ -77,6 +77,10 @@ the nondeterministic usage where allowed.
 - Closure literals currently lower only when they do not capture enclosing
   locals. A closure environment and its ownership/lifetime rules are not yet a
   shipped feature.
+- Sequential and structured branch use-after-move checks are enforced for
+  explicit `@move` and `@c_resource` bindings. Ownership transfer through
+  closure environments and task captures remains unsupported rather than
+  implicitly copied.
 - `parallel_for` is capture-free in 0.10.1. Its pthread worker callback has no
   outer-local environment, so examples must not read or mutate enclosing
   locals. Explicit value/reference/move captures and compiler-proven disjoint

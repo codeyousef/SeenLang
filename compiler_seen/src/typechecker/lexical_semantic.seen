@@ -537,6 +537,71 @@ fun semanticTopLevelExtensionReceiverType(result: LexicalSemanticResult,
     return result.registry.resolveTypeBase(moduleName, receiverName)
 }
 
+fun semanticSimpleVariableName(expression: ParserExpressionNode) r: String {
+    if expression.kind == "Variable" or expression.kind == "VarExpr" {
+        if expression.variableName != "" { return expression.variableName }
+        return expression.literalValue
+    }
+    return ""
+}
+
+fun semanticExpressionBindingIdentity(result: LexicalSemanticResult,
+    expression: ParserExpressionNode, bindings: ScopedBindings,
+    moduleName: String) r: String {
+
+    let variableName = semanticSimpleVariableName(expression)
+    if variableName != "" { return bindings.lookup(variableName) }
+    if expression.kind == "Call" and expression.callee != "" {
+        return result.registry.resolveTypeBase(moduleName, expression.callee)
+    }
+    if expression.literalType != "" and
+        expression.literalType != "Unknown" {
+
+        let resolved = result.registry.resolveTypeBase(moduleName,
+            expression.literalType)
+        if resolved != "" { return resolved }
+        if semanticIsBuiltinType(expression.literalType) {
+            return expression.literalType
+        }
+    }
+    return ""
+}
+
+fun semanticBindingIsMoveOnly(result: LexicalSemanticResult,
+    bindings: ScopedBindings, name: String) r: Bool {
+
+    let identity = bindings.lookup(name)
+    if identity == "" or identity == "Unknown" { return false }
+    return result.registry.hasDecorator(identity, "move") or
+        result.registry.hasDecorator(identity, "c_resource")
+}
+
+fun semanticCheckMovedBindingRead(result: LexicalSemanticResult,
+    bindings: ScopedBindings, name: String, file: String, line: Int,
+    column: Int) r: Void {
+
+    if name == "" or bindings.lookup(name) == "" { return }
+    let state = bindings.moveState(name)
+    if state == 1 {
+        result.addError("E_OWNERSHIP_USE_AFTER_MOVE", "owned binding '" +
+            name + "' was used after ownership transferred", file, line,
+            column)
+    } else if state == 2 {
+        result.addError("E_OWNERSHIP_POSSIBLY_MOVED", "owned binding '" +
+            name + "' may have transferred ownership on another control-flow path",
+            file, line, column)
+    }
+}
+
+fun semanticConsumeSimpleMove(result: LexicalSemanticResult,
+    expression: ParserExpressionNode, bindings: ScopedBindings) r: Void {
+
+    let name = semanticSimpleVariableName(expression)
+    if name != "" and semanticBindingIsMoveOnly(result, bindings, name) {
+        let _ = bindings.markMoved(name)
+    }
+}
+
 fun semanticCheckExpression(result: LexicalSemanticResult,
     expression: ParserExpressionNode, bindings: ScopedBindings,
     moduleName: String, file: String, line: Int, column: Int,
@@ -574,6 +639,8 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
     }
     if expression.kind == "Variable" or expression.kind == "VarExpr" {
         let name = expression.variableName
+        semanticCheckMovedBindingRead(result, bindings, name, file, line,
+            column)
         if name != "" and not semanticIsReservedValueLiteral(name) and
             bindings.lookup(name) == "" and
             not result.registry.hasVisibleInstanceField(ownerType, name) and
@@ -582,6 +649,14 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
             result.addError("E_BINDING_UNKNOWN", "unknown binding '" + name +
                 "'", file, line, column)
         }
+    }
+    if (expression.kind == "MemberAccess" or
+        expression.kind == "MethodCall" or
+        expression.kind == "IndexAccess") and
+        expression.literalValue != "" {
+
+        semanticCheckMovedBindingRead(result, bindings,
+            expression.literalValue, file, line, column)
     }
     if expression.kind == "Assignment" and expression.variableName != "" and
         bindings.lookup(expression.variableName) == "" and
@@ -609,7 +684,19 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
     while i < expression.arguments.length() {
         semanticCheckExpression(result, expression.arguments[i], bindings,
             moduleName, file, line, column, ownerType)
+        semanticConsumeSimpleMove(result, expression.arguments[i], bindings)
         i = i + 1
+    }
+    if expression.kind == "Assignment" and
+        expression.variableName != "" {
+
+        // Reinitialization restores the target only after the right-hand side
+        // has been validated. A self-assignment of an owned binding therefore
+        // remains moved rather than manufacturing a second owner.
+        let _ = bindings.markAvailable(expression.variableName)
+        if expression.operands.length() > 0 {
+            semanticConsumeSimpleMove(result, expression.operands[0], bindings)
+        }
     }
 }
 
@@ -639,10 +726,13 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
                     statement.line, statement.column, moduleName,
                     genericOwner, genericNames, false)
             } else {
-                // The AST does not yet carry call/member inference results.
-                // Preserve an explicit non-lowerable identity and let a later
-                // inference pass refine it; never substitute Int.
-                identity = "Unknown"
+                identity = semanticExpressionBindingIdentity(result,
+                    statement.initializer, bindings, moduleName)
+                if identity == "" {
+                    // Preserve an explicit non-lowerable identity and let a
+                    // later inference pass refine it; never substitute Int.
+                    identity = "Unknown"
+                }
             }
             // `_` is an explicit discard pattern, not a lexical binding.
             // Its initializer and annotation have already been checked above,
@@ -655,21 +745,36 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
                     statement.variableName + "' in this scope", file,
                     statement.line, statement.column)
             }
+            if statement.variableName != "_" {
+                semanticConsumeSimpleMove(result, statement.initializer,
+                    bindings)
+            }
         } else if statement.kind == "Return" {
             semanticCheckExpression(result, statement.returnValue, bindings,
                 moduleName, file, statement.line, statement.column, ownerType)
         } else if statement.kind == "If" {
             semanticCheckExpression(result, statement.condition, bindings,
                 moduleName, file, statement.line, statement.column, ownerType)
+            let beforeMoves = bindings.copyMoveStates()
             semanticCheckBlock(result, statement.thenBranch, bindings,
                 moduleName, file, ownerType, genericOwner, genericNames)
+            let thenMoves = bindings.copyMoveStates()
+            bindings.restoreMoveStates(beforeMoves)
             semanticCheckBlock(result, statement.elseBranch, bindings,
                 moduleName, file, ownerType, genericOwner, genericNames)
+            let elseMoves = bindings.copyMoveStates()
+            bindings.mergeConditionalMoveStates(beforeMoves, thenMoves,
+                elseMoves)
         } else if statement.kind == "While" {
             semanticCheckExpression(result, statement.loopCondition, bindings,
                 moduleName, file, statement.line, statement.column, ownerType)
+            let beforeMoves = bindings.copyMoveStates()
             semanticCheckBlock(result, statement.loopBody, bindings,
                 moduleName, file, ownerType, genericOwner, genericNames)
+            let bodyMoves = bindings.copyMoveStates()
+            bindings.restoreMoveStates(beforeMoves)
+            bindings.mergeConditionalMoveStates(beforeMoves, beforeMoves,
+                bodyMoves)
         } else if statement.kind == "ForIn" or
             statement.kind == "ParallelFor" {
 

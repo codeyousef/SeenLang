@@ -247,6 +247,23 @@ class UniqueHandle {
 
 Once moved, the original binding becomes invalid.
 
+### Move-only owned resources
+
+P0-OWN-001 defines `seen-owned-resource-v1`. Classes marked `@move` and
+`@c_resource` have exactly one active binding. Passing or assigning one of
+these values transfers ownership and compile-time lexical analysis rejects a
+later read with `E_OWNERSHIP_USE_AFTER_MOVE`. When transfer occurs on only one
+control-flow path, a read after the join is rejected with
+`E_OWNERSHIP_POSSIBLY_MOVED`; the compiler never guesses that the resource is
+still valid. Runtime source nulling remains a defense-in-depth check.
+
+The standard library exposes `OwnedResourceToken` and
+`acquireOwnedResource`. Resource identities are canonical bounded ASCII,
+generation and active-resource limits are explicit, cancellation fails before
+acquisition, and `release` is idempotent. The token is native Seen and adds no
+foreign ABI boundary. Closure capture and cross-task transfer require their
+later dedicated ownership analyses and are not implied by this contract.
+
 ## Related
 
 - [Concurrency](concurrency.md) -- thread safety with `@send`/`@sync`

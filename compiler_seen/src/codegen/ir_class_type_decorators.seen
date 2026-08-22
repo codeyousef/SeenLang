@@ -150,6 +150,9 @@ fun registerClassTypeDecoratorMetadataImpl(output: StringBuilder,
         output.append("; @move (non-copyable) type: " + className + "\n")
     }
     if decorator.name == "c_resource" {
+        // Owned foreign handles have deterministic destruction and must never
+        // retain an implicit second owner after assignment or argument transfer.
+        state.moveOnlyClasses = state.moveOnlyClasses + className + "|"
         state.cResourceClasses = state.cResourceClasses + className + "|"
         if decorator.arguments.length() > 0 {
             state.cResourceDestructors = state.cResourceDestructors +

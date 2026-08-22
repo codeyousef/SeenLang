@@ -1,0 +1,18 @@
+@move
+class OwnedProbe {
+    var id: Int
+}
+
+fun consumeOwned(value: OwnedProbe) r: Void {
+    println(value.id.toString())
+}
+
+fun main() r: Int {
+    var resource: OwnedProbe = OwnedProbe()
+    resource.id = 7
+    consumeOwned(resource)
+    println(resource.id.toString())
+    return 0
+}
+
+main()
