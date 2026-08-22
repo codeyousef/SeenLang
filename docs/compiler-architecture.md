@@ -52,6 +52,22 @@ serves compatibility callers. Together these paths track scoped symbols,
 nullable information, deterministic-mode checks, effect/capability
 requirements, and conservative unused/unreachable warnings.
 
+Large project graphs establish one aggregate visibility domain per owning
+`Seen.toml` before declaration collection. Declarations in modules explicitly
+owned by the entry manifest remain project-visible in both forked and
+`--no-fork` Pass 1b, while dependency manifests retain separate domains.
+Imports and local declarations still take precedence; genuinely unknown names
+remain errors, and conflicting project-wide declarations produce deterministic
+ambiguity diagnostics. Exact duplicate immutable constants are compatible, but
+mutable globals, types, functions, and unequal constant definitions are not.
+
+Global type inference is completed against the aggregate declaration registry
+after Pass 1 has collected every module. This lets an unannotated constant use
+another project module's typed constant without treating an unresolved
+uppercase value name as a type. Function parameters named `r` are ordinary
+parameters; the `r: Type` return form is recognized only after the closing
+parameter parenthesis, where it is syntactically unambiguous.
+
 ### Bootstrap Frontend
 
 Location: `compiler_seen/src/bootstrap/`

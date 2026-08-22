@@ -446,6 +446,90 @@ fun semanticGlobalEncodedType(encoded: String) r: String {
     return encoded.substring(start, encoded.length())
 }
 
+fun semanticFindGlobalInitializer(program: ProgramNode, globalName: String)
+    r: ParserExpressionNode {
+
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" and
+            item.function.name == "__seen_internal_module_init__" {
+
+            var statementIndex = 0
+            while statementIndex < item.function.body.statements.length() {
+                let statement = item.function.body.statements[statementIndex]
+                if statement.kind == "Assignment" and
+                    statement.variableName == globalName {
+
+                    return statement.initializer
+                }
+                statementIndex = statementIndex + 1
+            }
+        }
+        i = i + 1
+    }
+    return ParserExpressionNode.new()
+}
+
+fun semanticInferGlobalInitializerIdentity(result: LexicalSemanticResult,
+    expression: ParserExpressionNode, moduleName: String) r: String {
+
+    if expression.kind == "Literal" and expression.literalType != "" and
+        expression.literalType != "Unknown" {
+
+        return expression.literalType
+    }
+    if expression.kind == "StructLiteral" and expression.literalType != "" {
+        return expression.literalType
+    }
+    if expression.kind == "Variable" or expression.kind == "VarExpr" {
+        let name = semanticSimpleVariableName(expression)
+        let declarationIndex = result.registry.lookupIndex(moduleName, name)
+        if declarationIndex >= 0 and
+            declarationIndex < result.registry.typeIdentities.length() {
+
+            let identity = result.registry.typeIdentities[declarationIndex]
+            if identity != "" and identity != "Unknown" { return identity }
+        }
+        return ""
+    }
+    if expression.kind == "Unary" {
+        if expression.operator == "!" { return "Bool" }
+        if expression.operands.length() > 0 {
+            return semanticInferGlobalInitializerIdentity(result,
+                expression.operands[0], moduleName)
+        }
+    }
+    if expression.kind == "Binary" {
+        let operator = expression.operator
+        if operator == "==" or operator == "!=" or operator == "<" or
+            operator == ">" or operator == "<=" or operator == ">=" or
+            operator == "in" or operator == "and" or operator == "or" {
+
+            return "Bool"
+        }
+        var leftIdentity = ""
+        var rightIdentity = ""
+        if expression.operands.length() > 0 {
+            leftIdentity = semanticInferGlobalInitializerIdentity(result,
+                expression.operands[0], moduleName)
+        }
+        if expression.operands.length() > 1 {
+            rightIdentity = semanticInferGlobalInitializerIdentity(result,
+                expression.operands[1], moduleName)
+        }
+        if leftIdentity == "String" or rightIdentity == "String" {
+            return "String"
+        }
+        if leftIdentity == "Float" or rightIdentity == "Float" {
+            return "Float"
+        }
+        if leftIdentity != "" { return leftIdentity }
+        if rightIdentity != "" { return rightIdentity }
+    }
+    return ""
+}
+
 fun collectSemanticDeclarations(result: LexicalSemanticResult,
     program: ProgramNode, moduleName: String, file: String) r: Void {
 
@@ -513,6 +597,9 @@ fun collectSemanticDeclarations(result: LexicalSemanticResult,
                 "Global", typeIdentity, file, item.line, item.column) {
                 result.addError("E_DECL_DUPLICATE", "duplicate declaration '" +
                     canonical + "'", file, item.line, item.column)
+            } else {
+                result.registry.setDeclarationDetail(canonical,
+                    item.visibility)
             }
         }
         i = i + 1
@@ -643,11 +730,18 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
             column)
         if name != "" and not semanticIsReservedValueLiteral(name) and
             bindings.lookup(name) == "" and
-            not result.registry.hasVisibleInstanceField(ownerType, name) and
-            result.registry.lookupIndex(moduleName, name) < 0 {
+            not result.registry.hasVisibleInstanceField(ownerType, name) {
 
-            result.addError("E_BINDING_UNKNOWN", "unknown binding '" + name +
-                "'", file, line, column)
+            let declarationIndex = result.registry.lookupIndex(moduleName,
+                name)
+            if declarationIndex == -2 {
+                result.addError("E_BINDING_AMBIGUOUS", "binding '" + name +
+                    "' is declared by more than one module", file, line,
+                    column)
+            } else if declarationIndex < 0 {
+                result.addError("E_BINDING_UNKNOWN", "unknown binding '" +
+                    name + "'", file, line, column)
+            }
         }
     }
     if (expression.kind == "MemberAccess" or
@@ -661,11 +755,18 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
     if expression.kind == "Assignment" and expression.variableName != "" and
         bindings.lookup(expression.variableName) == "" and
         not result.registry.hasVisibleInstanceField(ownerType,
-            expression.variableName) and
-        result.registry.lookupIndex(moduleName, expression.variableName) < 0 {
+            expression.variableName) {
 
-        result.addError("E_BINDING_UNKNOWN", "unknown assignment target '" +
-            expression.variableName + "'", file, line, column)
+        let assignmentIndex = result.registry.lookupIndex(moduleName,
+            expression.variableName)
+        if assignmentIndex == -2 {
+            result.addError("E_BINDING_AMBIGUOUS", "assignment target '" +
+                expression.variableName +
+                "' is declared by more than one module", file, line, column)
+        } else if assignmentIndex < 0 {
+            result.addError("E_BINDING_UNKNOWN", "unknown assignment target '" +
+                expression.variableName + "'", file, line, column)
+        }
     }
     if bindings.lookup("this") == "" and expression.literalValue == "this" and
         (expression.kind == "MemberAccess" or
@@ -1018,7 +1119,13 @@ fun checkSemanticDeclarations(result: LexicalSemanticResult,
                 mi = mi + 1
             }
         } else if item.itemType == "GlobalVar" {
-            let globalType = semanticGlobalEncodedType(item.visibility)
+            var globalType = semanticGlobalEncodedType(item.visibility)
+            if globalType == "" or globalType == "Unknown" {
+                let initializer = semanticFindGlobalInitializer(program,
+                    item.name)
+                globalType = semanticInferGlobalInitializerIdentity(result,
+                    initializer, moduleName)
+            }
             if globalType == "" or globalType == "Unknown" {
                 result.addError("E_GLOBAL_TYPE_INFERENCE",
                     "global '" + item.name +

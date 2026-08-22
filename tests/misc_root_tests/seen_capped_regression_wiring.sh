@@ -344,8 +344,17 @@ for target in "${STANDALONE_COMPILER_TARGETS[@]}"; do
         fail "host temporary path operation remains in $(basename "$target")"
     fi
     if [ "$(basename "$target")" != "seen_cli_surface.sh" ] &&
-        rg -n -- '--no-fork|--jobs(?:=|[[:space:]])|--opt-jobs(?:=|[[:space:]])' \
+        rg -n -- '--jobs(?:=|[[:space:]])|--opt-jobs(?:=|[[:space:]])' \
             "$target"; then
+
+        fail "standalone fixture bypasses worker-schema selection in $(basename "$target")"
+    fi
+    # The semantic-foundation corpus must compare the forked coordinator with
+    # the serialized no-fork path. Both routes still use the attested compiler
+    # runner and inherited worker schema; no-fork can only reduce concurrency.
+    if [ "$(basename "$target")" != "seen_cli_surface.sh" ] &&
+        [ "$(basename "$target")" != "seen_semantic_foundation.sh" ] &&
+        rg -n -- '--no-fork' "$target"; then
 
         fail "standalone fixture bypasses worker-schema selection in $(basename "$target")"
     fi

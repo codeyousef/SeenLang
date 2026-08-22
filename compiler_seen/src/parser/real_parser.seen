@@ -1939,12 +1939,6 @@ class RealParser {
                 if globalType != "" {
                     return globalType
                 }
-                let firstChar = varName.charAt(0)
-                if firstChar >= "A" {
-                    if firstChar <= "Z" {
-                        return varName
-                    }
-                }
             }
         }
         if initExpr.kind == "MemberAccess" {
@@ -2610,17 +2604,12 @@ class RealParser {
             if paramOwnership == "" and matchNameValue("own") {
                 paramOwnership = "own"
             }
-            // Return type parameter (r: Type syntax)
+            // Parameter names are name-like even when they spell `r`.
+            // Return types are parsed only after the closing parenthesis,
+            // where `r: Type`, arrow, and colon syntax are unambiguous.
             if checkNameLikeToken() {
                 let prevTok = advance()
                 var wasReturnParam = false
-                if paramOwnership == "" and (prevTok.getValue() == "r" or prevTok.getValue() == "seen_std.builtins.r") and checkToken(SeenTokenType.Colon) {
-                    advance() // consume :
-                    parseTypeNodeIntoScratch()
-                    capturePendingFunctionReturnTypeFromScratch()
-                    wasReturnParam = true
-                    continue
-                }
                 ///
                 comptime parameter modifier
                 If identifier is "comptime", consume the next identifier as the real param name
@@ -3702,9 +3691,7 @@ class RealParser {
             }
 
             let param = parseParam()
-            if (param.name == "r" or param.name == "seen_std.builtins.r") and param.paramType.typeName != "Unknown" {
-                func.returnType = param.paramType
-            } else if param.name != "" {
+            if param.name != "" {
                 func.params.push(param)
             }
 

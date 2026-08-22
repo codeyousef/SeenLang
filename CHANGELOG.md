@@ -162,6 +162,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved manifest-scoped project declaration visibility across large
+  forked and `--no-fork` semantic passes, including cross-module constant type
+  inference, deterministic ambiguity diagnostics, package isolation, and
+  ordinary function parameters named `r`.
 - Kept large self-hosted compiler graphs inside the verified memory scope by
   isolating full semantic AST lifetimes and retaining cross-module declaration
   metadata only in its canonical indexed registry instead of rebuilding
