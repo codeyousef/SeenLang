@@ -180,9 +180,9 @@ normalized_failure_status() {
 
 check_status=0
 (
-    cd "$PROJECT_DIR" &&
+    cd "$ROOT_DIR" &&
     run_capped timeout 180 bash "$ATTESTED_SEEN" "$COMPILER" \
-        check main.seen >"$CHECK_LOG" 2>&1
+        check "$PROJECT_DIR/main.seen" >"$CHECK_LOG" 2>&1
 ) || check_status=$?
 if [ "$check_status" -ne 0 ]; then
     echo "FAIL: self-hosted ABI check smoke failed; log: $CHECK_LOG" >&2
@@ -192,9 +192,9 @@ fi
 
 compile_status=0
 (
-    cd "$PROJECT_DIR" &&
+    cd "$ROOT_DIR" &&
     run_capped timeout 180 bash "$ATTESTED_SEEN" "$COMPILER" \
-        compile main.seen "$OUTPUT_FILE" --fast --no-cache \
+        compile "$PROJECT_DIR/main.seen" "$OUTPUT_FILE" --fast --no-cache \
         >"$COMPILE_LOG" 2>&1
 ) || compile_status=$?
 if [ "$compile_status" -ne 0 ]; then

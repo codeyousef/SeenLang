@@ -590,6 +590,10 @@ grep -Fq 'SEEN_SELFHOSTED_ABI_COMPILER="$FROZEN_ABS"' "$SAFE_REBUILD" ||
     fail "clean full rebuild does not bind prebuild ABI smoke to the verified frozen seed"
 grep -Fq 'SEEN_COMPILER_SOURCE_ROOT="$ROOT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||
     fail "self-hosted ABI smoke does not bind the compiler source root"
+grep -Fq 'cd "$ROOT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||
+    fail "self-hosted ABI smoke does not invoke compilers from the tracked runtime root"
+grep -Fq 'check "$PROJECT_DIR/main.seen"' "$SELFHOSTED_ABI_SMOKE" ||
+    fail "self-hosted ABI smoke does not pass an absolute project entry path"
 if grep -Fq 'eval ' "$ROOT_DIR/scripts/run_all_tests.sh"; then
     fail "legacy all-tests still executes interpolated compiler commands with eval"
 fi
