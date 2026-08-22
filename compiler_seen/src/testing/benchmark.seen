@@ -1,19 +1,183 @@
 /// Pinned benchmark policy for TEST-002A instrumentation evidence parsing.
 
+import core.option.{None}
 import core.result.{Result, Ok, Err}
-import core.error.{SeenError}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
 import core.operation_context.{OperationContext}
 import testing.instrumentation.{test002aError}
 
 let TEST_INSTRUMENTATION_BENCHMARK_WARMUPS: Int = 5
 let TEST_INSTRUMENTATION_BENCHMARK_SAMPLES: Int = 30
 let TEST_INSTRUMENTATION_BENCHMARK_MAX_REGRESSION_PERCENT: Int = 5
+let TEST_BENCHMARK_EVIDENCE_SCHEMA: String = "seen-benchmark-evidence-v1"
+let TEST_BENCHMARK_WARMUPS: Int = 5
+let TEST_BENCHMARK_SAMPLES: Int = 30
+let TEST_BENCHMARK_MAX_REGRESSION_PERCENT: Int = 5
+let TEST_BENCHMARK_MAX_SAMPLE_NS: Int64 = 1000000000000
 
 class TestInstrumentationBenchmarkPlan {
     var warmups: Int
     var samples: Int
     var iterationsPerSample: Int
     var maxRegressionPercent: Int
+}
+
+class TestBenchmarkCgroupLimits {
+    var memoryMaxBytes: Int64
+    var memorySwapMaxBytes: Int64
+    var pidsMax: Int
+    var jobs: Int
+    var optJobs: Int
+}
+
+class TestBenchmarkEvidence {
+    var schema: String
+    var name: String
+    var target: String
+    var backend: String
+    var maturity: String
+    var hardware: String
+    var toolchain: String
+    var sourceCommit: String
+    var baselineCommit: String
+    var command: String
+    var cgroup: TestBenchmarkCgroupLimits
+    var warmups: Int
+    var samplesNs: Array<Int64>
+    var medianNs: Int64
+    var baselineMedianNs: Int64
+    var bandwidthBytesPerSecond: Int64
+    var peakRssBytes: Int64
+    var peakVramBytes: Int64
+    var transferBytes: Int64
+    var correctness: Bool
+    var fallbackCount: Int
+    var designatedKernel: Bool
+    var hardwareExecuted: Bool
+    var maxRegressionPercent: Int
+}
+
+fun test002cError(code: String, message: String) r: SeenError {
+    return SeenError{code: AsciiString{value: code},
+        subsystem: AsciiString{value: "testing.benchmark"},
+        operation: AsciiString{value: "validate-evidence"},
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public}
+}
+
+fun testBenchmarkAsciiSafe(value: String, maximum: Int) r: Bool {
+    if value == "" or value.length() > maximum { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 32 or byte > 126 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun testBenchmarkCommitSafe(value: String) r: Bool {
+    if value.length() != 40 { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if not (byte >= 48 and byte <= 57) and
+            not (byte >= 97 and byte <= 102) { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun testBenchmarkMaturitySafe(value: String) r: Bool {
+    return value == "unsupported" or value == "compile-only" or
+        value == "experimental-hardware" or value == "verified" or
+        value == "production-certified"
+}
+
+fun validateTestBenchmarkEvidence(evidence: TestBenchmarkEvidence,
+    context: OperationContext) r: Result<TestBenchmarkEvidence, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<TestBenchmarkEvidence, SeenError>(test002cError(
+            "test.002c.cancelled", "benchmark evidence validation was cancelled"))
+    }
+    if evidence.target != "linux-x86_64" {
+        return Err<TestBenchmarkEvidence, SeenError>(test002cError(
+            "test.002c.platform", "benchmark evidence target is unsupported"))
+    }
+    if evidence.schema != TEST_BENCHMARK_EVIDENCE_SCHEMA or
+        not testBenchmarkAsciiSafe(evidence.name, 128) or
+        not testBenchmarkAsciiSafe(evidence.backend, 64) or
+        not testBenchmarkMaturitySafe(evidence.maturity) or
+        not testBenchmarkAsciiSafe(evidence.hardware, 256) or
+        not testBenchmarkAsciiSafe(evidence.toolchain, 256) or
+        not testBenchmarkCommitSafe(evidence.sourceCommit) or
+        not testBenchmarkCommitSafe(evidence.baselineCommit) or
+        not testBenchmarkAsciiSafe(evidence.command, 4096) or
+        not evidence.correctness or evidence.fallbackCount < 0 {
+
+        return Err<TestBenchmarkEvidence, SeenError>(test002cError(
+            "test.002c.invalid", "benchmark identity or correctness is invalid"))
+    }
+    if evidence.cgroup.memoryMaxBytes < 1 or
+        evidence.cgroup.memorySwapMaxBytes != 0 or
+        evidence.cgroup.pidsMax < 1 or evidence.cgroup.pidsMax > 24 or
+        evidence.cgroup.jobs != 1 or evidence.cgroup.optJobs != 1 or
+        evidence.warmups != TEST_BENCHMARK_WARMUPS or
+        evidence.samplesNs.length() != TEST_BENCHMARK_SAMPLES or
+        evidence.samplesNs.length() > context.limits.maxGraphModules or
+        evidence.maxRegressionPercent !=
+            TEST_BENCHMARK_MAX_REGRESSION_PERCENT or
+        evidence.medianNs < 1 or
+        evidence.baselineMedianNs < 1 or
+        evidence.bandwidthBytesPerSecond < 1 or
+        evidence.peakRssBytes < 1 or evidence.peakVramBytes < 0 or
+        evidence.transferBytes < 0 {
+
+        return Err<TestBenchmarkEvidence, SeenError>(test002cError(
+            "test.002c.limit", "benchmark evidence limit is invalid"))
+    }
+    var index = 0
+    var previous: Int64 = 0
+    while index < evidence.samplesNs.length() {
+        let sample = evidence.samplesNs[index]
+        if sample < 1 or sample > TEST_BENCHMARK_MAX_SAMPLE_NS or
+            (previous > 0 and sample < previous) {
+
+            return Err<TestBenchmarkEvidence, SeenError>(test002cError(
+                "test.002c.invalid", "benchmark samples are not canonical"))
+        }
+        previous = sample
+        index = index + 1
+    }
+    let expectedMedian = (evidence.samplesNs[14] +
+        evidence.samplesNs[15]) / 2
+    if evidence.medianNs != expectedMedian {
+        return Err<TestBenchmarkEvidence, SeenError>(test002cError(
+            "test.002c.invalid", "benchmark median does not match samples"))
+    }
+    if evidence.designatedKernel and
+        (evidence.fallbackCount != 0 or not evidence.hardwareExecuted or
+         evidence.maturity == "unsupported" or
+         evidence.maturity == "compile-only" or
+         evidence.medianNs > evidence.baselineMedianNs +
+            evidence.baselineMedianNs *
+                TEST_BENCHMARK_MAX_REGRESSION_PERCENT / 100) {
+
+        return Err<TestBenchmarkEvidence, SeenError>(test002cError(
+            "test.002c.regression",
+            "designated kernel exceeded the hard five percent gate"))
+    }
+    if evidence.backend == "cpu" and
+        (evidence.peakVramBytes != 0 or evidence.transferBytes != 0 or
+         evidence.hardwareExecuted) {
+
+        return Err<TestBenchmarkEvidence, SeenError>(test002cError(
+            "test.002c.invalid", "CPU evidence cannot claim GPU execution"))
+    }
+    return Ok<TestBenchmarkEvidence, SeenError>(evidence)
 }
 
 fun validateTestInstrumentationBenchmark(

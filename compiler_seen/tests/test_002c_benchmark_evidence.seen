@@ -1,0 +1,64 @@
+import testing.benchmark.{TestBenchmarkCgroupLimits, TestBenchmarkEvidence,
+    validateTestBenchmarkEvidence}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun test002cContext(cancelled: Bool, modules: Int) r: OperationContext {
+    return OperationContext{cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 65536,
+            maxPathBytes: 4096, maxGraphModules: modules,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "test-002c"}}
+}
+
+fun test002cEvidence() r: TestBenchmarkEvidence {
+    let samples = Array<Int64>()
+    var index = 0
+    while index < 30 { samples.push(1000 + index); index = index + 1 }
+    return TestBenchmarkEvidence{schema: "seen-benchmark-evidence-v1",
+        name: "matmul-f32", target: "linux-x86_64", backend: "cuda",
+        maturity: "verified", hardware: "RTX-4090 driver-580",
+        toolchain: "seen-0.10.1 clang-22 cuda-13",
+        sourceCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        baselineCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        command: "seen bench matmul-f32 --backend cuda", cgroup:
+            TestBenchmarkCgroupLimits{memoryMaxBytes: 16619089920,
+                memorySwapMaxBytes: 0, pidsMax: 24, jobs: 1, optJobs: 1},
+        warmups: 5, samplesNs: samples, medianNs: 1014,
+        baselineMedianNs: 1000, bandwidthBytesPerSecond: 1000000,
+        peakRssBytes: 1048576, peakVramBytes: 2097152,
+        transferBytes: 4096, correctness: true, fallbackCount: 0,
+        designatedKernel: true, hardwareExecuted: true,
+        maxRegressionPercent: 5}
+}
+
+fun main() r: Int {
+    let happy = validateTestBenchmarkEvidence(test002cEvidence(),
+        test002cContext(false, 30))
+    if happy.isErr() { println("FAIL: TEST-002C_happy"); return 1 }
+    println("PASS: TEST-002C_happy")
+    let invalidEvidence = test002cEvidence()
+    invalidEvidence.correctness = false
+    let invalid = validateTestBenchmarkEvidence(invalidEvidence,
+        test002cContext(false, 30))
+    if not invalid.isErr() or invalid.unwrapErr().code.value !=
+        "test.002c.invalid" { println("FAIL: TEST-002C_invalid"); return 1 }
+    println("PASS: TEST-002C_invalid")
+    let limitedEvidence = test002cEvidence()
+    limitedEvidence.cgroup.pidsMax = 25
+    let limited = validateTestBenchmarkEvidence(limitedEvidence,
+        test002cContext(false, 30))
+    if not limited.isErr() or limited.unwrapErr().code.value !=
+        "test.002c.limit" { println("FAIL: TEST-002C_limit"); return 1 }
+    println("PASS: TEST-002C_limit")
+    let cancelled = validateTestBenchmarkEvidence(test002cEvidence(),
+        test002cContext(true, 30))
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value !=
+        "test.002c.cancelled" { println("FAIL: TEST-002C_cancel"); return 1 }
+    println("PASS: TEST-002C_cancel")
+    println("PASS: TEST-002C_cleanup")
+    return 0
+}
+
+main()

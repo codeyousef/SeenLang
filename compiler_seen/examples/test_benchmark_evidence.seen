@@ -1,0 +1,35 @@
+import testing.benchmark.{TestBenchmarkCgroupLimits, TestBenchmarkEvidence,
+    validateTestBenchmarkEvidence}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let samples = Array<Int64>()
+    var index = 0
+    while index < 30 { samples.push(1000 + index); index = index + 1 }
+    let evidence = TestBenchmarkEvidence{schema: "seen-benchmark-evidence-v1",
+        name: "parser-throughput", target: "linux-x86_64", backend: "cpu",
+        maturity: "verified", hardware: "x86_64 CPU", toolchain: "seen-0.10.1",
+        sourceCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        baselineCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        command: "seen test --benchmark parser-throughput", cgroup:
+            TestBenchmarkCgroupLimits{memoryMaxBytes: 4294967296,
+                memorySwapMaxBytes: 0, pidsMax: 24, jobs: 1, optJobs: 1},
+        warmups: 5, samplesNs: samples, medianNs: 1014,
+        baselineMedianNs: 1000, bandwidthBytesPerSecond: 1000000,
+        peakRssBytes: 1048576, peakVramBytes: 0, transferBytes: 0,
+        correctness: true, fallbackCount: 0, designatedKernel: false,
+        hardwareExecuted: false, maxRegressionPercent: 5}
+    let context = OperationContext{cancellation: false,
+        monotonicDeadline: 1, limits: OperationLimits{maxTargets: 8,
+            maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 30, maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "benchmark-example"}}
+    let checked = validateTestBenchmarkEvidence(evidence, context)
+    if checked.isErr() { return 1 }
+    println("validated 5/30/5 benchmark evidence")
+    return 0
+}
+
+main()

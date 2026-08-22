@@ -1,5 +1,28 @@
 # Testing
 
+## Benchmark baseline and regression evidence
+
+TEST-002C defines `seen-benchmark-evidence-v1`, a strict, canonical evidence
+tuple for Colibri performance claims. Each record binds the hardware,
+toolchain, source and baseline commits, exact command, read-back cgroup limits,
+five warmups, thirty sorted nanosecond samples, their median, bandwidth, peak
+RSS and VRAM, transfer volume, correctness, fallback count, backend maturity,
+and whether real hardware executed. Unknown or duplicate fields fail closed.
+
+Designated kernels have a hard five-percent median regression ceiling. They
+must execute on hardware, may not use fallback, and cannot use `unsupported` or
+`compile-only` evidence. CPU records cannot claim VRAM, transfers, or GPU
+execution. The RTX 4090 JSON under `tests/fixtures/test-002c` is synthetic
+contract data only; it is not hardware certification.
+
+The native policy lives in `testing.benchmark`; the Python checker only
+validates serialized acceptance evidence. Run
+`tests/misc_root_tests/seen_benchmark_evidence_contract.sh`, setting
+`SEEN_TEST_002C_FUZZ_SECONDS=60` for required seed-1101 fuzz evidence. The
+compiling example is `compiler_seen/examples/test_benchmark_evidence.seen`.
+Legacy `scripts/perf_gate.sh` suite baselines remain useful general regression
+signals, but cannot substitute for this Colibri evidence tuple.
+
 ## Fuzz corpus minimization and replay
 
 TEST-002B defines `seen-test-fuzz-corpus-v1`. A corpus manifest pins its seed,
