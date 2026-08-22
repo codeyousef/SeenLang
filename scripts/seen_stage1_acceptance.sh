@@ -509,6 +509,10 @@ run_fixture structured-error \
     "$REPO_ROOT/seen_std/tests/error/err_001a_error_contract.seen"
 run_fixture structured-error-example \
     "$REPO_ROOT/seen_std/examples/error_contract.seen"
+run_fixture typed-errors \
+    "$REPO_ROOT/seen_std/tests/error/err_001b_typed_errors.seen"
+run_fixture typed-errors-example \
+    "$REPO_ROOT/seen_std/examples/typed_errors.seen"
 
 test_runner_log="$ACCEPTANCE_ROOT/test-runner-cli.log"
 if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001B \
@@ -580,6 +584,45 @@ if [ "${SEEN_ERR_001A_FULL_REPORT:-0}" = "1" ]; then
     python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format junit \
         --validate "$REPO_ROOT/.seen_cache/test/ERR-001A-full.xml" >/dev/null
     tail -n 1 "$error_contract_full_log"
+fi
+
+typed_error_log="$ACCEPTANCE_ROOT/typed-error-cli.log"
+if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter ERR-001B \
+    --profile ci --jobs 1 --timeout 10m \
+    --report json:.seen_cache/test/ERR-001B.json \
+    --report junit:.seen_cache/test/ERR-001B.xml \
+    >"$typed_error_log" 2>&1; then
+
+    echo "ERROR: ERR-001B canonical seen test acceptance failed: $typed_error_log" >&2
+    cat "$typed_error_log" >&2
+    exit 1
+fi
+grep -Fq 'test result: 1 passed; 0 failed' "$typed_error_log" || {
+    echo "ERROR: ERR-001B canonical seen test summary is missing" >&2
+    exit 1
+}
+python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format json \
+    --validate "$REPO_ROOT/.seen_cache/test/ERR-001B.json" >/dev/null
+python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format junit \
+    --validate "$REPO_ROOT/.seen_cache/test/ERR-001B.xml" >/dev/null
+
+if [ "${SEEN_ERR_001B_FULL_REPORT:-0}" = "1" ]; then
+    typed_error_full_log="$ACCEPTANCE_ROOT/typed-error-full-cli.log"
+    typed_error_full_status=0
+    "$DIRECT_COMPILER" test "$REPO_ROOT" --profile ci --jobs 1 \
+        --timeout 10m --report json:.seen_cache/test/ERR-001B-full.json \
+        --report junit:.seen_cache/test/ERR-001B-full.xml \
+        >"$typed_error_full_log" 2>&1 || typed_error_full_status=$?
+    [ "$typed_error_full_status" -le 1 ] || {
+        echo "ERROR: ERR-001B full test infrastructure failed with status $typed_error_full_status" >&2
+        cat "$typed_error_full_log" >&2
+        exit 1
+    }
+    python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format json \
+        --validate "$REPO_ROOT/.seen_cache/test/ERR-001B-full.json" >/dev/null
+    python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format junit \
+        --validate "$REPO_ROOT/.seen_cache/test/ERR-001B-full.xml" >/dev/null
+    tail -n 1 "$typed_error_full_log"
 fi
 
 if [ "${SEEN_TEST_001F_FULL_REPORT:-0}" = "1" ]; then

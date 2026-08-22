@@ -23,12 +23,32 @@ enum RedactionClass {
     Sensitive
 }
 
+enum SeenErrorKind {
+    Os
+    Io
+    Process
+    Network
+    Timeout
+    Cancelled
+    Parse
+    Resource
+}
+
 class SeenError {
     var code: AsciiString
     var subsystem: AsciiString
     var operation: AsciiString
     var message: String
     var causes: Vec<SeenError>
+    var nativeCode: Option<Int64>
+    var retry: RetryClass
+    var redaction: RedactionClass
+}
+
+class TypedErrorSpec {
+    var kind: SeenErrorKind
+    var operation: AsciiString
+    var message: String
     var nativeCode: Option<Int64>
     var retry: RetryClass
     var redaction: RedactionClass
@@ -65,6 +85,48 @@ fun errorLiteral(code: String, subsystem: String, operation: String,
 fun err001aFailure(code: String, message: String) r: SeenError {
     return errorLiteral(code, "error", "validate", message,
         RetryClass.Never, RedactionClass.Public)
+}
+
+fun err001bFailure(code: String, message: String) r: SeenError {
+    return errorLiteral(code, "error", "classify", message,
+        RetryClass.Never, RedactionClass.Public)
+}
+
+fun seenErrorKindName(kind: SeenErrorKind) r: String {
+    if kind == SeenErrorKind.Os { return "os" }
+    if kind == SeenErrorKind.Io { return "io" }
+    if kind == SeenErrorKind.Process { return "process" }
+    if kind == SeenErrorKind.Network { return "network" }
+    if kind == SeenErrorKind.Timeout { return "timeout" }
+    if kind == SeenErrorKind.Cancelled { return "cancelled" }
+    if kind == SeenErrorKind.Parse { return "parse" }
+    return "resource"
+}
+
+fun typedSeenError(spec: TypedErrorSpec) r: Result<SeenError, SeenError> {
+    if not errorIdentityValid(spec.operation.value) {
+        return Err<SeenError, SeenError>(err001bFailure(
+            "err.001b.invalid", "typed error operation is not canonical ASCII"))
+    }
+    if spec.message.length() > SEEN_ERROR_MAX_MESSAGE_BYTES {
+        return Err<SeenError, SeenError>(err001bFailure(
+            "err.001b.limit", "typed error message exceeds its bound"))
+    }
+    if (spec.kind == SeenErrorKind.Cancelled or
+        spec.kind == SeenErrorKind.Parse) and
+        spec.retry != RetryClass.Never {
+
+        return Err<SeenError, SeenError>(err001bFailure(
+            "err.001b.invalid", "policy errors cannot be retryable"))
+    }
+    let category = seenErrorKindName(spec.kind)
+    return Ok<SeenError, SeenError>(SeenError{
+        code: AsciiString{ value: "err.001b." + category },
+        subsystem: AsciiString{ value: category },
+        operation: spec.operation, message: spec.message,
+        causes: Vec<SeenError>.new(), nativeCode: spec.nativeCode,
+        retry: spec.retry, redaction: spec.redaction
+    })
 }
 
 fun seenErrorValidity(value: SeenError, depth: Int) r: Int {

@@ -1,0 +1,18 @@
+import core.option.{Some}
+import error.{AsciiString, RetryClass, RedactionClass, SeenErrorKind,
+    TypedErrorSpec, typedSeenError, renderSeenError}
+
+fun main() r: Int {
+    let checked = typedSeenError(TypedErrorSpec{
+        kind: SeenErrorKind.Network,
+        operation: AsciiString{ value: "connect" },
+        message: "peer is temporarily unavailable",
+        nativeCode: Some<Int64>(111), retry: RetryClass.Transient,
+        redaction: RedactionClass.Public
+    })
+    if checked.isErr() { return 1 }
+    println(renderSeenError(checked.unwrap()))
+    return 0
+}
+
+main()

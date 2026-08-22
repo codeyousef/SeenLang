@@ -2,7 +2,8 @@
 
 import core.result.{Result, Ok, Err}
 import core.error.{AsciiString, SeenError, RetryClass, RedactionClass,
-    errorIdentityValid, errorLiteral, validateSeenError}
+    TypedErrorSpec, errorIdentityValid, errorLiteral, err001bFailure,
+    typedSeenError, validateSeenError}
 
 class OperationLimits {
     var maxTargets: Int
@@ -62,4 +63,24 @@ fun validateSeenErrorInContext(value: SeenError, context: OperationContext)
         return Err<SeenError, SeenError>(checkedContext.unwrapErr())
     }
     return validateSeenError(value)
+}
+
+fun typedSeenErrorInContext(spec: TypedErrorSpec, context: OperationContext)
+    r: Result<SeenError, SeenError> {
+
+    let checkedContext = validateOperationContext(context)
+    if checkedContext.isErr() {
+        let contextError = checkedContext.unwrapErr()
+        if contextError.code.value == "err.001a.cancelled" {
+            return Err<SeenError, SeenError>(err001bFailure(
+                "err.001b.cancelled", "typed error operation is cancelled"))
+        }
+        if contextError.code.value == "err.001a.limit" {
+            return Err<SeenError, SeenError>(err001bFailure(
+                "err.001b.limit", "typed error context exceeds its bound"))
+        }
+        return Err<SeenError, SeenError>(err001bFailure(
+            "err.001b.invalid", "typed error context is invalid"))
+    }
+    return typedSeenError(spec)
 }

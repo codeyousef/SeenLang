@@ -1,4 +1,5 @@
 /// Public stable operation-context surface.
 
 pub import core.operation_context.{OperationLimits, OperationContext,
-    validateOperationContext, validateSeenErrorInContext}
+    validateOperationContext, validateSeenErrorInContext,
+    typedSeenErrorInContext}
