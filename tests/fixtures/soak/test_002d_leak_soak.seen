@@ -1,0 +1,37 @@
+import testing.leak.{TestLeakSoakEvidence, TestLeakSoakProviderReading,
+    testLeakSoakProviderName, validateTestLeakSoakEvidence}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let providers = Array<TestLeakSoakProviderReading>()
+    var providerIndex = 0
+    while providerIndex < 13 {
+        var peak: Int64 = 1
+        if providerIndex == 4 { peak = 8192 }
+        if providerIndex == 10 or providerIndex == 11 { peak = 4096 }
+        providers.push(TestLeakSoakProviderReading{
+            provider: testLeakSoakProviderName(providerIndex), available: true,
+            baseline: 0, peak: peak, finalValue: 0,
+            acquired: 10000, released: 10000})
+        providerIndex = providerIndex + 1
+    }
+    let evidence = TestLeakSoakEvidence{schema: "seen-test-leak-soak-v1",
+        target: "linux-x86_64", plannedIterations: 10000,
+        completedIterations: 10000, providers: providers}
+    let context = OperationContext{cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 65536,
+            maxPathBytes: 4096, maxGraphModules: 13,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "test-002d-soak"}}
+    var iteration = 0
+    while iteration < 10000 {
+        if validateTestLeakSoakEvidence(evidence, context).isErr() { return 1 }
+        iteration = iteration + 1
+    }
+    println("PASS: TEST-002D_soak")
+    return 0
+}
+
+main()
