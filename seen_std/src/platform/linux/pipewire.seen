@@ -9,7 +9,15 @@ Link with: -lseen_platform (which wraps libpipewire-0.3.so)
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{Option, None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun pipewireFailure<T>(operation: String, message: String) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Os, operation, message,
+        None<Int64>(), RetryClass.Transient, RedactionClass.Public)
+}
 
 // PipeWire stream states
 let PW_STREAM_STATE_ERROR: Int = -1
@@ -150,18 +158,20 @@ when accessing PipeWire objects from the main thread.
 class PwThreadLoop {
     var nativeHandle: *Void
 
-    static fun new(name: String) r: Result<PwThreadLoop, String> {
+    static fun new(name: String) r: Result<PwThreadLoop, SeenError> {
         let loopPtr = seen_pw_thread_loop_new(name.toCString())
         if loopPtr == null {
-            return Err("Failed to create PipeWire thread loop")
+            return pipewireFailure<PwThreadLoop>("thread-loop-create",
+                "failed to create PipeWire thread loop")
         }
         return Ok(PwThreadLoop { nativeHandle: loopPtr })
     }
 
-    fun start() r: Result<Unit, String> {
+    fun start() r: Result<Unit, SeenError> {
         let result = seen_pw_thread_loop_start(this.nativeHandle)
         if result < 0 {
-            return Err("Failed to start thread loop")
+            return pipewireFailure<Unit>("thread-loop-start",
+                "failed to start PipeWire thread loop")
         }
         return Ok(Unit{})
     }

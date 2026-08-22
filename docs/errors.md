@@ -39,5 +39,20 @@ an operating-system number. Cancellation and parse/policy failures must use
 signed 64-bit values. Sensitive messages, including paths, render only as
 `[redacted]`.
 
-Legacy string-error and sentinel APIs are intentionally unchanged here. Their
-removal and caller migration are the separate ERR-001C contract.
+## String-error and sentinel migration
+
+ERR-001C defines `seen-error-api-migration-v1`. Public fallible `Result` APIs
+in the standard library and bootstrap verifier now return `SeenError`; string
+errors and the bespoke `FsFileResult` carrier are rejected by a repository
+audit. Callers propagate the original structured value, so native codes,
+retry classification, and redaction survive composition. `seenFailure` is the
+bounded constructor for an immediate failure; bounded operations use
+`typedSeenErrorInContext` to apply cancellation and operation limits first.
+
+The frozen compiler bootstrap still consumes eight explicitly inventoried
+primitive file helpers whose scalar return values are part of the current
+bootstrap ABI. They are not the error contract for new code: ordinary callers
+use `FsFile` or the checked text-read carrier, both of which expose
+`SeenError`. The audit pins these bootstrap signatures exactly so the exception
+cannot grow silently; replacing that frozen ABI requires a bootstrap migration,
+not a deprecated public bridge.

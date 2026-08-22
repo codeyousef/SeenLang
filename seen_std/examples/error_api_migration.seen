@@ -1,0 +1,26 @@
+import core.option.{None}
+import core.result.{Result}
+import error.{SeenError, SeenErrorKind, RetryClass, RedactionClass, seenFailure}
+import io.file.{FsFile}
+
+fun readConfiguration() r: Result<String, SeenError> {
+    return seenFailure<String>(SeenErrorKind.Io, "read-configuration",
+        "configuration is unavailable", None<Int64>(), RetryClass.Never,
+        RedactionClass.Sensitive)
+}
+
+fun main() r: Int {
+    let file = FsFile.open("/.seen-err-001c-missing")
+    if not file.isErr() {
+        return 1
+    }
+    println(file.unwrapErr().code.value)
+    let result = readConfiguration()
+    if result.isErr() {
+        println(result.unwrapErr().code.value)
+        return 0
+    }
+    return 1
+}
+
+main()

@@ -9,7 +9,17 @@ Link with: -lseen_platform (which wraps libevdev.so.2)
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{Some, None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun evdevFailure<T>(operation: String, message: String,
+    nativeCode: Int) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Os, operation, message,
+        Some<Int64>(nativeCode as Int64), RetryClass.Transient,
+        RedactionClass.Sensitive)
+}
 
 // Event types
 let EV_SYN: Int = 0x00
@@ -288,18 +298,18 @@ class EvdevDevice {
     var productId: Int
     var deviceType: Int
 
-    static fun open(path: String) r: Result<EvdevDevice, String> {
+    static fun open(path: String) r: Result<EvdevDevice, SeenError> {
         // Open the device file
         let fdVal = seen_evdev_open_device(path.toCString())
         if fdVal < 0 {
-            return Err("Failed to open device: " + path)
+            return evdevFailure<EvdevDevice>("open", "failed to open input device", fd)
         }
 
         // Create libevdev devHandle
         let devPtr = seen_evdev_new()
         if devPtr == null {
             seen_evdev_close_device(fdVal as Int32)
-            return Err("Failed to create libevdev device")
+            return evdevFailure<EvdevDevice>("create", "failed to create input device", result)
         }
 
         // Set the file descriptor
@@ -307,7 +317,7 @@ class EvdevDevice {
         if result < 0 {
             seen_evdev_free(devPtr)
             seen_evdev_close_device(fdVal as Int32)
-            return Err("Failed to initialize libevdev with fd")
+            return evdevFailure<EvdevDevice>("initialize", "failed to initialize input device", result)
         }
 
         // Get device info
@@ -378,7 +388,7 @@ class EvdevDevice {
     }
 
     // Read next event (non-blocking)
-    fun pollEvent() r: Result<InputEvent, String> {
+    fun pollEvent() r: Result<InputEvent, SeenError> {
         var eventType: Int32 = 0
         var code: Int32 = 0
         var value: Int32 = 0
@@ -386,7 +396,7 @@ class EvdevDevice {
         let result = seen_evdev_next_event(this.devHandle, LIBEVDEV_READ_FLAG_NORMAL as Int32, &eventType, &code, &value)
 
         if result < 0 {
-            return Err("No event available")
+            return evdevFailure<InputEvent>("poll", "no input event available", result)
         }
 
         return Ok(InputEvent.new(eventType as Int, code as Int, value as Int, 0, 0))

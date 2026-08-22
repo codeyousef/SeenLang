@@ -9,7 +9,15 @@ Link with: -lSDL3
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun sdlFailure<T>(operation: String, message: String) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Os, operation, message,
+        None<Int64>(), RetryClass.Never, RedactionClass.Public)
+}
 
 // SDL3 initialization flags - bitwise OR these for SDL_Init()
 let SDL_INIT_VIDEO: Int = 0x00000020
@@ -220,10 +228,10 @@ fun cstr_to_string(cstr: *Char) r: String {
 ///
 Safe wrapper for SDL_Init with Result return type.
 ///
-fun sdl_init(flags: Int) r: Result<Unit, String> {
+fun sdl_init(flags: Int) r: Result<Unit, SeenError> {
     let result = SDL_Init(flags as UInt32)
     if result < 0 {
-        return Err(cstr_to_string(SDL_GetError()))
+        return sdlFailure<Unit>("initialize", cstr_to_string(SDL_GetError()))
     }
     return Ok(Unit{})
 }
@@ -236,10 +244,10 @@ fun sdl_get_error() r: String {
     return cstr_to_string(SDL_GetError())
 }
 
-fun sdl_create_window(title: String, width: Int, height: Int, flags: Int) r: Result<*Void, String> {
+fun sdl_create_window(title: String, width: Int, height: Int, flags: Int) r: Result<*Void, SeenError> {
     let window = SDL_CreateWindow(title.toCString(), width, height, flags as UInt64)
     if window == null {
-        return Err(cstr_to_string(SDL_GetError()))
+        return sdlFailure<*Void>("create-window", cstr_to_string(SDL_GetError()))
     }
     return Ok(window)
 }
@@ -256,10 +264,10 @@ fun sdl_delay(ms: Int) r: Void {
     SDL_Delay(ms as UInt32)
 }
 
-fun sdl_set_clipboard(text: String) r: Result<Unit, String> {
+fun sdl_set_clipboard(text: String) r: Result<Unit, SeenError> {
     let result = SDL_SetClipboardText(text.toCString())
     if result < 0 {
-        return Err(cstr_to_string(SDL_GetError()))
+        return sdlFailure<Unit>("set-clipboard", cstr_to_string(SDL_GetError()))
     }
     return Ok(Unit{})
 }

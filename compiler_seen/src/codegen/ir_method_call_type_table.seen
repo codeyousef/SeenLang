@@ -145,7 +145,6 @@ fun inferMethodCallTypeTableImpl(callee: String) r: String {
     }
     if callee == "getContext" { return "String" }
     if callee == "getMessage" { return "String" }
-    if callee == "unwrapErr" { return "String" }
     if callee == "getLocation" {
         return "Location"
     }
@@ -157,8 +156,8 @@ fun inferMethodCallTypeTableImpl(callee: String) r: String {
     if callee == "parseJson" {
         return "JsonParseResult"
     }
-    if callee == "open" { return "FsFileResult" }
-    if callee == "create" { return "FsFileResult" }
+    if callee == "open" { return "Result" }
+    if callee == "create" { return "Result" }
     // LSP methods returning nullable types
     if callee == "readMessage" {
         return "Option<LspMessage>"

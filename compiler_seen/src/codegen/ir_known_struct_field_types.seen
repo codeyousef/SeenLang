@@ -17,11 +17,6 @@ fun getFieldTypeForKnownStructImpl(structName: String, fieldName: String) r: Str
         if fieldName == "success" { return "i1" }
         if fieldName == "output" { return "%SeenString" }
     }
-    if structName == "FsFileResult" {
-        if fieldName == "isOk" { return "i1" }
-        if fieldName == "file" { return "i64" }
-        if fieldName == "error" { return "%SeenString" }
-    }
     if structName == "ProgramNode" {
         if fieldName == "items" { return "ptr" }
     }

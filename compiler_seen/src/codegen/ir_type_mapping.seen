@@ -115,7 +115,6 @@ fun isClassTypeImpl(name: String, structNames: Array<String>) r: Int {
     if baseType == "Location" { return 1 }
     if baseType == "SourceLocation" { return 1 }
     if baseType == "Type" { return 1 }
-    if baseType == "FsFileResult" { return 1 }
     if baseType == "FsFile" { return 1 }
     if baseType == "Result" { return 1 }
     if baseType == "Unit" { return 1 }

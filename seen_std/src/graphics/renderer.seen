@@ -14,7 +14,10 @@ Example:
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{Option, Some, None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
 import platform.linux.window.{Window, ResizeEvent}
 import platform.linux.vulkan.{
     VK_SUCCESS, VK_ERROR_OUT_OF_DATE_KHR, VK_SUBOPTIMAL_KHR,
@@ -76,6 +79,12 @@ import platform.linux.vulkan.{
     seen_vk_create_fence, seen_vk_destroy_fence, seen_vk_wait_for_fences, seen_vk_reset_fences,
     seen_vk_create_buffer, seen_vk_destroy_buffer, seen_vk_get_buffer_memory_requirements, seen_vk_bind_buffer_memory,
     seen_vk_allocate_memory, seen_vk_free_memory, seen_vk_map_memory, seen_vk_unmap_memory
+}
+
+fun rendererFailure<T>(operation: String, message: String,
+    nativeCode: Option<Int64>) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Resource, operation, message,
+        nativeCode, RetryClass.Never, RedactionClass.Public)
 }
 
 let MAX_FRAMES_IN_FLIGHT: Int = 2
@@ -253,7 +262,7 @@ class VulkanRenderer {
     Initializes Vulkan instance, device, swapchain, and frame resources.
     The window must have been created with Vulkan support.
     ///
-    static fun create(window: Window, config: RendererConfig) r: Result<VulkanRenderer, String> {
+    static fun create(window: Window, config: RendererConfig) r: Result<VulkanRenderer, SeenError> {
         var renderer = VulkanRenderer {
             instance: 0,
             physicalDevice: 0,
@@ -288,7 +297,7 @@ class VulkanRenderer {
         let surfaceResult = window.getVulkanSurface(renderer.instance)
         if surfaceResult.isErr() {
             renderer.destroyInstance()
-            return Err("Failed to create Vulkan surface: " + surfaceResult.unwrapErr())
+            return Err(surfaceResult.unwrapErr())
         }
         renderer.surface = surfaceResult.unwrap()
 
@@ -369,13 +378,13 @@ class VulkanRenderer {
     ///
     Create a renderer with default settings.
     ///
-    static fun new(window: Window, appName: String) r: Result<VulkanRenderer, String> {
+    static fun new(window: Window, appName: String) r: Result<VulkanRenderer, SeenError> {
         let config = RendererConfig.new(appName)
         return VulkanRenderer.create(window, config)
     }
 
     // Create Vulkan instance
-    fun createInstance(config: RendererConfig) r: Result<Unit, String> {
+    fun createInstance(config: RendererConfig) r: Result<Unit, SeenError> {
         // Build extension names array
         var extensionNames: Array<*Char> = Array<*Char>()
         extensionNames.push("VK_KHR_surface".toCString())
@@ -399,18 +408,19 @@ class VulkanRenderer {
         )
 
         if vk_failed(result) {
-            return Err("Failed to create Vulkan instance: " + vk_result_string(result))
+            return rendererFailure<Unit>("create-instance", "failed to create Vulkan instance",
+                Some<Int64>(result as Int64))
         }
 
         return Ok(Unit{})
     }
 
     // Select best physical device
-    fun selectPhysicalDevice() r: Result<Unit, String> {
+    fun selectPhysicalDevice() r: Result<Unit, SeenError> {
         var deviceCount: UInt32 = 0
         let enumResult = seen_vk_enumerate_physical_devices(this.instance, &deviceCount, null)
         if vk_failed(enumResult) or deviceCount == 0 {
-            return Err("No Vulkan-capable GPUs found")
+            return rendererFailure<Unit>("select-device", "no Vulkan-capable GPU found", None<Int64>())
         }
 
         // Get first device (simple selection - could be improved)
@@ -452,17 +462,17 @@ class VulkanRenderer {
         }
 
         if not foundGraphics {
-            return Err("No graphics queue family found")
+            return rendererFailure<Unit>("select-device", "no graphics queue family found", None<Int64>())
         }
         if not foundPresent {
-            return Err("No presentation queue family found")
+            return rendererFailure<Unit>("select-device", "no presentation queue family found", None<Int64>())
         }
 
         return Ok(Unit{})
     }
 
     // Create logical device
-    fun createLogicalDevice() r: Result<Unit, String> {
+    fun createLogicalDevice() r: Result<Unit, SeenError> {
         var extensionNames: Array<*Char> = Array<*Char>()
         extensionNames.push("VK_KHR_swapchain".toCString())
 
@@ -475,7 +485,8 @@ class VulkanRenderer {
         )
 
         if vk_failed(result) {
-            return Err("Failed to create logical device: " + vk_result_string(result))
+            return rendererFailure<Unit>("create-device", "failed to create logical device",
+                Some<Int64>(result as Int64))
         }
 
         // Get queues
@@ -486,7 +497,7 @@ class VulkanRenderer {
     }
 
     // Create swapchain
-    fun createSwapchain(width: UInt32, height: UInt32, vsync: Bool) r: Result<Unit, String> {
+    fun createSwapchain(width: UInt32, height: UInt32, vsync: Bool) r: Result<Unit, SeenError> {
         // Get surface capabilities
         var minImageCount: UInt32 = 0
         var maxImageCount: UInt32 = 0
@@ -500,7 +511,7 @@ class VulkanRenderer {
             &currentTransform, &supportedUsage
         )
         if vk_failed(capResult) {
-            return Err("Failed to get surface capabilities")
+            return rendererFailure<Unit>("create-swapchain", "failed to get surface capabilities", None<Int64>())
         }
 
         // Choose image count (triple buffering if possible)
@@ -559,7 +570,8 @@ class VulkanRenderer {
         )
 
         if vk_failed(result) {
-            return Err("Failed to create swapchain: " + vk_result_string(result))
+            return rendererFailure<Unit>("create-swapchain", "failed to create swapchain",
+                Some<Int64>(result as Int64))
         }
 
         // Get swapchain images
@@ -584,7 +596,7 @@ class VulkanRenderer {
                 &imageView
             )
             if vk_failed(ivResult) {
-                return Err("Failed to create image view")
+                return rendererFailure<Unit>("create-image-view", "failed to create image view", None<Int64>())
             }
             this.swapchainImageViews.push(imageView)
 
@@ -595,7 +607,7 @@ class VulkanRenderer {
     }
 
     // Create render pass
-    fun createRenderPass() r: Result<Unit, String> {
+    fun createRenderPass() r: Result<Unit, SeenError> {
         var attachmentFormat: UInt32 = this.swapchainFormat
         var loadOp: UInt32 = VK_ATTACHMENT_LOAD_OP_CLEAR
         var storeOp: UInt32 = VK_ATTACHMENT_STORE_OP_STORE
@@ -615,14 +627,15 @@ class VulkanRenderer {
         )
 
         if vk_failed(result) {
-            return Err("Failed to create render pass: " + vk_result_string(result))
+            return rendererFailure<Unit>("create-render-pass", "failed to create render pass",
+                Some<Int64>(result as Int64))
         }
 
         return Ok(Unit{})
     }
 
     // Create framebuffers
-    fun createFramebuffers() r: Result<Unit, String> {
+    fun createFramebuffers() r: Result<Unit, SeenError> {
         this.framebuffers = Array<UInt64>()
 
         var i = 0
@@ -638,7 +651,7 @@ class VulkanRenderer {
             )
 
             if vk_failed(result) {
-                return Err("Failed to create framebuffer")
+                return rendererFailure<Unit>("create-framebuffer", "failed to create framebuffer", None<Int64>())
             }
 
             this.framebuffers.push(framebuffer)
@@ -649,7 +662,7 @@ class VulkanRenderer {
     }
 
     // Create command pool
-    fun createCommandPool() r: Result<Unit, String> {
+    fun createCommandPool() r: Result<Unit, SeenError> {
         let result = seen_vk_create_command_pool(
             this.device,
             this.graphicsQueueFamily,
@@ -658,14 +671,15 @@ class VulkanRenderer {
         )
 
         if vk_failed(result) {
-            return Err("Failed to create command pool: " + vk_result_string(result))
+            return rendererFailure<Unit>("create-command-pool", "failed to create command pool",
+                Some<Int64>(result as Int64))
         }
 
         return Ok(Unit{})
     }
 
     // Create per-frame resources
-    fun createFrameResources() r: Result<Unit, String> {
+    fun createFrameResources() r: Result<Unit, SeenError> {
         this.frames = Array<FrameData>()
 
         var i = 0
@@ -679,18 +693,18 @@ class VulkanRenderer {
                 &frame.commandBuffer
             )
             if vk_failed(cbResult) {
-                return Err("Failed to allocate command buffer")
+                return rendererFailure<Unit>("allocate-command-buffer", "failed to allocate command buffer", None<Int64>())
             }
 
             // Create semaphores
             let ias = seen_vk_create_semaphore(this.device, &frame.imageAvailableSemaphore)
             if vk_failed(ias) {
-                return Err("Failed to create image available semaphore")
+                return rendererFailure<Unit>("create-semaphore", "failed to create image-available semaphore", None<Int64>())
             }
 
             let rfs = seen_vk_create_semaphore(this.device, &frame.renderFinishedSemaphore)
             if vk_failed(rfs) {
-                return Err("Failed to create render finished semaphore")
+                return rendererFailure<Unit>("create-semaphore", "failed to create render-finished semaphore", None<Int64>())
             }
 
             // Create fence
@@ -700,7 +714,7 @@ class VulkanRenderer {
                 &frame.inFlightFence
             )
             if vk_failed(fenceResult) {
-                return Err("Failed to create fence")
+                return rendererFailure<Unit>("create-fence", "failed to create fence", None<Int64>())
             }
 
             this.frames.push(frame)
@@ -722,13 +736,13 @@ class VulkanRenderer {
     image, and begins the command buffer and render pass.
     Returns the image index for endFrame().
     ///
-    fun beginFrame() r: Result<UInt32, String> {
+    fun beginFrame() r: Result<UInt32, SeenError> {
         let frame = this.frames[this.currentFrame]
 
         // Wait for previous frame
         let waitResult = seen_vk_wait_for_fences(this.device, 1 as UInt32, &frame.inFlightFence, 1 as Int32, 0xFFFFFFFFFFFFFFFF as UInt64)
         if vk_failed(waitResult) {
-            return Err("Failed to wait for fence")
+            return rendererFailure<UInt32>("begin-frame", "failed to wait for fence", None<Int64>())
         }
 
         // Acquire next image
@@ -743,10 +757,12 @@ class VulkanRenderer {
 
         if acquireResult == VK_ERROR_OUT_OF_DATE_KHR {
             this.framebufferResized = true
-            return Err("Swapchain out of date")
+            return rendererFailure<UInt32>("begin-frame", "swapchain is out of date",
+                Some<Int64>(acquireResult as Int64))
         }
         if vk_failed(acquireResult) and acquireResult != VK_SUBOPTIMAL_KHR {
-            return Err("Failed to acquire swapchain image: " + vk_result_string(acquireResult))
+            return rendererFailure<UInt32>("begin-frame", "failed to acquire swapchain image",
+                Some<Int64>(acquireResult as Int64))
         }
 
         // Reset fence
@@ -756,7 +772,7 @@ class VulkanRenderer {
         let _ = seen_vk_reset_command_buffer(frame.commandBuffer, 0 as UInt32)
         let beginResult = seen_vk_begin_command_buffer(frame.commandBuffer, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT)
         if vk_failed(beginResult) {
-            return Err("Failed to begin command buffer")
+            return rendererFailure<UInt32>("begin-frame", "failed to begin command buffer", None<Int64>())
         }
 
         // Begin render pass
@@ -793,7 +809,7 @@ class VulkanRenderer {
     Ends the render pass, submits commands, and presents.
     Pass the imageIndex returned from beginFrame().
     ///
-    fun endFrame(imageIndex: UInt32) r: Result<Unit, String> {
+    fun endFrame(imageIndex: UInt32) r: Result<Unit, SeenError> {
         let frame = this.frames[this.currentFrame]
 
         // End render pass
@@ -802,7 +818,7 @@ class VulkanRenderer {
         // End command buffer
         let endResult = seen_vk_end_command_buffer(frame.commandBuffer)
         if vk_failed(endResult) {
-            return Err("Failed to end command buffer")
+            return rendererFailure<Unit>("end-frame", "failed to end command buffer", None<Int64>())
         }
 
         // Submit command buffer
@@ -816,7 +832,7 @@ class VulkanRenderer {
             frame.inFlightFence
         )
         if vk_failed(submitResult) {
-            return Err("Failed to submit draw command buffer")
+            return rendererFailure<Unit>("end-frame", "failed to submit draw command buffer", None<Int64>())
         }
 
         // Present
@@ -831,7 +847,8 @@ class VulkanRenderer {
             this.framebufferResized = false
             // Swapchain needs recreation (handled by caller)
         } else if vk_failed(presentResult) {
-            return Err("Failed to present: " + vk_result_string(presentResult))
+            return rendererFailure<Unit>("end-frame", "failed to present",
+                Some<Int64>(presentResult as Int64))
         }
 
         // Advance to next frame
@@ -864,7 +881,7 @@ class VulkanRenderer {
     Takes vertex and fragment shader bytecode as UInt32 arrays.
     The pipeline uses default settings (triangle list, back-face cull).
     ///
-    fun createPipeline(vertSpirv: Array<UInt32>, fragSpirv: Array<UInt32>) r: Result<Pipeline, String> {
+    fun createPipeline(vertSpirv: Array<UInt32>, fragSpirv: Array<UInt32>) r: Result<Pipeline, SeenError> {
         var pipeline = Pipeline.empty()
 
         // Create shader modules
@@ -876,7 +893,7 @@ class VulkanRenderer {
             &vertModule
         )
         if vk_failed(vertResult) {
-            return Err("Failed to create vertex shader module")
+            return rendererFailure<Pipeline>("create-pipeline", "failed to create vertex shader module", None<Int64>())
         }
 
         var fragModule: UInt64 = 0
@@ -888,7 +905,7 @@ class VulkanRenderer {
         )
         if vk_failed(fragResult) {
             seen_vk_destroy_shader_module(this.device, vertModule)
-            return Err("Failed to create fragment shader module")
+            return rendererFailure<Pipeline>("create-pipeline", "failed to create fragment shader module", None<Int64>())
         }
 
         // Create pipeline layout (empty for now)
@@ -901,7 +918,7 @@ class VulkanRenderer {
         if vk_failed(layoutResult) {
             seen_vk_destroy_shader_module(this.device, vertModule)
             seen_vk_destroy_shader_module(this.device, fragModule)
-            return Err("Failed to create pipeline layout")
+            return rendererFailure<Pipeline>("create-pipeline", "failed to create pipeline layout", None<Int64>())
         }
 
         // Create graphics pipeline
@@ -925,7 +942,7 @@ class VulkanRenderer {
 
         if vk_failed(pipelineResult) {
             seen_vk_destroy_pipeline_layout(this.device, pipeline.layout)
-            return Err("Failed to create graphics pipeline")
+            return rendererFailure<Pipeline>("create-pipeline", "failed to create graphics pipeline", None<Int64>())
         }
 
         return Ok(pipeline)
@@ -947,7 +964,7 @@ class VulkanRenderer {
     Call this when receiving a WindowResized event or when
     beginFrame() returns a swapchain out-of-date error.
     ///
-    fun resize(width: UInt32, height: UInt32) r: Result<Unit, String> {
+    fun resize(width: UInt32, height: UInt32) r: Result<Unit, SeenError> {
         let _ = seen_vk_device_wait_idle(this.device)
 
         // Cleanup old swapchain resources

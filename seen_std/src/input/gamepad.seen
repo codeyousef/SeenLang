@@ -20,7 +20,10 @@ Example:
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
 import platform.linux.evdev.{
     EvdevDevice, InputEvent, AbsAxisInfo,
     EV_KEY, EV_ABS, EV_SYN,
@@ -33,6 +36,11 @@ import platform.linux.evdev.{
     ABS_HAT0X, ABS_HAT0Y,
     DEVICE_TYPE_GAMEPAD,
     findDevicesByType
+}
+
+fun gamepadFailure<T>(operation: String, message: String) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Os, operation, message,
+        None<Int64>(), RetryClass.Never, RedactionClass.Sensitive)
 }
 
 // Standardized button indices (Xbox-style naming)
@@ -259,7 +267,7 @@ class Gamepad {
 
     Returns an error if the device cannot be opened or is not a gamepad.
     ///
-    static fun open(path: String, index: Int) r: Result<Gamepad, String> {
+    static fun open(path: String, index: Int) r: Result<Gamepad, SeenError> {
         let deviceResult = EvdevDevice.open(path)
         if deviceResult.isErr() {
             return Err(deviceResult.unwrapErr())
@@ -268,7 +276,7 @@ class Gamepad {
         let device = deviceResult.unwrap()
         if not device.isGamepad() {
             device.close()
-            return Err("Device is not a gamepad: " + path)
+            return gamepadFailure<Gamepad>("open", "device is not a gamepad")
         }
 
         var gamepad = Gamepad {
@@ -594,11 +602,11 @@ class GamepadManager {
     }
 
     // Get gamepad by index
-    fun getGamepad(index: Int) r: Result<Gamepad, String> {
+    fun getGamepad(index: Int) r: Result<Gamepad, SeenError> {
         if index >= 0 and index < this.gamepads.length() {
             return Ok(this.gamepads[index])
         }
-        return Err("Gamepad not found")
+        return gamepadFailure<Gamepad>("lookup", "gamepad not found")
     }
 
     // Get number of connected gamepads

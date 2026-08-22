@@ -1,6 +1,17 @@
 // Event polling (epoll/kqueue wrapper)
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
+import core.option.{Some}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun pollFailure<T>(operation: String, message: String,
+    nativeCode: Int) r: Result<T, SeenError> {
+
+    return seenFailure<T>(SeenErrorKind.Network, operation, message,
+        Some<Int64>(nativeCode as Int64), RetryClass.Transient,
+        RedactionClass.Public)
+}
 
 class PollEvent {
     token: Int
@@ -10,31 +21,31 @@ class PollEvent {
 class Poll {
     fd: Int
     
-    fun new() -> Result<Poll, String> {
+    fun new() -> Result<Poll, SeenError> {
         let fd = __PollCreate()
         if fd < 0 {
-            return Err("Failed to create poll instance")
+            return pollFailure<Poll>("create", "failed to create poll instance", fd)
         }
         Ok(Poll { fd: fd })
     }
     
-    fun register(fd: Int, token: Int, events: Int) -> Result<Unit, String> {
+    fun register(fd: Int, token: Int, events: Int) -> Result<Unit, SeenError> {
         let res = __PollRegister(this.fd, fd, token, events)
         if res < 0 {
-            return Err("Failed to register fd")
+            return pollFailure<Unit>("register", "failed to register descriptor", res)
         }
         Ok(Unit{})
     }
     
-    fun unregister(fd: Int) -> Result<Unit, String> {
+    fun unregister(fd: Int) -> Result<Unit, SeenError> {
         let res = __PollUnregister(this.fd, fd)
         if res < 0 {
-            return Err("Failed to unregister fd")
+            return pollFailure<Unit>("unregister", "failed to unregister descriptor", res)
         }
         Ok(Unit{})
     }
     
-    fun poll(timeout_ms: Int) -> Result<Array<PollEvent>, String> {
+    fun poll(timeout_ms: Int) -> Result<Array<PollEvent>, SeenError> {
         // Intrinsics are expected to return Array<PollEvent>
         let events = __PollWait(this.fd, timeout_ms)
         Ok(events)

@@ -9,7 +9,15 @@ Link with: -lsteam_api
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun steamFailure<T>(operation: String, message: String) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Os, operation, message,
+        None<Int64>(), RetryClass.Never, RedactionClass.Public)
+}
 
 // Steam callback types
 let k_iSteamUserCallbacks: Int = 100
@@ -207,10 +215,11 @@ fun steam_restart_app_if_necessary(appId: Int) r: Bool {
 }
 
 // Initialize Steam API
-fun steam_init() r: Result<Unit, String> {
+fun steam_init() r: Result<Unit, SeenError> {
     let result = SteamAPI_Init()
     if result == 0 {
-        return Err("Failed to initialize Steam API. Make sure Steam is running.")
+        return steamFailure<Unit>("initialize",
+            "failed to initialize Steam API")
     }
     return Ok(Unit{})
 }

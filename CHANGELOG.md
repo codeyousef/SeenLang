@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-error-api-migration-v1`, replacing standard-library and bootstrap
+  verifier string-error `Result` APIs with `SeenError`, removing the bespoke
+  file result carrier, preserving a closed frozen-bootstrap exception inventory,
+  and adding deterministic audit, fuzz, coverage, benchmark, and native tests.
+
 - Added the native `seen-typed-error-v1` classification contract for OS, I/O,
   process, network, timeout, cancellation, parse, and resource failures with
   stable codes, explicit retry policy, native codes, and bounded validation.

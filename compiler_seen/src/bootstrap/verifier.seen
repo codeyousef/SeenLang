@@ -5,9 +5,16 @@ Verifies that each stage of bootstrap produces identical output
 
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
 import io.file.{readText, appendText, exists}
 import process.process.{execCommand, CommandResult, commandWasSuccessful}
 import str.string.{replace}
+
+fun bootstrapFailure<T>(operation: String, message: String) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Process, operation, message,
+        None<Int64>(), RetryClass.Never, RedactionClass.Sensitive)
+}
 
 fun FileExists(path: String) r: Bool {
     return exists(path)
@@ -75,11 +82,12 @@ class BootstrapVerifier {
         this.log("Added stage {CurrentStage}: {name} at {compilerPath}")
     }
     
-    fun verify() r: Result<VerificationResult, String> {
+    fun verify() r: Result<VerificationResult, SeenError> {
         this.log("\\n🚀 Starting 3-stage bootstrap verification...")
         
         if Stages.length() < 3 {
-            return Err("Need at least 3 stages for verification, got {Stages.length()}")
+            return bootstrapFailure<VerificationResult>("verify",
+                "at least three compiler stages are required")
         }
         
         let result: VerificationResult = VerificationResult.new()
@@ -88,7 +96,7 @@ class BootstrapVerifier {
         let stage1Result = compileWithStage(0, "compiler_seen/src/main.seen", "stage1_compiler")
         if stage1Result.isErr() {
             let error = stage1Result.unwrapErr()
-            return Err("Stage 1 compilation failed: {error}")
+            return Err(error)
         }
         result.addStageArtifact(1, stage1Result.unwrap())
         
@@ -96,7 +104,7 @@ class BootstrapVerifier {
         let stage2Result = compileWithStage(1, "compiler_seen/src/main.seen", "stage2_compiler")
         if stage2Result.isErr() {
             let error = stage2Result.unwrapErr()
-            return Err("Stage 2 compilation failed: {error}")
+            return Err(error)
         }
         result.addStageArtifact(2, stage2Result.unwrap())
         
@@ -104,7 +112,7 @@ class BootstrapVerifier {
         let stage3Result = compileWithStage(2, "compiler_seen/src/main.seen", "stage3_compiler")
         if stage3Result.isErr() {
             let error = stage3Result.unwrapErr()
-            return Err("Stage 3 compilation failed: {error}")
+            return Err(error)
         }
         result.addStageArtifact(3, stage3Result.unwrap())
         
@@ -112,7 +120,7 @@ class BootstrapVerifier {
         let verificationResult = compareExecutables("stage2_compiler", "stage3_compiler")
         if verificationResult.isErr() {
             let error = verificationResult.unwrapErr()
-            this.log("[ERROR] FAILURE: {error}")
+            this.log("[ERROR] FAILURE: {error.message}")
             return Err(error)
         }
         let comparison: BinaryComparison = verificationResult.unwrap()
@@ -130,11 +138,12 @@ class BootstrapVerifier {
             this.log("   Stage 2 hash: {comparison.stage2HashValue()}")
             this.log("   Stage 3 hash: {comparison.stage3HashValue()}")
             result.Message = "Bootstrap verification failed - binaries differ"
-            return Err(result.Message)
+            return bootstrapFailure<VerificationResult>("compare",
+                "bootstrap compiler binaries differ")
         }
     }
     
-    fun compileWithStage(stageIndex: Int, sourcePath: String, outputPath: String) r: Result<StageArtifact, String> {
+    fun compileWithStage(stageIndex: Int, sourcePath: String, outputPath: String) r: Result<StageArtifact, SeenError> {
         let compiler = Stages[stageIndex]
         this.log("\\n📦 Compiling with {compiler.Name}...")
         
@@ -156,21 +165,24 @@ class BootstrapVerifier {
                 return Ok(StageArtifact.new(outputPath, hash, size, duration))
             } else {
                 this.log("   [ERROR] Error: Expected output file not found: {outputPath}")
-                return Err("Output file not created: {outputPath}")
+                return bootstrapFailure<StageArtifact>("compile-stage",
+                    "expected compiler output was not created")
             }
         } else {
             this.log("   [ERROR] Error: Compilation failed")
             let output = result.output
             this.log("   Output: {output}")
-            return Err("Compilation failed: {output}")
+            return bootstrapFailure<StageArtifact>("compile-stage",
+                "compiler stage execution failed")
         }
     }
     
-    fun compareExecutables(path1: String, path2: String) r: Result<BinaryComparison, String> {
+    fun compareExecutables(path1: String, path2: String) r: Result<BinaryComparison, SeenError> {
         this.log("\\n🔍 Comparing binaries: {path1} vs {path2}")
         
         if !FileExists(path1) or !FileExists(path2) {
-            return Err("One or both files don't exist for comparison: {path1}, {path2}")
+            return bootstrapFailure<BinaryComparison>("compare",
+                "one or both compiler outputs do not exist")
         }
         
         let hash1 = GetFileHash(path1)
@@ -317,7 +329,7 @@ fun BinaryComparison.hashesMatch(self: BinaryComparison) r: Bool {
 }
 
 // Utility functions for bootstrap verification
-fun runBootstrapVerification() r: Result<VerificationResult, String> {
+fun runBootstrapVerification() r: Result<VerificationResult, SeenError> {
     let verifier = BootstrapVerifier.new()
     
     // Add the three stages
@@ -341,7 +353,7 @@ fun runBootstrapVerification() r: Result<VerificationResult, String> {
     
     let error = verification.unwrapErr()
     println("\\n[ERROR] BOOTSTRAP VERIFICATION FAILED!")
-    println("   Error: {error}")
+    println("   Error: {error.message}")
     return Err(error)
 }
 

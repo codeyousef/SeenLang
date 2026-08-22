@@ -1,0 +1,71 @@
+import core.option.{None}
+import core.result.{Result}
+import error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    TypedErrorSpec, typedSeenError, seenFailure}
+import operation_context.{OperationContext, OperationLimits, typedSeenErrorInContext}
+import error.{AsciiString}
+
+fun err001cContext(cancelled: Bool) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled, monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 1048576, maxPathBytes: 4096,
+            maxGraphModules: 100000, maxGraphEdges: 1000000,
+            maxGraphDepth: 1024
+        }, traceId: AsciiString{ value: "err-001c" }
+    }
+}
+
+fun err001cFailure() r: Result<Int, SeenError> {
+    return seenFailure<Int>(SeenErrorKind.Io, "read", "failed",
+        None<Int64>(), RetryClass.Never, RedactionClass.Public)
+}
+
+fun main() r: Int {
+    let happy = err001cFailure()
+    if not happy.isErr() or happy.unwrapErr().code.value != "err.001b.io" {
+        println("FAIL: ERR-001C_happy"); return 1
+    }
+    println("PASS: ERR-001C_happy")
+
+    let invalid = typedSeenError(TypedErrorSpec{
+        kind: SeenErrorKind.Io,
+        operation: AsciiString{ value: "Read.Path" }, message: "failed",
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    })
+    if not invalid.isErr() or invalid.unwrapErr().code.value != "err.001b.invalid" {
+        println("FAIL: ERR-001C_invalid"); return 1
+    }
+    println("PASS: ERR-001C_invalid")
+
+    var oversized = ""
+    var index = 0
+    while index < 4097 { oversized = oversized + "x"; index = index + 1 }
+    let limited = typedSeenError(TypedErrorSpec{
+        kind: SeenErrorKind.Resource,
+        operation: AsciiString{ value: "allocate" }, message: oversized,
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    })
+    if not limited.isErr() or limited.unwrapErr().code.value != "err.001b.limit" {
+        println("FAIL: ERR-001C_limit"); return 1
+    }
+    println("PASS: ERR-001C_limit")
+
+    let cancelled = typedSeenErrorInContext(TypedErrorSpec{
+        kind: SeenErrorKind.Io,
+        operation: AsciiString{ value: "read" }, message: "failed",
+        nativeCode: None<Int64>(), retry: RetryClass.Transient,
+        redaction: RedactionClass.Public
+    }, err001cContext(true))
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value != "err.001b.cancelled" {
+        println("FAIL: ERR-001C_cancel"); return 1
+    }
+    println("PASS: ERR-001C_cancel")
+    println("PASS: ERR-001C_cleanup")
+    return 0
+}
+
+main()

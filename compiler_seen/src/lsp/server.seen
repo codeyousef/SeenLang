@@ -260,7 +260,7 @@ class SeenLspServer {
             return "GPU image type for texture operations."
         }
         if word == "Result" {
-            return "Result type for error handling.\n\n```seen\nfun parse(s: String) r: Result<Int, String> {\n    return Ok(42)\n}\n```"
+            return "Result type for error handling.\n\n```seen\nfun parse(s: String) r: Result<Int, SeenError> {\n    return Ok(42)\n}\n```"
         }
         if word == "Option" {
             return "Optional type. Either Some(value) or None."

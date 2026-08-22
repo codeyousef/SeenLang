@@ -445,7 +445,6 @@ fun resolveUnwrapTypeImpl(recType: String, isClassInner: Int) r: String {
     if recType.startsWith("Optional<") and recType.endsWith(">") {
         return recType.substring(9, recType.length() - 1)
     }
-    if recType == "FsFileResult" { return "FsFile" }
     if recType == "Result" { return "ptr" }
     if recType == "DidOpenTextDocumentParams?" { return "DidOpenTextDocumentParams" }
     if recType == "DidChangeTextDocumentParams?" { return "DidChangeTextDocumentParams" }
