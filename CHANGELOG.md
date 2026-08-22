@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-benchmark-evidence-v1` with canonical hardware, toolchain,
+  commit, cgroup, correctness, bandwidth, memory, VRAM, transfer, fallback,
+  and maturity evidence; pinned 5/30/5 sampling; and a hard five-percent gate
+  for designated kernels that forbids silent fallback and compile-only claims.
+
 - Added `seen-test-fuzz-corpus-v1` with bounded deterministic corpus
   minimization, content-addressed payloads, stable failure-code replay,
   canonical manifests, cancellation, atomic output, and cleanup validation.

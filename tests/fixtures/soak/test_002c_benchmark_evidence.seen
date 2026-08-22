@@ -1,0 +1,38 @@
+import testing.benchmark.{TestBenchmarkCgroupLimits, TestBenchmarkEvidence,
+    validateTestBenchmarkEvidence}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let samples = Array<Int64>()
+    var sample = 0
+    while sample < 30 { samples.push(1000 + sample); sample = sample + 1 }
+    let limits = TestBenchmarkCgroupLimits{memoryMaxBytes: 4294967296,
+        memorySwapMaxBytes: 0, pidsMax: 24, jobs: 1, optJobs: 1}
+    let context = OperationContext{cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 65536,
+            maxPathBytes: 4096, maxGraphModules: 30,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "test-002c-soak"}}
+    var iteration = 0
+    while iteration < 10000 {
+        let evidence = TestBenchmarkEvidence{schema: "seen-benchmark-evidence-v1",
+            name: "soak", target: "linux-x86_64", backend: "cpu",
+            maturity: "verified", hardware: "x86_64 CPU", toolchain: "seen",
+            sourceCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            baselineCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            command: "seen soak", cgroup: limits, warmups: 5,
+            samplesNs: samples, medianNs: 1014, baselineMedianNs: 1000,
+            bandwidthBytesPerSecond: 1, peakRssBytes: 1, peakVramBytes: 0,
+            transferBytes: 0, correctness: true, fallbackCount: 0,
+            designatedKernel: false, hardwareExecuted: false,
+            maxRegressionPercent: 5}
+        if validateTestBenchmarkEvidence(evidence, context).isErr() { return 1 }
+        iteration = iteration + 1
+    }
+    println("PASS: TEST-002C_soak")
+    return 0
+}
+
+main()
