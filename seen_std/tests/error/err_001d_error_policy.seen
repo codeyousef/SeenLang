@@ -1,0 +1,60 @@
+import core.option.{None}
+import error.{AsciiString, RetryClass, RedactionClass, SeenError,
+    ErrorDisposition, ErrorPolicyDecision, errorLiteral,
+    classifySeenError, errorDispositionName}
+
+fun err001dError(code: String, subsystem: String, retry: RetryClass,
+    redaction: RedactionClass, message: String) r: SeenError {
+
+    return errorLiteral(code, subsystem, "classify", message, retry, redaction)
+}
+
+fun main() r: Int {
+    let transient = err001dError("err.001b.network", "network",
+        RetryClass.Transient, RedactionClass.Public, "peer unavailable")
+    let retry = classifySeenError(transient, 1, 3)
+    let exhausted = classifySeenError(transient, 3, 3)
+    if retry.isErr() or exhausted.isErr() or
+        retry.unwrap().disposition != ErrorDisposition.RetryAllowed or
+        exhausted.unwrap().disposition != ErrorDisposition.RetryExhausted or
+        errorDispositionName(exhausted.unwrap().disposition) != "exhausted" {
+        println("FAIL: ERR-001D_happy"); return 1
+    }
+    println("PASS: ERR-001D_happy")
+
+    let contradictory = err001dError("err.001b.cancelled", "cancelled",
+        RetryClass.Transient, RedactionClass.Public, "cancelled")
+    let invalid = classifySeenError(contradictory, 0, 3)
+    if not invalid.isErr() or invalid.unwrapErr().code.value != "err.001d.invalid" {
+        println("FAIL: ERR-001D_invalid"); return 1
+    }
+    println("PASS: ERR-001D_invalid")
+
+    let limited = classifySeenError(transient, 1025, 1025)
+    if not limited.isErr() or limited.unwrapErr().code.value != "err.001d.limit" {
+        println("FAIL: ERR-001D_limit"); return 1
+    }
+    println("PASS: ERR-001D_limit")
+
+    let cancelled = classifySeenError(err001dError(
+        "err.001b.cancelled", "cancelled", RetryClass.Never,
+        RedactionClass.Public, "cancelled"), 0, 3)
+    if cancelled.isErr() or
+        cancelled.unwrap().disposition != ErrorDisposition.CancellationObserved {
+        println("FAIL: ERR-001D_cancel"); return 1
+    }
+    println("PASS: ERR-001D_cancel")
+
+    let sensitive = classifySeenError(err001dError(
+        "err.001b.io", "io", RetryClass.Never,
+        RedactionClass.Sensitive, "/private/secret"), 0, 1)
+    if sensitive.isErr() or not sensitive.unwrap().redacted or
+        sensitive.unwrap().message != "[redacted]" or
+        sensitive.unwrap().message.contains("/private/secret") {
+        println("FAIL: ERR-001D_cleanup"); return 1
+    }
+    println("PASS: ERR-001D_cleanup")
+    return 0
+}
+
+main()

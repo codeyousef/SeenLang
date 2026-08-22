@@ -3,6 +3,8 @@
 
 pub import core.error.{SEEN_ERROR_MAX_MESSAGE_BYTES, SEEN_ERROR_MAX_CAUSES,
     SEEN_ERROR_MAX_IDENTITY_BYTES, AsciiString, RetryClass, RedactionClass,
-    SeenErrorKind, SeenError, TypedErrorSpec, errorIdentityValid, errorLiteral,
+    ErrorDisposition, SeenErrorKind, SeenError, TypedErrorSpec,
+    ErrorPolicyDecision, errorIdentityValid, errorLiteral,
     typedSeenError, seenFailure, validateSeenError, renderSeenError, seenErrorKindName,
-    retryClassName, redactionClassName}
+    retryClassName, redactionClassName, classifySeenError,
+    errorDispositionName}

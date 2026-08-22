@@ -1,0 +1,1 @@
+{"attempt":0,"error":{"code":"err.001b.io","message":"read","operation":"read","redaction":"public","retry":"transient","subsystem":"io"},"max_attempts":3,"schema":"seen-error-policy-v1"}
