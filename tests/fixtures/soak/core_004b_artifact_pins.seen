@@ -1,0 +1,39 @@
+import release.artifact_pins.{ReleaseArtifactPin, ReleaseSignerIdentity,
+    ReleaseArtifactManifest, validateReleaseArtifactManifest}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let pins = Array<ReleaseArtifactPin>()
+    let roles = ["compiler", "runtime", "stdlib", "package-client"]
+    let names = ["seen", "runtime.tar.gz", "stdlib.tar.gz", "seen-pkg"]
+    var index = 0
+    while index < 4 {
+        pins.push(ReleaseArtifactPin{role: roles[index], name: names[index],
+            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            bytes: 1, checksum: names[index] + ".sha256",
+            bundle: names[index] + ".bundle",
+            bundleSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"})
+        index = index + 1
+    }
+    let manifest = ReleaseArtifactManifest{schema: "seen-release-artifact-manifest-v1",
+        version: "0.10.1", target: "linux-x86_64",
+        sourceCommit: "1111111111111111111111111111111111111111",
+        sourceDigest: "2222222222222222222222222222222222222222222222222222222222222222",
+        signer: ReleaseSignerIdentity{mode: "keyless", identity: "release-workflow",
+            issuer: "https://token.actions.githubusercontent.com"}, artifacts: pins}
+    let context = OperationContext{cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 512,
+            maxVersionBytes: 64, maxManifestBytes: 1048576, maxPathBytes: 4096,
+            maxGraphModules: 4, maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "core-004b-soak"}}
+    var iteration = 0
+    while iteration < 10000 {
+        if validateReleaseArtifactManifest(manifest, context).isErr() { return 1 }
+        iteration = iteration + 1
+    }
+    println("PASS: CORE-004B_soak")
+    return 0
+}
+
+main()

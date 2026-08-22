@@ -1,0 +1,177 @@
+/// Native signed release-artifact policy for CORE-004B.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
+import core.operation_context.{OperationContext}
+
+let RELEASE_ARTIFACT_MANIFEST_SCHEMA: String =
+    "seen-release-artifact-manifest-v1"
+let RELEASE_ARTIFACT_MAX_BYTES: Int64 = 2147483648
+
+class ReleaseArtifactPin {
+    var role: String
+    var name: String
+    var sha256: String
+    var bytes: Int64
+    var checksum: String
+    var bundle: String
+    var bundleSha256: String
+}
+
+class ReleaseSignerIdentity {
+    var mode: String
+    var identity: String
+    var issuer: String
+}
+
+class ReleaseArtifactManifest {
+    var schema: String
+    var version: String
+    var target: String
+    var sourceCommit: String
+    var sourceDigest: String
+    var signer: ReleaseSignerIdentity
+    var artifacts: Array<ReleaseArtifactPin>
+}
+
+fun core004bError(code: String, message: String) r: SeenError {
+    return SeenError{code: AsciiString{value: code},
+        subsystem: AsciiString{value: "release.artifact-pins"},
+        operation: AsciiString{value: "certify-release-artifacts"},
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public}
+}
+
+fun releaseArtifactDigest(value: String, size: Int) r: Bool {
+    if value.length() != size { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let digit = byte >= 48 and byte <= 57
+        let lowerHex = byte >= 97 and byte <= 102
+        if not digit and not lowerHex { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun releaseArtifactText(value: String, maximum: Int) r: Bool {
+    if value == "" or value.length() > maximum { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 32 or byte > 126 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun releaseArtifactName(value: String) r: Bool {
+    if not releaseArtifactText(value, 255) or value.startsWith("-") or
+        value == "." or value == ".." { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 97 and byte <= 122
+        if byte >= 65 and byte <= 90 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 46 or byte == 95 or byte == 43 or byte == 45 { valid = true }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun releaseArtifactVersion(value: String) r: Bool {
+    if not releaseArtifactText(value, 64) or value.startsWith("v") or
+        value.contains("+") { return false }
+    let parts = value.split("-")[0].split(".")
+    if parts.length() != 3 { return false }
+    var index = 0
+    while index < parts.length() {
+        let part = parts[index]
+        if part == "" or (part.length() > 1 and part.startsWith("0")) {
+            return false
+        }
+        var digitIndex = 0
+        while digitIndex < part.length() {
+            let byte = part.byteAt(digitIndex)
+            if byte < 48 or byte > 57 { return false }
+            digitIndex = digitIndex + 1
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun releaseArtifactRole(index: Int) r: String {
+    if index == 0 { return "compiler" }
+    if index == 1 { return "runtime" }
+    if index == 2 { return "stdlib" }
+    return "package-client"
+}
+
+fun validateReleaseArtifactManifest(manifest: ReleaseArtifactManifest,
+    context: OperationContext) r: Result<ReleaseArtifactManifest, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<ReleaseArtifactManifest, SeenError>(core004bError(
+            "core.004b.cancelled", "release artifact certification was cancelled"))
+    }
+    if manifest.target != "linux-x86_64" {
+        return Err<ReleaseArtifactManifest, SeenError>(core004bError(
+            "core.004b.platform", "release artifact target is unsupported"))
+    }
+    if manifest.schema != RELEASE_ARTIFACT_MANIFEST_SCHEMA or
+        not releaseArtifactVersion(manifest.version) or
+        not releaseArtifactDigest(manifest.sourceCommit, 40) or
+        not releaseArtifactDigest(manifest.sourceDigest, 64) {
+        return Err<ReleaseArtifactManifest, SeenError>(core004bError(
+            "core.004b.invalid", "release artifact manifest identity is invalid"))
+    }
+    if (manifest.signer.mode != "keyless" and manifest.signer.mode != "key" and
+        manifest.signer.mode != "kms") or
+        not releaseArtifactText(manifest.signer.identity, 512) or
+        not releaseArtifactText(manifest.signer.issuer, 512) {
+        return Err<ReleaseArtifactManifest, SeenError>(core004bError(
+            "core.004b.unsigned", "release signer identity is invalid"))
+    }
+    if manifest.artifacts.length() != 4 or
+        manifest.artifacts.length() > context.limits.maxGraphModules {
+        return Err<ReleaseArtifactManifest, SeenError>(core004bError(
+            "core.004b.limit", "exactly four release artifacts are required"))
+    }
+    var index = 0
+    while index < manifest.artifacts.length() {
+        let artifact = manifest.artifacts[index]
+        if artifact.role != releaseArtifactRole(index) or
+            not releaseArtifactName(artifact.name) or
+            not releaseArtifactDigest(artifact.sha256, 64) or
+            not releaseArtifactDigest(artifact.bundleSha256, 64) {
+            return Err<ReleaseArtifactManifest, SeenError>(core004bError(
+                "core.004b.invalid", "release artifact pin is invalid"))
+        }
+        if artifact.bytes < 1 or artifact.bytes > RELEASE_ARTIFACT_MAX_BYTES {
+            return Err<ReleaseArtifactManifest, SeenError>(core004bError(
+                "core.004b.limit", "release artifact size is invalid"))
+        }
+        if artifact.checksum != artifact.name + ".sha256" or
+            artifact.bundle != artifact.name + ".bundle" {
+            return Err<ReleaseArtifactManifest, SeenError>(core004bError(
+                "core.004b.unsigned", "release artifact sidecars are not exact"))
+        }
+        var prior = 0
+        while prior < index {
+            if manifest.artifacts[prior].name == artifact.name {
+                return Err<ReleaseArtifactManifest, SeenError>(core004bError(
+                    "core.004b.invalid", "release artifact names are duplicated"))
+            }
+            prior = prior + 1
+        }
+        index = index + 1
+    }
+    return Ok<ReleaseArtifactManifest, SeenError>(manifest)
+}

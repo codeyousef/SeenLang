@@ -1,0 +1,34 @@
+import release.artifact_pins.{ReleaseArtifactPin, ReleaseSignerIdentity,
+    ReleaseArtifactManifest, validateReleaseArtifactManifest}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun examplePin(role: String, name: String, digest: String) r: ReleaseArtifactPin {
+    return ReleaseArtifactPin{role: role, name: name, sha256: digest,
+        bytes: 1, checksum: name + ".sha256", bundle: name + ".bundle",
+        bundleSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+}
+
+fun main() r: Int {
+    let pins = Array<ReleaseArtifactPin>()
+    pins.push(examplePin("compiler", "seen", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+    pins.push(examplePin("runtime", "runtime.tar.gz", "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"))
+    pins.push(examplePin("stdlib", "stdlib.tar.gz", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"))
+    pins.push(examplePin("package-client", "seen-pkg", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"))
+    let manifest = ReleaseArtifactManifest{schema: "seen-release-artifact-manifest-v1",
+        version: "0.10.1", target: "linux-x86_64",
+        sourceCommit: "1111111111111111111111111111111111111111",
+        sourceDigest: "2222222222222222222222222222222222222222222222222222222222222222",
+        signer: ReleaseSignerIdentity{mode: "keyless", identity: "github-release-workflow",
+            issuer: "https://token.actions.githubusercontent.com"}, artifacts: pins}
+    let context = OperationContext{cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 512,
+            maxVersionBytes: 64, maxManifestBytes: 1048576, maxPathBytes: 4096,
+            maxGraphModules: 4, maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "artifact-pin-example"}}
+    if validateReleaseArtifactManifest(manifest, context).isErr() { return 1 }
+    println("release artifacts are pinned and signed")
+    return 0
+}
+
+main()

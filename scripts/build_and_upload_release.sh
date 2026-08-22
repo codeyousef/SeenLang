@@ -39,6 +39,9 @@ SEEN_PACKAGE_CLIENT_BIN="${SEEN_PACKAGE_CLIENT_BIN:-$(dirname "$LINUX_X64_COMPIL
 export SEEN_PACKAGE_CLIENT_BIN
 DIST_DIR="$ROOT_DIR/dist"  # absolute path required — build_release.sh cd's into subshells
 MACOS_INPUT_DIR="${SEEN_RELEASE_MACOS_INPUT_DIR:-}"
+SIGN_MODE="${SEEN_RELEASE_SIGN_MODE:-}"
+SIGN_IDENTITY="${SEEN_RELEASE_SIGN_IDENTITY:-https://github.com/codeyousef/SeenLang/.github/workflows/release.yml@refs/tags/v$VERSION}"
+SIGN_ISSUER="${SEEN_RELEASE_SIGN_ISSUER:-https://token.actions.githubusercontent.com}"
 
 die() {
     echo "Error: $*" >&2
@@ -106,6 +109,10 @@ fi
 if ! gh auth status &>/dev/null 2>&1; then
     die "gh CLI not authenticated. Run: gh auth login"
 fi
+case "$SIGN_MODE" in
+    keyless|key|kms) ;;
+    *) die "SEEN_RELEASE_SIGN_MODE must be keyless, key, or kms; unsigned uploads are forbidden" ;;
+esac
 
 if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
     echo "Error: portable Linux x64 compiler not found at $LINUX_X64_COMPILER"
@@ -125,20 +132,23 @@ if [[ -n "${SEEN_APPIMAGE_RUNTIME_FILE:-}" && ! -f "$SEEN_APPIMAGE_RUNTIME_FILE"
     die "SEEN_APPIMAGE_RUNTIME_FILE does not exist: $SEEN_APPIMAGE_RUNTIME_FILE"
 fi
 
-# Quick smoke test (try "build" first — full CLI, fall back to "compile" for bootstrap-only binary)
+# Quick smoke test using the supported compile contract and project-confined artifacts.
 echo "=== Verifying compiler... ==="
-TMPFILE=$(mktemp /tmp/seen_verify_XXXXXX.seen)
+SMOKE_ROOT="$ROOT_DIR/.seen/release-smoke"
+rm -rf "$SMOKE_ROOT"
+mkdir -p "$SMOKE_ROOT"
+TMPFILE="$SMOKE_ROOT/release-smoke.seen"
 echo 'fun main() { println("release build ok") }' > "$TMPFILE"
-if "$LINUX_X64_COMPILER" build "$TMPFILE" -o "${TMPFILE%.seen}" &>/dev/null; then
-    echo "Compiler OK (full CLI)."
-elif "$LINUX_X64_COMPILER" compile "$TMPFILE" "${TMPFILE%.seen}" --target-cpu=x86-64 &>/dev/null; then
-    echo "Compiler OK (bootstrap-only binary)."
+if "$SCRIPT_DIR/run_with_project_artifacts.sh" release-upload-smoke -- \
+    "$LINUX_X64_COMPILER" compile "$TMPFILE" "${TMPFILE%.seen}" \
+    --target-cpu=x86-64 --no-cache &>/dev/null; then
+    echo "Compiler OK."
 else
     echo "Error: Compiler failed smoke test."
-    rm -f "$TMPFILE" "${TMPFILE%.seen}"
+    rm -rf "$SMOKE_ROOT"
     exit 1
 fi
-rm -f "$TMPFILE" "${TMPFILE%.seen}"
+rm -rf "$SMOKE_ROOT"
 
 # --- Build release packages ---
 
@@ -176,6 +186,21 @@ VERSION_OUTPUTS=(
     "$DIST_DIR/seen-lang-devel-$VERSION-1.x86_64.rpm"
     "$DIST_DIR/seen-lang-docs-$VERSION-1.noarch.rpm"
     "$DIST_DIR/SeenLanguage-$VERSION-x86_64.AppImage"
+    "$DIST_DIR/seen-compiler-$VERSION-linux-x64"
+    "$DIST_DIR/seen-runtime-$VERSION-linux-x64.tar.gz"
+    "$DIST_DIR/seen-stdlib-$VERSION-linux-x64.tar.gz"
+    "$DIST_DIR/seen-pkg-$VERSION-linux-x64"
+    "$DIST_DIR/seen-compiler-$VERSION-linux-x64.sha256"
+    "$DIST_DIR/seen-compiler-$VERSION-linux-x64.bundle"
+    "$DIST_DIR/seen-runtime-$VERSION-linux-x64.tar.gz.sha256"
+    "$DIST_DIR/seen-runtime-$VERSION-linux-x64.tar.gz.bundle"
+    "$DIST_DIR/seen-stdlib-$VERSION-linux-x64.tar.gz.sha256"
+    "$DIST_DIR/seen-stdlib-$VERSION-linux-x64.tar.gz.bundle"
+    "$DIST_DIR/seen-pkg-$VERSION-linux-x64.sha256"
+    "$DIST_DIR/seen-pkg-$VERSION-linux-x64.bundle"
+    "$DIST_DIR/seen-$VERSION-release-artifacts.json"
+    "$DIST_DIR/seen-$VERSION-release-artifacts.json.sha256"
+    "$DIST_DIR/seen-$VERSION-release-artifacts.json.bundle"
     "$DIST_DIR/seen-$VERSION-windows-x64.zip"
     "$DIST_DIR/seen-$VERSION-windows-x64.zip.sha256"
     "$DIST_DIR/Seen-$VERSION-windows-x64-setup.exe"
@@ -312,6 +337,10 @@ fi
 
 EXPECTED_ARTIFACTS=(
     "$DIST_DIR/seen-$VERSION-linux-x64.tar.gz"
+    "$DIST_DIR/seen-compiler-$VERSION-linux-x64"
+    "$DIST_DIR/seen-runtime-$VERSION-linux-x64.tar.gz"
+    "$DIST_DIR/seen-stdlib-$VERSION-linux-x64.tar.gz"
+    "$DIST_DIR/seen-pkg-$VERSION-linux-x64"
 )
 
 if [[ -x "$LINUX_X64_V3_COMPILER" ]]; then
@@ -370,6 +399,39 @@ done
 if [[ -n "$HOMEBREW_FORMULA" ]]; then
     RELEASE_ARTIFACTS+=("$HOMEBREW_FORMULA")
 fi
+
+COMPONENT_ARTIFACTS=(
+    "$DIST_DIR/seen-compiler-$VERSION-linux-x64"
+    "$DIST_DIR/seen-runtime-$VERSION-linux-x64.tar.gz"
+    "$DIST_DIR/seen-stdlib-$VERSION-linux-x64.tar.gz"
+    "$DIST_DIR/seen-pkg-$VERSION-linux-x64"
+)
+SOURCE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+SOURCE_DIGEST="$(git -C "$ROOT_DIR" archive --format=tar HEAD | sha256sum | awk '{print $1}')"
+MANIFEST="$DIST_DIR/seen-$VERSION-release-artifacts.json"
+SIGN_ARGS=()
+case "$SIGN_MODE" in
+    keyless) SIGN_ARGS+=(--keyless) ;;
+    key)
+        [[ -n "${SEEN_COSIGN_KEY:-}" ]] || die "SEEN_COSIGN_KEY is required for key signing"
+        SIGN_ARGS+=(--key "$SEEN_COSIGN_KEY")
+        ;;
+    kms)
+        [[ -n "${SEEN_COSIGN_KMS_URI:-}" ]] || die "SEEN_COSIGN_KMS_URI is required for KMS signing"
+        SIGN_ARGS+=(--kms "$SEEN_COSIGN_KMS_URI")
+        ;;
+esac
+"$SCRIPT_DIR/sign_release.sh" "${SIGN_ARGS[@]}" --version "$VERSION" \
+    --source-commit "$SOURCE_COMMIT" --source-digest "$SOURCE_DIGEST" \
+    --manifest "$MANIFEST" --signer-identity "$SIGN_IDENTITY" --signer-issuer "$SIGN_ISSUER" \
+    --artifact compiler="${COMPONENT_ARTIFACTS[0]}" \
+    --artifact runtime="${COMPONENT_ARTIFACTS[1]}" \
+    --artifact stdlib="${COMPONENT_ARTIFACTS[2]}" \
+    --artifact package-client="${COMPONENT_ARTIFACTS[3]}"
+for artifact in "${COMPONENT_ARTIFACTS[@]}"; do
+    RELEASE_ARTIFACTS+=("$artifact.sha256" "$artifact.bundle")
+done
+RELEASE_ARTIFACTS+=("$MANIFEST" "$MANIFEST.sha256" "$MANIFEST.bundle")
 
 echo ""
 echo "Artifacts:"

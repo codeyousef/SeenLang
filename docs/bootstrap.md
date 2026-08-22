@@ -56,11 +56,12 @@ before starting any compiler or helper build:
 - `memory.swap.max` is exactly `0`;
 - `pids.max` is a positive value no greater than the requested `TasksMax`.
 
-The automatic aggregate cap is the minimum of 25% of total memory and 50% of
-currently available memory. The main compiler VMEM and allocation limits equal
-that live-derived cap; a caller may request a smaller value but never a larger
-one. The optimizer's secondary per-process limit is the minimum of 10% of total
-memory, half the aggregate cap, and 2 GiB.
+The automatic aggregate cap is the minimum of 60% of total memory and currently
+available memory after retaining a 10%-of-total system reserve. The main
+compiler VMEM and allocation limits equal that live-derived cap; a caller may
+request a smaller value but never a larger one. The optimizer's secondary
+per-process limit is the minimum of 10% of total memory, half the aggregate
+cap, and 2 GiB.
 The rebuild also forces `SEEN_JOBS=1`, `SEEN_OPT_JOBS=1`, and `TasksMax` no
 greater than 24. `ulimit -v` and the userspace RSS observer run inside that
 scope as early-warning and per-process defenses; neither replaces the cgroup.

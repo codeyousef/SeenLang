@@ -10,10 +10,11 @@ docs.
   that caps the aggregate process tree, disables swap, and limits tasks. A
   per-process `ulimit` or userspace RSS poller alone is not containment. Use the
   guarded path in [Bootstrap System](bootstrap.md).
-- The automatic aggregate rebuild cap is the smaller of 25% of total memory
-  and 50% of currently available memory, with one compiler and one optimizer
-  worker. The build must fail before compiler work if a user systemd scope or
-  any required limit read-back is unavailable.
+- The automatic aggregate rebuild cap is the smaller of 60% of total memory
+  and currently available memory after retaining a 10%-of-total system
+  reserve, with one compiler and one optimizer worker. The build must fail
+  before compiler work if a user systemd scope or any required limit read-back
+  is unavailable.
 - No equally hard standalone entry point is currently documented for direct
   compiler, prebuild-gate, performance-gate, or package-helper builds. Run those
   phases through `scripts/safe_rebuild.sh`; artifact-root isolation alone does

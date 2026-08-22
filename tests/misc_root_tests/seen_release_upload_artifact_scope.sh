@@ -12,6 +12,10 @@ OPTIONAL_PATH="$TMP_DIR/optional-path"
 DIST_DIR="$FIXTURE_ROOT/dist"
 STALE_ARTIFACT="$DIST_DIR/seen-0.8.0-linux-x64.tar.gz"
 CURRENT_ARTIFACT="$DIST_DIR/seen-0.10.1-linux-x64.tar.gz"
+COMPILER_COMPONENT="$DIST_DIR/seen-compiler-0.10.1-linux-x64"
+RUNTIME_COMPONENT="$DIST_DIR/seen-runtime-0.10.1-linux-x64.tar.gz"
+STDLIB_COMPONENT="$DIST_DIR/seen-stdlib-0.10.1-linux-x64.tar.gz"
+PACKAGE_CLIENT_COMPONENT="$DIST_DIR/seen-pkg-0.10.1-linux-x64"
 STALE_OPTIONAL_ARTIFACT="$DIST_DIR/seen-lang_0.10.1_amd64.deb"
 IMPLICIT_MACOS_ARTIFACT="$DIST_DIR/seen-0.10.1-macos-arm64.tar.gz"
 
@@ -21,7 +25,9 @@ cp "$ROOT_DIR/scripts/build_and_upload_release.sh" "$FIXTURE_ROOT/scripts/"
 cat > "$FIXTURE_BIN/seen" <<'SEEN_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == "build" ]]; then
+if [[ "${1:-}" == "compile" ]]; then
+    printf '#!/usr/bin/env bash\nexit 0\n' >"${3:?}"
+    chmod +x "${3:?}"
     exit 0
 fi
 exit 2
@@ -59,7 +65,44 @@ while [[ "$#" -gt 0 ]]; do
 done
 mkdir -p "$output_dir"
 printf 'current release artifact\n' > "$output_dir/seen-$version-$artifact_suffix.tar.gz"
+if [[ "$artifact_suffix" == "linux-x64" ]]; then
+    printf 'compiler\n' > "$output_dir/seen-compiler-$version-linux-x64"
+    printf 'runtime\n' > "$output_dir/seen-runtime-$version-linux-x64.tar.gz"
+    printf 'stdlib\n' > "$output_dir/seen-stdlib-$version-linux-x64.tar.gz"
+    printf 'package-client\n' > "$output_dir/seen-pkg-$version-linux-x64"
+fi
 BUILD_EOF
+
+cat > "$FIXTURE_ROOT/scripts/run_with_project_artifacts.sh" <<'WRAPPER_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+shift
+[[ "${1:-}" == "--" ]] || exit 2
+shift
+exec "$@"
+WRAPPER_EOF
+
+cat > "$FIXTURE_ROOT/scripts/sign_release.sh" <<'SIGN_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+manifest=""; artifacts=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --manifest) manifest="$2"; shift 2 ;;
+        --artifact) artifacts+=("${2#*=}"); shift 2 ;;
+        --key|--version|--source-commit|--source-digest|--signer-identity|--signer-issuer) shift 2 ;;
+        *) shift ;;
+    esac
+done
+[[ -n "$manifest" && "${#artifacts[@]}" -eq 4 ]] || exit 1
+for artifact in "${artifacts[@]}"; do
+    sha256sum "$artifact" | awk '{print $1}' >"$artifact.sha256"
+    printf 'bundle\n' >"$artifact.bundle"
+done
+printf '{}\n' >"$manifest"
+sha256sum "$manifest" | awk '{print $1}' >"$manifest.sha256"
+printf 'bundle\n' >"$manifest.bundle"
+SIGN_EOF
 
 cat > "$FIXTURE_BIN/git" <<'GIT_EOF'
 #!/usr/bin/env bash
@@ -68,8 +111,11 @@ if [[ "${1:-}" == "-C" ]]; then
     shift 2
 fi
 case "${1:-}" in
+    archive)
+        printf 'fixture archive\n'
+        ;;
     rev-parse|rev-list)
-        printf 'fixture-commit\n'
+        printf '1111111111111111111111111111111111111111\n'
         ;;
     push|tag)
         ;;
@@ -105,9 +151,11 @@ chmod 755 \
     "$FIXTURE_BIN/seen-pkg" \
     "$FIXTURE_BIN/git" \
     "$FIXTURE_BIN/gh" \
-    "$FIXTURE_ROOT/scripts/build_release.sh"
+    "$FIXTURE_ROOT/scripts/build_release.sh" \
+    "$FIXTURE_ROOT/scripts/run_with_project_artifacts.sh" \
+    "$FIXTURE_ROOT/scripts/sign_release.sh"
 
-for tool in bash basename cp dirname ls mkdir mktemp rm sha256sum sort; do
+for tool in awk bash basename cat chmod cp dirname ls mkdir mktemp rm sha256sum sort; do
     ln -s "$(command -v "$tool")" "$MIN_PATH/$tool"
 done
 
@@ -141,7 +189,7 @@ assert_release_args() {
     local capture="$1"
     local expected_action="$2"
     local expected_macos="${3:-}"
-    local arg saw_current=0 saw_checksums=0 saw_macos=0
+    local arg saw_current=0 saw_checksums=0 saw_macos=0 saw_compiler=0 saw_runtime=0 saw_stdlib=0 saw_package_client=0
     local -a args=()
 
     mapfile -d '' -t args < "$capture"
@@ -161,15 +209,20 @@ assert_release_args() {
             exit 1
         fi
         [[ "$arg" == "$CURRENT_ARTIFACT" ]] && saw_current=1
+        [[ "$arg" == "$COMPILER_COMPONENT" ]] && saw_compiler=1
+        [[ "$arg" == "$RUNTIME_COMPONENT" ]] && saw_runtime=1
+        [[ "$arg" == "$STDLIB_COMPONENT" ]] && saw_stdlib=1
+        [[ "$arg" == "$PACKAGE_CLIENT_COMPONENT" ]] && saw_package_client=1
         [[ "$arg" == "$DIST_DIR/SHA256SUMS" ]] && saw_checksums=1
         [[ -n "$expected_macos" && "$arg" == "$expected_macos" ]] && saw_macos=1
-        if [[ "$arg" == "$DIST_DIR/"*.tar.gz && "$arg" != "$CURRENT_ARTIFACT" && "$arg" != "$expected_macos" ]]; then
+        if [[ "$arg" == "$DIST_DIR/"*.tar.gz && "$arg" != "$CURRENT_ARTIFACT" && "$arg" != "$RUNTIME_COMPONENT" && "$arg" != "$STDLIB_COMPONENT" && "$arg" != "$expected_macos" ]]; then
             echo "gh release $expected_action included an unexpected tarball: $arg" >&2
             exit 1
         fi
     done
 
-    if [[ "$saw_current" -ne 1 || "$saw_checksums" -ne 1 ]]; then
+    if [[ "$saw_current" -ne 1 || "$saw_checksums" -ne 1 || "$saw_compiler" -ne 1 ||
+        "$saw_runtime" -ne 1 || "$saw_stdlib" -ne 1 || "$saw_package_client" -ne 1 ]]; then
         echo "gh release $expected_action omitted the scoped artifact set" >&2
         exit 1
     fi
@@ -192,6 +245,7 @@ run_release_case() {
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
+        SEEN_RELEASE_SIGN_MODE=key SEEN_COSIGN_KEY="$TMP_DIR/test.key" \
         "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 >/dev/null
 
     assert_checksum_scope
@@ -214,6 +268,7 @@ run_failed_optional_case() {
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
+        SEEN_RELEASE_SIGN_MODE=key SEEN_COSIGN_KEY="$TMP_DIR/test.key" \
         "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 2>&1)"
     status=$?
     set -e
@@ -264,6 +319,7 @@ run_explicit_macos_case() {
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
+        SEEN_RELEASE_SIGN_MODE=key SEEN_COSIGN_KEY="$TMP_DIR/test.key" \
         SEEN_RELEASE_MACOS_INPUT_DIR="$input_dir" \
         "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 >/dev/null
 

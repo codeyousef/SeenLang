@@ -1,0 +1,1 @@
+{"artifacts":[],"schema":"seen-release-artifact-manifest-v1","signer":{"identity":"release","issuer":"issuer","mode":"keyless"},"source_commit":"1111111111111111111111111111111111111111","source_digest":"2222222222222222222222222222222222222222222222222222222222222222","target":"linux-x86_64","version":"0.10.1"}
