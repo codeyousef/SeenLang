@@ -586,6 +586,8 @@ grep -Fq 'safe_rebuild_assert_checkout_output "$relative_path"' "$SAFE_REBUILD" 
     fail "safe rebuild install endpoints are not checked"
 grep -Fq 'safe_rebuild_install_checkout_file "$VERIFIED"' "$SAFE_REBUILD" ||
     fail "full rebuild install bypasses atomic safe installation"
+grep -Fq 'SEEN_SELFHOSTED_ABI_COMPILER="$FROZEN_ABS"' "$SAFE_REBUILD" ||
+    fail "clean full rebuild does not bind prebuild ABI smoke to the verified frozen seed"
 if grep -Fq 'eval ' "$ROOT_DIR/scripts/run_all_tests.sh"; then
     fail "legacy all-tests still executes interpolated compiler commands with eval"
 fi

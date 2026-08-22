@@ -3256,6 +3256,7 @@ if [ "${SEEN_SKIP_PREBUILD_GATES:-0}" != "1" ]; then
     if ! run_guarded_command_to_log_with_failure_watch "prebuild gates" 900 "$MAIN_COMPILER_VMEM_KB" \
         /tmp/safe_rebuild_prebuild_gates.log \
         env SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_SELFHOSTED_ABI_COMPILER="$FROZEN_ABS" \
             bash "$SCRIPT_DIR/seen_prebuild_gates.sh"; then
         echo -e "${RED}ERROR: prebuild gates failed.${NC}"
         tail_log_if_exists /tmp/safe_rebuild_prebuild_gates.log 30
