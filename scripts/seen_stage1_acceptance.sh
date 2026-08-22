@@ -501,6 +501,10 @@ run_fixture test-reporters \
     "$REPO_ROOT/compiler_seen/tests/test_001e_reporters.seen"
 run_fixture test-reporters-example \
     "$REPO_ROOT/compiler_seen/examples/test_reporters.seen"
+run_fixture test-migration \
+    "$REPO_ROOT/compiler_seen/tests/test_001f_migration.seen"
+run_fixture test-migration-example \
+    "$REPO_ROOT/compiler_seen/examples/test_migration.seen"
 
 test_runner_log="$ACCEPTANCE_ROOT/test-runner-cli.log"
 if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001B \
@@ -515,6 +519,44 @@ grep -Fq 'test result: 1 passed; 0 failed' "$test_runner_log" || {
     echo "ERROR: canonical seen test summary is missing" >&2
     exit 1
 }
+test_migration_log="$ACCEPTANCE_ROOT/test-migration-cli.log"
+if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001F \
+    --profile ci --jobs 1 --timeout 10m \
+    --report json:.seen_cache/test/TEST-001F.json \
+    --report junit:.seen_cache/test/TEST-001F.xml \
+    >"$test_migration_log" 2>&1; then
+
+    echo "ERROR: TEST-001F canonical seen test acceptance failed: $test_migration_log" >&2
+    cat "$test_migration_log" >&2
+    exit 1
+fi
+grep -Fq 'test result: 1 passed; 0 failed' "$test_migration_log" || {
+    echo "ERROR: TEST-001F canonical seen test summary is missing" >&2
+    exit 1
+}
+python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format json \
+    --validate "$REPO_ROOT/.seen_cache/test/TEST-001F.json" >/dev/null
+python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format junit \
+    --validate "$REPO_ROOT/.seen_cache/test/TEST-001F.xml" >/dev/null
+
+if [ "${SEEN_TEST_001F_FULL_REPORT:-0}" = "1" ]; then
+    test_migration_full_log="$ACCEPTANCE_ROOT/test-migration-full-cli.log"
+    test_migration_full_status=0
+    "$DIRECT_COMPILER" test "$REPO_ROOT" --profile ci --jobs 1 \
+        --timeout 10m --report json:.seen_cache/test/TEST-001F-full.json \
+        --report junit:.seen_cache/test/TEST-001F-full.xml \
+        >"$test_migration_full_log" 2>&1 || test_migration_full_status=$?
+    [ "$test_migration_full_status" -le 1 ] || {
+        echo "ERROR: TEST-001F full test infrastructure failed with status $test_migration_full_status" >&2
+        cat "$test_migration_full_log" >&2
+        exit 1
+    }
+    python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format json \
+        --validate "$REPO_ROOT/.seen_cache/test/TEST-001F-full.json" >/dev/null
+    python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format junit \
+        --validate "$REPO_ROOT/.seen_cache/test/TEST-001F-full.xml" >/dev/null
+    tail -n 1 "$test_migration_full_log"
+fi
 test_runner_invalid_status=0
 "$DIRECT_COMPILER" test "$REPO_ROOT" --jobs 2 \
     >"$ACCEPTANCE_ROOT/test-runner-invalid.log" 2>&1 ||
@@ -582,6 +624,8 @@ grep -Fq '"phase":"release lto mode","status":"merged"' "$release_trace" || {
 EXTERNAL_PACKAGE_CONSUMER_FIXTURE=$(stage_external_package_fixture)
 run_fixture external-package-consumer \
     "$EXTERNAL_PACKAGE_CONSUMER_FIXTURE"
+run_fixture external-package-test \
+    "$REPO_ROOT/tests/fixtures/external_package/tests/layout_contract.seen"
 run_fixture lexical-semantic \
     "$REPO_ROOT/compiler_seen/tests/lexical_semantic.seen"
 run_fixture declaration-frontend-smoke \

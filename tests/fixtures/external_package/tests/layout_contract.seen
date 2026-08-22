@@ -3,3 +3,11 @@ import external_package.{packageValue}
 fun packageLayoutFixtureTest() r: Bool {
     return packageValue().value == 42
 }
+
+fun main() r: Int {
+    if not packageLayoutFixtureTest() { return 1 }
+    println("PASS: TEST-001F_external_package")
+    return 0
+}
+
+main()

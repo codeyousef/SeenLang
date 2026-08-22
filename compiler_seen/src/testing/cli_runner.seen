@@ -12,6 +12,7 @@ import seen_compiler.testing.runner.{TestRunnerOptions,
     buildTestRunPlanChecked, finalizeTestRunChecked}
 import seen_compiler.testing.reporters.{TestReporterFormat,
     TestReporterRequest, renderTestReportChecked}
+import seen_compiler.testing.migration.{testMigrationWorkingRoot}
 
 fun testCliShellQuote(value: String) r: String {
     var quoted = "'"
@@ -105,15 +106,18 @@ fun testCliDiscover(root: String, context: OperationContext,
     candidates: Array<TestDiscoveryCandidate>) r: Bool {
     let compilerTests = root + "/compiler_seen/tests"
     let stdTests = root + "/seen_std/tests"
+    let externalTests = root + "/tests/fixtures/external_package/tests"
     let miscTests = root + "/tests/misc_root_tests"
     let roots = testCliShellQuote(compilerTests) + " " +
-        testCliShellQuote(stdTests) + " " + testCliShellQuote(miscTests)
+        testCliShellQuote(stdTests) + " " + testCliShellQuote(externalTests) +
+        " " + testCliShellQuote(miscTests)
     let symlinks = runCommand("find " + roots + " -type l -print")
     if not commandWasSuccessful(symlinks) or symlinks.output.trim() != "" {
         return false
     }
     let unit = runCommand("find " + testCliShellQuote(compilerTests) + " " +
-        testCliShellQuote(stdTests) + " -type f -name '*.seen' -print")
+        testCliShellQuote(stdTests) + " " + testCliShellQuote(externalTests) +
+        " -type f -name '*.seen' -print")
     if not commandWasSuccessful(unit) or
         not testCliCollectFindOutput(root, unit.output, candidates) { return false }
     let misc = runCommand("find " + testCliShellQuote(miscTests) +
@@ -169,7 +173,11 @@ fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
     } else if relative.endsWith("_unit.py") {
         command = "python3 " + testCliShellQuote(absolute)
     } else { return -1 }
-    let wrapped = "cd " + testCliShellQuote(root) + " && timeout --signal=TERM " +
+    var workingRoot = root
+    let migratedRoot = testMigrationWorkingRoot(relative)
+    if migratedRoot != "" { workingRoot = root + "/" + migratedRoot }
+    let wrapped = "cd " + testCliShellQuote(workingRoot) +
+        " && timeout --signal=TERM " +
         "--kill-after=5s " + timeoutSeconds.toString() + "s sh -c " +
         testCliShellQuote(command) + " >" + testCliShellQuote(logPath) +
         " 2>&1; status=$?; printf '%s\\n' \"$status\" >" +

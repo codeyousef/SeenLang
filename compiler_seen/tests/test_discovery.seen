@@ -41,11 +41,15 @@ fun main() r: Int {
         TestPrimaryCategory.Unit, false, false, TestPlatformCategory.All,
         false))
     entries.push(candidate(
+        "tests/fixtures/external_package/tests/layout_contract.seen",
+        TestPrimaryCategory.Integration, false, false,
+        TestPlatformCategory.All, false))
+    entries.push(candidate(
         "tests/misc_root_tests/seen_linux_privileged_probe.sh",
         TestPrimaryCategory.Integration, false, false,
         TestPlatformCategory.Linux, true))
     let happy = discoverTestsChecked(entries, testContext())
-    if not happy.success or happy.values[0].tests.length() != 5 {
+    if not happy.success or happy.values[0].tests.length() != 6 {
         println("FAIL: TEST-001A_happy")
         return 1
     }
