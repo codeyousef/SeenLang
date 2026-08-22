@@ -69,6 +69,17 @@ docs.
 mode, use ordered collections such as `BTreeMap`/`BTreeSet` or explicitly mark
 the nondeterministic usage where allowed.
 
+## Secret handling
+
+- `SecretBytes.clear` overwrites its mutable byte storage. `SecretString.clear`
+  invalidates the logical owner, but immutable Seen string allocator storage
+  cannot yet be guaranteed to be overwritten. Use `SecretBytes` when
+  best-effort in-process zeroisation is required.
+- Secret values redact their own formatting and have no serialization surface,
+  but an explicitly revealed ordinary value is again the caller's
+  responsibility. Reveal requires `SecretRevealPolicy.Allow` and is never the
+  logging or serialization default.
+
 ## Language and Code Generation
 
 - Plain enums and exhaustive matching are supported. Payload/data enums remain

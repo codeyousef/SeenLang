@@ -1,0 +1,1 @@
+{"fields":[{"kind":"secret","name":"api-token","value":"never-print-this"}],"max_secret_bytes":64,"schema":"seen-secret-marker-v1"}

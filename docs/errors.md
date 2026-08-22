@@ -57,6 +57,21 @@ use `FsFile` or the checked text-read carrier, both of which expose
 cannot grow silently; replacing that frozen ABI requires a bootstrap migration,
 not a deprecated public bridge.
 
+## Redaction-safe secret values
+
+P0-SECRET-001 defines `seen-secret-marker-v1`. `SecretString` and
+`SecretBytes` are dedicated move-only owners rather than ordinary log or
+configuration values. Their `toString` and `redacted` methods always return
+`[redacted]`; revealing material requires `SecretRevealPolicy.Allow` plus a
+valid, non-cancelled `OperationContext`. Construction is bounded to 4 KiB and
+returns stable `p0.secret.001.*` errors without echoing secret material.
+
+`clear` is idempotent. Mutable `SecretBytes` storage is overwritten before it
+is released. Seen strings are currently immutable, so `SecretString.clear`
+removes the logical owner but does not claim allocator-level zeroisation.
+Neither type implements serialization; future serialization support must keep
+secrets excluded unless a separately reviewed unsafe opt-in is explicit.
+
 ## Retry cancellation exhaustion and redaction
 
 ERR-001D defines `seen-error-policy-v1`. `classifySeenError` maps a validated

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-secret-marker-v1` with move-only `SecretString` and
+  `SecretBytes`, always-redacted formatting, explicit typed reveal policy,
+  bounded construction, cancellation, idempotent clearing, mutable-byte
+  zeroisation, and deterministic no-plaintext-leak verification.
+
 - Added `seen-owned-resource-v1` and compile-time move-state analysis for
   `@move` and `@c_resource` owners. Transfers invalidate the source binding,
   control-flow joins reject possibly moved use, cleanup is idempotent, and the
