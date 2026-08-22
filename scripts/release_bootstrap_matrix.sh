@@ -24,6 +24,11 @@ INSTALLER_OUTPUT_DIR="$ROOT_DIR/artifacts/installers"
 RUN_PLATFORM_MATRIX=0
 PLATFORM_OUTPUT_DIR="$ROOT_DIR/artifacts/platform-matrix"
 PLATFORM_TARGETS=()
+PEER_STAGE3=""
+PEER_BUILDER=""
+BUILD_ROOT_DIGEST=""
+PEER_BUILD_ROOT_DIGEST=""
+REPRODUCIBILITY_OUTPUT=""
 
 usage() {
   cat <<'EOF'
@@ -55,6 +60,14 @@ Options:
                         Directory for platform matrix reports (default: artifacts/platform-matrix)
   --platform-target <name>
                         Limit platform matrix to selected targets (repeatable)
+  --peer-stage3 <path>  Independently built peer Stage-3 compiler to compare
+  --peer-builder <path> Bootstrap builder that produced --peer-stage3
+  --build-root-digest <sha256>
+                        Identity digest for this independent build root
+  --peer-build-root-digest <sha256>
+                        Identity digest for the peer independent build root
+  --reproducibility-output <path>
+                        Write seen-bootstrap-reproducibility-v1 evidence
   -h, --help            Show this help message
 EOF
 }
@@ -135,6 +148,26 @@ while [[ $# -gt 0 ]]; do
       ;;
     --platform-target)
       PLATFORM_TARGETS+=("$2")
+      shift 2
+      ;;
+    --peer-stage3)
+      PEER_STAGE3="$2"
+      shift 2
+      ;;
+    --peer-builder)
+      PEER_BUILDER="$2"
+      shift 2
+      ;;
+    --build-root-digest)
+      BUILD_ROOT_DIGEST="$2"
+      shift 2
+      ;;
+    --peer-build-root-digest)
+      PEER_BUILD_ROOT_DIGEST="$2"
+      shift 2
+      ;;
+    --reproducibility-output)
+      REPRODUCIBILITY_OUTPUT="$2"
       shift 2
       ;;
     -h|--help)
@@ -237,6 +270,10 @@ fi
 
 MANIFESTS=()
 LINUX_STAGE3_PATH=""
+LINUX_STAGE2_PATH=""
+LINUX_TARGET=""
+LINUX_BACKEND=""
+LINUX_PROFILE=""
 
 for row in "${MATRIX_ROWS[@]}"; do
   IFS=$'\t' read -r entry_name host target backend profile <<< "$row"
@@ -270,8 +307,12 @@ for row in "${MATRIX_ROWS[@]}"; do
   mv "$stage1_tmp" "$entry_dir/stage1_seen"
   mv "$stage2_tmp" "$entry_dir/stage2_seen"
   mv "$stage3_tmp" "$entry_dir/stage3_seen"
-  if [[ "$host" == linux-* ]]; then
+  if [[ "$host" == *linux* ]]; then
+    LINUX_STAGE2_PATH="$entry_dir/stage2_seen"
     LINUX_STAGE3_PATH="$entry_dir/stage3_seen"
+    LINUX_TARGET="$target"
+    LINUX_BACKEND="$backend"
+    LINUX_PROFILE="$profile"
   fi
 
   TMP_BINARIES=()
@@ -341,6 +382,53 @@ with open(out_path, "w", encoding="utf-8") as fh:
     json.dump(payload, fh, indent=2)
 PY
   log "Wrote matrix index to $INDEX_PATH"
+fi
+
+repro_values=("$PEER_STAGE3" "$PEER_BUILDER" "$BUILD_ROOT_DIGEST" \
+  "$PEER_BUILD_ROOT_DIGEST" "$REPRODUCIBILITY_OUTPUT")
+repro_count=0
+for value in "${repro_values[@]}"; do
+  if [[ -n "$value" ]]; then
+    repro_count=$((repro_count + 1))
+  fi
+done
+if [[ $repro_count -ne 0 && $repro_count -ne 5 ]]; then
+  echo "Two-builder certification requires all peer/root/output options" >&2
+  exit 1
+fi
+if [[ $repro_count -eq 5 ]]; then
+  if [[ -z "$LINUX_STAGE3_PATH" ]]; then
+    echo "Linux Stage3 artifact not found; cannot certify reproducibility" >&2
+    exit 1
+  fi
+  if [[ -n "$(git -C "$ROOT_DIR" status --porcelain -- \
+      compiler_seen seen_std seen_runtime Seen.toml Seen.lock)" ]]; then
+    echo "Two-builder certification requires a clean tracked compiler source tree" >&2
+    exit 1
+  fi
+  if ! "$ROOT_DIR/scripts/run_in_hard_memory_scope.sh" \
+      --label "Two-builder release certification" --verify-only -- >/dev/null; then
+    echo "Two-builder certification requires a read-back-verified hard scope" >&2
+    exit 1
+  fi
+  SOURCE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+  SOURCE_DIGEST="$(git -C "$ROOT_DIR" archive --format=tar HEAD | sha256sum | awk '{print $1}')"
+  SOURCE_DATE_EPOCH="$(git -C "$ROOT_DIR" show -s --format=%ct HEAD)"
+  BUILDER_A_TOOLCHAIN="$("$LINUX_STAGE2_PATH" --version | head -n 1 | tr -d '\r')"
+  BUILDER_B_TOOLCHAIN="$("$PEER_BUILDER" --version | head -n 1 | tr -d '\r')"
+  "$ROOT_DIR/scripts/certify_two_builder_bootstrap.py" \
+    --artifact-a "$LINUX_STAGE3_PATH" --artifact-b "$PEER_STAGE3" \
+    --builder-a "$LINUX_STAGE2_PATH" --builder-b "$PEER_BUILDER" \
+    --build-root-digest-a "$BUILD_ROOT_DIGEST" \
+    --build-root-digest-b "$PEER_BUILD_ROOT_DIGEST" \
+    --source-commit "$SOURCE_COMMIT" --source-digest "$SOURCE_DIGEST" \
+    --source-date-epoch "$SOURCE_DATE_EPOCH" \
+    --toolchain-a "$BUILDER_A_TOOLCHAIN" --toolchain-b "$BUILDER_B_TOOLCHAIN" \
+    --command "release-bootstrap target=$LINUX_TARGET backend=$LINUX_BACKEND profile=$LINUX_PROFILE" \
+    --memory-max-bytes "$((SEEN_MEMORY_GUARD_RSS_KB * 1024))" \
+    --memory-swap-max-bytes 0 --pids-max "$SEEN_MEMORY_GUARD_TASKS_MAX" \
+    --jobs "$SEEN_JOBS" --opt-jobs "$SEEN_OPT_JOBS" \
+    --output "$REPRODUCIBILITY_OUTPUT"
 fi
 
 if [[ $PACKAGE_STDLIB -eq 1 ]]; then

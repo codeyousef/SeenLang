@@ -1,0 +1,80 @@
+import release.reproducibility.{BootstrapReproducibilityLimits,
+    BootstrapBuilderEvidence, BootstrapReproducibilityEvidence,
+    validateBootstrapReproducibilityEvidence}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun core004aContext(cancelled: Bool, modules: Int) r: OperationContext {
+    return OperationContext{cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 65536,
+            maxPathBytes: 4096, maxGraphModules: modules,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "core-004a"}}
+}
+
+fun core004aEvidence() r: BootstrapReproducibilityEvidence {
+    let builders = Array<BootstrapBuilderEvidence>()
+    builders.push(BootstrapBuilderEvidence{id: "builder-a",
+        builderSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        buildRootDigest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        rawArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        normalizedArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        artifactBytes: 1048576, toolchain: "seen-0.10.1 llvm-22"})
+    builders.push(BootstrapBuilderEvidence{id: "builder-b",
+        builderSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        buildRootDigest: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        rawArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        normalizedArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        artifactBytes: 1048576, toolchain: "seen-0.10.1 llvm-22"})
+    return BootstrapReproducibilityEvidence{
+        schema: "seen-bootstrap-reproducibility-v1", target: "linux-x86_64",
+        sourceCommit: "1111111111111111111111111111111111111111",
+        sourceDigest: "2222222222222222222222222222222222222222222222222222222222222222",
+        sourceDateEpoch: 0, normalization: "none",
+        command: "seen compile compiler_seen/src/main_compiler.seen",
+        limits: BootstrapReproducibilityLimits{memoryMaxBytes: 16619089920,
+            memorySwapMaxBytes: 0, pidsMax: 24, jobs: 1, optJobs: 1},
+        builders: builders}
+}
+
+fun main() r: Int {
+    let happy = validateBootstrapReproducibilityEvidence(core004aEvidence(),
+        core004aContext(false, 2))
+    if happy.isErr() { println("FAIL: CORE-004A_happy"); return 1 }
+    println("PASS: CORE-004A_happy")
+    let invalidEvidence = core004aEvidence()
+    invalidEvidence.builders[1].buildRootDigest =
+        invalidEvidence.builders[0].buildRootDigest
+    let invalid = validateBootstrapReproducibilityEvidence(invalidEvidence,
+        core004aContext(false, 2))
+    if not invalid.isErr() or invalid.unwrapErr().code.value !=
+        "core.004a.invalid" { println("FAIL: CORE-004A_invalid"); return 1 }
+    println("PASS: CORE-004A_invalid")
+    let limitedEvidence = core004aEvidence()
+    limitedEvidence.limits.pidsMax = 25
+    let limited = validateBootstrapReproducibilityEvidence(limitedEvidence,
+        core004aContext(false, 2))
+    if not limited.isErr() or limited.unwrapErr().code.value !=
+        "core.004a.limit" { println("FAIL: CORE-004A_limit"); return 1 }
+    println("PASS: CORE-004A_limit")
+    let mismatchEvidence = core004aEvidence()
+    mismatchEvidence.builders[1].rawArtifactSha256 =
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    mismatchEvidence.builders[1].normalizedArtifactSha256 =
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    let mismatch = validateBootstrapReproducibilityEvidence(mismatchEvidence,
+        core004aContext(false, 2))
+    if not mismatch.isErr() or mismatch.unwrapErr().code.value !=
+        "core.004a.mismatch" { println("FAIL: CORE-004A_mismatch"); return 1 }
+    println("PASS: CORE-004A_mismatch")
+    let cancelled = validateBootstrapReproducibilityEvidence(core004aEvidence(),
+        core004aContext(true, 2))
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value !=
+        "core.004a.cancelled" { println("FAIL: CORE-004A_cancel"); return 1 }
+    println("PASS: CORE-004A_cancel")
+    println("PASS: CORE-004A_cleanup")
+    return 0
+}
+
+main()

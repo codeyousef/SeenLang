@@ -104,6 +104,7 @@ tests/misc_root_tests/seen_test_instrumentation_contract.sh
 tests/misc_root_tests/seen_fuzz_corpus_contract.sh
 tests/misc_root_tests/seen_benchmark_evidence_contract.sh
 tests/misc_root_tests/seen_leak_soak_contract.sh
+tests/misc_root_tests/seen_bootstrap_reproducibility_contract.sh
 python3 scripts/benchmark_compatibility_runtime.py \
     releases/compatibility-manifest.json \
     tests/fixtures/core-002b/happy/benchmark.json
