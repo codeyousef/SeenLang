@@ -597,8 +597,11 @@ grep -Fq 'SEEN_COMPILER_SOURCE_ROOT="$ROOT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||
     fail "self-hosted ABI smoke does not bind the compiler source root"
 grep -Fq 'cd "$ROOT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||
     fail "self-hosted ABI smoke does not invoke compilers from the tracked runtime root"
-grep -Fq 'check "$PROJECT_DIR/main.seen"' "$SELFHOSTED_ABI_SMOKE" ||
-    fail "self-hosted ABI smoke does not pass an absolute project entry path"
+grep -Fq 'PROJECT_ENTRY="${PROJECT_DIR#"$ROOT_DIR"/}/main.seen"' \
+    "$SELFHOSTED_ABI_SMOKE" ||
+    fail "self-hosted ABI smoke does not bind a repository-relative project entry"
+grep -Fq 'check "$PROJECT_ENTRY"' "$SELFHOSTED_ABI_SMOKE" ||
+    fail "self-hosted ABI smoke does not pass the validated project entry"
 if grep -Fq 'eval ' "$ROOT_DIR/scripts/run_all_tests.sh"; then
     fail "legacy all-tests still executes interpolated compiler commands with eval"
 fi

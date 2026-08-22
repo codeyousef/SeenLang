@@ -54,6 +54,11 @@ CHECK_LOG="$PROJECT_DIR/check.log"
 COMPILE_LOG="$PROJECT_DIR/compile.log"
 RUN_LOG="$PROJECT_DIR/run.log"
 mkdir -p "$PROJECT_DIR/selfhost_abi"
+case "$PROJECT_DIR" in
+    "$ROOT_DIR"/*) ;;
+    *) echo "RESOURCE STOP: self-hosted ABI project escaped the repository root" >&2; exit 126 ;;
+esac
+PROJECT_ENTRY="${PROJECT_DIR#"$ROOT_DIR"/}/main.seen"
 
 cat >"$PROJECT_DIR/Seen.toml" <<'EOF'
 [project]
@@ -182,7 +187,7 @@ check_status=0
 (
     cd "$ROOT_DIR" &&
     run_capped timeout 180 bash "$ATTESTED_SEEN" "$COMPILER" \
-        check "$PROJECT_DIR/main.seen" >"$CHECK_LOG" 2>&1
+        check "$PROJECT_ENTRY" >"$CHECK_LOG" 2>&1
 ) || check_status=$?
 if [ "$check_status" -ne 0 ]; then
     echo "FAIL: self-hosted ABI check smoke failed; log: $CHECK_LOG" >&2
@@ -194,7 +199,7 @@ compile_status=0
 (
     cd "$ROOT_DIR" &&
     run_capped timeout 180 bash "$ATTESTED_SEEN" "$COMPILER" \
-        compile "$PROJECT_DIR/main.seen" "$OUTPUT_FILE" --fast --no-cache \
+        compile "$PROJECT_ENTRY" "$OUTPUT_FILE" --fast --no-cache \
         >"$COMPILE_LOG" 2>&1
 ) || compile_status=$?
 if [ "$compile_status" -ne 0 ]; then
