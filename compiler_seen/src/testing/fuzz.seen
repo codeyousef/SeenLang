@@ -1,0 +1,40 @@
+/// Bounded mutation policy for TEST-002A instrumentation-evidence fuzzing.
+/// Corpus minimization and replay lifecycle belong to TEST-002B.
+
+import core.result.{Result, Ok, Err}
+import core.error.{SeenError}
+import core.operation_context.{OperationContext}
+import testing.instrumentation.{test002aError}
+
+let TEST_INSTRUMENTATION_FUZZ_MAX_SECONDS: Int = 300
+let TEST_INSTRUMENTATION_FUZZ_MAX_BYTES: Int = 65536
+
+class TestInstrumentationFuzzPlan {
+    var seed: Int
+    var durationSeconds: Int
+    var maxBytes: Int
+}
+
+fun validateTestInstrumentationFuzz(plan: TestInstrumentationFuzzPlan,
+    context: OperationContext)
+    r: Result<TestInstrumentationFuzzPlan, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<TestInstrumentationFuzzPlan, SeenError>(test002aError(
+            "test.002a.cancelled", "test instrumentation fuzzing was cancelled"))
+    }
+    if plan.durationSeconds < 1 or
+        plan.durationSeconds > TEST_INSTRUMENTATION_FUZZ_MAX_SECONDS or
+        plan.maxBytes < 1 or
+        plan.maxBytes > TEST_INSTRUMENTATION_FUZZ_MAX_BYTES or
+        plan.maxBytes > context.limits.maxManifestBytes {
+
+        return Err<TestInstrumentationFuzzPlan, SeenError>(test002aError(
+            "test.002a.limit", "test instrumentation fuzz limits are invalid"))
+    }
+    if plan.seed < 1 {
+        return Err<TestInstrumentationFuzzPlan, SeenError>(test002aError(
+            "test.002a.invalid", "test instrumentation fuzz seed is invalid"))
+    }
+    return Ok<TestInstrumentationFuzzPlan, SeenError>(plan)
+}

@@ -162,7 +162,10 @@ fun buildTestRunPlanChecked(manifest: TestDiscoveryManifest,
     }
     if options.jobs != 1 or options.timeoutSeconds < 1 or
         options.timeoutSeconds > TEST_RUN_MAX_TIMEOUT_SECONDS or
-        (options.profile != "default" and options.profile != "ci") or
+        (options.profile != "default" and options.profile != "ci" and
+         options.profile != "coverage" and
+         options.profile != "sanitizer-undefined" and
+         options.profile != "sanitizer-thread") or
         options.target != "linux-x86_64" or
         not testRunnerSafeFilter(options.filter) {
 
@@ -185,6 +188,12 @@ fun buildTestRunPlanChecked(manifest: TestDiscoveryManifest,
         if not testRunnerFilterMatches(test.path, options.filter) {
             selected = false
             reason = "filter"
+        } else if (options.profile == "coverage" or
+            options.profile.startsWith("sanitizer-")) and
+            not test.path.endsWith(".seen") {
+
+            selected = false
+            reason = "instrumentation-unsupported"
         } else if test.ignored and not options.includeIgnored {
             selected = false
             reason = "ignored"

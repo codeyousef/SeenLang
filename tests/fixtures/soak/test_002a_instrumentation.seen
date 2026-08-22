@@ -1,0 +1,33 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+import testing.instrumentation.{TestInstrumentationComponent,
+    TestInstrumentationPlan, validateTestInstrumentation}
+
+fun main() r: Int {
+    let context = OperationContext{cancellation: false,
+        monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4096, maxGraphModules: 5,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{ value: "test-002a-soak" }}
+    var iteration = 0
+    while iteration < 10000 {
+        let components = Array<TestInstrumentationComponent>()
+        for name in ["compiler-host", "gpu-emitters", "seen-modules",
+            "native-runtime", "abi-shims"] {
+            components.push(TestInstrumentationComponent{name: name,
+                compiled: true, softwareExecuted: true,
+                hardwareExecuted: false})
+        }
+        let checked = validateTestInstrumentation(TestInstrumentationPlan{
+            profile: "coverage", coverage: true, sanitizer: "",
+            target: "linux-x86_64", components: components}, context)
+        if checked.isErr() { return 1 }
+        iteration = iteration + 1
+    }
+    println("PASS: TEST-002A_soak")
+    return 0
+}
+
+main()

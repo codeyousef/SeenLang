@@ -1,5 +1,34 @@
 # Testing
 
+## Sanitizer and coverage profiles
+
+TEST-002A defines `seen-test-instrumentation-v1`. In addition to `default` and
+`ci`, `seen test --profile` accepts `coverage`, `sanitizer-undefined`, and
+`sanitizer-thread`. Seen test
+sources are compiled with the matching compiler instrumentation, execute under
+the existing per-test timeout and the serialized `--no-fork` compiler path,
+and keep reports and raw coverage profiles below
+`.seen_cache/test/run`. Coverage mode also merges every raw profile with
+`llvm-profdata` and emits a text report with `llvm-cov`; missing post-processing
+tools are an infrastructure failure, never an implicit downgrade.
+On LLD targets, no-fork mode also pins the linker and ThinLTO backend to one
+worker so the compilation remains valid inside the aggregate task cap.
+
+The compiler still accepts AddressSanitizer and MemorySanitizer build flags as
+compile-only capabilities. They are deliberately not runnable `seen test`
+profiles under the mandatory finite VMEM ceiling because their multi-terabyte
+shadow-address reservations cannot coexist with that containment. The runner
+rejects those profile names instead of weakening limits or claiming execution.
+
+Acceptance evidence names compiler host code, GPU emitters, Seen modules, the
+native runtime, and ledgered ABI shims separately. Each must be compiled and
+software-executed. GPU emitter execution proves the compiler path only:
+`hardware_executed` must remain false until a separate real-hardware gate
+produces hardware evidence. Compile-only evidence cannot close TEST-002A.
+The capped execution acceptance therefore builds and runs an instrumented
+compiler, exercises the software GPU emitter, then runs the instrumented Seen
+fixture before deriving the five-component evidence document.
+
 ## Deterministic test discovery
 
 TEST-001A defines the `seen-test-discovery-v1` manifest consumed by the test

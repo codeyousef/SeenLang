@@ -35,6 +35,12 @@ fun runnerOptions(filter: String) r: TestRunnerOptions {
     }
 }
 
+fun runnerProfileOptions(profile: String) r: TestRunnerOptions {
+    let options = runnerOptions("TEST-001B")
+    options.profile = profile
+    return options
+}
+
 fun main() r: Int {
     let tests = Array<TestDiscoveryCandidate>()
     tests.push(runnerCandidate("compiler_seen/tests/test_001b_runner.seen"))
@@ -59,6 +65,18 @@ fun main() r: Int {
         return 1
     }
     println("PASS: TEST-001B_happy")
+
+    for profile in ["coverage", "sanitizer-undefined",
+        "sanitizer-thread"] {
+        let instrumented = buildTestRunPlanChecked(manifest,
+            runnerProfileOptions(profile), runnerContext())
+        if not instrumented.success or
+            instrumented.values[0].selectedCount != 1 {
+            println("FAIL: TEST-002A_profiles")
+            return 1
+        }
+    }
+    println("PASS: TEST-002A_profiles")
 
     var invalidOptions = runnerOptions("")
     invalidOptions.jobs = 2
