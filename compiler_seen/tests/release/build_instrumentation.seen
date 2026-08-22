@@ -2,8 +2,8 @@ import seen_compiler.release.build_instrumentation.{BuildInstrumentationPolicy,
     BuildInstrumentationEvidence,
     sourceOnlyInstrumentationEvidence, compileOnlyInstrumentationEvidence,
     validateBuildInstrumentation, renderBuildInstrumentationEvidence}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext,
-    RetryClass, RedactionClass}
+import core.error.{AsciiString, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun instrumentationContext(cancelled: Bool, maxPathBytes: Int)
     r: OperationContext {

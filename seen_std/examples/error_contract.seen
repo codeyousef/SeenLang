@@ -1,0 +1,21 @@
+import core.option.{Some}
+import collections.vec.{Vec}
+import error.{AsciiString, SeenError, RetryClass, RedactionClass,
+    validateSeenError, renderSeenError}
+
+fun main() r: Int {
+    let value = SeenError{
+        code: AsciiString{ value: "io.read.transient" },
+        subsystem: AsciiString{ value: "io" },
+        operation: AsciiString{ value: "read" },
+        message: "read should be retried",
+        causes: Vec<SeenError>.new(), nativeCode: Some<Int64>(11),
+        retry: RetryClass.Transient, redaction: RedactionClass.Public
+    }
+    let checked = validateSeenError(value)
+    if checked.isErr() { return 1 }
+    println(renderSeenError(checked.unwrap()))
+    return 0
+}
+
+main()

@@ -1,11 +1,12 @@
-import seen_compiler.release.compatibility.{AsciiString, RetryClass,
-    RedactionClass, OperationLimits, OperationContext,
-    CompatibilityCompiler, CompatibilityComponents, CompatibilityTarget,
+import seen_compiler.release.compatibility.{CompatibilityCompiler,
+    CompatibilityComponents, CompatibilityTarget,
     CompatibilityPlatforms, CompatibilityManifest,
     validateCompatibilityManifest, compatibilityInputsFromManifest,
     generateCompatibilityManifestBytes, parseCompatibilityManifest,
     consumeCompatibilityManifest, writeCompatibilityManifest,
     readAndConsumeCompatibilityManifest}
+import core.error.{AsciiString, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 import io.file.{exists, deleteFile}
 
 fun compatibilityTestManifest() r: CompatibilityManifest {

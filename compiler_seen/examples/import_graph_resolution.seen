@@ -3,7 +3,8 @@
 import seen_compiler.imports.graph.{newModuleImportGraph,
     moduleImportGraphBeginModule, moduleImportGraphAddEdge,
     resolveRecursiveImportGraph, renderImportGraphResolution}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun exampleContext() r: OperationContext {
     return OperationContext{

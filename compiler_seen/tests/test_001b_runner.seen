@@ -4,7 +4,8 @@ import seen_compiler.testing.reporters.{renderTestRunJson, renderTestRunJunit}
 import seen_compiler.testing.discovery.{TestDiscoveryCandidate,
     TestDiscoveryManifest}
 import testing.categories.{TestPrimaryCategory, TestPlatformCategory}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun runnerContext() r: OperationContext {
     return OperationContext{

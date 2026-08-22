@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/error-contract.schema.json",
+  "title": "Seen structured error contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["context", "error", "schema"],
+  "properties": {
+    "schema": {"const": "seen-error-v1"},
+    "context": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cancellation", "limits", "monotonic_deadline", "trace_id"],
+      "properties": {
+        "cancellation": {"type": "boolean"},
+        "monotonic_deadline": {"type": "integer", "minimum": 0},
+        "trace_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "limits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["max_graph_depth", "max_graph_edges", "max_graph_modules", "max_identity_bytes", "max_manifest_bytes", "max_path_bytes", "max_targets", "max_version_bytes"],
+          "properties": {
+            "max_graph_depth": {"type": "integer", "minimum": 1, "maximum": 1024},
+            "max_graph_edges": {"type": "integer", "minimum": 1, "maximum": 1000000},
+            "max_graph_modules": {"type": "integer", "minimum": 1, "maximum": 100000},
+            "max_identity_bytes": {"type": "integer", "minimum": 1, "maximum": 4096},
+            "max_manifest_bytes": {"type": "integer", "minimum": 1, "maximum": 16777216},
+            "max_path_bytes": {"type": "integer", "minimum": 1, "maximum": 4096},
+            "max_targets": {"type": "integer", "minimum": 1, "maximum": 100000},
+            "max_version_bytes": {"type": "integer", "minimum": 1, "maximum": 4096}
+          }
+        }
+      }
+    },
+    "error": {"$ref": "#/$defs/error"}
+  },
+  "$defs": {
+    "error": {
+      "type": "object", "additionalProperties": false,
+      "required": ["causes", "code", "message", "native_code", "operation", "redaction", "retry", "subsystem"],
+      "properties": {
+        "causes": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/error"}},
+        "code": {"type": "string", "minLength": 1, "maxLength": 128},
+        "message": {"type": "string", "maxLength": 4096},
+        "native_code": {"type": ["integer", "null"]},
+        "operation": {"type": "string", "minLength": 1, "maxLength": 128},
+        "redaction": {"enum": ["public", "sensitive"]},
+        "retry": {"enum": ["never", "transient"]},
+        "subsystem": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import seen_compiler.release.release_optimization.{ReleaseOptimizationPolicy,
     validateReleaseOptimization, renderReleaseOptimizationPlan}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext,
-    RetryClass, RedactionClass}
+import core.error.{AsciiString, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun releaseContext(cancelled: Bool, maxPathBytes: Int) r: OperationContext {
     return OperationContext{

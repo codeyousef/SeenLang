@@ -38,6 +38,8 @@ python3 -m py_compile \
     scripts/check_test_fixture.py \
     scripts/check_test_reporters.py \
     scripts/check_test_migration.py \
+    scripts/check_error_contract.py \
+    scripts/benchmark_error_contract.py \
     scripts/check_compatibility_manifest.py \
     scripts/check_package_layout.py \
     scripts/check_import_graph.py \
@@ -63,6 +65,7 @@ python3 -m py_compile \
     tests/runner/test_fixture_unit.py \
     tests/runner/test_reporters_unit.py \
     tests/runner/test_migration_unit.py \
+    tests/runner/test_error_contract_unit.py \
     scripts/check_native_boundaries.py \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
@@ -88,6 +91,7 @@ tests/misc_root_tests/seen_assertions_snapshot_contract.sh
 tests/misc_root_tests/seen_fixture_isolation_contract.sh
 tests/misc_root_tests/seen_test_reporters_contract.sh
 tests/misc_root_tests/seen_test_migration_contract.sh
+tests/misc_root_tests/seen_error_contract.sh
 python3 scripts/benchmark_compatibility_runtime.py \
     releases/compatibility-manifest.json \
     tests/fixtures/core-002b/happy/benchmark.json

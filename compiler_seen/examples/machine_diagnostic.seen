@@ -1,7 +1,7 @@
 import release.diagnostic_schema.{BackendMaturity, MachineDiagnosticContext,
     validateMachineDiagnostic, renderMachineDiagnostic}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext,
-    RedactionClass}
+import core.error.{AsciiString, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 import release.diagnostic_schema.{coreRel001Error}
 
 fun main() r: Int {

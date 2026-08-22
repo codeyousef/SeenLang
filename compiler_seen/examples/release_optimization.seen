@@ -1,6 +1,7 @@
 import seen_compiler.release.release_optimization.{ReleaseOptimizationPolicy,
     validateReleaseOptimization, renderReleaseOptimizationPlan}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun main() r: Int {
     let policy = ReleaseOptimizationPolicy{

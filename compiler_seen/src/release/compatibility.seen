@@ -5,9 +5,11 @@
 /// transactional file output. Missing values are never inferred or repaired.
 ///
 
-import core.option.{Option, None}
+import core.option.{None}
 import core.result.{Result, Ok, Err}
 import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 import io.file.{readTextChecked, size, writeTextAtomically}
 import json.parser.{parseJson}
 import json.value.{JsonValue}
@@ -27,49 +29,6 @@ let COMPATIBILITY_RUNTIME_CANCELLED: String = "core.002b.cancelled"
 let COMPATIBILITY_RUNTIME_PLATFORM: String = "core.002b.platform"
 let COMPATIBILITY_RUNTIME_MISMATCH: String = "core.002b.mismatch"
 let COMPATIBILITY_RUNTIME_IO: String = "core.002b.io"
-
-class AsciiString {
-    var value: String
-}
-
-enum RetryClass {
-    Never
-    Transient
-}
-
-enum RedactionClass {
-    Public
-    Sensitive
-}
-
-class SeenError {
-    var code: AsciiString
-    var subsystem: AsciiString
-    var operation: AsciiString
-    var message: String
-    var causes: Vec<SeenError>
-    var nativeCode: Option<Int64>
-    var retry: RetryClass
-    var redaction: RedactionClass
-}
-
-class OperationLimits {
-    var maxTargets: Int
-    var maxIdentityBytes: Int
-    var maxVersionBytes: Int
-    var maxManifestBytes: Int
-    var maxPathBytes: Int
-    var maxGraphModules: Int
-    var maxGraphEdges: Int
-    var maxGraphDepth: Int
-}
-
-class OperationContext {
-    var cancellation: Bool
-    var monotonicDeadline: Int64
-    var limits: OperationLimits
-    var traceId: AsciiString
-}
 
 class CompatibilityCompiler {
     var version: String

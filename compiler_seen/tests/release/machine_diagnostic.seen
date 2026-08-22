@@ -1,8 +1,8 @@
 import release.diagnostic_schema.{BackendMaturity, MachineDiagnostic,
     MachineDiagnosticContext, validateMachineDiagnostic,
     renderMachineDiagnostic, coreRel001Error}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext,
-    SeenError, RetryClass, RedactionClass}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 import core.option.{Some}
 import collections.vec.{Vec}
 

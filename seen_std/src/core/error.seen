@@ -1,0 +1,151 @@
+/// Stable structured error contract shared by the standard library, compiler,
+/// runtime-facing packages, and applications.
+
+import core.option.{Option}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+
+let SEEN_ERROR_MAX_MESSAGE_BYTES: Int = 4096
+let SEEN_ERROR_MAX_CAUSES: Int = 8
+let SEEN_ERROR_MAX_IDENTITY_BYTES: Int = 128
+
+class AsciiString {
+    var value: String
+}
+
+enum RetryClass {
+    Never
+    Transient
+}
+
+enum RedactionClass {
+    Public
+    Sensitive
+}
+
+class SeenError {
+    var code: AsciiString
+    var subsystem: AsciiString
+    var operation: AsciiString
+    var message: String
+    var causes: Vec<SeenError>
+    var nativeCode: Option<Int64>
+    var retry: RetryClass
+    var redaction: RedactionClass
+}
+
+fun errorIdentityValid(value: String) r: Bool {
+    if value.length() == 0 or
+        value.length() > SEEN_ERROR_MAX_IDENTITY_BYTES { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let lower = byte >= 97 and byte <= 122
+        let digit = byte >= 48 and byte <= 57
+        if not lower and not digit and byte != 45 and byte != 46 and
+            byte != 95 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun errorLiteral(code: String, subsystem: String, operation: String,
+    message: String, retry: RetryClass,
+    redaction: RedactionClass) r: SeenError {
+
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: subsystem },
+        operation: AsciiString{ value: operation }, message: message,
+        causes: Vec<SeenError>.new(), nativeCode: None<Int64>(),
+        retry: retry, redaction: redaction
+    }
+}
+
+fun err001aFailure(code: String, message: String) r: SeenError {
+    return errorLiteral(code, "error", "validate", message,
+        RetryClass.Never, RedactionClass.Public)
+}
+
+fun seenErrorValidity(value: SeenError, depth: Int) r: Int {
+    if not errorIdentityValid(value.code.value) or
+        not errorIdentityValid(value.subsystem.value) or
+        not errorIdentityValid(value.operation.value) { return 1 }
+    if depth > SEEN_ERROR_MAX_CAUSES or
+        value.message.length() > SEEN_ERROR_MAX_MESSAGE_BYTES or
+        value.causes.length() > SEEN_ERROR_MAX_CAUSES { return 2 }
+    var index = 0
+    while index < value.causes.length() {
+        let nested = seenErrorValidity(value.causes.get(index), depth + 1)
+        if nested != 0 { return nested }
+        index = index + 1
+    }
+    return 0
+}
+
+fun validateSeenError(value: SeenError)
+    r: Result<SeenError, SeenError> {
+
+    let validity = seenErrorValidity(value, 0)
+    if validity == 1 {
+        return Err<SeenError, SeenError>(err001aFailure(
+            "err.001a.invalid", "error identity is not canonical ASCII"))
+    }
+    if validity == 2 {
+        return Err<SeenError, SeenError>(err001aFailure(
+            "err.001a.limit", "error structure exceeds its bound"))
+    }
+    return Ok<SeenError, SeenError>(value)
+}
+
+fun seenErrorJsonString(value: String) r: String {
+    var output = "\""
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte == 34 { output = output + "\\\"" }
+        else if byte == 92 { output = output + "\\\\" }
+        else if byte == 10 { output = output + "\\n" }
+        else if byte == 13 { output = output + "\\r" }
+        else if byte == 9 { output = output + "\\t" }
+        else if byte < 32 { output = output + "?" }
+        else { output = output + value.substring(index, index + 1) }
+        index = index + 1
+    }
+    return output + "\""
+}
+
+fun retryClassName(value: RetryClass) r: String {
+    if value == RetryClass.Transient { return "transient" }
+    return "never"
+}
+
+fun redactionClassName(value: RedactionClass) r: String {
+    if value == RedactionClass.Sensitive { return "sensitive" }
+    return "public"
+}
+
+fun renderSeenError(value: SeenError) r: String {
+    var causes = "["
+    var index = 0
+    while index < value.causes.length() {
+        if index > 0 { causes = causes + "," }
+        causes = causes + renderSeenError(value.causes.get(index))
+        index = index + 1
+    }
+    causes = causes + "]"
+    let nativeCode = if value.nativeCode.isSome() {
+        value.nativeCode.unwrap().toString()
+    } else { "null" }
+    let visibleMessage = if value.redaction == RedactionClass.Sensitive {
+        "[redacted]"
+    } else { value.message }
+    return "{\"causes\":" + causes + ",\"code\":" +
+        seenErrorJsonString(value.code.value) + ",\"message\":" +
+        seenErrorJsonString(visibleMessage) + ",\"native_code\":" +
+        nativeCode + ",\"operation\":" +
+        seenErrorJsonString(value.operation.value) + ",\"redaction\":" +
+        seenErrorJsonString(redactionClassName(value.redaction)) +
+        ",\"retry\":" + seenErrorJsonString(retryClassName(value.retry)) +
+        ",\"subsystem\":" + seenErrorJsonString(value.subsystem.value) + "}"
+}

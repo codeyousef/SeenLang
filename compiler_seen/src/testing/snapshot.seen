@@ -1,7 +1,8 @@
 /// Native exact-byte snapshot comparison and explicit update planning.
 
 import core.result.{Result, Ok, Err}
-import release.compatibility.{OperationContext, SeenError}
+import core.error.{SeenError}
+import core.operation_context.{OperationContext}
 import release.diagnostic_schema.{machineDiagnosticJsonString}
 import seen_compiler.testing.assertions.{TEST_ASSERTION_MAX_NAME_BYTES,
     test001cError, assertionSafeName, assertionBool}

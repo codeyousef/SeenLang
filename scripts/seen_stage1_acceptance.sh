@@ -505,6 +505,10 @@ run_fixture test-migration \
     "$REPO_ROOT/compiler_seen/tests/test_001f_migration.seen"
 run_fixture test-migration-example \
     "$REPO_ROOT/compiler_seen/examples/test_migration.seen"
+run_fixture structured-error \
+    "$REPO_ROOT/seen_std/tests/error/err_001a_error_contract.seen"
+run_fixture structured-error-example \
+    "$REPO_ROOT/seen_std/examples/error_contract.seen"
 
 test_runner_log="$ACCEPTANCE_ROOT/test-runner-cli.log"
 if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001B \
@@ -538,6 +542,45 @@ python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format json \
     --validate "$REPO_ROOT/.seen_cache/test/TEST-001F.json" >/dev/null
 python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format junit \
     --validate "$REPO_ROOT/.seen_cache/test/TEST-001F.xml" >/dev/null
+
+error_contract_log="$ACCEPTANCE_ROOT/error-contract-cli.log"
+if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter ERR-001A \
+    --profile ci --jobs 1 --timeout 10m \
+    --report json:.seen_cache/test/ERR-001A.json \
+    --report junit:.seen_cache/test/ERR-001A.xml \
+    >"$error_contract_log" 2>&1; then
+
+    echo "ERROR: ERR-001A canonical seen test acceptance failed: $error_contract_log" >&2
+    cat "$error_contract_log" >&2
+    exit 1
+fi
+grep -Fq 'test result: 1 passed; 0 failed' "$error_contract_log" || {
+    echo "ERROR: ERR-001A canonical seen test summary is missing" >&2
+    exit 1
+}
+python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format json \
+    --validate "$REPO_ROOT/.seen_cache/test/ERR-001A.json" >/dev/null
+python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format junit \
+    --validate "$REPO_ROOT/.seen_cache/test/ERR-001A.xml" >/dev/null
+
+if [ "${SEEN_ERR_001A_FULL_REPORT:-0}" = "1" ]; then
+    error_contract_full_log="$ACCEPTANCE_ROOT/error-contract-full-cli.log"
+    error_contract_full_status=0
+    "$DIRECT_COMPILER" test "$REPO_ROOT" --profile ci --jobs 1 \
+        --timeout 10m --report json:.seen_cache/test/ERR-001A-full.json \
+        --report junit:.seen_cache/test/ERR-001A-full.xml \
+        >"$error_contract_full_log" 2>&1 || error_contract_full_status=$?
+    [ "$error_contract_full_status" -le 1 ] || {
+        echo "ERROR: ERR-001A full test infrastructure failed with status $error_contract_full_status" >&2
+        cat "$error_contract_full_log" >&2
+        exit 1
+    }
+    python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format json \
+        --validate "$REPO_ROOT/.seen_cache/test/ERR-001A-full.json" >/dev/null
+    python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format junit \
+        --validate "$REPO_ROOT/.seen_cache/test/ERR-001A-full.xml" >/dev/null
+    tail -n 1 "$error_contract_full_log"
+fi
 
 if [ "${SEEN_TEST_001F_FULL_REPORT:-0}" = "1" ]; then
     test_migration_full_log="$ACCEPTANCE_ROOT/test-migration-full-cli.log"

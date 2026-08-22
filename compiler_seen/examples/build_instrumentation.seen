@@ -2,7 +2,8 @@ import seen_compiler.release.build_instrumentation.{BuildInstrumentationPolicy,
     BuildInstrumentationEvidence,
     sourceOnlyInstrumentationEvidence, compileOnlyInstrumentationEvidence,
     validateBuildInstrumentation, renderBuildInstrumentationEvidence}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun main() r: Int {
     let policy = BuildInstrumentationPolicy{

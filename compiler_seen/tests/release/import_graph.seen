@@ -2,8 +2,8 @@ import seen_compiler.imports.graph.{ModuleImportGraph, ImportGraphResolution,
     newModuleImportGraph, moduleImportGraphBeginModule,
     moduleImportGraphAddEdge, resolveRecursiveImportGraph,
     renderImportGraphResolution}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext,
-    RetryClass, RedactionClass}
+import core.error.{AsciiString, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun graphPaths() r: Array<String> {
     let paths = Array<String>()

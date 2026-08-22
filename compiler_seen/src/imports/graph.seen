@@ -6,7 +6,8 @@
 /// stable root-first traversal. It performs no I/O and has no fallback path.
 
 import core.result.{Result, Ok, Err}
-import release.compatibility.{OperationContext, SeenError, RedactionClass}
+import core.error.{SeenError, RedactionClass}
+import core.operation_context.{OperationContext}
 import release.diagnostic_schema.{core003aError, core003bError, core003cError,
     core003dError}
 

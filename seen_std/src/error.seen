@@ -1,0 +1,7 @@
+/// Public stable error surface. The bootstrap-recognized implementation module
+/// owns every type and function; this module only re-exports that one contract.
+
+pub import core.error.{SEEN_ERROR_MAX_MESSAGE_BYTES, SEEN_ERROR_MAX_CAUSES,
+    SEEN_ERROR_MAX_IDENTITY_BYTES, AsciiString, RetryClass, RedactionClass,
+    SeenError, errorIdentityValid, errorLiteral, validateSeenError,
+    renderSeenError, retryClassName, redactionClassName}
