@@ -42,9 +42,10 @@ import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile,
 import typechecker.semantic_registry.{SemanticDeclarationRegistry, semanticNormalizeModuleIdentity}
 import typechecker.lexical_semantic.{LexicalSemanticResult, collectLexicalSemanticModule, checkLexicalSemanticModule}
 import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest,
-    AsciiString, OperationLimits, OperationContext, CompatibilityCompiler,
-    CompatibilityComponents, CompatibilityTarget, CompatibilityPlatforms,
+    CompatibilityCompiler, CompatibilityComponents, CompatibilityTarget, CompatibilityPlatforms,
     CompatibilityReleaseInputs, readCompatibilityRuntimeSelection}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
 import seen_compiler.release.diagnostic_schema.{core003aError as _seedCore003aError,
     core003bError as _seedCore003bError}
 import seen_compiler.release.build_instrumentation.{BuildInstrumentationPolicy,
@@ -6438,6 +6439,8 @@ fun appendCompilerInternalSupportModules(paths: Array<String>, processedPaths: A
     modules.push("json.value")
     modules.push("json.parser")
     modules.push("release.compatibility")
+    modules.push("core.error")
+    modules.push("core.operation_context")
     modules.push("trace")
     modules.push("io.file")
     modules.push("process.process")
@@ -7994,6 +7997,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("release.diagnostic_schema")
         modules.push("release.build_instrumentation")
         modules.push("release.release_optimization")
+        modules.push("core.error")
+        modules.push("core.operation_context")
         modules.push("testing.categories")
         modules.push("testing.discovery")
         modules.push("testing.migration")

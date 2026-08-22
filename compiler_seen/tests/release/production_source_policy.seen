@@ -1,7 +1,7 @@
 import seen_compiler.imports.graph.{ProductionSourcePlan,
     validateUnmodifiedProductionSources, renderProductionSourcePlan}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext,
-    RetryClass, RedactionClass}
+import core.error.{AsciiString, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun sourcePolicyContext(cancelled: Bool, maxSources: Int) r: OperationContext {
     return OperationContext{

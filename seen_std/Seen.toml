@@ -15,6 +15,10 @@ modules = [
     "src/core/prelude.seen",
     "src/core/unit.seen",
     "src/core/ord.seen",
+    "src/error.seen",
+    "src/operation_context.seen",
+    "src/core/error.seen",
+    "src/core/operation_context.seen",
 
     # Collections
     "src/collections/list_utils.seen",

@@ -3,7 +3,8 @@ import seen_compiler.testing.assertions.{AssertionOperator, AssertionRequest,
 import seen_compiler.testing.snapshot.{SnapshotUpdatePolicy, SnapshotRequest,
     compareSnapshotChecked, snapshotPath, snapshotWriteContent,
     renderSnapshotResult}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun test001cContext() r: OperationContext {
     return OperationContext{

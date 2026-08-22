@@ -3,8 +3,8 @@ import seen_compiler.imports.graph.{ModuleImportGraph,
     moduleImportGraphBeginModule, moduleImportGraphAddEdge,
     planDeterministicGlobalInitialization,
     renderGlobalInitializationPlan}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext,
-    RetryClass, RedactionClass}
+import core.error.{AsciiString, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun initializationPaths() r: Array<String> {
     let paths = Array<String>()

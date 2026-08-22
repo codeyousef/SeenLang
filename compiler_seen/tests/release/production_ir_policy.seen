@@ -1,7 +1,7 @@
 import seen_compiler.imports.graph.{ProductionIrPlan,
     validateUnmodifiedProductionIr, renderProductionIrPlan}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext,
-    RetryClass, RedactionClass}
+import core.error.{AsciiString, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun irPolicyContext(cancelled: Bool, maxArtifacts: Int) r: OperationContext {
     return OperationContext{

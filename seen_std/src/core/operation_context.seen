@@ -1,0 +1,65 @@
+/// Bounded cancellation and tracing context for fallible Seen operations.
+
+import core.result.{Result, Ok, Err}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass,
+    errorIdentityValid, errorLiteral, validateSeenError}
+
+class OperationLimits {
+    var maxTargets: Int
+    var maxIdentityBytes: Int
+    var maxVersionBytes: Int
+    var maxManifestBytes: Int
+    var maxPathBytes: Int
+    var maxGraphModules: Int
+    var maxGraphEdges: Int
+    var maxGraphDepth: Int
+}
+
+class OperationContext {
+    var cancellation: Bool
+    var monotonicDeadline: Int64
+    var limits: OperationLimits
+    var traceId: AsciiString
+}
+
+fun operationContextFailure(code: String, message: String) r: SeenError {
+    return errorLiteral(code, "operation-context", "validate", message,
+        RetryClass.Never, RedactionClass.Public)
+}
+
+fun validateOperationContext(context: OperationContext)
+    r: Result<OperationContext, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<OperationContext, SeenError>(operationContextFailure(
+            "err.001a.cancelled", "operation context is cancelled"))
+    }
+    let limits = context.limits
+    if limits.maxTargets <= 0 or limits.maxIdentityBytes <= 0 or
+        limits.maxVersionBytes <= 0 or limits.maxManifestBytes <= 0 or
+        limits.maxPathBytes <= 0 or limits.maxGraphModules <= 0 or
+        limits.maxGraphEdges <= 0 or limits.maxGraphDepth <= 0 or
+        limits.maxIdentityBytes > 4096 or limits.maxVersionBytes > 4096 or
+        limits.maxManifestBytes > 16777216 or limits.maxPathBytes > 4096 or
+        limits.maxGraphModules > 100000 or limits.maxGraphEdges > 1000000 or
+        limits.maxGraphDepth > 1024 {
+
+        return Err<OperationContext, SeenError>(operationContextFailure(
+            "err.001a.limit", "operation context limit is invalid"))
+    }
+    if not errorIdentityValid(context.traceId.value) {
+        return Err<OperationContext, SeenError>(operationContextFailure(
+            "err.001a.invalid", "trace identity is not canonical ASCII"))
+    }
+    return Ok<OperationContext, SeenError>(context)
+}
+
+fun validateSeenErrorInContext(value: SeenError, context: OperationContext)
+    r: Result<SeenError, SeenError> {
+
+    let checkedContext = validateOperationContext(context)
+    if checkedContext.isErr() {
+        return Err<SeenError, SeenError>(checkedContext.unwrapErr())
+    }
+    return validateSeenError(value)
+}

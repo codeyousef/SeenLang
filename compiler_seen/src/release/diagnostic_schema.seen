@@ -7,8 +7,9 @@
 import core.option.{None}
 import core.result.{Result, Ok, Err}
 import collections.vec.{Vec}
-import release.compatibility.{AsciiString, RetryClass, RedactionClass,
-    SeenError, OperationContext, compatibilityAsciiIdentity}
+import release.compatibility.{compatibilityAsciiIdentity}
+import core.error.{AsciiString, RetryClass, RedactionClass, SeenError}
+import core.operation_context.{OperationContext}
 
 let RELEASE_DIAGNOSTIC_MAX_MESSAGE_BYTES: Int = 4096
 let RELEASE_DIAGNOSTIC_MAX_CAUSES: Int = 8

@@ -3,7 +3,7 @@
 
 import io.file.{readText, writeTextAtomically, exists}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
-import release.compatibility.{OperationContext}
+import core.operation_context.{OperationContext}
 import testing.categories.{TestPrimaryCategory, TestPlatformCategory}
 import seen_compiler.testing.discovery.{TestDiscoveryCandidate, discoverTestsChecked,
     testDiscoveryExpectedCategory, testDiscoveryExpectedPlatform,

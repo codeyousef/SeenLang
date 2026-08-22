@@ -1,7 +1,8 @@
 import seen_compiler.testing.runner.{TestExecutionResult, TestRunReport}
 import seen_compiler.testing.reporters.{TestReporterFormat,
     TestReporterRequest, renderTestReportChecked}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun test001eContext() r: OperationContext {
     return OperationContext{

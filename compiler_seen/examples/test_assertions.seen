@@ -2,7 +2,8 @@ import seen_compiler.testing.assertions.{AssertionOperator, AssertionRequest,
     evaluateAssertionChecked, renderAssertionResult}
 import seen_compiler.testing.snapshot.{SnapshotUpdatePolicy, SnapshotRequest,
     compareSnapshotChecked, renderSnapshotResult}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun main() r: Int {
     let context = OperationContext{

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the native `seen-error-v1` structured error and operation-context
+  contract with bounded recursive causes, explicit retry/redaction policy,
+  sensitive-message redaction, stable diagnostics, schema, tests, and example.
+
 - Added the native `seen-test-migration-v1` ownership contract for compiler,
   standard-library, and external-package tests, including package-rooted
   execution, deterministic host validation, bounded fuzz/performance evidence,

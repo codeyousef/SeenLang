@@ -1,7 +1,8 @@
 import seen_compiler.testing.migration.{TestMigrationSource,
     TestMigrationEntry, buildTestMigrationPlanChecked,
     renderTestMigrationPlan}
-import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun exampleMigrationEntry(source: TestMigrationSource, root: String,
     category: String) r: TestMigrationEntry {

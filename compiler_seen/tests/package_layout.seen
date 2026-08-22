@@ -1,7 +1,8 @@
-import seen_compiler.release.compatibility.{AsciiString, OperationLimits,
-    OperationContext, RetryClass, RedactionClass, ReusablePackagePlatforms,
+import seen_compiler.release.compatibility.{ReusablePackagePlatforms,
     ReusablePackageLayout, validateReusablePackageLayout,
     renderReusablePackageLayout}
+import core.error.{AsciiString, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
 
 fun packageLayoutFixture() r: ReusablePackageLayout {
     return ReusablePackageLayout{

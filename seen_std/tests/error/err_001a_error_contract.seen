@@ -1,0 +1,88 @@
+import core.option.{None}
+import collections.vec.{Vec}
+import error.{AsciiString, SeenError, RetryClass, RedactionClass,
+    validateSeenError, renderSeenError}
+import operation_context.{OperationLimits, OperationContext,
+    validateSeenErrorInContext}
+
+fun err001aContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false, monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 1048576, maxPathBytes: 4096,
+            maxGraphModules: 100000, maxGraphEdges: 1000000,
+            maxGraphDepth: 1024
+        }, traceId: AsciiString{ value: "err-001a" }
+    }
+}
+
+fun err001aValue(code: String) r: SeenError {
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "storage" },
+        operation: AsciiString{ value: "read" }, message: "bounded failure",
+        causes: Vec<SeenError>.new(), nativeCode: None<Int64>(),
+        retry: RetryClass.Never, redaction: RedactionClass.Public
+    }
+}
+
+fun main() r: Int {
+    let happy = validateSeenErrorInContext(
+        err001aValue("storage.read.invalid"), err001aContext())
+    if happy.isErr() or not renderSeenError(happy.unwrap()).contains(
+        "\"retry\":\"never\"") {
+
+        println("FAIL: ERR-001A_happy")
+        return 1
+    }
+    println("PASS: ERR-001A_happy")
+
+    let invalid = validateSeenError(err001aValue("Storage.INVALID"))
+    if not invalid.isErr() or
+        invalid.unwrapErr().code.value != "err.001a.invalid" {
+
+        println("FAIL: ERR-001A_invalid")
+        return 1
+    }
+    println("PASS: ERR-001A_invalid")
+
+    var limitedValue = err001aValue("storage.read.limit")
+    var index = 0
+    while index < 9 {
+        limitedValue.causes.push(err001aValue("storage.cause.invalid"))
+        index = index + 1
+    }
+    let limited = validateSeenError(limitedValue)
+    if not limited.isErr() or
+        limited.unwrapErr().code.value != "err.001a.limit" {
+
+        println("FAIL: ERR-001A_limit")
+        return 1
+    }
+    println("PASS: ERR-001A_limit")
+
+    var cancelledContext = err001aContext()
+    cancelledContext.cancellation = true
+    let cancelled = validateSeenErrorInContext(
+        err001aValue("storage.read.cancelled"), cancelledContext)
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "err.001a.cancelled" {
+
+        println("FAIL: ERR-001A_cancel")
+        return 1
+    }
+    println("PASS: ERR-001A_cancel")
+
+    let value = err001aValue("storage.read.invalid")
+    let first = renderSeenError(value)
+    let second = renderSeenError(value)
+    if first != second or not first.endsWith("}") {
+        println("FAIL: ERR-001A_cleanup")
+        return 1
+    }
+    println("PASS: ERR-001A_cleanup")
+    return 0
+}
+
+main()
