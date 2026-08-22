@@ -1,0 +1,150 @@
+/// Bounded resource-provider snapshots for TEST-002D leak and soak evidence.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
+import core.operation_context.{OperationContext}
+
+let TEST_LEAK_SOAK_SCHEMA: String = "seen-test-leak-soak-v1"
+let TEST_LEAK_SOAK_PROVIDER_COUNT: Int = 13
+let TEST_LEAK_SOAK_MIN_ITERATIONS: Int = 10000
+let TEST_LEAK_SOAK_MAX_ITERATIONS: Int = 1000000
+let TEST_LEAK_SOAK_MAX_VALUE: Int64 = 1000000000000000
+
+class TestLeakSoakProviderReading {
+    var provider: String
+    var available: Bool
+    var baseline: Int64
+    var peak: Int64
+    var finalValue: Int64
+    var acquired: Int64
+    var released: Int64
+}
+
+class TestLeakSoakEvidence {
+    var schema: String
+    var target: String
+    var plannedIterations: Int
+    var completedIterations: Int
+    var providers: Array<TestLeakSoakProviderReading>
+}
+
+fun test002dError(code: String, message: String) r: SeenError {
+    return SeenError{code: AsciiString{value: code},
+        subsystem: AsciiString{value: "testing.leak"},
+        operation: AsciiString{value: "validate-soak"},
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public}
+}
+
+fun testLeakSoakProviderName(index: Int) r: String {
+    if index == 0 { return "allocations" }
+    if index == 1 { return "async-io-completions" }
+    if index == 2 { return "async-io-requests" }
+    if index == 3 { return "child-processes" }
+    if index == 4 { return "committed-vram-bytes" }
+    if index == 5 { return "file-descriptors" }
+    if index == 6 { return "gpu-objects" }
+    if index == 7 { return "mapped-windows" }
+    if index == 8 { return "persistent-tasks" }
+    if index == 9 { return "persistent-workers" }
+    if index == 10 { return "resident-vram-bytes" }
+    if index == 11 { return "staging-bytes" }
+    if index == 12 { return "threads" }
+    return ""
+}
+
+fun testLeakSoakReadingBounded(reading: TestLeakSoakProviderReading) r: Bool {
+    return reading.baseline >= 0 and reading.baseline <= TEST_LEAK_SOAK_MAX_VALUE and
+        reading.peak >= 0 and reading.peak <= TEST_LEAK_SOAK_MAX_VALUE and
+        reading.finalValue >= 0 and reading.finalValue <= TEST_LEAK_SOAK_MAX_VALUE and
+        reading.acquired >= 0 and reading.acquired <= TEST_LEAK_SOAK_MAX_VALUE and
+        reading.released >= 0 and reading.released <= TEST_LEAK_SOAK_MAX_VALUE
+}
+
+fun validateTestLeakSoakEvidence(evidence: TestLeakSoakEvidence,
+    context: OperationContext) r: Result<TestLeakSoakEvidence, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+            "test.002d.cancelled", "leak and soak validation was cancelled"))
+    }
+    if evidence.target != "linux-x86_64" {
+        return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+            "test.002d.platform", "leak and soak target is unsupported"))
+    }
+    if evidence.schema != TEST_LEAK_SOAK_SCHEMA {
+        return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+            "test.002d.invalid", "leak and soak schema is invalid"))
+    }
+    if evidence.plannedIterations < TEST_LEAK_SOAK_MIN_ITERATIONS or
+        evidence.plannedIterations > TEST_LEAK_SOAK_MAX_ITERATIONS or
+        evidence.completedIterations != evidence.plannedIterations or
+        evidence.providers.length() != TEST_LEAK_SOAK_PROVIDER_COUNT or
+        evidence.providers.length() > context.limits.maxGraphModules {
+
+        return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+            "test.002d.limit", "leak and soak bounds are invalid"))
+    }
+    var availableCount = 0
+    var index = 0
+    while index < evidence.providers.length() {
+        let reading = evidence.providers[index]
+        if reading.provider != testLeakSoakProviderName(index) {
+            return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+                "test.002d.invalid", "resource providers are not canonical"))
+        }
+        if not testLeakSoakReadingBounded(reading) {
+            return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+                "test.002d.limit", "resource provider reading exceeded bounds"))
+        }
+        if not reading.available {
+            if reading.baseline != 0 or reading.peak != 0 or
+                reading.finalValue != 0 or reading.acquired != 0 or
+                reading.released != 0 {
+
+                return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+                    "test.002d.invalid",
+                    "unsupported resource provider reported measurements"))
+            }
+        } else {
+            availableCount = availableCount + 1
+            if reading.peak < reading.baseline or
+                reading.peak < reading.finalValue or
+                (reading.acquired > 0 and reading.peak <= reading.baseline) or
+                reading.baseline + reading.acquired !=
+                    reading.finalValue + reading.released {
+
+                return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+                    "test.002d.invalid",
+                    "resource provider lifecycle is inconsistent"))
+            }
+            if reading.finalValue != reading.baseline {
+                return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+                    "test.002d.leak", "resource provider retained resources"))
+            }
+        }
+        index = index + 1
+    }
+    if availableCount < 1 {
+        return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+            "test.002d.invalid", "no resource provider was available"))
+    }
+    let committed = evidence.providers[4]
+    let resident = evidence.providers[10]
+    if committed.available != resident.available {
+        return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+            "test.002d.invalid", "VRAM provider availability is inconsistent"))
+    }
+    if committed.available and
+        (resident.baseline > committed.baseline or
+         resident.peak > committed.peak or
+         resident.finalValue > committed.finalValue) {
+
+        return Err<TestLeakSoakEvidence, SeenError>(test002dError(
+            "test.002d.invalid", "resident VRAM exceeded committed VRAM"))
+    }
+    return Ok<TestLeakSoakEvidence, SeenError>(evidence)
+}

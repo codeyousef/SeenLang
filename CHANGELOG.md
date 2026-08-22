@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-test-leak-soak-v1` with canonical bounded providers for host,
+  mapped-I/O, persistent-task, GPU, staging, and committed/resident VRAM
+  resources; balanced lifecycle accounting; typed leak failures; explicit
+  unsupported states; and deterministic fuzz, coverage, benchmark, and soak
+  gates.
+
 - Added `seen-benchmark-evidence-v1` with canonical hardware, toolchain,
   commit, cgroup, correctness, bandwidth, memory, VRAM, transfer, fallback,
   and maturity evidence; pinned 5/30/5 sampling; and a hard five-percent gate

@@ -1,5 +1,30 @@
 # Testing
 
+## Leak and soak resource providers
+
+TEST-002D defines `seen-test-leak-soak-v1`. A canonical snapshot registers
+bounded providers for allocations, file descriptors, threads, child processes,
+mapped windows, asynchronous I/O requests and completions, persistent workers
+and tasks, GPU objects, staging bytes, and committed and resident VRAM. Each
+provider reports baseline, peak, final, acquired, and released values after at
+least 10,000 iterations.
+
+Available providers must balance their lifecycle totals and return to the
+baseline. Retained resources fail with `test.002d.leak`; inconsistent peaks,
+ordering, unsupported-provider measurements, and VRAM residency above committed
+memory fail closed. A provider for a capability not yet implemented is retained
+in canonical order with `available=false` and zero metrics—never silently
+substituted. The JSON fixtures are synthetic contract data, not I/O or GPU
+hardware certification.
+
+The native policy is `testing.leak`; serialized acceptance uses
+`scripts/check_leak_soak_evidence.py`. Run
+`tests/misc_root_tests/seen_leak_soak_contract.sh`, setting
+`SEEN_TEST_002D_FUZZ_SECONDS=60` for the required seed-1101 fuzz duration. The
+compiling example is `compiler_seen/examples/test_leak_soak.seen`, and the
+native 10,000-validation soak is
+`tests/fixtures/soak/test_002d_leak_soak.seen`.
+
 ## Benchmark baseline and regression evidence
 
 TEST-002C defines `seen-benchmark-evidence-v1`, a strict, canonical evidence

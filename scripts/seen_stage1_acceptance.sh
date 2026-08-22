@@ -499,6 +499,10 @@ run_fixture test-benchmark-evidence \
     "$REPO_ROOT/compiler_seen/tests/test_002c_benchmark_evidence.seen"
 run_fixture test-benchmark-evidence-example \
     "$REPO_ROOT/compiler_seen/examples/test_benchmark_evidence.seen"
+run_fixture test-leak-soak \
+    "$REPO_ROOT/compiler_seen/tests/test_002d_leak_soak.seen"
+run_fixture test-leak-soak-example \
+    "$REPO_ROOT/compiler_seen/examples/test_leak_soak.seen"
 run_fixture test-assertions \
     "$REPO_ROOT/compiler_seen/tests/test_001c_assertions.seen"
 run_fixture test-assertions-example \
