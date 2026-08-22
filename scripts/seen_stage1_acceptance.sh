@@ -791,6 +791,8 @@ run_fixture array-bool-push-codegen \
     "$REPO_ROOT/compiler_seen/tests/array_bool_push_codegen.seen"
 "$REPO_ROOT/tests/misc_root_tests/seen_extern_runtime_declaration_dedup.sh"
 "$REPO_ROOT/tests/misc_root_tests/seen_semantic_foundation.sh"
+SEEN_SELFHOSTED_ABI_COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh"
 
 if [ "$TIER" = "verify" ]; then
     "$REPO_ROOT/tests/misc_root_tests/seen_atomic_text_io.sh"

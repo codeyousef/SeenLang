@@ -53,14 +53,7 @@ OUTPUT_FILE="$PROJECT_DIR/selfhost_abi_smoke"
 CHECK_LOG="$PROJECT_DIR/check.log"
 COMPILE_LOG="$PROJECT_DIR/compile.log"
 RUN_LOG="$PROJECT_DIR/run.log"
-RUNTIME_DIR="$PROJECT_DIR/seen_runtime"
-mkdir -p "$PROJECT_DIR/selfhost_abi" "$RUNTIME_DIR"
-case "$PROJECT_DIR" in
-    "$ROOT_DIR"/*) ;;
-    *) echo "RESOURCE STOP: self-hosted ABI project escaped the repository root" >&2; exit 126 ;;
-esac
-cp -- "$ROOT_DIR"/seen_runtime/*.c "$ROOT_DIR"/seen_runtime/*.h \
-    "$RUNTIME_DIR/"
+mkdir -p "$PROJECT_DIR/selfhost_abi"
 
 cat >"$PROJECT_DIR/Seen.toml" <<'EOF'
 [project]
