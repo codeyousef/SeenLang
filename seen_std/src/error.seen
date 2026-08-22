@@ -3,5 +3,6 @@
 
 pub import core.error.{SEEN_ERROR_MAX_MESSAGE_BYTES, SEEN_ERROR_MAX_CAUSES,
     SEEN_ERROR_MAX_IDENTITY_BYTES, AsciiString, RetryClass, RedactionClass,
-    SeenError, errorIdentityValid, errorLiteral, validateSeenError,
-    renderSeenError, retryClassName, redactionClassName}
+    SeenErrorKind, SeenError, TypedErrorSpec, errorIdentityValid, errorLiteral,
+    typedSeenError, validateSeenError, renderSeenError, seenErrorKindName,
+    retryClassName, redactionClassName}

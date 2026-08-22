@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/typed-error-contract.schema.json",
+  "title": "Seen typed-error descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "message", "native_code", "operation", "redaction", "retry", "schema"],
+  "properties": {
+    "schema": {"const": "seen-typed-error-v1"},
+    "kind": {"enum": ["os", "io", "process", "network", "timeout", "cancelled", "parse", "resource"]},
+    "operation": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9._-]+$"},
+    "message": {"type": "string", "maxLength": 4096},
+    "native_code": {"type": ["integer", "null"]},
+    "retry": {"enum": ["never", "transient"]},
+    "redaction": {"enum": ["public", "sensitive"]}
+  }
+}

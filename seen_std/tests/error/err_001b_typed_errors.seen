@@ -1,0 +1,112 @@
+import core.option.{Option, Some, None}
+import error.{AsciiString, RetryClass, RedactionClass, SeenErrorKind,
+    TypedErrorSpec, typedSeenError, renderSeenError, seenErrorKindName}
+import operation_context.{OperationLimits, OperationContext,
+    typedSeenErrorInContext}
+
+fun err001bContext(cancelled: Bool) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled, monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 1048576, maxPathBytes: 4096,
+            maxGraphModules: 100000, maxGraphEdges: 1000000,
+            maxGraphDepth: 1024
+        }, traceId: AsciiString{ value: "err-001b" }
+    }
+}
+
+fun err001bSpec(kind: SeenErrorKind, operation: String,
+    nativeCode: Option<Int64>, retry: RetryClass) r: TypedErrorSpec {
+
+    return TypedErrorSpec{
+        kind: kind, operation: AsciiString{ value: operation },
+        message: "typed failure", nativeCode: nativeCode, retry: retry,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun err001bHappyKind(kind: SeenErrorKind, expected: String,
+    retry: RetryClass) r: Bool {
+
+    let checked = typedSeenError(err001bSpec(
+        kind, "read", Some<Int64>(11), retry))
+    if checked.isErr() { return false }
+    let value = checked.unwrap()
+    return seenErrorKindName(kind) == expected and
+        value.code.value == "err.001b." + expected and
+        value.subsystem.value == expected and value.nativeCode.isSome() and
+        value.nativeCode.unwrap() == 11 and value.retry == retry
+}
+
+fun main() r: Int {
+    if not err001bHappyKind(SeenErrorKind.Os, "os", RetryClass.Transient) or
+        not err001bHappyKind(SeenErrorKind.Io, "io", RetryClass.Transient) or
+        not err001bHappyKind(SeenErrorKind.Process, "process", RetryClass.Never) or
+        not err001bHappyKind(SeenErrorKind.Network, "network", RetryClass.Transient) or
+        not err001bHappyKind(SeenErrorKind.Timeout, "timeout", RetryClass.Transient) or
+        not err001bHappyKind(SeenErrorKind.Cancelled, "cancelled", RetryClass.Never) or
+        not err001bHappyKind(SeenErrorKind.Parse, "parse", RetryClass.Never) or
+        not err001bHappyKind(SeenErrorKind.Resource, "resource", RetryClass.Transient) {
+
+        println("FAIL: ERR-001B_happy")
+        return 1
+    }
+    println("PASS: ERR-001B_happy")
+
+    let invalid = typedSeenError(err001bSpec(
+        SeenErrorKind.Parse, "Parse.Input", None<Int64>(), RetryClass.Transient))
+    if not invalid.isErr() or invalid.unwrapErr().code.value != "err.001b.invalid" or
+        invalid.unwrapErr().retry != RetryClass.Never {
+
+        println("FAIL: ERR-001B_invalid")
+        return 1
+    }
+    println("PASS: ERR-001B_invalid")
+
+    var oversized = ""
+    var index = 0
+    while index < 4097 {
+        oversized = oversized + "x"
+        index = index + 1
+    }
+    var limitedSpec = err001bSpec(
+        SeenErrorKind.Resource, "allocate", None<Int64>(), RetryClass.Transient)
+    limitedSpec.message = oversized
+    let limited = typedSeenError(limitedSpec)
+    if not limited.isErr() or limited.unwrapErr().code.value != "err.001b.limit" {
+        println("FAIL: ERR-001B_limit")
+        return 1
+    }
+    println("PASS: ERR-001B_limit")
+
+    let cancelled = typedSeenErrorInContext(err001bSpec(
+        SeenErrorKind.Io, "read", None<Int64>(), RetryClass.Transient),
+        err001bContext(true))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "err.001b.cancelled" {
+
+        println("FAIL: ERR-001B_cancel")
+        return 1
+    }
+    println("PASS: ERR-001B_cancel")
+
+    var sensitiveSpec = err001bSpec(
+        SeenErrorKind.Process, "spawn", None<Int64>(), RetryClass.Never)
+    sensitiveSpec.message = "/private/secret/path"
+    sensitiveSpec.redaction = RedactionClass.Sensitive
+    let sensitive = typedSeenError(sensitiveSpec)
+    if sensitive.isErr() { return 1 }
+    let first = renderSeenError(sensitive.unwrap())
+    let second = renderSeenError(sensitive.unwrap())
+    if first != second or first.contains("/private/secret/path") or
+        not first.contains("[redacted]") {
+
+        println("FAIL: ERR-001B_cleanup")
+        return 1
+    }
+    println("PASS: ERR-001B_cleanup")
+    return 0
+}
+
+main()

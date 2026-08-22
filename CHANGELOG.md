@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the native `seen-typed-error-v1` classification contract for OS, I/O,
+  process, network, timeout, cancellation, parse, and resource failures with
+  stable codes, explicit retry policy, native codes, and bounded validation.
+
 - Added the native `seen-error-v1` structured error and operation-context
   contract with bounded recursive causes, explicit retry/redaction policy,
   sensitive-message redaction, stable diagnostics, schema, tests, and example.

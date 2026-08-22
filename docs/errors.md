@@ -22,3 +22,22 @@ deadline, finite limits, and a canonical trace identity. Cancellation returns
 violations return `err.001a.limit`. These policy errors are never retryable.
 The source contract is platform-neutral and has no accelerator dependency;
 Linux x86-64 is the currently certified execution platform.
+
+## Typed error categories
+
+ERR-001B defines `seen-typed-error-v1`. `SeenErrorKind` has exactly eight
+categories: `Os`, `Io`, `Process`, `Network`, `Timeout`, `Cancelled`, `Parse`,
+and `Resource`. A bounded `TypedErrorSpec` is converted with `typedSeenError`,
+or with `typedSeenErrorInContext` when cancellation and operation limits must
+be checked first. The resulting stable code and subsystem are
+`err.001b.<category>` and `<category>` respectively.
+
+Callers choose `Never` or `Transient` explicitly for OS, I/O, process,
+network, timeout, and resource failures; the library does not infer retry from
+an operating-system number. Cancellation and parse/policy failures must use
+`Never` and fail validation otherwise. Native error numbers remain optional
+signed 64-bit values. Sensitive messages, including paths, render only as
+`[redacted]`.
+
+Legacy string-error and sentinel APIs are intentionally unchanged here. Their
+removal and caller migration are the separate ERR-001C contract.
