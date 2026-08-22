@@ -1,5 +1,28 @@
 # Testing
 
+## Fuzz corpus minimization and replay
+
+TEST-002B defines `seen-test-fuzz-corpus-v1`. A corpus manifest pins its seed,
+target, maximum input size, required replay count, and canonical byte-ordered
+entries. Each entry records its original and minimized sizes, lowercase SHA-256
+content address, stable `test.*` failure code, and the failure code observed by
+every replay. Unknown fields, duplicate identities or payloads, unstable
+replays, non-canonical order, and oversized input fail closed.
+
+Minimized payloads live in `cases/<sha256>.bin` beside the manifest. Validation
+requires contained, non-symlink regular files whose length and digest match the
+manifest. The minimizer uses deterministic chunk deletion and accepts a change
+only while the caller's failure predicate continues to reproduce. Canonical
+output is written with an fsync-and-rename transaction; cancellation and write
+failures remove temporary output. Corpus parsing, ordering, bounds, and replay
+policy are native Seen; the Python checker is acceptance tooling for serialized
+fixtures and never supplies production policy.
+
+The compiling example is
+`compiler_seen/examples/test_fuzz_corpus.seen`. The acceptance command is
+`tests/misc_root_tests/seen_fuzz_corpus_contract.sh`; set
+`SEEN_TEST_002B_FUZZ_SECONDS=60` for the required seed-1101 fuzz duration.
+
 ## Sanitizer and coverage profiles
 
 TEST-002A defines `seen-test-instrumentation-v1`. In addition to `default` and

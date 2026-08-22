@@ -1,0 +1,28 @@
+import seen_compiler.testing.fuzz.{TestFuzzCorpusEntry,
+    TestFuzzCorpusPlan, validateTestFuzzCorpus}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let replayCodes = Array<String>()
+    replayCodes.push("test.example.failure")
+    replayCodes.push("test.example.failure")
+    replayCodes.push("test.example.failure")
+    let entries = Array<TestFuzzCorpusEntry>()
+    entries.push(TestFuzzCorpusEntry{id: "example",
+        sha256: "4b68ab3847feda7d6c62c1fbcbeebfa35eab7351ed5e78f4ddadea5df64b8015",
+        originalBytes: 4, minimizedBytes: 1,
+        failureCode: "test.example.failure", replayCodes: replayCodes})
+    let result = validateTestFuzzCorpus(TestFuzzCorpusPlan{
+        schema: "seen-test-fuzz-corpus-v1", target: "linux-x86_64",
+        seed: 1101, maxInputBytes: 65536, requiredReplayRuns: 3,
+        entries: entries}, OperationContext{cancellation: false,
+        monotonicDeadline: 1, limits: OperationLimits{maxTargets: 8,
+            maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 16, maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "fuzz-corpus-example"}})
+    return if result.isErr() { 1 } else { 0 }
+}
+
+main()

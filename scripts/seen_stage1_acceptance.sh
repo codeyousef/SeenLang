@@ -491,6 +491,10 @@ run_fixture test-runner-example \
     "$REPO_ROOT/compiler_seen/examples/test_runner.seen"
 run_fixture test-instrumentation \
     "$REPO_ROOT/compiler_seen/tests/test_002a_instrumentation.seen"
+run_fixture test-fuzz-corpus \
+    "$REPO_ROOT/compiler_seen/tests/test_002b_fuzz_corpus.seen"
+run_fixture test-fuzz-corpus-example \
+    "$REPO_ROOT/compiler_seen/examples/test_fuzz_corpus.seen"
 run_fixture test-assertions \
     "$REPO_ROOT/compiler_seen/tests/test_001c_assertions.seen"
 run_fixture test-assertions-example \
