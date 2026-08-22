@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-bootstrap-reproducibility-v1` and release-matrix peer comparison
+  for byte-identical compiler outputs from two independent builders, including
+  strict GNU build-ID/dynamic-relocation normalization where required, with
+  pinned source/toolchain/epoch/containment evidence, safe atomic manifests,
+  and fail-closed builder, root, and artifact identity checks.
+
 - Added `seen-test-leak-soak-v1` with canonical bounded providers for host,
   mapped-I/O, persistent-task, GPU, staging, and committed/resident VRAM
   resources; balanced lifecycle accounting; typed leak failures; explicit

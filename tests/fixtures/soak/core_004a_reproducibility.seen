@@ -1,0 +1,47 @@
+import release.reproducibility.{BootstrapReproducibilityLimits,
+    BootstrapBuilderEvidence, BootstrapReproducibilityEvidence,
+    validateBootstrapReproducibilityEvidence}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun main() r: Int {
+    let builders = Array<BootstrapBuilderEvidence>()
+    builders.push(BootstrapBuilderEvidence{id: "builder-a",
+        builderSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        buildRootDigest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        rawArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        normalizedArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        artifactBytes: 1048576, toolchain: "seen-0.10.1 llvm-22"})
+    builders.push(BootstrapBuilderEvidence{id: "builder-b",
+        builderSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        buildRootDigest: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        rawArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        normalizedArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        artifactBytes: 1048576, toolchain: "seen-0.10.1 llvm-22"})
+    let evidence = BootstrapReproducibilityEvidence{
+        schema: "seen-bootstrap-reproducibility-v1", target: "linux-x86_64",
+        sourceCommit: "1111111111111111111111111111111111111111",
+        sourceDigest: "2222222222222222222222222222222222222222222222222222222222222222",
+        sourceDateEpoch: 0, normalization: "none",
+        command: "seen compile compiler_seen/src/main_compiler.seen",
+        limits: BootstrapReproducibilityLimits{memoryMaxBytes: 16619089920,
+            memorySwapMaxBytes: 0, pidsMax: 24, jobs: 1, optJobs: 1},
+        builders: builders}
+    let context = OperationContext{cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 65536,
+            maxPathBytes: 4096, maxGraphModules: 2,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "core-004a-soak"}}
+    var iteration = 0
+    while iteration < 10000 {
+        if validateBootstrapReproducibilityEvidence(evidence, context).isErr() {
+            return 1
+        }
+        iteration = iteration + 1
+    }
+    println("PASS: CORE-004A_soak")
+    return 0
+}
+
+main()

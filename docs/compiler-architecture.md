@@ -65,6 +65,28 @@ imports as well as from the embedded compiler-module list. That keeps older
 bootstrap compilers from treating new helper calls as external declarations with
 the wrong ABI during self-hosted rebuilds.
 
+### Two-builder reproducibility
+
+CORE-004A defines `seen-bootstrap-reproducibility-v1` in
+`release.reproducibility`. Certification requires the same pinned bootstrap
+builder binary hash in two distinct build roots, while pinning the same source
+commit and tree digest, source-date epoch, toolchain signature,
+command, target, and read-back containment limits. Both final compiler
+artifacts must be byte-identical either raw (`normalization=none`) or after the
+strict `elf64-x86_64-v1` transform. That transform requires a valid little-endian
+ELF64 x86-64 image, zeroes only the GNU build-ID descriptor, and sorts the
+fixed-width `.rela.dyn` records after proving their relocation offsets are
+unique. All other bytes remain covered by the normalized SHA-256.
+
+`scripts/release_bootstrap_matrix.sh` accepts an independently produced peer
+Stage-3 artifact and its builder/root identities, re-verifies the active hard
+scope, and delegates safe file hashing plus atomic evidence output to
+`scripts/certify_two_builder_bootstrap.py`. Missing peer inputs, equal builder
+or root identities, toolchain drift, unsafe files, and artifact mismatch fail
+closed. A changed bootstrap-seed hash is rejected rather than confused with
+environmental independence. The evidence schema is `releases/manifest.schema.json`; the checker is
+`scripts/check_bootstrap_reproducibility.py`. No new foreign symbol is added.
+
 ### Deterministic import graph
 
 Location: `compiler_seen/src/imports/graph.seen`

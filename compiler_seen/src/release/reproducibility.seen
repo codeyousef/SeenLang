@@ -1,0 +1,169 @@
+/// Native two-builder bootstrap certification policy for CORE-004A.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
+import core.operation_context.{OperationContext}
+
+let BOOTSTRAP_REPRODUCIBILITY_SCHEMA: String =
+    "seen-bootstrap-reproducibility-v1"
+let BOOTSTRAP_REPRODUCIBILITY_MAX_ARTIFACT_BYTES: Int64 = 1073741824
+
+class BootstrapReproducibilityLimits {
+    var memoryMaxBytes: Int64
+    var memorySwapMaxBytes: Int64
+    var pidsMax: Int
+    var jobs: Int
+    var optJobs: Int
+}
+
+class BootstrapBuilderEvidence {
+    var id: String
+    var builderSha256: String
+    var buildRootDigest: String
+    var rawArtifactSha256: String
+    var normalizedArtifactSha256: String
+    var artifactBytes: Int64
+    var toolchain: String
+}
+
+class BootstrapReproducibilityEvidence {
+    var schema: String
+    var target: String
+    var sourceCommit: String
+    var sourceDigest: String
+    var sourceDateEpoch: Int64
+    var normalization: String
+    var command: String
+    var limits: BootstrapReproducibilityLimits
+    var builders: Array<BootstrapBuilderEvidence>
+}
+
+fun core004aError(code: String, message: String) r: SeenError {
+    return SeenError{code: AsciiString{value: code},
+        subsystem: AsciiString{value: "release.reproducibility"},
+        operation: AsciiString{value: "certify-two-builders"},
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public}
+}
+
+fun bootstrapReproducibilityDigest(value: String, size: Int) r: Bool {
+    if value.length() != size { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let digit = byte >= 48 and byte <= 57
+        let lowerHex = byte >= 97 and byte <= 102
+        if not digit and not lowerHex { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun bootstrapReproducibilityIdentity(value: String) r: Bool {
+    if value == "" or value.length() > 128 or value.startsWith("-") or
+        value.endsWith("-") { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 97 and byte <= 122
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 { valid = true }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun bootstrapReproducibilityText(value: String, maximum: Int) r: Bool {
+    if value == "" or value.length() > maximum { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 32 or byte > 126 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun validateBootstrapReproducibilityEvidence(
+    evidence: BootstrapReproducibilityEvidence, context: OperationContext)
+    r: Result<BootstrapReproducibilityEvidence, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<BootstrapReproducibilityEvidence, SeenError>(core004aError(
+            "core.004a.cancelled", "bootstrap certification was cancelled"))
+    }
+    if evidence.target != "linux-x86_64" {
+        return Err<BootstrapReproducibilityEvidence, SeenError>(core004aError(
+            "core.004a.platform", "bootstrap certification target is unsupported"))
+    }
+    if evidence.schema != BOOTSTRAP_REPRODUCIBILITY_SCHEMA or
+        not bootstrapReproducibilityDigest(evidence.sourceCommit, 40) or
+        not bootstrapReproducibilityDigest(evidence.sourceDigest, 64) or
+        evidence.sourceDateEpoch < 0 or
+        (evidence.normalization != "none" and
+            evidence.normalization != "elf64-x86_64-v1") or
+        not bootstrapReproducibilityText(evidence.command, 4096) {
+
+        return Err<BootstrapReproducibilityEvidence, SeenError>(core004aError(
+            "core.004a.invalid", "bootstrap certification identity is invalid"))
+    }
+    if evidence.limits.memoryMaxBytes < 1 or
+        evidence.limits.memorySwapMaxBytes != 0 or
+        evidence.limits.pidsMax < 1 or evidence.limits.pidsMax > 24 or
+        evidence.limits.jobs != 1 or evidence.limits.optJobs != 1 or
+        evidence.builders.length() != 2 or
+        evidence.builders.length() > context.limits.maxGraphModules {
+
+        return Err<BootstrapReproducibilityEvidence, SeenError>(core004aError(
+            "core.004a.limit", "bootstrap certification limits are invalid"))
+    }
+    var index = 0
+    while index < evidence.builders.length() {
+        let builder = evidence.builders[index]
+        if not bootstrapReproducibilityIdentity(builder.id) or
+            not bootstrapReproducibilityDigest(builder.builderSha256, 64) or
+            not bootstrapReproducibilityDigest(builder.buildRootDigest, 64) or
+            not bootstrapReproducibilityDigest(builder.rawArtifactSha256, 64) or
+            not bootstrapReproducibilityDigest(
+                builder.normalizedArtifactSha256, 64) or
+            builder.artifactBytes < 1 or
+            builder.artifactBytes > BOOTSTRAP_REPRODUCIBILITY_MAX_ARTIFACT_BYTES or
+            not bootstrapReproducibilityText(builder.toolchain, 256) {
+
+            return Err<BootstrapReproducibilityEvidence, SeenError>(core004aError(
+                "core.004a.invalid", "builder evidence is invalid"))
+        }
+        index = index + 1
+    }
+    let first = evidence.builders[0]
+    let second = evidence.builders[1]
+    if first.id != "builder-a" or second.id != "builder-b" or
+        first.builderSha256 != second.builderSha256 or
+        first.buildRootDigest == second.buildRootDigest {
+
+        return Err<BootstrapReproducibilityEvidence, SeenError>(core004aError(
+            "core.004a.invalid", "builders must share a pinned seed in independent roots"))
+    }
+    if first.toolchain != second.toolchain {
+        return Err<BootstrapReproducibilityEvidence, SeenError>(core004aError(
+            "core.004a.invalid", "builders used different toolchain signatures"))
+    }
+    if evidence.normalization == "none" and
+        (first.rawArtifactSha256 != first.normalizedArtifactSha256 or
+            second.rawArtifactSha256 != second.normalizedArtifactSha256) {
+
+        return Err<BootstrapReproducibilityEvidence, SeenError>(core004aError(
+            "core.004a.invalid", "normalization none changed artifact identity"))
+    }
+    if first.normalizedArtifactSha256 != second.normalizedArtifactSha256 or
+        first.artifactBytes != second.artifactBytes {
+
+        return Err<BootstrapReproducibilityEvidence, SeenError>(core004aError(
+            "core.004a.mismatch", "two builders produced different artifacts"))
+    }
+    return Ok<BootstrapReproducibilityEvidence, SeenError>(evidence)
+}

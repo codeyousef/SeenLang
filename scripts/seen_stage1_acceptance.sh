@@ -482,6 +482,10 @@ run_fixture release-optimization \
     "$REPO_ROOT/compiler_seen/tests/release/release_optimization.seen"
 run_fixture release-optimization-example \
     "$REPO_ROOT/compiler_seen/examples/release_optimization.seen"
+run_fixture bootstrap-reproducibility \
+    "$REPO_ROOT/compiler_seen/tests/reproducibility/core_004a_two_builder.seen"
+run_fixture bootstrap-reproducibility-example \
+    "$REPO_ROOT/compiler_seen/examples/bootstrap_reproducibility.seen"
 run_fixture test-discovery \
     "$REPO_ROOT/compiler_seen/tests/test_discovery.seen"
 run_fixture test-discovery-example \
