@@ -14,6 +14,7 @@ The maintained roots and primary categories are:
 |---|---|---|
 | `compiler_seen/tests/` | `.seen` | `unit` |
 | `seen_std/tests/` | `.seen` | `unit` |
+| `tests/fixtures/external_package/tests/` | `.seen` | `integration` |
 | `tests/misc_root_tests/` | `.sh`, `_unit.py`, `_test.seen` | `integration` |
 
 Names may add orthogonal `ignored`, `slow`, or `privileged` markers using a
@@ -55,6 +56,23 @@ transactionally with repeatable `--report json:<path>` and
 
 The legacy `scripts/run_all_tests.sh` continues to record and validate the same
 discovery inventory while migration to the shipped runner proceeds.
+
+## Package-owned test migration
+
+TEST-001F defines `seen-test-migration-v1`, the fail-closed ownership map for
+compiler, standard-library, and external-package tests. Each source has an
+explicit package root, manifest, tests root, category, platform, and bounded
+test count. The host oracle rejects missing or symlinked topology, unsafe paths,
+unknown or duplicate fields, reordered sources, inconsistent totals, and input
+above the configured limits; native Seen exposes the equivalent typed plan and
+stable `test.001f.*` errors.
+
+`seen test` discovers the external-package fixture alongside compiler and
+standard-library tests, then executes every migrated `.seen` test from its own
+manifest directory. This preserves package dependency resolution and removes
+the former implicit assumption that all tests run from the repository root.
+CPU-only discovery does not locate or link accelerator SDKs. Linux x86-64 is
+the verified execution platform; the package-neutral schema remains portable.
 
 ## Assertions and snapshots
 

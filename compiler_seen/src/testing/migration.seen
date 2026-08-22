@@ -1,0 +1,193 @@
+/// Canonical package ownership and migration policy for TEST-001F.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import release.compatibility.{AsciiString, OperationContext, SeenError,
+    RetryClass, RedactionClass}
+import release.diagnostic_schema.{machineDiagnosticJsonString}
+
+let TEST_MIGRATION_SCHEMA: String = "seen-test-migration-v1"
+let TEST_MIGRATION_SOURCE_COUNT: Int = 3
+let TEST_MIGRATION_MAX_TESTS: Int = 100000
+
+enum TestMigrationSource { Compiler Stdlib ExternalPackage }
+
+class TestMigrationEntry {
+    var source: TestMigrationSource
+    var packageRoot: String
+    var manifestPath: String
+    var testsRoot: String
+    var category: String
+    var platform: String
+    var testCount: Int
+}
+
+class TestMigrationPlan {
+    var schema: String
+    var entries: Array<TestMigrationEntry>
+    var totalTests: Int
+}
+
+class TestMigrationOutcome {
+    var success: Bool
+    var values: Array<TestMigrationPlan>
+    var errors: Array<SeenError>
+}
+
+fun test001fError(code: String, message: String) r: SeenError {
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "testing.migration" },
+        operation: AsciiString{ value: "plan" },
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun testMigrationFailure(error: SeenError) r: TestMigrationOutcome {
+    let errors = Array<SeenError>()
+    errors.push(error)
+    return TestMigrationOutcome{
+        success: false, values: Array<TestMigrationPlan>(), errors: errors
+    }
+}
+
+fun testMigrationSuccess(plan: TestMigrationPlan) r: TestMigrationOutcome {
+    let values = Array<TestMigrationPlan>()
+    values.push(plan)
+    return TestMigrationOutcome{
+        success: true, values: values, errors: Array<SeenError>()
+    }
+}
+
+fun testMigrationSourceName(source: TestMigrationSource) r: String {
+    if source == TestMigrationSource.Compiler { return "compiler" }
+    if source == TestMigrationSource.Stdlib { return "stdlib" }
+    return "external-package"
+}
+
+fun testMigrationExpectedPackageRoot(source: TestMigrationSource) r: String {
+    if source == TestMigrationSource.Compiler { return "compiler_seen" }
+    if source == TestMigrationSource.Stdlib { return "seen_std" }
+    return "tests/fixtures/external_package"
+}
+
+fun testMigrationExpectedCategoryForSource(source: TestMigrationSource)
+    r: String {
+
+    if source == TestMigrationSource.ExternalPackage { return "integration" }
+    return "unit"
+}
+
+fun testMigrationWorkingRoot(path: String) r: String {
+    if path.startsWith("compiler_seen/tests/") { return "compiler_seen" }
+    if path.startsWith("seen_std/tests/") { return "seen_std" }
+    if path.startsWith("tests/fixtures/external_package/tests/") {
+        return "tests/fixtures/external_package"
+    }
+    return ""
+}
+
+fun testMigrationExpectedCategory(path: String) r: String {
+    if path.startsWith("compiler_seen/tests/") or
+        path.startsWith("seen_std/tests/") {
+
+        if path.endsWith(".seen") { return "unit" }
+        return ""
+    }
+    if path.startsWith("tests/fixtures/external_package/tests/") and
+        path.endsWith(".seen") {
+
+        return "integration"
+    }
+    return ""
+}
+
+fun testMigrationEntryMatches(entry: TestMigrationEntry, index: Int) r: Bool {
+    var expectedSource = TestMigrationSource.Compiler
+    if index == 1 { expectedSource = TestMigrationSource.Stdlib }
+    else if index == 2 { expectedSource = TestMigrationSource.ExternalPackage }
+    if entry.source != expectedSource { return false }
+    let packageRoot = testMigrationExpectedPackageRoot(expectedSource)
+    return entry.packageRoot == packageRoot and
+        entry.manifestPath == packageRoot + "/Seen.toml" and
+        entry.testsRoot == packageRoot + "/tests" and
+        entry.category == testMigrationExpectedCategoryForSource(
+            expectedSource) and entry.platform == "all" and
+        entry.testCount > 0 and entry.testCount <= TEST_MIGRATION_MAX_TESTS
+}
+
+fun buildTestMigrationPlanChecked(entries: Array<TestMigrationEntry>,
+    context: OperationContext) r: TestMigrationOutcome {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return testMigrationFailure(test001fError(
+            "test.001f.cancelled", "test migration planning cancelled"))
+    }
+    if context.limits.maxGraphModules < TEST_MIGRATION_SOURCE_COUNT or
+        context.limits.maxGraphModules > TEST_MIGRATION_MAX_TESTS or
+        entries.length() != TEST_MIGRATION_SOURCE_COUNT {
+
+        return testMigrationFailure(test001fError(
+            "test.001f.limit", "test migration source limit exceeded"))
+    }
+    var total = 0
+    var index = 0
+    while index < entries.length() {
+        let entry = entries[index]
+        if not testMigrationEntryMatches(entry, index) {
+            return testMigrationFailure(test001fError(
+                "test.001f.invalid", "test migration source is not canonical"))
+        }
+        if entry.packageRoot.length() > context.limits.maxPathBytes or
+            entry.manifestPath.length() > context.limits.maxPathBytes or
+            entry.testsRoot.length() > context.limits.maxPathBytes or
+            total > context.limits.maxGraphModules - entry.testCount {
+
+            return testMigrationFailure(test001fError(
+                "test.001f.limit", "test migration test limit exceeded"))
+        }
+        total = total + entry.testCount
+        index = index + 1
+    }
+    return testMigrationSuccess(TestMigrationPlan{
+        schema: TEST_MIGRATION_SCHEMA, entries: entries, totalTests: total
+    })
+}
+
+fun buildTestMigrationPlan(entries: Array<TestMigrationEntry>,
+    context: OperationContext) r: Result<TestMigrationPlan, SeenError> {
+
+    let checked = buildTestMigrationPlanChecked(entries, context)
+    if not checked.success {
+        return Err<TestMigrationPlan, SeenError>(checked.errors[0])
+    }
+    return Ok<TestMigrationPlan, SeenError>(checked.values[0])
+}
+
+fun renderTestMigrationPlan(plan: TestMigrationPlan) r: String {
+    var output = "{\"entries\":["
+    var index = 0
+    while index < plan.entries.length() {
+        if index > 0 { output = output + "," }
+        let entry = plan.entries[index]
+        output = output + "{\"category\":" +
+            machineDiagnosticJsonString(entry.category) +
+            ",\"manifest_path\":" +
+            machineDiagnosticJsonString(entry.manifestPath) +
+            ",\"package_root\":" +
+            machineDiagnosticJsonString(entry.packageRoot) +
+            ",\"platform\":" + machineDiagnosticJsonString(entry.platform) +
+            ",\"source\":" + machineDiagnosticJsonString(
+                testMigrationSourceName(entry.source)) +
+            ",\"test_count\":" + entry.testCount.toString() +
+            ",\"tests_root\":" + machineDiagnosticJsonString(
+                entry.testsRoot) + "}"
+        index = index + 1
+    }
+    return output + "],\"schema\":" +
+        machineDiagnosticJsonString(plan.schema) + ",\"total_tests\":" +
+        plan.totalTests.toString() + "}\n"
+}

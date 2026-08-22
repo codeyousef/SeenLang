@@ -8,6 +8,7 @@ import release.compatibility.{AsciiString, OperationContext, SeenError,
 import release.diagnostic_schema.{machineDiagnosticJsonString}
 import testing.categories.{TestPrimaryCategory, TestPlatformCategory,
     testPrimaryCategoryName, testPlatformCategoryName}
+import seen_compiler.testing.migration.{testMigrationExpectedCategory}
 
 let TEST_DISCOVERY_SCHEMA: String = "seen-test-discovery-v1"
 let TEST_DISCOVERY_MAX_PATH_BYTES: Int = 4096
@@ -89,12 +90,8 @@ fun testDiscoveryCanonicalPath(path: String) r: Bool {
 }
 
 fun testDiscoveryExpectedCategory(path: String) r: String {
-    if path.startsWith("compiler_seen/tests/") or
-        path.startsWith("seen_std/tests/") {
-
-        if path.endsWith(".seen") { return "unit" }
-        return ""
-    }
+    let migrated = testMigrationExpectedCategory(path)
+    if migrated != "" { return migrated }
     if path.startsWith("tests/misc_root_tests/") {
         if path.endsWith(".sh") or path.endsWith("_unit.py") or
             path.endsWith("_test.seen") {

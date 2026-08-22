@@ -1,0 +1,100 @@
+import seen_compiler.testing.migration.{TestMigrationSource,
+    TestMigrationEntry, buildTestMigrationPlanChecked,
+    renderTestMigrationPlan, testMigrationWorkingRoot,
+    testMigrationExpectedCategory}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+
+fun test001fContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false, monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 100000, maxGraphEdges: 200000,
+            maxGraphDepth: 64
+        }, traceId: AsciiString{ value: "test-001f" }
+    }
+}
+
+fun test001fEntry(source: TestMigrationSource, root: String,
+    category: String) r: TestMigrationEntry {
+
+    return TestMigrationEntry{
+        source: source, packageRoot: root,
+        manifestPath: root + "/Seen.toml", testsRoot: root + "/tests",
+        category: category, platform: "all", testCount: 1
+    }
+}
+
+fun test001fEntries() r: Array<TestMigrationEntry> {
+    let entries = Array<TestMigrationEntry>()
+    entries.push(test001fEntry(
+        TestMigrationSource.Compiler, "compiler_seen", "unit"))
+    entries.push(test001fEntry(
+        TestMigrationSource.Stdlib, "seen_std", "unit"))
+    entries.push(test001fEntry(TestMigrationSource.ExternalPackage,
+        "tests/fixtures/external_package", "integration"))
+    return entries
+}
+
+fun main() r: Int {
+    let happy = buildTestMigrationPlanChecked(
+        test001fEntries(), test001fContext())
+    if not happy.success or happy.values[0].totalTests != 3 or
+        testMigrationWorkingRoot(
+            "tests/fixtures/external_package/tests/layout_contract.seen") !=
+            "tests/fixtures/external_package" or
+        testMigrationExpectedCategory(
+            "tests/fixtures/external_package/tests/layout_contract.seen") !=
+            "integration" {
+
+        println("FAIL: TEST-001F_happy")
+        return 1
+    }
+    println("PASS: TEST-001F_happy")
+
+    let invalidEntries = test001fEntries()
+    invalidEntries[2].packageRoot = "tests/fixtures/wrong"
+    let invalid = buildTestMigrationPlanChecked(
+        invalidEntries, test001fContext())
+    if invalid.success or invalid.errors[0].code.value != "test.001f.invalid" {
+        println("FAIL: TEST-001F_invalid")
+        return 1
+    }
+    println("PASS: TEST-001F_invalid")
+
+    var limitContext = test001fContext()
+    limitContext.limits.maxGraphModules = 2
+    let limited = buildTestMigrationPlanChecked(
+        test001fEntries(), limitContext)
+    if limited.success or limited.errors[0].code.value != "test.001f.limit" {
+        println("FAIL: TEST-001F_limit")
+        return 1
+    }
+    println("PASS: TEST-001F_limit")
+
+    var cancelContext = test001fContext()
+    cancelContext.cancellation = true
+    let cancelled = buildTestMigrationPlanChecked(
+        test001fEntries(), cancelContext)
+    if cancelled.success or
+        cancelled.errors[0].code.value != "test.001f.cancelled" {
+
+        println("FAIL: TEST-001F_cancel")
+        return 1
+    }
+    println("PASS: TEST-001F_cancel")
+
+    let repeated = buildTestMigrationPlanChecked(
+        test001fEntries(), test001fContext())
+    if not repeated.success or renderTestMigrationPlan(repeated.values[0]) !=
+        renderTestMigrationPlan(happy.values[0]) {
+
+        println("FAIL: TEST-001F_cleanup")
+        return 1
+    }
+    println("PASS: TEST-001F_cleanup")
+    return 0
+}
+
+main()

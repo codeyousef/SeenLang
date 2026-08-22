@@ -325,6 +325,9 @@ import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
 import tools.cli_args.{CliArguments, parseCliArguments}
 import seen_compiler.testing.cli_runner.{runCanonicalTests}
+import seen_compiler.testing.migration.{TestMigrationEntry as _seedTestMigrationEntry,
+    TestMigrationPlan as _seedTestMigrationPlan,
+    TestMigrationOutcome as _seedTestMigrationOutcome}
 import seen_compiler.testing.runner.{TestRunnerOptions as _seedTestRunnerOptions,
     TestRunPlanEntry as _seedTestRunPlanEntry,
     TestRunPlan as _seedTestRunPlan,
@@ -7993,6 +7996,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("release.release_optimization")
         modules.push("testing.categories")
         modules.push("testing.discovery")
+        modules.push("testing.migration")
         modules.push("testing.runner")
         modules.push("testing.cli_runner")
         modules.push("testing.assertions")

@@ -1,0 +1,38 @@
+import seen_compiler.testing.migration.{TestMigrationSource,
+    TestMigrationEntry, buildTestMigrationPlanChecked,
+    renderTestMigrationPlan}
+import release.compatibility.{AsciiString, OperationLimits, OperationContext}
+
+fun exampleMigrationEntry(source: TestMigrationSource, root: String,
+    category: String) r: TestMigrationEntry {
+    return TestMigrationEntry{
+        source: source, packageRoot: root,
+        manifestPath: root + "/Seen.toml", testsRoot: root + "/tests",
+        category: category, platform: "all", testCount: 1
+    }
+}
+
+fun main() r: Int {
+    let entries = Array<TestMigrationEntry>()
+    entries.push(exampleMigrationEntry(
+        TestMigrationSource.Compiler, "compiler_seen", "unit"))
+    entries.push(exampleMigrationEntry(
+        TestMigrationSource.Stdlib, "seen_std", "unit"))
+    entries.push(exampleMigrationEntry(TestMigrationSource.ExternalPackage,
+        "tests/fixtures/external_package", "integration"))
+    let context = OperationContext{
+        cancellation: false, monotonicDeadline: 0,
+        limits: OperationLimits{
+            maxTargets: 32, maxIdentityBytes: 128, maxVersionBytes: 64,
+            maxManifestBytes: 65536, maxPathBytes: 4096,
+            maxGraphModules: 100000, maxGraphEdges: 200000,
+            maxGraphDepth: 64
+        }, traceId: AsciiString{ value: "test-migration-example" }
+    }
+    let result = buildTestMigrationPlanChecked(entries, context)
+    if not result.success { return 1 }
+    print(renderTestMigrationPlan(result.values[0]))
+    return 0
+}
+
+main()

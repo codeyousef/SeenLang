@@ -16,7 +16,8 @@ MAX_PATH_BYTES = 4096
 MAX_TESTS = 100_000
 FIELDS = {"schema", "tests"}
 TEST_FIELDS = {"category", "ignored", "path", "platform", "privileged", "slow"}
-ROOTS = ("compiler_seen/tests", "seen_std/tests", "tests/misc_root_tests")
+ROOTS = ("compiler_seen/tests", "seen_std/tests",
+         "tests/fixtures/external_package/tests", "tests/misc_root_tests")
 
 
 class TestDiscoveryError(ValueError):
@@ -56,6 +57,8 @@ def canonical_path(path: object) -> bool:
 def expected_category(path: str) -> str:
     if path.startswith(("compiler_seen/tests/", "seen_std/tests/")):
         return "unit" if path.endswith(".seen") else ""
+    if path.startswith("tests/fixtures/external_package/tests/"):
+        return "integration" if path.endswith(".seen") else ""
     if path.startswith("tests/misc_root_tests/"):
         if path.endswith(".sh") or path.endswith("_unit.py") or path.endswith("_test.seen"):
             return "integration"
