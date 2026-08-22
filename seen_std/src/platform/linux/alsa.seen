@@ -9,7 +9,17 @@ Link with: -lseen_platform (which wraps libasound.so.2)
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{Some}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun alsaFailure<T>(operation: String, message: String,
+    nativeCode: Int) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Os, operation, message,
+        Some<Int64>(nativeCode as Int64), RetryClass.Transient,
+        RedactionClass.Sensitive)
+}
 
 // ALSA PCM stream direction
 let SND_PCM_STREAM_PLAYBACK: Int = 0
@@ -191,12 +201,12 @@ class AlsaPcm {
     var format: AlsaAudioFormat
     var isPlayback: Bool
 
-    static fun openPlayback(device: String, format: AlsaAudioFormat) r: Result<AlsaPcm, String> {
+    static fun openPlayback(device: String, format: AlsaAudioFormat) r: Result<AlsaPcm, SeenError> {
         var handlePtr: *Void = null
         let result = seen_alsa_open(&handlePtr, device.toCString(), SND_PCM_STREAM_PLAYBACK as Int32, 0)
 
         if result < 0 {
-            return Err("Failed to open ALSA device '" + device + "': " + alsa_strerror(result))
+            return alsaFailure<AlsaPcm>("open-playback", "failed to open ALSA device", result)
         }
 
         var pcm = AlsaPcm {
@@ -216,12 +226,12 @@ class AlsaPcm {
         return Ok(pcm)
     }
 
-    static fun openCapture(device: String, format: AlsaAudioFormat) r: Result<AlsaPcm, String> {
+    static fun openCapture(device: String, format: AlsaAudioFormat) r: Result<AlsaPcm, SeenError> {
         var handlePtr: *Void = null
         let result = seen_alsa_open(&handlePtr, device.toCString(), SND_PCM_STREAM_CAPTURE as Int32, 0)
 
         if result < 0 {
-            return Err("Failed to open ALSA device '" + device + "': " + alsa_strerror(result))
+            return alsaFailure<AlsaPcm>("open-capture", "failed to open ALSA device", result)
         }
 
         var pcm = AlsaPcm {
@@ -241,12 +251,12 @@ class AlsaPcm {
     }
 
     // Simple playback open with defaults
-    static fun openDefault(format: AlsaAudioFormat) r: Result<AlsaPcm, String> {
+    static fun openDefault(format: AlsaAudioFormat) r: Result<AlsaPcm, SeenError> {
         return AlsaPcm.openPlayback(ALSA_DEFAULT_DEVICE, format)
     }
 
     // Configure PCM with format parameters
-    fun configure() r: Result<Unit, String> {
+    fun configure() r: Result<Unit, SeenError> {
         let result = seen_alsa_set_params(
             this.pcmHandle,
             this.format.format as Int32,
@@ -258,47 +268,47 @@ class AlsaPcm {
         )
 
         if result < 0 {
-            return Err("Failed to set ALSA parameters: " + alsa_strerror(result))
+            return alsaFailure<Unit>("configure", "failed to set ALSA parameters", result)
         }
 
         return Ok(Unit{})
     }
 
     // Prepare for playback/capture
-    fun prepare() r: Result<Unit, String> {
+    fun prepare() r: Result<Unit, SeenError> {
         let result = seen_alsa_prepare(this.pcmHandle)
         if result < 0 {
-            return Err("Failed to prepare PCM: " + alsa_strerror(result))
+            return alsaFailure<Unit>("prepare", "failed to prepare PCM", result)
         }
         return Ok(Unit{})
     }
 
     // Stop after playing all buffered data
-    fun drain() r: Result<Unit, String> {
+    fun drain() r: Result<Unit, SeenError> {
         let result = seen_alsa_drain(this.pcmHandle)
         if result < 0 {
-            return Err("Failed to drain PCM: " + alsa_strerror(result))
+            return alsaFailure<Unit>("drain", "failed to drain PCM", result)
         }
         return Ok(Unit{})
     }
 
     // Recover from errors (xrun, etc.)
-    fun recover(err: Int, silent: Bool) r: Result<Unit, String> {
+    fun recover(err: Int, silent: Bool) r: Result<Unit, SeenError> {
         let silentFlag = if silent { 1 } else { 0 }
         let result = seen_alsa_recover(this.pcmHandle, err as Int32, silentFlag as Int32)
         if result < 0 {
-            return Err("Failed to recover PCM: " + alsa_strerror(result))
+            return alsaFailure<Unit>("recover", "failed to recover PCM", result)
         }
         return Ok(Unit{})
     }
 
     // Close the PCM device
-    fun close() r: Result<Unit, String> {
+    fun close() r: Result<Unit, SeenError> {
         if this.pcmHandle != null {
             let result = seen_alsa_close(this.pcmHandle)
             this.pcmHandle = null
             if result < 0 {
-                return Err("Failed to close PCM: " + alsa_strerror(result))
+                return alsaFailure<Unit>("close", "failed to close PCM", result)
             }
         }
         return Ok(Unit{})

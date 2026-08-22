@@ -13,7 +13,15 @@ Example:
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun steamWrapperFailure<T>(operation: String, message: String) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Os, operation, message,
+        None<Int64>(), RetryClass.Never, RedactionClass.Public)
+}
 import platform.linux.steam.{
     // Constants
     k_EPersonaStateOffline, k_EPersonaStateOnline, k_EPersonaStateBusy,
@@ -199,21 +207,23 @@ class Steam {
     Steam must be running. Returns error if initialization fails
     or if the app needs to be restarted through Steam.
     ///
-    static fun init(appId: UInt32) r: Result<Steam, String> {
+    static fun init(appId: UInt32) r: Result<Steam, SeenError> {
         // Check if Steam is running
         if not steam_is_running() {
-            return Err("Steam is not running")
+            return steamWrapperFailure<Steam>("initialize", "Steam is not running")
         }
 
         // Check if we need to restart via Steam
         if steam_restart_app_if_necessary(appId) {
-            return Err("Please launch through Steam")
+            return steamWrapperFailure<Steam>("initialize",
+                "application must be launched through Steam")
         }
 
         // Initialize Steam API
         let result = SteamAPI_Init()
         if result == 0 {
-            return Err("Failed to initialize Steam API. Make sure Steam is running.")
+            return steamWrapperFailure<Steam>("initialize",
+                "failed to initialize Steam API")
         }
 
         // Get interface pointers

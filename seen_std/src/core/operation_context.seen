@@ -1,7 +1,7 @@
 /// Bounded cancellation and tracing context for fallible Seen operations.
 
 import core.result.{Result, Ok, Err}
-import core.error.{AsciiString, SeenError, RetryClass, RedactionClass,
+import core.error.{AsciiString, SeenError, SeenErrorKind, RetryClass, RedactionClass,
     TypedErrorSpec, errorIdentityValid, errorLiteral, err001bFailure,
     typedSeenError, validateSeenError}
 

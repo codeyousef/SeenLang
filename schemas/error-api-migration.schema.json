@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/error-api-migration.schema.json",
+  "title": "Seen structured-error API migration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bootstrap_exceptions", "modules", "schema"],
+  "properties": {
+    "bootstrap_exceptions": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-zA-Z0-9_.]+$"}
+    },
+    "modules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z0-9_./-]+\\.seen$"}
+    },
+    "schema": {"const": "seen-error-api-migration-v1"}
+  }
+}

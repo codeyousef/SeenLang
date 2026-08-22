@@ -1,28 +1,44 @@
 // TCP networking
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun tcpFailure<T>(operation: String, message: String,
+    nativeCode: Option<Int64>) r: Result<T, SeenError> {
+
+    return seenFailure<T>(SeenErrorKind.Network, operation, message,
+        nativeCode, RetryClass.Transient, RedactionClass.Sensitive)
+}
+
 class TcpListener {
     socket: Int
     addr: String
     
-    fun bind(addr: String) -> Result<TcpListener, String> {
+    fun bind(addr: String) -> Result<TcpListener, SeenError> {
         let socket = __TcpBind(addr)
         if socket < 0 {
-            return Err("Failed to bind to: " + addr)
+            return tcpFailure<TcpListener>("bind", "failed to bind socket",
+                Some<Int64>(socket as Int64))
         }
         Ok(TcpListener { socket: socket, addr: addr })
     }
     
-    fun accept() -> Result<TcpStream, String> {
+    fun accept() -> Result<TcpStream, SeenError> {
         let client_socket = __TcpAccept(this.socket)
         if client_socket < 0 {
-            return Err("Failed to accept connection")
+            return tcpFailure<TcpStream>("accept", "failed to accept connection",
+                Some<Int64>(client_socket as Int64))
         }
         Ok(TcpStream { socket: client_socket })
     }
     
-    fun close() -> Result<Unit, String> {
+    fun close() -> Result<Unit, SeenError> {
         let result = __TcpClose(this.socket)
         if result < 0 {
-            return Err("Failed to close listener")
+            return tcpFailure<Unit>("close", "failed to close listener",
+                Some<Int64>(result as Int64))
         }
         Ok(Unit{})
     }
@@ -31,58 +47,66 @@ class TcpListener {
 class TcpStream {
     socket: Int
     
-    fun connect(addr: String) -> Result<TcpStream, String> {
+    fun connect(addr: String) -> Result<TcpStream, SeenError> {
         let socket = __TcpConnect(addr)
         if socket < 0 {
-            return Err("Failed to connect to: " + addr)
+            return tcpFailure<TcpStream>("connect", "failed to connect socket",
+                Some<Int64>(socket as Int64))
         }
         Ok(TcpStream { socket: socket })
     }
     
-    fun read() -> Result<String, String> {
+    fun read() -> Result<String, SeenError> {
         let data = __TcpRead(this.socket)
         if data == "" and __TcpError(this.socket) {
-            return Err("Failed to read from socket")
+            return tcpFailure<String>("read", "failed to read from socket",
+                None<Int64>())
         }
         Ok(data)
     }
     
-    fun read_bytes(size: Int) -> Result<Array<Byte>, String> {
+    fun read_bytes(size: Int) -> Result<Array<Byte>, SeenError> {
         let bytes = __TcpReadBytes(this.socket, size)
         if bytes.len() == 0 and __TcpError(this.socket) {
-            return Err("Failed to read from socket")
+            let failed = tcpFailure<Int>("read", "failed to read from socket",
+                None<Int64>())
+            return Err<Array<Byte>, SeenError>(failed.unwrapErr())
         }
         Ok(bytes)
     }
     
-    fun write(data: String) -> Result<Int, String> {
+    fun write(data: String) -> Result<Int, SeenError> {
         let written = __TcpWrite(this.socket, data)
         if written < 0 {
-            return Err("Failed to write to socket")
+            return tcpFailure<Int>("write", "failed to write to socket",
+                Some<Int64>(written as Int64))
         }
         Ok(written)
     }
     
-    fun write_bytes(bytes: Array<Byte>) -> Result<Int, String> {
+    fun write_bytes(bytes: Array<Byte>) -> Result<Int, SeenError> {
         let written = __TcpWriteBytes(this.socket, bytes)
         if written < 0 {
-            return Err("Failed to write bytes to socket")
+            return tcpFailure<Int>("write", "failed to write bytes to socket",
+                Some<Int64>(written as Int64))
         }
         Ok(written)
     }
     
-    fun close() -> Result<Unit, String> {
+    fun close() -> Result<Unit, SeenError> {
         let result = __TcpClose(this.socket)
         if result < 0 {
-            return Err("Failed to close stream")
+            return tcpFailure<Unit>("close", "failed to close stream",
+                Some<Int64>(result as Int64))
         }
         Ok(Unit{})
     }
     
-    fun set_nonblocking(nonblocking: Bool) -> Result<Unit, String> {
+    fun set_nonblocking(nonblocking: Bool) -> Result<Unit, SeenError> {
         let result = __TcpSetNonblocking(this.socket, nonblocking)
         if result < 0 {
-            return Err("Failed to set nonblocking mode")
+            return tcpFailure<Unit>("set-nonblocking",
+                "failed to set nonblocking mode", Some<Int64>(result as Int64))
         }
         Ok(Unit{})
     }

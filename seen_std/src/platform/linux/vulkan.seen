@@ -9,7 +9,16 @@ Link with: -lseen_platform (which wraps libvulkan.so.1)
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{Some, None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun vulkanFailure<T>(operation: String, message: String,
+    nativeCode: Option<Int64>) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Resource, operation, message,
+        nativeCode, RetryClass.Never, RedactionClass.Public)
+}
 
 // Vulkan result codes
 let VK_SUCCESS: Int = 0
@@ -464,22 +473,22 @@ fun vk_read_image_rgba8_into(
     commandPool: UInt64, image: UInt64, currentLayout: Int,
     width: Int, height: Int, format: Int,
     outRgba: UInt64, outSize: UInt64, flipY: Bool
-) r: Result<Int, String> {
+) r: Result<Int, SeenError> {
     if width <= 0 or height <= 0 {
-        return Err("Vulkan image readback requires positive dimensions")
+        return vulkanFailure<Int>("image-readback", "positive dimensions required", None<Int64>())
     }
     if width > 536870911 / height {
-        return Err("Vulkan image readback exceeds the 2 GiB RGBA8 limit")
+        return vulkanFailure<Int>("image-readback", "2 GiB RGBA8 limit exceeded", None<Int64>())
     }
     let byteCount = width * height * 4
     if byteCount <= 0 {
-        return Err("Vulkan image readback dimensions overflowed")
+        return vulkanFailure<Int>("image-readback", "dimensions overflowed", None<Int64>())
     }
     if outRgba == (0 as UInt64) {
-        return Err("Vulkan image readback requires an output buffer")
+        return vulkanFailure<Int>("image-readback", "output buffer required", None<Int64>())
     }
     if outSize < (byteCount as UInt64) {
-        return Err("Vulkan image readback output buffer is too small")
+        return vulkanFailure<Int>("image-readback", "output buffer is too small", None<Int64>())
     }
     var flip = 0
     if flipY { flip = 1 }
@@ -489,7 +498,8 @@ fun vk_read_image_rgba8_into(
         outRgba, outSize, flip as Int32
     )
     if vk_failed(result as Int) {
-        return Err("Vulkan image readback failed: " + vk_result_string(result as Int))
+        return vulkanFailure<Int>("image-readback", "Vulkan image readback failed",
+            Some<Int64>(result))
     }
     return Ok(byteCount)
 }

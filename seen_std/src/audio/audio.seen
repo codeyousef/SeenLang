@@ -14,7 +14,10 @@ Example:
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
 import platform.linux.pipewire.{
     pw_init, pw_deinit, pw_is_available,
     PwThreadLoop, PwContext, PwStream, PwAudioFormat, PwStreamState,
@@ -25,6 +28,12 @@ import platform.linux.alsa.{
     alsa_is_available, AlsaPcm, AlsaAudioFormat, AlsaPcmState,
     SND_PCM_FORMAT_FLOAT, SND_PCM_FORMAT_S16,
     ALSA_DEFAULT_DEVICE
+}
+
+fun audioFailure<T>(operation: String, message: String,
+    retry: RetryClass) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Resource, operation, message,
+        None<Int64>(), retry, RedactionClass.Public)
 }
 
 ///
@@ -176,7 +185,7 @@ class AudioDevice {
     Tries the preferred backend first, then falls back to
     the alternative if unavailable.
     ///
-    static fun create(config: AudioConfig) r: Result<AudioDevice, String> {
+    static fun create(config: AudioConfig) r: Result<AudioDevice, SeenError> {
         var device = AudioDevice {
             backend: AudioBackend.None,
             config: config,
@@ -200,7 +209,7 @@ class AudioDevice {
                 return Ok(device)
             }
 
-            return Err("No audio backend available. Tried PipeWire and ALSA.")
+            return audioFailure<AudioDevice>("create", "no audio backend available", RetryClass.Never)
         } else {
             // Prefer ALSA
             let alsaResult = device.initALSA()
@@ -216,17 +225,17 @@ class AudioDevice {
                 return Ok(device)
             }
 
-            return Err("No audio backend available. Tried ALSA and PipeWire.")
+            return audioFailure<AudioDevice>("create", "no audio backend available", RetryClass.Never)
         }
     }
 
     // Create with defaults (stereo, 48kHz, float32)
-    static fun new() r: Result<AudioDevice, String> {
+    static fun new() r: Result<AudioDevice, SeenError> {
         return AudioDevice.create(AudioConfig.new())
     }
 
     // Create with specific sample rate and channels
-    static fun newWithParams(sampleRate: Int, channels: Int) r: Result<AudioDevice, String> {
+    static fun newWithParams(sampleRate: Int, channels: Int) r: Result<AudioDevice, SeenError> {
         var config = AudioConfig.new()
         config.sampleRate = sampleRate
         config.channels = channels
@@ -234,9 +243,9 @@ class AudioDevice {
     }
 
     // Initialize PipeWire backend
-    fun initPipeWire() r: Result<Unit, String> {
+    fun initPipeWire() r: Result<Unit, SeenError> {
         if not pw_is_available() {
-            return Err("PipeWire not available")
+            return audioFailure<Unit>("initialize-pipewire", "PipeWire is not available", RetryClass.Never)
         }
 
         pw_init()
@@ -304,9 +313,9 @@ class AudioDevice {
     }
 
     // Initialize ALSA backend
-    fun initALSA() r: Result<Unit, String> {
+    fun initALSA() r: Result<Unit, SeenError> {
         if not alsa_is_available() {
-            return Err("ALSA not available")
+            return audioFailure<Unit>("initialize-alsa", "ALSA is not available", RetryClass.Never)
         }
 
         // Create format
@@ -355,7 +364,7 @@ class AudioDevice {
     }
 
     // Start audio playback
-    fun start() r: Result<Unit, String> {
+    fun start() r: Result<Unit, SeenError> {
         if this.backend == AudioBackend.PipeWire {
             this.pipewire.threadLoop.lock()
             let connectResult = this.pipewire.stream.connect()
@@ -377,11 +386,11 @@ class AudioDevice {
             return Ok(Unit{})
         }
 
-        return Err("No audio backend initialized")
+        return audioFailure<Unit>("start", "no audio backend initialized", RetryClass.Never)
     }
 
     // Stop audio playback
-    fun stop() r: Result<Unit, String> {
+    fun stop() r: Result<Unit, SeenError> {
         if this.backend == AudioBackend.PipeWire {
             this.pipewire.threadLoop.lock()
             let result = this.pipewire.stream.setActive(false)
@@ -396,11 +405,11 @@ class AudioDevice {
             return result
         }
 
-        return Err("No audio backend initialized")
+        return audioFailure<Unit>("stop", "no audio backend initialized", RetryClass.Never)
     }
 
     // Pause audio playback
-    fun pause() r: Result<Unit, String> {
+    fun pause() r: Result<Unit, SeenError> {
         if this.backend == AudioBackend.PipeWire {
             this.pipewire.threadLoop.lock()
             let result = this.pipewire.stream.setActive(false)
@@ -412,11 +421,11 @@ class AudioDevice {
             return this.alsa.pcm.pause()
         }
 
-        return Err("No audio backend initialized")
+        return audioFailure<Unit>("pause", "no audio backend initialized", RetryClass.Never)
     }
 
     // Resume audio playback
-    fun resume() r: Result<Unit, String> {
+    fun resume() r: Result<Unit, SeenError> {
         if this.backend == AudioBackend.PipeWire {
             this.pipewire.threadLoop.lock()
             let result = this.pipewire.stream.setActive(true)
@@ -428,11 +437,11 @@ class AudioDevice {
             return this.alsa.pcm.resume()
         }
 
-        return Err("No audio backend initialized")
+        return audioFailure<Unit>("resume", "no audio backend initialized", RetryClass.Never)
     }
 
     // Play float32 samples (interleaved)
-    fun play(samples: Array<Float>) r: Result<Int, String> {
+    fun play(samples: Array<Float>) r: Result<Int, SeenError> {
         if this.backend == AudioBackend.PipeWire {
             this.pipewire.threadLoop.lock()
 
@@ -467,7 +476,7 @@ class AudioDevice {
             return this.alsa.pcm.writeFloat(samples)
         }
 
-        return Err("No audio backend initialized")
+        return audioFailure<Int>("play", "no audio backend initialized", RetryClass.Never)
     }
 
     // Check if currently playing
@@ -498,7 +507,7 @@ class AudioDevice {
     }
 
     // Drain all pending audio (blocking)
-    fun drain() r: Result<Unit, String> {
+    fun drain() r: Result<Unit, SeenError> {
         if this.backend == AudioBackend.PipeWire {
             this.pipewire.threadLoop.lock()
             let result = this.pipewire.stream.flush(true)
@@ -510,7 +519,7 @@ class AudioDevice {
             return this.alsa.pcm.drain()
         }
 
-        return Err("No audio backend initialized")
+        return audioFailure<Unit>("drain", "no audio backend initialized", RetryClass.Never)
     }
 
     // Destroy the audio device and release resources

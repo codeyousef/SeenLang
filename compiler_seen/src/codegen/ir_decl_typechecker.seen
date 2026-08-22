@@ -341,7 +341,7 @@ fun emitTypecheckerDeclsImpl(output: StringBuilder, runtimeDeclsLoaded: Bool,
         output.append("declare i64 @Ok(i64) nounwind\n")
     }
 
-    // FsFile methods (conditionally declared, return FsFileResult/Result class types as i64)
+    // FsFile methods (conditionally declared, return Result class types as i64)
     if not isFuncDefinedInModule("FsFile_open", definedFuncs) {
         output.append("declare i64 @FsFile_open(%SeenString) nounwind\n")
     }
@@ -356,12 +356,5 @@ fun emitTypecheckerDeclsImpl(output: StringBuilder, runtimeDeclsLoaded: Bool,
     }
     if not isFuncDefinedInModule("FsFile_closeFile", definedFuncs) {
         output.append("declare i64 @FsFile_closeFile(ptr) nounwind\n")
-    }
-    // FsFileResult_unwrap returns FsFile (class type as i64)
-    if not isFuncDefinedInModule("FsFileResult_unwrap", definedFuncs) {
-        output.append("declare i64 @FsFileResult_unwrap(ptr) nounwind\n")
-    }
-    if not isFuncDefinedInModule("FsFileResult_unwrapErr", definedFuncs) {
-        output.append("declare %SeenString @FsFileResult_unwrapErr(ptr) nounwind\n")
     }
 }

@@ -1,0 +1,1 @@
+{"bootstrap_exceptions":["io.file.appendText","io.file.createDirectory","io.file.deleteFile","io.file.exists","io.file.readText","io.file.size","io.file.writeText","io.file.writeTextAtomically"],"modules":["seen_std/src/io/file.seen"],"schema":"seen-error-api-migration-v1"}

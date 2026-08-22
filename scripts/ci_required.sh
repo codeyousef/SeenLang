@@ -96,6 +96,7 @@ tests/misc_root_tests/seen_test_reporters_contract.sh
 tests/misc_root_tests/seen_test_migration_contract.sh
 tests/misc_root_tests/seen_error_contract.sh
 tests/misc_root_tests/seen_typed_errors_contract.sh
+tests/misc_root_tests/seen_error_api_migration.sh
 python3 scripts/benchmark_compatibility_runtime.py \
     releases/compatibility-manifest.json \
     tests/fixtures/core-002b/happy/benchmark.json

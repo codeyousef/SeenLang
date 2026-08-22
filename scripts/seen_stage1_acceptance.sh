@@ -513,6 +513,10 @@ run_fixture typed-errors \
     "$REPO_ROOT/seen_std/tests/error/err_001b_typed_errors.seen"
 run_fixture typed-errors-example \
     "$REPO_ROOT/seen_std/examples/typed_errors.seen"
+run_fixture error-api-migration \
+    "$REPO_ROOT/seen_std/tests/error/err_001c_error_api_migration.seen"
+run_fixture error-api-migration-example \
+    "$REPO_ROOT/seen_std/examples/error_api_migration.seen"
 
 test_runner_log="$ACCEPTANCE_ROOT/test-runner-cli.log"
 if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001B \

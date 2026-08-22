@@ -80,12 +80,6 @@ fun resolveKnownStructFieldImpl(structType: String, fieldName: String) r: String
         if fieldName == "program" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 0 }
         return lb + " i1, ptr, i64 " + rb
     }
-    if structType == "FsFileResult" {
-        if fieldName == "isOk" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 1 }
-        if fieldName == "file" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 0 }
-        if fieldName == "error" { g_resolvedFieldIndex = 2; g_resolvedFieldTypeCode = 3 }
-        return lb + " i1, i64, %SeenString " + rb
-    }
     if structType == "FsFile" {
         if fieldName == "fd" { g_resolvedFieldIndex = 0; g_resolvedFieldTypeCode = 0 }
         if fieldName == "path" { g_resolvedFieldIndex = 1; g_resolvedFieldTypeCode = 3 }

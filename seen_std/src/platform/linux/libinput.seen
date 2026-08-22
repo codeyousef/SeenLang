@@ -9,7 +9,17 @@ Link with: -linput (libinput.so.10)
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{Some, None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
+
+fun libinputFailure<T>(operation: String, message: String,
+    nativeCode: Int) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Os, operation, message,
+        Some<Int64>(nativeCode as Int64), RetryClass.Transient,
+        RedactionClass.Sensitive)
+}
 
 // libinput device capabilities
 let LIBINPUT_DEVICE_CAP_KEYBOARD: Int = 0
@@ -420,10 +430,11 @@ class LibinputContext {
     var fd: Int
 
     // Create context using path backend (manual device addition)
-    static fun createPath() r: Result<LibinputContext, String> {
+    static fun createPath() r: Result<LibinputContext, SeenError> {
         let contextPtr = libinput_path_create_context(null, null)
         if contextPtr == null {
-            return Err("Failed to create libinput context")
+            return libinputFailure<LibinputContext>("create-context",
+                "failed to create libinput context", -1)
         }
 
         let fdVal = libinput_get_fd(contextPtr)
@@ -435,10 +446,11 @@ class LibinputContext {
     }
 
     // Add a device by path
-    fun addDevice(path: String) r: Result<LibinputDevice, String> {
+    fun addDevice(path: String) r: Result<LibinputDevice, SeenError> {
         let device = libinput_path_add_device(this.nativeHandle, path.toCString())
         if device == null {
-            return Err("Failed to add device: " + path)
+            return libinputFailure<LibinputDevice>("add-device",
+                "failed to add input device", -1)
         }
         return Ok(LibinputDevice.fromRaw(device))
     }
@@ -464,12 +476,13 @@ class LibinputContext {
     }
 
     // Poll for events and return parsed event type
-    fun pollEvent() r: Result<LibinputEventType, String> {
+    fun pollEvent() r: Result<LibinputEventType, SeenError> {
         let _ = this.dispatch()
         let event = this.getEvent()
 
         if event == null {
-            return Err("No event")
+            return libinputFailure<LibinputEventType>("poll",
+                "no input event available", -1)
         }
 
         let eventType = libinput_event_get_type(event)

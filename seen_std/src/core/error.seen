@@ -129,6 +129,36 @@ fun typedSeenError(spec: TypedErrorSpec) r: Result<SeenError, SeenError> {
     })
 }
 
+fun seenFailure<T>(kind: SeenErrorKind, operation: String, message: String,
+    nativeCode: Option<Int64>, retry: RetryClass,
+    redaction: RedactionClass) r: Result<T, SeenError> {
+
+    if not errorIdentityValid(operation) {
+        let failure: SeenError = err001bFailure(
+            "err.001b.invalid", "typed error operation is not canonical ASCII")
+        return Err<T, SeenError>(failure)
+    }
+    if message.length() > SEEN_ERROR_MAX_MESSAGE_BYTES {
+        let failure: SeenError = err001bFailure(
+            "err.001b.limit", "typed error message exceeds its bound")
+        return Err<T, SeenError>(failure)
+    }
+    if (kind == SeenErrorKind.Cancelled or kind == SeenErrorKind.Parse) and
+        retry != RetryClass.Never {
+        let failure: SeenError = err001bFailure(
+            "err.001b.invalid", "policy errors cannot be retryable")
+        return Err<T, SeenError>(failure)
+    }
+    let category = seenErrorKindName(kind)
+    return Err<T, SeenError>(SeenError{
+        code: AsciiString{ value: "err.001b." + category },
+        subsystem: AsciiString{ value: category },
+        operation: AsciiString{ value: operation }, message: message,
+        causes: Vec<SeenError>.new(), nativeCode: nativeCode,
+        retry: retry, redaction: redaction
+    })
+}
+
 fun seenErrorValidity(value: SeenError, depth: Int) r: Int {
     if not errorIdentityValid(value.code.value) or
         not errorIdentityValid(value.subsystem.value) or

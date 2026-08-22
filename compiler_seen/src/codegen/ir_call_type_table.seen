@@ -109,7 +109,6 @@ fun inferCallTypeTableImpl(callee: String) r: String {
     if callee == "HashMap" { return callee }
     if callee == "LinkedList" { return callee }
     if callee == "FsFile" { return callee }
-    if callee == "FsFileResult" { return callee }
     if callee == "Result" { return callee }
     if callee == "Optional" { return callee }
     if callee == "Option" { return callee }

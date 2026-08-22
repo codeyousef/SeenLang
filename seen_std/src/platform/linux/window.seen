@@ -9,7 +9,10 @@ Link with: -lSDL3
 ///
 
 import core.result.{Result, Ok, Err}
+import core.option.{None}
 import core.unit.{Unit}
+import core.error.{SeenError, SeenErrorKind, RetryClass, RedactionClass,
+    seenFailure}
 import platform.linux.sdl3.{
     SDL_INIT_VIDEO, SDL_INIT_EVENTS, SDL_INIT_GAMEPAD,
     SDL_WINDOW_VULKAN, SDL_WINDOW_RESIZABLE, SDL_WINDOW_FULLSCREEN,
@@ -27,6 +30,12 @@ import platform.linux.sdl3.{
     SDL_GetMouseState, SDL_GetKeyboardState, SDL_GetModState,
     SDL_Vulkan_CreateSurface, SDL_Vulkan_GetInstanceExtensions, SDL_Vulkan_GetDrawableSize,
     cstr_to_string
+}
+
+fun windowFailure<T>(operation: String, message: String,
+    retry: RetryClass) r: Result<T, SeenError> {
+    return seenFailure<T>(SeenErrorKind.Os, operation, message,
+        None<Int64>(), retry, RedactionClass.Public)
 }
 
 ///
@@ -405,19 +414,19 @@ class Window {
     Initializes SDL3 with video, events, and gamepad subsystems.
     Returns an error if SDL initialization or window creation fails.
     ///
-    static fun create(config: WindowConfig) r: Result<Window, String> {
+    static fun create(config: WindowConfig) r: Result<Window, SeenError> {
         // Initialize SDL with video and events
         let initFlags = (SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD) as UInt32
         let initResult = SDL_Init(initFlags)
         if initResult < 0 {
-            return Err("SDL initialization failed: " + cstr_to_string(SDL_GetError()))
+            return windowFailure<Window>("initialize", cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
 
         // Create the window
         let flags = config.getFlags() as UInt64
         let windowPtr = SDL_CreateWindow(config.title.toCString(), config.width, config.height, flags)
         if windowPtr == null {
-            return Err("Window creation failed: " + cstr_to_string(SDL_GetError()))
+            return windowFailure<Window>("create", cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
 
         return Ok(Window {
@@ -432,7 +441,7 @@ class Window {
     ///
     Create a basic resizable window with default settings.
     ///
-    static fun new(title: String, width: Int, height: Int) r: Result<Window, String> {
+    static fun new(title: String, width: Int, height: Int) r: Result<Window, SeenError> {
         let config = WindowConfig.new(title, width, height)
         return Window.create(config)
     }
@@ -440,7 +449,7 @@ class Window {
     ///
     Create a window with Vulkan rendering support enabled.
     ///
-    static fun newVulkan(title: String, width: Int, height: Int) r: Result<Window, String> {
+    static fun newVulkan(title: String, width: Int, height: Int) r: Result<Window, SeenError> {
         let config = WindowConfig.new(title, width, height).withVulkan()
         return Window.create(config)
     }
@@ -448,14 +457,14 @@ class Window {
     ///
     Poll for a single event (non-blocking).
 
-    Returns Err("No event") if no events are pending.
+    Returns a typed transient error if no events are pending.
     ///
-    fun pollEvent() r: Result<Event, String> {
+    fun pollEvent() r: Result<Event, SeenError> {
         // SDL_Event is 128 bytes, use raw memory for it
         let eventPtr = getEventBuffer().data() as *Void
         let hasEvent = SDL_PollEvent(eventPtr)
         if hasEvent == 0 {
-            return Err("No event")
+            return windowFailure<Event>("poll-event", "no event available", RetryClass.Transient)
         }
 
         // Extract event type from first 4 bytes of SDL_Event
@@ -569,10 +578,10 @@ class Window {
     }
 
     // Set window size
-    fun setSize(width: Int, height: Int) r: Result<Unit, String> {
+    fun setSize(width: Int, height: Int) r: Result<Unit, SeenError> {
         let result = SDL_SetWindowSize(this.nativeHandle, width, height)
         if result < 0 {
-            return Err(cstr_to_string(SDL_GetError()))
+            return windowFailure<Unit>("set-size", cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
         this.width = width
         this.height = height
@@ -580,57 +589,57 @@ class Window {
     }
 
     // Set window title
-    fun setTitle(title: String) r: Result<Unit, String> {
+    fun setTitle(title: String) r: Result<Unit, SeenError> {
         let result = SDL_SetWindowTitle(this.nativeHandle, title.toCString())
         if result < 0 {
-            return Err(cstr_to_string(SDL_GetError()))
+            return windowFailure<Unit>("set-title", cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
         this.title = title
         return Ok(Unit{})
     }
 
     // Show the window
-    fun show() r: Result<Unit, String> {
+    fun show() r: Result<Unit, SeenError> {
         let result = SDL_ShowWindow(this.nativeHandle)
         if result < 0 {
-            return Err(cstr_to_string(SDL_GetError()))
+            return windowFailure<Unit>("show", cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
         return Ok(Unit{})
     }
 
     // Hide the window
-    fun hide() r: Result<Unit, String> {
+    fun hide() r: Result<Unit, SeenError> {
         let result = SDL_HideWindow(this.nativeHandle)
         if result < 0 {
-            return Err(cstr_to_string(SDL_GetError()))
+            return windowFailure<Unit>("hide", cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
         return Ok(Unit{})
     }
 
     // Maximize the window
-    fun maximize() r: Result<Unit, String> {
+    fun maximize() r: Result<Unit, SeenError> {
         let result = SDL_MaximizeWindow(this.nativeHandle)
         if result < 0 {
-            return Err(cstr_to_string(SDL_GetError()))
+            return windowFailure<Unit>("maximize", cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
         return Ok(Unit{})
     }
 
     // Minimize the window
-    fun minimize() r: Result<Unit, String> {
+    fun minimize() r: Result<Unit, SeenError> {
         let result = SDL_MinimizeWindow(this.nativeHandle)
         if result < 0 {
-            return Err(cstr_to_string(SDL_GetError()))
+            return windowFailure<Unit>("minimize", cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
         return Ok(Unit{})
     }
 
     // Set fullscreen mode
-    fun setFullscreen(fullscreen: Bool) r: Result<Unit, String> {
+    fun setFullscreen(fullscreen: Bool) r: Result<Unit, SeenError> {
         let fullscreenFlag = if fullscreen { 1 } else { 0 }
         let result = SDL_SetWindowFullscreen(this.nativeHandle, fullscreenFlag)
         if result < 0 {
-            return Err(cstr_to_string(SDL_GetError()))
+            return windowFailure<Unit>("set-fullscreen", cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
         return Ok(Unit{})
     }
@@ -641,11 +650,12 @@ class Window {
     Requires the window to be created with withVulkan().
     The surface must be destroyed before the Vulkan instance.
     ///
-    fun getVulkanSurface(vkInstance: *Void) r: Result<UInt64, String> {
+    fun getVulkanSurface(vkInstance: *Void) r: Result<UInt64, SeenError> {
         var surface: UInt64 = 0
         let result = SDL_Vulkan_CreateSurface(this.nativeHandle, vkInstance, null, &surface)
         if result == 0 {
-            return Err("Failed to create Vulkan surface: " + cstr_to_string(SDL_GetError()))
+            return windowFailure<UInt64>("create-vulkan-surface",
+                cstr_to_string(SDL_GetError()), RetryClass.Never)
         }
         return Ok(surface)
     }

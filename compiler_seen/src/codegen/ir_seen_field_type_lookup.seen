@@ -77,11 +77,6 @@ fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Arr
             if fieldName == "errors" { return "Array<String>" }
             if fieldName == "program" { return "ProgramNode" }
         }
-        if structName == "FsFileResult" {
-            if fieldName == "isOk" { return "Bool" }
-            if fieldName == "file" { return "FsFile" }
-            if fieldName == "error" { return "String" }
-        }
         if structName == "FsFile" {
             if fieldName == "fd" { return "Int" }
             if fieldName == "path" { return "String" }
