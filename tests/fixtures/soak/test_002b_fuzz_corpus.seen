@@ -1,0 +1,34 @@
+import testing.fuzz.{TestFuzzCorpusEntry,
+    TestFuzzCorpusPlan, validateTestFuzzCorpus}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun main() r: Int {
+    var iteration = 0
+    while iteration < 10000 {
+        let replayCodes = Array<String>()
+        replayCodes.push("test.002b.reproducer")
+        replayCodes.push("test.002b.reproducer")
+        replayCodes.push("test.002b.reproducer")
+        let entries = Array<TestFuzzCorpusEntry>()
+        entries.push(TestFuzzCorpusEntry{id: "soak",
+            sha256: "06f961b802bc46ee168555f066d28f4f0e9afdf3f88174c1ee6f9de004fc30a0",
+            originalBytes: 8, minimizedBytes: 2,
+            failureCode: "test.002b.reproducer", replayCodes: replayCodes})
+        let result = validateTestFuzzCorpus(TestFuzzCorpusPlan{
+            schema: "seen-test-fuzz-corpus-v1", target: "linux-x86_64",
+            seed: 1101, maxInputBytes: 65536, requiredReplayRuns: 3,
+            entries: entries}, OperationContext{cancellation: false,
+            monotonicDeadline: 1, limits: OperationLimits{maxTargets: 8,
+                maxIdentityBytes: 128, maxVersionBytes: 128,
+                maxManifestBytes: 65536, maxPathBytes: 4096,
+                maxGraphModules: 4, maxGraphEdges: 16, maxGraphDepth: 8},
+            traceId: AsciiString{value: "test-002b-soak"}})
+        if result.isErr() { return 1 }
+        iteration = iteration + 1
+    }
+    println("PASS: TEST-002B_soak")
+    return 0
+}
+
+main()

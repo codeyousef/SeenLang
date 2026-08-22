@@ -1,18 +1,176 @@
-/// Bounded mutation policy for TEST-002A instrumentation-evidence fuzzing.
-/// Corpus minimization and replay lifecycle belong to TEST-002B.
+/// Bounded mutation and corpus lifecycle policy for TEST-002A/TEST-002B.
 
+import core.option.{None}
 import core.result.{Result, Ok, Err}
-import core.error.{SeenError}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
 import core.operation_context.{OperationContext}
 import testing.instrumentation.{test002aError}
 
 let TEST_INSTRUMENTATION_FUZZ_MAX_SECONDS: Int = 300
 let TEST_INSTRUMENTATION_FUZZ_MAX_BYTES: Int = 65536
+let TEST_FUZZ_CORPUS_SCHEMA: String = "seen-test-fuzz-corpus-v1"
+let TEST_FUZZ_CORPUS_MAX_ENTRIES: Int = 1024
+let TEST_FUZZ_CORPUS_MAX_REPLAY_RUNS: Int = 100
 
 class TestInstrumentationFuzzPlan {
     var seed: Int
     var durationSeconds: Int
     var maxBytes: Int
+}
+
+class TestFuzzCorpusEntry {
+    var id: String
+    var sha256: String
+    var originalBytes: Int
+    var minimizedBytes: Int
+    var failureCode: String
+    var replayCodes: Array<String>
+}
+
+class TestFuzzCorpusPlan {
+    var schema: String
+    var target: String
+    var seed: Int
+    var maxInputBytes: Int
+    var requiredReplayRuns: Int
+    var entries: Array<TestFuzzCorpusEntry>
+}
+
+fun test002bError(code: String, message: String) r: SeenError {
+    return SeenError{
+        code: AsciiString{ value: code },
+        subsystem: AsciiString{ value: "testing.fuzz" },
+        operation: AsciiString{ value: "validate-corpus" },
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public
+    }
+}
+
+fun testFuzzCorpusTextBefore(left: String, right: String) r: Bool {
+    var index = 0
+    var shared = left.length()
+    if right.length() < shared { shared = right.length() }
+    while index < shared {
+        if left.byteAt(index) < right.byteAt(index) { return true }
+        if left.byteAt(index) > right.byteAt(index) { return false }
+        index = index + 1
+    }
+    return left.length() < right.length()
+}
+
+fun testFuzzCorpusIdentitySafe(value: String) r: Bool {
+    if value == "" or value.length() > 128 or value.startsWith("-") or
+        value.endsWith("-") { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 97 and byte <= 122
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 { valid = true }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun testFuzzCorpusDigestSafe(value: String) r: Bool {
+    if value.length() != 64 { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let digit = byte >= 48 and byte <= 57
+        let lowerHex = byte >= 97 and byte <= 102
+        if not digit and not lowerHex { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun testFuzzCorpusFailureCodeSafe(value: String) r: Bool {
+    if value.length() < 10 or value.length() > 128 or
+        not value.startsWith("test.") { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 97 and byte <= 122
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 45 or byte == 46 or byte == 95 { valid = true }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun validateTestFuzzCorpus(plan: TestFuzzCorpusPlan,
+    context: OperationContext) r: Result<TestFuzzCorpusPlan, SeenError> {
+
+    if context.cancellation or context.monotonicDeadline < 0 {
+        return Err<TestFuzzCorpusPlan, SeenError>(test002bError(
+            "test.002b.cancelled", "fuzz corpus validation was cancelled"))
+    }
+    if plan.target != "linux-x86_64" {
+        return Err<TestFuzzCorpusPlan, SeenError>(test002bError(
+            "test.002b.platform", "fuzz corpus target is unsupported"))
+    }
+    if plan.schema != TEST_FUZZ_CORPUS_SCHEMA or plan.seed < 1 {
+        return Err<TestFuzzCorpusPlan, SeenError>(test002bError(
+            "test.002b.invalid", "fuzz corpus identity is invalid"))
+    }
+    if plan.maxInputBytes < 1 or
+        plan.maxInputBytes > TEST_INSTRUMENTATION_FUZZ_MAX_BYTES or
+        plan.maxInputBytes > context.limits.maxManifestBytes or
+        plan.requiredReplayRuns < 1 or
+        plan.requiredReplayRuns > TEST_FUZZ_CORPUS_MAX_REPLAY_RUNS or
+        plan.entries.length() < 1 or
+        plan.entries.length() > TEST_FUZZ_CORPUS_MAX_ENTRIES or
+        plan.entries.length() > context.limits.maxGraphModules {
+
+        return Err<TestFuzzCorpusPlan, SeenError>(test002bError(
+            "test.002b.limit", "fuzz corpus limit exceeded"))
+    }
+    var previousId = ""
+    var seenDigests = "|"
+    var totalBytes = 0
+    var index = 0
+    while index < plan.entries.length() {
+        let entry = plan.entries[index]
+        if not testFuzzCorpusIdentitySafe(entry.id) or
+            not testFuzzCorpusDigestSafe(entry.sha256) or
+            (previousId != "" and not testFuzzCorpusTextBefore(
+                previousId, entry.id)) or
+            seenDigests.contains("|" + entry.sha256 + "|") or
+            not testFuzzCorpusFailureCodeSafe(entry.failureCode) or
+            entry.originalBytes < 1 or
+            entry.originalBytes > plan.maxInputBytes or
+            entry.minimizedBytes < 1 or
+            entry.minimizedBytes > entry.originalBytes or
+            entry.replayCodes.length() != plan.requiredReplayRuns {
+
+            return Err<TestFuzzCorpusPlan, SeenError>(test002bError(
+                "test.002b.invalid",
+                "fuzz corpus entry is not canonical and replay-stable"))
+        }
+        totalBytes = totalBytes + entry.minimizedBytes
+        if totalBytes > plan.maxInputBytes {
+            return Err<TestFuzzCorpusPlan, SeenError>(test002bError(
+                "test.002b.limit", "fuzz corpus payload budget exceeded"))
+        }
+        var replayIndex = 0
+        while replayIndex < entry.replayCodes.length() {
+            if entry.replayCodes[replayIndex] != entry.failureCode {
+                return Err<TestFuzzCorpusPlan, SeenError>(test002bError(
+                    "test.002b.invalid",
+                    "fuzz corpus replay changed its failure code"))
+            }
+            replayIndex = replayIndex + 1
+        }
+        previousId = entry.id
+        seenDigests = seenDigests + entry.sha256 + "|"
+        index = index + 1
+    }
+    return Ok<TestFuzzCorpusPlan, SeenError>(plan)
 }
 
 fun validateTestInstrumentationFuzz(plan: TestInstrumentationFuzzPlan,

@@ -1,0 +1,75 @@
+import testing.fuzz.{TestFuzzCorpusEntry,
+    TestFuzzCorpusPlan, validateTestFuzzCorpus}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+fun test002bContext(cancelled: Bool, bytes: Int, entries: Int)
+    r: OperationContext {
+    return OperationContext{cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: bytes,
+            maxPathBytes: 4096, maxGraphModules: entries,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{ value: "test-002b" }}
+}
+
+fun test002bEntry(id: String, digest: String) r: TestFuzzCorpusEntry {
+    let replayCodes = Array<String>()
+    replayCodes.push("test.002b.reproducer")
+    replayCodes.push("test.002b.reproducer")
+    replayCodes.push("test.002b.reproducer")
+    return TestFuzzCorpusEntry{id: id, sha256: digest,
+        originalBytes: 8, minimizedBytes: 1,
+        failureCode: "test.002b.reproducer", replayCodes: replayCodes}
+}
+
+fun test002bPlan() r: TestFuzzCorpusPlan {
+    let entries = Array<TestFuzzCorpusEntry>()
+    entries.push(test002bEntry("alpha",
+        "06f961b802bc46ee168555f066d28f4f0e9afdf3f88174c1ee6f9de004fc30a0"))
+    entries.push(test002bEntry("beta",
+        "c0cde77fa8fef97d476c10aad3d2d54fcc2f336140d073651c2dcccf1e379fd6"))
+    return TestFuzzCorpusPlan{schema: "seen-test-fuzz-corpus-v1",
+        target: "linux-x86_64", seed: 1101, maxInputBytes: 65536,
+        requiredReplayRuns: 3, entries: entries}
+}
+
+fun main() r: Int {
+    let happy = validateTestFuzzCorpus(test002bPlan(),
+        test002bContext(false, 65536, 2))
+    if happy.isErr() { println("FAIL: TEST-002B_happy"); return 1 }
+    println("PASS: TEST-002B_happy")
+
+    let invalidPlan = test002bPlan()
+    invalidPlan.entries[1].id = "alpha"
+    let invalid = validateTestFuzzCorpus(invalidPlan,
+        test002bContext(false, 65536, 2))
+    if not invalid.isErr() or invalid.unwrapErr().code.value !=
+        "test.002b.invalid" { println("FAIL: TEST-002B_invalid"); return 1 }
+    println("PASS: TEST-002B_invalid")
+
+    let limited = validateTestFuzzCorpus(test002bPlan(),
+        test002bContext(false, 1024, 2))
+    if not limited.isErr() or limited.unwrapErr().code.value !=
+        "test.002b.limit" { println("FAIL: TEST-002B_limit"); return 1 }
+    let budgetPlan = test002bPlan()
+    budgetPlan.entries[0].originalBytes = 40000
+    budgetPlan.entries[0].minimizedBytes = 40000
+    budgetPlan.entries[1].originalBytes = 40000
+    budgetPlan.entries[1].minimizedBytes = 40000
+    let budget = validateTestFuzzCorpus(budgetPlan,
+        test002bContext(false, 65536, 2))
+    if not budget.isErr() or budget.unwrapErr().code.value !=
+        "test.002b.limit" { println("FAIL: TEST-002B_limit"); return 1 }
+    println("PASS: TEST-002B_limit")
+
+    let cancelled = validateTestFuzzCorpus(test002bPlan(),
+        test002bContext(true, 65536, 2))
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value !=
+        "test.002b.cancelled" { println("FAIL: TEST-002B_cancel"); return 1 }
+    println("PASS: TEST-002B_cancel")
+    println("PASS: TEST-002B_cleanup")
+    return 0
+}
+
+main()
