@@ -402,6 +402,12 @@ SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR=0
 export SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR
 
 if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ]; then
+    # A containing gate may already have prepared serial-tool state below its
+    # own artifact root. This rebuild intentionally rebinds SEEN_ARTIFACT_ROOT
+    # to its unique per-run directory before any compiler work, so materialize
+    # the same fixed one-line policy at the new validated location and read it
+    # back there. The live aggregate cgroup is independently re-verified below.
+    seen_serial_auxiliary_prepare "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126
     seen_serial_auxiliary_verify "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126
 else
     seen_serial_auxiliary_prepare "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126

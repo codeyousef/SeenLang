@@ -104,6 +104,18 @@ fi
 seen_serial_auxiliary_prepare "$ROOT_DIR" "$TEST_ROOT" ||
     fail "could not restore serial auxiliary settings"
 
+# A nested rebuild rebinds its validated artifact root after required CI has
+# already prepared the outer scope. The fixed policy must be materialized and
+# read back at the new root; inheriting the outer path is not evidence.
+rebound_auxiliary_root="$TEST_ROOT/rebound-artifacts"
+mkdir -p -- "$rebound_auxiliary_root"
+seen_serial_auxiliary_prepare "$ROOT_DIR" "$rebound_auxiliary_root" ||
+    fail "could not prepare serial auxiliary settings after artifact-root rebind"
+seen_serial_auxiliary_verify "$ROOT_DIR" "$rebound_auxiliary_root" ||
+    fail "rebound serial auxiliary settings failed verification"
+[ "$RIPGREP_CONFIG_PATH" = "$rebound_auxiliary_root/auxiliary-limits/ripgrep.conf" ] ||
+    fail "rebound serial auxiliary settings retained the outer configuration path"
+
 supervisor_tmp="$TEST_ROOT/remove-empty-supervisor"
 shared_nested_tmp="$TEST_ROOT/shared-nested-tool-tmp"
 remove_flag_record="$TEST_ROOT/remove-empty-child.env"
