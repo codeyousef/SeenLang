@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse,importlib.util,json,statistics,sys,time
+import argparse,hashlib,importlib.util,json,statistics,sys,time
 from pathlib import Path
 def main():
  p=argparse.ArgumentParser(); p.add_argument("corpus",type=Path); p.add_argument("baseline",type=Path); a=p.parse_args()
@@ -16,7 +16,12 @@ def main():
   def reference():
    start=time.perf_counter_ns()
    for _ in range(n):
-    if json.loads(raw)!=control: raise ValueError("control changed")
+    parsed=json.loads(raw)
+    if parsed!=control: raise ValueError("control changed")
+    cases_path=a.corpus.parent/"cases"; cases_path.lstat(); cases=cases_path.resolve()
+    for entry in parsed["entries"]:
+     path=cases/(entry["sha256"]+".bin"); path.resolve(strict=True); path.lstat(); payload=path.read_bytes()
+     if len(payload)!=entry["minimized_bytes"] or hashlib.sha256(payload).hexdigest()!=entry["sha256"]: raise ValueError("control payload changed")
    return time.perf_counter_ns()-start
   for _ in range(5): candidate(); reference()
   cs=[]; rs=[]
