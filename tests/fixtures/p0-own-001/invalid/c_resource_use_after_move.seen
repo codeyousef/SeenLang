@@ -1,0 +1,17 @@
+@c_resource("free")
+class OwnedForeignProbe {
+    var id: Int
+}
+
+fun consumeForeign(value: OwnedForeignProbe) r: Void {
+    println(value.id.toString())
+}
+
+fun main() r: Int {
+    var resource: OwnedForeignProbe = OwnedForeignProbe()
+    consumeForeign(resource)
+    println(resource.id.toString())
+    return 0
+}
+
+main()

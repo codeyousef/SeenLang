@@ -521,6 +521,10 @@ run_fixture error-policy \
     "$REPO_ROOT/seen_std/tests/error/err_001d_error_policy.seen"
 run_fixture error-policy-example \
     "$REPO_ROOT/seen_std/examples/error_policy.seen"
+run_fixture owned-resource \
+    "$REPO_ROOT/seen_std/tests/error/p0_own_001_owned_resource.seen"
+run_fixture owned-resource-example \
+    "$REPO_ROOT/seen_std/examples/owned_resource.seen"
 
 test_runner_log="$ACCEPTANCE_ROOT/test-runner-cli.log"
 if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001B \

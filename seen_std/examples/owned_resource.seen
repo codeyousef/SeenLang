@@ -1,0 +1,28 @@
+import operation_context.{OperationLimits, OperationContext}
+import error.{AsciiString}
+import ownership.{OwnedResourceToken, acquireOwnedResource}
+
+fun exampleContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "owned-resource-example" }
+    }
+}
+
+fun main() r: Int {
+    let acquired = acquireOwnedResource("example-buffer", 1, 8,
+        exampleContext())
+    if acquired.isErr() { return 1 }
+    let resource: OwnedResourceToken = acquired.unwrap()
+    let released = resource.release()
+    if released.isErr() or not released.unwrap() { return 1 }
+    println("released example-buffer")
+    return 0
+}
+
+main()

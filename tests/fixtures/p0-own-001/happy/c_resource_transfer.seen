@@ -1,0 +1,14 @@
+@c_resource("free")
+class OwnedForeignTransfer {
+    var id: Int
+}
+
+fun main() r: Int {
+    var source: OwnedForeignTransfer = OwnedForeignTransfer()
+    source.id = 7
+    let destination: OwnedForeignTransfer = source
+    println(destination.id.toString())
+    return 0
+}
+
+main()

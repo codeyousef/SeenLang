@@ -12,6 +12,7 @@ import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, shouldSe
 import codegen.ir_stmt_var_collect_driver.{inferDeclarationInitializerTypeState}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_assignment_coerce.{coerceOptionStoreValueCoreImpl}
+import codegen.ir_assignment_move_driver.{applyMoveAssignmentSemanticsState}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 
 fun coerceLetInitializerValueForLlvmTargetState(output: StringBuilder,
@@ -96,4 +97,6 @@ fun generateLetStatementState(ctx: CodegenLoweringContext,
         stmt.variableName, reg, varType))
     emitLetStatementInitializerState(ctx, output, stmt, reg, varType,
         llvmType, deadStoreSkipVars)
+    applyMoveAssignmentSemanticsState(output, varNames, varRegs, varTypes,
+        stmt.initializer)
 }

@@ -14,6 +14,8 @@ import codegen.ir_stmt_return.{emitErrdeferTempReturnLoadImpl, emitReturnRegionA
 import codegen.ir_assignment_coerce.{coerceOptionStoreValueCoreImpl}
 import codegen.ir_string_emit.{getStringConstantIndexImpl}
 import codegen.ir_function_body.{beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl}
+import codegen.ir_autofree_state.{emitOwnedCResourceCleanupState}
+import codegen.ir_variable_gen.{getExprVariableNameImpl}
 
 class ReturnValueResolutionState {
     var valueReg: String
@@ -138,6 +140,7 @@ fun returnValueIsExplicitOptionConstructorImpl(expr: ParserExpressionNode)
 
 fun generateReturnStatementState(ctx: CodegenLoweringContext,
     output: StringBuilder, stmt: StatementNode,
+    varNames: Array<String>, varRegs: Array<String>,
     stringConstants: Array<String>, deferCount: Int,
     deferExprs: Array<ParserExpressionNode>, errdeferCount: Int,
     errdeferExprs: Array<ParserExpressionNode>,
@@ -165,6 +168,7 @@ fun generateReturnStatementState(ctx: CodegenLoweringContext,
     }
 
     if stmt.returnValue.kind == "None" {
+        emitOwnedCResourceCleanupState(output, varNames, varRegs, "")
         let emptyReturnType = mapTypeState(
             getCurrentFunctionReturnTypeWithGlobalStateImpl())
         emitDefaultEmptyReturnStatementImpl(output, emptyReturnType,
@@ -181,6 +185,7 @@ fun generateReturnStatementState(ctx: CodegenLoweringContext,
         stmt.returnValue.kind, stmt.returnValue.literalType,
         stmt.returnValue.literalValue)
     if charValue != "" {
+        emitOwnedCResourceCleanupState(output, varNames, varRegs, "")
         emitCharLiteralReturnImpl(output, charValue)
         setBlockTerminatedWithGlobalStateImpl(true)
         return newErrdeferTempAlloca
@@ -206,6 +211,15 @@ fun generateReturnStatementState(ctx: CodegenLoweringContext,
         }
     }
     let returnExprLlvmType = mapTypeState(returnExprType)
+    var returnedBinding: String = ""
+    if stmt.returnValue.kind == "Variable" or
+        stmt.returnValue.kind == "VarExpr" {
+
+        returnedBinding = getExprVariableNameImpl(
+            stmt.returnValue.variableName, stmt.returnValue.literalValue)
+    }
+    emitOwnedCResourceCleanupState(output, varNames, varRegs,
+        returnedBinding)
     emitFinalReturnStatementValueImpl(output, getFeatureRegBoxImpl(),
         isDataTypeState(currentReturnType), stmt.returnValue.kind,
         returnExprType, returnExprLlvmType, llvmType,

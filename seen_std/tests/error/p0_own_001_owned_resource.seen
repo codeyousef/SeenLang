@@ -1,0 +1,62 @@
+import operation_context.{OperationLimits, OperationContext}
+import error.{AsciiString}
+import ownership.{OwnedResourceToken, acquireOwnedResource}
+
+fun ownershipContext(cancelled: Bool) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "p0-own-001" }
+    }
+}
+
+fun main() r: Int {
+    let acquired = acquireOwnedResource("buffer-1", 1, 8,
+        ownershipContext(false))
+    if acquired.isErr() { println("FAIL: P0-OWN-001_happy"); return 1 }
+    let resource: OwnedResourceToken = acquired.unwrap()
+    if not resource.isActive() {
+        println("FAIL: P0-OWN-001_happy"); return 1
+    }
+    println("PASS: P0-OWN-001_happy")
+
+    let invalid = acquireOwnedResource("private/path", 1, 8,
+        ownershipContext(false))
+    if not invalid.isErr() or
+        invalid.unwrapErr().code.value != "p0.own.001.invalid" {
+        println("FAIL: P0-OWN-001_invalid"); return 1
+    }
+    println("PASS: P0-OWN-001_invalid")
+
+    let limited = acquireOwnedResource("buffer-2", 4097, 4097,
+        ownershipContext(false))
+    if not limited.isErr() or
+        limited.unwrapErr().code.value != "p0.own.001.limit" {
+        println("FAIL: P0-OWN-001_limit"); return 1
+    }
+    println("PASS: P0-OWN-001_limit")
+
+    let cancelled = acquireOwnedResource("buffer-3", 1, 8,
+        ownershipContext(true))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "p0.own.001.cancelled" {
+        println("FAIL: P0-OWN-001_cancel"); return 1
+    }
+    println("PASS: P0-OWN-001_cancel")
+
+    let firstRelease = resource.release()
+    let secondRelease = resource.release()
+    if firstRelease.isErr() or secondRelease.isErr() or
+        not firstRelease.unwrap() or secondRelease.unwrap() or
+        resource.isActive() {
+        println("FAIL: P0-OWN-001_cleanup"); return 1
+    }
+    println("PASS: P0-OWN-001_cleanup")
+    return 0
+}
+
+main()

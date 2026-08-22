@@ -68,7 +68,7 @@ fun storeActiveVariableBindingImpl(varNames: Array<String>,
 
 fun emitMovedVariableUseTrapImpl(output: StringBuilder, varName: String) r: Void {
     output.append("  ; ERROR: use after move of '" + varName + "'\n")
-    output.append("  call void @seen_use_after_move()\n")
+    output.append("  call void @seen_use_after_move(%SeenString zeroinitializer)\n")
     output.append("  unreachable\n")
 }
 

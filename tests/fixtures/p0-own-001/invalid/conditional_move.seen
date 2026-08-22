@@ -1,0 +1,19 @@
+@move
+class ConditionalProbe {
+    var id: Int
+}
+
+fun consumeConditional(value: ConditionalProbe) r: Void {
+    println(value.id.toString())
+}
+
+fun main() r: Int {
+    var resource: ConditionalProbe = ConditionalProbe()
+    if resource.id == 0 {
+        consumeConditional(resource)
+    }
+    println(resource.id.toString())
+    return 0
+}
+
+main()

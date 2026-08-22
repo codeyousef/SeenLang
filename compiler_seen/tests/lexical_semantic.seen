@@ -113,9 +113,128 @@ fun testRegistryAndScopes() r: Void {
         5), "nested scope may shadow")
     semanticExpect(bindings.lookup("value") == "String",
         "inner binding wins")
+    semanticExpect(bindings.markMoved("value") and
+        bindings.moveState("value") == 1,
+        "inner ownership state is tracked")
     bindings.endScope()
     semanticExpect(bindings.lookup("value") == "Int",
         "ending scope restores outer binding")
+    semanticExpect(bindings.moveState("value") == 0,
+        "ending scope restores outer ownership state")
+}
+
+fun semanticOwnedProgram(decoratorName: String) r: ProgramNode {
+    let program = ProgramNode.new()
+    let resource = semanticClassProgram("OwnedHandle", "handle", "Int", "")
+    resource.items[0].classNode.decorators.push(
+        AnnotationNode.new(decoratorName))
+    program.items.push(resource.items[0])
+    let entry = semanticFunctionProgram("exercise", "OwnedHandle", "Int")
+    program.items.push(entry.items[0])
+    return program
+}
+
+fun semanticConsumeStatement(name: String) r: StatementNode {
+    let statement = StatementNode.new()
+    statement.kind = "Expression"
+    statement.expression.kind = "Call"
+    statement.expression.callee = "consumeOwned"
+    statement.expression.arguments.push(semanticVariable(name))
+    return statement
+}
+
+fun semanticOwnedMemberReturn(name: String) r: StatementNode {
+    let statement = StatementNode.new()
+    statement.kind = "Return"
+    statement.returnValue.kind = "MemberAccess"
+    statement.returnValue.literalValue = name
+    statement.returnValue.variableName = "handle"
+    return statement
+}
+
+fun testMoveOnlyOwnedBindings() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let moved = semanticOwnedProgram("move")
+    moved.items[1].function.body.statements.push(
+        semanticConsumeStatement("value"))
+    moved.items[1].function.body.statements.push(
+        semanticOwnedMemberReturn("value"))
+    let movedChecked = runLexicalSemanticPass(moved, "owned_move",
+        "owned-move.seen", registry)
+    semanticExpect(not movedChecked.success and
+        movedChecked.diagnostics.length() == 1 and
+        movedChecked.diagnostics[0].code == "E_OWNERSHIP_USE_AFTER_MOVE",
+        "@move arguments reject deterministic use after transfer")
+
+    let conditionalRegistry = SemanticDeclarationRegistry.new()
+    let conditional = semanticOwnedProgram("move")
+    let branch = StatementNode.new()
+    branch.kind = "If"
+    branch.condition.kind = "Literal"
+    branch.condition.literalType = "Bool"
+    branch.condition.literalValue = "true"
+    branch.thenBranch.statements.push(semanticConsumeStatement("value"))
+    conditional.items[1].function.body.statements.push(branch)
+    conditional.items[1].function.body.statements.push(
+        semanticOwnedMemberReturn("value"))
+    let conditionalChecked = runLexicalSemanticPass(conditional,
+        "owned_conditional", "owned-conditional.seen", conditionalRegistry)
+    semanticExpect(not conditionalChecked.success and
+        conditionalChecked.diagnostics.length() == 1 and
+        conditionalChecked.diagnostics[0].code ==
+            "E_OWNERSHIP_POSSIBLY_MOVED",
+        "control-flow joins retain possible ownership transfer")
+
+    let resourceRegistry = SemanticDeclarationRegistry.new()
+    let resource = semanticOwnedProgram("c_resource")
+    resource.items[1].function.body.statements.push(
+        semanticConsumeStatement("value"))
+    resource.items[1].function.body.statements.push(
+        semanticOwnedMemberReturn("value"))
+    let resourceChecked = runLexicalSemanticPass(resource,
+        "owned_resource", "owned-resource.seen", resourceRegistry)
+    semanticExpect(not resourceChecked.success and
+        resourceChecked.diagnostics[0].code ==
+            "E_OWNERSHIP_USE_AFTER_MOVE",
+        "@c_resource handles are move-only owners")
+
+    let aliasRegistry = SemanticDeclarationRegistry.new()
+    let alias = semanticOwnedProgram("move")
+    let transfer = StatementNode.new()
+    transfer.kind = "Let"
+    transfer.variableName = "transferred"
+    transfer.variableType = semanticType("OwnedHandle")
+    transfer.initializer = semanticVariable("value")
+    alias.items[1].function.body.statements.push(transfer)
+    alias.items[1].function.body.statements.push(
+        semanticOwnedMemberReturn("value"))
+    let aliasChecked = runLexicalSemanticPass(alias, "owned_alias",
+        "owned-alias.seen", aliasRegistry)
+    semanticExpect(not aliasChecked.success and
+        aliasChecked.diagnostics[0].code ==
+            "E_OWNERSHIP_USE_AFTER_MOVE",
+        "assignment transfers rather than aliases an owned binding")
+
+    let inferenceRegistry = SemanticDeclarationRegistry.new()
+    let inferred = semanticOwnedProgram("move")
+    inferred.items[1].function.params.pop()
+    let acquire = StatementNode.new()
+    acquire.kind = "Let"
+    acquire.variableName = "created"
+    acquire.variableType = semanticType("Unknown")
+    acquire.initializer.kind = "Call"
+    acquire.initializer.callee = "OwnedHandle"
+    inferred.items[1].function.body.statements.push(acquire)
+    inferred.items[1].function.body.statements.push(
+        semanticConsumeStatement("created"))
+    inferred.items[1].function.body.statements.push(
+        semanticOwnedMemberReturn("created"))
+    let inferredChecked = runLexicalSemanticPass(inferred,
+        "owned_inference", "owned-inference.seen", inferenceRegistry)
+    semanticExpect(not inferredChecked.success and
+        inferredChecked.diagnostics[0].code ==
+            "E_OWNERSHIP_USE_AFTER_MOVE",
+        "constructor inference retains move-only identity")
 }
 
 fun testCrossModulePass() r: Void {
@@ -1062,6 +1181,7 @@ fun testLifecyclePropertyCyclesAndIndirection() r: Void {
 
 fun main() r: Int {
     testRegistryAndScopes()
+    testMoveOnlyOwnedBindings()
     testCrossModulePass()
     testForwardCrossModulePass()
     testFailClosedTypes()

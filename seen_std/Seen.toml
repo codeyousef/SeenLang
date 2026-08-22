@@ -17,8 +17,10 @@ modules = [
     "src/core/ord.seen",
     "src/error.seen",
     "src/operation_context.seen",
+    "src/ownership.seen",
     "src/core/error.seen",
     "src/core/operation_context.seen",
+    "src/core/ownership.seen",
 
     # Collections
     "src/collections/list_utils.seen",

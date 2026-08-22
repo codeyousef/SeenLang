@@ -1,7 +1,7 @@
 // ir_function_entry_exit.seen - function entry, alloca, profile, and exit helpers.
 
 import parser.real_parser.{FunctionNode}
-import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_type_mapping.{mapTypeImpl}
 import codegen.ir_codegen_state.{CodegenState, clearTransientFunctionLoweringOptions}
@@ -15,8 +15,89 @@ import codegen.ir_function_param_scan.{scanUnusedParametersImpl}
 import codegen.ir_function_snapshots.{FunctionEntrySetupSnapshot, FunctionRuntimeStateSnapshot}
 import codegen.ir_function_gen.{hasFunctionDecoratorGenImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl}
-import codegen.ir_codegen_feature_state.{getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureReprCClassNamesImpl}
+import codegen.ir_codegen_feature_state.{getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureReprCClassNamesImpl, getFeatureCResourceClassesImpl, getFeatureCResourceDestructorsImpl}
 import str.string.{StringBuilder}
+
+fun functionExitCResourceDestructorImpl(typeName: String,
+    cResourceClasses: String, cResourceDestructors: String) r: String {
+
+    var classPosition = 0
+    var classIndex = 0
+    while classPosition < cResourceClasses.length() {
+        var classPipe = cResourceClasses.indexOf("|", classPosition)
+        if classPipe < 0 { classPipe = cResourceClasses.length() }
+        if cResourceClasses.substring(classPosition, classPipe) == typeName {
+            var destructorPosition = 0
+            var destructorIndex = 0
+            while destructorPosition < cResourceDestructors.length() {
+                var destructorPipe = cResourceDestructors.indexOf("|",
+                    destructorPosition)
+                if destructorPipe < 0 {
+                    destructorPipe = cResourceDestructors.length()
+                }
+                if destructorIndex == classIndex {
+                    return cResourceDestructors.substring(destructorPosition,
+                        destructorPipe)
+                }
+                destructorIndex = destructorIndex + 1
+                destructorPosition = destructorPipe + 1
+            }
+            return "free"
+        }
+        classIndex = classIndex + 1
+        classPosition = classPipe + 1
+    }
+    return ""
+}
+
+fun emitImplicitFunctionCResourceCleanupImpl(state: CodegenState) r: Void {
+    let classes = getFeatureCResourceClassesImpl()
+    if classes == "" { return }
+    let destructors = getFeatureCResourceDestructorsImpl()
+    var i = 0
+    while i < state.preAllocatedVars.length() and
+        i < state.preAllocatedTypes.length() {
+
+        let name = state.preAllocatedVars[i]
+        let destructor = functionExitCResourceDestructorImpl(
+            state.preAllocatedTypes[i], classes, destructors)
+        if destructor != "" {
+            var bindingIndex = state.activeVarCount - 1
+            while bindingIndex >= 0 and
+                (bindingIndex >= state.varNames.length() or
+                    state.varNames[bindingIndex] != name) {
+
+                bindingIndex = bindingIndex - 1
+            }
+            if bindingIndex >= 0 and bindingIndex < state.varRegs.length() {
+                let loaded = getNextRegFn(state.regBox)
+                let active = getNextRegFn(state.regBox)
+                let releaseLabel = getNextBlockFn(state.blockBox)
+                let doneLabel = getNextBlockFn(state.blockBox)
+                state.output.append("  " + loaded + " = load i64, ptr " +
+                    state.varRegs[bindingIndex] + "\n")
+                state.output.append("  " + active + " = icmp ne i64 " +
+                    loaded + ", 0\n")
+                state.output.append("  br i1 " + active + ", label %" +
+                    releaseLabel + ", label %" + doneLabel + "\n")
+                state.output.append(releaseLabel + ":\n")
+                if destructor == "free" {
+                    let pointer = getNextRegFn(state.regBox)
+                    state.output.append("  " + pointer +
+                        " = inttoptr i64 " + loaded + " to ptr\n")
+                    state.output.append("  call void @free(ptr " + pointer +
+                        ") ; @c_resource destructor\n")
+                } else {
+                    state.output.append("  call void @" + destructor +
+                        "(i64 " + loaded + ") ; @c_resource destructor\n")
+                }
+                state.output.append("  br label %" + doneLabel + "\n")
+                state.output.append(doneLabel + ":\n")
+            }
+        }
+        i = i + 1
+    }
+}
 
 fun buildFunctionSignaturePrefixImpl(fn: FunctionNode, fnName: String,
     returnType: String) r: String {
@@ -325,6 +406,10 @@ fun emitFunctionExitAndResetStateImpl(state: CodegenState, fn: FunctionNode,
         implicitProfiledFlag = 1
         implicitProfileStringIndex = getStringConstantIndexImpl(
             state.stringConstants, profiledNameBox[0])
+    }
+
+    if state.blockTerminated != 1 and not state.functionOptions.isAsync {
+        emitImplicitFunctionCResourceCleanupImpl(state)
     }
 
     emitFunctionImplicitTerminationImpl(state.output, state.regBox,

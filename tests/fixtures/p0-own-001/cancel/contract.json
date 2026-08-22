@@ -1,0 +1,1 @@
+{"max_resources":1,"operations":[{"kind":"acquire","owner":"worker-a","resource":"buffer-1","target":""},{"kind":"release","owner":"worker-a","resource":"buffer-1","target":""}],"schema":"seen-owned-resource-v1"}
