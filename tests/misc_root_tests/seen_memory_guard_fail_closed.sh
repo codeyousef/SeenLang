@@ -336,6 +336,11 @@ grep -Fq 'recorded pids.max differs from the active cgroup read-back' \
 grep -Fq 'active cgroup memory.max exceeds the current-memory-derived cap' \
     "$SERIALIZER_VERIFY" ||
     fail "active serializer scope is not checked against the derived cap"
+grep -Fq 'total_ceiling_kb=$((total_kb * 60 / 100))' "$HARD_SCOPE" ||
+    fail "nested scope read-back lacks a stable total-memory ceiling"
+grep -Fq 'if [ "$VERIFY_ONLY" = "0" ] && [ "$derived_rss_kb" -gt "$available_cap_kb" ]' \
+    "$HARD_SCOPE" ||
+    fail "scope creation no longer derives its cap from current availability"
 grep -Fq 'fork serializer target rejection self-test' "$SAFE_REBUILD" ||
     fail "serializer attestation omits mismatched-target rejection"
 
