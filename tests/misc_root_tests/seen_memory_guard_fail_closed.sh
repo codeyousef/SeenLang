@@ -25,6 +25,24 @@ fail() {
     exit 1
 }
 
+process_is_live_non_zombie() {
+    local pid=${1:-}
+    local stat_line=""
+    local stat_fields=""
+    local process_state=""
+
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$pid" 2>/dev/null || return 1
+    [ -r "/proc/$pid/stat" ] || return 1
+    IFS= read -r stat_line < "/proc/$pid/stat" || return 1
+    stat_fields=${stat_line##*) }
+    process_state=${stat_fields%% *}
+    case "$process_state" in
+        Z|X) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
 source "$ARTIFACT_HELPER" || fail "could not load artifact-root helper"
 seen_artifact_root_init "$ROOT_DIR" || fail "could not initialize artifact root"
 test_scope=$(seen_artifact_scope_init memory-guard-tests) ||
@@ -942,11 +960,13 @@ grep -Fq 'state=detached_descendants' "$detached_metrics" ||
 if [ -s "$detached_pid_file" ]; then
     detached_pid=$(cat "$detached_pid_file")
     detached_attempt=0
-    while kill -0 "$detached_pid" 2>/dev/null && [ "$detached_attempt" -lt 100 ]; do
+    while process_is_live_non_zombie "$detached_pid" &&
+        [ "$detached_attempt" -lt 100 ]; do
+
         sleep 0.01
         detached_attempt=$((detached_attempt + 1))
     done
-    if kill -0 "$detached_pid" 2>/dev/null; then
+    if process_is_live_non_zombie "$detached_pid"; then
         kill -KILL "$detached_pid" 2>/dev/null || true
         fail "detached process-group cleanup left the worker alive"
     fi
