@@ -434,7 +434,18 @@ fun compilerLayoutAbiIdentity() r: String {
     return "seen-layout-abi-v2"
 }
 
+fun frozenBootstrapObjectCacheCompatibilityActive() r: Bool {
+    // safe_rebuild clears this caller-controlled marker, then restores it only
+    // for the exact hash-pinned Stage-1 invocation. The frozen seed therefore
+    // consumes its immutable v2 manifest while every produced compiler and
+    // ordinary command continues to use the live v3 object-cache namespace.
+    return getOrDefault("SEEN_FROZEN_IR_COMPAT", "") == "1"
+}
+
 fun compilerObjectCacheAbiIdentity() r: String {
+    if frozenBootstrapObjectCacheCompatibilityActive() {
+        return "seen-object-cache-abi-v2"
+    }
     return "seen-object-cache-abi-v3"
 }
 

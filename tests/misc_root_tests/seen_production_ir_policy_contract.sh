@@ -124,6 +124,12 @@ grep -Fq '"SEEN_FROZEN_IR_COMPAT=1"' "$SAFE_REBUILD" ||
     fail "exact frozen Linux compile does not opt in"
 grep -Fq 'SEEN_FROZEN_IR_COMPAT=1 \' "$SAFE_REBUILD" ||
     fail "frozen compatibility invocation is missing"
+grep -Fq 'fun frozenBootstrapObjectCacheCompatibilityActive() r: Bool' \
+    "$ENTRY" || fail "native frozen object-cache compatibility gate is missing"
+grep -Fq 'getOrDefault("SEEN_FROZEN_IR_COMPAT", "") == "1"' \
+    "$ENTRY" || fail "frozen object-cache compatibility is not marker-gated"
+grep -Fq 'return "seen-object-cache-abi-v2"' "$ENTRY" ||
+    fail "frozen seed cannot consume its immutable v2 compatibility manifest"
 if grep -Fq 'SEEN_SKIP_IR_FIXUPS' "$SAFE_REBUILD"; then
     fail "caller-selectable production repair bypass remains"
 fi
