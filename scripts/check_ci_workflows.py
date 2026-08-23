@@ -32,6 +32,9 @@ jobs:
     name: required
     runs-on: ubuntu-24.04
     timeout-minutes: 210
+    env:
+      GOTOOLCHAIN: local
+      SEEN_RELEASE_CPU_BASELINE: x86-64
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -44,6 +47,16 @@ jobs:
         run: scripts/provision_ci_host.sh
       - name: Run required contained gates
         run: scripts/run_ci_required.sh
+      - name: Prepare verified release toolchain
+        run: scripts/prepare_release_toolchain_artifact.sh
+      - name: Retain exact-commit release toolchain
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: seen-release-toolchain-${{ github.sha }}
+          path: target/seen-build/release-toolchain.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
 """.encode("utf-8")
 EXPECTED_RELEASE_WORKFLOW = """name: Release
 
@@ -52,6 +65,7 @@ on:
     tags: ['v*']
 
 permissions:
+  actions: read
   contents: write
   id-token: write
 
@@ -77,6 +91,8 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+      - name: Verify successful main certification
+        run: scripts/verify_release_ci_run.sh
       - name: Set up pinned Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -88,8 +104,6 @@ jobs:
           cosign-release: 'v3.1.3'
       - name: Provision required isolation and search tools
         run: scripts/provision_ci_host.sh
-      - name: Run clean contained certification
-        run: scripts/run_ci_required.sh
       - name: Build sign and upload release
         run: scripts/build_and_upload_release.sh "${GITHUB_REF_NAME#v}"
 """.encode("utf-8")
@@ -218,12 +232,16 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         },
         "required_check": "CI / required",
         "release_cosign": "v3.1.3",
+        "release_ci_attestation": "scripts/verify_release_ci_run.sh",
+        "release_cpu_baseline": "x86-64",
         "release_signing": "github-oidc-keyless",
+        "release_toolchain_artifact": "exact-main-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
         "timeout_minutes": 210,
         "trigger": "push-main-only",
-        "version": 3,
+        "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+        "version": 5,
     }
 
 

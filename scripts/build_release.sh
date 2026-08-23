@@ -551,29 +551,39 @@ if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
         done
     }
 
+    run_package_job() {
+        local label="$1"
+        local log_file="$2"
+        shift 2
+        local pkg_start=""
+        if declare -F seen_build_trace_step_start >/dev/null 2>&1; then
+            pkg_start=$(seen_build_trace_step_start "$label")
+        fi
+        if "$@" > "$log_file" 2>&1; then
+            tail -5 "$log_file"
+            if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
+                seen_build_trace_step_end "$label" "$pkg_start" "ok" "log=$log_file"
+            fi
+        else
+            echo "  $label build skipped (command failed)"
+            tail -5 "$log_file" 2>/dev/null || true
+            if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
+                seen_build_trace_step_end "$label" "$pkg_start" "failed" "log=$log_file"
+            fi
+        fi
+        return 0
+    }
+
     start_package_job() {
         local label="$1"
         local log_file="$2"
         shift 2
+        if [[ "$PACKAGE_JOBS" == "1" ]]; then
+            run_package_job "$label" "$log_file" "$@"
+            return 0
+        fi
         wait_for_package_slot
-        (
-            local pkg_start=""
-            if declare -F seen_build_trace_step_start >/dev/null 2>&1; then
-                pkg_start=$(seen_build_trace_step_start "$label")
-            fi
-            if "$@" > "$log_file" 2>&1; then
-                tail -5 "$log_file"
-                if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
-                    seen_build_trace_step_end "$label" "$pkg_start" "ok" "log=$log_file"
-                fi
-            else
-                echo "  $label build skipped (command failed)"
-                tail -5 "$log_file" 2>/dev/null || true
-                if declare -F seen_build_trace_step_end >/dev/null 2>&1; then
-                    seen_build_trace_step_end "$label" "$pkg_start" "failed" "log=$log_file"
-                fi
-            fi
-        ) &
+        (run_package_job "$label" "$log_file" "$@") &
         PKG_PIDS+=("$!")
         PKG_LABELS+=("$label")
         PKG_LOGS+=("$log_file")
@@ -581,20 +591,23 @@ if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
 
     if command -v dpkg-deb &>/dev/null; then
         start_package_job "deb package" "$PKG_LOG_DIR/build-deb.log" \
-            bash -c 'cd "$1" && SOURCE_DIR="$2" bash build-deb.sh "$3" amd64 --output-dir "$4"' \
-            bash "$ROOT_DIR/installer/linux" "$STAGING/bin" "$VERSION" "$OUTPUT_DIR"
+            env SOURCE_DIR="$STAGING/bin" bash \
+            "$ROOT_DIR/installer/linux/build-deb.sh" "$VERSION" amd64 \
+            --output-dir "$OUTPUT_DIR"
     fi
 
     if command -v rpmbuild &>/dev/null; then
         start_package_job "rpm package" "$PKG_LOG_DIR/build-rpm.log" \
-            bash -c 'cd "$1" && SOURCE_DIR="$2" bash build-rpm.sh "$3" x86_64 --output-dir "$4"' \
-            bash "$ROOT_DIR/installer/linux" "$STAGING/bin" "$VERSION" "$OUTPUT_DIR"
+            env SOURCE_DIR="$STAGING/bin" bash \
+            "$ROOT_DIR/installer/linux/build-rpm.sh" "$VERSION" x86_64 \
+            --output-dir "$OUTPUT_DIR"
     fi
 
     if command -v appimagetool &>/dev/null; then
         start_package_job "appimage package" "$PKG_LOG_DIR/build-appimage.log" \
-            bash -c 'cd "$1" && SOURCE_DIR="$2" bash build-appimage.sh "$3" x86_64 --output-dir "$4"' \
-            bash "$ROOT_DIR/installer/linux" "$STAGING/bin" "$VERSION" "$OUTPUT_DIR"
+            env SOURCE_DIR="$STAGING/bin" bash \
+            "$ROOT_DIR/installer/linux/build-appimage.sh" "$VERSION" x86_64 \
+            --output-dir "$OUTPUT_DIR"
     fi
     for pkg_pid in "${PKG_PIDS[@]}"; do
         wait "$pkg_pid" || true

@@ -188,6 +188,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restricted the hour-long required CI certification to pushes on `main`,
   eliminating the duplicate full run previously triggered for every pull
   request targeting `main`.
+- Release tags now fail closed unless their exact commit already has a
+  successful authoritative `main` CI run. The release workflow reuses that
+  attestation and the exact portable compiler artifact retained by that run
+  instead of repeating the hour-long certification. The compiler artifact is
+  commit-, tree-, baseline-, size-, mode-, and SHA-256-verified before use,
+  and a contained local dry-run mode exercises real packaging and checksum
+  verification without signing, tagging, uploading, or requiring GitHub auth.
+- Pinned RPM post-processing to one CPU inside the verified auxiliary-tool
+  environment so host RPM macros cannot exceed the 24-task containment ceiling.
+- Removed the redundant background and directory-wrapper shells when release
+  package formatting is configured for one job, preserving task headroom for
+  serial AppImage and RPM internals under the same hard ceiling.
 - Measured CPU validation microbenchmarks with current-thread CPU time so
   hosted-runner descheduling cannot create false performance failures. A
   shared paired-median reducer now preserves each adjacent candidate/control

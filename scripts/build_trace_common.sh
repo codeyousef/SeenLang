@@ -258,7 +258,7 @@ seen_build_require_full_release_stamp() {
     local compiler="$2"
     local stamp="$root/target/seen-build/full-release.stamp"
     local max_age="${SEEN_RELEASE_FULL_STAMP_MAX_AGE_SECONDS:-86400}"
-    local now stamp_time age expected_hash actual_hash package_client expected_package_hash actual_package_hash expected_tree actual_tree
+    local now stamp_time age expected_hash actual_hash package_client expected_package_hash actual_package_hash expected_tree actual_tree expected_baseline actual_baseline
 
     if [ "${SEEN_RELEASE_SKIP_FULL_STAMP:-0}" = "1" ]; then
         echo "WARNING: full release stamp check skipped by SEEN_RELEASE_SKIP_FULL_STAMP=1." >&2
@@ -285,6 +285,14 @@ seen_build_require_full_release_stamp() {
     if [ -z "$expected_tree" ] || [ "$expected_tree" != "$actual_tree" ]; then
         echo "Error: full verification stamp does not match the current release source tree." >&2
         echo "Run scripts/safe_rebuild.sh --tier full from the exact tree being published." >&2
+        return 1
+    fi
+
+    expected_baseline="${SEEN_RELEASE_CPU_BASELINE:-}"
+    actual_baseline=$(awk -F= '/^release_cpu_baseline=/ {print $2; exit}' "$stamp")
+    if [ -n "$expected_baseline" ] && [ "$actual_baseline" != "$expected_baseline" ]; then
+        echo "Error: full verification stamp CPU baseline is ${actual_baseline:-missing}; expected $expected_baseline." >&2
+        echo "Run scripts/safe_rebuild.sh --tier full with SEEN_RELEASE_CPU_BASELINE=$expected_baseline." >&2
         return 1
     fi
 

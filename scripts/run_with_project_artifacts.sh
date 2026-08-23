@@ -8,6 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 ARTIFACT_ROOT_SCRIPT="$SCRIPT_DIR/artifact_root.sh"
+SERIAL_AUXILIARY_SCRIPT="$SCRIPT_DIR/serial_auxiliary_env.sh"
 KEEP_ON_FAILURE=0
 RUN_WORK_ROOT=""
 RUN_ARTIFACT_SCOPE=""
@@ -77,6 +78,25 @@ SEEN_PROJECT_ARTIFACT_WRAPPER=1
 SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE=1
 export TMPDIR SEEN_ARTIFACT_ROOT SEEN_PROJECT_ROOT \
     SEEN_PROJECT_ARTIFACT_WRAPPER SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE
+
+# A nested project-artifact namespace can be entered from an already verified
+# hard memory scope (for example, while cross-building the release package
+# client). Rebind the serial auxiliary configuration to the new artifact root
+# before the child performs its hard-scope read-back. Carrying the outer root's
+# configuration would correctly fail closed because it no longer describes the
+# active namespace.
+if [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" = "1" ] ||
+    [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ]; then
+
+    [ -f "$SERIAL_AUXILIARY_SCRIPT" ] && [ ! -L "$SERIAL_AUXILIARY_SCRIPT" ] || {
+        echo "ERROR: serial auxiliary helper is missing or unsafe" >&2
+        exit 126
+    }
+    # shellcheck source=scripts/serial_auxiliary_env.sh
+    source "$SERIAL_AUXILIARY_SCRIPT"
+    seen_serial_auxiliary_prepare "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126
+    seen_serial_auxiliary_verify "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126
+fi
 
 cleanup() {
     local status=$?

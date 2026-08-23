@@ -270,6 +270,24 @@ run_release_case() {
     assert_release_args "$capture" "$action"
 }
 
+run_dry_run_case() {
+    local capture="$TMP_DIR/gh-dry-run.args"
+
+    PATH="$FIXTURE_BIN:$MIN_PATH" \
+        GH_CAPTURE="$capture" \
+        SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
+        SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
+        SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
+        SEEN_RELEASE_DRY_RUN=1 \
+        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 >/dev/null
+
+    assert_checksum_scope
+    if [[ -e "$capture" ]]; then
+        echo "local dry run contacted GitHub" >&2
+        exit 1
+    fi
+}
+
 run_failed_optional_case() {
     local capture="$TMP_DIR/gh-failed-optional.args"
     local output status
@@ -350,6 +368,7 @@ run_explicit_macos_case() {
 }
 
 run_failed_optional_case
+run_dry_run_case
 run_release_case 0 upload
 run_release_case 1 create
 run_explicit_macos_case

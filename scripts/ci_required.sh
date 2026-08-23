@@ -74,11 +74,18 @@ python3 -m py_compile \
     scripts/check_native_boundaries.py \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
+    scripts/check_release_ci_run.py \
+    scripts/release_toolchain_artifact.py \
     scripts/check_ci_containment.py \
     scripts/check_gate0_certification.py \
     scripts/benchmark_gate0_certification.py \
     scripts/measure_gate0_certification_coverage.py \
-    tests/runner/test_gate0_certification_unit.py
+    tests/runner/test_gate0_certification_unit.py \
+    tests/runner/test_release_ci_run_unit.py \
+    tests/runner/test_release_toolchain_artifact_unit.py
+python3 -m unittest \
+    tests.runner.test_release_ci_run_unit \
+    tests.runner.test_release_toolchain_artifact_unit
 python3 -m py_compile \
     scripts/check_release_artifact_manifest.py \
     scripts/benchmark_release_artifact_manifest.py \

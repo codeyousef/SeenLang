@@ -57,6 +57,7 @@ export SEEN_PACKAGE_CLIENT_BIN
 DIST_DIR="$ROOT_DIR/dist"  # absolute path required — build_release.sh cd's into subshells
 MACOS_INPUT_DIR="${SEEN_RELEASE_MACOS_INPUT_DIR:-}"
 SIGN_MODE="${SEEN_RELEASE_SIGN_MODE:-}"
+DRY_RUN="${SEEN_RELEASE_DRY_RUN:-0}"
 SIGN_IDENTITY="${SEEN_RELEASE_SIGN_IDENTITY:-https://github.com/codeyousef/SeenLang/.github/workflows/release.yml@refs/tags/v$VERSION}"
 SIGN_ISSUER="${SEEN_RELEASE_SIGN_ISSUER:-https://token.actions.githubusercontent.com}"
 
@@ -119,17 +120,19 @@ write_sidecar_checksum() {
 
 # --- Preflight checks ---
 
-if ! command -v gh &>/dev/null; then
-    die "gh CLI not found. Install from https://cli.github.com/"
+case "$DRY_RUN" in 0|1) ;; *) die "SEEN_RELEASE_DRY_RUN must be 0 or 1" ;; esac
+if [[ "$DRY_RUN" == "0" ]]; then
+    if ! command -v gh &>/dev/null; then
+        die "gh CLI not found. Install from https://cli.github.com/"
+    fi
+    if ! gh auth status &>/dev/null 2>&1; then
+        die "gh CLI not authenticated. Run: gh auth login"
+    fi
+    case "$SIGN_MODE" in
+        keyless|key|kms) ;;
+        *) die "SEEN_RELEASE_SIGN_MODE must be keyless, key, or kms; unsigned uploads are forbidden" ;;
+    esac
 fi
-
-if ! gh auth status &>/dev/null 2>&1; then
-    die "gh CLI not authenticated. Run: gh auth login"
-fi
-case "$SIGN_MODE" in
-    keyless|key|kms) ;;
-    *) die "SEEN_RELEASE_SIGN_MODE must be keyless, key, or kms; unsigned uploads are forbidden" ;;
-esac
 
 if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
     echo "Error: portable Linux x64 compiler not found at $LINUX_X64_COMPILER"
@@ -415,6 +418,13 @@ for artifact in \
 done
 if [[ -n "$HOMEBREW_FORMULA" ]]; then
     RELEASE_ARTIFACTS+=("$HOMEBREW_FORMULA")
+fi
+
+if [[ "$DRY_RUN" == "1" ]]; then
+    echo ""
+    echo "=== Local release packaging dry run passed; signing and upload were not attempted. ==="
+    ls -lh -- "${RELEASE_ARTIFACTS[@]}"
+    exit 0
 fi
 
 COMPONENT_ARTIFACTS=(

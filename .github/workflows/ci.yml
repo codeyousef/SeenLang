@@ -16,6 +16,9 @@ jobs:
     name: required
     runs-on: ubuntu-24.04
     timeout-minutes: 210
+    env:
+      GOTOOLCHAIN: local
+      SEEN_RELEASE_CPU_BASELINE: x86-64
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -28,3 +31,13 @@ jobs:
         run: scripts/provision_ci_host.sh
       - name: Run required contained gates
         run: scripts/run_ci_required.sh
+      - name: Prepare verified release toolchain
+        run: scripts/prepare_release_toolchain_artifact.sh
+      - name: Retain exact-commit release toolchain
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: seen-release-toolchain-${{ github.sha }}
+          path: target/seen-build/release-toolchain.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

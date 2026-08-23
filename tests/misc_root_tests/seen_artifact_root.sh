@@ -194,6 +194,31 @@ if [ "$(uname -s)" = "Linux" ] && command -v bwrap >/dev/null 2>&1; then
         fail "successful wrapper command left a run directory behind"
     fi
 
+    stale_auxiliary_root="$wrapper_root/outer-hard-scope"
+    stale_auxiliary_config="$stale_auxiliary_root/auxiliary-limits/ripgrep.conf"
+    mkdir -p -- "${stale_auxiliary_config%/*}"
+    printf '%s\n' '--threads=1' > "$stale_auxiliary_config"
+    rebound_output=$(
+        SEEN_ARTIFACT_ROOT="$wrapper_root" \
+            SEEN_HARD_MEMORY_SCOPE_ACTIVE=1 \
+            RIPGREP_CONFIG_PATH="$stale_auxiliary_config" \
+            "$WRAPPER" wrapper-hard-scope -- \
+            bash -c '
+                expected="$SEEN_ARTIFACT_ROOT/auxiliary-limits/ripgrep.conf"
+                [ "$RIPGREP_CONFIG_PATH" = "$expected" ] || exit 20
+                [ -f "$expected" ] && [ ! -L "$expected" ] || exit 21
+                [ "$(cat "$expected")" = "--threads=1" ] || exit 22
+                [ "$GOMAXPROCS" = "1" ] || exit 23
+                printf "hard-scope-rebound\n"
+            '
+    )
+    [ "$rebound_output" = "hard-scope-rebound" ] ||
+        fail "nested project-artifact scope did not rebind serial auxiliary limits"
+    if find "$wrapper_root/wrapper-hard-scope" -mindepth 1 -maxdepth 1 \
+        -type d -name 'run.*' -print -quit | grep -q .; then
+        fail "successful hard-scope wrapper command left a run directory behind"
+    fi
+
     if SEEN_ARTIFACT_ROOT="$wrapper_root" \
         "$WRAPPER" wrapper-clean -- bash -c 'exit 17'; then
         fail "project-artifact wrapper lost the command failure status"
@@ -260,7 +285,7 @@ if [ "$(uname -s)" = "Linux" ] && command -v bwrap >/dev/null 2>&1; then
                 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
                 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
                 BLIS_NUM_THREADS=1 GOMAXPROCS=1 RUST_TEST_THREADS=1 \
-                CARGO_BUILD_JOBS=1 \
+                CARGO_BUILD_JOBS=1 RPM_BUILD_NCPUS=1 \
                 "$SAFE_REBUILD" --artifact-preflight
     )
     case "$hard_reexec_output" in

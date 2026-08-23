@@ -10,6 +10,7 @@ APPLICABILITY="$ROOT_DIR/scripts/rebuild_builder_applicability.sh"
 SERIALIZER_VERIFY="$ROOT_DIR/scripts/verify_fork_serializer.sh"
 MEMORY_GUARD="$ROOT_DIR/scripts/memory_guard.sh"
 SAFE_REBUILD="$ROOT_DIR/scripts/safe_rebuild.sh"
+BUILD_RELEASE="$ROOT_DIR/scripts/build_release.sh"
 SERIALIZER_SOURCE="$ROOT_DIR/scripts/fork_serializer.c"
 SERIALIZER_SELFTEST_SOURCE="$ROOT_DIR/scripts/fork_serializer_selftest.c"
 
@@ -48,6 +49,14 @@ trap cleanup EXIT
 
 bash -n "$CAPABILITY" "$APPLICABILITY" "$SERIALIZER_VERIFY" ||
     fail "helper syntax"
+bash -n "$BUILD_RELEASE" || fail "release builder syntax"
+grep -Fq 'if [[ "$PACKAGE_JOBS" == "1" ]]; then' "$BUILD_RELEASE" ||
+    fail "serial release packaging does not bypass the background-job topology"
+grep -Fq 'run_package_job "$label" "$log_file" "$@"' "$BUILD_RELEASE" ||
+    fail "serial release packaging does not execute its formatter directly"
+if grep -Fq "bash -c 'cd \"\$1\"" "$BUILD_RELEASE"; then
+    fail "release packaging retains a redundant formatter wrapper shell"
+fi
 
 guarded_log_body=$(sed -n '/^run_guarded_command_to_log()/,/^}/p' \
     "$SAFE_REBUILD")

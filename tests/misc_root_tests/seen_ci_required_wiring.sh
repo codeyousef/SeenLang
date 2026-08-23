@@ -4,11 +4,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
+RELEASE_WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
 REQUIRED="$ROOT_DIR/scripts/ci_required.sh"
 CONTAINED="$ROOT_DIR/scripts/run_ci_required.sh"
 PROVISION="$ROOT_DIR/scripts/provision_ci_host.sh"
 RELEASE_INNER="$ROOT_DIR/scripts/build_and_upload_release.sh"
 RELEASE_CONTAINED="$ROOT_DIR/scripts/run_release_upload.sh"
+RELEASE_CI="$ROOT_DIR/scripts/verify_release_ci_run.sh"
+RELEASE_CI_CHECKER="$ROOT_DIR/scripts/check_release_ci_run.py"
+RELEASE_TOOLCHAIN="$ROOT_DIR/scripts/release_toolchain_artifact.py"
+PREPARE_RELEASE_TOOLCHAIN="$ROOT_DIR/scripts/prepare_release_toolchain_artifact.sh"
 
 fail() {
     echo "FAIL: required CI wiring: $*" >&2
@@ -21,11 +26,17 @@ fail() {
 [ -x "$PROVISION" ] && [ ! -L "$PROVISION" ] || fail "CI host provisioner is missing or not executable"
 [ -x "$RELEASE_INNER" ] && [ ! -L "$RELEASE_INNER" ] || fail "release entrypoint is missing or not executable"
 [ -x "$RELEASE_CONTAINED" ] && [ ! -L "$RELEASE_CONTAINED" ] || fail "contained release entrypoint is missing or not executable"
+[ -x "$RELEASE_CI" ] && [ ! -L "$RELEASE_CI" ] || fail "release CI verifier is missing or unsafe"
+[ -f "$RELEASE_CI_CHECKER" ] && [ ! -L "$RELEASE_CI_CHECKER" ] || fail "release CI evidence checker is missing or unsafe"
+[ -f "$RELEASE_TOOLCHAIN" ] && [ ! -L "$RELEASE_TOOLCHAIN" ] || fail "release toolchain checker is missing or unsafe"
+[ -x "$PREPARE_RELEASE_TOOLCHAIN" ] && [ ! -L "$PREPARE_RELEASE_TOOLCHAIN" ] || fail "release toolchain preparer is missing or unsafe"
 bash -n "$REQUIRED" || fail "required gate shell syntax"
 bash -n "$CONTAINED" || fail "contained CI entrypoint shell syntax"
 bash -n "$PROVISION" || fail "CI host provisioner shell syntax"
 bash -n "$RELEASE_INNER" || fail "release entrypoint shell syntax"
 bash -n "$RELEASE_CONTAINED" || fail "contained release entrypoint shell syntax"
+bash -n "$RELEASE_CI" || fail "release CI verifier shell syntax"
+bash -n "$PREPARE_RELEASE_TOOLCHAIN" || fail "release toolchain preparer shell syntax"
 
 set +e
 outside_error=$(env -u SEEN_CI_CONTAINMENT_IN_SCOPE "$REQUIRED" 2>&1 >/dev/null)
@@ -54,8 +65,25 @@ grep -Fxq "          go-version: '1.26.5'" "$WORKFLOW" ||
     fail "required CI does not pin Go 1.26.5"
 grep -Fxq '        run: scripts/run_ci_required.sh' "$WORKFLOW" ||
     fail "workflow does not invoke the required gate"
+grep -Fxq '      SEEN_RELEASE_CPU_BASELINE: x86-64' "$WORKFLOW" ||
+    fail "main CI does not build the portable x86-64 release compiler"
+grep -Fxq '        run: scripts/prepare_release_toolchain_artifact.sh' "$WORKFLOW" ||
+    fail "main CI does not exercise packaging and prepare the release toolchain"
+grep -Fxq '        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' "$WORKFLOW" ||
+    fail "main CI release toolchain upload is not commit-pinned"
+grep -Fq 'name: seen-release-toolchain-${{ github.sha }}' "$WORKFLOW" ||
+    fail "main CI release toolchain is not keyed by the exact commit"
 grep -Fxq '        run: scripts/provision_ci_host.sh' "$WORKFLOW" ||
     fail "workflow does not invoke the CI host provisioner"
+grep -Fxq '        run: scripts/verify_release_ci_run.sh' "$RELEASE_WORKFLOW" ||
+    fail "release workflow does not attest successful main CI"
+if grep -Fq 'run: scripts/run_ci_required.sh' "$RELEASE_WORKFLOW"; then
+    fail "release workflow redundantly reruns full certification"
+fi
+grep -Fq 'gh run download "$run_id"' "$RELEASE_CI" ||
+    fail "release attestation does not download from the exact successful CI run"
+grep -Fq '"$TOOLCHAIN_CHECKER" install' "$RELEASE_CI" ||
+    fail "release attestation does not validate and install the certified toolchain"
 
 [ "$(grep -Ec '(^|[[:space:]])sudo([[:space:]]|$)' "$PROVISION")" -eq 3 ] ||
     fail "CI host provisioner has an unexpected privileged-command count"

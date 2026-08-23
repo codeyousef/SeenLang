@@ -260,6 +260,7 @@ if [ "$VERIFY_ONLY" = "0" ]; then
         GOMAXPROCS=1
         RUST_TEST_THREADS=1
         CARGO_BUILD_JOBS=1
+        RPM_BUILD_NCPUS=1
         "$@")
 fi
 
