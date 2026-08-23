@@ -14491,6 +14491,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
         }
     }
+    if effectiveTarget == "linux-x86_64" or
+        effectiveTarget == "linux-arm64" or
+        effectiveTarget == "linux-riscv64" {
+
+        // Keep optional host libraries out of CPU-only compiler and program
+        // artifacts unless they resolve a live symbol. This also prevents
+        // source-presence link detection from becoming a runtime dependency.
+        linkCmd = linkCmd + " -Wl,--as-needed "
+    }
     if g_noFork == 1 and (effectiveTarget == "linux-x86_64" or
         effectiveTarget == "linux-arm64" or
         effectiveTarget == "linux-riscv64" or

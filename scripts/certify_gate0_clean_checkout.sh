@@ -63,6 +63,11 @@ SEEN_GO="${SEEN_GO:-$(command -v go || true)}" \
 
 [ -x "$ROOT/compiler_seen/target/seen" ] || fail unverified "full rebuild did not install the compiler"
 [ -x "$PACKAGE_CLIENT" ] || fail unverified "full rebuild did not install the package client"
+if readelf -d "$ROOT/compiler_seen/target/seen" |
+    grep -Eq 'Shared library: \[(libSDL3\.so|libvulkan\.so)'; then
+
+    fail unverified "rebuilt compiler retained an unused optional GPU/window dependency"
+fi
 
 # The full rebuild validates this same canonical test during Stage-1 acceptance,
 # then deliberately removes .seen_cache before installing the verified compiler.

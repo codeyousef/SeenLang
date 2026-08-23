@@ -176,6 +176,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Hosted clean-checkout certification now provisions a coherent pinned LLVM 20
+  toolchain with matching sanitizer and profile runtimes, Vulkan linker input,
+  and a symbol-audited loader bridge for the legacy frozen compiler's unused
+  SDL3 dependency. Linux compiler links use
+  `--as-needed`, preventing rebuilt CPU-only and release compilers from
+  retaining unused SDL3 or Vulkan runtime dependencies, and bootstrap startup
+  failures now expose bounded diagnostics. Toolchain and prebuild checks reject
+  LLVM versions older than 19 and probe Seen's GEP no-wrap IR dialect plus a
+  combined coverage/UBSan link before a long bootstrap begins.
+- Provisioned the hosted Linux CI runner with the required Bubblewrap
+  isolation and ripgrep search tools before executing the fail-closed required
+  gate. On Ubuntu 24.04, a noninteractive runner-only administrative step loads
+  Ubuntu's path-scoped `userns` AppArmor permission for `/usr/bin/bwrap` and
+  read-back verifies a real bind mapping without disabling the global
+  namespace restriction. The kernel scope also enables and reads back
+  `memory.oom.group=1` directly instead of depending on a systemd-version-
+  specific `OOMPolicy`, preserving group-wide OOM enforcement. Clean hosted
+  certification therefore uses the same enforced contracts as a local clean
+  checkout.
+- Increased all required ratio-microbenchmark work to 1,000 operations per
+  measured sample while retaining every measured baseline, 30-sample count,
+  and hard five-percent ceiling, preventing hosted scheduler noise from
+  producing false regressions. Leak/soak measurements also retain each
+  candidate's adjacent control pairing when reducing samples, so transient
+  runner frequency changes cannot combine unrelated medians.
+- Made bytecode coverage measurement resolve source lines through
+  `Instruction.positions` when available and the legacy `starts_line` value
+  otherwise, so required coverage gates produce the same thresholds on the
+  supported Python 3.10 hosted runner and newer local Python versions.
 - Preserved manifest-scoped project declaration visibility across large
   forked and `--no-fork` semantic passes, including cross-module constant type
   inference, deterministic ambiguity diagnostics, package isolation, and

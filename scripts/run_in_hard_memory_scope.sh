@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Enter or re-verify the aggregate hard-memory scope required by build-capable
 # Seen verification scripts. This wrapper never treats environment markers as
-# proof: memory_guard.sh reads MemoryMax, MemorySwapMax, TasksMax, and the
-# transient unit ControlGroup before it starts the requested command.
+# proof: memory_guard.sh reads MemoryMax, MemorySwapMax, memory.oom.group,
+# TasksMax, and the transient unit ControlGroup before it starts the requested
+# command.
 
 set -euo pipefail
 
@@ -21,9 +22,9 @@ Usage: run_in_hard_memory_scope.sh [--label TEXT] [--timeout-secs N] [--verify-o
 
 Enters a verified Linux user-systemd scope capped at the smaller of 60% of
 total memory and currently available memory minus a 10%-of-total system
-reserve, with MemorySwapMax=0 and TasksMax=24. --verify-only performs the same
-read-back but does not run a workload. --timeout-secs adds a bounded wall-clock
-deadline.
+reserve, with MemorySwapMax=0, memory.oom.group=1, and TasksMax=24.
+--verify-only performs the same read-back but does not run a workload.
+--timeout-secs adds a bounded wall-clock deadline.
 EOF
 }
 

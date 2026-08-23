@@ -362,6 +362,13 @@ grep -Fq 'tasks_max="${TASKS_MAX:-24}"' "$GUARD" ||
     fail "kernel scope can still default above the 24-task ceiling"
 grep -Fq '[ "$memory_swap_max" != "0" ]' "$GUARD" ||
     fail "MemorySwapMax read-back missing"
+grep -Fq 'memory.oom.group' "$GUARD" ||
+    fail "group-wide OOM control is missing"
+grep -Fq '[ "$memory_oom_group" != "1" ]' "$GUARD" ||
+    fail "group-wide OOM read-back is missing"
+if grep -Fq 'OOMPolicy=kill' "$GUARD"; then
+    fail "memory guard still depends on version-specific OOMPolicy"
+fi
 if grep -Fq 'TMPDIR:-/tmp' "$GUARD"; then
     fail "memory guard can fall back to the host temporary directory"
 fi

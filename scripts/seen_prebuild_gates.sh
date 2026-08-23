@@ -266,6 +266,16 @@ require_cmd python3
 require_cmd bash
 require_cmd llvm-as
 require_cmd opt
+if ! printf '%s\n' \
+    'define ptr @seen_prebuild_gep_nuw(ptr %base, i64 %index) {' \
+    'entry:' \
+    '  %result = getelementptr inbounds nuw i64, ptr %base, i64 %index' \
+    '  ret ptr %result' \
+    '}' | run_with_opt_cap llvm-as -o /dev/null -; then
+
+    echo "ERROR: LLVM does not accept Seen's required GEP no-wrap IR dialect (LLVM 19+ required)" >&2
+    exit 1
+fi
 
 echo "Prebuild gates: Python and shell syntax..."
 python3 -m py_compile "$SCRIPT_DIR/fix_ir.py" \

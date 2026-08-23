@@ -22,7 +22,8 @@ seen
 Source builds still need local build tools because they rebuild the compiler and
 runtime:
 
-- LLVM 18+ with `clang`, `opt`, `llc`, `llvm-as`, and `lld`
+- LLVM 19+ with `clang`, `opt`, `llc`, `llvm-as`, and `lld` (LLVM 20 is
+  preferred and used by hosted CI)
 - GCC or a compatible C compiler for runtime objects
 - Go 1.26+ for the version-matched `seen-pkg` helper
 - Git
@@ -30,7 +31,7 @@ runtime:
 On Ubuntu/Debian:
 
 ```bash
-sudo apt install llvm-18 clang-18 lld-18 gcc git
+sudo apt install llvm-20 clang-20 lld-20 libclang-rt-20-dev gcc git
 ```
 
 On Arch Linux:

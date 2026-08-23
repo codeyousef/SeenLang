@@ -3,8 +3,8 @@
 
 set -euo pipefail
 
-LLVM_MIN_VERSION="${SEEN_LLVM_MIN_VERSION:-18}"
-LLVM_PREFERRED_VERSION="${SEEN_LLVM_PREFERRED_VERSION:-18}"
+LLVM_MIN_VERSION="${SEEN_LLVM_MIN_VERSION:-19}"
+LLVM_PREFERRED_VERSION="${SEEN_LLVM_PREFERRED_VERSION:-20}"
 MODE="check"
 PREFIX="${SEEN_PREFIX:-}"
 QUIET=0
@@ -15,8 +15,8 @@ usage() {
     echo "Environment:"
     echo "  SEEN_PREFIX              Seen installation prefix"
     echo "  SEEN_LLVM_BIN            Preferred LLVM bin directory"
-    echo "  SEEN_LLVM_MIN_VERSION    Minimum LLVM major version (default: 18)"
-    echo "  SEEN_LLVM_PREFERRED_VERSION Preferred managed LLVM major (default: 18)"
+    echo "  SEEN_LLVM_MIN_VERSION    Minimum LLVM major version (default: 19)"
+    echo "  SEEN_LLVM_PREFERRED_VERSION Preferred managed LLVM major (default: 20)"
     echo "  SEEN_SKIP_TOOLCHAIN=1    Skip all checks"
 }
 
@@ -115,7 +115,7 @@ find_tool() {
 tool_major_version() {
     local tool="$1"
     "$tool" --version 2>/dev/null |
-        sed -n '1s/.*version \([0-9][0-9]*\).*/\1/p;1s/.*LLVM \([0-9][0-9]*\).*/\1/p;1s/.*LLD \([0-9][0-9]*\).*/\1/p' |
+        sed -n 's/.*version \([0-9][0-9]*\).*/\1/p;s/.*LLVM \([0-9][0-9]*\).*/\1/p;s/.*LLD \([0-9][0-9]*\).*/\1/p' |
         head -n 1
 }
 
@@ -124,14 +124,22 @@ FOUND_PATHS=()
 FOUND_DIRS=""
 MISSING=()
 OUTDATED=()
+LLVM_AS_PATH=""
+TOOLCHAIN_MAJOR=""
 
 for base in "${CHECK_TOOLS[@]}"; do
     if path="$(find_tool "$base")"; then
         major="$(tool_major_version "$path")"
-        if [[ -n "$major" && "$major" -lt "$LLVM_MIN_VERSION" ]]; then
+        if [[ -z "$major" ]]; then
+            OUTDATED+=("$base ($path has an unreadable LLVM major version)")
+        elif [[ "$major" -lt "$LLVM_MIN_VERSION" ]]; then
             OUTDATED+=("$base ($path reports LLVM $major)")
+        elif [[ -n "$TOOLCHAIN_MAJOR" && "$major" != "$TOOLCHAIN_MAJOR" ]]; then
+            OUTDATED+=("$base ($path reports LLVM $major, expected coherent major $TOOLCHAIN_MAJOR)")
         else
+            [[ -n "$TOOLCHAIN_MAJOR" ]] || TOOLCHAIN_MAJOR="$major"
             FOUND_PATHS+=("$base=$path")
+            [[ "$base" == "llvm-as" ]] && LLVM_AS_PATH="$path"
             dir="$(dirname "$path")"
             case ":$FOUND_DIRS:" in
                 *":$dir:"*) ;;
@@ -142,6 +150,18 @@ for base in "${CHECK_TOOLS[@]}"; do
         MISSING+=("$base")
     fi
 done
+
+if [[ "${#MISSING[@]}" -eq 0 && "${#OUTDATED[@]}" -eq 0 ]]; then
+    if ! printf '%s\n' \
+        'define ptr @seen_toolchain_gep_nuw(ptr %base, i64 %index) {' \
+        'entry:' \
+        '  %result = getelementptr inbounds nuw i64, ptr %base, i64 %index' \
+        '  ret ptr %result' \
+        '}' | "$LLVM_AS_PATH" -o /dev/null -; then
+
+        OUTDATED+=("llvm-as ($LLVM_AS_PATH rejects Seen's required GEP no-wrap IR dialect)")
+    fi
+fi
 
 if [[ "${#MISSING[@]}" -eq 0 && "${#OUTDATED[@]}" -eq 0 ]]; then
     if [[ "$MODE" == "print-env" ]]; then

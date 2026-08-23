@@ -30,6 +30,10 @@ grep -Fq 'run_with_project_artifacts.sh' "$ROOT/scripts/certify_gate0_clean_chec
 grep -Fq 'Gate 0: running the canonical Seen test against the installed compiler' \
     "$ROOT/scripts/certify_gate0_clean_checkout.sh" || fail post-build-canonical-test
 grep -Fq 'prlimit --as=' "$ROOT/scripts/certify_gate0_clean_checkout.sh" || fail test-vmem
+grep -Fq "grep -Eq 'Shared library: \\[(libSDL3\\.so|libvulkan\\.so)'" \
+    "$ROOT/scripts/certify_gate0_clean_checkout.sh" || fail optional-runtime-dependency
+grep -Fq 'getelementptr inbounds nuw i64' \
+    "$ROOT/scripts/seen_prebuild_gates.sh" || fail llvm-dialect-preflight
 grep -Fq seen-gate0-certification-v1 "$ROOT/schemas/compatibility-manifest.schema.json" || fail compatibility
 "$ROOT/tests/misc_root_tests/seen_native_boundaries_ledger.sh" >/dev/null || fail native-ledger
 [[ -z "$(jobs -pr)" ]] || fail P0-GATE0-001_cleanup

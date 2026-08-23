@@ -41,6 +41,8 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
+      - name: Provision required isolation and search tools
+        run: scripts/provision_ci_host.sh
       - name: Run required contained gates
         run: scripts/run_ci_required.sh
 """.encode("utf-8")
@@ -139,6 +141,16 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "checkout": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
         "gate": "scripts/run_ci_required.sh",
         "go": "1.26.5",
+        "host_tools": [
+            "bubblewrap",
+            "clang-20",
+            "libclang-rt-20-dev",
+            "libvulkan-dev",
+            "lld-20",
+            "llvm-20",
+            "ripgrep",
+        ],
+        "host_tools_provisioning": "ubuntu-packages-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
         "job_count": 1,
         "platforms": {
@@ -150,7 +162,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "required_check": "CI / required",
         "runner": "ubuntu-24.04",
         "timeout_minutes": 210,
-        "version": 1,
+        "version": 2,
     }
 
 
