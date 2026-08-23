@@ -6,7 +6,7 @@ ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
 ARTIFACT_HELPER="$ROOT_DIR/scripts/artifact_root.sh"
 HARD_SCOPE="$ROOT_DIR/scripts/run_in_hard_memory_scope.sh"
 INNER_GATE="$ROOT_DIR/scripts/ci_required.sh"
-TIMEOUT_SECS=540
+TIMEOUT_SECS=10800
 
 fail() {
     echo "ci-containment: core.001b.invalid: $*" >&2

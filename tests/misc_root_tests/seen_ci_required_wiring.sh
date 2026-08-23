@@ -34,6 +34,10 @@ grep -Fxq '  required:' "$WORKFLOW" || fail "required job id is missing"
 grep -Fxq '    name: required' "$WORKFLOW" || fail "required check name is missing"
 grep -Eq '^[[:space:]]+uses: actions/checkout@[0-9a-f]{40}$' "$WORKFLOW" ||
     fail "checkout action is not commit-pinned"
+grep -Eq '^[[:space:]]+uses: actions/setup-go@[0-9a-f]{40}$' "$WORKFLOW" ||
+    fail "Go setup action is not commit-pinned"
+grep -Fxq "          go-version: '1.26.5'" "$WORKFLOW" ||
+    fail "required CI does not pin Go 1.26.5"
 grep -Fxq '        run: scripts/run_ci_required.sh' "$WORKFLOW" ||
     fail "workflow does not invoke the required gate"
 
@@ -54,6 +58,8 @@ for required_command in \
     'tests/misc_root_tests/seen_native_inventory_gate.sh' \
     'tests/misc_root_tests/seen_ci_workflow_contract.sh' \
     'tests/misc_root_tests/seen_ci_containment_contract.sh' \
+    'tests/misc_root_tests/seen_gate0_certification_contract.sh' \
+    'scripts/certify_gate0_clean_checkout.sh' \
     'git diff --check'; do
 
     grep -Fq "$required_command" "$REQUIRED" ||
@@ -74,10 +80,10 @@ grep -Fq 'SEEN_CI_CONTAINMENT_IN_SCOPE=1' "$CONTAINED" ||
 grep -Fq 'scripts/run_in_hard_memory_scope.sh --verify-only' "$REQUIRED" ||
     fail "inner required gate does not re-verify the live hard scope"
 
-if grep -En 'safe_rebuild|compiler_seen/target/seen|(^|[[:space:]])sudo([[:space:]]|$)|/tmp/' \
+if grep -En 'compiler_seen/target/seen|(^|[[:space:]])sudo([[:space:]]|$)|/tmp/' \
     "$WORKFLOW" "$REQUIRED" "$CONTAINED"; then
 
-    fail "static required CI unexpectedly invokes a build, privilege escalation, or host temporary path"
+    fail "required CI unexpectedly invokes an unmediated compiler, privilege escalation, or host temporary path"
 fi
 
 echo "PASS: required CI wiring"

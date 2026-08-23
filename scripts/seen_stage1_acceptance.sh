@@ -490,6 +490,10 @@ run_fixture release-artifact-pins \
     "$REPO_ROOT/compiler_seen/tests/reproducibility/core_004b_artifact_pins.seen"
 run_fixture release-artifact-pins-example \
     "$REPO_ROOT/compiler_seen/examples/release_artifact_pins.seen"
+run_fixture gate0-certification \
+    "$REPO_ROOT/compiler_seen/tests/release/p0_gate0_001_certification.seen"
+run_fixture gate0-certification-example \
+    "$REPO_ROOT/compiler_seen/examples/gate0_certification.seen"
 run_fixture test-discovery \
     "$REPO_ROOT/compiler_seen/tests/test_discovery.seen"
 run_fixture test-discovery-example \
@@ -551,6 +555,26 @@ run_fixture secret-markers \
     "$REPO_ROOT/seen_std/tests/error/p0_secret_001_secret_markers.seen"
 run_fixture secret-markers-example \
     "$REPO_ROOT/seen_std/examples/secret_values.seen"
+
+gate0_test_log="$ACCEPTANCE_ROOT/gate0-test-cli.log"
+if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter P0-GATE0-001 \
+    --profile ci --jobs 1 --timeout 10m \
+    --report json:.seen_cache/test/P0-GATE0-001.json \
+    --report junit:.seen_cache/test/P0-GATE0-001.xml \
+    >"$gate0_test_log" 2>&1; then
+
+    echo "ERROR: P0-GATE0-001 canonical Seen test failed: $gate0_test_log" >&2
+    cat "$gate0_test_log" >&2
+    exit 1
+fi
+grep -Fq 'test result: 1 passed; 0 failed' "$gate0_test_log" || {
+    echo "ERROR: P0-GATE0-001 canonical Seen test summary is missing" >&2
+    exit 1
+}
+python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format json \
+    --validate "$REPO_ROOT/.seen_cache/test/P0-GATE0-001.json" >/dev/null
+python3 "$REPO_ROOT/scripts/check_test_reporters.py" --format junit \
+    --validate "$REPO_ROOT/.seen_cache/test/P0-GATE0-001.xml" >/dev/null
 
 test_runner_log="$ACCEPTANCE_ROOT/test-runner-cli.log"
 if ! "$DIRECT_COMPILER" test "$REPO_ROOT" --filter TEST-001B \
@@ -767,6 +791,8 @@ run_fixture array-bool-push-codegen \
     "$REPO_ROOT/compiler_seen/tests/array_bool_push_codegen.seen"
 "$REPO_ROOT/tests/misc_root_tests/seen_extern_runtime_declaration_dedup.sh"
 "$REPO_ROOT/tests/misc_root_tests/seen_semantic_foundation.sh"
+SEEN_SELFHOSTED_ABI_COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh"
 
 if [ "$TIER" = "verify" ]; then
     "$REPO_ROOT/tests/misc_root_tests/seen_atomic_text_io.sh"

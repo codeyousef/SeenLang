@@ -48,7 +48,7 @@
         "allocation_limit": {"const": "aggregate-cap"},
         "main_vmem_limit": {"const": "aggregate-cap"},
         "optimizer_vmem_max_kib": {"const": 2097152},
-        "timeout_seconds": {"const": 540}
+        "timeout_seconds": {"const": 10800}
       }
     },
     "tasks": {

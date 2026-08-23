@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+SEEN_COMPILER_SOURCE_ROOT="$ROOT_DIR"
+export SEEN_COMPILER_SOURCE_ROOT
 COMPILER="${SEEN_SELFHOSTED_ABI_COMPILER:-${COMPILER:-}}"
 if [ -z "$COMPILER" ]; then
     if [ -x "$ROOT_DIR/compiler_seen/target/seen" ]; then

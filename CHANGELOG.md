@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native `seen-gate0-certification-v1` evidence and a clean-checkout
+  required-CI gate that hash-verifies the pinned bootstrap compiler, performs
+  the full contained serial rebuild and canonical `seen test` acceptance,
+  fuzz-smokes the bounded parser with seed 1101, proves deterministic package
+  bytes, records platform applicability, and forbids repair or disabled
+  workflow fallbacks.
+
 - Added `seen-release-artifact-manifest-v1` and native CORE-004B policy for an
   exact, ordered compiler, runtime, standard-library, and package-client set.
   Release components now carry canonical source pins, checksums, verified
@@ -151,6 +158,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Refreshed the Linux frozen bootstrap seeds for the current compiler graph
+  while preserving their immutable v2 compatibility contract. The guarded
+  Stage-1 invocation alone uses that historical object-cache namespace;
+  produced and ordinary compilers remain on the live v3 namespace, and the
+  seed receives only the version-matched package helper built in the same
+  contained rebuild. Stage-2-to-Stage-3 rebuilds explicitly bind the live
+  compatibility root instead of probing the temporary compiler directory.
 - Release packaging now requires the version-coupled package client produced
   by the verified build. It no longer builds or substitutes a missing client,
   accepts missing checksums, or continues after signature verification fails.

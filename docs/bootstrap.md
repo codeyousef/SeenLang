@@ -33,6 +33,16 @@ not edit Seen source. Every copied source file is checked with `cmp`; a mismatch
 fails the rebuild. Production source rewriting and documentation-body stripping
 are forbidden.
 
+The frozen seed retains its immutable v2 compatibility manifest even after a
+seed refresh. `safe_rebuild.sh` clears the frozen-compatibility marker from the
+caller and restores it only for the exact hash-pinned Stage-1 invocation. That
+invocation uses the v2 object-cache namespace; the Stage-2 compiler it produces
+and every ordinary compiler command use the live v3 namespace. The guarded
+invocation receives the already-built, version-matched package helper because
+the refreshed seed enforces the same package-client coupling as production.
+Stage 2 is then bound to the live checkout root for its Stage-3 build, so its
+v3 compatibility validation cannot accidentally reuse the seed's v2 manifest.
+
 `scripts/safe_rebuild.sh` has three tiers:
 
 | Tier | Purpose | Output |
@@ -104,9 +114,11 @@ rebuild.
 Required pull-request CI uses the same boundary through
 `scripts/run_ci_required.sh`. The wrapper derives a cap from current memory,
 creates a project-local artifact directory, enters the hard scope with a
-540-second deadline, and then invokes `scripts/ci_required.sh`. The inner gate
+10,800-second deadline, and then invokes `scripts/ci_required.sh`. The inner gate
 must successfully run `scripts/run_in_hard_memory_scope.sh --verify-only`
-before any required checks proceed. Its versioned contract is
+before any required checks proceed. The final required gate performs the
+clean-checkout full rebuild, canonical Seen test, fuzz smoke, and deterministic
+package certification described by `seen-gate0-certification-v1`. Its versioned contract is
 `docs/architecture/ci-containment.json`; unsupported hosts fail before running
 the gate.
 

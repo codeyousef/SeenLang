@@ -422,7 +422,9 @@ run_with_opt_cap bash "$REPO_ROOT/tests/misc_root_tests/seen_fix_ir_stage2_patte
 echo "Prebuild gates: IR call shape verifier..."
 run_with_opt_cap bash "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh"
 
-if [ "${SEEN_SKIP_SELFHOSTED_ABI_SMOKE:-0}" != "1" ]; then
+if [ "${SEEN_DEFER_SELFHOSTED_ABI_SMOKE:-0}" = "1" ]; then
+    echo "Prebuild gates: self-hosted ABI smoke deferred to fresh-candidate acceptance"
+elif [ "${SEEN_SKIP_SELFHOSTED_ABI_SMOKE:-0}" != "1" ]; then
     echo "Prebuild gates: self-hosted ABI smoke fixture..."
     SEEN_SELFHOSTED_ABI_VMEM_KB="${SEEN_SELFHOSTED_ABI_VMEM_KB:-${SEEN_MAIN_VMEM_KB:-2097152}}" \
         bash "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh"

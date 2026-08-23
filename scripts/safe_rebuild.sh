@@ -402,6 +402,12 @@ SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR=0
 export SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR
 
 if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ]; then
+    # A containing gate may already have prepared serial-tool state below its
+    # own artifact root. This rebuild intentionally rebinds SEEN_ARTIFACT_ROOT
+    # to its unique per-run directory before any compiler work, so materialize
+    # the same fixed one-line policy at the new validated location and read it
+    # back there. The live aggregate cgroup is independently re-verified below.
+    seen_serial_auxiliary_prepare "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126
     seen_serial_auxiliary_verify "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126
 else
     seen_serial_auxiliary_prepare "$REPO_ROOT" "$SEEN_ARTIFACT_ROOT" || exit 126
@@ -1005,13 +1011,24 @@ build_fork_serializer() {
 
         local selftest_binary="$REBUILD_WORK_ROOT/seen-fork-serializer-selftest"
         local selftest_state="$REBUILD_WORK_ROOT/seen-fork-serializer-selftest.state"
+        local descendant_selftest="$REBUILD_WORK_ROOT/seen-fork-serializer-descendant-selftest"
         local cachetest_serializer="$REBUILD_WORK_ROOT/seen-fork-serializer-cachetest.so"
         if [ -L "$selftest_binary" ] || [ -L "$selftest_state" ] ||
+            [ -L "$descendant_selftest" ] ||
             [ -L "$cachetest_serializer" ]; then
 
             echo -e "${RED}ERROR: refusing unsafe fork serializer self-test paths.${NC}" >&2
             return 1
         fi
+        {
+            printf '%s\n' '#!/usr/bin/env bash'
+            printf '%s\n' 'set -euo pipefail'
+            printf '%s\n' 'program=$1'
+            printf '%s\n' 'state=$2'
+            printf '%s\n' 'for _ in 1 2 3 4 5 6 7 8; do "$program" --child "$state" & done'
+            printf '%s\n' 'wait'
+        } > "$descendant_selftest"
+        chmod 700 "$descendant_selftest"
         if ! run_guarded_command "fork serializer self-test build" 60 "${OPT_VMEM_KB:-}" \
             clang -O2 -pthread "$FORK_SERIALIZER_SELFTEST_SOURCE" \
                 -o "$selftest_binary"; then
@@ -1043,6 +1060,17 @@ build_fork_serializer() {
                 "$selftest_binary" "$selftest_state"; then
 
             echo -e "${RED}ERROR: fork serializer dynamic self-test failed; compiler candidates remain disabled.${NC}" >&2
+            return 1
+        fi
+        if ! run_guarded_command "fork serializer descendant self-test" 30 "${OPT_VMEM_KB:-}" \
+            env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+                LD_PRELOAD="$FORK_SERIALIZER_SO" \
+                SEEN_FORK_SERIALIZER_TARGET="$selftest_binary" \
+                SEEN_FORK_SERIALIZER_DESCENDANT_SCRIPT="$descendant_selftest" \
+                "$selftest_binary" --descendant-script "$descendant_selftest" \
+                "$selftest_state.descendant"; then
+
+            echo -e "${RED}ERROR: fork serializer descendant self-test failed; compiler candidates remain disabled.${NC}" >&2
             return 1
         fi
         if run_guarded_command "fork serializer target rejection self-test" 10 "${OPT_VMEM_KB:-}" \
@@ -2055,8 +2083,31 @@ fi
 configure_adaptive_rebuild_workers
 
 if [ "${SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE:-0}" != "1" ]; then
-    prepare_bounded_wine_prefix_template || exit $?
-    enter_rebuild_kernel_scope
+    if [ "${SEEN_CI_CONTAINMENT_IN_SCOPE:-0}" = "1" ] ||
+        [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" = "1" ] ||
+        [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ]; then
+
+        # Required CI already owns an aggregate kernel scope. Accept it only
+        # when every marker is present and the hard-scope helper independently
+        # reads back the requested memory, swap, task, and worker limits.
+        if [ "${SEEN_CI_CONTAINMENT_IN_SCOPE:-0}" != "1" ] ||
+            [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" != "1" ] ||
+            [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] ||
+            ! "$HARD_MEMORY_SCOPE_WRAPPER" \
+                --label "safe rebuild containing CI read-back" \
+                --verify-only -- >/dev/null; then
+
+            echo -e "${RED}ERROR: containing CI scope markers or kernel read-back are invalid.${NC}" >&2
+            echo "No compiler or helper build was started." >&2
+            exit 126
+        fi
+        SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE=1
+        export SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE
+        echo -e "${YELLOW}Using the read-back-verified containing CI cgroup as the rebuild aggregate scope.${NC}"
+    else
+        prepare_bounded_wine_prefix_template || exit $?
+        enter_rebuild_kernel_scope
+    fi
 fi
 if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ]; then
     echo -e "${RED}ERROR: aggregate rebuild cgroup marker was forged or lost.${NC}" >&2
@@ -3250,6 +3301,7 @@ if [ "${SEEN_SKIP_PREBUILD_GATES:-0}" != "1" ]; then
     if ! run_guarded_command_to_log_with_failure_watch "prebuild gates" 900 "$MAIN_COMPILER_VMEM_KB" \
         /tmp/safe_rebuild_prebuild_gates.log \
         env SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_DEFER_SELFHOSTED_ABI_SMOKE=1 \
             bash "$SCRIPT_DIR/seen_prebuild_gates.sh"; then
         echo -e "${RED}ERROR: prebuild gates failed.${NC}"
         tail_log_if_exists /tmp/safe_rebuild_prebuild_gates.log 30
@@ -3614,7 +3666,8 @@ if [ "$HOST_OS" = "Darwin" ]; then
     # eliminated by opt) but still produce a full .opt.ll set we can relink in step 1b.
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
-        env -u SEEN_FORK_SERIALIZER_ROOT_PID -u SEEN_PACKAGE_CLIENT \
+        env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+            SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
             SEEN_FROZEN_IR_COMPAT=1 \
             LD_PRELOAD="$FORK_SERIALIZER_SO" \
             SEEN_FORK_SERIALIZER_TARGET="$FROZEN_ABS" \
@@ -3644,13 +3697,14 @@ else
     rm -rf "$SNAPSHOT_DIR"
 
     FROZEN_COMPILE_ENV=(env -u SEEN_FORK_SERIALIZER_ROOT_PID \
-        -u SEEN_PACKAGE_CLIENT \
+        "SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT" \
         "SEEN_FROZEN_IR_COMPAT=1" \
         "PATH=$OPT_WRAPPER_DIR:$PATH" \
         "SEEN_COMPILER_SOURCE_ROOT=$BOOTSTRAP_SOURCE_ROOT")
     if [ -n "$FORK_SERIALIZER_SO" ]; then
         FROZEN_COMPILE_ENV+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
         FROZEN_COMPILE_ENV+=("SEEN_FORK_SERIALIZER_TARGET=$FROZEN_ABS")
+        FROZEN_COMPILE_ENV+=("SEEN_FORK_SERIALIZER_DESCENDANT_SCRIPT=/tmp/seen_parallel_opt.sh")
     fi
 
     # Start compiler in background
@@ -4203,6 +4257,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
     if run_with_progress "S2→S3" /tmp/safe_rebuild_stage3.log \
         env -u SEEN_FORK_SERIALIZER_ROOT_PID \
         SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+        SEEN_COMPILER_SOURCE_ROOT="$REPO_ROOT" \
         LD_PRELOAD="$FORK_SERIALIZER_SO" \
         SEEN_FORK_SERIALIZER_TARGET="$STAGE2" \
         "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" "${STAGE3_COMPILE_FLAGS[@]}"; then
@@ -4300,6 +4355,7 @@ else
     if run_guarded_command_to_log_with_failure_watch "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3.log \
         env -u SEEN_FORK_SERIALIZER_ROOT_PID \
         SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+        SEEN_COMPILER_SOURCE_ROOT="$REPO_ROOT" \
         LD_PRELOAD="$FORK_SERIALIZER_SO" \
         SEEN_FORK_SERIALIZER_TARGET="$STAGE2" \
         "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" "${STAGE3_COMPILE_FLAGS[@]}" \

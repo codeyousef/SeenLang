@@ -127,6 +127,44 @@ entry:
   ret void
 }
 
+define %SeenString @aggregate_literal_return_repair() {
+entry:
+  ret %SeenString 1
+}
+
+define i1 @floating_comparison_opcode_repair() {
+entry:
+  %1 = call double @returns_double()
+  %2 = sitofp i64 1 to double
+  %3 = icmp ne i64 %1, %2
+  ret i1 %3
+}
+
+define void @fileFailure() alwaysinline {
+entry:
+  ret void
+}
+
+define i64 @file_failure_stub_repair() {
+entry:
+  call void @fileFailure(%SeenString zeroinitializer, %SeenString zeroinitializer, i64 0)
+  ret i64 %99
+}
+
+declare i64 @interpretAstNodeMember(i64, %SeenString, ptr)
+declare i64 @interpretStringMember(%SeenString, %SeenString, ptr)
+declare i64 @interpretArrayMember(ptr, %SeenString, ptr)
+
+define i64 @comptime_stub_arity_repair() {
+entry:
+  %1 = call i64 @interpretAstNodeMember(i64 0)
+  %2 = call i64 @interpretStringMember(i64 0)
+  %3 = call i64 @interpretArrayMember(i64 0)
+  %4 = add i64 %1, %2
+  %5 = add i64 %4, %3
+  ret i64 %5
+}
+
 define void @float_call_literal_repairs() {
 entry:
   %1 = call %SeenString @seen_float_to_string(double 0)
@@ -531,6 +569,13 @@ grep -q 'getelementptr i8, ptr null' "$IR_FILE"
 grep -q 'insertvalue %SeenString zeroinitializer' "$IR_FILE"
 grep -q 'store i64 8, ptr' "$IR_FILE"
 grep -q 'fcmp olt double 0.0, 1.0' "$IR_FILE"
+grep -q 'ret %SeenString zeroinitializer' "$IR_FILE"
+grep -q 'fcmp une double %1, %2' "$IR_FILE"
+grep -q 'define void @fileFailure(%SeenString, %SeenString, i64)' "$IR_FILE"
+grep -q 'ret i64 0' "$IR_FILE"
+grep -q 'call i64 @interpretAstNodeMember(i64 0, %SeenString zeroinitializer, ptr null)' "$IR_FILE"
+grep -q 'call i64 @interpretStringMember(%SeenString zeroinitializer, %SeenString zeroinitializer, ptr null)' "$IR_FILE"
+grep -q 'call i64 @interpretArrayMember(ptr null, %SeenString zeroinitializer, ptr null)' "$IR_FILE"
 grep -q 'call %SeenString @seen_float_to_string(double 0.0)' "$IR_FILE"
 grep -q 'call void @takes_float(float 0.0)' "$IR_FILE"
 grep -q 'call void @takes_double(double 0.0)' "$IR_FILE"

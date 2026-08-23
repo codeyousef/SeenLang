@@ -150,13 +150,19 @@ if ! is_positive_integer "$total_kb" || ! is_positive_integer "$available_kb"; t
     exit 126
 fi
 
-derived_rss_kb=$((total_kb * 60 / 100))
+total_ceiling_kb=$((total_kb * 60 / 100))
+derived_rss_kb=$total_ceiling_kb
 system_reserve_kb=$((total_kb * 10 / 100))
 available_cap_kb=$((available_kb - system_reserve_kb))
 if [ "$available_cap_kb" -lt 1 ]; then
     available_cap_kb=$((available_kb / 2))
 fi
-if [ "$derived_rss_kb" -gt "$available_cap_kb" ]; then
+# Scope creation must account for current availability. A verify-only child is
+# re-reading an already-installed, entry-derived cgroup limit; MemAvailable can
+# legitimately fall while that scope is running. Keep the read-back bounded by
+# the stable total-memory ceiling while the owning guard continues enforcing
+# the original reserve and exact cgroup limits.
+if [ "$VERIFY_ONLY" = "0" ] && [ "$derived_rss_kb" -gt "$available_cap_kb" ]; then
     derived_rss_kb=$available_cap_kb
 fi
 if [ "$derived_rss_kb" -lt 1 ]; then

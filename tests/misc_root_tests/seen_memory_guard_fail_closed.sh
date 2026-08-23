@@ -104,6 +104,18 @@ fi
 seen_serial_auxiliary_prepare "$ROOT_DIR" "$TEST_ROOT" ||
     fail "could not restore serial auxiliary settings"
 
+# A nested rebuild rebinds its validated artifact root after required CI has
+# already prepared the outer scope. The fixed policy must be materialized and
+# read back at the new root; inheriting the outer path is not evidence.
+rebound_auxiliary_root="$TEST_ROOT/rebound-artifacts"
+mkdir -p -- "$rebound_auxiliary_root"
+seen_serial_auxiliary_prepare "$ROOT_DIR" "$rebound_auxiliary_root" ||
+    fail "could not prepare serial auxiliary settings after artifact-root rebind"
+seen_serial_auxiliary_verify "$ROOT_DIR" "$rebound_auxiliary_root" ||
+    fail "rebound serial auxiliary settings failed verification"
+[ "$RIPGREP_CONFIG_PATH" = "$rebound_auxiliary_root/auxiliary-limits/ripgrep.conf" ] ||
+    fail "rebound serial auxiliary settings retained the outer configuration path"
+
 supervisor_tmp="$TEST_ROOT/remove-empty-supervisor"
 shared_nested_tmp="$TEST_ROOT/shared-nested-tool-tmp"
 remove_flag_record="$TEST_ROOT/remove-empty-child.env"
@@ -324,6 +336,11 @@ grep -Fq 'recorded pids.max differs from the active cgroup read-back' \
 grep -Fq 'active cgroup memory.max exceeds the current-memory-derived cap' \
     "$SERIALIZER_VERIFY" ||
     fail "active serializer scope is not checked against the derived cap"
+grep -Fq 'total_ceiling_kb=$((total_kb * 60 / 100))' "$HARD_SCOPE" ||
+    fail "nested scope read-back lacks a stable total-memory ceiling"
+grep -Fq 'if [ "$VERIFY_ONLY" = "0" ] && [ "$derived_rss_kb" -gt "$available_cap_kb" ]' \
+    "$HARD_SCOPE" ||
+    fail "scope creation no longer derives its cap from current availability"
 grep -Fq 'fork serializer target rejection self-test' "$SAFE_REBUILD" ||
     fail "serializer attestation omits mismatched-target rejection"
 
@@ -574,6 +591,18 @@ grep -Fq 'safe_rebuild_assert_checkout_output "$relative_path"' "$SAFE_REBUILD" 
     fail "safe rebuild install endpoints are not checked"
 grep -Fq 'safe_rebuild_install_checkout_file "$VERIFIED"' "$SAFE_REBUILD" ||
     fail "full rebuild install bypasses atomic safe installation"
+grep -Fq 'SEEN_DEFER_SELFHOSTED_ABI_SMOKE=1' "$SAFE_REBUILD" ||
+    fail "clean full rebuild does not defer ABI smoke until a fresh candidate exists"
+grep -Fq 'SEEN_SELFHOSTED_ABI_COMPILER="$REAL_COMPILER"' \
+    "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
+    fail "fresh-candidate acceptance does not bind the self-hosted ABI smoke"
+grep -Fq 'SEEN_COMPILER_SOURCE_ROOT="$ROOT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||
+    fail "self-hosted ABI smoke does not bind the compiler source root"
+grep -Fq 'cd "$PROJECT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||
+    fail "self-hosted ABI smoke does not preserve project module resolution"
+grep -Fq 'compile main.seen "$OUTPUT_FILE" --fast --no-cache' \
+    "$SELFHOSTED_ABI_SMOKE" ||
+    fail "self-hosted ABI smoke does not compile the project entry"
 if grep -Fq 'eval ' "$ROOT_DIR/scripts/run_all_tests.sh"; then
     fail "legacy all-tests still executes interpolated compiler commands with eval"
 fi

@@ -72,7 +72,11 @@ python3 -m py_compile \
     scripts/check_native_boundaries.py \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
-    scripts/check_ci_containment.py
+    scripts/check_ci_containment.py \
+    scripts/check_gate0_certification.py \
+    scripts/benchmark_gate0_certification.py \
+    scripts/measure_gate0_certification_coverage.py \
+    tests/runner/test_gate0_certification_unit.py
 python3 -m py_compile \
     scripts/check_release_artifact_manifest.py \
     scripts/benchmark_release_artifact_manifest.py \
@@ -111,6 +115,7 @@ tests/misc_root_tests/seen_benchmark_evidence_contract.sh
 tests/misc_root_tests/seen_leak_soak_contract.sh
 tests/misc_root_tests/seen_bootstrap_reproducibility_contract.sh
 tests/misc_root_tests/seen_release_artifact_pins_contract.sh
+tests/misc_root_tests/seen_gate0_certification_contract.sh
 python3 scripts/benchmark_compatibility_runtime.py \
     releases/compatibility-manifest.json \
     tests/fixtures/core-002b/happy/benchmark.json
@@ -125,5 +130,7 @@ tests/misc_root_tests/seen_ci_required_wiring.sh
 tests/misc_root_tests/seen_memory_guard_fail_closed.sh
 tests/misc_root_tests/seen_low_task_helper_serialization.sh
 git diff --check
+
+scripts/certify_gate0_clean_checkout.sh
 
 echo "PASS: required CI gates"

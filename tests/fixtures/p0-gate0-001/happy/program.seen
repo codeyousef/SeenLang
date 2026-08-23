@@ -1,0 +1,6 @@
+fun main() r: Int {
+    println("PASS: P0-GATE0-001_clean-checkout-program")
+    return 0
+}
+
+main()
