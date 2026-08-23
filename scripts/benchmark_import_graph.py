@@ -68,21 +68,21 @@ def main() -> int:
             fail("benchmark iteration or ratio bound is invalid")
 
         def candidate_sample() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 if checker.parse_and_resolve(raw, 1_048_576, 4096, 65_536, 4096) != expected:
                     fail("import-graph resolution changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         document = json.loads(raw)
 
         def control_sample() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 parsed = json.loads(raw)
                 if parsed != document:
                     fail("control parse changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         for _ in range(5):
             candidate_sample()

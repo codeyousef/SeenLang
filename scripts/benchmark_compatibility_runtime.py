@@ -73,7 +73,7 @@ def main() -> int:
             fail("benchmark iteration or baseline bounds are invalid")
 
         def candidate_sample() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 parsed = checker.parse_and_validate(expected, 1024 * 1024)
                 generated = (
@@ -81,10 +81,10 @@ def main() -> int:
                 ).encode("utf-8")
                 if generated != expected:
                     fail("generate/consume bytes changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         def control_sample() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 parsed = json.loads(expected)
                 generated = (
@@ -92,7 +92,7 @@ def main() -> int:
                 ).encode("utf-8")
                 if generated != expected:
                     fail("control generate/consume bytes changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         for _ in range(5):
             candidate_sample()

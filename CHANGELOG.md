@@ -188,10 +188,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restricted the hour-long required CI certification to pushes on `main`,
   eliminating the duplicate full run previously triggered for every pull
   request targeting `main`.
-- Measured the TEST-002D leak/soak checker regression with current-thread CPU
-  time so hosted-runner descheduling cannot create false performance failures;
-  the adjacent-pair reduction, five warmups, 30 samples, 1,000 iterations, and
-  hard five-percent ceiling remain unchanged.
+- Measured CPU validation microbenchmarks with current-thread CPU time so
+  hosted-runner descheduling cannot create false performance failures. A
+  required static contract covers every benchmark script; their five warmups,
+  30 samples, iteration counts, baselines, and hard five-percent ceilings
+  remain unchanged.
 - Included the validated canonical compatibility manifest beside `bin/seen`
   in Linux release archives and derived installers, restoring fail-closed
   packaged `check`, `compile`, and `pkg prebuild` behavior.

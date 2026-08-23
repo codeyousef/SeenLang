@@ -21,17 +21,17 @@ def main():
         if not isinstance(iterations, int) or not 1 <= iterations <= 10000:
             raise ValueError("invalid iteration count")
         def candidate():
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 if checker.validate(raw) != expected: raise ValueError("validation changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
         def reference():
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 value = json.loads(raw)
                 if value["schema"] != checker.SCHEMA or len(value["steps"]) != 4 or len(value["platforms"]) != 4:
                     raise ValueError("control changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
         for _ in range(5): candidate(); reference()
         candidates, references = [], []
         for index in range(30):

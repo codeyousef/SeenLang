@@ -69,18 +69,18 @@ def main() -> int:
             fail("benchmark iteration or ratio bound is invalid")
 
         def candidate_sample() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 if checker.validate(raw) != expected:
                     fail("structured-error validation changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         def control_sample() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 if json.loads(raw) != control_expected:
                     fail("control parse changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         for _ in range(5):
             candidate_sample()

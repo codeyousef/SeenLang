@@ -22,19 +22,19 @@ def main():
         if not isinstance(iterations, int) or not 1 <= iterations <= 10000:
             raise ValueError("invalid iteration count")
         def candidate():
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 if checker.validate(raw) != expected:
                     raise ValueError("validation changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
         def reference():
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 value = json.loads(raw)
                 samples = sorted(value["samples_ns"])
                 if set(value) != checker.FIELDS or (samples[14] + samples[15]) // 2 != value["median_ns"] or value["cgroup"] != control["cgroup"]:
                     raise ValueError("control changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
         for _ in range(5):
             candidate(); reference()
         candidates, references = [], []

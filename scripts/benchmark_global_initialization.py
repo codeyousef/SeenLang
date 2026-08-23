@@ -57,20 +57,20 @@ def main() -> int:
             fail("benchmark ratio bound is invalid")
 
         def candidate() -> int:
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 if checker.parse_and_plan(raw, 1_048_576, 4096, 65_536, 4096) != expected:
                     fail("global-initialization plan changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
 
         document = json.loads(raw)
 
         def control() -> int:
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 if json.loads(raw) != document:
                     fail("control parse changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
 
         for _ in range(5):
             candidate()

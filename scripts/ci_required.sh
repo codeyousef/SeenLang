@@ -105,6 +105,7 @@ tests/misc_root_tests/seen_test_reporters_contract.sh
 tests/misc_root_tests/seen_test_migration_contract.sh
 tests/misc_root_tests/seen_error_contract.sh
 tests/misc_root_tests/seen_typed_errors_contract.sh
+tests/misc_root_tests/seen_cpu_benchmark_clock_contract.sh
 tests/misc_root_tests/seen_error_api_migration.sh
 tests/misc_root_tests/seen_error_policy_contract.sh
 tests/misc_root_tests/seen_owned_resource_contract.sh

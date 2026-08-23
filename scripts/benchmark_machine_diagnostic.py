@@ -49,18 +49,18 @@ def main() -> int:
         document = json.loads(raw)
 
         def candidate() -> int:
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 if checker.parse_and_validate(raw) != expected:
                     raise ValueError("machine diagnostic changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
 
         def control() -> int:
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 if json.loads(raw) != document:
                     raise ValueError("control parse changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
 
         for _ in range(5):
             candidate(); control()

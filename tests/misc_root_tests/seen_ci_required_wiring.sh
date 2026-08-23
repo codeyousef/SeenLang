@@ -108,6 +108,7 @@ for required_command in \
     'tests/misc_root_tests/seen_compatibility_manifest_contract.sh' \
     'tests/misc_root_tests/seen_native_boundaries_ledger.sh' \
     'tests/misc_root_tests/seen_native_inventory_gate.sh' \
+    'tests/misc_root_tests/seen_cpu_benchmark_clock_contract.sh' \
     'tests/misc_root_tests/seen_ci_workflow_contract.sh' \
     'tests/misc_root_tests/seen_ci_containment_contract.sh' \
     'tests/misc_root_tests/seen_gate0_certification_contract.sh' \

@@ -15,14 +15,14 @@ def main() -> int:
         if not isinstance(baseline,dict) or set(baseline)!=required or baseline["version"]!=1 or baseline["warmups"]!=5 or baseline["samples"]!=30 or baseline["max_regression_percent"]!=5: raise ValueError("policy must be v1 5/30/5")
         iterations=baseline["iterations_per_sample"]; document=json.loads(raw)
         def candidate() -> int:
-            start=time.perf_counter_ns()
+            start=time.thread_time_ns()
             for _ in range(iterations):
                 if checker.validate(raw)!=expected: raise ValueError("changed")
-            return time.perf_counter_ns()-start
+            return time.thread_time_ns()-start
         def control() -> int:
-            start=time.perf_counter_ns()
+            start=time.thread_time_ns()
             for _ in range(iterations): json.loads(raw)==document or (_ for _ in ()).throw(ValueError("changed"))
-            return time.perf_counter_ns()-start
+            return time.thread_time_ns()-start
         for _ in range(5): candidate(); control()
         cs=[]; ks=[]
         for i in range(30):

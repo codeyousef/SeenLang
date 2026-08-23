@@ -20,17 +20,17 @@ def main():
         iterations = baseline["iterations_per_sample"]
         if not isinstance(iterations, int) or not 1 <= iterations <= 10000: raise ValueError("invalid iteration count")
         def candidate():
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 if checker.parse(raw) != expected: raise ValueError("validation changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
         def reference():
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 value = json.loads(raw); artifacts = value["artifacts"]
                 if len(artifacts) != 4 or [item["role"] for item in artifacts] != list(checker.ROLES): raise ValueError("control changed")
                 if any(len(item["sha256"]) != 64 for item in artifacts) or value["source_digest"] != control["source_digest"]: raise ValueError("control changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
         for _ in range(5): candidate(); reference()
         candidates, references = [], []
         for index in range(30):

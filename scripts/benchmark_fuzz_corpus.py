@@ -9,12 +9,12 @@ def main():
   if set(b)!={"baseline_ratio_ppm","iterations_per_sample","max_regression_percent","samples","version","warmups"} or b["version"]!=1 or b["warmups"]!=5 or b["samples"]!=30 or b["max_regression_percent"]!=5: raise ValueError("invalid 5/30/5 baseline")
   n=b["iterations_per_sample"]
   def candidate():
-   start=time.perf_counter_ns()
+   start=time.thread_time_ns()
    for _ in range(n):
     if c.validate(raw,a.corpus.parent)!=expected: raise ValueError("validation changed")
-   return time.perf_counter_ns()-start
+   return time.thread_time_ns()-start
   def reference():
-   start=time.perf_counter_ns()
+   start=time.thread_time_ns()
    for _ in range(n):
     parsed=json.loads(raw)
     if parsed!=control: raise ValueError("control changed")
@@ -22,7 +22,7 @@ def main():
     for entry in parsed["entries"]:
      path=cases/(entry["sha256"]+".bin"); path.resolve(strict=True); path.lstat(); payload=path.read_bytes()
      if len(payload)!=entry["minimized_bytes"] or hashlib.sha256(payload).hexdigest()!=entry["sha256"]: raise ValueError("control payload changed")
-   return time.perf_counter_ns()-start
+   return time.thread_time_ns()-start
   for _ in range(5): candidate(); reference()
   cs=[]; rs=[]
   for i in range(30):
