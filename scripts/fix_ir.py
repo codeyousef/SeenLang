@@ -1432,6 +1432,49 @@ def fix_scalar_literal_and_text_repairs(content):
     return '\n'.join(lines)
 
 
+def fix_frozen_bootstrap_stub_paths(content):
+    """Make four known dead/error paths from the immutable seed valid IR.
+
+    These shapes occur only in captured frozen Stage-1 output. Stage 2 is a
+    compatibility compiler and is never production-eligible; the unmodified
+    Stage-3 rebuild and acceptance suite remain the semantic authority.
+    """
+    content = re.sub(
+        r'^(\s*ret\s+%[A-Za-z_][A-Za-z0-9_.]*\s+)'
+        r'(?:true|false|null|-?(?:0x[0-9A-Fa-f]+|\d+))\s*$',
+        r'\1zeroinitializer',
+        content,
+        flags=re.MULTILINE,
+    )
+    content = re.sub(
+        r'^define void @fileFailure\(\)(.*)$',
+        r'define void @fileFailure(%SeenString, %SeenString, i64)\1',
+        content,
+        flags=re.MULTILINE,
+    )
+    content = re.sub(
+        r'(^\s*call void @fileFailure\([^\n]*\)\n)(\s*)ret i64 %\d+\s*$',
+        r'\1\2ret i64 0',
+        content,
+        flags=re.MULTILINE,
+    )
+    missing_comptime_args = {
+        'interpretAstNodeMember':
+            'i64 0, %SeenString zeroinitializer, ptr null',
+        'interpretStringMember':
+            '%SeenString zeroinitializer, %SeenString zeroinitializer, ptr null',
+        'interpretArrayMember':
+            'ptr null, %SeenString zeroinitializer, ptr null',
+    }
+    for name, arguments in missing_comptime_args.items():
+        content = re.sub(
+            rf'(@{re.escape(name)}\()i64 0(\))',
+            rf'\g<1>{arguments}\g<2>',
+            content,
+        )
+    return content
+
+
 def fix_ret_void_values(content):
     """Drop invalid operands from `ret void` instructions."""
     lines = []
@@ -2265,6 +2308,26 @@ def _fix_function_types(func_lines):
             left_val = icmp_m.group(5).strip()
             right_val = icmp_m.group(6).strip()
 
+            left_actual = (reg_types.get(left_val)
+                           if left_val.startswith('%') else None)
+            right_actual = (reg_types.get(right_val)
+                            if right_val.startswith('%') else None)
+            float_predicates = {
+                'eq': 'oeq', 'ne': 'une',
+                'slt': 'olt', 'ult': 'olt',
+                'sle': 'ole', 'ule': 'ole',
+                'sgt': 'ogt', 'ugt': 'ogt',
+                'sge': 'oge', 'uge': 'oge',
+            }
+            if (left_actual in ('float', 'double') and
+                    right_actual == left_actual and
+                    pred in float_predicates):
+                fixed = (f'{indent}{out_reg} = fcmp '
+                         f'{float_predicates[pred]} {left_actual} '
+                         f'{left_val}, {right_val}')
+                reg_types[out_reg] = 'i1'
+                icmp_m = None
+
             def coerce_icmp_operand(val):
                 if stated == 'i1' and val == '0':
                     return 'false'
@@ -2293,11 +2356,12 @@ def _fix_function_types(func_lines):
                     return cast_reg
                 return val
 
-            new_left = coerce_icmp_operand(left_val)
-            new_right = coerce_icmp_operand(right_val)
-            if new_left != left_val or new_right != right_val:
-                fixed = f'{indent}{out_reg} = icmp {pred} {stated} {new_left}, {new_right}'
-                reg_types[out_reg] = 'i1'
+            if icmp_m:
+                new_left = coerce_icmp_operand(left_val)
+                new_right = coerce_icmp_operand(right_val)
+                if new_left != left_val or new_right != right_val:
+                    fixed = f'{indent}{out_reg} = icmp {pred} {stated} {new_left}, {new_right}'
+                    reg_types[out_reg] = 'i1'
 
         # Fix icmp type mismatches: icmp ne i64 %N, 0 where %N is i1
         im = re.search(r'(icmp\s+\w+\s+)(i64)(\s+%\d+)', fixed)
@@ -3453,6 +3517,7 @@ def fix_all(content, all_module_files=None):
     content = fix_lsp_json_string_abi(content)
     content = fix_arr_get_element_ptr(content)
     content = fix_scalar_literal_and_text_repairs(content)
+    content = fix_frozen_bootstrap_stub_paths(content)
     content = fix_ret_void_values(content)
     content = fix_unassigned_nonvoid_calls(content)
     content = fix_missing_local_register_uses(content)
