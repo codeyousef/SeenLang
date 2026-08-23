@@ -40,6 +40,8 @@ invocation uses the v2 object-cache namespace; the Stage-2 compiler it produces
 and every ordinary compiler command use the live v3 namespace. The guarded
 invocation receives the already-built, version-matched package helper because
 the refreshed seed enforces the same package-client coupling as production.
+Stage 2 is then bound to the live checkout root for its Stage-3 build, so its
+v3 compatibility validation cannot accidentally reuse the seed's v2 manifest.
 
 `scripts/safe_rebuild.sh` has three tiers:
 

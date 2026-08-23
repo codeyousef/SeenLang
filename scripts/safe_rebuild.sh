@@ -4257,6 +4257,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
     if run_with_progress "S2→S3" /tmp/safe_rebuild_stage3.log \
         env -u SEEN_FORK_SERIALIZER_ROOT_PID \
         SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+        SEEN_COMPILER_SOURCE_ROOT="$REPO_ROOT" \
         LD_PRELOAD="$FORK_SERIALIZER_SO" \
         SEEN_FORK_SERIALIZER_TARGET="$STAGE2" \
         "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" "${STAGE3_COMPILE_FLAGS[@]}"; then
@@ -4354,6 +4355,7 @@ else
     if run_guarded_command_to_log_with_failure_watch "S2->S3" 1800 "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3.log \
         env -u SEEN_FORK_SERIALIZER_ROOT_PID \
         SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+        SEEN_COMPILER_SOURCE_ROOT="$REPO_ROOT" \
         LD_PRELOAD="$FORK_SERIALIZER_SO" \
         SEEN_FORK_SERIALIZER_TARGET="$STAGE2" \
         "$STAGE2" compile "$COMPILER_SOURCE" "$STAGE3" "${STAGE3_COMPILE_FLAGS[@]}" \
