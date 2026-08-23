@@ -181,6 +181,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Paired frozen bootstrap compilers with a hash-pinned package-client source
+  snapshot from the same Seen version. Release transitions build that helper
+  inside the verified scope, while fresh candidates retain the live helper;
+  compiler/sidecar version mismatches still fail closed.
 - Hosted clean-checkout certification now provisions a coherent pinned LLVM 20
   toolchain with matching sanitizer and profile runtimes, Vulkan linker input,
   and a symbol-audited loader bridge for the legacy frozen compiler's unused

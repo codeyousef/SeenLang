@@ -48,6 +48,7 @@ BOUNDED_TOOLCHAIN_DIR=""
 BOOTSTRAP_SOURCE_ROOT=""
 BOOTSTRAP_PREFLIGHT_DONE=0
 FROZEN_ABS=""
+FROZEN_PACKAGE_CLIENT=""
 BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 REBUILD_TIER="full"
 CLEAN_CACHE=0
@@ -1465,6 +1466,57 @@ prepare_bootstrap_source_overlay() {
     echo -e "${YELLOW}Bootstrap source view enabled: all Seen source bytes verified unchanged.${NC}"
 }
 
+prepare_frozen_package_client() {
+    local archive="$REPO_ROOT/bootstrap/stage1_frozen.seen-pkg-source.tar.gz"
+    local archive_hash="$REPO_ROOT/bootstrap/stage1_frozen.seen-pkg-source.sha256"
+    local source_root="$REBUILD_WORK_ROOT/frozen-package-client-source"
+    local package_dir="$source_root/tools/seen-pkg"
+    local output="$REBUILD_WORK_ROOT/frozen-package-client/seen-pkg"
+    local frozen_version handshake expected_handshake
+
+    [ -f "$archive" ] && [ ! -L "$archive" ] &&
+        [ -f "$archive_hash" ] && [ ! -L "$archive_hash" ] || {
+        echo -e "${RED}ERROR: frozen package-client source or hash is missing.${NC}" >&2
+        return 1
+    }
+    verify_hash "$archive_hash" || {
+        echo -e "${RED}ERROR: frozen package-client source integrity check failed.${NC}" >&2
+        return 1
+    }
+    frozen_version=$(python3 -c \
+        'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["components"]["package_client"]["version"])' \
+        "$REPO_ROOT/bootstrap/stage1_frozen.compatibility-manifest.json") || return 1
+    case "$frozen_version" in
+        ''|*[!0-9A-Za-z.+-]*)
+            echo -e "${RED}ERROR: frozen package-client version is invalid.${NC}" >&2
+            return 1
+            ;;
+    esac
+
+    rm -rf -- "$source_root" "$REBUILD_WORK_ROOT/frozen-package-client"
+    mkdir -p "$source_root" "$(dirname "$output")"
+    tar -xzf "$archive" --no-same-owner --no-same-permissions -C "$source_root" || return 1
+    [ -d "$package_dir" ] && [ ! -L "$package_dir" ] || {
+        echo -e "${RED}ERROR: frozen package-client source layout is invalid.${NC}" >&2
+        return 1
+    }
+    run_guarded_command "frozen package client build" 600 "$OPT_VMEM_KB" \
+        "$SCRIPT_DIR/build_package_client.sh" \
+            --version "$frozen_version" --package-dir "$package_dir" \
+            --output "$output" || return 1
+    if ! handshake=$("$output" --expect-version "$frozen_version" version --machine 2>&1); then
+        echo -e "${RED}ERROR: frozen package-client version handshake failed.${NC}" >&2
+        return 1
+    fi
+    expected_handshake=$(printf 'protocol=SEENPKG1\nversion=%s' "$frozen_version")
+    [ "$handshake" = "$expected_handshake" ] || {
+        echo -e "${RED}ERROR: frozen package-client returned a malformed handshake.${NC}" >&2
+        return 1
+    }
+    FROZEN_PACKAGE_CLIENT="$output"
+    echo -e "${YELLOW}Frozen package client verified: Seen $frozen_version.${NC}"
+}
+
 cleanup_bootstrap_source_overlay() {
     if [ -n "$BOOTSTRAP_SOURCE_ROOT" ] && [ "$BOOTSTRAP_SOURCE_ROOT" != "$REPO_ROOT" ]; then
         # Hardened package views are read-only. Restore owner write permission
@@ -2272,6 +2324,7 @@ ensure_bootstrap_preflight() {
     fi
 
     prepare_bootstrap_source_overlay
+    prepare_frozen_package_client || return 1
     if [ "$BOOTSTRAP_SOURCE_ROOT" != "$REPO_ROOT" ] && [ -f "$BOOTSTRAP_SOURCE_ROOT/$FROZEN" ]; then
         FROZEN_ABS="$BOOTSTRAP_SOURCE_ROOT/$FROZEN"
     else
@@ -2761,9 +2814,8 @@ prepare_package_client() {
         return 1
     fi
 
-    # Keep the source-version helper distinct from candidate state. Quick and
-    # verify pass it only to an exact-version builder; full-tier legacy/frozen
-    # builders run with SEEN_PACKAGE_CLIENT unset.
+    # Keep the source-version helper distinct from the independently pinned
+    # frozen helper. Quick/verify and fresh full-tier candidates use this one.
     SOURCE_PACKAGE_CLIENT_VERSION="$expected_version"
     SOURCE_PACKAGE_CLIENT="$helper"
     PACKAGE_CLIENT_BUILD_OUTPUT="$SOURCE_PACKAGE_CLIENT"
@@ -3672,7 +3724,7 @@ if [ "$HOST_OS" = "Darwin" ]; then
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
         env -u SEEN_FORK_SERIALIZER_ROOT_PID \
-            SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_PACKAGE_CLIENT="$FROZEN_PACKAGE_CLIENT" \
             SEEN_FROZEN_IR_COMPAT=1 \
             LD_PRELOAD="$FORK_SERIALIZER_SO" \
             SEEN_FORK_SERIALIZER_TARGET="$FROZEN_ABS" \
@@ -3702,7 +3754,7 @@ else
     rm -rf "$SNAPSHOT_DIR"
 
     FROZEN_COMPILE_ENV=(env -u SEEN_FORK_SERIALIZER_ROOT_PID \
-        "SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT" \
+        "SEEN_PACKAGE_CLIENT=$FROZEN_PACKAGE_CLIENT" \
         "SEEN_FROZEN_IR_COMPAT=1" \
         "PATH=$OPT_WRAPPER_DIR:$PATH" \
         "SEEN_COMPILER_SOURCE_ROOT=$BOOTSTRAP_SOURCE_ROOT")

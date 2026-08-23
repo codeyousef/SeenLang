@@ -606,6 +606,14 @@ deferred_abi_smoke_count=$(grep -Fc 'SEEN_DEFER_SELFHOSTED_ABI_SMOKE=1' "$SAFE_R
 grep -Fq 'SEEN_SELFHOSTED_ABI_COMPILER="$REAL_COMPILER"' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-candidate acceptance does not bind the self-hosted ABI smoke"
+grep -Fq 'verify_hash "$archive_hash"' "$SAFE_REBUILD" ||
+    fail "frozen package-client source is not hash verified"
+grep -Fq 'SEEN_PACKAGE_CLIENT="$FROZEN_PACKAGE_CLIENT"' "$SAFE_REBUILD" ||
+    fail "macOS frozen bootstrap does not use the version-matched package client"
+grep -Fq '"SEEN_PACKAGE_CLIENT=$FROZEN_PACKAGE_CLIENT"' "$SAFE_REBUILD" ||
+    fail "Linux frozen bootstrap does not use the version-matched package client"
+grep -Fq -- '--package-dir "$package_dir"' "$SAFE_REBUILD" ||
+    fail "frozen package-client build is not bound to the pinned source snapshot"
 grep -Fq 'SEEN_COMPILER_SOURCE_ROOT="$ROOT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||
     fail "self-hosted ABI smoke does not bind the compiler source root"
 grep -Fq 'cd "$PROJECT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||

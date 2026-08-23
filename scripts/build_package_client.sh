@@ -15,6 +15,7 @@ VERSION=""
 TARGET_OS="${GOOS:-}"
 TARGET_ARCH="${GOARCH:-}"
 OUTPUT=""
+PACKAGE_DIR_OVERRIDE=""
 GO_BIN="${SEEN_GO:-}"
 VMEM_KB="${SEEN_PACKAGE_CLIENT_VMEM_KB:-}"
 
@@ -61,7 +62,7 @@ if [[ -z "$TARGET_ARCH" ]]; then
 fi
 
 usage() {
-    echo "Usage: $0 --version <version> [--goos <os>] [--goarch <arch>] [--output <path>]"
+    echo "Usage: $0 --version <version> [--goos <os>] [--goarch <arch>] [--output <path>] [--package-dir <path>]"
     echo ""
     echo "Environment:"
     echo "  SEEN_GO                      Go executable (default: go from PATH)"
@@ -74,10 +75,32 @@ while [[ $# -gt 0 ]]; do
         --goos) TARGET_OS="$2"; shift 2 ;;
         --goarch) TARGET_ARCH="$2"; shift 2 ;;
         --output) OUTPUT="$2"; shift 2 ;;
+        --package-dir) PACKAGE_DIR_OVERRIDE="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
 done
+
+if [[ -n "$PACKAGE_DIR_OVERRIDE" ]]; then
+    if [[ "$PACKAGE_DIR_OVERRIDE" != /* ]]; then
+        PACKAGE_DIR_OVERRIDE="$(pwd)/$PACKAGE_DIR_OVERRIDE"
+    fi
+    case "$PACKAGE_DIR_OVERRIDE" in
+        "$SEEN_ARTIFACT_ROOT"/*) ;;
+        *)
+            echo "Error: package-client source override must stay inside the active artifact scope." >&2
+            exit 2
+            ;;
+    esac
+    package_dir_relative=${PACKAGE_DIR_OVERRIDE#"$ROOT_DIR"/}
+    seen_artifact_assert_safe_relative_path "$package_dir_relative"
+    seen_artifact_assert_no_symlink_components "$ROOT_DIR" "$package_dir_relative"
+    [[ -d "$PACKAGE_DIR_OVERRIDE" && ! -L "$PACKAGE_DIR_OVERRIDE" ]] || {
+        echo "Error: package-client source override is not a regular directory." >&2
+        exit 2
+    }
+    PACKAGE_DIR="$PACKAGE_DIR_OVERRIDE"
+fi
 
 if [[ -z "$VERSION" || -z "$TARGET_OS" || -z "$TARGET_ARCH" ]]; then
     usage >&2
