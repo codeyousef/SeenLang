@@ -65,10 +65,10 @@ def main() -> int:
             fail("benchmark iteration or baseline bounds are invalid")
 
         def sample() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 checker.validate(manifest)
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         for _ in range(5):
             sample()

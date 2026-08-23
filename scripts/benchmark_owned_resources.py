@@ -40,18 +40,18 @@ def main() -> int:
             raise ValueError("invalid benchmark iterations")
 
         def candidate() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 if checker.evaluate(checker.validate(raw)) != expected:
                     raise ValueError("ownership evaluation changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         def control() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 if json.loads(raw) != control_expected:
                     raise ValueError("control parse changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         for _ in range(5):
             candidate(); control()

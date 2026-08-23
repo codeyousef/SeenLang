@@ -12,19 +12,19 @@ def main():
         iterations = baseline["iterations_per_sample"]
         if not isinstance(iterations, int) or not 1 <= iterations <= 10000: raise ValueError("invalid iteration count")
         def candidate():
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 if checker.validate(raw) != expected: raise ValueError("validation changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
         def reference():
-            start = time.perf_counter_ns()
+            start = time.thread_time_ns()
             for _ in range(iterations):
                 value = json.loads(raw); builders = value["builders"]
                 digests = [value["source_digest"]]
                 for builder in builders:
                     digests.extend([builder["builder_sha256"], builder["build_root_digest"], builder["raw_artifact_sha256"], builder["normalized_artifact_sha256"]])
                 if len(builders) != 2 or any(len(item) != 64 or any(character not in "0123456789abcdef" for character in item) for item in digests) or builders[0]["raw_artifact_sha256"] != builders[1]["raw_artifact_sha256"] or value["source_digest"] != control["source_digest"]: raise ValueError("control changed")
-            return time.perf_counter_ns() - start
+            return time.thread_time_ns() - start
         for _ in range(5): candidate(); reference()
         candidates, references = [], []
         for index in range(30):

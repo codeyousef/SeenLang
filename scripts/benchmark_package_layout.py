@@ -71,7 +71,7 @@ def main() -> int:
             fail("benchmark iteration or ratio bound is invalid")
 
         def candidate_sample() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 parsed = checker.parse_and_validate(expected, 65_536)
                 generated = (
@@ -79,10 +79,10 @@ def main() -> int:
                 ).encode()
                 if generated != expected:
                     fail("package-layout bytes changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         def control_sample() -> int:
-            started = time.perf_counter_ns()
+            started = time.thread_time_ns()
             for _ in range(iterations):
                 parsed = json.loads(expected)
                 generated = (
@@ -90,7 +90,7 @@ def main() -> int:
                 ).encode()
                 if generated != expected:
                     fail("control bytes changed")
-            return time.perf_counter_ns() - started
+            return time.thread_time_ns() - started
 
         for _ in range(5):
             candidate_sample()
