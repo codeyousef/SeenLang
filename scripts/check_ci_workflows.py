@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 WORKFLOW = ".github/workflows/ci.yml"
+RELEASE_WORKFLOW = ".github/workflows/release.yml"
 MAX_FILES_HARD = 256
 MAX_BYTES_HARD = 4 * 1024 * 1024
 EXPECTED_WORKFLOW = """name: CI
@@ -45,6 +46,54 @@ jobs:
         run: scripts/provision_ci_host.sh
       - name: Run required contained gates
         run: scripts/run_ci_required.sh
+""".encode("utf-8")
+EXPECTED_RELEASE_WORKFLOW = """name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: signed-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOTOOLCHAIN: local
+      SEEN_JOBS: 1
+      SEEN_LOW_MEMORY: 1
+      SEEN_OPT_JOBS: 1
+      SEEN_RELEASE_CPU_BASELINE: x86-64
+      SEEN_RELEASE_SIGN_MODE: keyless
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Set up pinned Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Install pinned cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with:
+          cosign-release: 'v3.1.3'
+      - name: Provision required isolation and search tools
+        run: scripts/provision_ci_host.sh
+      - name: Run clean contained certification
+        run: scripts/run_ci_required.sh
+      - name: Build sign and upload release
+        run: scripts/build_and_upload_release.sh "${GITHUB_REF_NAME#v}"
 """.encode("utf-8")
 
 
@@ -127,14 +176,24 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         for path in files
         if path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml"))
     )
-    if workflows != [WORKFLOW]:
-        fail("invalid", f"active workflow set must be exactly {WORKFLOW}")
+    if workflows != [WORKFLOW, RELEASE_WORKFLOW]:
+        fail(
+            "invalid",
+            f"active workflow set must be exactly {WORKFLOW} and {RELEASE_WORKFLOW}",
+        )
     actual = files[WORKFLOW]
     if actual != EXPECTED_WORKFLOW:
         fail(
             "invalid",
             f"{WORKFLOW} differs from the canonical contract at line "
             f"{mismatch_line(actual, EXPECTED_WORKFLOW)}",
+        )
+    release_actual = files[RELEASE_WORKFLOW]
+    if release_actual != EXPECTED_RELEASE_WORKFLOW:
+        fail(
+            "invalid",
+            f"{RELEASE_WORKFLOW} differs from the canonical contract at line "
+            f"{mismatch_line(release_actual, EXPECTED_RELEASE_WORKFLOW)}",
         )
     return {
         "active_workflows": workflows,
@@ -160,6 +219,9 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
             "windows": "static-policy",
         },
         "required_check": "CI / required",
+        "release_cosign": "v3.1.3",
+        "release_signing": "github-oidc-keyless",
+        "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
         "timeout_minutes": 210,
         "version": 2,

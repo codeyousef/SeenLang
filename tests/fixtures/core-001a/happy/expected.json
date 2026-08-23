@@ -1,6 +1,7 @@
 {
   "active_workflows": [
-    ".github/workflows/ci.yml"
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml"
   ],
   "checkout": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
   "gate": "scripts/run_ci_required.sh",
@@ -22,6 +23,9 @@
     "macos": "static-policy",
     "windows": "static-policy"
   },
+  "release_cosign": "v3.1.3",
+  "release_signing": "github-oidc-keyless",
+  "release_workflow": ".github/workflows/release.yml",
   "required_check": "CI / required",
   "runner": "ubuntu-24.04",
   "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
