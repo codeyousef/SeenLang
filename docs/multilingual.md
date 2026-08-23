@@ -1,6 +1,6 @@
 # Multi-language support
 
-Seen 0.10.1 ships complete language packs for English (`en`), Arabic (`ar`),
+Seen 0.11.0 ships complete language packs for English (`en`), Arabic (`ar`),
 Spanish (`es`), Russian (`ru`), Chinese (`zh`), and Japanese (`ja`). A program
 uses the same AST and compiler after the lexer maps a supported localized
 spelling to its canonical token.
@@ -92,7 +92,7 @@ available for each pack.
 
 ## Activated keyword surface
 
-The 0.10.1 lexer recognizes localized spellings whose pack value resolves to
+The 0.11.0 lexer recognizes localized spellings whose pack value resolves to
 one of the following canonical tokens:
 
 - control flow: `fun`, `if`, `else`, `while`, `for`, `in`, `match`, `when`,

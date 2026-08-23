@@ -25,6 +25,24 @@ fail() {
     exit 1
 }
 
+process_is_live_non_zombie() {
+    local pid=${1:-}
+    local stat_line=""
+    local stat_fields=""
+    local process_state=""
+
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$pid" 2>/dev/null || return 1
+    [ -r "/proc/$pid/stat" ] || return 1
+    IFS= read -r stat_line < "/proc/$pid/stat" || return 1
+    stat_fields=${stat_line##*) }
+    process_state=${stat_fields%% *}
+    case "$process_state" in
+        Z|X) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
 source "$ARTIFACT_HELPER" || fail "could not load artifact-root helper"
 seen_artifact_root_init "$ROOT_DIR" || fail "could not initialize artifact root"
 test_scope=$(seen_artifact_scope_init memory-guard-tests) ||
@@ -599,10 +617,21 @@ grep -Fq 'safe_rebuild_assert_checkout_output "$relative_path"' "$SAFE_REBUILD" 
 grep -Fq 'safe_rebuild_install_checkout_file "$VERIFIED"' "$SAFE_REBUILD" ||
     fail "full rebuild install bypasses atomic safe installation"
 grep -Fq 'SEEN_DEFER_SELFHOSTED_ABI_SMOKE=1' "$SAFE_REBUILD" ||
-    fail "clean full rebuild does not defer ABI smoke until a fresh candidate exists"
+    fail "rebuild does not defer prebuild ABI smoke until a fresh candidate exists"
+deferred_abi_smoke_count=$(grep -Fc 'SEEN_DEFER_SELFHOSTED_ABI_SMOKE=1' "$SAFE_REBUILD")
+[ "$deferred_abi_smoke_count" -eq 2 ] ||
+    fail "verify and full rebuilds must both defer ABI smoke to fresh-candidate acceptance"
 grep -Fq 'SEEN_SELFHOSTED_ABI_COMPILER="$REAL_COMPILER"' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-candidate acceptance does not bind the self-hosted ABI smoke"
+grep -Fq 'verify_hash "$archive_hash"' "$SAFE_REBUILD" ||
+    fail "frozen package-client source is not hash verified"
+grep -Fq 'SEEN_PACKAGE_CLIENT="$FROZEN_PACKAGE_CLIENT"' "$SAFE_REBUILD" ||
+    fail "macOS frozen bootstrap does not use the version-matched package client"
+grep -Fq '"SEEN_PACKAGE_CLIENT=$FROZEN_PACKAGE_CLIENT"' "$SAFE_REBUILD" ||
+    fail "Linux frozen bootstrap does not use the version-matched package client"
+grep -Fq -- '--package-dir "$package_dir"' "$SAFE_REBUILD" ||
+    fail "frozen package-client build is not bound to the pinned source snapshot"
 grep -Fq 'SEEN_COMPILER_SOURCE_ROOT="$ROOT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||
     fail "self-hosted ABI smoke does not bind the compiler source root"
 grep -Fq 'cd "$PROJECT_DIR"' "$SELFHOSTED_ABI_SMOKE" ||
@@ -931,11 +960,13 @@ grep -Fq 'state=detached_descendants' "$detached_metrics" ||
 if [ -s "$detached_pid_file" ]; then
     detached_pid=$(cat "$detached_pid_file")
     detached_attempt=0
-    while kill -0 "$detached_pid" 2>/dev/null && [ "$detached_attempt" -lt 100 ]; do
+    while process_is_live_non_zombie "$detached_pid" &&
+        [ "$detached_attempt" -lt 100 ]; do
+
         sleep 0.01
         detached_attempt=$((detached_attempt + 1))
     done
-    if kill -0 "$detached_pid" 2>/dev/null; then
+    if process_is_live_non_zombie "$detached_pid"; then
         kill -KILL "$detached_pid" 2>/dev/null || true
         fail "detached process-group cleanup left the worker alive"
     fi

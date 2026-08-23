@@ -6,6 +6,9 @@ This directory contains the frozen bootstrap compiler for the Seen language.
 
 - `stage1_frozen` - Verified working self-hosted Seen compiler (Linux x86_64)
 - `stage1_frozen.sha256` - SHA256 hash for verification
+- `stage1_frozen.seen-pkg-source.tar.gz` - Source snapshot for the exact
+  version-coupled package client used by frozen bootstrap compilers
+- `stage1_frozen.seen-pkg-source.sha256` - SHA256 hash for that source snapshot
 - `stage1_frozen_macos_arm64` - Verified working self-hosted Seen compiler (macOS ARM64/Apple Silicon)
 - `stage1_frozen_macos_arm64.sha256` - SHA256 hash for macOS ARM64 verification
 - `macos_opt_wrapper.py` - LLVM IR fixup wrapper for macOS bootstrap (fixes ABI mismatches)
@@ -82,6 +85,11 @@ git rev-parse --short HEAD > bootstrap/source_commit.txt
 git add bootstrap/
 git commit -m "Update frozen bootstrap compiler"
 ```
+
+Archive `tools/seen-pkg` from the same source commit with deterministic gzip
+metadata and refresh `stage1_frozen.seen-pkg-source.sha256` at the same time.
+The rebuild deliberately rejects a frozen compiler paired with a package client
+from a different Seen version.
 
 ## Adding New Methods (Bootstrap-Safe Pattern)
 

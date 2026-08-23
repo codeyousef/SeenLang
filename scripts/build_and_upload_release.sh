@@ -470,10 +470,15 @@ NOTES="## Seen Language $VERSION
 
 ### Highlights
 
-- Adds the version-coupled \`seen pkg\` client, deterministic transitive resolution, and enforceable \`Seen.lock\` v2 graphs.
-- Verifies signed registry metadata, bounded source archives, immutable package views, and explicit capability consent before exposing a package graph.
-- Supports explicit local \`{ path = \"...\" }\` dependencies while rejecting unsigned directory registries.
-- Keeps the planned hosted origins fail-closed until their independent trust roots and services are provisioned.
+- Certifies the self-hosted compiler on a clean checkout through one required,
+  memory-contained, serial CI gate with deterministic bootstrap evidence.
+- Adds native-boundary and foreign-symbol inventories, deterministic release
+  compatibility manifests, reusable package layouts, and signed component pins.
+- Adds stable machine diagnostics, structured errors, move-only resource and
+  secret contracts, and the native \`seen test\` discovery, fixture, assertion,
+  reporting, instrumentation, fuzz, benchmark, and leak/soak foundations.
+- Restores project-wide declaration visibility for large forked and no-fork
+  compiler graphs and removes production source/IR repair fallbacks.
 
 ### Installation
 

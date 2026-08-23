@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: signed-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOTOOLCHAIN: local
+      SEEN_JOBS: 1
+      SEEN_LOW_MEMORY: 1
+      SEEN_OPT_JOBS: 1
+      SEEN_RELEASE_CPU_BASELINE: x86-64
+      SEEN_RELEASE_SIGN_MODE: keyless
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Set up pinned Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Install pinned cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+        with:
+          cosign-release: 'v3.1.3'
+      - name: Provision required isolation and search tools
+        run: scripts/provision_ci_host.sh
+      - name: Run clean contained certification
+        run: scripts/run_ci_required.sh
+      - name: Build sign and upload release
+        run: scripts/build_and_upload_release.sh "${GITHUB_REF_NAME#v}"

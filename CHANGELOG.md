@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-23
+
 ### Added
 
 - Added native `seen-gate0-certification-v1` evidence and a clean-checkout
@@ -141,7 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   example shared by compile, check, and JIT paths. Existing compiler codegen
   and C-import module cycles were removed so the same fail-closed resolver also
   governs compiler-internal graphs.
-- Added a strict release compatibility-manifest schema, canonical 0.10.1
+- Added a strict release compatibility-manifest schema, canonical 0.11.0
   component/ABI/target record, native Seen validation model, and deterministic
   invalid/limit/cancellation/cleanup fixtures.
 - Added explicit-input native Seen compatibility-manifest generation,
@@ -155,9 +157,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a deterministic foreign-symbol/backend source inventory and restored the required CI gate that rejects unreviewed inventory drift.
 - Replaced obsolete disabled workflow fallbacks with one bounded, commit-pinned required CI contract and deterministic validation fixtures.
 - Enforced the required CI gate inside a read-back-verified, zero-swap Linux memory and task scope with serial workers, bounded execution time, and deterministic containment fixtures.
+- Added a tag-triggered, commit-pinned release workflow that reruns clean
+  contained certification, installs pinned Cosign 3.1.3, and invokes the
+  existing release script with GitHub OIDC keyless signing and write access
+  limited to release publication.
 
 ### Changed
 
+- Bumped the shipped Seen compiler, workspace, CLI, LSP, version-coupled
+  package client, release documentation, installer metadata, tests, and
+  compatibility manifest to `0.11.0` under the pre-1.0 minor-version policy.
 - Refreshed the Linux frozen bootstrap seeds for the current compiler graph
   while preserving their immutable v2 compatibility contract. The guarded
   Stage-1 invocation alone uses that historical object-cache namespace;
@@ -176,6 +185,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Paired frozen bootstrap compilers with a hash-pinned package-client source
+  snapshot from the same Seen version. Release transitions build that helper
+  inside the verified scope, while fresh candidates retain the live helper;
+  compiler/sidecar version mismatches still fail closed.
 - Hosted clean-checkout certification now provisions a coherent pinned LLVM 20
   toolchain with matching sanitizer and profile runtimes, Vulkan linker input,
   and a symbol-audited loader bridge for the legacy frozen compiler's unused
@@ -213,7 +226,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   isolating full semantic AST lifetimes and retaining cross-module declaration
   metadata only in its canonical indexed registry instead of rebuilding
   redundant quadratic pipe-string copies.
-- Kept Wine-backed atomic I/O verification within the bounded task scope by suppressing unrelated Wine service helpers and waiting for server cleanup.
+- Kept Wine-backed atomic I/O verification within the bounded task scope by
+  suppressing unrelated Wine service helpers and waiting for server cleanup.
 
 ## [0.10.1] - 2026-07-26
 
