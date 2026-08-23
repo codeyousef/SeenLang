@@ -1011,13 +1011,24 @@ build_fork_serializer() {
 
         local selftest_binary="$REBUILD_WORK_ROOT/seen-fork-serializer-selftest"
         local selftest_state="$REBUILD_WORK_ROOT/seen-fork-serializer-selftest.state"
+        local descendant_selftest="$REBUILD_WORK_ROOT/seen-fork-serializer-descendant-selftest"
         local cachetest_serializer="$REBUILD_WORK_ROOT/seen-fork-serializer-cachetest.so"
         if [ -L "$selftest_binary" ] || [ -L "$selftest_state" ] ||
+            [ -L "$descendant_selftest" ] ||
             [ -L "$cachetest_serializer" ]; then
 
             echo -e "${RED}ERROR: refusing unsafe fork serializer self-test paths.${NC}" >&2
             return 1
         fi
+        {
+            printf '%s\n' '#!/usr/bin/env bash'
+            printf '%s\n' 'set -euo pipefail'
+            printf '%s\n' 'program=$1'
+            printf '%s\n' 'state=$2'
+            printf '%s\n' 'for _ in 1 2 3 4 5 6 7 8; do "$program" --child "$state" & done'
+            printf '%s\n' 'wait'
+        } > "$descendant_selftest"
+        chmod 700 "$descendant_selftest"
         if ! run_guarded_command "fork serializer self-test build" 60 "${OPT_VMEM_KB:-}" \
             clang -O2 -pthread "$FORK_SERIALIZER_SELFTEST_SOURCE" \
                 -o "$selftest_binary"; then
@@ -1049,6 +1060,17 @@ build_fork_serializer() {
                 "$selftest_binary" "$selftest_state"; then
 
             echo -e "${RED}ERROR: fork serializer dynamic self-test failed; compiler candidates remain disabled.${NC}" >&2
+            return 1
+        fi
+        if ! run_guarded_command "fork serializer descendant self-test" 30 "${OPT_VMEM_KB:-}" \
+            env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+                LD_PRELOAD="$FORK_SERIALIZER_SO" \
+                SEEN_FORK_SERIALIZER_TARGET="$selftest_binary" \
+                SEEN_FORK_SERIALIZER_DESCENDANT_SCRIPT="$descendant_selftest" \
+                "$selftest_binary" --descendant-script "$descendant_selftest" \
+                "$selftest_state.descendant"; then
+
+            echo -e "${RED}ERROR: fork serializer descendant self-test failed; compiler candidates remain disabled.${NC}" >&2
             return 1
         fi
         if run_guarded_command "fork serializer target rejection self-test" 10 "${OPT_VMEM_KB:-}" \
@@ -3658,6 +3680,7 @@ else
     if [ -n "$FORK_SERIALIZER_SO" ]; then
         FROZEN_COMPILE_ENV+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
         FROZEN_COMPILE_ENV+=("SEEN_FORK_SERIALIZER_TARGET=$FROZEN_ABS")
+        FROZEN_COMPILE_ENV+=("SEEN_FORK_SERIALIZER_DESCENDANT_SCRIPT=/tmp/seen_parallel_opt.sh")
     fi
 
     # Start compiler in background

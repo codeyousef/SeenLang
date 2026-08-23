@@ -16,6 +16,8 @@
 
 #define SERIALIZER_TARGET_ENV "SEEN_FORK_SERIALIZER_TARGET"
 #define SERIALIZER_ROOT_PID_ENV "SEEN_FORK_SERIALIZER_ROOT_PID"
+#define SERIALIZER_DESCENDANT_SCRIPT_ENV \
+    "SEEN_FORK_SERIALIZER_DESCENDANT_SCRIPT"
 #ifndef SERIALIZER_STATUS_CAPACITY
 #define SERIALIZER_STATUS_CAPACITY 4096
 #endif
@@ -102,6 +104,106 @@ static int target_matches_current_executable(const char *target) {
            target_status.st_ino == current_status.st_ino;
 }
 
+static int pid_executable_matches_target(pid_t pid, const char *target) {
+    char canonical_target[PATH_MAX];
+    char proc_executable[64];
+    struct stat target_status;
+    struct stat process_status;
+
+    if (pid <= 0 || target == NULL ||
+        realpath(target, canonical_target) == NULL ||
+        stat(canonical_target, &target_status) != 0) {
+        return 0;
+    }
+    if (snprintf(proc_executable, sizeof(proc_executable), "/proc/%ld/exe",
+                 (long)pid) < 0 ||
+        stat(proc_executable, &process_status) != 0) {
+        return 0;
+    }
+    return target_status.st_dev == process_status.st_dev &&
+           target_status.st_ino == process_status.st_ino;
+}
+
+static int read_parent_pid(pid_t pid, pid_t *parent) {
+    char status_path[64];
+    char line[256];
+    FILE *status;
+
+    if (pid <= 0 || parent == NULL ||
+        snprintf(status_path, sizeof(status_path), "/proc/%ld/status",
+                 (long)pid) < 0) {
+        return 0;
+    }
+    status = fopen(status_path, "r");
+    if (status == NULL) return 0;
+    while (fgets(line, sizeof(line), status) != NULL) {
+        long parsed;
+        if (sscanf(line, "PPid:%ld", &parsed) == 1 && parsed >= 0 &&
+            parsed <= INT_MAX) {
+            fclose(status);
+            *parent = (pid_t)parsed;
+            return 1;
+        }
+    }
+    fclose(status);
+    return 0;
+}
+
+static int process_descends_from(pid_t process, pid_t ancestor) {
+    pid_t cursor = process;
+    int depth = 0;
+
+    if (process <= 0 || ancestor <= 0) return 0;
+    while (cursor > 1 && depth < 1024) {
+        pid_t parent = -1;
+        if (cursor == ancestor) return 1;
+        if (!read_parent_pid(cursor, &parent) || parent <= 0 ||
+            parent == cursor) {
+            return 0;
+        }
+        cursor = parent;
+        depth += 1;
+    }
+    return cursor == ancestor;
+}
+
+static int command_line_contains_script(const char *script) {
+    char canonical_script[PATH_MAX];
+    char command_line[8192];
+    struct stat script_status;
+    FILE *stream;
+    size_t length;
+    size_t offset = 0;
+
+    if (script == NULL || realpath(script, canonical_script) == NULL ||
+        lstat(script, &script_status) != 0 ||
+        !S_ISREG(script_status.st_mode)) {
+        return 0;
+    }
+    stream = fopen("/proc/self/cmdline", "rb");
+    if (stream == NULL) return 0;
+    length = fread(command_line, 1, sizeof(command_line) - 1, stream);
+    if (ferror(stream) || !feof(stream)) {
+        fclose(stream);
+        return 0;
+    }
+    fclose(stream);
+    command_line[length] = '\0';
+    while (offset < length) {
+        char canonical_argument[PATH_MAX];
+        size_t argument_length = strnlen(command_line + offset,
+                                         length - offset);
+        if (argument_length == length - offset) return 0;
+        if (argument_length > 0 &&
+            realpath(command_line + offset, canonical_argument) != NULL &&
+            strcmp(canonical_script, canonical_argument) == 0) {
+            return 1;
+        }
+        offset += argument_length + 1;
+    }
+    return 0;
+}
+
 static void serializer_atfork_child(void) {
     /* Never touch mutex state copied from another process/TID in the child. */
     descendant_passthrough = 1;
@@ -110,6 +212,8 @@ static void serializer_atfork_child(void) {
 
 __attribute__((constructor)) static void serializer_initialize(void) {
     const char *target = getenv(SERIALIZER_TARGET_ENV);
+    const char *descendant_script =
+        getenv(SERIALIZER_DESCENDANT_SCRIPT_ENV);
     const char *root_text = getenv(SERIALIZER_ROOT_PID_ENV);
     pid_t inherited_root = -1;
     char root_buffer[32];
@@ -134,6 +238,17 @@ __attribute__((constructor)) static void serializer_initialize(void) {
             serializer_target_active = 1;
             serializer_initialization_status = EINVAL;
         }
+    } else if (parse_positive_pid(root_text, &inherited_root) &&
+               command_line_contains_script(descendant_script) &&
+               process_descends_from(getpid(), inherited_root) &&
+               pid_executable_matches_target(inherited_root, target)) {
+        /*
+         * The immutable bootstrap delegates optimizer fan-out to one exact
+         * generated script. Activate a fresh serializer instance in that
+         * script only after proving its path and its live compiler ancestry.
+         */
+        serializer_root_pid = getpid();
+        serializer_target_active = 1;
     } else if (target != NULL && *target != '\0' &&
                (root_text == NULL || *root_text == '\0')) {
         /* An intended initial target that cannot be proven must not run open. */

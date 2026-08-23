@@ -32,6 +32,8 @@ struct worker_args {
     pthread_barrier_t *barrier;
 };
 
+static int wait_for_success(pid_t pid);
+
 static int update_counter(const char *path, int delta) {
     int fd = open(path, O_RDWR | O_CREAT, 0600);
     struct counter_state state = {0, 0};
@@ -60,6 +62,45 @@ static int child_mode(const char *state_path) {
     usleep(150000);
     if (update_counter(state_path, -1) != 0) return 11;
     return 0;
+}
+
+static int initialize_counter(const char *state_path) {
+    int fd = open(state_path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+    struct counter_state initial = {0, 0};
+    int failed = fd < 0;
+    if (!failed &&
+        write(fd, &initial, sizeof(initial)) != (ssize_t)sizeof(initial)) {
+        failed = 1;
+    }
+    if (fd >= 0) close(fd);
+    return failed;
+}
+
+static int verify_serial_counter(const char *state_path) {
+    int fd = open(state_path, O_RDONLY);
+    struct counter_state final = {0, 0};
+    if (fd < 0 || read(fd, &final, sizeof(final)) != (ssize_t)sizeof(final)) {
+        if (fd >= 0) close(fd);
+        return 1;
+    }
+    close(fd);
+    if (final.current != 0 || final.maximum != 1) {
+        fprintf(stderr, "serializer self-test concurrency: current=%d maximum=%d\n",
+                final.current, final.maximum);
+        return 1;
+    }
+    return 0;
+}
+
+static int run_descendant_script(const char *script, const char *state_path,
+                                 const char *program) {
+    pid_t pid = -1;
+    char *const argv[] = {(char *)script, (char *)program,
+                          (char *)state_path, NULL};
+    if (initialize_counter(state_path) != 0) return 1;
+    if (posix_spawn(&pid, script, NULL, NULL, argv, environ) != 0) return 1;
+    if (wait_for_success(pid) != 0) return 1;
+    return verify_serial_counter(state_path);
 }
 
 static int emit_bytes(size_t amount) {
@@ -428,16 +469,13 @@ int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "--cache-overflow") == 0) {
         return test_cache_capacity_failure();
     }
+    if (argc == 4 && strcmp(argv[1], "--descendant-script") == 0) {
+        return run_descendant_script(argv[2], argv[3], argv[0]);
+    }
     if (argc != 2) return 2;
 
     const char *state_path = argv[1];
-    int fd = open(state_path, O_RDWR | O_CREAT | O_TRUNC, 0600);
-    struct counter_state initial = {0, 0};
-    if (fd < 0 || write(fd, &initial, sizeof(initial)) != (ssize_t)sizeof(initial)) {
-        if (fd >= 0) close(fd);
-        return 3;
-    }
-    close(fd);
+    if (initialize_counter(state_path) != 0) return 3;
 
     pthread_t threads[WORKER_COUNT];
     pthread_barrier_t barrier;
@@ -471,17 +509,5 @@ int main(int argc, char **argv) {
     if (test_wnohang_retains_active() != 0) return 9;
     if (test_stopped_and_signaled_status() != 0) return 15;
 
-    fd = open(state_path, O_RDONLY);
-    struct counter_state final = {0, 0};
-    if (fd < 0 || read(fd, &final, sizeof(final)) != (ssize_t)sizeof(final)) {
-        if (fd >= 0) close(fd);
-        return 6;
-    }
-    close(fd);
-    if (final.current != 0 || final.maximum != 1) {
-        fprintf(stderr, "serializer self-test concurrency: current=%d maximum=%d\n",
-                final.current, final.maximum);
-        return 7;
-    }
-    return 0;
+    return verify_serial_counter(state_path) == 0 ? 0 : 7;
 }
