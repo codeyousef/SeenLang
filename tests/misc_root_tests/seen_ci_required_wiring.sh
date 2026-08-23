@@ -7,6 +7,8 @@ WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
 REQUIRED="$ROOT_DIR/scripts/ci_required.sh"
 CONTAINED="$ROOT_DIR/scripts/run_ci_required.sh"
 PROVISION="$ROOT_DIR/scripts/provision_ci_host.sh"
+RELEASE_INNER="$ROOT_DIR/scripts/build_and_upload_release.sh"
+RELEASE_CONTAINED="$ROOT_DIR/scripts/run_release_upload.sh"
 
 fail() {
     echo "FAIL: required CI wiring: $*" >&2
@@ -17,9 +19,13 @@ fail() {
 [ -x "$REQUIRED" ] && [ ! -L "$REQUIRED" ] || fail "required gate is missing or not executable"
 [ -x "$CONTAINED" ] && [ ! -L "$CONTAINED" ] || fail "contained CI entrypoint is missing or not executable"
 [ -x "$PROVISION" ] && [ ! -L "$PROVISION" ] || fail "CI host provisioner is missing or not executable"
+[ -x "$RELEASE_INNER" ] && [ ! -L "$RELEASE_INNER" ] || fail "release entrypoint is missing or not executable"
+[ -x "$RELEASE_CONTAINED" ] && [ ! -L "$RELEASE_CONTAINED" ] || fail "contained release entrypoint is missing or not executable"
 bash -n "$REQUIRED" || fail "required gate shell syntax"
 bash -n "$CONTAINED" || fail "contained CI entrypoint shell syntax"
 bash -n "$PROVISION" || fail "CI host provisioner shell syntax"
+bash -n "$RELEASE_INNER" || fail "release entrypoint shell syntax"
+bash -n "$RELEASE_CONTAINED" || fail "contained release entrypoint shell syntax"
 
 set +e
 outside_error=$(env -u SEEN_CI_CONTAINMENT_IN_SCOPE "$REQUIRED" 2>&1 >/dev/null)
@@ -120,6 +126,21 @@ grep -Fq 'SEEN_CI_CONTAINMENT_IN_SCOPE=1' "$CONTAINED" ||
     fail "contained CI entrypoint does not identify the inner gate"
 grep -Fq 'scripts/run_in_hard_memory_scope.sh --verify-only' "$REQUIRED" ||
     fail "inner required gate does not re-verify the live hard scope"
+grep -Fq 'scripts/run_in_hard_memory_scope.sh' "$RELEASE_CONTAINED" ||
+    fail "contained release entrypoint does not enter the hard scope"
+grep -Fq 'SEEN_RELEASE_CONTAINMENT_IN_SCOPE=1' "$RELEASE_CONTAINED" ||
+    fail "contained release entrypoint does not identify the inner release"
+grep -Fq 'SEEN_CI_CONTAINMENT_IN_SCOPE=1' "$RELEASE_CONTAINED" ||
+    fail "contained release entrypoint does not suppress nested aggregate guards"
+grep -Fq 'SEEN_PACKAGE_JOBS=1' "$RELEASE_CONTAINED" ||
+    fail "contained release entrypoint does not serialize package jobs"
+grep -Fq 'SEEN_NO_FORK=1' "$RELEASE_CONTAINED" ||
+    fail "contained release entrypoint does not disable compiler forking"
+grep -Fq 'run_in_hard_memory_scope.sh" --verify-only' "$RELEASE_INNER" ||
+    fail "inner release does not re-verify the live hard scope"
+grep -Fq 'getOrDefault("SEEN_NO_FORK", "0") == "1"' \
+    "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
+    fail "compiler does not honor the contained no-fork release contract"
 
 if grep -En 'compiler_seen/target/seen|(^|[[:space:]])sudo([[:space:]]|$)|/tmp/' \
     "$WORKFLOW" "$REQUIRED" "$CONTAINED"; then

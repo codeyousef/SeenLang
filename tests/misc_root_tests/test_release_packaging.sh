@@ -19,6 +19,10 @@ case "${1:-}" in
         echo "Seen 0.11.0"
         ;;
     pkg)
+        [[ -f "$(dirname "$0")/compatibility-manifest.json" ]] || {
+            echo "missing compatibility manifest" >&2
+            exit 78
+        }
         case "${2:-}" in
             prebuild)
                 artifact_dir="${4:-}"
@@ -40,9 +44,17 @@ case "${1:-}" in
         esac
         ;;
     check)
+        [[ -f "$(dirname "$0")/compatibility-manifest.json" ]] || {
+            echo "missing compatibility manifest" >&2
+            exit 78
+        }
         test -f "${2:-}"
         ;;
     compile)
+        [[ -f "$(dirname "$0")/compatibility-manifest.json" ]] || {
+            echo "missing compatibility manifest" >&2
+            exit 78
+        }
         output="${3:-}"
         if [[ -z "$output" ]]; then
             echo "missing output" >&2
@@ -122,12 +134,17 @@ fi
 
 TARBALL="$DIST_DIR/seen-0.11.0-linux-x64.tar.gz"
 test -f "$TARBALL"
+tar -xOf "$TARBALL" \
+    seen-0.11.0-linux-x64/bin/compatibility-manifest.json \
+    > "$TMP_DIR/packaged-compatibility-manifest.json"
+cmp -s "$TMP_DIR/packaged-compatibility-manifest.json" \
+    "$ROOT_DIR/releases/compatibility-manifest.json"
 
 "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" --cpu-baseline x86-64 "$TARBALL" >/dev/null
 
 GO_SCAN_PATH="$TMP_DIR/go_scan_path"
 mkdir -p "$GO_SCAN_PATH"
-for tool in awk bash tar gzip find head grep mktemp rm cat chmod basename mkdir sed; do
+for tool in awk bash tar gzip find head grep mktemp rm cat chmod basename dirname mkdir sed; do
     tool_path="$(command -v "$tool")"
     ln -s "$tool_path" "$GO_SCAN_PATH/$tool"
 done
@@ -265,7 +282,7 @@ fi
 
 MIN_SCAN_PATH="$TMP_DIR/min_scan_path"
 mkdir -p "$MIN_SCAN_PATH"
-for tool in bash tar gzip find head grep mktemp rm cat chmod basename mkdir sed; do
+for tool in bash tar gzip find head grep mktemp rm cat chmod basename dirname mkdir sed; do
     tool_path="$(command -v "$tool")"
     ln -s "$tool_path" "$MIN_SCAN_PATH/$tool"
 done

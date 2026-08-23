@@ -21,11 +21,24 @@ IMPLICIT_MACOS_ARTIFACT="$DIST_DIR/seen-0.10.1-macos-arm64.tar.gz"
 
 mkdir -p "$FIXTURE_ROOT/scripts" "$FIXTURE_BIN" "$MIN_PATH" "$OPTIONAL_PATH" "$DIST_DIR"
 cp "$ROOT_DIR/scripts/build_and_upload_release.sh" "$FIXTURE_ROOT/scripts/"
+cat > "$FIXTURE_ROOT/scripts/run_in_hard_memory_scope.sh" <<'SCOPE_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == "--verify-only" ]] || exit 126
+SCOPE_EOF
 
 cat > "$FIXTURE_BIN/seen" <<'SEEN_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "compile" ]]; then
+    compile_args=" $* "
+    if [[ "$compile_args" != *" --jobs 1 "* ||
+        "$compile_args" != *" --opt-jobs 1 "* ||
+        "$compile_args" != *" --no-fork "* ]]; then
+
+        echo "release smoke omitted serial compiler flags" >&2
+        exit 1
+    fi
     printf '#!/usr/bin/env bash\nexit 0\n' >"${3:?}"
     chmod +x "${3:?}"
     exit 0
@@ -152,8 +165,13 @@ chmod 755 \
     "$FIXTURE_BIN/git" \
     "$FIXTURE_BIN/gh" \
     "$FIXTURE_ROOT/scripts/build_release.sh" \
+    "$FIXTURE_ROOT/scripts/run_in_hard_memory_scope.sh" \
     "$FIXTURE_ROOT/scripts/run_with_project_artifacts.sh" \
     "$FIXTURE_ROOT/scripts/sign_release.sh"
+
+export SEEN_RELEASE_CONTAINMENT_IN_SCOPE=1
+export SEEN_RELEASE_PROJECT_WRAPPER="$FIXTURE_ROOT/scripts/run_with_project_artifacts.sh"
+export SEEN_JOBS=1 SEEN_OPT_JOBS=1 SEEN_PACKAGE_JOBS=1 SEEN_NO_FORK=1
 
 for tool in awk bash basename cat chmod cp dirname ls mkdir mktemp rm sha256sum sort; do
     ln -s "$(command -v "$tool")" "$MIN_PATH/$tool"

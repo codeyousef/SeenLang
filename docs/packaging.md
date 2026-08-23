@@ -342,6 +342,17 @@ directory through `SEEN_RELEASE_MACOS_INPUT_DIR`; implicit macOS files already
 in `dist/` are discarded. Set `SEEN_RELEASE_CLEAN_DIST=1` for an explicit clean
 release staging directory.
 
+The public upload entrypoint also fails closed unless its complete build,
+verification, signing, and upload process tree is inside a read-back-verified
+aggregate memory/task cgroup with swap disabled. Direct invocation re-enters
+through `scripts/run_release_upload.sh`; compiler, optimizer, and optional
+package workers remain serial, and `SEEN_NO_FORK=1` forces internal package
+prebuild compilation onto the no-fork path. Linux archives carry the validated
+canonical `compatibility-manifest.json` beside `bin/seen`, which is the only
+installed location the compiler accepts before launching its version-coupled
+package client. Packaged `check`, `compile`, and `pkg prebuild` smoke failures
+retain their project-local diagnostic logs and fail the release before signing.
+
 ## Related
 
 - [Project Configuration](project-config.md)
