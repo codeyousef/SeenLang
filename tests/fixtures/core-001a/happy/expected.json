@@ -30,5 +30,6 @@
   "runner": "ubuntu-24.04",
   "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
   "timeout_minutes": 210,
-  "version": 2
+  "trigger": "push-main-only",
+  "version": 3
 }

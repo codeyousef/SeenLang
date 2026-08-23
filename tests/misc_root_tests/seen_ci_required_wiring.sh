@@ -39,6 +39,11 @@ case "$outside_error" in
 esac
 
 grep -Fxq 'name: CI' "$WORKFLOW" || fail "workflow name is not CI"
+grep -Fxq '    branches: [main]' "$WORKFLOW" ||
+    fail "required CI is not scoped to main pushes"
+if grep -Fq 'pull_request:' "$WORKFLOW"; then
+    fail "full required CI must not run for pull requests"
+fi
 grep -Fxq '  required:' "$WORKFLOW" || fail "required job id is missing"
 grep -Fxq '    name: required' "$WORKFLOW" || fail "required check name is missing"
 grep -Eq '^[[:space:]]+uses: actions/checkout@[0-9a-f]{40}$' "$WORKFLOW" ||
