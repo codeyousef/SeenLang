@@ -26,6 +26,10 @@ python3 "$B" "$F/happy/evidence.json" "$F/happy/benchmark.json" | grep -Fq 'warm
 [[ -f "$ROOT/schemas/gate0-certification.schema.json" ]] || fail schema
 [[ -x "$ROOT/scripts/certify_gate0_clean_checkout.sh" ]] || fail clean-driver
 grep -Fq 'safe_rebuild.sh" --tier full' "$ROOT/scripts/certify_gate0_clean_checkout.sh" || fail pinned-build
+grep -Fq 'run_with_project_artifacts.sh' "$ROOT/scripts/certify_gate0_clean_checkout.sh" || fail artifact-wrapper
+grep -Fq 'Gate 0: running the canonical Seen test against the installed compiler' \
+    "$ROOT/scripts/certify_gate0_clean_checkout.sh" || fail post-build-canonical-test
+grep -Fq 'prlimit --as=' "$ROOT/scripts/certify_gate0_clean_checkout.sh" || fail test-vmem
 grep -Fq seen-gate0-certification-v1 "$ROOT/schemas/compatibility-manifest.schema.json" || fail compatibility
 "$ROOT/tests/misc_root_tests/seen_native_boundaries_ledger.sh" >/dev/null || fail native-ledger
 [[ -z "$(jobs -pr)" ]] || fail P0-GATE0-001_cleanup

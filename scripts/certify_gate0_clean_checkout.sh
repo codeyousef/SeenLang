@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd -P -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
 ARTIFACT_HELPER="$ROOT/scripts/artifact_root.sh"
+ARTIFACT_WRAPPER="$ROOT/scripts/run_with_project_artifacts.sh"
 HARD_SCOPE="$ROOT/scripts/run_in_hard_memory_scope.sh"
 CHECKER="$ROOT/scripts/check_gate0_certification.py"
 FROZEN="$ROOT/bootstrap/stage1_frozen"
@@ -20,8 +21,14 @@ fail() { echo "gate0-certification: p0.gate0.001.$1: $2" >&2; exit "${3:-1}"; }
 [ "${SEEN_CI_CONTAINMENT_IN_SCOPE:-0}" = 1 ] || fail unverified "required-CI containment marker is missing" 126
 [ "${SEEN_LOW_MEMORY:-0}" = 1 ] && [ "${SEEN_JOBS:-0}" = 1 ] &&
     [ "${SEEN_OPT_JOBS:-0}" = 1 ] || fail limit "serial low-memory settings are required" 126
-[ -x "$HARD_SCOPE" ] && [ -x "$FROZEN" ] && [ -x "$CHECKER" ] ||
+[ -x "$HARD_SCOPE" ] && [ -x "$ARTIFACT_WRAPPER" ] &&
+    [ -x "$FROZEN" ] && [ -x "$CHECKER" ] ||
     fail invalid "required certification entrypoint is missing"
+case "${SEEN_MAIN_VMEM_KB:-}" in
+    ''|*[!0-9]*) fail limit "positive compiler VMEM limit is required" 126 ;;
+    *) [ "$SEEN_MAIN_VMEM_KB" -gt 0 ] ||
+        fail limit "positive compiler VMEM limit is required" 126 ;;
+esac
 "$HARD_SCOPE" --label "Gate 0 certification read-back" --verify-only -- >/dev/null ||
     fail unverified "kernel containment read-back failed" 126
 
@@ -56,7 +63,35 @@ SEEN_GO="${SEEN_GO:-$(command -v go || true)}" \
 
 [ -x "$ROOT/compiler_seen/target/seen" ] || fail unverified "full rebuild did not install the compiler"
 [ -x "$PACKAGE_CLIENT" ] || fail unverified "full rebuild did not install the package client"
-[ -f "$ROOT/.seen_cache/test/P0-GATE0-001.json" ] || fail unverified "canonical Seen test report is missing"
+
+# The full rebuild validates this same canonical test during Stage-1 acceptance,
+# then deliberately removes .seen_cache before installing the verified compiler.
+# Run it once more against that installed compiler so the certification evidence
+# hashes a durable report produced after the complete fixed-point build.
+TEST_JSON="$ROOT/.seen_cache/test/P0-GATE0-001.json"
+TEST_JUNIT="$ROOT/.seen_cache/test/P0-GATE0-001.xml"
+TEST_LOG="$WORK/gate0-test.log"
+rm -f -- "$TEST_JSON" "$TEST_JUNIT"
+echo "Gate 0: running the canonical Seen test against the installed compiler"
+if ! prlimit --as="$((SEEN_MAIN_VMEM_KB * 1024))" -- timeout 600 \
+    "$ARTIFACT_WRAPPER" gate0-certification-test -- \
+    "$ROOT/compiler_seen/target/seen" test "$ROOT" \
+        --filter P0-GATE0-001 --profile ci --jobs 1 --timeout 10m \
+        --report json:.seen_cache/test/P0-GATE0-001.json \
+        --report junit:.seen_cache/test/P0-GATE0-001.xml \
+        >"$TEST_LOG" 2>&1; then
+
+    cat "$TEST_LOG" >&2
+    fail unverified "canonical Seen test failed"
+fi
+grep -Fq 'test result: 1 passed; 0 failed' "$TEST_LOG" ||
+    fail unverified "canonical Seen test summary is missing"
+[ -f "$TEST_JSON" ] && [ -f "$TEST_JUNIT" ] ||
+    fail unverified "canonical Seen test report is missing"
+python3 "$ROOT/scripts/check_test_reporters.py" --format json \
+    --validate "$TEST_JSON" >/dev/null || fail unverified "canonical JSON test report is invalid"
+python3 "$ROOT/scripts/check_test_reporters.py" --format junit \
+    --validate "$TEST_JUNIT" >/dev/null || fail unverified "canonical JUnit test report is invalid"
 
 echo "Gate 0: packaging a source package twice and comparing canonical bytes"
 prlimit --as=2147483648 -- timeout 300 "$PACKAGE_CLIENT" pack "$PACKAGE_FIXTURE" \
@@ -75,7 +110,7 @@ source_commit="$(git rev-parse HEAD)"
 compiler_sha="$(sha256sum "$FROZEN" | awk '{print $1}')"
 compatibility_sha="$(sha256sum "$ROOT/bootstrap/stage1_frozen.compatibility-manifest.json" | awk '{print $1}')"
 build_sha="$(sha256sum "$ROOT/compiler_seen/target/seen" | awk '{print $1}')"
-test_sha="$(sha256sum "$ROOT/.seen_cache/test/P0-GATE0-001.json" | awk '{print $1}')"
+test_sha="$(sha256sum "$TEST_JSON" | awk '{print $1}')"
 fuzz_sha="$(sha256sum "$WORK/fuzz.log" | awk '{print $1}')"
 package_sha="$(sha256sum "$WORK/package-a.seenpkg.tgz" | awk '{print $1}')"
 memory_max_bytes="$((SEEN_MEMORY_GUARD_RSS_KB * 1024))"
