@@ -17,7 +17,7 @@ source "$ARTIFACT_ROOT_SCRIPT"
 seen_artifact_root_init "$PROJECT_ROOT"
 INSTALLER_ARTIFACT_ROOT=$(seen_artifact_scope_init installer-tests)
 
-VERSION="0.10.1"
+VERSION="0.11.0"
 TEST_DIR="$INSTALLER_ARTIFACT_ROOT/runner"
 VERBOSE=false
 QUICK_MODE=false

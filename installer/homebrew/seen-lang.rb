@@ -1,10 +1,10 @@
 class SeenLang < Formula
   desc "High-performance systems programming language"
   homepage "https://seen-lang.org"
-  url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-macos-x64.tar.gz"
+  url "https://github.com/codeyousef/SeenLang/releases/download/v0.11.0/seen-0.11.0-macos-x64.tar.gz"
   sha256 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   license "MIT"
-  version "0.10.1"
+  version "0.11.0"
 
   # Dependencies
   depends_on "llvm"
@@ -16,20 +16,20 @@ class SeenLang < Formula
   # Supported platforms
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-macos-x64.tar.gz"
+      url "https://github.com/codeyousef/SeenLang/releases/download/v0.11.0/seen-0.11.0-macos-x64.tar.gz"
       sha256 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     elsif Hardware::CPU.arm?
-      url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-macos-arm64.tar.gz"
+      url "https://github.com/codeyousef/SeenLang/releases/download/v0.11.0/seen-0.11.0-macos-arm64.tar.gz"
       sha256 "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
     end
   end
 
   on_linux do
     if Hardware::CPU.intel?
-      url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-linux-x64.tar.gz"
+      url "https://github.com/codeyousef/SeenLang/releases/download/v0.11.0/seen-0.11.0-linux-x64.tar.gz"
       sha256 "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
     elsif Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
-      url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/seen-0.10.1-linux-arm64.tar.gz"
+      url "https://github.com/codeyousef/SeenLang/releases/download/v0.11.0/seen-0.11.0-linux-arm64.tar.gz"
       sha256 "9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba"
     end
   end
@@ -67,7 +67,7 @@ class SeenLang < Formula
       man1.install "seen.1"
     end
 
-    # The 0.10.1 CLI does not expose a completion-generator subcommand.
+    # The 0.11.0 CLI does not expose a completion-generator subcommand.
   end
 
   def post_install
@@ -142,7 +142,7 @@ class SeenLang
 
   # Bottle configuration for binary distribution
   bottle do
-    root_url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/"
+    root_url "https://github.com/codeyousef/SeenLang/releases/download/v0.11.0/"
     
     sha256 cellar: :any_skip_relocation, arm64_ventura:  "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
     sha256 cellar: :any_skip_relocation, arm64_monterey: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
@@ -155,12 +155,12 @@ class SeenLang
 
   # Resource definitions for additional files
   resource "language-configs" do
-    url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/language-configs.tar.gz"
+    url "https://github.com/codeyousef/SeenLang/releases/download/v0.11.0/language-configs.tar.gz"
     sha256 "567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234"
   end
 
   resource "stdlib-source" do
-    url "https://github.com/codeyousef/SeenLang/releases/download/v0.10.1/stdlib-source.tar.gz"
+    url "https://github.com/codeyousef/SeenLang/releases/download/v0.11.0/stdlib-source.tar.gz"
     sha256 "cdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
   end
 end

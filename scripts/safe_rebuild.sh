@@ -2656,6 +2656,7 @@ run_tier_prebuild_gates_if_needed() {
     if run_guarded_command_to_log_with_failure_watch "prebuild gates" 900 "$MAIN_COMPILER_VMEM_KB" \
         /tmp/safe_rebuild_verify_prebuild_gates.log \
         env SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_DEFER_SELFHOSTED_ABI_SMOKE=1 \
             bash "$SCRIPT_DIR/seen_prebuild_gates.sh"; then
         return 0
     fi

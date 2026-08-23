@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-08-23
+
 ### Added
 
 - Added native `seen-gate0-certification-v1` evidence and a clean-checkout
@@ -141,7 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   example shared by compile, check, and JIT paths. Existing compiler codegen
   and C-import module cycles were removed so the same fail-closed resolver also
   governs compiler-internal graphs.
-- Added a strict release compatibility-manifest schema, canonical 0.10.1
+- Added a strict release compatibility-manifest schema, canonical 0.11.0
   component/ABI/target record, native Seen validation model, and deterministic
   invalid/limit/cancellation/cleanup fixtures.
 - Added explicit-input native Seen compatibility-manifest generation,
@@ -158,6 +160,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bumped the shipped Seen compiler, workspace, CLI, LSP, version-coupled
+  package client, release documentation, installer metadata, tests, and
+  compatibility manifest to `0.11.0` under the pre-1.0 minor-version policy.
 - Refreshed the Linux frozen bootstrap seeds for the current compiler graph
   while preserving their immutable v2 compatibility contract. The guarded
   Stage-1 invocation alone uses that historical object-cache namespace;
@@ -213,7 +218,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   isolating full semantic AST lifetimes and retaining cross-module declaration
   metadata only in its canonical indexed registry instead of rebuilding
   redundant quadratic pipe-string copies.
-- Kept Wine-backed atomic I/O verification within the bounded task scope by suppressing unrelated Wine service helpers and waiting for server cleanup.
+- Kept Wine-backed atomic I/O verification within the bounded task scope by
+  suppressing unrelated Wine service helpers and waiting for server cleanup.
 
 ## [0.10.1] - 2026-07-26
 

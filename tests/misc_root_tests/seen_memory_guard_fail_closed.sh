@@ -599,7 +599,10 @@ grep -Fq 'safe_rebuild_assert_checkout_output "$relative_path"' "$SAFE_REBUILD" 
 grep -Fq 'safe_rebuild_install_checkout_file "$VERIFIED"' "$SAFE_REBUILD" ||
     fail "full rebuild install bypasses atomic safe installation"
 grep -Fq 'SEEN_DEFER_SELFHOSTED_ABI_SMOKE=1' "$SAFE_REBUILD" ||
-    fail "clean full rebuild does not defer ABI smoke until a fresh candidate exists"
+    fail "rebuild does not defer prebuild ABI smoke until a fresh candidate exists"
+deferred_abi_smoke_count=$(grep -Fc 'SEEN_DEFER_SELFHOSTED_ABI_SMOKE=1' "$SAFE_REBUILD")
+[ "$deferred_abi_smoke_count" -eq 2 ] ||
+    fail "verify and full rebuilds must both defer ABI smoke to fresh-candidate acceptance"
 grep -Fq 'SEEN_SELFHOSTED_ABI_COMPILER="$REAL_COMPILER"' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-candidate acceptance does not bind the self-hosted ABI smoke"
