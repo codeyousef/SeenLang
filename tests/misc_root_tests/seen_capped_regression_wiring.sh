@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 RUNNER="$ROOT_DIR/scripts/run_attested_seen.sh"
 STAGE1_ACCEPTANCE="$ROOT_DIR/scripts/seen_stage1_acceptance.sh"
+SAFE_REBUILD="$ROOT_DIR/scripts/safe_rebuild.sh"
 ATOMIC_TEXT_IO="$ROOT_DIR/tests/misc_root_tests/seen_atomic_text_io.sh"
 ARTIFACT_HELPER="$ROOT_DIR/scripts/artifact_root.sh"
 SERIAL_AUXILIARY="$ROOT_DIR/scripts/serial_auxiliary_env.sh"
@@ -125,6 +126,12 @@ grep -Fq 'env -u SEEN_FORK_SERIALIZER_ROOT_PID' "$RUNNER" ||
     fail "runner does not clear inherited serializer root state"
 grep -Fq 'SEEN_JOBS=1' "$RUNNER" || fail "runner omitted serial compiler jobs"
 grep -Fq 'SEEN_OPT_JOBS=1' "$RUNNER" || fail "runner omitted serial optimizer jobs"
+grep -Fq 'safe rebuild containing CI read-back' "$SAFE_REBUILD" ||
+    fail "safe rebuild does not read back a containing required-CI scope"
+grep -Fq 'SEEN_CI_CONTAINMENT_IN_SCOPE' "$SAFE_REBUILD" ||
+    fail "safe rebuild does not authenticate the containing CI marker"
+grep -Fq 'Using the read-back-verified containing CI cgroup' "$SAFE_REBUILD" ||
+    fail "safe rebuild does not identify successful containing-scope adoption"
 grep -Fq 'SEEN_CAPPED_REGRESSION_TOOLCHAIN' "$ENTRY" ||
     fail "entry helper does not bind the prepared toolchain"
 grep -Fq -- '--verify-platform-active' "$ENTRY" ||

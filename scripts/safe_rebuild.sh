@@ -2083,8 +2083,31 @@ fi
 configure_adaptive_rebuild_workers
 
 if [ "${SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE:-0}" != "1" ]; then
-    prepare_bounded_wine_prefix_template || exit $?
-    enter_rebuild_kernel_scope
+    if [ "${SEEN_CI_CONTAINMENT_IN_SCOPE:-0}" = "1" ] ||
+        [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" = "1" ] ||
+        [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ]; then
+
+        # Required CI already owns an aggregate kernel scope. Accept it only
+        # when every marker is present and the hard-scope helper independently
+        # reads back the requested memory, swap, task, and worker limits.
+        if [ "${SEEN_CI_CONTAINMENT_IN_SCOPE:-0}" != "1" ] ||
+            [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" != "1" ] ||
+            [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] ||
+            ! "$HARD_MEMORY_SCOPE_WRAPPER" \
+                --label "safe rebuild containing CI read-back" \
+                --verify-only -- >/dev/null; then
+
+            echo -e "${RED}ERROR: containing CI scope markers or kernel read-back are invalid.${NC}" >&2
+            echo "No compiler or helper build was started." >&2
+            exit 126
+        fi
+        SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE=1
+        export SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE
+        echo -e "${YELLOW}Using the read-back-verified containing CI cgroup as the rebuild aggregate scope.${NC}"
+    else
+        prepare_bounded_wine_prefix_template || exit $?
+        enter_rebuild_kernel_scope
+    fi
 fi
 if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ]; then
     echo -e "${RED}ERROR: aggregate rebuild cgroup marker was forged or lost.${NC}" >&2
