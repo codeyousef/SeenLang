@@ -155,6 +155,23 @@ run_smoke_tests() {
     local artifact_dir="$tmpdir/prebuild_artifact"
     local pkg_output
     local startup_output
+    local project_wrapper="${SEEN_RELEASE_PROJECT_WRAPPER:-}"
+
+    run_compiler_step() {
+        local label="$1"
+        local log="$2"
+        shift 2
+        if [[ -n "$project_wrapper" ]]; then
+            if "$project_wrapper" "release-baseline-$label" -- "$@" >"$log" 2>&1; then
+                return 0
+            fi
+        elif "$@" >"$log" 2>&1; then
+            return 0
+        fi
+        echo "Packaged compiler $label smoke failed: $bin" >&2
+        cat "$log" >&2
+        return 1
+    }
 
     if "$bin" --version >/dev/null 2>&1; then
         :
@@ -175,8 +192,10 @@ fun main() r: Int {
 }
 SMOKE_EOF
 
-    "$bin" check "$source" >/dev/null 2>&1
-    "$bin" compile "$source" "$output" --fast --no-cache --target-cpu="$CPU_BASELINE" >/dev/null 2>&1
+    run_compiler_step check "$tmpdir/check.log" "$bin" check "$source"
+    run_compiler_step compile "$tmpdir/compile.log" "$bin" compile "$source" "$output" \
+        --fast --no-cache --target-cpu="$CPU_BASELINE" \
+        --jobs 1 --opt-jobs 1 --no-fork
 
     pkg_output="$("$bin" pkg 2>&1 || true)"
     if ! grep -q 'pkg prebuild' <<<"$pkg_output"; then
@@ -198,7 +217,8 @@ pub fun release_prebuild_value() r: Int {
 }
 PKG_SRC_EOF
 
-    "$bin" pkg prebuild "$pkgdir" "$artifact_dir" >/dev/null 2>&1
+    run_compiler_step package-prebuild "$tmpdir/package-prebuild.log" \
+        "$bin" pkg prebuild "$pkgdir" "$artifact_dir"
     if [[ ! -s "$artifact_dir/objects.tsv" ]]; then
         echo "Package prebuild smoke did not emit objects.tsv: $bin" >&2
         return 1
@@ -223,7 +243,7 @@ for artifact in "${ARTIFACTS[@]}"; do
             ;;
     esac
 
-    tmpdir="$(mktemp -d /tmp/seen_release_verify.XXXXXX)"
+    tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/seen_release_verify.XXXXXX")"
     trap 'rm -rf "$tmpdir"' EXIT
 
     tar -xzf "$artifact" -C "$tmpdir"

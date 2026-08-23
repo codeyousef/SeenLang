@@ -12531,6 +12531,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if envOptJobs > 0 {
         g_largeProjectOptWorkerLimit = envOptJobs
     }
+    if getOrDefault("SEEN_NO_FORK", "0") == "1" {
+        g_noFork = 1
+    }
     if g_largeProjectWorkerLimit < 1 {
         g_largeProjectWorkerLimit = 1
     }

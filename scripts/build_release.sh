@@ -32,6 +32,8 @@ VERSION=""
 OUTPUT_DIR="$ROOT_DIR/dist"
 COMPILER_BIN="$ROOT_DIR/compiler_seen/target/seen"
 PACKAGE_CLIENT_BIN="${SEEN_PACKAGE_CLIENT_BIN:-$ROOT_DIR/tools/seen-pkg/bin/seen-pkg}"
+COMPATIBILITY_MANIFEST="$ROOT_DIR/releases/compatibility-manifest.json"
+COMPATIBILITY_CHECKER="$ROOT_DIR/scripts/check_compatibility_manifest.py"
 CPU_BASELINE="${SEEN_RELEASE_CPU_BASELINE:-x86-64}"
 ARTIFACT_SUFFIX=""
 SKIP_VERIFY="${SEEN_RELEASE_SKIP_VERIFY:-0}"
@@ -56,6 +58,9 @@ release_payload_hash() {
             "$ROOT_DIR/README.md" \
             "$ROOT_DIR/CHANGELOG.md" \
             "$ROOT_DIR/LICENSE" \
+            "$COMPATIBILITY_MANIFEST" \
+            "$ROOT_DIR/schemas/compatibility-manifest.schema.json" \
+            "$COMPATIBILITY_CHECKER" \
             "$ROOT_DIR/scripts/seen_toolchain.sh" \
             "$ROOT_DIR/tools/seen-pkg/go.mod" \
             "$ROOT_DIR/tools/seen-pkg/go.sum" \
@@ -269,6 +274,21 @@ if [[ ! -x "$PACKAGE_CLIENT_BIN" ]]; then
     echo "Run a capped full rebuild for this exact source tree; release packaging never builds or substitutes a missing client." >&2
     exit 1
 fi
+if [[ ! -f "$COMPATIBILITY_MANIFEST" || -L "$COMPATIBILITY_MANIFEST" ]]; then
+    echo "Error: release compatibility manifest is missing or unsafe: $COMPATIBILITY_MANIFEST" >&2
+    exit 1
+fi
+if ! python3 "$COMPATIBILITY_CHECKER" "$COMPATIBILITY_MANIFEST" >/dev/null; then
+    echo "Error: release compatibility manifest is invalid" >&2
+    exit 1
+fi
+MANIFEST_VERSION=$(python3 -c \
+    'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["release_version"])' \
+    "$COMPATIBILITY_MANIFEST")
+if [[ "$MANIFEST_VERSION" != "$VERSION" ]]; then
+    echo "Error: release compatibility manifest version $MANIFEST_VERSION does not match $VERSION" >&2
+    exit 1
+fi
 
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
@@ -313,6 +333,8 @@ chmod +x "$STAGING/bin/seen"
 strip "$STAGING/bin/seen" 2>/dev/null || true
 cp "$PACKAGE_CLIENT_BIN" "$STAGING/bin/seen-pkg"
 chmod +x "$STAGING/bin/seen-pkg"
+cp "$COMPATIBILITY_MANIFEST" "$STAGING/bin/compatibility-manifest.json"
+chmod 644 "$STAGING/bin/compatibility-manifest.json"
 # Preserve Go symbols for release CPU-baseline attribution of dispatched ISA paths.
 
 if [[ -f "$PAYLOAD_CACHE_DIR/.ready" ]]; then

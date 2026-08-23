@@ -185,6 +185,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Included the validated canonical compatibility manifest beside `bin/seen`
+  in Linux release archives and derived installers, restoring fail-closed
+  packaged `check`, `compile`, and `pkg prebuild` behavior.
+- Contained the complete release build, verification, signing, and upload
+  process tree under current-memory-derived aggregate limits with zero swap,
+  serial package/compiler/optimizer workers, and an explicit no-fork compiler
+  mode. Packaged smoke failures now retain and print bounded project-local
+  diagnostics instead of discarding the failing command output.
 - Paired frozen bootstrap compilers with a hash-pinned package-client source
   snapshot from the same Seen version. Release transitions build that helper
   inside the verified scope, while fresh candidates retain the live helper;

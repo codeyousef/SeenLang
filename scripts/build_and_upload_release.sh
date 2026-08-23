@@ -16,6 +16,23 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ "${SEEN_RELEASE_CONTAINMENT_IN_SCOPE:-0}" != "1" ]]; then
+    exec "$SCRIPT_DIR/run_release_upload.sh" "$@"
+fi
+if [[ "${SEEN_JOBS:-0}" != "1" || "${SEEN_OPT_JOBS:-0}" != "1" ||
+    "${SEEN_PACKAGE_JOBS:-0}" != "1" || "${SEEN_NO_FORK:-0}" != "1" ]]; then
+
+    echo "Error: release compiler, optimizer, and package workers must be serial" >&2
+    exit 126
+fi
+if ! "$SCRIPT_DIR/run_in_hard_memory_scope.sh" --verify-only >/dev/null; then
+    echo "Error: release upload is outside a read-back-verified hard scope" >&2
+    exit 126
+fi
+if [[ ! -x "${SEEN_RELEASE_PROJECT_WRAPPER:-}" ]]; then
+    echo "Error: release project-artifact wrapper is missing" >&2
+    exit 126
+fi
 BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 if [[ -f "$BUILD_TRACE_COMMON" ]]; then
     # shellcheck source=scripts/build_trace_common.sh
@@ -141,7 +158,7 @@ TMPFILE="$SMOKE_ROOT/release-smoke.seen"
 echo 'fun main() { println("release build ok") }' > "$TMPFILE"
 if "$SCRIPT_DIR/run_with_project_artifacts.sh" release-upload-smoke -- \
     "$LINUX_X64_COMPILER" compile "$TMPFILE" "${TMPFILE%.seen}" \
-    --target-cpu=x86-64 --no-cache &>/dev/null; then
+    --target-cpu=x86-64 --no-cache --jobs 1 --opt-jobs 1 --no-fork &>/dev/null; then
     echo "Compiler OK."
 else
     echo "Error: Compiler failed smoke test."
