@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("checker", ROOT / "scripts/check_leak_soak_evidence.py")
@@ -49,6 +50,11 @@ class Tests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             benchmark.paired_median_ratio_ppm([1], [])
+
+    def test_benchmark_clock_excludes_runner_descheduling(self):
+        with mock.patch.object(benchmark.time, "thread_time_ns", return_value=123) as clock:
+            self.assertEqual(benchmark.benchmark_clock_ns(), 123)
+            clock.assert_called_once_with()
 
     def test_json_cancel_and_byte_bounds(self):
         raw = FIXTURE.read_bytes()
