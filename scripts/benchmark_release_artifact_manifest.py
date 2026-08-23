@@ -3,6 +3,8 @@
 import argparse, importlib.util, json, statistics, sys, time
 from pathlib import Path
 
+from cpu_benchmark_statistics import paired_median_ratio_ppm
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -36,7 +38,7 @@ def main():
         for index in range(30):
             if index % 2: candidates.append(candidate()); references.append(reference())
             else: references.append(reference()); candidates.append(candidate())
-        ratio = statistics.median(candidates) * 1_000_000 // statistics.median(references)
+        ratio = paired_median_ratio_ppm(candidates, references)
         ceiling = baseline["baseline_ratio_ppm"] * 105 // 100
         if ratio > ceiling: raise ValueError(f"ratio {ratio} exceeds 5% ceiling {ceiling}")
         print(f"release-artifact manifest benchmark: ratio_ppm={ratio} ceiling_ratio_ppm={ceiling} warmups=5 samples=30 status=pass")

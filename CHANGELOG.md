@@ -190,9 +190,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request targeting `main`.
 - Measured CPU validation microbenchmarks with current-thread CPU time so
   hosted-runner descheduling cannot create false performance failures. A
-  required static contract covers every benchmark script; their five warmups,
-  30 samples, iteration counts, baselines, and hard five-percent ceilings
-  remain unchanged.
+  shared paired-median reducer now preserves each adjacent candidate/control
+  sample instead of combining unrelated medians. A required static contract
+  covers every benchmark script; their five warmups, 30 samples, iteration
+  counts, baselines, and hard five-percent ceilings remain unchanged.
 - Included the validated canonical compatibility manifest beside `bin/seen`
   in Linux release archives and derived installers, restoring fail-closed
   packaged `check`, `compile`, and `pkg prebuild` behavior.

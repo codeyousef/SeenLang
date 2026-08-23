@@ -19,6 +19,10 @@ for benchmark in "$ROOT_DIR"/scripts/benchmark_*.py; do
     if grep -Fq 'time.perf_counter_ns()' "$benchmark"; then
         fail "benchmark charges runner descheduling: ${benchmark#"$ROOT_DIR"/}"
     fi
+    if grep -Fq 'baseline_ratio_ppm' "$benchmark"; then
+        [ "$(grep -Fc 'paired_median_ratio_ppm' "$benchmark")" -ge 2 ] ||
+            fail "normalized benchmark does not preserve sample pairs: ${benchmark#"$ROOT_DIR"/}"
+    fi
 done
 
 [ "$count" -eq 24 ] || fail "expected 24 benchmark scripts, found $count"

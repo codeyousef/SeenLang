@@ -11,6 +11,8 @@ import sys
 import time
 from pathlib import Path
 
+from cpu_benchmark_statistics import paired_median_ratio_ppm
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -48,7 +50,7 @@ def main() -> int:
         for index in range(30):
             if index % 2 == 0: controls.append(control()); candidates.append(candidate())
             else: candidates.append(candidate()); controls.append(control())
-        ratio = int(statistics.median(candidates)) * 1000000 // int(statistics.median(controls))
+        ratio = paired_median_ratio_ppm(candidates, controls)
         ceiling = baseline["baseline_ratio_ppm"] * 105 // 100
         if ratio > ceiling: raise ValueError(f"normalized ratio {ratio} ppm exceeds 5% ceiling {ceiling} ppm")
         print(f"error-policy benchmark: ratio_ppm={ratio} ceiling_ratio_ppm={ceiling} warmups=5 samples=30 status=pass")

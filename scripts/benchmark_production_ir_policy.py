@@ -11,6 +11,8 @@ import sys
 import time
 from pathlib import Path
 
+from cpu_benchmark_statistics import paired_median_ratio_ppm
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -71,7 +73,7 @@ def main() -> int:
         control_median = int(statistics.median(controls))
         if control_median < 1:
             raise ValueError("control median is not positive")
-        ratio = candidate_median * 1_000_000 // control_median
+        ratio = paired_median_ratio_ppm(candidates, controls)
         ceiling = ratio_baseline * 105 // 100
         if ratio > ceiling:
             raise ValueError(f"normalized ratio {ratio} ppm exceeds 5% ceiling {ceiling} ppm")

@@ -22,6 +22,7 @@ if ! scripts/run_in_hard_memory_scope.sh --verify-only >/dev/null; then
 fi
 
 python3 -m py_compile \
+    scripts/cpu_benchmark_statistics.py \
     scripts/benchmark_compatibility_manifest.py \
     scripts/benchmark_compatibility_runtime.py \
     scripts/benchmark_package_layout.py \
@@ -69,6 +70,7 @@ python3 -m py_compile \
     tests/runner/test_migration_unit.py \
     tests/runner/test_error_contract_unit.py \
     tests/runner/test_typed_errors_unit.py \
+    tests/runner/test_benchmark_statistics_unit.py \
     scripts/check_native_boundaries.py \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
@@ -105,6 +107,7 @@ tests/misc_root_tests/seen_test_reporters_contract.sh
 tests/misc_root_tests/seen_test_migration_contract.sh
 tests/misc_root_tests/seen_error_contract.sh
 tests/misc_root_tests/seen_typed_errors_contract.sh
+python3 -m unittest tests.runner.test_benchmark_statistics_unit
 tests/misc_root_tests/seen_cpu_benchmark_clock_contract.sh
 tests/misc_root_tests/seen_error_api_migration.sh
 tests/misc_root_tests/seen_error_policy_contract.sh
