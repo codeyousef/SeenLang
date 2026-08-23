@@ -4,6 +4,16 @@ import argparse, importlib.util, json, statistics, sys, time
 from pathlib import Path
 
 
+def paired_median_ratio_ppm(candidates, references):
+    if len(candidates) != len(references) or not candidates:
+        raise ValueError("candidate/reference sample pairing is invalid")
+    ratios = [
+        candidate * 1_000_000 // reference
+        for candidate, reference in zip(candidates, references)
+    ]
+    return int(statistics.median(ratios))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("evidence", type=Path); parser.add_argument("baseline", type=Path)
@@ -37,7 +47,11 @@ def main():
         for index in range(30):
             if index % 2: candidates.append(candidate()); references.append(reference())
             else: references.append(reference()); candidates.append(candidate())
-        ratio = statistics.median(candidates) * 1_000_000 // statistics.median(references)
+        # Each candidate is adjacent to its control sample, with order
+        # alternating to cancel first-run bias. Preserve those pairs when
+        # reducing the result so transient runner frequency/scheduling changes
+        # cannot combine unrelated medians into a false regression.
+        ratio = paired_median_ratio_ppm(candidates, references)
         ceiling = baseline["baseline_ratio_ppm"] * 105 // 100
         if ratio > ceiling: raise ValueError(f"ratio {ratio} exceeds 5% ceiling {ceiling}")
         print(f"leak-soak benchmark: ratio_ppm={ratio} ceiling_ratio_ppm={ceiling} warmups=5 samples=30 status=pass")

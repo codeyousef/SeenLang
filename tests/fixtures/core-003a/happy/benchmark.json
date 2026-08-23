@@ -1,6 +1,6 @@
 {
   "baseline_ratio_ppm": 7500000,
-  "iterations_per_sample": 250,
+  "iterations_per_sample": 1000,
   "max_regression_percent": 5,
   "samples": 30,
   "version": 1,

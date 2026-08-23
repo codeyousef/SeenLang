@@ -25,7 +25,9 @@ def main():
  codes={getattr(checker,name).__code__ for name in TARGETS}; lines=set(); branches=source_branches(CHECKER); observed_lines=set(); observed_branches=set(); previous={}
  for code in codes:
   instructions=list(dis.get_instructions(code))
-  lines.update((code,item.positions.lineno) for item in instructions if item.positions and item.positions.lineno)
+  for item in instructions:
+   position=getattr(item,"positions",None); line=position.lineno if position is not None else item.starts_line
+   if line: lines.add((code,line))
  def trace(frame,event,arg):
   code=frame.f_code
   if code not in codes: return trace

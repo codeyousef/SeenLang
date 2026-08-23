@@ -6,6 +6,7 @@ ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
 REQUIRED="$ROOT_DIR/scripts/ci_required.sh"
 CONTAINED="$ROOT_DIR/scripts/run_ci_required.sh"
+PROVISION="$ROOT_DIR/scripts/provision_ci_host.sh"
 
 fail() {
     echo "FAIL: required CI wiring: $*" >&2
@@ -15,8 +16,10 @@ fail() {
 [ -f "$WORKFLOW" ] && [ ! -L "$WORKFLOW" ] || fail "active workflow is missing or unsafe"
 [ -x "$REQUIRED" ] && [ ! -L "$REQUIRED" ] || fail "required gate is missing or not executable"
 [ -x "$CONTAINED" ] && [ ! -L "$CONTAINED" ] || fail "contained CI entrypoint is missing or not executable"
+[ -x "$PROVISION" ] && [ ! -L "$PROVISION" ] || fail "CI host provisioner is missing or not executable"
 bash -n "$REQUIRED" || fail "required gate shell syntax"
 bash -n "$CONTAINED" || fail "contained CI entrypoint shell syntax"
+bash -n "$PROVISION" || fail "CI host provisioner shell syntax"
 
 set +e
 outside_error=$(env -u SEEN_CI_CONTAINMENT_IN_SCOPE "$REQUIRED" 2>&1 >/dev/null)
@@ -40,6 +43,44 @@ grep -Fxq "          go-version: '1.26.5'" "$WORKFLOW" ||
     fail "required CI does not pin Go 1.26.5"
 grep -Fxq '        run: scripts/run_ci_required.sh' "$WORKFLOW" ||
     fail "workflow does not invoke the required gate"
+grep -Fxq '        run: scripts/provision_ci_host.sh' "$WORKFLOW" ||
+    fail "workflow does not invoke the CI host provisioner"
+
+[ "$(grep -Ec '(^|[[:space:]])sudo([[:space:]]|$)' "$PROVISION")" -eq 3 ] ||
+    fail "CI host provisioner has an unexpected privileged-command count"
+grep -Fxq 'sudo -n apt-get update' "$PROVISION" ||
+    fail "CI host provisioner omits package-index setup"
+grep -Fq 'bubblewrap ripgrep libvulkan-dev llvm-20 clang-20 lld-20' \
+    "$PROVISION" || fail "CI host provisioner omits pinned LLVM 20 packages"
+grep -Fq 'libclang-rt-20-dev' "$PROVISION" ||
+    fail "CI host provisioner omits pinned LLVM 20 instrumentation runtimes"
+grep -Fq 'versioned_tool="/usr/bin/${llvm_tool}-20"' "$PROVISION" ||
+    fail "CI host provisioner omits pinned LLVM 20 tool resolution"
+grep -Fq 'getelementptr inbounds nuw i64' "$PROVISION" ||
+    fail "CI host provisioner omits the immediate Seen IR dialect probe"
+grep -Fq -- '-fprofile-instr-generate' "$PROVISION" ||
+    fail "CI host provisioner omits the coverage runtime link probe"
+grep -Fq -- '-fsanitize=undefined' "$PROVISION" ||
+    fail "CI host provisioner omits the sanitizer runtime link probe"
+grep -Fq 'printf '\''%s\n'\'' "$llvm_root" >> "$GITHUB_PATH"' "$PROVISION" ||
+    fail "CI host provisioner does not publish the pinned toolchain"
+grep -Fxq 'sudo -n /usr/sbin/apparmor_parser --replace "$profile"' "$PROVISION" ||
+    fail "CI host provisioner omits scoped AppArmor loading"
+grep -Fq '/usr/bin/bwrap flags=(default_allow) {' "$PROVISION" ||
+    fail "CI host provisioner omits the path-scoped Bubblewrap profile"
+grep -Fq "'  userns,'" "$PROVISION" ||
+    fail "CI host provisioner omits the user-namespace grant"
+grep -Fq 'mapped_identity=$(/usr/bin/bwrap' "$PROVISION" ||
+    fail "CI host provisioner omits live namespace read-back"
+grep -Fq "/usr/bin/nm -D --undefined-only \"\$frozen\"" "$PROVISION" ||
+    fail "CI host provisioner does not prove the bootstrap bridge is symbol-free"
+grep -Fq -- '-Wl,-soname,libSDL3.so.0' "$PROVISION" ||
+    fail "CI host provisioner omits the bounded bootstrap loader bridge"
+grep -Fq "printf 'LD_LIBRARY_PATH=%s\\n' \"\$compat_root\" >> \"\$GITHUB_ENV\"" \
+    "$PROVISION" || fail "CI host provisioner does not publish the loader bridge"
+grep -Fq 'linkCmd = linkCmd + " -Wl,--as-needed "' \
+    "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
+    fail "Linux compiler links do not prune unused optional libraries"
 
 for required_command in \
     'python3 scripts/check_compatibility_manifest.py' \
@@ -84,6 +125,9 @@ if grep -En 'compiler_seen/target/seen|(^|[[:space:]])sudo([[:space:]]|$)|/tmp/'
     "$WORKFLOW" "$REQUIRED" "$CONTAINED"; then
 
     fail "required CI unexpectedly invokes an unmediated compiler, privilege escalation, or host temporary path"
+fi
+if grep -En 'compiler_seen/target/seen|/tmp/' "$PROVISION"; then
+    fail "CI host provisioner invokes an unmediated compiler or host temporary path"
 fi
 
 echo "PASS: required CI wiring"

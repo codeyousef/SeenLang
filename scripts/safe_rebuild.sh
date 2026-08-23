@@ -1619,6 +1619,10 @@ bootstrap_binary_usable() {
             SEEN_FORK_SERIALIZER_TARGET="$bin" \
             "$bin" >"$smoke_log" 2>&1
     local exit_code=$?
+    if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 1 ]; then
+        echo "Bootstrap startup smoke failed for $bin (status $exit_code):" >&2
+        sed -n '1,40p' "$smoke_log" >&2 2>/dev/null || true
+    fi
     rm -f "$smoke_log"
     [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ]
 }

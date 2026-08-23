@@ -26,5 +26,7 @@ jobs:
         with:
           go-version: '1.26.5'
           cache: false
+      - name: Provision required isolation and search tools
+        run: scripts/provision_ci_host.sh
       - name: Run required contained gates
         run: scripts/run_ci_required.sh

@@ -272,7 +272,7 @@ fi
 
 cat > "$PACKAGE_DIR/lib/seen/toolchain/manifest.env" << EOF
 seen_toolchain_manifest_version=1
-llvm_min_version=18
+llvm_min_version=20
 llvm_preferred_version=20
 required_tools=clang,opt,llc,llvm-as,lld-link
 bundle_mode=$TOOLCHAIN_MODE

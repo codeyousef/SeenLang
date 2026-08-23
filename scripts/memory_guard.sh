@@ -31,6 +31,7 @@ TEST_TREE_RSS_KB="${SEEN_MEMORY_GUARD_TEST_TREE_RSS_KB:-}"
 VERIFIED_CGROUP_DIR=""
 VERIFIED_MEMORY_MAX_BYTES=""
 VERIFIED_MEMORY_SWAP_MAX_BYTES=""
+VERIFIED_MEMORY_OOM_GROUP=""
 VERIFIED_PIDS_MAX=""
 NATIVE_MEMORY_CURRENT_BYTES="unavailable"
 NATIVE_MEMORY_PEAK_BYTES="unavailable"
@@ -821,6 +822,7 @@ verify_kernel_scope_limits() {
     local cgroup_dir=""
     local memory_max=""
     local memory_swap_max=""
+    local memory_oom_group=""
     local pids_max=""
     local expected_memory_bytes=0
     local scope_unit=""
@@ -878,11 +880,31 @@ verify_kernel_scope_limits() {
         return 1
     fi
 
+    if [ ! -r "$cgroup_dir/memory.oom.group" ]; then
+        echo "memory_guard[$LABEL]: refusing to run; transient cgroup lacks group-wide OOM control" >&2
+        return 1
+    fi
+    IFS= read -r memory_oom_group < "$cgroup_dir/memory.oom.group" || true
+    if [ "$memory_oom_group" != "1" ]; then
+        if [ ! -w "$cgroup_dir/memory.oom.group" ] ||
+            ! printf '1\n' > "$cgroup_dir/memory.oom.group"; then
+
+            echo "memory_guard[$LABEL]: refusing to run; cannot enable group-wide OOM enforcement" >&2
+            return 1
+        fi
+        IFS= read -r memory_oom_group < "$cgroup_dir/memory.oom.group" || true
+    fi
+    if [ "$memory_oom_group" != "1" ]; then
+        echo "memory_guard[$LABEL]: refusing to run; group-wide OOM enforcement failed read-back" >&2
+        return 1
+    fi
+
     VERIFIED_CGROUP_DIR=$cgroup_dir
     VERIFIED_MEMORY_MAX_BYTES=$memory_max
     VERIFIED_MEMORY_SWAP_MAX_BYTES=$memory_swap_max
+    VERIFIED_MEMORY_OOM_GROUP=$memory_oom_group
     VERIFIED_PIDS_MAX=$pids_max
-    echo "memory_guard[$LABEL]: verified cgroup=$VERIFIED_CGROUP_DIR memory.max=$VERIFIED_MEMORY_MAX_BYTES memory.swap.max=$VERIFIED_MEMORY_SWAP_MAX_BYTES pids.max=$VERIFIED_PIDS_MAX" >&2
+    echo "memory_guard[$LABEL]: verified cgroup=$VERIFIED_CGROUP_DIR memory.max=$VERIFIED_MEMORY_MAX_BYTES memory.swap.max=$VERIFIED_MEMORY_SWAP_MAX_BYTES memory.oom.group=$VERIFIED_MEMORY_OOM_GROUP pids.max=$VERIFIED_PIDS_MAX" >&2
     return 0
 }
 
@@ -938,7 +960,6 @@ if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] &&
         -p "MemoryHigh=${high_kb}K" \
         -p "MemorySwapMax=0" \
         -p "TasksMax=${tasks_max}" \
-        -p "OOMPolicy=kill" \
         env \
             SEEN_MEMORY_GUARD_IN_SCOPE=1 \
             SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE="$REQUIRE_KERNEL_SCOPE" \

@@ -387,15 +387,15 @@ if [[ "$PAYLOAD_CACHE_HIT" != "1" ]]; then
 
     cat > "$TOOLCHAIN_DIR/manifest.env" << TOOLCHAIN_EOF
 seen_toolchain_manifest_version=1
-llvm_min_version=18
-llvm_preferred_version=18
+llvm_min_version=19
+llvm_preferred_version=20
 required_tools=clang,opt,llc,llvm-as,ld.lld
 bundle_mode=$TOOLCHAIN_BUNDLE_MODE
 managed_install=use SEEN_MANAGED_TOOLCHAIN=1 with install.sh, or run lib/seen/toolchain/seen-toolchain.sh --install
 TOOLCHAIN_EOF
 
     cat > "$STAGING/share/doc/seen/toolchain-dependencies.txt" << TOOLCHAIN_DOC_EOF
-Seen native builds require LLVM 18 or newer with these tools:
+Seen native builds require LLVM 19 or newer with these tools:
   clang, opt, llc, llvm-as, ld.lld or lld
 
 Package toolchain mode: $TOOLCHAIN_BUNDLE_MODE
@@ -457,7 +457,7 @@ if [[ -x "$TOOLCHAIN_HELPER" ]]; then
     elif [[ "${SEEN_MANAGED_TOOLCHAIN:-0}" == "1" ]]; then
         "$TOOLCHAIN_HELPER" --install --prefix "$PREFIX"
     elif ! "$TOOLCHAIN_HELPER" --check --prefix "$PREFIX"; then
-        echo "Seen installed, but LLVM 18+ tools are not ready." >&2
+        echo "Seen installed, but LLVM 19+ tools are not ready." >&2
         echo "Install clang, opt, llc, llvm-as, and lld, or rerun with SEEN_MANAGED_TOOLCHAIN=1." >&2
     fi
 fi
