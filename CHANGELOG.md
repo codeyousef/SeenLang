@@ -161,7 +161,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refreshed the Linux frozen bootstrap seeds for the current compiler graph
   while preserving their immutable v2 compatibility contract. The guarded
   Stage-1 invocation alone uses that historical object-cache namespace;
-  produced and ordinary compilers remain on the live v3 namespace.
+  produced and ordinary compilers remain on the live v3 namespace, and the
+  seed receives only the version-matched package helper built in the same
+  contained rebuild.
 - Release packaging now requires the version-coupled package client produced
   by the verified build. It no longer builds or substitutes a missing client,
   accepts missing checksums, or continues after signature verification fails.

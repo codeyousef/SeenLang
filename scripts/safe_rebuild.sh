@@ -3666,7 +3666,8 @@ if [ "$HOST_OS" = "Darwin" ]; then
     # eliminated by opt) but still produce a full .opt.ll set we can relink in step 1b.
     if run_with_progress "S1→S2" /tmp/safe_rebuild_stage2.log \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$BOOTSTRAP_SOURCE_ROOT" \
-        env -u SEEN_FORK_SERIALIZER_ROOT_PID -u SEEN_PACKAGE_CLIENT \
+        env -u SEEN_FORK_SERIALIZER_ROOT_PID \
+            SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
             SEEN_FROZEN_IR_COMPAT=1 \
             LD_PRELOAD="$FORK_SERIALIZER_SO" \
             SEEN_FORK_SERIALIZER_TARGET="$FROZEN_ABS" \
@@ -3696,7 +3697,7 @@ else
     rm -rf "$SNAPSHOT_DIR"
 
     FROZEN_COMPILE_ENV=(env -u SEEN_FORK_SERIALIZER_ROOT_PID \
-        -u SEEN_PACKAGE_CLIENT \
+        "SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT" \
         "SEEN_FROZEN_IR_COMPAT=1" \
         "PATH=$OPT_WRAPPER_DIR:$PATH" \
         "SEEN_COMPILER_SOURCE_ROOT=$BOOTSTRAP_SOURCE_ROOT")

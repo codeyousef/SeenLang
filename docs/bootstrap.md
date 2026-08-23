@@ -37,7 +37,9 @@ The frozen seed retains its immutable v2 compatibility manifest even after a
 seed refresh. `safe_rebuild.sh` clears the frozen-compatibility marker from the
 caller and restores it only for the exact hash-pinned Stage-1 invocation. That
 invocation uses the v2 object-cache namespace; the Stage-2 compiler it produces
-and every ordinary compiler command use the live v3 namespace.
+and every ordinary compiler command use the live v3 namespace. The guarded
+invocation receives the already-built, version-matched package helper because
+the refreshed seed enforces the same package-client coupling as production.
 
 `scripts/safe_rebuild.sh` has three tiers:
 
