@@ -11,6 +11,8 @@ import sys
 import time
 from pathlib import Path
 
+from cpu_benchmark_statistics import paired_median_ratio_ppm
+
 
 def fail(message: str) -> None:
     raise ValueError(message)
@@ -110,7 +112,7 @@ def main() -> int:
         control_median_ns = int(statistics.median(control_samples))
         if control_median_ns < 1:
             fail("control median is not positive")
-        ratio_ppm = candidate_median_ns * 1_000_000 // control_median_ns
+        ratio_ppm = paired_median_ratio_ppm(candidate_samples, control_samples)
         maximum_ratio_ppm = baseline_ratio_ppm * 105 // 100
         if ratio_ppm > maximum_ratio_ppm:
             fail(

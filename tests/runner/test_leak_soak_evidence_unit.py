@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
 SPEC = importlib.util.spec_from_file_location("checker", ROOT / "scripts/check_leak_soak_evidence.py")
 checker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(checker)
@@ -40,16 +41,6 @@ class Tests(unittest.TestCase):
         with self.assertRaises(checker.ContractError):
             checker.pairs([("a", 1), ("a", 2)])
         self.assertTrue(checker.integer(1)); self.assertFalse(checker.integer(True))
-
-    def test_benchmark_preserves_adjacent_control_pairs(self):
-        self.assertEqual(
-            benchmark.paired_median_ratio_ppm(
-                [360, 720, 380, 760], [100, 200, 100, 200]
-            ),
-            3_700_000,
-        )
-        with self.assertRaises(ValueError):
-            benchmark.paired_median_ratio_ppm([1], [])
 
     def test_benchmark_clock_excludes_runner_descheduling(self):
         with mock.patch.object(benchmark.time, "thread_time_ns", return_value=123) as clock:

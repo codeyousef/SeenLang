@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse, importlib.util, json, statistics, sys, time
 from pathlib import Path
 
+from cpu_benchmark_statistics import paired_median_ratio_ppm
+
 def main() -> int:
     p=argparse.ArgumentParser(description=__doc__); p.add_argument("plan",type=Path); p.add_argument("baseline",type=Path); a=p.parse_args()
     try:
@@ -28,7 +30,7 @@ def main() -> int:
         for i in range(30):
             if i%2: cs.append(candidate()); ks.append(control())
             else: ks.append(control()); cs.append(candidate())
-        ratio=int(statistics.median(cs))*1_000_000//int(statistics.median(ks)); ceiling=baseline["baseline_ratio_ppm"]*105//100
+        ratio=paired_median_ratio_ppm(cs, ks); ceiling=baseline["baseline_ratio_ppm"]*105//100
         if ratio>ceiling: raise ValueError(f"ratio {ratio} exceeds 5% ceiling {ceiling}")
         print(f"release-optimization benchmark: ratio_ppm={ratio} warmups=5 samples=30 status=pass")
     except (OSError,ValueError,json.JSONDecodeError) as error:

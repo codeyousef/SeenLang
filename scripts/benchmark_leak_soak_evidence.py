@@ -3,20 +3,12 @@
 import argparse, importlib.util, json, statistics, sys, time
 from pathlib import Path
 
+from cpu_benchmark_statistics import paired_median_ratio_ppm
+
 
 def benchmark_clock_ns():
     """Measure benchmark work without charging runner descheduling pauses."""
     return time.thread_time_ns()
-
-
-def paired_median_ratio_ppm(candidates, references):
-    if len(candidates) != len(references) or not candidates:
-        raise ValueError("candidate/reference sample pairing is invalid")
-    ratios = [
-        candidate * 1_000_000 // reference
-        for candidate, reference in zip(candidates, references)
-    ]
-    return int(statistics.median(ratios))
 
 
 def main():
