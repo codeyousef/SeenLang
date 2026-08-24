@@ -130,7 +130,24 @@ case "${1:-}" in
     rev-parse|rev-list)
         printf '1111111111111111111111111111111111111111\n'
         ;;
-    push|tag)
+    ls-remote)
+        case "${GIT_REMOTE_TAG_MODE:-exact}" in
+            exact)
+                printf '2222222222222222222222222222222222222222\trefs/tags/v0.10.1\n'
+                printf '1111111111111111111111111111111111111111\trefs/tags/v0.10.1^{}\n'
+                ;;
+            absent) ;;
+            mismatch)
+                printf '3333333333333333333333333333333333333333\trefs/tags/v0.10.1\n'
+                ;;
+            *) exit 2 ;;
+        esac
+        ;;
+    push)
+        shift
+        printf '%s\n' "$*" > "${GIT_PUSH_CAPTURE:?}"
+        ;;
+    tag)
         ;;
     *)
         echo "unexpected git invocation: $*" >&2
@@ -253,13 +270,17 @@ assert_release_args() {
 run_release_case() {
     local view_status="$1"
     local action="$2"
-    local capture="$TMP_DIR/gh-$action.args"
+    local remote_tag_mode="${3:-exact}"
+    local capture="$TMP_DIR/gh-$action-$remote_tag_mode.args"
+    local git_push_capture="$TMP_DIR/git-push-$action-$remote_tag_mode.args"
 
     printf 'stale release artifact\n' > "$STALE_ARTIFACT"
     printf 'implicit stale macOS artifact\n' > "$IMPLICIT_MACOS_ARTIFACT"
     PATH="$FIXTURE_BIN:$MIN_PATH" \
         GH_CAPTURE="$capture" \
         GH_RELEASE_VIEW_STATUS="$view_status" \
+        GIT_PUSH_CAPTURE="$git_push_capture" \
+        GIT_REMOTE_TAG_MODE="$remote_tag_mode" \
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
@@ -268,6 +289,50 @@ run_release_case() {
 
     assert_checksum_scope
     assert_release_args "$capture" "$action"
+    if [[ "$remote_tag_mode" == "exact" ]]; then
+        if [[ -e "$git_push_capture" ]]; then
+            echo "release redundantly pushed an existing exact remote tag" >&2
+            exit 1
+        fi
+    elif [[ "$(cat "$git_push_capture")" != "origin v0.10.1" ]]; then
+        echo "release did not push the missing remote tag exactly once" >&2
+        exit 1
+    fi
+}
+
+run_mismatched_remote_tag_case() {
+    local capture="$TMP_DIR/gh-mismatched-remote.args"
+    local git_push_capture="$TMP_DIR/git-push-mismatched-remote.args"
+    local output status
+
+    set +e
+    output="$(PATH="$FIXTURE_BIN:$MIN_PATH" \
+        GH_CAPTURE="$capture" \
+        GH_RELEASE_VIEW_STATUS=1 \
+        GIT_PUSH_CAPTURE="$git_push_capture" \
+        GIT_REMOTE_TAG_MODE=mismatch \
+        SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
+        SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
+        SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
+        SEEN_RELEASE_SIGN_MODE=key SEEN_COSIGN_KEY="$TMP_DIR/test.key" \
+        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -ne 0 ]] || {
+        echo "release accepted a remote tag on a different commit" >&2
+        exit 1
+    }
+    grep -Fq 'Remote tag v0.10.1 points at 3333333333333333333333333333333333333333' \
+        <<<"$output" || {
+        echo "$output" >&2
+        echo "release did not report the mismatched remote tag" >&2
+        exit 1
+    }
+    [[ ! -e "$git_push_capture" && ! -e "$capture" ]] || {
+        echo "release mutated remote state after a mismatched tag" >&2
+        exit 1
+    }
 }
 
 run_dry_run_case() {
@@ -371,6 +436,8 @@ run_failed_optional_case
 run_dry_run_case
 run_release_case 0 upload
 run_release_case 1 create
+run_release_case 1 create absent
+run_mismatched_remote_tag_case
 run_explicit_macos_case
 
 echo "release upload artifact scope test passed"

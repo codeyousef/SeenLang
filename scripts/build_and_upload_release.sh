@@ -468,20 +468,39 @@ ls -lh -- "${RELEASE_ARTIFACTS[@]}"
 
 echo ""
 echo "=== Creating tag $TAG... ==="
+HEAD_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 if git -C "$ROOT_DIR" rev-parse -q --verify "refs/tags/$TAG" &>/dev/null; then
     TAG_COMMIT="$(git -C "$ROOT_DIR" rev-list -n1 "$TAG")"
-    HEAD_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
     if [[ "$TAG_COMMIT" != "$HEAD_COMMIT" ]]; then
         die "Tag $TAG points at $TAG_COMMIT, but HEAD is $HEAD_COMMIT. Move or recreate the tag before uploading."
     fi
     echo "Tag $TAG already exists at HEAD."
 else
-    git -C "$ROOT_DIR" tag "$TAG"
+    git -C "$ROOT_DIR" tag -a "$TAG" -m "Seen $VERSION"
     echo "Created tag $TAG."
 fi
 
-echo "Pushing tag $TAG..."
-git -C "$ROOT_DIR" push origin "$TAG"
+REMOTE_TAG_REF="refs/tags/$TAG"
+REMOTE_TAGS="$(git -C "$ROOT_DIR" ls-remote --tags origin \
+    "$REMOTE_TAG_REF" "$REMOTE_TAG_REF^{}")" ||
+    die "Could not resolve remote tag $TAG."
+REMOTE_TAG_DIRECT="$(awk -v ref="$REMOTE_TAG_REF" '$2 == ref { print $1 }' <<<"$REMOTE_TAGS")"
+REMOTE_TAG_PEELED="$(awk -v ref="$REMOTE_TAG_REF^{}" '$2 == ref { print $1 }' <<<"$REMOTE_TAGS")"
+if [[ "$REMOTE_TAG_DIRECT" == *$'\n'* || "$REMOTE_TAG_PEELED" == *$'\n'* ]]; then
+    die "Remote tag $TAG resolved ambiguously."
+fi
+REMOTE_TAG_COMMIT="${REMOTE_TAG_PEELED:-$REMOTE_TAG_DIRECT}"
+if [[ -n "$REMOTE_TAG_COMMIT" ]]; then
+    [[ "$REMOTE_TAG_COMMIT" =~ ^[0-9a-f]{40}$ ]] ||
+        die "Remote tag $TAG returned an invalid object identifier."
+    if [[ "$REMOTE_TAG_COMMIT" != "$HEAD_COMMIT" ]]; then
+        die "Remote tag $TAG points at $REMOTE_TAG_COMMIT, but HEAD is $HEAD_COMMIT."
+    fi
+    echo "Remote tag $TAG already exists at HEAD; skipping redundant push."
+else
+    echo "Pushing tag $TAG..."
+    git -C "$ROOT_DIR" push origin "$TAG"
+fi
 
 # --- Create GitHub Release ---
 
