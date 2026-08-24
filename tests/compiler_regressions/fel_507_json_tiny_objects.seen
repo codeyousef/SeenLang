@@ -180,10 +180,7 @@ fun main() r: Int {
 
     // Non-short-form control bytes must round-trip through exactly one JSON
     // \u00XX escape rather than acquiring an extra hexadecimal digit.
-    let controlOptional = parseRoot("\"\\u0001\"")
-    if controlOptional.isNone() { controlOptional.free(); return 128 }
-    let control = controlOptional.unwrap()
-    controlOptional.free()
+    let control = JsonValue_string("\u0001")
     let controlText = jsonToString(control)
     let controlRoundTrip = parseJson(controlText)
     if controlRoundTrip.success != 1 {

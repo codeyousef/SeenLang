@@ -310,7 +310,6 @@ class JsonBuilder {
 fun JsonBuilder_new() r: JsonBuilder {
     let builder = JsonBuilder()
     builder.buffer = StringBuilder.new()
-    builder.partOwnership = Array<Bool>()
     builder.needsComma = 0
     builder.depth = 0
     return builder
