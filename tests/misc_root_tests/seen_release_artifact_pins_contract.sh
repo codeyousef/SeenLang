@@ -37,6 +37,20 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$bundle" && -n "$artifact" && -f "$artifact" ]] || exit 1
 if [[ "$mode" == "sign-blob" ]]; then
+    if [[ -n "${SEEN_TEST_COSIGN_COUNTER:-}" ]]; then
+        count=0
+        [[ ! -f "$SEEN_TEST_COSIGN_COUNTER" ]] || count="$(cat "$SEEN_TEST_COSIGN_COUNTER")"
+        count=$((count + 1))
+        printf '%s\n' "$count" >"$SEEN_TEST_COSIGN_COUNTER"
+        if (( count <= ${SEEN_TEST_COSIGN_TRANSIENT_FAILURES:-0} )); then
+            echo 'Post "https://timestamp.sigstore.dev/api/v1/timestamp": read: connection reset by peer' >&2
+            exit 1
+        fi
+        if [[ "${SEEN_TEST_COSIGN_PERMANENT_FAILURE:-0}" == "1" ]]; then
+            echo 'certificate identity rejected' >&2
+            exit 1
+        fi
+    fi
     printf 'signed:%s\n' "$(sha256sum "$artifact" | awk '{print $1}')" >"$bundle"
 elif [[ "$mode" == "verify-blob" ]]; then
     if [[ -n "${EXPECTED_COSIGN_IDENTITY:-}" ]]; then
@@ -92,6 +106,36 @@ EXPECTED_COSIGN_IDENTITY="$EXACT_IDENTITY" EXPECTED_COSIGN_ISSUER="$EXACT_ISSUER
     PATH="$WORK/bin:$PATH" "$ROOT/scripts/verify_release.sh" \
     --manifest "$WORK/keyless/manifest.json" --artifact-dir "$WORK/keyless" >/dev/null ||
     fail derived-keyless-verification
+
+mkdir -p "$WORK/retry"
+for role in compiler runtime stdlib package-client; do printf 'retry-%s\n' "$role" >"$WORK/retry/$role"; done
+RETRY_COUNTER="$WORK/retry/cosign-count"
+EXPECTED_COSIGN_IDENTITY="$EXACT_IDENTITY" EXPECTED_COSIGN_ISSUER="$EXACT_ISSUER" \
+    SEEN_TEST_COSIGN_COUNTER="$RETRY_COUNTER" SEEN_TEST_COSIGN_TRANSIENT_FAILURES=2 \
+    SEEN_COSIGN_RETRY_DELAY_SECS=0 PATH="$WORK/bin:$PATH" \
+    "$ROOT/scripts/sign_release.sh" --keyless \
+    --version 0.10.1 --source-commit "$(printf '1%.0s' {1..40})" \
+    --source-digest "$(printf '2%.0s' {1..64})" --manifest "$WORK/retry/manifest.json" \
+    --signer-identity "$EXACT_IDENTITY" --signer-issuer "$EXACT_ISSUER" \
+    --artifact compiler="$WORK/retry/compiler" --artifact runtime="$WORK/retry/runtime" \
+    --artifact stdlib="$WORK/retry/stdlib" --artifact package-client="$WORK/retry/package-client" \
+    >/dev/null 2>"$WORK/retry/transient.err" || fail transient-signing-retry
+[[ "$(cat "$RETRY_COUNTER")" == "7" ]] || fail transient-signing-attempt-count
+[[ "$(grep -Fc 'core.004b.retry:' "$WORK/retry/transient.err")" == "2" ]] || fail transient-signing-retry-diagnostic
+
+PERMANENT_COUNTER="$WORK/retry/permanent-count"
+if EXPECTED_COSIGN_IDENTITY="$EXACT_IDENTITY" EXPECTED_COSIGN_ISSUER="$EXACT_ISSUER" \
+    SEEN_TEST_COSIGN_COUNTER="$PERMANENT_COUNTER" SEEN_TEST_COSIGN_PERMANENT_FAILURE=1 \
+    SEEN_COSIGN_RETRY_DELAY_SECS=0 PATH="$WORK/bin:$PATH" \
+    "$ROOT/scripts/sign_release.sh" --keyless \
+    --version 0.10.1 --source-commit "$(printf '1%.0s' {1..40})" \
+    --source-digest "$(printf '2%.0s' {1..64})" --manifest "$WORK/retry/permanent.json" \
+    --signer-identity "$EXACT_IDENTITY" --signer-issuer "$EXACT_ISSUER" \
+    --artifact compiler="$WORK/retry/compiler" --artifact runtime="$WORK/retry/runtime" \
+    --artifact stdlib="$WORK/retry/stdlib" --artifact package-client="$WORK/retry/package-client" \
+    >/dev/null 2>"$WORK/retry/permanent.err"; then fail permanent-signing-fail-closed; fi
+[[ "$(cat "$PERMANENT_COUNTER")" == "1" ]] || fail permanent-signing-no-retry
+if grep -Fq 'core.004b.retry:' "$WORK/retry/permanent.err"; then fail permanent-signing-retry-diagnostic; fi
 if PATH="$WORK/bin:$PATH" "$ROOT/scripts/verify_release.sh" \
     --certificate-identity 'github.com/.*SeenLang' \
     --manifest "$WORK/keyless/manifest.json" --artifact-dir "$WORK/keyless" \

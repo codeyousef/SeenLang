@@ -73,6 +73,49 @@ for index in 0 1 2 3; do
 done
 command -v cosign >/dev/null 2>&1 || die "cosign is required"
 
+COSIGN_SIGN_ATTEMPTS=4
+COSIGN_RETRY_DELAY_SECS="${SEEN_COSIGN_RETRY_DELAY_SECS:-2}"
+if ! [[ "$COSIGN_RETRY_DELAY_SECS" =~ ^[0-9]+$ ]] ||
+    (( COSIGN_RETRY_DELAY_SECS > 10 )); then
+
+    die "SEEN_COSIGN_RETRY_DELAY_SECS must be an integer from 0 through 10"
+fi
+
+is_transient_cosign_failure() {
+    local diagnostic="$1"
+
+    grep -Eiq \
+        'connection reset by peer|connection refused|network is unreachable|unexpected EOF|TLS handshake timeout|i/o timeout|context deadline exceeded|temporar(il)?y (unavailable|failure)|(^|[^[:alpha:]])EOF([^[:alpha:]]|$)|status( code)?[=: ]+(429|500|502|503|504)([^0-9]|$)' \
+        <<<"$diagnostic"
+}
+
+sign_blob_with_retry() {
+    local artifact="$1"
+    local label="$2"
+    local bundle="$artifact.bundle"
+    local diagnostic status attempt delay
+
+    [[ ! -L "$bundle" ]] || die "signature bundle path is a symlink: $label"
+    for ((attempt = 1; attempt <= COSIGN_SIGN_ATTEMPTS; attempt++)); do
+        rm -f -- "$bundle"
+        if diagnostic="$(cosign "${SIGN_ARGS[@]}" 2>&1 >/dev/null)"; then
+            return 0
+        else
+            status=$?
+        fi
+        [[ -z "$diagnostic" ]] || printf '%s\n' "$diagnostic" >&2
+        if (( attempt == COSIGN_SIGN_ATTEMPTS )) ||
+            ! is_transient_cosign_failure "$diagnostic"; then
+
+            return "$status"
+        fi
+        delay=$((COSIGN_RETRY_DELAY_SECS * (1 << (attempt - 1))))
+        echo "core.004b.retry: transient signing failure for $label (attempt $attempt/$COSIGN_SIGN_ATTEMPTS); retrying in ${delay}s" >&2
+        sleep "$delay"
+    done
+    return 1
+}
+
 make_sign_args() {
     SIGN_ARGS=(sign-blob --yes --bundle "$1.bundle")
     case "$MODE" in
@@ -97,7 +140,8 @@ make_verify_args() {
 for artifact in "${PATHS[@]}"; do
     sha256sum "$artifact" | awk '{print $1}' > "$artifact.sha256"
     make_sign_args "$artifact"
-    cosign "${SIGN_ARGS[@]}" >/dev/null || die "signing failed: $(basename "$artifact")"
+    sign_blob_with_retry "$artifact" "$(basename "$artifact")" ||
+        die "signing failed: $(basename "$artifact")"
     make_verify_args "$artifact"
     cosign "${VERIFY_ARGS[@]}" >/dev/null 2>&1 || die "post-sign verification failed: $(basename "$artifact")"
 done
@@ -109,7 +153,8 @@ for artifact in "${ARTIFACTS[@]}"; do GENERATOR_ARGS+=(--artifact "$artifact"); 
 "$SCRIPT_DIR/generate_release_manifest.sh" "${GENERATOR_ARGS[@]}" >/dev/null
 sha256sum "$MANIFEST" | awk '{print $1}' > "$MANIFEST.sha256"
 make_sign_args "$MANIFEST"
-cosign "${SIGN_ARGS[@]}" >/dev/null || die "manifest signing failed"
+sign_blob_with_retry "$MANIFEST" "$(basename "$MANIFEST")" ||
+    die "manifest signing failed"
 make_verify_args "$MANIFEST"
 cosign "${VERIFY_ARGS[@]}" >/dev/null 2>&1 || die "manifest post-sign verification failed"
 

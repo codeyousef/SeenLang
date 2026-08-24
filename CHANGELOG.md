@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nonexistent package below `tests/`.
 - Kept external consumers of `seen_std` free of the historical
   `str.string`/`io.file` import cycle without consumer-local shims.
+- Made keyless release signing tolerate bounded, classified transient Sigstore
+  transport failures while continuing to fail immediately for permanent
+  signing or identity errors.
 
 ### Changed
 
