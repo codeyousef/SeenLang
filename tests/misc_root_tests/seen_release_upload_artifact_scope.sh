@@ -21,6 +21,7 @@ IMPLICIT_MACOS_ARTIFACT="$DIST_DIR/seen-0.10.1-macos-arm64.tar.gz"
 
 mkdir -p "$FIXTURE_ROOT/scripts" "$FIXTURE_BIN" "$MIN_PATH" "$OPTIONAL_PATH" "$DIST_DIR"
 cp "$ROOT_DIR/scripts/build_and_upload_release.sh" "$FIXTURE_ROOT/scripts/"
+cp "$ROOT_DIR/scripts/release_tag_policy.sh" "$FIXTURE_ROOT/scripts/"
 cat > "$FIXTURE_ROOT/scripts/run_in_hard_memory_scope.sh" <<'SCOPE_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -103,7 +104,15 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --manifest) manifest="$2"; shift 2 ;;
         --artifact) artifacts+=("${2#*=}"); shift 2 ;;
-        --key|--version|--source-commit|--source-digest|--signer-identity|--signer-issuer) shift 2 ;;
+        --signer-identity)
+            [[ "$2" == '^https://github\.com/codeyousef/SeenLang/\.github/workflows/release\.yml@refs/tags/v0\.10\.1$' ]] || exit 1
+            shift 2
+            ;;
+        --signer-issuer)
+            [[ "$2" == 'https://token.actions.githubusercontent.com' ]] || exit 1
+            shift 2
+            ;;
+        --key|--version|--source-commit|--source-digest) shift 2 ;;
         *) shift ;;
     esac
 done
@@ -127,27 +136,70 @@ case "${1:-}" in
     archive)
         printf 'fixture archive\n'
         ;;
-    rev-parse|rev-list)
-        printf '1111111111111111111111111111111111111111\n'
+    rev-parse)
+        case "${*: -1}" in
+            HEAD|refs/tags/v0.10.1^{commit})
+                printf '1111111111111111111111111111111111111111\n'
+                ;;
+            refs/tags/v0.10.1)
+                case "${GIT_LOCAL_TAG_MODE:-annotated}" in
+                    annotated) printf '2222222222222222222222222222222222222222\n' ;;
+                    lightweight) printf '1111111111111111111111111111111111111111\n' ;;
+                    *) exit 2 ;;
+                esac
+                ;;
+            *)
+                echo "unexpected git rev-parse invocation: $*" >&2
+                exit 2
+                ;;
+        esac
+        ;;
+    cat-file)
+        case "${GIT_LOCAL_TAG_MODE:-annotated}" in
+            annotated) printf 'tag\n' ;;
+            lightweight) printf 'commit\n' ;;
+            *) exit 2 ;;
+        esac
+        ;;
+    remote)
+        [[ "${2:-}" == "get-url" && "${3:-}" == "origin" ]] || exit 2
+        case "${GIT_REMOTE_URL_MODE:-canonical}" in
+            canonical) printf 'https://github.com/codeyousef/SeenLang.git\n' ;;
+            mismatch) printf 'https://github.com/fork/SeenLang.git\n' ;;
+            *) exit 2 ;;
+        esac
         ;;
     ls-remote)
         case "${GIT_REMOTE_TAG_MODE:-exact}" in
             exact)
+                printf '1111111111111111111111111111111111111111\trefs/heads/main\n'
                 printf '2222222222222222222222222222222222222222\trefs/tags/v0.10.1\n'
                 printf '1111111111111111111111111111111111111111\trefs/tags/v0.10.1^{}\n'
                 ;;
-            absent) ;;
-            mismatch)
+            absent)
+                printf '1111111111111111111111111111111111111111\trefs/heads/main\n'
+                ;;
+            object-mismatch)
+                printf '1111111111111111111111111111111111111111\trefs/heads/main\n'
                 printf '3333333333333333333333333333333333333333\trefs/tags/v0.10.1\n'
+                printf '1111111111111111111111111111111111111111\trefs/tags/v0.10.1^{}\n'
+                ;;
+            commit-mismatch)
+                printf '1111111111111111111111111111111111111111\trefs/heads/main\n'
+                printf '2222222222222222222222222222222222222222\trefs/tags/v0.10.1\n'
+                printf '3333333333333333333333333333333333333333\trefs/tags/v0.10.1^{}\n'
+                ;;
+            main-mismatch)
+                printf '3333333333333333333333333333333333333333\trefs/heads/main\n'
+                printf '2222222222222222222222222222222222222222\trefs/tags/v0.10.1\n'
+                printf '1111111111111111111111111111111111111111\trefs/tags/v0.10.1^{}\n'
+                ;;
+            lightweight)
+                printf '1111111111111111111111111111111111111111\trefs/heads/main\n'
+                printf '1111111111111111111111111111111111111111\trefs/tags/v0.10.1\n'
                 ;;
             *) exit 2 ;;
         esac
-        ;;
-    push)
-        shift
-        printf '%s\n' "$*" > "${GIT_PUSH_CAPTURE:?}"
-        ;;
-    tag)
         ;;
     *)
         echo "unexpected git invocation: $*" >&2
@@ -163,10 +215,23 @@ case "${1:-} ${2:-}" in
     "auth status")
         exit 0
         ;;
-    "release view")
-        exit "${GH_RELEASE_VIEW_STATUS:?}"
+    "api --include")
+        case "${GH_RELEASE_MODE:-absent}" in
+            absent)
+                printf 'HTTP/2.0 404 Not Found\n'
+                exit 1
+                ;;
+            existing)
+                printf 'HTTP/2.0 200 OK\n\n{"tag_name":"v0.10.1","assets":[]}\n'
+                ;;
+            error)
+                printf 'network unavailable\n' >&2
+                exit 2
+                ;;
+            *) exit 2 ;;
+        esac
         ;;
-    "release upload"|"release create")
+    "release create")
         printf '%s\0' "$@" > "${GH_CAPTURE:?}"
         ;;
     *)
@@ -190,7 +255,7 @@ export SEEN_RELEASE_CONTAINMENT_IN_SCOPE=1
 export SEEN_RELEASE_PROJECT_WRAPPER="$FIXTURE_ROOT/scripts/run_with_project_artifacts.sh"
 export SEEN_JOBS=1 SEEN_OPT_JOBS=1 SEEN_PACKAGE_JOBS=1 SEEN_NO_FORK=1
 
-for tool in awk bash basename cat chmod cp dirname ls mkdir mktemp rm sha256sum sort; do
+for tool in awk bash basename cat chmod cp dirname grep ls mkdir mktemp rm sha256sum sort; do
     ln -s "$(command -v "$tool")" "$MIN_PATH/$tool"
 done
 
@@ -222,25 +287,25 @@ assert_checksum_scope() {
 
 assert_release_args() {
     local capture="$1"
-    local expected_action="$2"
-    local expected_macos="${3:-}"
-    local arg saw_current=0 saw_checksums=0 saw_macos=0 saw_compiler=0 saw_runtime=0 saw_stdlib=0 saw_package_client=0
+    local expected_macos="${2:-}"
+    local arg index saw_current=0 saw_checksums=0 saw_macos=0 saw_compiler=0 saw_runtime=0 saw_stdlib=0 saw_package_client=0 saw_repo=0 saw_verify_tag=0
     local -a args=()
 
     mapfile -d '' -t args < "$capture"
-    if [[ "${args[0]:-}" != "release" || "${args[1]:-}" != "$expected_action" ||
+    if [[ "${args[0]:-}" != "release" || "${args[1]:-}" != "create" ||
         "${args[2]:-}" != "v0.10.1" ]]; then
-        echo "unexpected gh release $expected_action prefix" >&2
+        echo "unexpected gh release create prefix" >&2
         exit 1
     fi
 
-    for arg in "${args[@]}"; do
+    for index in "${!args[@]}"; do
+        arg="${args[$index]}"
         if [[ "$arg" == "$STALE_ARTIFACT" || "$arg" == *seen-0.8.0-linux-x64.tar.gz* ]]; then
-            echo "gh release $expected_action included a stale release artifact" >&2
+            echo "gh release create included a stale release artifact" >&2
             exit 1
         fi
         if [[ "$arg" == "$STALE_OPTIONAL_ARTIFACT" ]]; then
-            echo "gh release $expected_action included a stale same-version optional artifact" >&2
+            echo "gh release create included a stale same-version optional artifact" >&2
             exit 1
         fi
         [[ "$arg" == "$CURRENT_ARTIFACT" ]] && saw_current=1
@@ -251,35 +316,40 @@ assert_release_args() {
         [[ "$arg" == "$DIST_DIR/SHA256SUMS" ]] && saw_checksums=1
         [[ -n "$expected_macos" && "$arg" == "$expected_macos" ]] && saw_macos=1
         if [[ "$arg" == "$DIST_DIR/"*.tar.gz && "$arg" != "$CURRENT_ARTIFACT" && "$arg" != "$RUNTIME_COMPONENT" && "$arg" != "$STDLIB_COMPONENT" && "$arg" != "$expected_macos" ]]; then
-            echo "gh release $expected_action included an unexpected tarball: $arg" >&2
+            echo "gh release create included an unexpected tarball: $arg" >&2
             exit 1
         fi
+        if [[ "$arg" == "--clobber" ]]; then
+            echo "gh release create requested asset replacement" >&2
+            exit 1
+        fi
+        if [[ "$arg" == "--repo" && "${args[$((index + 1))]:-}" == "codeyousef/SeenLang" ]]; then
+            saw_repo=1
+        fi
+        [[ "$arg" == "--verify-tag" ]] && saw_verify_tag=1
     done
 
     if [[ "$saw_current" -ne 1 || "$saw_checksums" -ne 1 || "$saw_compiler" -ne 1 ||
-        "$saw_runtime" -ne 1 || "$saw_stdlib" -ne 1 || "$saw_package_client" -ne 1 ]]; then
-        echo "gh release $expected_action omitted the scoped artifact set" >&2
+        "$saw_runtime" -ne 1 || "$saw_stdlib" -ne 1 || "$saw_package_client" -ne 1 ||
+        "$saw_repo" -ne 1 || "$saw_verify_tag" -ne 1 ]]; then
+        echo "gh release create omitted the scoped artifact set" >&2
         exit 1
     fi
     if [[ -n "$expected_macos" && "$saw_macos" -ne 1 ]]; then
-        echo "gh release $expected_action omitted the explicit macOS input" >&2
+        echo "gh release create omitted the explicit macOS input" >&2
         exit 1
     fi
 }
 
 run_release_case() {
-    local view_status="$1"
-    local action="$2"
-    local remote_tag_mode="${3:-exact}"
-    local capture="$TMP_DIR/gh-$action-$remote_tag_mode.args"
-    local git_push_capture="$TMP_DIR/git-push-$action-$remote_tag_mode.args"
+    local remote_tag_mode="${1:-exact}"
+    local capture="$TMP_DIR/gh-create-$remote_tag_mode.args"
 
     printf 'stale release artifact\n' > "$STALE_ARTIFACT"
     printf 'implicit stale macOS artifact\n' > "$IMPLICIT_MACOS_ARTIFACT"
     PATH="$FIXTURE_BIN:$MIN_PATH" \
         GH_CAPTURE="$capture" \
-        GH_RELEASE_VIEW_STATUS="$view_status" \
-        GIT_PUSH_CAPTURE="$git_push_capture" \
+        GH_RELEASE_MODE=absent \
         GIT_REMOTE_TAG_MODE="$remote_tag_mode" \
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
@@ -288,29 +358,22 @@ run_release_case() {
         "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 >/dev/null
 
     assert_checksum_scope
-    assert_release_args "$capture" "$action"
-    if [[ "$remote_tag_mode" == "exact" ]]; then
-        if [[ -e "$git_push_capture" ]]; then
-            echo "release redundantly pushed an existing exact remote tag" >&2
-            exit 1
-        fi
-    elif [[ "$(cat "$git_push_capture")" != "origin v0.10.1" ]]; then
-        echo "release did not push the missing remote tag exactly once" >&2
-        exit 1
-    fi
+    assert_release_args "$capture"
 }
 
-run_mismatched_remote_tag_case() {
-    local capture="$TMP_DIR/gh-mismatched-remote.args"
-    local git_push_capture="$TMP_DIR/git-push-mismatched-remote.args"
+run_rejected_tag_case() {
+    local remote_tag_mode="$1"
+    local local_tag_mode="${2:-annotated}"
+    local expected="$3"
+    local capture="$TMP_DIR/gh-rejected-$remote_tag_mode-$local_tag_mode.args"
     local output status
 
     set +e
     output="$(PATH="$FIXTURE_BIN:$MIN_PATH" \
         GH_CAPTURE="$capture" \
-        GH_RELEASE_VIEW_STATUS=1 \
-        GIT_PUSH_CAPTURE="$git_push_capture" \
-        GIT_REMOTE_TAG_MODE=mismatch \
+        GH_RELEASE_MODE=absent \
+        GIT_REMOTE_TAG_MODE="$remote_tag_mode" \
+        GIT_LOCAL_TAG_MODE="$local_tag_mode" \
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
@@ -320,17 +383,87 @@ run_mismatched_remote_tag_case() {
     set -e
 
     [[ "$status" -ne 0 ]] || {
-        echo "release accepted a remote tag on a different commit" >&2
+        echo "release accepted rejected tag state: $remote_tag_mode/$local_tag_mode" >&2
         exit 1
     }
-    grep -Fq 'Remote tag v0.10.1 points at 3333333333333333333333333333333333333333' \
+    grep -Fq "$expected" \
         <<<"$output" || {
         echo "$output" >&2
-        echo "release did not report the mismatched remote tag" >&2
+        echo "release did not report rejected tag state: $remote_tag_mode/$local_tag_mode" >&2
         exit 1
     }
-    [[ ! -e "$git_push_capture" && ! -e "$capture" ]] || {
-        echo "release mutated remote state after a mismatched tag" >&2
+    [[ ! -e "$capture" ]] || {
+        echo "release mutated GitHub state after a rejected tag" >&2
+        exit 1
+    }
+}
+
+run_release_preflight_rejection() {
+    local mode="$1"
+    local expected="$2"
+    local capture="$TMP_DIR/gh-release-$mode.args"
+    local output status
+
+    set +e
+    output="$(PATH="$FIXTURE_BIN:$MIN_PATH" \
+        GH_CAPTURE="$capture" \
+        GH_RELEASE_MODE="$mode" \
+        GIT_REMOTE_TAG_MODE=exact \
+        SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
+        SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
+        SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
+        SEEN_RELEASE_SIGN_MODE=key SEEN_COSIGN_KEY="$TMP_DIR/test.key" \
+        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -ne 0 ]] || {
+        echo "release preflight accepted $mode release state" >&2
+        exit 1
+    }
+    grep -Fq "$expected" <<<"$output" || {
+        echo "$output" >&2
+        echo "release preflight omitted $mode diagnostic" >&2
+        exit 1
+    }
+    [[ ! -e "$capture" ]] || {
+        echo "release preflight mutated an existing or unknown release" >&2
+        exit 1
+    }
+}
+
+run_repository_rejection() {
+    local repository="$1"
+    local remote_url_mode="$2"
+    local expected="$3"
+    local capture="$TMP_DIR/gh-repository-${repository//\//-}-$remote_url_mode.args"
+    local output status
+
+    set +e
+    output="$(PATH="$FIXTURE_BIN:$MIN_PATH" \
+        GH_CAPTURE="$capture" \
+        GH_RELEASE_MODE=absent \
+        GITHUB_REPOSITORY="$repository" \
+        GIT_REMOTE_URL_MODE="$remote_url_mode" \
+        SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
+        SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
+        SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
+        SEEN_RELEASE_SIGN_MODE=key SEEN_COSIGN_KEY="$TMP_DIR/test.key" \
+        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -ne 0 ]] || {
+        echo "release accepted mismatched repository state" >&2
+        exit 1
+    }
+    grep -Fq "$expected" <<<"$output" || {
+        echo "$output" >&2
+        echo "release omitted repository mismatch diagnostic" >&2
+        exit 1
+    }
+    [[ ! -e "$capture" ]] || {
+        echo "release mutated a repository whose tag was not verified" >&2
         exit 1
     }
 }
@@ -353,6 +486,31 @@ run_dry_run_case() {
     fi
 }
 
+run_broad_identity_rejection() {
+    local output status
+
+    set +e
+    output="$(PATH="$FIXTURE_BIN:$MIN_PATH" \
+        SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
+        SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
+        SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
+        SEEN_RELEASE_DRY_RUN=1 \
+        SEEN_RELEASE_SIGN_IDENTITY='github.com/.*SeenLang' \
+        "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" 0.10.1 2>&1)"
+    status=$?
+    set -e
+
+    [[ "$status" -ne 0 ]] || {
+        echo "release uploader accepted a broad signer identity" >&2
+        exit 1
+    }
+    grep -Fq 'must be the exact anchored release.yml tag identity' <<<"$output" || {
+        echo "$output" >&2
+        echo "release uploader omitted its broad-identity diagnostic" >&2
+        exit 1
+    }
+}
+
 run_failed_optional_case() {
     local capture="$TMP_DIR/gh-failed-optional.args"
     local output status
@@ -365,7 +523,7 @@ run_failed_optional_case() {
     set +e
     output="$(PATH="$FIXTURE_BIN:$OPTIONAL_PATH:$MIN_PATH" \
         GH_CAPTURE="$capture" \
-        GH_RELEASE_VIEW_STATUS=0 \
+        GH_RELEASE_MODE=absent \
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
@@ -416,7 +574,7 @@ run_explicit_macos_case() {
     printf 'explicit macOS release artifact\n' > "$input_artifact"
     PATH="$FIXTURE_BIN:$MIN_PATH" \
         GH_CAPTURE="$capture" \
-        GH_RELEASE_VIEW_STATUS=0 \
+        GH_RELEASE_MODE=absent \
         SEEN_LINUX_X64_COMPILER="$FIXTURE_BIN/seen" \
         SEEN_LINUX_X64_V3_COMPILER="$FIXTURE_BIN/seen-v3-absent" \
         SEEN_PACKAGE_CLIENT_BIN="$FIXTURE_BIN/seen-pkg" \
@@ -429,15 +587,33 @@ run_explicit_macos_case() {
         exit 1
     fi
     assert_checksum_scope "$copied_artifact"
-    assert_release_args "$capture" upload "$copied_artifact"
+    assert_release_args "$capture" "$copied_artifact"
 }
 
+if grep -Fq -- '--clobber' "$FIXTURE_ROOT/scripts/build_and_upload_release.sh"; then
+    echo "release uploader retains an asset overwrite path" >&2
+    exit 1
+fi
+if grep -Fq 'git -C "$ROOT_DIR" push' "$FIXTURE_ROOT/scripts/build_and_upload_release.sh" ||
+    grep -Fq 'git -C "$ROOT_DIR" tag' "$FIXTURE_ROOT/scripts/build_and_upload_release.sh"; then
+
+    echo "release uploader retains a tag publication path" >&2
+    exit 1
+fi
+
 run_failed_optional_case
+run_broad_identity_rejection
 run_dry_run_case
-run_release_case 0 upload
-run_release_case 1 create
-run_release_case 1 create absent
-run_mismatched_remote_tag_case
+run_release_case exact
+run_release_preflight_rejection existing 'ordinary publishing never modifies existing releases or assets'
+run_release_preflight_rejection error 'Could not prove that release v0.10.1 is absent'
+run_repository_rejection fork/SeenLang canonical 'GITHUB_REPOSITORY must identify codeyousef/SeenLang'
+run_repository_rejection codeyousef/SeenLang mismatch 'origin does not identify expected repository codeyousef/SeenLang'
+run_rejected_tag_case absent annotated 'remote tag v0.10.1 is missing or ambiguous'
+run_rejected_tag_case object-mismatch annotated 'differs from local tag object'
+run_rejected_tag_case commit-mismatch annotated 'peels to 3333333333333333333333333333333333333333'
+run_rejected_tag_case main-mismatch annotated 'remote main is 3333333333333333333333333333333333333333'
+run_rejected_tag_case lightweight lightweight 'local tag v0.10.1 is not annotated'
 run_explicit_macos_case
 
 echo "release upload artifact scope test passed"

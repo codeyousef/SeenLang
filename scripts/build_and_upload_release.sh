@@ -16,6 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TAG_POLICY="$SCRIPT_DIR/release_tag_policy.sh"
 if [[ "${SEEN_RELEASE_CONTAINMENT_IN_SCOPE:-0}" != "1" ]]; then
     exec "$SCRIPT_DIR/run_release_upload.sh" "$@"
 fi
@@ -58,12 +59,47 @@ DIST_DIR="$ROOT_DIR/dist"  # absolute path required — build_release.sh cd's in
 MACOS_INPUT_DIR="${SEEN_RELEASE_MACOS_INPUT_DIR:-}"
 SIGN_MODE="${SEEN_RELEASE_SIGN_MODE:-}"
 DRY_RUN="${SEEN_RELEASE_DRY_RUN:-0}"
-SIGN_IDENTITY="${SEEN_RELEASE_SIGN_IDENTITY:-https://github.com/codeyousef/SeenLang/.github/workflows/release.yml@refs/tags/v$VERSION}"
+SIGN_IDENTITY="${SEEN_RELEASE_SIGN_IDENTITY:-}"
 SIGN_ISSUER="${SEEN_RELEASE_SIGN_ISSUER:-https://token.actions.githubusercontent.com}"
+RELEASE_REPOSITORY="${GITHUB_REPOSITORY:-codeyousef/SeenLang}"
 
 die() {
     echo "Error: $*" >&2
     exit 1
+}
+
+if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+    die "Release version is not a supported semantic version: $VERSION"
+fi
+ESCAPED_VERSION="${VERSION//./\\.}"
+EXPECTED_SIGN_IDENTITY="^https://github\\.com/codeyousef/SeenLang/\\.github/workflows/release\\.yml@refs/tags/v${ESCAPED_VERSION}\$"
+if [[ -z "$SIGN_IDENTITY" ]]; then
+    SIGN_IDENTITY="$EXPECTED_SIGN_IDENTITY"
+fi
+[[ "$SIGN_IDENTITY" == "$EXPECTED_SIGN_IDENTITY" ]] ||
+    die "SEEN_RELEASE_SIGN_IDENTITY must be the exact anchored release.yml tag identity"
+[[ "$SIGN_ISSUER" == "https://token.actions.githubusercontent.com" ]] ||
+    die "SEEN_RELEASE_SIGN_ISSUER must be the GitHub Actions OIDC issuer"
+[[ "$RELEASE_REPOSITORY" == "codeyousef/SeenLang" ]] ||
+    die "GITHUB_REPOSITORY must identify codeyousef/SeenLang"
+
+assert_release_absent() {
+    local probe status
+
+    [[ "$RELEASE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
+        die "GITHUB_REPOSITORY is invalid"
+    set +e
+    probe="$(gh api --include "repos/$RELEASE_REPOSITORY/releases/tags/$TAG" 2>&1)"
+    status=$?
+    set -e
+    if [[ "$status" -eq 0 ]]; then
+        die "Release $TAG already exists; ordinary publishing never modifies existing releases or assets"
+    fi
+    if [[ "$status" -ne 1 ]] ||
+        ! grep -Eq '^HTTP/[0-9.]+[[:space:]]+404([[:space:]]|$)' <<<"$probe"; then
+
+        die "Could not prove that release $TAG is absent"
+    fi
 }
 
 require_artifacts() {
@@ -132,6 +168,16 @@ if [[ "$DRY_RUN" == "0" ]]; then
         keyless|key|kms) ;;
         *) die "SEEN_RELEASE_SIGN_MODE must be keyless, key, or kms; unsigned uploads are forbidden" ;;
     esac
+    [ -f "$TAG_POLICY" ] && [ ! -L "$TAG_POLICY" ] ||
+        die "release tag policy is missing or unsafe"
+    HEAD_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)" ||
+        die "could not resolve the release commit"
+    # shellcheck source=scripts/release_tag_policy.sh
+    source "$TAG_POLICY" || die "could not load release tag policy"
+    seen_release_verify_published_tag \
+        "$ROOT_DIR" "$TAG" "$HEAD_COMMIT" "$RELEASE_REPOSITORY" ||
+        die "release tag did not satisfy the published-tag policy"
+    assert_release_absent
 fi
 
 if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
@@ -464,44 +510,6 @@ echo ""
 echo "Artifacts:"
 ls -lh -- "${RELEASE_ARTIFACTS[@]}"
 
-# --- Tag and push ---
-
-echo ""
-echo "=== Creating tag $TAG... ==="
-HEAD_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
-if git -C "$ROOT_DIR" rev-parse -q --verify "refs/tags/$TAG" &>/dev/null; then
-    TAG_COMMIT="$(git -C "$ROOT_DIR" rev-list -n1 "$TAG")"
-    if [[ "$TAG_COMMIT" != "$HEAD_COMMIT" ]]; then
-        die "Tag $TAG points at $TAG_COMMIT, but HEAD is $HEAD_COMMIT. Move or recreate the tag before uploading."
-    fi
-    echo "Tag $TAG already exists at HEAD."
-else
-    git -C "$ROOT_DIR" tag -a "$TAG" -m "Seen $VERSION"
-    echo "Created tag $TAG."
-fi
-
-REMOTE_TAG_REF="refs/tags/$TAG"
-REMOTE_TAGS="$(git -C "$ROOT_DIR" ls-remote --tags origin \
-    "$REMOTE_TAG_REF" "$REMOTE_TAG_REF^{}")" ||
-    die "Could not resolve remote tag $TAG."
-REMOTE_TAG_DIRECT="$(awk -v ref="$REMOTE_TAG_REF" '$2 == ref { print $1 }' <<<"$REMOTE_TAGS")"
-REMOTE_TAG_PEELED="$(awk -v ref="$REMOTE_TAG_REF^{}" '$2 == ref { print $1 }' <<<"$REMOTE_TAGS")"
-if [[ "$REMOTE_TAG_DIRECT" == *$'\n'* || "$REMOTE_TAG_PEELED" == *$'\n'* ]]; then
-    die "Remote tag $TAG resolved ambiguously."
-fi
-REMOTE_TAG_COMMIT="${REMOTE_TAG_PEELED:-$REMOTE_TAG_DIRECT}"
-if [[ -n "$REMOTE_TAG_COMMIT" ]]; then
-    [[ "$REMOTE_TAG_COMMIT" =~ ^[0-9a-f]{40}$ ]] ||
-        die "Remote tag $TAG returned an invalid object identifier."
-    if [[ "$REMOTE_TAG_COMMIT" != "$HEAD_COMMIT" ]]; then
-        die "Remote tag $TAG points at $REMOTE_TAG_COMMIT, but HEAD is $HEAD_COMMIT."
-    fi
-    echo "Remote tag $TAG already exists at HEAD; skipping redundant push."
-else
-    echo "Pushing tag $TAG..."
-    git -C "$ROOT_DIR" push origin "$TAG"
-fi
-
 # --- Create GitHub Release ---
 
 echo ""
@@ -516,15 +524,16 @@ NOTES="## Seen Language $VERSION
 
 ### Highlights
 
-- Certifies the self-hosted compiler on a clean checkout through one required,
-  memory-contained, serial CI gate with deterministic bootstrap evidence.
-- Adds native-boundary and foreign-symbol inventories, deterministic release
-  compatibility manifests, reusable package layouts, and signed component pins.
-- Adds stable machine diagnostics, structured errors, move-only resource and
-  secret contracts, and the native \`seen test\` discovery, fixture, assertion,
-  reporting, instrumentation, fuzz, benchmark, and leak/soak foundations.
-- Restores project-wide declaration visibility for large forked and no-fork
-  compiler graphs and removes production source/IR repair fallbacks.
+- Makes generated programs terminate promptly and predictably after allocator
+  exhaustion instead of leaving a failed process alive.
+- Stabilizes imported-function name resolution, package-qualified test imports,
+  nested arrays, and Array-backed class returns, with semantic rejection before
+  invalid calls can reach LLVM optimization.
+- Hardens tiny, nested, and malformed JSON handling and removes the historical
+  \`str.string\`/\`io.file\` cycle for external standard-library consumers.
+- Adds release-blocking tracked regressions, ownership/adverse-input stress,
+  sanitizer execution, bounded diagnostics, and portable fail-closed systemd
+  OOM-group setup under the existing memory-contained serial release gate.
 
 ### Installation
 
@@ -545,17 +554,21 @@ Otherwise use the platform bootstrap instructions in the repository.
 Download \`SHA256SUMS\` from this release and verify files with
 \`sha256sum -c SHA256SUMS\`."
 
-# Create or update the release, uploading only the exact version-scoped set
-# assembled above. dist/ can contain older local builds and must never be swept.
-if gh release view "$TAG" &>/dev/null 2>&1; then
-    echo "Release $TAG exists, uploading artifacts..."
-    gh release upload "$TAG" "${RELEASE_ARTIFACTS[@]}" --clobber
-else
-    gh release create "$TAG" "${RELEASE_ARTIFACTS[@]}" \
-        --title "Seen Language $VERSION" \
-        --notes "$NOTES" \
-        $PRERELEASE_FLAG
-fi
+# Create a new release with only the exact version-scoped set assembled above.
+# The read-only preflight rejected an existing release, and this command has no
+# asset-overwrite mode. A race that creates the release first therefore fails.
+CURRENT_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)" ||
+    die "could not re-resolve the release commit"
+seen_release_verify_published_tag \
+    "$ROOT_DIR" "$TAG" "$CURRENT_COMMIT" "$RELEASE_REPOSITORY" ||
+    die "release tag changed or remote main advanced during release preparation"
+assert_release_absent
+gh release create "$TAG" "${RELEASE_ARTIFACTS[@]}" \
+    --repo "$RELEASE_REPOSITORY" \
+    --verify-tag \
+    --title "Seen Language $VERSION" \
+    --notes "$NOTES" \
+    $PRERELEASE_FLAG
 
 echo ""
 echo "=== Done! ==="

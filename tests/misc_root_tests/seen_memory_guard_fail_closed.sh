@@ -171,6 +171,65 @@ for interval in 0 0.00 0.a 1.2 ''; do
     [ "$status" -eq 2 ] || fail "invalid interval '$interval' returned $status"
 done
 
+# OOMPolicy support depends on the running user manager, not the systemctl
+# client version. Mock scope creation so the version gate is exercised without
+# creating a real cgroup; kernel memory.oom.group enforcement is checked by the
+# static read-back assertions below and by the real hard-scope entry path.
+mock_systemd_bin="$TEST_ROOT/mock-systemd-bin"
+mkdir -p -- "$mock_systemd_bin"
+printf '%s\n' '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" >> "$SEEN_TEST_SYSTEMCTL_CALLS"' \
+    'case "$*" in' \
+    '    "--user show-environment") exit 0 ;;' \
+    '    "--user show --property=Version --value")' \
+    '        printf "%s\n" "$SEEN_TEST_SYSTEMD_VERSION"' \
+    '        exit 0' \
+    '        ;;' \
+    '    *) exit 98 ;;' \
+    'esac' \
+    > "$mock_systemd_bin/systemctl"
+printf '%s\n' '#!/usr/bin/env bash' \
+    'printf "%s\n" "$@" > "$SEEN_TEST_SYSTEMD_RUN_ARGS"' \
+    'exit 0' \
+    > "$mock_systemd_bin/systemd-run"
+chmod +x "$mock_systemd_bin/systemctl" "$mock_systemd_bin/systemd-run"
+
+run_mock_systemd_scope() {
+    local manager_version=$1
+    local calls_file=$2
+    local args_file=$3
+
+    PATH="$mock_systemd_bin:$PATH" \
+    TMPDIR="$TEST_ROOT" \
+    SEEN_TEST_SYSTEMD_VERSION="$manager_version" \
+    SEEN_TEST_SYSTEMCTL_CALLS="$calls_file" \
+    SEEN_TEST_SYSTEMD_RUN_ARGS="$args_file" \
+    SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE=1 \
+    SEEN_MEMORY_GUARD_KERNEL_SCOPE=1 \
+        "$GUARD" --rss-limit-kb 1024 --tasks-max 1 -- true
+}
+
+systemd_253_calls="$TEST_ROOT/systemd-253.calls"
+systemd_253_args="$TEST_ROOT/systemd-253.args"
+run_mock_systemd_scope 253 "$systemd_253_calls" "$systemd_253_args" ||
+    fail "systemd v253 scope-property mock failed"
+[ "$(grep -Fxc -- '--user show --property=Version --value' \
+    "$systemd_253_calls")" -eq 1 ] ||
+    fail "memory guard did not query the running v253 user manager"
+grep -Fxq 'OOMPolicy=kill' "$systemd_253_args" ||
+    fail "systemd v253 scope omitted OOMPolicy=kill"
+
+systemd_252_calls="$TEST_ROOT/systemd-252.calls"
+systemd_252_args="$TEST_ROOT/systemd-252.args"
+run_mock_systemd_scope 252 "$systemd_252_calls" "$systemd_252_args" ||
+    fail "systemd v252 scope-property mock failed"
+[ "$(grep -Fxc -- '--user show --property=Version --value' \
+    "$systemd_252_calls")" -eq 1 ] ||
+    fail "memory guard did not query the running v252 user manager"
+if grep -Fxq 'OOMPolicy=kill' "$systemd_252_args"; then
+    fail "systemd v252 scope received unsupported OOMPolicy=kill"
+fi
+
 mkdir -p "$TEST_ROOT/mock-bin"
 fake_setsid_sentinel="$TEST_ROOT/fake-setsid-ran"
 printf '%s\n' '#!/usr/bin/env bash' \
@@ -384,9 +443,19 @@ grep -Fq 'memory.oom.group' "$GUARD" ||
     fail "group-wide OOM control is missing"
 grep -Fq '[ "$memory_oom_group" != "1" ]' "$GUARD" ||
     fail "group-wide OOM read-back is missing"
-if grep -Fq 'OOMPolicy=kill' "$GUARD"; then
-    fail "memory guard still depends on version-specific OOMPolicy"
-fi
+grep -Fq 'systemctl --user show --property=Version --value' "$GUARD" ||
+    fail "OOM policy gate does not query the running user manager version"
+grep -Fq '[ "$manager_major" -ge 253 ]' "$GUARD" ||
+    fail "OOM policy gate does not require systemd manager v253"
+grep -Fq 'scope_properties+=(-p "OOMPolicy=kill")' "$GUARD" ||
+    fail "supported transient scopes do not request OOMPolicy=kill"
+grep -Fq "! printf '1\\n' > \"\$cgroup_dir/memory.oom.group\"" "$GUARD" ||
+    fail "older systemd managers lack direct group-wide OOM enforcement"
+[ "$(grep -Fc 'IFS= read -r memory_oom_group < "$cgroup_dir/memory.oom.group" || true' \
+    "$GUARD")" -eq 2 ] ||
+    fail "group-wide OOM control lacks initial and post-write read-back"
+grep -Fq 'group-wide OOM enforcement failed read-back' "$GUARD" ||
+    fail "group-wide OOM enforcement can fail open after write-back"
 if grep -Fq 'TMPDIR:-/tmp' "$GUARD"; then
     fail "memory guard can fall back to the host temporary directory"
 fi

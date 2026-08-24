@@ -39,8 +39,8 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare %SeenString @seen_str_concat_ss(%SeenString, %SeenString) nounwind\n")
         output.append("declare %SeenString @seen_int_to_string(i64) nounwind readonly\n")
         output.append("declare %SeenString @seen_float_to_string(double) nounwind readonly\n")
-        output.append("declare %SeenString @seen_char_to_str(i64) nounwind readonly\n")
-        output.append("declare %SeenString @String_fromCharCode(i64) nounwind readonly\n")
+        output.append("declare %SeenString @seen_char_to_str(i64) nounwind\n")
+        output.append("declare %SeenString @String_fromCharCode(i64) nounwind\n")
         output.append("declare %SeenString @seen_bool_to_string(i1) nounwind readonly\n")
         output.append("declare i64 @seen_char_at(%SeenString, i64) nounwind readonly\n")
         output.append("declare i64 @seen_byte_at(%SeenString, i64) nounwind readonly\n")
@@ -49,8 +49,8 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare i64 @seen_string_length_codepoints(%SeenString) nounwind readonly\n")
 
         // StringBuilder functions
-        output.append("declare noalias dereferenceable(32) ptr @StringBuilder_new() nounwind willreturn\n")
-        output.append("declare noalias dereferenceable(32) ptr @StringBuilder_new_with_capacity(i64) nounwind willreturn\n")
+        output.append("declare noalias dereferenceable(16) ptr @StringBuilder_new() nounwind willreturn\n")
+        output.append("declare noalias dereferenceable(16) ptr @StringBuilder_new_with_capacity(i64) nounwind willreturn\n")
         output.append("declare i64 @StringBuilder_append(ptr nonnull, %SeenString) nounwind willreturn\n")
         output.append("declare i64 @StringBuilder_appendChar(ptr nonnull, i64) nounwind willreturn\n")
         output.append("declare %SeenString @StringBuilder_toString(ptr nonnull) nounwind willreturn\n")

@@ -179,6 +179,23 @@ user_systemd_scope_available() {
     systemctl --user show-environment >/dev/null 2>&1
 }
 
+user_systemd_manager_major() {
+    local version=""
+    local major=""
+
+    # Query the running user manager rather than the systemctl client binary:
+    # a newer client may be connected to an older manager that rejects scope
+    # properties introduced after it was started.
+    version=$(systemctl --user show --property=Version --value \
+        2>/dev/null || true)
+    case "$version" in
+        [0-9]*) major=${version%%[!0-9]*} ;;
+        *) return 1 ;;
+    esac
+    is_positive_integer "$major" || return 1
+    printf '%s\n' "$major"
+}
+
 read_cgroup_value_into() {
     local file=$1
     local destination=$2
@@ -950,16 +967,30 @@ if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != "1" ] &&
         high_kb=1
     fi
     tasks_max="${TASKS_MAX:-24}"
+    scope_properties=(
+        -p "MemoryMax=${RSS_LIMIT_KB}K"
+        -p "MemoryHigh=${high_kb}K"
+        -p "MemorySwapMax=0"
+        -p "TasksMax=${tasks_max}"
+    )
+    manager_major=$(user_systemd_manager_major || true)
+    if is_positive_integer "$manager_major" &&
+        [ "$manager_major" -ge 253 ]; then
+
+        scope_properties+=(-p "OOMPolicy=kill")
+    fi
 
     # A transient scope executes the command as a child of systemd-run.  Unlike
     # a transient service, it preserves the caller's mount namespace, including
-    # safe_rebuild's project-local /tmp mapping.
+    # safe_rebuild's project-local /tmp mapping. User managers at version 253 or
+    # newer accept OOMPolicy=kill for scopes, allowing systemd to set
+    # memory.oom.group before the delegated process starts. Older or unknown
+    # managers omit that version-specific property. Every version still uses
+    # verify_kernel_scope_limits to write the kernel control directly when
+    # needed, read it back, and refuse execution unless it reports exactly 1.
     exec systemd-run --user --scope --quiet \
         --unit="$unit_name" \
-        -p "MemoryMax=${RSS_LIMIT_KB}K" \
-        -p "MemoryHigh=${high_kb}K" \
-        -p "MemorySwapMax=0" \
-        -p "TasksMax=${tasks_max}" \
+        "${scope_properties[@]}" \
         env \
             SEEN_MEMORY_GUARD_IN_SCOPE=1 \
             SEEN_MEMORY_GUARD_REQUIRE_KERNEL_SCOPE="$REQUIRE_KERNEL_SCOPE" \

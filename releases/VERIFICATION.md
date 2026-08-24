@@ -40,6 +40,14 @@ echo "$(cat seen-<version>-release-artifacts.json.sha256)  seen-<version>-releas
 
 A successful verification prints `Verified OK`.
 
+For keyless releases, the script derives one exact certificate identity from
+the manifest version: the SeenLang `release.yml` workflow at that exact
+`refs/tags/v<version>` ref. The regular expression is anchored and all literal
+dots are escaped—for example,
+`^https://github\.com/codeyousef/SeenLang/\.github/workflows/release\.yml@refs/tags/v0\.11\.1$`.
+A broader `--certificate-identity` override, a different workflow or tag, or a
+non-GitHub-Actions issuer is rejected before signature verification.
+
 ## Using the verification script
 
 The repository includes a convenience script:

@@ -6,6 +6,7 @@ ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
 ARTIFACT_HELPER="$ROOT_DIR/scripts/artifact_root.sh"
 CHECKER="$ROOT_DIR/scripts/check_release_ci_run.py"
 TOOLCHAIN_CHECKER="$ROOT_DIR/scripts/release_toolchain_artifact.py"
+TAG_POLICY="$ROOT_DIR/scripts/release_tag_policy.sh"
 
 fail() {
     echo "release-ci: core.004b.invalid: $*" >&2
@@ -14,6 +15,8 @@ fail() {
 
 [[ "${GITHUB_REPOSITORY:-}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
     fail "GITHUB_REPOSITORY is invalid"
+[ "${GITHUB_REPOSITORY:-}" = "codeyousef/SeenLang" ] ||
+    fail "release verification is restricted to codeyousef/SeenLang"
 [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || fail "GITHUB_SHA is invalid"
 [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME:-}" == v* ]] ||
     fail "release verification requires a version tag"
@@ -22,15 +25,18 @@ fail() {
 [ -f "$CHECKER" ] && [ ! -L "$CHECKER" ] || fail "CI evidence checker is missing or unsafe"
 [ -f "$TOOLCHAIN_CHECKER" ] && [ ! -L "$TOOLCHAIN_CHECKER" ] ||
     fail "release toolchain checker is missing or unsafe"
+[ -f "$TAG_POLICY" ] && [ ! -L "$TAG_POLICY" ] ||
+    fail "release tag policy is missing or unsafe"
 command -v gh >/dev/null 2>&1 || fail "gh CLI is unavailable"
 if [ -z "${GH_TOKEN:-}" ]; then
     gh auth status >/dev/null 2>&1 || fail "GitHub authentication is unavailable"
 fi
 
-tag_commit=$(git -C "$ROOT_DIR" rev-parse "${GITHUB_REF_NAME}^{commit}") ||
-    fail "could not resolve release tag"
-[ "$tag_commit" = "$GITHUB_SHA" ] ||
-    fail "release tag resolves to $tag_commit instead of $GITHUB_SHA"
+# shellcheck source=scripts/release_tag_policy.sh
+source "$TAG_POLICY" || fail "could not load release tag policy"
+seen_release_verify_published_tag \
+    "$ROOT_DIR" "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_REPOSITORY" ||
+    fail "release tag did not satisfy the published-tag policy"
 
 # shellcheck source=scripts/artifact_root.sh
 source "$ARTIFACT_HELPER" || fail "could not load artifact-root helper"

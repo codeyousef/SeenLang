@@ -1,0 +1,17 @@
+import memory.allocation.{setMemoryLimitBytes, memoryStats}
+
+fun main() r: Int {
+    // Keep the limit deterministic and far below the next Array<Int> growth.
+    // The checked grow path must terminate the process before this function can
+    // return, rather than entering signal/core-dump teardown or continuing with
+    // a failed allocation.
+    let values = Array<Int>()
+    let baseline = memoryStats()
+    setMemoryLimitBytes(baseline.usedBytes + 256)
+    var index = 0
+    while index < 1024 {
+        values.push(index)
+        index = index + 1
+    }
+    return 99
+}

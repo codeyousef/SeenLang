@@ -21,6 +21,8 @@ ARCH="${ARCH:-$(uname -m)}"
 ADD_TO_PATH="${ADD_TO_PATH:-true}"
 INSTALL_STDLIB="${INSTALL_STDLIB:-true}"
 INSTALL_TOOLCHAIN="${INSTALL_TOOLCHAIN:-check}"
+LLVM_MIN_VERSION=19
+LLVM_PREFERRED_VERSION=20
 
 # Colors for output
 RED='\033[0;31m'
@@ -389,10 +391,10 @@ ensure_toolchain() {
     if [ -x "$helper" ]; then
         if [ "$INSTALL_TOOLCHAIN" = "install" ] || [ "${SEEN_MANAGED_TOOLCHAIN:-0}" = "1" ]; then
             if ! "$helper" --install --prefix "$install_dir"; then
-                warning "Managed LLVM installation failed. Install LLVM 18+ manually."
+                warning "Managed LLVM installation failed. Install LLVM ${LLVM_MIN_VERSION}+ manually (LLVM $LLVM_PREFERRED_VERSION preferred)."
             fi
         elif ! "$helper" --check --prefix "$install_dir"; then
-            warning "LLVM 18+ tools are not ready. Install clang, opt, llc, llvm-as, and lld."
+            warning "LLVM ${LLVM_MIN_VERSION}+ tools are not ready (LLVM $LLVM_PREFERRED_VERSION preferred). Install clang, opt, llc, llvm-as, and lld."
             warning "Rerun with --install-toolchain or SEEN_MANAGED_TOOLCHAIN=1 for a managed install attempt."
         fi
         return
@@ -406,7 +408,7 @@ ensure_toolchain() {
     done
     if [ ${#missing[@]} -gt 0 ]; then
         warning "Missing LLVM tools: ${missing[*]}"
-        warning "Install LLVM 18+ before building native Seen programs."
+        warning "Install LLVM ${LLVM_MIN_VERSION}+ (LLVM $LLVM_PREFERRED_VERSION preferred) before building native Seen programs."
     else
         success "LLVM toolchain found"
     fi

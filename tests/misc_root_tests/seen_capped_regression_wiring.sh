@@ -6,6 +6,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 RUNNER="$ROOT_DIR/scripts/run_attested_seen.sh"
+ASAN_RUNNER="$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh"
 STAGE1_ACCEPTANCE="$ROOT_DIR/scripts/seen_stage1_acceptance.sh"
 SAFE_REBUILD="$ROOT_DIR/scripts/safe_rebuild.sh"
 ATOMIC_TEXT_IO="$ROOT_DIR/tests/misc_root_tests/seen_atomic_text_io.sh"
@@ -21,6 +22,7 @@ CAPABILITY_CALLERS=(
     "$ROOT_DIR/scripts/safe_rebuild.sh"
 )
 TARGETS=(
+    "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_checked_allocation_codegen.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_companion_struct_literal_arg.sh"
@@ -34,6 +36,9 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_import_c_real_headers.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_import_c_typedefs.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_import_c_unions.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_imported_function_method_collision.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_json_tiny_object_regression.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_nested_array_batch_regression.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_pkg_prebuild_artifact_string_fields.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_pkg_prebuild_artifact_string_helpers.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_pkg_prebuild_artifact_symbols.sh"
@@ -42,9 +47,12 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_pkg_local_registry.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_pkg_scoped_identity.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_package_run_preparation.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_project_qualified_test_import_regression.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_return_class_get_helper.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_safetensors_slot_return_regression.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_string_equality_return_regression.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_stdlib_string_io_cycle.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_trainer_blocker_regressions.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_unresolved_struct_literal_diagnostic.sh"
 )
@@ -70,6 +78,20 @@ LEGACY_DISABLED=(
 BLOCKED_DISABLED=(
     "$ROOT_DIR/tests/misc_root_tests/seen_fix_regressions.sh"
 )
+RELEASE_STABILIZATION_TARGETS=(
+    "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_project_qualified_test_import_regression.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_imported_function_method_collision.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_nested_array_batch_regression.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_safetensors_slot_return_regression.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_json_tiny_object_regression.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_stdlib_string_io_cycle.sh"
+)
+ASAN_REGRESSION_TARGETS=(
+    "$ROOT_DIR/tests/misc_root_tests/seen_json_tiny_object_regression.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_nested_array_batch_regression.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_safetensors_slot_return_regression.sh"
+)
 
 fail() {
     echo "FAIL: capped regression wiring: $*" >&2
@@ -87,11 +109,114 @@ if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ]; then
 fi
 
 command -v rg >/dev/null 2>&1 || fail "rg is required"
-bash -n "$ENTRY" "$RUNNER" "$STAGE1_ACCEPTANCE" "${TARGETS[@]}" \
+bash -n "$ENTRY" "$RUNNER" "$ASAN_RUNNER" "$STAGE1_ACCEPTANCE" "${TARGETS[@]}" \
     "${STANDALONE_COMPILER_TARGETS[@]}" "${PLATFORM_TARGETS[@]}" \
     "${LEGACY_DISABLED[@]}" "${BLOCKED_DISABLED[@]}" \
     "${CAPABILITY_CALLERS[@]}" ||
     fail "shell syntax"
+
+for required in \
+    'ASAN_VMEM_LIMIT_KB=68719476736' \
+    '[ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" = "1" ]' \
+    '[ "$current_soft_vmem_kb" -le "$SEEN_MAIN_VMEM_KB" ]' \
+    '"$HARD_SCOPE_WRAPPER"' '--verify-only' \
+    '"$CAPPED_ENTRY" --verify-active "$SEEN_CAPPED_REGRESSION_SCOPE"' \
+    'grep -Fq '\''  Sanitizer: address'\''' \
+    'readelf -Ws -- "$canonical_binary"' \
+    'hard_vmem_kb=$(ulimit -H -v' \
+    'ulimit -H -v "$ASAN_VMEM_LIMIT_KB"' \
+    '[ "$active_hard_vmem_kb" = "$ASAN_VMEM_LIMIT_KB" ]' \
+    'ulimit -S -v "$ASAN_VMEM_LIMIT_KB"' \
+    '[ "$active_soft_vmem_kb" = "$ASAN_VMEM_LIMIT_KB" ]' \
+    '"$SEEN_ARTIFACT_ROOT"/*' \
+    '-u LD_PRELOAD' '-u SEEN_FORK_SERIALIZER_TARGET' \
+    '-u SEEN_FORK_SERIALIZER_ROOT_PID' \
+    '-u LSAN_OPTIONS' '-u ASAN_SYMBOLIZER_PATH' \
+    'detect_leaks=1' 'LSAN_OPTIONS=exitcode=23'; do
+
+    grep -Fq -- "$required" "$ASAN_RUNNER" ||
+        fail "bounded ASan runner omitted $required"
+done
+if rg -n 'ulimit[[:space:]]+-S[[:space:]]+-v[[:space:]]+(unlimited|0)' \
+    "$ASAN_RUNNER"; then
+
+    fail "bounded ASan runner can remove its finite virtual-address limit"
+fi
+if env \
+    -u SEEN_CAPPED_REGRESSION_ACTIVE \
+    -u SEEN_CAPPED_REGRESSION_SCOPE \
+    -u SEEN_CAPPED_REGRESSION_COMPILER \
+    -u SEEN_CAPPED_REGRESSION_TOOLCHAIN \
+    -u SEEN_ATTESTED_COMPILER_RUNNER \
+    bash "$ASAN_RUNNER" --target-root /bin --compile-log /dev/null -- \
+        /bin/true >/dev/null 2>&1; then
+
+    fail "bounded ASan runner accepted execution outside a capped regression"
+else
+    asan_fail_closed_status=$?
+    [ "$asan_fail_closed_status" -eq 126 ] ||
+        fail "bounded ASan runner returned $asan_fail_closed_status instead of 126"
+fi
+
+# Even forged marker strings cannot turn this into a generic large-VA runner:
+# a canonical artifact-root executable without actual ASan symbols is rejected
+# before any scope relaxation is attempted.
+# shellcheck source=scripts/artifact_root.sh
+source "$ARTIFACT_HELPER" || fail "could not load artifact-root helper for ASan probe"
+seen_artifact_root_init "$ROOT_DIR" || fail "could not validate ASan probe root"
+asan_probe_scope=$(seen_artifact_scope_init capped-asan-runner-probe) ||
+    fail "could not initialize ASan probe scope"
+asan_probe_root=$(seen_artifact_mktemp_dir "$asan_probe_scope" run) ||
+    fail "could not initialize ASan probe directory"
+cleanup_asan_probe() {
+    case "$asan_probe_root" in
+        "$asan_probe_scope"/run.*)
+            [ -d "$asan_probe_root" ] && [ ! -L "$asan_probe_root" ] &&
+                [ "$(dirname -- "$asan_probe_root")" = "$asan_probe_scope" ] &&
+                rm -rf -- "$asan_probe_root"
+            ;;
+        *) return 1 ;;
+    esac
+}
+trap cleanup_asan_probe EXIT
+mkdir -p -- "$asan_probe_root/target" "$asan_probe_root/logs"
+cp -- /bin/true "$asan_probe_root/target/not-asan"
+chmod 0755 "$asan_probe_root/target/not-asan"
+printf '%s\n' '  Sanitizer: address' > "$asan_probe_root/logs/address.compile.log"
+if env \
+    SEEN_CAPPED_REGRESSION_ACTIVE=1 \
+    SEEN_CAPPED_REGRESSION_SCOPE=forged-asan-probe \
+    SEEN_CAPPED_REGRESSION_COMPILER=/bin/true \
+    SEEN_CAPPED_REGRESSION_TOOLCHAIN="$asan_probe_root/target" \
+    SEEN_ATTESTED_COMPILER_RUNNER=/bin/true \
+    SEEN_MEMORY_GUARD_IN_SCOPE=1 \
+    SEEN_HARD_MEMORY_SCOPE_ACTIVE=1 \
+    SEEN_MEMORY_GUARD_SCOPE_UNIT=forged.scope \
+    SEEN_MAIN_VMEM_KB=1048576 \
+    bash "$ASAN_RUNNER" \
+        --target-root "$asan_probe_root/target" \
+        --compile-log "$asan_probe_root/logs/address.compile.log" -- \
+        "$asan_probe_root/target/not-asan" \
+        >"$asan_probe_root/probe.out" 2>"$asan_probe_root/probe.err"; then
+
+    fail "bounded ASan runner accepted a non-ASan artifact-root executable"
+else
+    non_asan_status=$?
+    [ "$non_asan_status" -eq 126 ] ||
+        fail "non-ASan artifact probe returned $non_asan_status instead of 126"
+fi
+grep -Fq 'no address-sanitizer runtime symbol' "$asan_probe_root/probe.err" ||
+    fail "non-ASan artifact rejection diagnostic is missing"
+for target in "${ASAN_REGRESSION_TARGETS[@]}"; do
+    grep -Fq 'bash "$ASAN_RUNNER" --target-root' "$target" ||
+        fail "$(basename "$target") bypasses the bounded ASan runner"
+    grep -Fq -- '--compile-log "$compile_log" -- "$binary"' "$target" ||
+        fail "$(basename "$target") omits address-sanitizer compile evidence"
+    grep -Eq 'if \[ "\$(policy|sanitizer)" = "address" \]; then' "$target" ||
+        fail "$(basename "$target") does not isolate the address-sanitized route"
+    grep -Fq 'timeout --foreground --kill-after=5s' "$target" ||
+        fail "$(basename "$target") omits the outer ASan runtime timeout"
+done
 
 if rg -n -U -P \
     'bash "\$BUILDER_CAPABILITY(?:_SCRIPT)?"(?s:.{0,256}?)\|\| true' \
@@ -99,6 +224,29 @@ if rg -n -U -P \
 
     fail "builder capability caller discards a nonzero classifier status"
 fi
+
+general_acceptance_line=$(grep -n -m1 '^SEEN_EXPECTED_VERSION=' \
+    "$STAGE1_ACCEPTANCE" | cut -d: -f1)
+for target in "${RELEASE_STABILIZATION_TARGETS[@]}"; do
+    target_basename=$(basename "$target")
+    expected_invocation='COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/'"$target_basename"'"'
+    grep -Fq "$expected_invocation" "$STAGE1_ACCEPTANCE" ||
+        fail "Stage-1 acceptance does not run $target_basename against the fresh compiler"
+    target_line=$(grep -n -F -m1 "$expected_invocation" \
+        "$STAGE1_ACCEPTANCE" | cut -d: -f1)
+    case "$target_line:$general_acceptance_line" in
+        *[!0-9:]*) fail "could not prove fail-fast ordering for $target_basename" ;;
+    esac
+    [ "$target_line" -lt "$general_acceptance_line" ] ||
+        fail "$target_basename runs after the broad acceptance corpus"
+done
+stabilization_line=$(grep -n -m1 'seen_allocator_oom_exit.sh' \
+    "$STAGE1_ACCEPTANCE" | cut -d: -f1)
+case "$stabilization_line:$general_acceptance_line" in
+    *[!0-9:]*) fail "could not prove stabilization fail-fast ordering" ;;
+esac
+[ "$stabilization_line" -lt "$general_acceptance_line" ] ||
+    fail "release-blocking regressions do not fail before the broad acceptance corpus"
 
 for required in \
     run_with_project_artifacts.sh run_in_hard_memory_scope.sh \

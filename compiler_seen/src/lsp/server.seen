@@ -1255,6 +1255,7 @@ class SeenLspServer {
                     let resultElems = Array<JsonValue>()
                     resultElems.push(loc.toJson())
                     let result = JsonValue_array(resultElems)
+                    resultElems.free()
                     let response = LspResponse_success(msg.id, result)
                     this.rpc.sendResponse(response)
                     return
@@ -1276,6 +1277,7 @@ class SeenLspServer {
                             let resultElems2 = Array<JsonValue>()
                             resultElems2.push(loc.toJson())
                             let result = JsonValue_array(resultElems2)
+                            resultElems2.free()
                             let response = LspResponse_success(msg.id, result)
                             this.rpc.sendResponse(response)
                             return
@@ -1304,6 +1306,7 @@ class SeenLspServer {
                         let resultElems3 = Array<JsonValue>()
                         resultElems3.push(loc.toJson())
                         let result = JsonValue_array(resultElems3)
+                        resultElems3.free()
                         let response = LspResponse_success(msg.id, result)
                         this.rpc.sendResponse(response)
                         return
@@ -1320,6 +1323,7 @@ class SeenLspServer {
                     let resultElems4 = Array<JsonValue>()
                     resultElems4.push(loc.toJson())
                     let result = JsonValue_array(resultElems4)
+                    resultElems4.free()
                     let response = LspResponse_success(msg.id, result)
                     this.rpc.sendResponse(response)
                     return
@@ -1600,6 +1604,7 @@ class SeenLspServer {
 
         let occurrences = this.findAllOccurrences(uri, content, word)
         let result = JsonValue_array(occurrences)
+        occurrences.free()
         let response = LspResponse_success(msg.id, result)
         this.rpc.sendResponse(response)
     }
@@ -1677,6 +1682,7 @@ class SeenLspServer {
 
         // Build WorkspaceEdit: { "changes": { "<uri>": [ TextEdit... ] } }
         let fileEdits = JsonValue_array(edits)
+        edits.free()
         let changesObj = JsonValue_emptyObject()
         changesObj.set(uri, fileEdits)
         let workspaceEdit = JsonValue_emptyObject()
@@ -1952,6 +1958,7 @@ class SeenLspServer {
         let content = docObj.content
         let symbolsList = this.extractDocumentSymbols(uri, content)
         let result = JsonValue_array(symbolsList)
+        symbolsList.free()
         let response = LspResponse_success(msg.id, result)
         this.rpc.sendResponse(response)
     }

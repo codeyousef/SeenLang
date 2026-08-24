@@ -3,9 +3,10 @@ JSON-RPC 2.0 Message Handler for LSP
 Handles reading/writing LSP messages over stdio
 ///
 
-import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_string, JsonValue_number, JsonValue_nullValue, JsonValue_bool}
+import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_string,
+    JsonValue_number, JsonValue_nullValue, JsonValue_bool, JsonValue_destroy}
 import json.parser.{parseJson}
-import json.builder.{jsonToString}
+import json.builder.{jsonToString, releaseJsonText}
 import io.stdio.{readLine, flushStdout, printRaw, parseInt, ContentLengthReader, ContentLengthReader_new}
 
 ///
@@ -207,8 +208,11 @@ class JsonRpcHandler {
 
     // Send a response
     fun sendResponse(response: LspResponse) r: Void {
-        let json = jsonToString(response.toJson())
+        let responseJson = response.toJson()
+        let json = jsonToString(responseJson)
         this.sendRaw(json)
+        releaseJsonText(json)
+        JsonValue_destroy(responseJson)
     }
 
     // Send a notification (no id)
@@ -219,6 +223,8 @@ class JsonRpcHandler {
         obj.set("params", params)
         let json = jsonToString(obj)
         this.sendRaw(json)
+        releaseJsonText(json)
+        JsonValue_destroy(obj)
     }
 
     // Send raw JSON with Content-Length header

@@ -1,0 +1,389 @@
+extern "C" fun seen_string_clone_owned(value: String) r: String
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
+class TensorEntry {
+    var name: String
+    var dtype: String
+    var shape: Array<Int>
+    var startOffset: Int
+    var endOffset: Int
+
+    static fun new(name: String, dtype: String, shape: Array<Int>,
+        startOffset: Int, endOffset: Int) r: TensorEntry {
+
+        return TensorEntry{
+            name: seen_string_clone_owned(name),
+            dtype: seen_string_clone_owned(dtype),
+            shape: shape,
+            startOffset: startOffset,
+            endOffset: endOffset
+        }
+    }
+}
+
+fun copyShape(shape: Array<Int>) r: Array<Int> {
+    let copied = Array<Int>()
+    var index = 0
+    while index < shape.length() {
+        copied.push(shape[index])
+        index = index + 1
+    }
+    return copied
+}
+
+class TensorSlot {
+    var logicalName: String
+    var sourceName: String
+    var dtype: String
+    var shape: Array<Int>
+    var startOffset: Int
+    var byteLength: Int
+    var found: Bool
+
+    static fun resolved(logicalName: String, entry: TensorEntry)
+        r: TensorSlot {
+
+        return TensorSlot{
+            logicalName: seen_string_clone_owned(logicalName),
+            sourceName: seen_string_clone_owned(entry.name),
+            dtype: seen_string_clone_owned(entry.dtype),
+            shape: copyShape(entry.shape),
+            startOffset: entry.startOffset,
+            byteLength: entry.endOffset - entry.startOffset,
+            found: true
+        }
+    }
+
+    static fun missing(logicalName: String) r: TensorSlot {
+        return TensorSlot{
+            logicalName: seen_string_clone_owned(logicalName),
+            sourceName: seen_string_clone_owned(""),
+            dtype: seen_string_clone_owned(""),
+            shape: Array<Int>(),
+            startOffset: 0,
+            byteLength: 0,
+            found: false
+        }
+    }
+}
+
+class SafetensorsInfo {
+    var entries: Array<TensorEntry>
+
+    static fun fixture() r: SafetensorsInfo {
+        let entries = Array<TensorEntry>()
+
+        let embeddingShape = Array<Int>()
+        embeddingShape.push(32000)
+        embeddingShape.push(4096)
+        entries.push(TensorEntry.new(
+            "model.embed_tokens.weight",
+            "BF16",
+            embeddingShape,
+            128,
+            262272
+        ))
+
+        let normShape = Array<Int>()
+        normShape.push(4096)
+        entries.push(TensorEntry.new(
+            "model.norm.weight",
+            "F32",
+            normShape,
+            262272,
+            278656
+        ))
+
+        // A parser can discover a tensor name and byte range before dtype and
+        // shape metadata are available. Keep that partially populated entry in
+        // the same ownership path as complete entries.
+        entries.push(TensorEntry.new(
+            "adapter.partial.weight",
+            "",
+            Array<Int>(),
+            278656,
+            278656
+        ))
+
+        // Keep one tensor name above the inline-string threshold so the
+        // returned slot must retain an independent heap-backed copy after the
+        // parsed metadata owner is destroyed.
+        let longShape = Array<Int>()
+        longShape.push(8192)
+        entries.push(TensorEntry.new(
+            "model.layers.12345678901234567890123456789012345678901234567890123456789012345678901234567890.weight",
+            "BF16",
+            longShape,
+            278656,
+            295040
+        ))
+
+        return SafetensorsInfo{entries: entries}
+    }
+
+    fun resolve(logicalName: String, sourceName: String) r: TensorSlot {
+        var index = 0
+        while index < this.entries.length() {
+            let entry = this.entries[index]
+            if entry.name == sourceName {
+                return TensorSlot.resolved(logicalName, entry)
+            }
+            index = index + 1
+        }
+        return TensorSlot.missing(logicalName)
+    }
+
+    fun resolveIncrementally(logicalName: String, sourceName: String)
+        r: TensorSlot {
+
+        // This mirrors a bounded parser that starts with a valid missing slot
+        // and fills fields only after its Array-backed lookup succeeds.
+        let slot = TensorSlot.missing(logicalName)
+        var index = 0
+        while index < this.entries.length() {
+            let entry = this.entries[index]
+            if entry.name == sourceName {
+                seen_string_release_owned(slot.sourceName)
+                seen_string_release_owned(slot.dtype)
+                slot.sourceName = seen_string_clone_owned(entry.name)
+                slot.dtype = seen_string_clone_owned(entry.dtype)
+                slot.startOffset = entry.startOffset
+                slot.byteLength = entry.endOffset - entry.startOffset
+                slot.found = true
+                slot.shape.free()
+                slot.shape = copyShape(entry.shape)
+                return slot
+            }
+            index = index + 1
+        }
+        return slot
+    }
+}
+
+fun destroyTensorEntry(entry: TensorEntry) r: Void {
+    seen_string_release_owned(entry.name)
+    seen_string_release_owned(entry.dtype)
+    entry.shape.free()
+    entry.free()
+}
+
+fun destroySafetensorsInfo(info: SafetensorsInfo) r: Void {
+    var index = 0
+    while index < info.entries.length() {
+        destroyTensorEntry(info.entries[index])
+        index = index + 1
+    }
+    info.entries.free()
+    info.free()
+}
+
+fun destroyTensorSlot(slot: TensorSlot) r: Void {
+    seen_string_release_owned(slot.logicalName)
+    seen_string_release_owned(slot.sourceName)
+    seen_string_release_owned(slot.dtype)
+    slot.shape.free()
+    slot.free()
+}
+
+fun destroyTensorSlotBatch(slots: Array<TensorSlot>) r: Void {
+    var index = 0
+    while index < slots.length() {
+        destroyTensorSlot(slots[index])
+        index = index + 1
+    }
+    slots.free()
+}
+
+fun loadSlot(logicalName: String, sourceName: String) r: TensorSlot {
+    let info = SafetensorsInfo.fixture()
+    let slot = info.resolve(logicalName, sourceName)
+    destroySafetensorsInfo(info)
+    return slot
+}
+
+fun loadIncrementalSlot(logicalName: String, sourceName: String)
+    r: TensorSlot {
+
+    let info = SafetensorsInfo.fixture()
+    let slot = info.resolveIncrementally(logicalName, sourceName)
+    destroySafetensorsInfo(info)
+    return slot
+}
+
+fun loadSlotBatch() r: Array<TensorSlot> {
+    let info = SafetensorsInfo.fixture()
+    let slots = Array<TensorSlot>()
+    slots.push(info.resolve(
+        "batch_embedding", "model.embed_tokens.weight"))
+    slots.push(info.resolve(
+        "batch_embedding_repeat", "model.embed_tokens.weight"))
+    slots.push(info.resolve("batch_norm", "model.norm.weight"))
+    slots.push(info.resolve(
+        "batch_partial", "adapter.partial.weight"))
+    slots.push(info.resolve("batch_missing", "lm_head.weight"))
+    destroySafetensorsInfo(info)
+    return slots
+}
+
+fun main() r: Int {
+    // Complete found result returned through two destroyed local Array owners.
+    let embedding = loadSlot(
+        "token_embeddings", "model.embed_tokens.weight")
+    if not embedding.found { return 1 }
+    if embedding.logicalName != "token_embeddings" { return 2 }
+    if embedding.sourceName != "model.embed_tokens.weight" { return 3 }
+    if embedding.dtype != "BF16" { return 4 }
+    if embedding.shape.length() != 2 { return 5 }
+    if embedding.shape[0] != 32000 { return 6 }
+    if embedding.shape[1] != 4096 { return 7 }
+    if embedding.startOffset != 128 { return 8 }
+    if embedding.byteLength != 262144 { return 9 }
+
+    // A second entry must not corrupt the first slot's fields or shape.
+    let norm = loadSlot("final_norm", "model.norm.weight")
+    if not norm.found { return 10 }
+    if norm.logicalName != "final_norm" { return 11 }
+    if norm.sourceName != "model.norm.weight" { return 12 }
+    if norm.dtype != "F32" { return 13 }
+    if norm.shape.length() != 1 or norm.shape[0] != 4096 { return 14 }
+    if norm.startOffset != 262272 or norm.byteLength != 16384 { return 15 }
+    if embedding.shape.length() != 2 or embedding.shape[0] != 32000 or
+        embedding.sourceName != "model.embed_tokens.weight" { return 16 }
+
+    // Missing slots still own independent, valid empty fields.
+    let missingA = loadSlot("output_head", "lm_head.weight")
+    let missingB = loadSlot("output_head_again", "lm_head.weight")
+    if missingA.found or missingB.found { return 17 }
+    if missingA.logicalName != "output_head" or
+        missingB.logicalName != "output_head_again" { return 18 }
+    if missingA.sourceName != "" or missingA.dtype != "" { return 19 }
+    if missingA.shape.length() != 0 or missingB.shape.length() != 0 {
+        return 20
+    }
+    missingA.shape.push(99)
+    if missingA.shape.length() != 1 or missingA.shape[0] != 99 { return 21 }
+    if missingB.shape.length() != 0 { return 22 }
+
+    // Partially populated metadata remains a found result with owned empties.
+    let partial = loadSlot(
+        "adapter_partial", "adapter.partial.weight")
+    if not partial.found { return 23 }
+    if partial.logicalName != "adapter_partial" or
+        partial.sourceName != "adapter.partial.weight" { return 24 }
+    if partial.dtype != "" or partial.shape.length() != 0 { return 25 }
+    if partial.startOffset != 278656 or partial.byteLength != 0 { return 26 }
+
+    // Incremental class construction must be safe on both found and missing
+    // exits, including replacing the initially owned empty shape.
+    let incremental = loadIncrementalSlot(
+        "incremental_embedding", "model.embed_tokens.weight")
+    if not incremental.found { return 27 }
+    if incremental.logicalName != "incremental_embedding" or
+        incremental.sourceName != "model.embed_tokens.weight" { return 28 }
+    if incremental.dtype != "BF16" or incremental.shape.length() != 2 {
+        return 29
+    }
+    if incremental.shape[0] != 32000 or incremental.shape[1] != 4096 {
+        return 30
+    }
+    let incrementalMissing = loadIncrementalSlot(
+        "incremental_missing", "missing.incremental")
+    if incrementalMissing.found { return 31 }
+    if incrementalMissing.logicalName != "incremental_missing" or
+        incrementalMissing.sourceName != "" { return 32 }
+    if incrementalMissing.shape.length() != 0 or
+        incrementalMissing.byteLength != 0 { return 33 }
+
+    // Repeated calls must return independent names and shape storage.
+    let repeatedA = loadSlot("repeat_a", "model.embed_tokens.weight")
+    let repeatedB = loadSlot("repeat_b", "model.embed_tokens.weight")
+    if repeatedA.logicalName != "repeat_a" or
+        repeatedB.logicalName != "repeat_b" { return 34 }
+    repeatedA.shape[0] = 17
+    if repeatedA.shape[0] != 17 { return 35 }
+    if repeatedB.shape[0] != 32000 or embedding.shape[0] != 32000 or
+        incremental.shape[0] != 32000 { return 36 }
+    var repeatIndex = 0
+    while repeatIndex < 8 {
+        let repeated = loadSlot(
+            "repeat_loop", "model.embed_tokens.weight")
+        if not repeated.found or repeated.shape.length() != 2 or
+            repeated.shape[0] != 32000 or repeated.shape[1] != 4096 {
+            return 37
+        }
+        destroyTensorSlot(repeated)
+        repeatIndex = repeatIndex + 1
+    }
+
+    // Returning an Array of returned classes exercises the inverse ownership
+    // direction and repeated lookup of one source entry in one fixture.
+    let batch = loadSlotBatch()
+    if batch.length() != 5 { return 38 }
+    if batch[0].logicalName != "batch_embedding" or
+        batch[1].logicalName != "batch_embedding_repeat" { return 39 }
+    if batch[0].shape.length() != 2 or batch[0].shape[0] != 32000 or
+        batch[1].shape.length() != 2 or batch[1].shape[0] != 32000 {
+        return 40
+    }
+    batch[0].shape[0] = 23
+    if batch[0].shape[0] != 23 or batch[1].shape[0] != 32000 { return 41 }
+    if batch[2].sourceName != "model.norm.weight" or
+        batch[2].shape.length() != 1 or batch[2].shape[0] != 4096 {
+        return 42
+    }
+    if not batch[3].found or batch[3].dtype != "" or
+        batch[3].shape.length() != 0 { return 43 }
+    if batch[4].found or batch[4].logicalName != "batch_missing" or
+        batch[4].shape.length() != 0 { return 44 }
+
+    // Earlier returns must remain intact after the full ownership matrix.
+    if embedding.logicalName != "token_embeddings" or
+        embedding.sourceName != "model.embed_tokens.weight" or
+        embedding.dtype != "BF16" or embedding.shape.length() != 2 or
+        embedding.shape[0] != 32000 or embedding.shape[1] != 4096 {
+        return 45
+    }
+    if norm.logicalName != "final_norm" or norm.shape[0] != 4096 {
+        return 46
+    }
+
+    // Heap-backed metadata and caller-owned inputs must survive destruction of
+    // both the input strings and the SafetensorsInfo that supplied the entry.
+    let longLogicalInput = seen_string_clone_owned(
+        "logical.layers.12345678901234567890123456789012345678901234567890123456789012345678901234567890.weight")
+    let longSourceInput = seen_string_clone_owned(
+        "model.layers.12345678901234567890123456789012345678901234567890123456789012345678901234567890.weight")
+    let longMetadata = loadSlot(longLogicalInput, longSourceInput)
+    seen_string_release_owned(longLogicalInput)
+    seen_string_release_owned(longSourceInput)
+    let longAllocationChurn = seen_string_clone_owned(
+        "churn.layers.abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz.weight")
+    if not longMetadata.found { return 47 }
+    if longMetadata.logicalName !=
+        "logical.layers.12345678901234567890123456789012345678901234567890123456789012345678901234567890.weight" {
+        return 48
+    }
+    if longMetadata.sourceName !=
+        "model.layers.12345678901234567890123456789012345678901234567890123456789012345678901234567890.weight" {
+        return 49
+    }
+    if longMetadata.dtype != "BF16" { return 50 }
+    if longMetadata.shape.length() != 1 or
+        longMetadata.shape[0] != 8192 { return 51 }
+    if longMetadata.startOffset != 278656 or
+        longMetadata.byteLength != 16384 { return 52 }
+    seen_string_release_owned(longAllocationChurn)
+
+    destroyTensorSlot(longMetadata)
+    destroyTensorSlotBatch(batch)
+    destroyTensorSlot(repeatedB)
+    destroyTensorSlot(repeatedA)
+    destroyTensorSlot(incrementalMissing)
+    destroyTensorSlot(incremental)
+    destroyTensorSlot(partial)
+    destroyTensorSlot(missingB)
+    destroyTensorSlot(missingA)
+    destroyTensorSlot(norm)
+    destroyTensorSlot(embedding)
+    return 0
+}

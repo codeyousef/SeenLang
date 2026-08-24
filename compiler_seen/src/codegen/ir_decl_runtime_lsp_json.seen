@@ -117,6 +117,12 @@ fun emitLspJsonRuntimeDecls(output: StringBuilder,
     if not isFuncDefinedInModule("jsonToString", definedFuncs) {
         output.append("declare %SeenString @jsonToString(i64) nounwind\n")
     }
+    if not isFuncDefinedInModule("releaseJsonText", definedFuncs) {
+        output.append("declare void @releaseJsonText(%SeenString) nounwind\n")
+    }
+    if not isFuncDefinedInModule("JsonValue_destroy", definedFuncs) {
+        output.append("declare void @JsonValue_destroy(i64) nounwind\n")
+    }
     // ContentLengthReader method declarations
     if not isFuncDefinedInModule("ContentLengthReader_new", definedFuncs) {
         output.append("declare i64 @ContentLengthReader_new() nounwind\n")

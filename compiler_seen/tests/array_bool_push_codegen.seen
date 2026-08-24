@@ -4,6 +4,7 @@ import str.string.{StringBuilder}
 // definitions when the fixture is linked outside main_compiler's full graph.
 import codegen.llvm_ir_gen.{LLVMIRGenerator}
 import codegen.ir_method_array_mutator_emit.{emitArrayPushMutationImpl}
+import codegen.ir_index_access_gen.{emitFallbackIndexElementAccessImpl}
 
 fun arrayBoolPushExpect(condition: Bool, message: String) r: Void {
     if not condition { abort(message) }
@@ -29,5 +30,40 @@ fun main() r: Int {
         "Array<Bool>.push must not store an i1 register as i64")
     arrayBoolPushExpect(ir.contains("call i64 @Array_push(ptr %array"),
         "Array<Bool>.push must pass the widened value slot to Array_push")
+
+    let nestedOutput = StringBuilder.new()
+    let nestedRegisters = Array<Int>()
+    nestedRegisters.push(0)
+    let nestedBlocks = Array<Int>()
+    nestedBlocks.push(0)
+    let nestedResult = emitArrayPushMutationImpl(nestedOutput,
+        nestedRegisters, nestedBlocks, "%outer", "%inner", "Array<Int>",
+        "Array<Array<Int>>", false, structNames)
+    let nestedIr = nestedOutput.toString()
+
+    arrayBoolPushExpect(nestedResult == "0",
+        "Array<Array<T>>.push must use the pointer-array runtime path")
+    arrayBoolPushExpect(nestedIr.contains(
+        "call void @seen_arr_push_ptr(ptr %outer, ptr %inner)"),
+        "Array<Array<T>>.push must preserve the nested array pointer")
+    arrayBoolPushExpect(not nestedIr.contains("store i64 %inner"),
+        "Array<Array<T>>.push must not pass a pointer through the scalar ABI")
+
+    let indexOutput = StringBuilder.new()
+    let indexRegisters = Array<Int>()
+    indexRegisters.push(0)
+    let indexResult = emitFallbackIndexElementAccessImpl(indexOutput,
+        indexRegisters, "%outer", "%index", "Array<Int>", 0, 0)
+    let indexIr = indexOutput.toString()
+
+    arrayBoolPushExpect(indexResult != "",
+        "Array<Array<T>> indexing must produce the nested array pointer")
+    arrayBoolPushExpect(indexIr.contains(
+        "call ptr @seen_arr_get_ptr_ptr(ptr %outer, i64 %index)"),
+        "Array<Array<T>> indexing must use the pointer-array runtime path")
+    arrayBoolPushExpect(not indexIr.contains("load i64"),
+        "Array<Array<T>> indexing must not load a pointer as an integer")
+    arrayBoolPushExpect(not indexIr.contains("ptrtoint"),
+        "Array<Array<T>> indexing must preserve the pointer-valued SSA result")
     return 0
 }

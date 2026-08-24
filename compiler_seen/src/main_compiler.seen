@@ -1453,7 +1453,7 @@ fun removePathIfExists(path: String) r: Void {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.11.0"
+    return "0.11.1"
 }
 
 fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
@@ -8740,6 +8740,71 @@ fun findImportedFunctionInModules(modulePath: String, moduleProgram: ProgramNode
         frontends, functionName)
 }
 
+fun findSourceTextImportedFunctionModulePath(modulePath: String,
+    modulePaths: Array<String>, frontends: Array<FrontendResult>,
+    functionName: String) r: String {
+
+    let rawContent = readText(modulePath)
+    if rawContent == "" { return "" }
+    let content = stripTripleSlashBlockBodiesForRawScan(rawContent)
+    let sourceDir = getSourceDir(modulePath)
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atEnd = 0
+        if pos == content.length() { atEnd = 1 }
+        var isNewline = 0
+        if atEnd == 0 and content.byteAt(pos) == 10 { isNewline = 1 }
+        if isNewline == 1 or atEnd == 1 {
+            let importText = sourceImportBodyFromLine(
+                content.substring(lineStart, pos))
+            if importText != "" {
+                let importedSymbolName =
+                    resolveSourceTextImportedOrQualifiedSymbolName(importText,
+                        functionName)
+                if importedSymbolName != "" {
+                    let importedPath = sourceTextImportPath(importText,
+                        sourceDir)
+                    if importedPath != "" and
+                        findParsedModuleFunction(modulePaths, frontends,
+                            importedPath, importedSymbolName).name != "" {
+
+                        return importedPath
+                    }
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return ""
+}
+
+fun findImportedFunctionModulePath(modulePath: String,
+    moduleProgram: ProgramNode, modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, functionName: String) r: String {
+
+    let sourceDir = getSourceDir(modulePath)
+    var itemIndex = 0
+    while itemIndex < moduleProgram.items.length() {
+        let item = moduleProgram.items[itemIndex]
+        let importedSymbolName = resolveImportedQualifiedSymbolName(item,
+            functionName)
+        if importedSymbolName != "" {
+            let importedPath = resolveAstImportItemPath(item, sourceDir)
+            if importedPath != "" and
+                findParsedModuleFunction(modulePaths, frontends, importedPath,
+                    importedSymbolName).name != "" {
+
+                return importedPath
+            }
+        }
+        itemIndex = itemIndex + 1
+    }
+    return findSourceTextImportedFunctionModulePath(modulePath, modulePaths,
+        frontends, functionName)
+}
+
 fun addImportedCapabilityViolation(result: FrontendResult, modulePath: String, line: Int, functionName: String, calledFunction: String, requiredToken: String) r: Void {
     var message = "Calling imported function that requires capability token"
     if functionName != "" {
@@ -10009,6 +10074,344 @@ fun sourceTextImportMentionsResolvableSymbol(modulePath: String,
     return false
 }
 
+fun normalizeCheckedCallTypeName(typeName: String) r: String {
+    var normalized = typeName
+    if normalized.startsWith("move:") {
+        normalized = normalized.substring(5, normalized.length())
+    }
+    if normalized.startsWith("borrow:") {
+        normalized = normalized.substring(7, normalized.length())
+    }
+    if normalized.startsWith("comptime:") {
+        normalized = normalized.substring(9, normalized.length())
+    }
+    let defaultPos = normalized.indexOf("~default~", 0)
+    if defaultPos >= 0 {
+        normalized = normalized.substring(0, defaultPos)
+    }
+    if normalized == "Boolean" or normalized == "i1" {
+        return "Bool"
+    }
+    if normalized == "i64" { return "Int" }
+    if normalized == "%SeenString" { return "String" }
+    return normalized
+}
+
+fun isCheckedCallNumericType(typeName: String) r: Bool {
+    return typeName == "Int" or typeName == "UInt" or
+        typeName == "Float" or typeName == "Int8" or
+        typeName == "Int16" or typeName == "Int32" or
+        typeName == "Int64" or typeName == "UInt8" or
+        typeName == "UInt16" or typeName == "UInt32" or
+        typeName == "UInt64" or typeName == "Float32" or
+        typeName == "Float64" or typeName == "Byte" or
+        typeName == "u8" or typeName == "i8" or typeName == "i16" or
+        typeName == "i32" or typeName == "u16" or typeName == "u32" or
+        typeName == "u64" or typeName == "f32" or typeName == "f64"
+}
+
+fun checkedCallArgumentTypesDefinitelyConflict(expectedType: String,
+    actualType: String) r: Bool {
+
+    let expected = normalizeCheckedCallTypeName(expectedType)
+    let actual = normalizeCheckedCallTypeName(actualType)
+    if expected == "" or actual == "" or expected == "Unknown" or
+        actual == "Unknown" or expected == "Any" or actual == "Any" or
+        expected == actual {
+
+        return false
+    }
+    if expected.startsWith("dyn ") {
+        if actual.startsWith("dyn ") {
+            // Trait-to-trait compatibility needs the full conformance graph.
+            return false
+        }
+        // Dynamic-trait lowering boxes an i64 class handle with inttoptr.
+        // A known scalar, string, array, pointer, or collection handle cannot
+        // enter that path without producing invalid LLVM. Unknown class-like
+        // values are the intended input and remain eligible for boxing.
+        return checkedCallTypeHasKnownConcreteLowering(actual)
+    }
+    if actual.startsWith("dyn ") {
+        // A boxed trait value cannot satisfy a known concrete parameter.
+        // Defer only when the expected side is an unresolved class-like type.
+        return checkedCallTypeHasKnownConcreteLowering(expected)
+    }
+    // Lowering supports exactly one cross-category numeric conversion for
+    // ordinary calls: a signed Int argument promoted to a Float parameter.
+    // Every other numeric mismatch would emit the actual LLVM argument type
+    // against an incompatible imported declaration.
+    if isCheckedCallNumericType(expected) and
+        isCheckedCallNumericType(actual) {
+
+        return not (expected == "Float" and actual == "Int")
+    }
+    let expectedIsConcrete =
+        checkedCallTypeHasKnownConcreteLowering(expected)
+    let actualIsConcrete = checkedCallTypeHasKnownConcreteLowering(actual)
+    if not expectedIsConcrete or not actualIsConcrete {
+        // At least one side is class-, enum-, data-, or unresolved-alias-like.
+        // The caller performs exact-module proof before rejecting a mismatch;
+        // never compare global short names here.
+        return false
+    }
+    // Both sides have known concrete lowerings and ordinary-call lowering has
+    // no remaining implicit conversion. Reject the mismatch before it can
+    // reach an incompatible LLVM declaration.
+    return true
+}
+
+fun checkedCallTypeHasKnownConcreteLowering(typeName: String) r: Bool {
+    let normalized = normalizeCheckedCallTypeName(typeName)
+    if normalized == "" or normalized == "Unknown" or
+        normalized == "Any" or normalized.startsWith("dyn ") {
+
+        return false
+    }
+    if isCheckedCallNumericType(normalized) or normalized == "Bool" or
+        normalized == "Char" or normalized == "String" or
+        normalized == "Unit" or normalized == "Void" or
+        normalized.startsWith("*") or normalized.startsWith("Array<") or
+        normalized == "Array" or normalized.startsWith("List<") or
+        normalized == "List" or normalized.startsWith("SmallVec<") or
+        normalized.startsWith("SmallVec[") or normalized == "SmallVec" or
+        normalized.startsWith("Buffer<") or normalized == "Buffer" or
+        normalized.startsWith("Uniform<") or normalized == "Uniform" or
+        normalized.startsWith("Image<") or normalized == "Image" or
+        normalized.startsWith("ErrorUnion<") or
+        normalized == "ErrorUnion" or normalized == "Ptr" or
+        normalized.startsWith("Option<") or normalized == "Option" or
+        normalized.startsWith("Optional<") or normalized == "Optional" or
+        normalized.startsWith("Result<") or normalized == "Result" or
+        normalized.startsWith("Map<") or normalized == "Map" or
+        normalized.startsWith("HashMap<") or normalized == "HashMap" or
+        normalized.startsWith("BTreeMap<") or normalized == "BTreeMap" or
+        normalized.startsWith("Vec<") or normalized == "Vec" or
+        normalized.startsWith("LinkedList<") or
+        normalized == "LinkedList" or normalized.startsWith("[") or
+        (normalized.contains("[") and normalized.endsWith("]")) or
+        normalized == "f32x4" or normalized == "f32x8" or
+        normalized == "i32x4" or normalized == "i32x8" or
+        normalized == "f64x2" or normalized == "f64x4" {
+
+        return true
+    }
+    return false
+}
+
+fun checkedCallClassAliasTarget(candidate: ClassNode) r: String {
+    if candidate.hasDecorator("distinct") {
+        // A distinct type shares a lowering with its target but is not an
+        // interchangeable source-level alias.
+        return ""
+    }
+    var decoratorIndex = 0
+    while decoratorIndex < candidate.decorators.length() {
+        let decorator = candidate.decorators[decoratorIndex]
+        if decorator.name == "type_alias" and
+            decorator.arguments.length() > 0 {
+
+            return normalizeCheckedCallTypeName(decorator.arguments[0])
+        }
+        decoratorIndex = decoratorIndex + 1
+    }
+    return ""
+}
+
+fun checkedCallClassInModule(modulePath: String,
+    modulePaths: Array<String>, frontends: Array<FrontendResult>,
+    typeName: String) r: ClassNode {
+
+    var candidate = findParsedModuleClass(modulePaths, frontends, modulePath,
+        typeName)
+    if candidate.name == "" {
+        candidate = findSourceTextImportedClassInModules(modulePath,
+            modulePaths, frontends, typeName)
+    }
+    return candidate
+}
+
+fun checkedCallClassAtCallSite(modulePath: String,
+    moduleProgram: ProgramNode, modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, typeName: String) r: ClassNode {
+
+    var candidate = findProgramClass(moduleProgram, typeName)
+    if candidate.name == "" {
+        candidate = findSourceTextImportedClassInModules(modulePath,
+            modulePaths, frontends, typeName)
+    }
+    return candidate
+}
+
+fun checkedCallCandidateIsConcreteClass(candidate: ClassNode) r: Bool {
+    return candidate.name != "" and
+        checkedCallClassAliasTarget(candidate) == ""
+}
+
+fun resolveCheckedCallAliasInModule(modulePath: String,
+    modulePaths: Array<String>, frontends: Array<FrontendResult>,
+    typeName: String) r: String {
+
+    var resolved = normalizeCheckedCallTypeName(typeName)
+    var depth = 0
+    while depth < 8 and not resolved.contains("<") {
+        let candidate = checkedCallClassInModule(modulePath, modulePaths,
+            frontends, resolved)
+        if candidate.name == "" { return resolved }
+        let target = checkedCallClassAliasTarget(candidate)
+        if target == "" or target == resolved { return resolved }
+        resolved = target
+        depth = depth + 1
+    }
+    return resolved
+}
+
+fun resolveCheckedCallAliasAtCallSite(modulePath: String,
+    moduleProgram: ProgramNode, modulePaths: Array<String>,
+    frontends: Array<FrontendResult>, typeName: String) r: String {
+
+    var resolved = normalizeCheckedCallTypeName(typeName)
+    var depth = 0
+    while depth < 8 and not resolved.contains("<") {
+        let candidate = checkedCallClassAtCallSite(modulePath, moduleProgram,
+            modulePaths, frontends, resolved)
+        if candidate.name == "" { return resolved }
+        let target = checkedCallClassAliasTarget(candidate)
+        if target == "" or target == resolved { return resolved }
+        resolved = target
+        depth = depth + 1
+    }
+    return resolved
+}
+
+fun checkedCallTypeUsesGenericParameter(func: FunctionNode,
+    typeName: String) r: Bool {
+
+    var decoratorIndex = 0
+    while decoratorIndex < func.decorators.length() {
+        let decorator = func.decorators[decoratorIndex]
+        if decorator.name == "generic_parameter" and
+            decorator.arguments.length() > 0 {
+
+            let genericName = decorator.arguments[0]
+            var pos = 0
+            while pos < typeName.length() {
+                let ch = typeName.substring(pos, pos + 1)
+                if isIdentifierStartChar(ch) {
+                    let start = pos
+                    pos = pos + 1
+                    while pos < typeName.length() and
+                        isIdentifierPartChar(typeName.substring(pos, pos + 1)) {
+
+                        pos = pos + 1
+                    }
+                    if typeName.substring(start, pos) == genericName {
+                        return true
+                    }
+                } else {
+                    pos = pos + 1
+                }
+            }
+        }
+        decoratorIndex = decoratorIndex + 1
+    }
+    return false
+}
+
+fun addImportedFunctionArgumentTypeDiagnostic(result: FrontendResult,
+    modulePath: String, line: Int, callName: String, argumentIndex: Int,
+    expectedType: String, actualType: String) r: Void {
+
+    let expected = normalizeCheckedCallTypeName(expectedType)
+    let actual = normalizeCheckedCallTypeName(actualType)
+    let message = encodeDiagMessage(
+        "argument " + (argumentIndex + 1).toString() +
+            " to imported function `" + callName + "` has type `" +
+            actual + "`, expected `" + expected + "`",
+        "E015",
+        "Pass a value compatible with `" + expected + "`.",
+        "A bare imported free-function call remains distinct from a same-named instance method.",
+        0
+    )
+    result.addDiagnostic(mainCompilerDiagnostic(modulePath, line, 0, "error",
+        message))
+}
+
+fun checkImportedFreeFunctionArgumentTypes(result: FrontendResult,
+    modulePath: String, moduleProgram: ProgramNode, expr: ParserExpressionNode,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String, funcLine: Int) r: Void {
+
+    let callName = stripCallGenericArguments(expr.callee)
+    if callName == "" or isKnownCompilerBuiltinCallName(callName) or
+        lookupBoundType(boundNames, boundTypes, callName) != "" {
+
+        return
+    }
+    // A local declaration wins lexical lookup. Imported/local conflicts are
+    // diagnosed separately by E011 and must not produce a second type error.
+    if findProgramFunction(moduleProgram, callName).name != "" { return }
+
+    let importedFunc = findImportedFunctionInModules(modulePath,
+        moduleProgram, g_validationModulePaths, g_validationFrontends,
+        callName)
+    if importedFunc.name == "" { return }
+    let importedModulePath = findImportedFunctionModulePath(modulePath,
+        moduleProgram, g_validationModulePaths, g_validationFrontends,
+        callName)
+    if importedModulePath == "" { return }
+
+    var argumentIndex = 0
+    while argumentIndex < expr.arguments.length() and
+        argumentIndex < importedFunc.params.length() {
+
+        let parameter = importedFunc.params[argumentIndex]
+        if not checkedCallTypeUsesGenericParameter(importedFunc,
+            parameter.paramType.typeName) {
+
+            let actualType = inferExpressionTypeNameInModules(modulePath,
+                moduleProgram, g_validationModulePaths,
+                g_validationFrontends, expr.arguments[argumentIndex],
+                boundNames, boundTypes, ownerClassName)
+            let expectedResolved = resolveCheckedCallAliasInModule(
+                importedModulePath, g_validationModulePaths,
+                g_validationFrontends, parameter.paramType.typeName)
+            let actualResolved = resolveCheckedCallAliasAtCallSite(modulePath,
+                moduleProgram, g_validationModulePaths,
+                g_validationFrontends, actualType)
+            var definitelyConflicts =
+                checkedCallArgumentTypesDefinitelyConflict(
+                    expectedResolved, actualResolved)
+            if not definitelyConflicts {
+                let expectedIsConcrete =
+                    checkedCallTypeHasKnownConcreteLowering(expectedResolved)
+                let actualIsConcrete =
+                    checkedCallTypeHasKnownConcreteLowering(actualResolved)
+                if expectedIsConcrete and not actualIsConcrete {
+                    let actualClass = checkedCallClassAtCallSite(modulePath,
+                        moduleProgram, g_validationModulePaths,
+                        g_validationFrontends, actualResolved)
+                    definitelyConflicts =
+                        checkedCallCandidateIsConcreteClass(actualClass)
+                } else if not expectedIsConcrete and actualIsConcrete {
+                    let expectedClass = checkedCallClassInModule(
+                        importedModulePath, g_validationModulePaths,
+                        g_validationFrontends, expectedResolved)
+                    definitelyConflicts =
+                        checkedCallCandidateIsConcreteClass(expectedClass)
+                }
+            }
+            if definitelyConflicts {
+
+                addImportedFunctionArgumentTypeDiagnostic(result, modulePath,
+                    funcLine, expr.callee, argumentIndex,
+                    parameter.paramType.typeName, actualType)
+            }
+        }
+        argumentIndex = argumentIndex + 1
+    }
+}
+
 fun checkUnresolvedFreeCallExpression(result: FrontendResult,
     modulePath: String, moduleProgram: ProgramNode, expr: ParserExpressionNode,
     boundNames: Array<String>, boundTypes: Array<String>,
@@ -10019,6 +10422,9 @@ fun checkUnresolvedFreeCallExpression(result: FrontendResult,
     }
 
     if expr.kind == "Call" {
+        checkImportedFreeFunctionArgumentTypes(result, modulePath,
+            moduleProgram, expr, boundNames, boundTypes, ownerClassName,
+            funcLine)
         if not isResolvableFreeFunctionCall(modulePath, moduleProgram,
             expr.callee, boundNames, boundTypes, ownerClassName) {
             if not sourceTextImportMentionsResolvableSymbol(modulePath,
@@ -10161,6 +10567,9 @@ fun checkUnresolvedFreeCallStatement(result: FrontendResult,
     if stmt.kind == "Expression" and stmt.expression.kind == "Call" {
         // Direct call statements can still lower to late external declarations,
         // but their arguments must not bypass frontend IR-safety validation.
+        checkImportedFreeFunctionArgumentTypes(result, modulePath,
+            moduleProgram, stmt.expression, boundNames, boundTypes,
+            ownerClassName, funcLine)
         var directArgIdx = 0
         while directArgIdx < stmt.expression.arguments.length() {
             checkUnresolvedFreeCallExpression(result, modulePath,
@@ -15476,7 +15885,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.11.0"
+    return "0.11.1"
 }
 
 fun printVersion() r: Void {

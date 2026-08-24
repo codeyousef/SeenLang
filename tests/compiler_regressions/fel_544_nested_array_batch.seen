@@ -1,0 +1,282 @@
+class Tokenizer {
+    static fun new() r: Tokenizer {
+        return Tokenizer{}
+    }
+
+    fun tokenIds(text: String) r: Array<Int> {
+        let ids = Array<Int>()
+        ids.push(text.length())
+        var index = 0
+        while index < text.length() {
+            ids.push(text.byteAt(index))
+            index = index + 1
+        }
+        return ids
+    }
+
+    fun batchTokenIds(texts: Array<String>) r: Array<Array<Int>> {
+        let batch = Array<Array<Int>>()
+        var index = 0
+        while index < texts.length() {
+            batch.push(this.tokenIds(texts[index]))
+            index = index + 1
+        }
+        return batch
+    }
+}
+
+fun buildEmptyBatch() r: Array<Array<Int>> {
+    let texts = Array<String>()
+    let tokenizer = Tokenizer.new()
+    let batch = tokenizer.batchTokenIds(texts)
+    texts.free()
+    tokenizer.free()
+    return batch
+}
+
+fun buildPartialBatch() r: Array<Array<Int>> {
+    let texts = Array<String>()
+    texts.push("")
+    let tokenizer = Tokenizer.new()
+    let batch = tokenizer.batchTokenIds(texts)
+    texts.free()
+    tokenizer.free()
+    return batch
+}
+
+fun buildFullBatch() r: Array<Array<Int>> {
+    let texts = Array<String>()
+    texts.push("hi")
+    texts.push("")
+    texts.push("Seen")
+    let tokenizer = Tokenizer.new()
+    let batch = tokenizer.batchTokenIds(texts)
+    texts.free()
+    tokenizer.free()
+    return batch
+}
+
+fun buildElementMatrix() r: Array<Array<Int>> {
+    let matrix = Array<Array<Int>>()
+
+    let empty = Array<Int>()
+    matrix.push(empty)
+
+    let partial = Array<Int>()
+    partial.push(7)
+    matrix.push(partial)
+
+    let full = Array<Int>()
+    full.push(1)
+    full.push(2)
+    full.push(3)
+    matrix.push(full)
+
+    return matrix
+}
+
+fun buildLiteralMatrix() r: Array<Array<Int>> {
+    // This must lower each inner Array as a pointer element. The old literal
+    // path copied eight bytes from the inner SeenArray header instead.
+    let matrix: Array<Array<Int>> = [[1, 2], [3], [4, 5, 6]]
+    return matrix
+}
+
+fun freeNestedBatch(batch: Array<Array<Int>>) r: Void {
+    var index = 0
+    while index < batch.length() {
+        let row = batch[index]
+        row.free()
+        index = index + 1
+    }
+    batch.free()
+}
+
+fun nestedChecksum(batch: Array<Array<Int>>) r: Int {
+    var checksum = 0
+    var rowIndex = 0
+    while rowIndex < batch.length() {
+        let row = batch[rowIndex]
+        checksum = checksum + row.length() * 17
+        var columnIndex = 0
+        while columnIndex < row.length() {
+            checksum = checksum + row[columnIndex]
+            columnIndex = columnIndex + 1
+        }
+        rowIndex = rowIndex + 1
+    }
+    return checksum
+}
+
+fun shiftStillWorks(value: Int) r: Int {
+    // The same RightShift token remains an operator outside generic syntax.
+    return value >> 1
+}
+
+fun exerciseReturnedLifetime(seed: Int) r: Int {
+    // Both nested values leave this helper after their contents have been
+    // returned, indexed, and mutated. Repeating this helper stresses cleanup of
+    // complete and partially populated inner arrays without a flat-buffer
+    // workaround.
+    let batch = buildFullBatch()
+    if nestedChecksum(batch) != 763 {
+        freeNestedBatch(batch)
+        return 1
+    }
+    batch[0].push(seed)
+    batch[1].push(seed + 1)
+    if nestedChecksum(batch) != 798 + seed * 2 {
+        freeNestedBatch(batch)
+        return 2
+    }
+    if batch[2].length() != 5 or batch[2][4] != 110 {
+        freeNestedBatch(batch)
+        return 3
+    }
+
+    let matrix = buildElementMatrix()
+    if nestedChecksum(matrix) != 81 {
+        freeNestedBatch(matrix)
+        freeNestedBatch(batch)
+        return 4
+    }
+    matrix[0].push(seed)
+    matrix[1].push(seed + 1)
+    if nestedChecksum(matrix) != 116 + seed * 2 {
+        freeNestedBatch(matrix)
+        freeNestedBatch(batch)
+        return 5
+    }
+    if matrix[2].length() != 3 or matrix[2][2] != 3 {
+        freeNestedBatch(matrix)
+        freeNestedBatch(batch)
+        return 6
+    }
+
+    freeNestedBatch(matrix)
+    freeNestedBatch(batch)
+    return 0
+}
+
+fun main() r: Int {
+    let emptyBatch = buildEmptyBatch()
+    if emptyBatch.length() != 0 {
+        freeNestedBatch(emptyBatch)
+        return 10
+    }
+    freeNestedBatch(emptyBatch)
+
+    let partialBatch = buildPartialBatch()
+    if partialBatch.length() != 1 {
+        freeNestedBatch(partialBatch)
+        return 11
+    }
+    if partialBatch[0].length() != 1 {
+        freeNestedBatch(partialBatch)
+        return 12
+    }
+    if partialBatch[0][0] != 0 {
+        freeNestedBatch(partialBatch)
+        return 13
+    }
+    freeNestedBatch(partialBatch)
+
+    let fullBatch = buildFullBatch()
+    if fullBatch.length() != 3 {
+        freeNestedBatch(fullBatch)
+        return 14
+    }
+    if fullBatch[0].length() != 3 {
+        freeNestedBatch(fullBatch)
+        return 15
+    }
+    if fullBatch[0][0] != 2 {
+        freeNestedBatch(fullBatch)
+        return 16
+    }
+    if fullBatch[0][1] != 104 or fullBatch[0][2] != 105 {
+        freeNestedBatch(fullBatch)
+        return 17
+    }
+    if fullBatch[1].length() != 1 or fullBatch[1][0] != 0 {
+        freeNestedBatch(fullBatch)
+        return 18
+    }
+    if fullBatch[2].length() != 5 {
+        freeNestedBatch(fullBatch)
+        return 19
+    }
+    if fullBatch[2][0] != 4 {
+        freeNestedBatch(fullBatch)
+        return 20
+    }
+    if fullBatch[2][1] != 83 or fullBatch[2][4] != 110 {
+        freeNestedBatch(fullBatch)
+        return 21
+    }
+
+    fullBatch[0].push(999)
+    if fullBatch[0].length() != 4 or fullBatch[0][3] != 999 {
+        freeNestedBatch(fullBatch)
+        return 22
+    }
+    if fullBatch[1].length() != 1 or fullBatch[2].length() != 5 {
+        freeNestedBatch(fullBatch)
+        return 23
+    }
+    freeNestedBatch(fullBatch)
+
+    let elementMatrix = buildElementMatrix()
+    if elementMatrix.length() != 3 {
+        freeNestedBatch(elementMatrix)
+        return 24
+    }
+    if elementMatrix[0].length() != 0 {
+        freeNestedBatch(elementMatrix)
+        return 25
+    }
+    if elementMatrix[1].length() != 1 or elementMatrix[1][0] != 7 {
+        freeNestedBatch(elementMatrix)
+        return 26
+    }
+    if elementMatrix[2].length() != 3 {
+        freeNestedBatch(elementMatrix)
+        return 27
+    }
+    if elementMatrix[2][0] != 1 or elementMatrix[2][2] != 3 {
+        freeNestedBatch(elementMatrix)
+        return 28
+    }
+    freeNestedBatch(elementMatrix)
+
+    let literalMatrix = buildLiteralMatrix()
+    if literalMatrix.length() != 3 { freeNestedBatch(literalMatrix); return 29 }
+    if literalMatrix[0].length() != 2 or literalMatrix[0][0] != 1 or
+        literalMatrix[0][1] != 2 { freeNestedBatch(literalMatrix); return 31 }
+    if literalMatrix[1].length() != 1 or literalMatrix[1][0] != 3 {
+        freeNestedBatch(literalMatrix)
+        return 32
+    }
+    if literalMatrix[2].length() != 3 or literalMatrix[2][0] != 4 or
+        literalMatrix[2][2] != 6 { freeNestedBatch(literalMatrix); return 33 }
+    literalMatrix[1].push(9)
+    if literalMatrix[1].length() != 2 or literalMatrix[1][1] != 9 {
+        freeNestedBatch(literalMatrix)
+        return 34
+    }
+    freeNestedBatch(literalMatrix)
+    if shiftStillWorks(18) != 9 { return 30 }
+
+    // Each round constructs and drops two returned nested-array graphs. ASan
+    // and UBSan executions of this same fixture turn stale inner handles,
+    // double cleanup, and invalid element geometry into release-blocking
+    // failures.
+    var iteration = 0
+    while iteration < 256 {
+        let lifetimeStatus = exerciseReturnedLifetime(iteration)
+        if lifetimeStatus != 0 { return 40 + lifetimeStatus }
+        iteration = iteration + 1
+    }
+
+    return 0
+}

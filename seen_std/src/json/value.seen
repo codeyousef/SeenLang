@@ -1,10 +1,17 @@
+extern "C" fun seen_string_clone_owned(value: String) r: String
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
 class JsonValue {
     var kind: Int          // One of JSON_* constants
     var boolValue: Bool
     var numberValue: Float
     var stringValue: String
+    var ownsString: Bool
+    var isContainerOwned: Bool
+    var destroyState: Int
     var arrayValue: Array<JsonValue>
     var objectKeys: Array<String>      // Keys in order
+    var objectKeyOwnership: Array<Bool>
     var objectValues: Array<JsonValue> // Values corresponding to keys
 
     fun isNull() r: Bool {
@@ -96,17 +103,34 @@ class JsonValue {
         var i = 0
         while i < this.objectKeys.length() {
             if this.objectKeys[i] == key {
+                let previous = this.objectValues[i]
+                if previous == value {
+                    return
+                }
+                if value.isContainerOwned or jsonValueContains(value, this) {
+                    return
+                }
+                value.isContainerOwned = true
+                jsonValueDestroyTree(previous, true)
                 this.objectValues[i] = value
                 return
             }
             i = i + 1
         }
+        if value.isContainerOwned or jsonValueContains(value, this) {
+            return
+        }
+        value.isContainerOwned = true
         this.objectKeys.push(key)
+        this.objectKeyOwnership.push(false)
         this.objectValues.push(value)
     }
 
     fun push(value: JsonValue) r: Void {
-        if this.kind == 4 {
+        if this.kind == 4 and not value.isContainerOwned and
+            not jsonValueContains(value, this) {
+
+            value.isContainerOwned = true
             this.arrayValue.push(value)
         }
     }
@@ -128,15 +152,145 @@ class JsonValue {
 
 // Free functions (formerly static methods on JsonValue)
 
+// JSON containers are unique-owner trees. This bounded-by-tree walk rejects
+// direct and indirect cycles before a detached value is moved into a parent.
+fun jsonValueContains(value: JsonValue, target: JsonValue) r: Bool {
+    if value == target {
+        return true
+    }
+    if value.kind == 4 {
+        var arrayIndex = 0
+        while arrayIndex < value.arrayValue.length() {
+            if jsonValueContains(value.arrayValue[arrayIndex], target) {
+                return true
+            }
+            arrayIndex = arrayIndex + 1
+        }
+    }
+    if value.kind == 5 {
+        var objectIndex = 0
+        while objectIndex < value.objectValues.length() {
+            if jsonValueContains(value.objectValues[objectIndex], target) {
+                return true
+            }
+            objectIndex = objectIndex + 1
+        }
+    }
+    return false
+}
+
+// Validate the complete tree before releasing any allocation. destroyState is
+// a one-way preflight mark: encountering it twice proves a duplicate handle or
+// cycle and aborts before cleanup can become a double free.
+fun jsonValuePreflightDestroyTree(value: JsonValue,
+    allowContainerOwned: Bool) r: Void {
+
+    if value.isContainerOwned and not allowContainerOwned {
+        abort("JsonValue_destroy: borrowed container child cannot be destroyed")
+    }
+    if value.kind < 0 or value.kind > 5 {
+        abort("JsonValue_destroy: invalid value kind")
+    }
+    if value.destroyState != 0 {
+        abort("JsonValue_destroy: duplicate or cyclic value")
+    }
+    value.destroyState = 1
+    if value.kind != 3 and value.ownsString {
+        abort("JsonValue_destroy: invalid string ownership state")
+    }
+    if value.kind != 4 and value.arrayValue.length() != 0 {
+        abort("JsonValue_destroy: invalid array storage state")
+    }
+    if value.kind != 5 and
+        (value.objectKeys.length() != 0 or
+         value.objectKeyOwnership.length() != 0 or
+         value.objectValues.length() != 0) {
+
+        abort("JsonValue_destroy: invalid object storage state")
+    }
+    if value.kind == 4 {
+        var arrayIndex = 0
+        while arrayIndex < value.arrayValue.length() {
+            let child = value.arrayValue[arrayIndex]
+            if not child.isContainerOwned {
+                abort("JsonValue_destroy: detached array child")
+            }
+            jsonValuePreflightDestroyTree(child, true)
+            arrayIndex = arrayIndex + 1
+        }
+    }
+    if value.kind == 5 {
+        if value.objectKeys.length() != value.objectValues.length() or
+            value.objectKeys.length() != value.objectKeyOwnership.length() {
+
+            abort("JsonValue_destroy: invalid object storage geometry")
+        }
+        var objectIndex = 0
+        while objectIndex < value.objectValues.length() {
+            let child = value.objectValues[objectIndex]
+            if not child.isContainerOwned {
+                abort("JsonValue_destroy: detached object child")
+            }
+            jsonValuePreflightDestroyTree(child, true)
+            objectIndex = objectIndex + 1
+        }
+    }
+}
+
+// Recursively release a tree only after its complete ownership preflight has
+// succeeded. Accessors return borrowed handles and must not destroy children.
+fun jsonValueReleaseTree(value: JsonValue) r: Void {
+    if value.kind == 3 and value.ownsString {
+        seen_string_release_owned(value.stringValue)
+    }
+    if value.kind == 4 {
+        var arrayIndex = 0
+        while arrayIndex < value.arrayValue.length() {
+            jsonValueReleaseTree(value.arrayValue[arrayIndex])
+            arrayIndex = arrayIndex + 1
+        }
+    }
+    if value.kind == 5 {
+        var objectIndex = 0
+        while objectIndex < value.objectKeys.length() {
+            if objectIndex < value.objectKeyOwnership.length() and
+                value.objectKeyOwnership[objectIndex] {
+
+                seen_string_release_owned(value.objectKeys[objectIndex])
+            }
+            objectIndex = objectIndex + 1
+        }
+        objectIndex = 0
+        while objectIndex < value.objectValues.length() {
+            jsonValueReleaseTree(value.objectValues[objectIndex])
+            objectIndex = objectIndex + 1
+        }
+    }
+    value.arrayValue.free()
+    value.objectKeys.free()
+    value.objectKeyOwnership.free()
+    value.objectValues.free()
+    value.free()
+}
+
+fun jsonValueDestroyTree(value: JsonValue, allowContainerOwned: Bool) r: Void {
+    jsonValuePreflightDestroyTree(value, allowContainerOwned)
+    jsonValueReleaseTree(value)
+}
+
+fun JsonValue_destroy(value: JsonValue) r: Void {
+    jsonValueDestroyTree(value, false)
+}
+
 fun JsonValue_nullValue() r: JsonValue {
     let v = JsonValue()
     v.kind = 0
     v.boolValue = false
     v.numberValue = 0.0
     v.stringValue = ""
-    v.arrayValue = Array<JsonValue>()
-    v.objectKeys = Array<String>()
-    v.objectValues = Array<JsonValue>()
+    v.ownsString = false
+    v.isContainerOwned = false
+    v.destroyState = 0
     return v
 }
 
@@ -146,9 +300,9 @@ fun JsonValue_fromBool(value: Bool) r: JsonValue {
     v.boolValue = value
     v.numberValue = 0.0
     v.stringValue = ""
-    v.arrayValue = Array<JsonValue>()
-    v.objectKeys = Array<String>()
-    v.objectValues = Array<JsonValue>()
+    v.ownsString = false
+    v.isContainerOwned = false
+    v.destroyState = 0
     return v
 }
 
@@ -163,9 +317,9 @@ fun JsonValue_number(value: Int) r: JsonValue {
     v.boolValue = false
     v.numberValue = value.toFloat()
     v.stringValue = ""
-    v.arrayValue = Array<JsonValue>()
-    v.objectKeys = Array<String>()
-    v.objectValues = Array<JsonValue>()
+    v.ownsString = false
+    v.isContainerOwned = false
+    v.destroyState = 0
     return v
 }
 
@@ -175,9 +329,9 @@ fun JsonValue_numberFloat(value: Float) r: JsonValue {
     v.boolValue = false
     v.numberValue = value
     v.stringValue = ""
-    v.arrayValue = Array<JsonValue>()
-    v.objectKeys = Array<String>()
-    v.objectValues = Array<JsonValue>()
+    v.ownsString = false
+    v.isContainerOwned = false
+    v.destroyState = 0
     return v
 }
 
@@ -187,40 +341,148 @@ fun JsonValue_string(value: String) r: JsonValue {
     v.boolValue = false
     v.numberValue = 0.0
     v.stringValue = value
-    v.arrayValue = Array<JsonValue>()
-    v.objectKeys = Array<String>()
-    v.objectValues = Array<JsonValue>()
+    v.ownsString = false
+    v.isContainerOwned = false
+    v.destroyState = 0
     return v
 }
 
-fun JsonValue_array(values: Array<JsonValue>) r: JsonValue {
+// Create a JSON string with an independent copy that JsonValue_destroy owns.
+fun JsonValue_stringCopy(value: String) r: JsonValue {
+    return jsonValue_stringOwned(seen_string_clone_owned(value))
+}
+
+// Parser-created strings have one explicit owner. Public JsonValue_string
+// remains borrowed so existing callers can safely pass literals and fields.
+fun jsonValue_stringOwned(value: String) r: JsonValue {
+    let v = JsonValue_string(value)
+    v.ownsString = true
+    return v
+}
+
+// Construct from storage whose container ownership is already transferred to
+// this module. Public constructors make a shallow copy of their input array so
+// callers retain a distinct container that they may safely mutate or free.
+fun jsonValue_arrayOwned(values: Array<JsonValue>) r: JsonValue {
+    var preflightIndex = 0
+    while preflightIndex < values.length() {
+        let child = values[preflightIndex]
+        if child.isContainerOwned {
+            abort("JsonValue_array: aliased child")
+        }
+        var priorIndex = 0
+        while priorIndex < preflightIndex {
+            if values[priorIndex] == child {
+                abort("JsonValue_array: aliased child")
+            }
+            priorIndex = priorIndex + 1
+        }
+        preflightIndex = preflightIndex + 1
+    }
     let v = JsonValue()
     v.kind = 4
     v.boolValue = false
     v.numberValue = 0.0
     v.stringValue = ""
+    v.ownsString = false
+    v.isContainerOwned = false
+    v.destroyState = 0
+    var valueIndex = 0
+    while valueIndex < values.length() {
+        let child = values[valueIndex]
+        child.isContainerOwned = true
+        valueIndex = valueIndex + 1
+    }
+    v.arrayValue.free()
     v.arrayValue = values
-    v.objectKeys = Array<String>()
-    v.objectValues = Array<JsonValue>()
     return v
 }
 
-fun JsonValue_emptyArray() r: JsonValue {
-    return JsonValue_array(Array<JsonValue>())
+fun JsonValue_array(values: Array<JsonValue>) r: JsonValue {
+    let ownedValues = Array<JsonValue>()
+    var valueIndex = 0
+    while valueIndex < values.length() {
+        ownedValues.push(values[valueIndex])
+        valueIndex = valueIndex + 1
+    }
+    return jsonValue_arrayOwned(ownedValues)
 }
 
-fun JsonValue_object(keys: Array<String>, values: Array<JsonValue>) r: JsonValue {
+fun JsonValue_emptyArray() r: JsonValue {
+    return jsonValue_arrayOwned(Array<JsonValue>())
+}
+
+fun jsonValue_objectWithKeyOwnership(keys: Array<String>,
+    values: Array<JsonValue>, keysOwned: Bool) r: JsonValue {
+
+    if keys.length() != values.length() {
+        abort("JsonValue_object: key/value length mismatch")
+    }
+    var preflightIndex = 0
+    while preflightIndex < values.length() {
+        let child = values[preflightIndex]
+        if child.isContainerOwned {
+            abort("JsonValue_object: aliased child")
+        }
+        var priorIndex = 0
+        while priorIndex < preflightIndex {
+            if values[priorIndex] == child {
+                abort("JsonValue_object: aliased child")
+            }
+            priorIndex = priorIndex + 1
+        }
+        preflightIndex = preflightIndex + 1
+    }
     let v = JsonValue()
     v.kind = 5
     v.boolValue = false
     v.numberValue = 0.0
     v.stringValue = ""
-    v.arrayValue = Array<JsonValue>()
+    v.ownsString = false
+    v.isContainerOwned = false
+    v.destroyState = 0
+    v.objectKeys.free()
     v.objectKeys = keys
+    var keyIndex = 0
+    while keyIndex < keys.length() {
+        v.objectKeyOwnership.push(keysOwned)
+        keyIndex = keyIndex + 1
+    }
+    var valueIndex = 0
+    while valueIndex < values.length() {
+        let child = values[valueIndex]
+        child.isContainerOwned = true
+        valueIndex = valueIndex + 1
+    }
+    v.objectValues.free()
     v.objectValues = values
     return v
 }
 
+fun JsonValue_object(keys: Array<String>, values: Array<JsonValue>) r: JsonValue {
+    if keys.length() != values.length() {
+        abort("JsonValue_object: key/value length mismatch")
+    }
+    let ownedKeys = Array<String>()
+    let ownedValues = Array<JsonValue>()
+    var itemIndex = 0
+    while itemIndex < keys.length() {
+        ownedKeys.push(keys[itemIndex])
+        ownedValues.push(values[itemIndex])
+        itemIndex = itemIndex + 1
+    }
+    return jsonValue_objectWithKeyOwnership(ownedKeys, ownedValues, false)
+}
+
+// The JSON parser moves its independently allocated keys into this value.
+// Ownership remains per key so later public set() calls may add borrowed keys.
+fun jsonValue_objectOwned(keys: Array<String>,
+    values: Array<JsonValue>) r: JsonValue {
+
+    return jsonValue_objectWithKeyOwnership(keys, values, true)
+}
+
 fun JsonValue_emptyObject() r: JsonValue {
-    return JsonValue_object(Array<String>(), Array<JsonValue>())
+    return jsonValue_objectWithKeyOwnership(
+        Array<String>(), Array<JsonValue>(), false)
 }

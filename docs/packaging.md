@@ -1,6 +1,6 @@
 # Seen Packaging
 
-Seen 0.11.0 ships a version-coupled package client for declaring dependencies in
+Seen 0.11.1 ships a version-coupled package client for declaring dependencies in
 `Seen.toml`, resolving complete dependency graphs, enforcing `Seen.lock`, and
 installing verified source packages. The compiler prepares those dependencies
 before `compile`, `check`, and `run` and rejects a package client from a
@@ -341,6 +341,22 @@ stale bytes. Cross-host macOS archives must be supplied from a separate
 directory through `SEEN_RELEASE_MACOS_INPUT_DIR`; implicit macOS files already
 in `dist/` are discarded. Set `SEEN_RELEASE_CLEAN_DIST=1` for an explicit clean
 release staging directory.
+
+Release publication is create-only. Before building, the uploader requires an
+existing annotated local tag, the identical annotated tag object on `origin`,
+and both the peeled tag and current `origin/main` to equal the release commit.
+The checked `origin`, workflow repository, and release mutation target must all
+identify `codeyousef/SeenLang`.
+The tag-triggered workflow is the only tag publisher; the uploader never
+creates or pushes tags. An existing GitHub release, an existing asset set, an
+ambiguous absence check, or a concurrent create causes the upload to fail
+closed. Release creation also requires the already-published tag at mutation
+time; ordinary release runs never create tags or overwrite existing assets.
+
+Keyless signatures use the exact anchored and regex-escaped certificate
+identity for `.github/workflows/release.yml` at the version tag being released,
+plus the GitHub Actions OIDC issuer. Broad identity overrides are rejected by
+both signing and verification.
 
 The public upload entrypoint also fails closed unless its complete build,
 verification, signing, and upload process tree is inside a read-back-verified

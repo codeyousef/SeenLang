@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-08-24
+
+### Fixed
+
+- Added release-blocking regression coverage proving compiler-emitted and
+  aligned allocation failures terminate generated processes promptly with
+  status 134, a bounded diagnostic, and no lingering child process after the
+  allocation limit is reached.
+- Locked in safe tiny, empty, nested, and malformed JSON-object parsing,
+  optional/class-return lifetimes, owned one-pass serialization and builder
+  cleanup, and repeated adverse-input handling.
+- Kept imported scalar functions distinct from same-named class methods and
+  added the `E015` semantic diagnostic for proven imported-call argument type
+  mismatches before invalid LLVM can reach optimization.
+- Preserved nested `Array<Array<Int>>` construction, push, return, indexing,
+  mutation, optimizer verification, and destruction across tokenizer-shaped
+  batches.
+- Preserved owned fields and shapes in class values returned from Array-backed
+  safetensors metadata lookups, including missing and partially constructed
+  paths.
+- Verified and locked in `seen check`/`seen compile` agreement when tests import
+  modules through their project-qualified package path, without probing a
+  nonexistent package below `tests/`.
+- Kept external consumers of `seen_std` free of the historical
+  `str.string`/`io.file` import cycle without consumer-local shims.
+
+### Changed
+
+- Added release-blocking, capped regressions for the seven stabilization fixes,
+  with tracked compiler fixtures, bounded failure diagnostics, repeated
+  ownership/adverse-input matrices, and supported sanitizer execution.
+- Restored group-wide OOM setup on modern systemd user managers by requesting
+  scope `OOMPolicy=kill` before entry. Managers older than 253 retain the
+  direct `memory.oom.group` fallback, and every path still refuses execution
+  unless the kernel read-back is exactly `1` with swap disabled.
+
 ## [0.11.0] - 2026-08-23
 
 ### Added

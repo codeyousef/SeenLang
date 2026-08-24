@@ -1,0 +1,17 @@
+import json.value.{JsonValue_destroy, JsonValue_emptyArray,
+    JsonValue_stringCopy}
+
+fun main() r: Int {
+    let root = JsonValue_emptyArray()
+    let child = JsonValue_stringCopy("one-owner")
+    root.push(child)
+
+    // getArray() is a borrowed read-only backing handle retained for source
+    // compatibility. Deliberately corrupt it to prove destruction validates
+    // the complete graph before releasing either duplicate.
+    let raw = root.getArray()
+    raw.push(child)
+    raw.push(root)
+    JsonValue_destroy(root)
+    return 0
+}

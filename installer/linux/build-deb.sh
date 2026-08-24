@@ -63,7 +63,7 @@ Seen Language DEB Package Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 0.11.0)
+  version              Version number (e.g., 0.11.1)
   architecture         Target architecture (amd64, arm64, riscv64)
 
 Options:
@@ -73,7 +73,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 0.11.0 amd64
+  $0 0.11.1 amd64
   $0 1.2.3 arm64 --verbose
   $0 2.0.0 amd64 --source-dir /opt/seen/build
 
@@ -305,7 +305,7 @@ Maintainer: Seen Language Team <team@seen-lang.org>
 Homepage: https://seen-lang.org
 Vcs-Git: https://github.com/codeyousef/SeenLang.git
 Vcs-Browser: https://github.com/codeyousef/SeenLang
-Depends: libc6 (>= 2.28), libgcc-s1 (>= 3.0), libstdc++6 (>= 5.2), llvm-18 | llvm (>= 1:18), clang-18 | clang (>= 1:18), lld-18 | lld (>= 1:18)
+Depends: libc6 (>= 2.28), libgcc-s1 (>= 3.0), libstdc++6 (>= 5.2), llvm-20 | llvm-19 | llvm (>= 1:19), clang-20 | clang-19 | clang (>= 1:19), lld-20 | lld-19 | lld (>= 1:19)
 Suggests: build-essential, gcc
 Description: High-performance systems programming language
  Seen is a systems programming language designed to be a
@@ -353,7 +353,7 @@ case "$1" in
 
         if [ -x /usr/lib/seen/toolchain/seen-toolchain.sh ]; then
             /usr/lib/seen/toolchain/seen-toolchain.sh --check --prefix /usr >/dev/null 2>&1 || \
-                echo "LLVM 18+ toolchain check failed; run /usr/lib/seen/toolchain/seen-toolchain.sh --install or install clang/opt/llc/llvm-as/lld."
+                echo "LLVM 19+ toolchain check failed; run /usr/lib/seen/toolchain/seen-toolchain.sh --install or install clang/opt/llc/llvm-as/lld."
         fi
         
         # Print installation success message
@@ -450,8 +450,8 @@ install_package_files() {
     chmod 755 "$package_dir/usr/lib/seen/toolchain/seen-toolchain.sh"
     cat > "$package_dir/usr/lib/seen/toolchain/manifest.env" << EOF
 seen_toolchain_manifest_version=1
-llvm_min_version=18
-llvm_preferred_version=18
+llvm_min_version=19
+llvm_preferred_version=20
 required_tools=clang,opt,llc,llvm-as,ld.lld
 bundle_mode=system-package
 managed_install=/usr/lib/seen/toolchain/seen-toolchain.sh --install

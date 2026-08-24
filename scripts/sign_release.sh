@@ -26,6 +26,7 @@ Usage: sign_release.sh (--keyless | --key PATH | --kms URI)
 
 Every artifact is checksummed, signed, and verified. The canonical manifest is
 then generated, checksummed, signed, and verified. No verification bypass exists.
+Keyless identity must be the anchored, escaped release.yml identity for VERSION.
 EOF
     exit 1
 }
@@ -50,6 +51,17 @@ done
 
 [[ -n "$MODE" && -n "$VERSION" && -n "$SOURCE_COMMIT" && -n "$SOURCE_DIGEST" && -n "$MANIFEST" && -n "$IDENTITY" && -n "$ISSUER" ]] || usage
 [[ "${#ARTIFACTS[@]}" -eq 4 ]] || die "exactly four --artifact arguments are required"
+if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+    die "release version is not a supported semantic version"
+fi
+if [[ "$MODE" == "keyless" ]]; then
+    ESCAPED_VERSION="${VERSION//./\\.}"
+    EXPECTED_IDENTITY="^https://github\\.com/codeyousef/SeenLang/\\.github/workflows/release\\.yml@refs/tags/v${ESCAPED_VERSION}\$"
+    [[ "$IDENTITY" == "$EXPECTED_IDENTITY" ]] ||
+        die "keyless signer identity must be the exact anchored release.yml tag identity"
+    [[ "$ISSUER" == "https://token.actions.githubusercontent.com" ]] ||
+        die "keyless signer issuer must be the GitHub Actions OIDC issuer"
+fi
 EXPECTED=(compiler runtime stdlib package-client)
 PATHS=()
 for index in 0 1 2 3; do

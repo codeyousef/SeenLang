@@ -3719,6 +3719,13 @@
       ]
     },
     {
+      "name": "seen_char_to_owned_string",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/json/parser.seen"
+      ]
+    },
+    {
       "name": "seen_cocoa_app_init",
       "abi": "Seen",
       "sources": [
@@ -5476,6 +5483,22 @@
       ]
     },
     {
+      "name": "seen_string_builder_flatten_owned",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/json/builder.seen",
+        "seen_std/src/json/parser.seen"
+      ]
+    },
+    {
+      "name": "seen_string_clone_owned",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/json/builder.seen",
+        "seen_std/src/json/value.seen"
+      ]
+    },
+    {
       "name": "seen_string_contains_fast",
       "abi": "C",
       "sources": [
@@ -5501,6 +5524,15 @@
       "abi": "C",
       "sources": [
         "seen_std/src/str/string.seen"
+      ]
+    },
+    {
+      "name": "seen_string_release_owned",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/json/builder.seen",
+        "seen_std/src/json/parser.seen",
+        "seen_std/src/json/value.seen"
       ]
     },
     {

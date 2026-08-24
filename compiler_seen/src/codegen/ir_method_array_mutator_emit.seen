@@ -105,6 +105,15 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
             ", %SeenString " + argReg + ")\n")
         return "0"
     }
+    if isArrayReceiverTypeImpl(pushElemType) {
+        var pointerArgReg = argReg
+        if pointerArgReg == "0" or pointerArgReg == "null" {
+            pointerArgReg = "null"
+        }
+        output.append("  call void @seen_arr_push_ptr(ptr " + arrayPtrReg +
+            ", ptr " + pointerArgReg + ")\n")
+        return "0"
+    }
     if pushElemType == "Int" or pushElemType == "Char" or
         receiverType == "Array<Int>" {
         let lenPtrReg = getNextRegFn(regBox)

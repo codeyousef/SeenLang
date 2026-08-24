@@ -5,7 +5,8 @@ import lsp.formatter.{formatSeenText, formatSeenTextWithLanguage,
     formatterUtf16Length, formatterCommonPrefix, formatterCommonSuffix,
     formatterSortImportsFromToml}
 import bootstrap.frontend.{run_frontend}
-import json.builder.{jsonToString}
+import json.builder.{jsonToString, releaseJsonText}
+import json.value.{JsonValue_destroy}
 
 fun expectEqual(actual: String, expected: String, label: String) r: Bool {
     if actual != expected {
@@ -150,10 +151,14 @@ fun main() r: Int {
         println("formatter replacement did not preserve its common suffix")
         return 10
     }
-    let editJson = jsonToString(edits[0].toJson())
-    if not editJson.contains("\"character\":17") or
-        not editJson.contains("\"character\":23") or
-        not editJson.contains("\"newText\":\" let x = \"") {
+    let editJsonRoot = edits[0].toJson()
+    let editJson = jsonToString(editJsonRoot)
+    let editJsonValid = editJson.contains("\"character\":17") and
+        editJson.contains("\"character\":23") and
+        editJson.contains("\"newText\":\" let x = \"")
+    releaseJsonText(editJson)
+    JsonValue_destroy(editJsonRoot)
+    if not editJsonValid {
         println("formatter edit did not serialize as an LSP JSON payload")
         return 11
     }
@@ -217,8 +222,16 @@ fun main() r: Int {
         "دالة main()r:Int{\n  اجعل emoji = \"😀\";اجعل value=1+2\nرجع value\n}\n"
     let arabicEdits = formatSeenDocumentEditsWithLanguageOptions(arabicProtocol,
         2, true, false, "ar", 100, true)
-    if arabicEdits.length() < 2 or
-        not jsonToString(arabicEdits[1].toJson()).contains("اجعل value = 1 + ") {
+    if arabicEdits.length() < 2 {
+        println("localized formatter edit JSON corrupted non-ASCII text")
+        return 36
+    }
+    let arabicEditJsonRoot = arabicEdits[1].toJson()
+    let arabicEditJson = jsonToString(arabicEditJsonRoot)
+    let arabicEditValid = arabicEditJson.contains("اجعل value = 1 + ")
+    releaseJsonText(arabicEditJson)
+    JsonValue_destroy(arabicEditJsonRoot)
+    if not arabicEditValid {
 
         println("localized formatter edit JSON corrupted non-ASCII text")
         return 36

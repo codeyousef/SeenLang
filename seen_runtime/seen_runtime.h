@@ -226,6 +226,7 @@ double seen_parse_float_range(SeenString text, int64_t start, int64_t end);
 
 // Char (Unicode code point) to string
 SeenString seen_char_to_str(int64_t c);
+SeenString seen_char_to_owned_string(int64_t c);
 
 // Get character at index (returns code point)
 int64_t seen_char_at(SeenString s, int64_t index);
@@ -488,6 +489,9 @@ void* StringBuilder_new_with_capacity(int64_t cap);
 int64_t StringBuilder_append(void* sb, SeenString text);
 SeenString StringBuilder_toString(void* sb);
 SeenString seen_string_builder_flatten(SeenArray* parts, int64_t totalLength);
+SeenString seen_string_builder_flatten_owned(SeenArray* parts, int64_t totalLength);
+SeenString seen_string_clone_owned(SeenString value);
+void seen_string_release_owned(SeenString value);
 
 void* seen_byte_array_new(int64_t capacity);
 int64_t seen_byte_array_len(void* handle);

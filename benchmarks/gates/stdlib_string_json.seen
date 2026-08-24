@@ -1,5 +1,5 @@
-import json.parser.{parseJson}
-import json.builder.{JsonBuilder_new}
+import json.parser.{parseJson, destroyJsonParseResult}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
 import str.string.{StringBuilder, contains, indexOf, lastIndexOf, replaceAll, split, trim}
 
 fun main() r: Int {
@@ -25,8 +25,12 @@ fun main() r: Int {
     jsonBuilder.endObject()
     let jsonBuilt = jsonBuilder.build()
     if not contains(jsonBuilt, "\"field127\"") {
+        releaseJsonText(jsonBuilt)
+        destroyJsonBuilder(jsonBuilder)
         return 3
     }
+    releaseJsonText(jsonBuilt)
+    destroyJsonBuilder(jsonBuilder)
 
     let searchText = "   alpha,beta,gamma,delta,epsilon,zeta,eta,theta,alpha,beta,gamma   "
     var searchScore = 0
@@ -48,8 +52,10 @@ fun main() r: Int {
     while parsed < 256 {
         let result = parseJson(text)
         if result.success != 1 {
+            destroyJsonParseResult(result, false)
             return 1
         }
+        destroyJsonParseResult(result, true)
         parsed = parsed + 1
     }
 

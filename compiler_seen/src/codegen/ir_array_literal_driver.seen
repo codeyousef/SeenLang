@@ -39,6 +39,17 @@ fun emitArrayLiteralElementPushState(output: StringBuilder, arrReg: String,
             ", i64 " + argReg + ")\n")
         return
     }
+    if argType == "Array" or argType.startsWith("Array<") or
+        argType == "List" or argType.startsWith("List<") {
+
+        var nestedArrayReg = argReg
+        if nestedArrayReg == "0" {
+            nestedArrayReg = "null"
+        }
+        output.append("  call void @seen_arr_push_ptr(ptr " + arrReg +
+            ", ptr " + nestedArrayReg + ")\n")
+        return
+    }
 
     var ptrArgReg = argReg
     if ptrArgReg == "0" {

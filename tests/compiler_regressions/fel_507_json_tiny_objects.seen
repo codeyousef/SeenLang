@@ -1,0 +1,389 @@
+import json.{parseJson, parseJsonWithLimits, destroyJsonParseResult,
+    JsonBuilder_new, destroyJsonBuilder, escapeJsonString, jsonToString,
+    toJsonPretty, releaseJsonText}
+import json.value.{JsonValue, JsonValue_destroy, JsonValue_string,
+    JsonValue_stringCopy, JsonValue_number, JsonValue_array,
+    JsonValue_object, JsonValue_emptyArray, JsonValue_emptyObject}
+
+fun parseRoot(source: String) r: JsonValue? {
+    let parsed = parseJson(source)
+    if parsed.success != 1 {
+        println(parsed.error)
+        println(parsed.errorPosition.toString())
+        destroyJsonParseResult(parsed, false)
+        return null
+    }
+    let value = parsed.value.unwrap()
+    destroyJsonParseResult(parsed, false)
+    return value
+}
+
+// The returned nested value is borrowed from root. The caller keeps root alive
+// through the lookup and destroys the complete tree exactly once afterwards.
+fun findNestedValue(root: JsonValue) r: JsonValue? {
+    let outerOptional = root.get("outer")
+    if outerOptional.isNone() {
+        outerOptional.free()
+        return null
+    }
+    let outer = outerOptional.unwrap()
+    outerOptional.free()
+    let innerOptional = outer.get("inner")
+    if innerOptional.isNone() {
+        innerOptional.free()
+        return null
+    }
+    let inner = innerOptional.unwrap()
+    innerOptional.free()
+    return inner.get("value")
+}
+
+fun main() r: Int {
+    let emptyOptional = parseRoot("{}")
+    if emptyOptional.isNone() { emptyOptional.free(); return 1 }
+    let empty = emptyOptional.unwrap()
+    emptyOptional.free()
+    if not empty.isObject() { return 2 }
+    if empty.length() != 0 { return 3 }
+    let emptyMissing = empty.get("missing")
+    let emptyMissingIsNone = emptyMissing.isNone()
+    emptyMissing.free()
+    if not emptyMissingIsNone { return 4 }
+    JsonValue_destroy(empty)
+
+    let tinyOptional = parseRoot("{\"n\":1}")
+    if tinyOptional.isNone() { tinyOptional.free(); return 5 }
+    let tiny = tinyOptional.unwrap()
+    tinyOptional.free()
+    if not tiny.isObject() { return 6 }
+    if tiny.length() != 1 { return 7 }
+    let numberOptional = tiny.get("n")
+    if numberOptional.isNone() { numberOptional.free(); return 8 }
+    let number = numberOptional.unwrap()
+    numberOptional.free()
+    if not number.isNumber() { return 9 }
+    if number.getInt() != 1 { return 10 }
+    let tinyMissing = tiny.get("missing")
+    let tinyMissingIsNone = tinyMissing.isNone()
+    tinyMissing.free()
+    if not tinyMissingIsNone { return 11 }
+    JsonValue_destroy(tiny)
+
+    let nestedOptional = parseRoot(
+        "{\"outer\":{\"inner\":{\"value\":7,\"label\":\"ok\"} } }"
+    )
+    if nestedOptional.isNone() { nestedOptional.free(); return 12 }
+    let nested = nestedOptional.unwrap()
+    nestedOptional.free()
+    let outerOptional = nested.get("outer")
+    if outerOptional.isNone() { outerOptional.free(); return 13 }
+    let outer = outerOptional.unwrap()
+    outerOptional.free()
+    if not outer.isObject() { return 14 }
+    let innerOptional = outer.get("inner")
+    if innerOptional.isNone() { innerOptional.free(); return 15 }
+    let inner = innerOptional.unwrap()
+    innerOptional.free()
+    if not inner.isObject() { return 16 }
+    let nestedNumberOptional = inner.get("value")
+    if nestedNumberOptional.isNone() { nestedNumberOptional.free(); return 17 }
+    let nestedNumber = nestedNumberOptional.unwrap()
+    nestedNumberOptional.free()
+    if nestedNumber.getInt() != 7 { return 18 }
+    let nestedLabelOptional = inner.get("label")
+    if nestedLabelOptional.isNone() { nestedLabelOptional.free(); return 19 }
+    let nestedLabel = nestedLabelOptional.unwrap()
+    nestedLabelOptional.free()
+    if nestedLabel.getString() != "ok" { return 20 }
+    let nestedAbsent = inner.get("absent")
+    let nestedAbsentIsNone = nestedAbsent.isNone()
+    nestedAbsent.free()
+    if not nestedAbsentIsNone { return 21 }
+    let compactNested = jsonToString(nested)
+    if not compactNested.contains("\"value\":7") or
+        not compactNested.contains("\"label\":\"ok\"") {
+
+        println("unexpected compact JSON: " + compactNested)
+        releaseJsonText(compactNested)
+        JsonValue_destroy(nested)
+        return 121
+    }
+    let compactRoundTrip = parseJson(compactNested)
+    if compactRoundTrip.success != 1 {
+        println("compact JSON did not parse: " + compactNested)
+        destroyJsonParseResult(compactRoundTrip, false)
+        releaseJsonText(compactNested)
+        JsonValue_destroy(nested)
+        return 123
+    }
+    destroyJsonParseResult(compactRoundTrip, true)
+    releaseJsonText(compactNested)
+    let prettyNested = toJsonPretty(nested, 2)
+    if not prettyNested.contains("\"value\": 7") or
+        not prettyNested.contains("\"label\": \"ok\"") {
+
+        releaseJsonText(prettyNested)
+        JsonValue_destroy(nested)
+        return 122
+    }
+    releaseJsonText(prettyNested)
+    JsonValue_destroy(nested)
+
+    // Serialization returns independent owned text. Incremental raw input is
+    // cloned so callers may release it before build, and reset releases the
+    // builder's retained escaped-string parts before reuse.
+    let escapedText = escapeJsonString("a\n\"b\\")
+    let escapedRoundTrip = parseJson(escapedText)
+    if escapedRoundTrip.success != 1 or
+        escapedRoundTrip.value.unwrap().getString() != "a\n\"b\\" {
+
+        destroyJsonParseResult(escapedRoundTrip, true)
+        releaseJsonText(escapedText)
+        return 124
+    }
+    destroyJsonParseResult(escapedRoundTrip, true)
+    releaseJsonText(escapedText)
+
+    let incremental = JsonBuilder_new()
+    incremental.startArray()
+    let rawText = escapeJsonString("raw")
+    incremental.raw(rawText)
+    releaseJsonText(rawText)
+    incremental.number(-42)
+    incremental.endArray()
+    let incrementalText = incremental.build()
+    if not incrementalText.contains("\"raw\"") or
+        not incrementalText.contains("-42") {
+
+        releaseJsonText(incrementalText)
+        destroyJsonBuilder(incremental)
+        return 125
+    }
+    let incrementalRoundTrip = parseJson(incrementalText)
+    if incrementalRoundTrip.success != 1 {
+        destroyJsonParseResult(incrementalRoundTrip, false)
+        releaseJsonText(incrementalText)
+        destroyJsonBuilder(incremental)
+        return 126
+    }
+    destroyJsonParseResult(incrementalRoundTrip, true)
+    releaseJsonText(incrementalText)
+    incremental.reset()
+    incremental.startObject()
+    incremental.nullProp("empty")
+    incremental.endObject()
+    let reusedText = incremental.build()
+    let reusedTextValid = reusedText.contains("\"empty\":null")
+    releaseJsonText(reusedText)
+    destroyJsonBuilder(incremental)
+    if not reusedTextValid { return 127 }
+
+    // Non-short-form control bytes must round-trip through exactly one JSON
+    // \u00XX escape rather than acquiring an extra hexadecimal digit.
+    let controlOptional = parseRoot("\"\\u0001\"")
+    if controlOptional.isNone() { controlOptional.free(); return 128 }
+    let control = controlOptional.unwrap()
+    controlOptional.free()
+    let controlText = jsonToString(control)
+    let controlRoundTrip = parseJson(controlText)
+    if controlRoundTrip.success != 1 {
+        destroyJsonParseResult(controlRoundTrip, false)
+        releaseJsonText(controlText)
+        JsonValue_destroy(control)
+        return 129
+    }
+    let controlValue = controlRoundTrip.value.unwrap()
+    if controlValue.getString().length() != 1 or
+        controlValue.getString().byteAt(0) != 1 {
+
+        destroyJsonParseResult(controlRoundTrip, true)
+        releaseJsonText(controlText)
+        JsonValue_destroy(control)
+        return 130
+    }
+    destroyJsonParseResult(controlRoundTrip, true)
+    releaseJsonText(controlText)
+    JsonValue_destroy(control)
+
+    let adverseOptional = parseRoot("\n\t { \"n\" : -7 } \r")
+    if adverseOptional.isNone() { adverseOptional.free(); return 22 }
+    let adverse = adverseOptional.unwrap()
+    adverseOptional.free()
+    let adverseNumberOptional = adverse.get("n")
+    if adverseNumberOptional.isNone() { adverseNumberOptional.free(); return 23 }
+    let adverseNumber = adverseNumberOptional.unwrap()
+    adverseNumberOptional.free()
+    if adverseNumber.getInt() != -7 { return 24 }
+    JsonValue_destroy(adverse)
+
+    let replacementRootOptional = parseRoot("{\"item\":\"old\"}")
+    if replacementRootOptional.isNone() { replacementRootOptional.free(); return 25 }
+    let replacementRoot = replacementRootOptional.unwrap()
+    replacementRootOptional.free()
+    let replacement = JsonValue_string("new")
+    replacementRoot.set("item", replacement)
+    replacementRoot.set("item", replacement)
+    let replacementOptional = replacementRoot.get("item")
+    if replacementOptional.isNone() { replacementOptional.free(); return 26 }
+    let replacementValue = replacementOptional.unwrap()
+    replacementOptional.free()
+    if replacementValue.getString() != "new" { return 27 }
+    JsonValue_destroy(replacementRoot)
+
+    let longKey = "long-owned-json-key-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789-more-than-eighty-bytes"
+    let longOwnedOptional = parseRoot(
+        "{\"long-owned-json-key-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789-more-than-eighty-bytes\":\"long-owned-json-value-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789-more-than-eighty-bytes-\\u0041\\u0041\\b\\b\\f\\f\"}"
+    )
+    if longOwnedOptional.isNone() { longOwnedOptional.free(); return 28 }
+    let longOwned = longOwnedOptional.unwrap()
+    longOwnedOptional.free()
+    let longValueOptional = longOwned.get(longKey)
+    if longValueOptional.isNone() { longValueOptional.free(); return 29 }
+    let longValue = longValueOptional.unwrap()
+    longValueOptional.free()
+    if longValue.getString().length() <= 80 { return 30 }
+    JsonValue_destroy(longOwned)
+
+    let malformedInputs = Array<String>()
+    malformedInputs.push("")
+    malformedInputs.push("{")
+    malformedInputs.push("{\"n\":}")
+    malformedInputs.push("{\"n\":1")
+    malformedInputs.push("{\"n\" 1}")
+    malformedInputs.push("{} trailing")
+    malformedInputs.push("{\"outer\":{\"inner\":} }")
+    malformedInputs.push("[,]")
+    malformedInputs.push("1e99999")
+    malformedInputs.push("1e-99999")
+    malformedInputs.push("{\"long-owned-json-key-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789-more-than-eighty-bytes\" 1}")
+    malformedInputs.push("{\"long-owned-json-key-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789-more-than-eighty-bytes\":\"long-owned-json-value-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789-more-than-eighty-bytes-\\u00ZZ\"}")
+
+    var malformedIndex = 0
+    while malformedIndex < malformedInputs.length() {
+        let first = parseJson(malformedInputs[malformedIndex])
+        if first.success != 0 { return 30 + malformedIndex }
+        if not first.value.isNone() { return 40 + malformedIndex }
+        if first.error.length() == 0 { return 50 + malformedIndex }
+        if first.errorPosition < 0 { return 60 + malformedIndex }
+
+        let second = parseJson(malformedInputs[malformedIndex])
+        if second.success != 0 { return 70 + malformedIndex }
+        if second.error != first.error { return 80 + malformedIndex }
+        if second.errorPosition != first.errorPosition {
+            return 90 + malformedIndex
+        }
+        destroyJsonParseResult(first, false)
+        destroyJsonParseResult(second, false)
+        malformedIndex = malformedIndex + 1
+    }
+    malformedInputs.free()
+
+    // Explicit parser budgets reject oversized, over-nested, and excessive
+    // value graphs before ownership can escape a partial parse.
+    let invalidLimits = parseJsonWithLimits("{}", 2, 0, 1)
+    if invalidLimits.success != 0 or
+        invalidLimits.error != "JSON limits must be positive" { return 110 }
+    destroyJsonParseResult(invalidLimits, false)
+
+    let inputLimited = parseJsonWithLimits("{}", 1, 1, 1)
+    if inputLimited.success != 0 or
+        inputLimited.error != "JSON input limit exceeded" { return 111 }
+    destroyJsonParseResult(inputLimited, false)
+
+    let depthLimited = parseJsonWithLimits("{\"nested\":{}}", 32, 1, 8)
+    if depthLimited.success != 0 or
+        depthLimited.error != "JSON nesting limit exceeded" { return 112 }
+    destroyJsonParseResult(depthLimited, false)
+
+    let valueLimited = parseJsonWithLimits("[0]", 3, 1, 1)
+    if valueLimited.success != 0 or
+        valueLimited.error != "JSON value limit exceeded" { return 113 }
+    destroyJsonParseResult(valueLimited, false)
+
+    let boundedSuccess = parseJsonWithLimits("[0]", 3, 1, 2)
+    if boundedSuccess.success != 1 { return 114 }
+    destroyJsonParseResult(boundedSuccess, true)
+
+    // set() and push() transfer a detached child exactly once. A repeated
+    // child or a direct self-cycle is rejected as a deterministic no-op.
+    let objectOwner = JsonValue_emptyObject()
+    let sharedObjectChild = JsonValue_string("shared-object-child")
+    objectOwner.set("first", sharedObjectChild)
+    objectOwner.set("duplicate", sharedObjectChild)
+    objectOwner.set("self", objectOwner)
+    if objectOwner.length() != 1 or not objectOwner.hasKey("first") or
+        objectOwner.hasKey("duplicate") or objectOwner.hasKey("self") {
+
+        return 115
+    }
+    JsonValue_destroy(objectOwner)
+
+    let arrayOwner = JsonValue_emptyArray()
+    let sharedArrayChild = JsonValue_stringCopy("shared-array-child")
+    arrayOwner.push(sharedArrayChild)
+    arrayOwner.push(sharedArrayChild)
+    arrayOwner.push(arrayOwner)
+    if arrayOwner.length() != 1 { return 116 }
+    JsonValue_destroy(arrayOwner)
+
+    // Constructors retain their own array containers. The caller can release
+    // its scratch arrays immediately without invalidating the JSON tree.
+    let constructorElements = Array<JsonValue>()
+    constructorElements.push(JsonValue_stringCopy("constructor-child"))
+    let constructorArray = JsonValue_array(constructorElements)
+    constructorElements.free()
+    let constructorChildOptional = constructorArray.getAt(0)
+    if constructorChildOptional.isNone() {
+        constructorChildOptional.free()
+        return 117
+    }
+    let constructorChild = constructorChildOptional.unwrap()
+    constructorChildOptional.free()
+    if constructorChild.getString() != "constructor-child" { return 118 }
+    JsonValue_destroy(constructorArray)
+
+    let constructorKeys = Array<String>()
+    let constructorValues = Array<JsonValue>()
+    constructorKeys.push("answer")
+    constructorValues.push(JsonValue_number(42))
+    let constructorObject = JsonValue_object(
+        constructorKeys, constructorValues)
+    constructorKeys.free()
+    constructorValues.free()
+    let constructorNumberOptional = constructorObject.get("answer")
+    if constructorNumberOptional.isNone() {
+        constructorNumberOptional.free()
+        return 119
+    }
+    let constructorNumber = constructorNumberOptional.unwrap()
+    constructorNumberOptional.free()
+    if constructorNumber.getInt() != 42 { return 120 }
+    JsonValue_destroy(constructorObject)
+
+    var iteration = 0
+    while iteration < 256 {
+        let source = "{\"outer\":{\"inner\":{\"value\":" +
+            iteration.toString() + "} } }"
+        let repeatedRootOptional = parseRoot(source)
+        if repeatedRootOptional.isNone() { repeatedRootOptional.free(); return 100 }
+        let repeatedRoot = repeatedRootOptional.unwrap()
+        repeatedRootOptional.free()
+        let repeatedOptional = findNestedValue(repeatedRoot)
+        if repeatedOptional.isNone() { repeatedOptional.free(); return 100 }
+        let repeated = repeatedOptional.unwrap()
+        repeatedOptional.free()
+        if not repeated.isNumber() { return 101 }
+        if repeated.getInt() != iteration { return 102 }
+        JsonValue_destroy(repeatedRoot)
+
+        let emptyAgainOptional = parseRoot("{}")
+        if emptyAgainOptional.isNone() { emptyAgainOptional.free(); return 103 }
+        let emptyAgain = emptyAgainOptional.unwrap()
+        emptyAgainOptional.free()
+        if emptyAgain.length() != 0 { return 104 }
+        JsonValue_destroy(emptyAgain)
+        iteration = iteration + 1
+    }
+
+    return 0
+}

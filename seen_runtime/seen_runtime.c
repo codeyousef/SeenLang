@@ -3804,9 +3804,12 @@ SeenString seen_bool_to_string(bool b) {
     }
 }
 
-SeenString seen_char_to_str(int64_t c) {
-    // Convert a Unicode code point to a UTF-8 string
-    char* buf = seen_runtime_alloc_chars(7, "seen_char_to_str");
+static SeenString seen_char_to_str_with_allocator(int64_t c, bool pool_owned) {
+    // Convert a Unicode code point to a UTF-8 string while preserving the
+    // public heap-allocation contract unless explicit pool ownership is asked.
+    char* buf = pool_owned
+        ? seen_runtime_alloc_pool_chars(7, "seen_char_to_owned_string")
+        : seen_runtime_alloc_chars(7, "seen_char_to_str");
     int len = 0;
     if (c < 0x80) {
         buf[0] = (char)c;
@@ -3830,6 +3833,14 @@ SeenString seen_char_to_str(int64_t c) {
     buf[len] = '\0';
     SeenString result = { len, buf };
     return result;
+}
+
+SeenString seen_char_to_str(int64_t c) {
+    return seen_char_to_str_with_allocator(c, false);
+}
+
+SeenString seen_char_to_owned_string(int64_t c) {
+    return seen_char_to_str_with_allocator(c, true);
 }
 
 int64_t seen_char_at(SeenString s, int64_t index) {
@@ -4353,7 +4364,7 @@ void print(SeenString s) {
 
 // Allocate a StringBuilder on the heap and return pointer
 void* StringBuilder_new(void) {
-    StringBuilder* sb = (StringBuilder*)seen_try_malloc(sizeof(StringBuilder));
+    StringBuilder* sb = (StringBuilder*)seen_pool_alloc(sizeof(StringBuilder));
     if (!sb) seen_oom_abort("StringBuilder_new", sizeof(StringBuilder));
     *sb = StringBuilder_new_value();  // Call inline version
     return sb;
@@ -4362,7 +4373,7 @@ void* StringBuilder_new(void) {
 // Allocate a StringBuilder with pre-allocated capacity for parts array
 void* StringBuilder_new_with_capacity(int64_t cap) {
     if (cap < 0) cap = 0;
-    StringBuilder* sb = (StringBuilder*)seen_try_malloc(sizeof(StringBuilder));
+    StringBuilder* sb = (StringBuilder*)seen_pool_alloc(sizeof(StringBuilder));
     if (!sb) seen_oom_abort("StringBuilder_new_with_capacity header", sizeof(StringBuilder));
     SeenArray* parts = (SeenArray*)seen_try_malloc(sizeof(SeenArray));
     if (!parts) seen_oom_abort("StringBuilder_new_with_capacity parts", sizeof(SeenArray));
@@ -4425,6 +4436,69 @@ SeenString seen_string_builder_flatten(SeenArray* parts, int64_t totalLength) {
     *write = 0;
     SeenString result = { actual_total, data };
     return result;
+}
+
+// Build JSON-owned string storage. Unlike StringBuilder.toString(), this
+// always returns a distinct allocation, including for zero or one part, so a
+// caller can release it deterministically without knowing part provenance.
+SeenString seen_string_builder_flatten_owned(SeenArray* parts, int64_t totalLength) {
+    (void)totalLength;
+    int64_t actual_total = 0;
+    if (parts) {
+        for (int64_t i = 0; i < parts->len; i++) {
+            SeenString part = ((SeenString*)parts->data)[i];
+            if (part.len < 0 || (part.len > 0 && !part.data)) {
+                fprintf(stderr, "seen_string_builder_flatten_owned: invalid part\n");
+                abort();
+            }
+            if (part.len > 0) {
+                if (INT64_MAX - actual_total < part.len) {
+                    seen_oom_abort("owned StringBuilder flatten length overflow",
+                        INT64_MAX);
+                }
+                actual_total += part.len;
+            }
+        }
+    }
+
+    char* data = seen_runtime_alloc_pool_chars(actual_total,
+        "owned StringBuilder flatten");
+    char* write = data;
+    if (parts) {
+        for (int64_t i = 0; i < parts->len; i++) {
+            SeenString part = ((SeenString*)parts->data)[i];
+            if (part.len > 0) {
+                memcpy(write, part.data, (size_t)part.len);
+                write += part.len;
+            }
+        }
+    }
+    *write = 0;
+    SeenString result = { actual_total, data };
+    return result;
+}
+
+SeenString seen_string_clone_owned(SeenString value) {
+    if (value.len < 0 || (value.len > 0 && !value.data)) {
+        fprintf(stderr, "seen_string_clone_owned: invalid source string\n");
+        abort();
+    }
+    char* data = seen_runtime_alloc_pool_chars(value.len,
+        "owned string clone");
+    if (value.len > 0) {
+        memcpy(data, value.data, (size_t)value.len);
+    }
+    data[value.len] = 0;
+    SeenString result = { value.len, data };
+    return result;
+}
+
+void seen_string_release_owned(SeenString value) {
+    if (value.len < 0 || value.len == INT64_MAX || !value.data) {
+        fprintf(stderr, "seen_string_release_owned: invalid owned string\n");
+        abort();
+    }
+    seen_pool_free(value.data, value.len + 1);
 }
 
 bool StringBuilder_writeToFile_impl(void* s, SeenString path) {
@@ -12747,12 +12821,13 @@ int64_t seen_math_byteswap_i64(int64_t x) {
 }
 
 SEEN_BOOTSTRAP_WEAK double seen_parse_float_range(SeenString text, int64_t start, int64_t end) {
-    if (start < 0) start = 0;
-    if (end < start) end = start;
-    if (end > text.len) end = text.len;
+    if (text.len < 0 || (text.len > 0 && !text.data) || start < 0 ||
+        end < start || end > text.len) {
+        return NAN;
+    }
 
     int64_t len = end - start;
-    if (len <= 0) return 0.0;
+    if (len <= 0 || len == INT64_MAX) return NAN;
 
     char stack_buf[128];
     char* buf = stack_buf;
@@ -12768,12 +12843,13 @@ SEEN_BOOTSTRAP_WEAK double seen_parse_float_range(SeenString text, int64_t start
     char* parse_end = NULL;
     errno = 0;
     double value = strtod(buf, &parse_end);
+    bool valid = errno != ERANGE && parse_end == buf + len && isfinite(value);
 
     if (heap) {
         free(buf);
         seen_memory_release_reservation(len + 1);
     }
-    return value;
+    return valid ? value : NAN;
 }
 SEEN_BOOTSTRAP_WEAK int64_t seen_string_starts_with(int64_t s_len, char* s_data, int64_t p_len, char* p_data) {
     (void)s_len; (void)s_data; (void)p_len; (void)p_data; return 0;

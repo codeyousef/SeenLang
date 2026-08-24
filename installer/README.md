@@ -1,7 +1,7 @@
 # Seen installer tooling
 
 This directory contains release-packaging scripts and templates for Seen
-0.11.0. It is maintainer tooling, not proof that every package is already
+0.11.1. It is maintainer tooling, not proof that every package is already
 published to a public package-manager repository.
 
 ## Layout
@@ -15,7 +15,7 @@ published to a public package-manager repository.
 - `assets/` — icons and release assets
 
 The checked-in Homebrew and Scoop files are templates. Replace placeholder
-checksums with hashes from the exact 0.11.0 release assets before publishing.
+checksums with hashes from the exact 0.11.1 release assets before publishing.
 
 ## Installed command surface
 
@@ -30,7 +30,7 @@ seen compile src/main.seen my-program
 ./my-program
 ```
 
-Create `Seen.toml` and `src/main.seen` yourself; 0.11.0 does not ship `init`,
+Create `Seen.toml` and `src/main.seen` yourself; 0.11.1 does not ship `init`,
 `build`, `test`, `fmt`, or `clean` commands. New manifests begin with:
 
 ```toml
@@ -43,25 +43,26 @@ language = "en"
 ```
 
 The installed compiler is LLVM-only. Native compilation requires the
-version-matched runtime/stdlib payload plus LLVM 18 or newer tools (`clang`,
-`opt`, `llc`, `llvm-as`, and `lld`). Source rebuilds also require the Go version
-documented in [`docs/bootstrap.md`](../docs/bootstrap.md) to build the matching
-package helper; binary releases include that helper.
+version-matched runtime/stdlib payload plus LLVM 19 or newer tools (`clang`,
+`opt`, `llc`, `llvm-as`, and `lld`), with LLVM 20 preferred. Source rebuilds
+also require the Go version documented in
+[`docs/bootstrap.md`](../docs/bootstrap.md) to build the matching package
+helper; binary releases include that helper.
 
 ## Building package artifacts
 
 Examples for the current release version:
 
 ```bash
-installer/linux/build-deb.sh 0.11.0 amd64
-installer/linux/build-rpm.sh 0.11.0 x86_64
-installer/linux/build-appimage.sh 0.11.0 x86_64
-installer/homebrew/generate-formula.sh --version 0.11.0
+installer/linux/build-deb.sh 0.11.1 amd64
+installer/linux/build-rpm.sh 0.11.1 x86_64
+installer/linux/build-appimage.sh 0.11.1 x86_64
+installer/homebrew/generate-formula.sh --version 0.11.1
 ```
 
 ```powershell
-installer\windows\build.bat 0.11.0 x64
-installer\scoop\generate-manifest.ps1 -Version 0.11.0
+installer\windows\build.bat 0.11.1 x64
+installer\scoop\generate-manifest.ps1 -Version 0.11.1
 ```
 
 Each builder has its own host-tool prerequisites. Build release artifacts from

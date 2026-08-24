@@ -81,7 +81,10 @@ fun inferJsonValueMemberAccessTypeImpl(fieldName: String,
 
     if fieldName != "kind" and fieldName != "boolValue" and
         fieldName != "numberValue" and fieldName != "stringValue" and
-        fieldName != "arrayValue" and fieldName != "objectKeys" and
+        fieldName != "ownsString" and fieldName != "isContainerOwned" and
+        fieldName != "destroyState" and
+        fieldName != "arrayValue" and
+        fieldName != "objectKeys" and fieldName != "objectKeyOwnership" and
         fieldName != "objectValues" {
         return ""
     }

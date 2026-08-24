@@ -64,7 +64,7 @@ Seen Language RPM Package Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 0.11.0)
+  version              Version number (e.g., 0.11.1)
   architecture         Target architecture (x86_64, aarch64, riscv64)
 
 Options:
@@ -75,7 +75,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 0.11.0 x86_64
+  $0 0.11.1 x86_64
   $0 1.2.3 aarch64 --verbose
   $0 2.0.0 x86_64 --release 2
 
@@ -309,9 +309,9 @@ Source0:        %{name}-%{version}.tar.gz
 Requires:       glibc >= 2.17
 Requires:       libgcc
 Requires:       libstdc++
-Requires:       clang
-Requires:       llvm
-Requires:       lld
+Requires:       clang >= 19
+Requires:       llvm >= 19
+Requires:       lld >= 19
 
 %description
 Seen is a systems programming language designed to be a
@@ -478,7 +478,7 @@ echo "Seen Language installed successfully!"
 echo "Run 'seen --version' to verify installation."
 if [ -x %{_libdir}/seen/toolchain/seen-toolchain.sh ]; then
     %{_libdir}/seen/toolchain/seen-toolchain.sh --check --prefix /usr >/dev/null 2>&1 || \
-        echo "LLVM 18+ toolchain check failed; run %{_libdir}/seen/toolchain/seen-toolchain.sh --install or install clang/opt/llc/llvm-as/lld."
+        echo "LLVM 19+ toolchain check failed; run %{_libdir}/seen/toolchain/seen-toolchain.sh --install or install clang/opt/llc/llvm-as/lld."
 fi
 
 %preun
@@ -552,8 +552,8 @@ create_source_tarball() {
     chmod 755 "$source_dir/toolchain/seen-toolchain.sh"
     cat > "$source_dir/toolchain/manifest.env" << EOF
 seen_toolchain_manifest_version=1
-llvm_min_version=18
-llvm_preferred_version=18
+llvm_min_version=19
+llvm_preferred_version=20
 required_tools=clang,opt,llc,llvm-as,ld.lld
 bundle_mode=system-package
 managed_install=%{_libdir}/seen/toolchain/seen-toolchain.sh --install

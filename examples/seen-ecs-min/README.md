@@ -28,7 +28,7 @@ scripts/run_with_project_artifacts.sh ecs-android -- \
 
 That command requires the target toolchain documented in
 [`docs/targets.md`](../../docs/targets.md); it does not create an Android app
-bundle. The 0.11.0 compiler does not advertise a WebAssembly target.
+bundle. The 0.11.1 compiler does not advertise a WebAssembly target.
 
 `Seen.toml` records project metadata and preferred active targets. The direct
 `check`, `run`, and `compile` commands still receive the source file explicitly.

@@ -3,6 +3,7 @@
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl}
+import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
 
 fun emitPointerIndexAccessImpl(output: StringBuilder, regBox: Array<Int>,
     baseReg: String, indexReg: String) r: String {
@@ -150,6 +151,12 @@ fun emitFallbackIndexElementAccessImpl(output: StringBuilder,
     r: String {
 
     let ptrResultReg = getNextRegFn(regBox)
+    if isArrayReceiverTypeImpl(elementType) {
+        output.append("  " + ptrResultReg +
+            " = call ptr @seen_arr_get_ptr_ptr(ptr " + arrayReg +
+            ", i64 " + indexReg + ")\n")
+        return ptrResultReg
+    }
     if isDataElement == 1 {
         output.append("  " + ptrResultReg +
             " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg +

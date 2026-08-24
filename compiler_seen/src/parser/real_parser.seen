@@ -4022,6 +4022,18 @@ class RealParser {
                             depth = depth - 1
                             genericTokenHandled = true
                         }
+                        if not genericTokenHandled and checkToken(SeenTokenType.RightShift) {
+                            // Nested generic closers are lexed as RightShift.
+                            // Consume them as two `>` characters only while
+                            // two generic levels are open, preserving `>>` as
+                            // an operator everywhere else.
+                            if depth >= 2 {
+                                name = name + ">>"
+                                advance()
+                                depth = depth - 2
+                                genericTokenHandled = true
+                            }
+                        }
                         if not genericTokenHandled and checkToken(SeenTokenType.Identifier) {
                             // : const generic — recognize integer literals inside generic params
                             name = name + advance().getValue()
@@ -6515,6 +6527,7 @@ class RealParser {
 
                     // Handle nested generics like BTreeNode<K, V> or Array<Array<Int>>
                     var fullTypeParam = typeParam
+                    var nestedClosedOuter = false
                     if checkToken(SeenTokenType.LessThan) {
                         advance() // consume inner <
                         if checkToken(SeenTokenType.Identifier) {
@@ -6528,6 +6541,14 @@ class RealParser {
                             if checkToken(SeenTokenType.GreaterThan) {
                                 advance() // consume inner >
                                 fullTypeParam = fullTypeParam + "<" + innerParams + ">"
+                            } else if checkToken(SeenTokenType.RightShift) {
+                                // `Array<Array<Int>>()` has one lexer token for
+                                // the inner and outer closers. Record that both
+                                // were consumed so the generic/call lookahead
+                                // can still confirm the constructor shape.
+                                advance()
+                                fullTypeParam = fullTypeParam + "<" + innerParams + ">"
+                                nestedClosedOuter = true
                             }
                         }
                     }
@@ -6545,10 +6566,14 @@ class RealParser {
 
                     // Check for closing >
                     var foundClosingGt = false
-                    if checkToken(SeenTokenType.GreaterThan) {
+                    if nestedClosedOuter {
+                        foundClosingGt = true
+                    } else if checkToken(SeenTokenType.GreaterThan) {
                         advance() // consume >
                         foundClosingGt = true
+                    }
 
+                    if foundClosingGt {
                         ///
                         Now check if followed by (), {}, or . to confirm generic type
                         NOTE: Use nested ifs instead of 'or' to ensure short-circuit (Stage1 bug workaround)

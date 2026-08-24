@@ -14,6 +14,7 @@ RELEASE_CI="$ROOT_DIR/scripts/verify_release_ci_run.sh"
 RELEASE_CI_CHECKER="$ROOT_DIR/scripts/check_release_ci_run.py"
 RELEASE_TOOLCHAIN="$ROOT_DIR/scripts/release_toolchain_artifact.py"
 PREPARE_RELEASE_TOOLCHAIN="$ROOT_DIR/scripts/prepare_release_toolchain_artifact.sh"
+RELEASE_TAG_POLICY="$ROOT_DIR/scripts/release_tag_policy.sh"
 
 fail() {
     echo "FAIL: required CI wiring: $*" >&2
@@ -30,6 +31,7 @@ fail() {
 [ -f "$RELEASE_CI_CHECKER" ] && [ ! -L "$RELEASE_CI_CHECKER" ] || fail "release CI evidence checker is missing or unsafe"
 [ -f "$RELEASE_TOOLCHAIN" ] && [ ! -L "$RELEASE_TOOLCHAIN" ] || fail "release toolchain checker is missing or unsafe"
 [ -x "$PREPARE_RELEASE_TOOLCHAIN" ] && [ ! -L "$PREPARE_RELEASE_TOOLCHAIN" ] || fail "release toolchain preparer is missing or unsafe"
+[ -f "$RELEASE_TAG_POLICY" ] && [ ! -L "$RELEASE_TAG_POLICY" ] || fail "release tag policy is missing or unsafe"
 bash -n "$REQUIRED" || fail "required gate shell syntax"
 bash -n "$CONTAINED" || fail "contained CI entrypoint shell syntax"
 bash -n "$PROVISION" || fail "CI host provisioner shell syntax"
@@ -37,6 +39,7 @@ bash -n "$RELEASE_INNER" || fail "release entrypoint shell syntax"
 bash -n "$RELEASE_CONTAINED" || fail "contained release entrypoint shell syntax"
 bash -n "$RELEASE_CI" || fail "release CI verifier shell syntax"
 bash -n "$PREPARE_RELEASE_TOOLCHAIN" || fail "release toolchain preparer shell syntax"
+bash -n "$RELEASE_TAG_POLICY" || fail "release tag policy shell syntax"
 
 set +e
 outside_error=$(env -u SEEN_CI_CONTAINMENT_IN_SCOPE "$REQUIRED" 2>&1 >/dev/null)
@@ -84,6 +87,26 @@ grep -Fq 'gh run download "$run_id"' "$RELEASE_CI" ||
     fail "release attestation does not download from the exact successful CI run"
 grep -Fq '"$TOOLCHAIN_CHECKER" install' "$RELEASE_CI" ||
     fail "release attestation does not validate and install the certified toolchain"
+grep -Fq 'seen_release_verify_published_tag' "$RELEASE_CI" ||
+    fail "release attestation does not verify the annotated published tag"
+grep -Fq 'seen_release_verify_published_tag' "$RELEASE_INNER" ||
+    fail "release uploader does not reverify the annotated published tag"
+grep -Fq 'tests/misc_root_tests/seen_release_upload_artifact_scope.sh' "$REQUIRED" ||
+    fail "required CI omits the release mutation-safety regression"
+for required_tag_ref in 'refs/heads/main' '"$tag_ref"' '"$tag_ref^{}"'; do
+    grep -Fq "$required_tag_ref" "$RELEASE_TAG_POLICY" ||
+        fail "release tag policy omits $required_tag_ref"
+done
+if grep -Fq -- '--clobber' "$RELEASE_INNER"; then
+    fail "release uploader retains an asset-overwrite path"
+fi
+grep -Fq -- '--verify-tag' "$RELEASE_INNER" ||
+    fail "release creation can implicitly create a missing tag"
+if grep -Fq 'git -C "$ROOT_DIR" push' "$RELEASE_INNER" ||
+    grep -Fq 'git -C "$ROOT_DIR" tag' "$RELEASE_INNER"; then
+
+    fail "release uploader retains a tag-publication path"
+fi
 
 [ "$(grep -Ec '(^|[[:space:]])sudo([[:space:]]|$)' "$PROVISION")" -eq 3 ] ||
     fail "CI host provisioner has an unexpected privileged-command count"

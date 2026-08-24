@@ -1,6 +1,8 @@
-import json.builder.{JsonBuilder_new, escapeJsonString, jsonToString, toJsonPretty}
-import json.parser.{parseJson}
-import json.value.{JsonValue_emptyArray, JsonValue_emptyObject, JsonValue_number, JsonValue_string}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, escapeJsonString,
+    jsonToString, toJsonPretty, releaseJsonText}
+import json.parser.{parseJson, destroyJsonParseResult}
+import json.value.{JsonValue_emptyArray, JsonValue_emptyObject,
+    JsonValue_number, JsonValue_string, JsonValue_destroy}
 import str.string.{startsWith}
 
 fun expect(condition: Bool, message: String) -> Void {
@@ -14,13 +16,18 @@ fun main() -> Int {
     let escapedParsed = parseJson(escaped)
     expect(escapedParsed.success == 1, "escapeJsonString should produce parseable JSON")
     expect(escapedParsed.value.unwrap().getString() == "a\n\"b\\", "escapeJsonString round-trip mismatch")
+    destroyJsonParseResult(escapedParsed, true)
+    releaseJsonText(escaped)
 
     let builder = JsonBuilder_new()
     builder.startObject()
     builder.stringProp("name", "Seen\nLang")
     builder.intProp("count", 3)
     builder.endObject()
-    expect(builder.build() == "{\"name\":\"Seen\\nLang\",\"count\":3}", "JsonBuilder output mismatch")
+    let builtObject = builder.build()
+    expect(builtObject == "{\"name\":\"Seen\\nLang\",\"count\":3}",
+        "JsonBuilder output mismatch")
+    releaseJsonText(builtObject)
     builder.reset()
     builder.startArray()
     var index = 0
@@ -29,20 +36,32 @@ fun main() -> Int {
         index = index + 1
     }
     builder.endArray()
-    expect(startsWith(builder.build(), "[0,1,2"), "JsonBuilder should reuse backing builder after reset")
+    let builtArray = builder.build()
+    expect(startsWith(builtArray, "[0,1,2"),
+        "JsonBuilder should reuse backing builder after reset")
+    releaseJsonText(builtArray)
+    destroyJsonBuilder(builder)
 
     let arr = JsonValue_emptyArray()
     arr.push(JsonValue_string("a\"b"))
     arr.push(JsonValue_number(2))
-    expect(jsonToString(arr) == "[\"a\\\"b\",2]", "jsonToString array mismatch")
+    let arrayText = jsonToString(arr)
+    expect(arrayText == "[\"a\\\"b\",2]", "jsonToString array mismatch")
+    releaseJsonText(arrayText)
+    JsonValue_destroy(arr)
 
     let obj = JsonValue_emptyObject()
     obj.set("name", JsonValue_string("Seen"))
     obj.set("count", JsonValue_number(7))
-    expect(jsonToString(obj) == "{\"name\":\"Seen\",\"count\":7}", "jsonToString object mismatch")
+    let objectText = jsonToString(obj)
+    expect(objectText == "{\"name\":\"Seen\",\"count\":7}",
+        "jsonToString object mismatch")
+    releaseJsonText(objectText)
 
     let pretty = toJsonPretty(obj, 2)
     expect(pretty == "{\n  \"name\": \"Seen\",\n  \"count\": 7\n}", "toJsonPretty object mismatch")
+    releaseJsonText(pretty)
+    JsonValue_destroy(obj)
 
     return 0
 }

@@ -126,6 +126,7 @@ tests/misc_root_tests/seen_benchmark_evidence_contract.sh
 tests/misc_root_tests/seen_leak_soak_contract.sh
 tests/misc_root_tests/seen_bootstrap_reproducibility_contract.sh
 tests/misc_root_tests/seen_release_artifact_pins_contract.sh
+tests/misc_root_tests/seen_release_upload_artifact_scope.sh
 tests/misc_root_tests/seen_gate0_certification_contract.sh
 python3 scripts/benchmark_compatibility_runtime.py \
     releases/compatibility-manifest.json \

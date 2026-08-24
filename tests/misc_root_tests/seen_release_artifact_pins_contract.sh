@@ -24,11 +24,13 @@ cat >"$WORK/bin/cosign" <<'COSIGN'
 #!/usr/bin/env bash
 set -euo pipefail
 mode="$1"; shift
-bundle=""; artifact=""
+bundle=""; artifact=""; identity=""; issuer=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --bundle) bundle="$2"; shift 2 ;;
-        --key|--certificate-identity-regexp|--certificate-oidc-issuer) shift 2 ;;
+        --key) shift 2 ;;
+        --certificate-identity-regexp) identity="$2"; shift 2 ;;
+        --certificate-oidc-issuer) issuer="$2"; shift 2 ;;
         --yes) shift ;;
         *) artifact="$1"; shift ;;
     esac
@@ -37,6 +39,10 @@ done
 if [[ "$mode" == "sign-blob" ]]; then
     printf 'signed:%s\n' "$(sha256sum "$artifact" | awk '{print $1}')" >"$bundle"
 elif [[ "$mode" == "verify-blob" ]]; then
+    if [[ -n "${EXPECTED_COSIGN_IDENTITY:-}" ]]; then
+        [[ "$identity" == "$EXPECTED_COSIGN_IDENTITY" ]] || exit 1
+        [[ "$issuer" == "${EXPECTED_COSIGN_ISSUER:?}" ]] || exit 1
+    fi
     [[ "$(cat "$bundle")" == "signed:$(sha256sum "$artifact" | awk '{print $1}')" ]] || exit 1
 else
     exit 1
@@ -60,6 +66,36 @@ PATH="$WORK/bin:$PATH" "$ROOT/scripts/verify_release.sh" --key "$WORK/test.pub" 
 printf 'tampered\n' >>"$WORK/artifacts/runtime"
 if PATH="$WORK/bin:$PATH" "$ROOT/scripts/verify_release.sh" --key "$WORK/test.pub" \
     --manifest "$WORK/artifacts/manifest.json" --artifact-dir "$WORK/artifacts" >/dev/null 2>&1; then fail fail-closed; fi
+
+mkdir -p "$WORK/keyless"
+for role in compiler runtime stdlib package-client; do printf 'keyless-%s\n' "$role" >"$WORK/keyless/$role"; done
+EXACT_IDENTITY='^https://github\.com/codeyousef/SeenLang/\.github/workflows/release\.yml@refs/tags/v0\.10\.1$'
+EXACT_ISSUER='https://token.actions.githubusercontent.com'
+if PATH="$WORK/bin:$PATH" "$ROOT/scripts/sign_release.sh" --keyless \
+    --version 0.10.1 --source-commit "$(printf '1%.0s' {1..40})" \
+    --source-digest "$(printf '2%.0s' {1..64})" --manifest "$WORK/keyless/broad.json" \
+    --signer-identity 'github.com/.*SeenLang' --signer-issuer "$EXACT_ISSUER" \
+    --artifact compiler="$WORK/keyless/compiler" --artifact runtime="$WORK/keyless/runtime" \
+    --artifact stdlib="$WORK/keyless/stdlib" --artifact package-client="$WORK/keyless/package-client" \
+    >/dev/null 2>&1; then fail broad-signing-identity; fi
+EXPECTED_COSIGN_IDENTITY="$EXACT_IDENTITY" EXPECTED_COSIGN_ISSUER="$EXACT_ISSUER" \
+    PATH="$WORK/bin:$PATH" "$ROOT/scripts/sign_release.sh" --keyless \
+    --version 0.10.1 --source-commit "$(printf '1%.0s' {1..40})" \
+    --source-digest "$(printf '2%.0s' {1..64})" --manifest "$WORK/keyless/manifest.json" \
+    --signer-identity "$EXACT_IDENTITY" --signer-issuer "$EXACT_ISSUER" \
+    --artifact compiler="$WORK/keyless/compiler" --artifact runtime="$WORK/keyless/runtime" \
+    --artifact stdlib="$WORK/keyless/stdlib" --artifact package-client="$WORK/keyless/package-client" \
+    >/dev/null || fail exact-keyless-sign-verify
+python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); assert value["signer"] == {"identity": sys.argv[2], "issuer": sys.argv[3], "mode": "keyless"}' \
+    "$WORK/keyless/manifest.json" "$EXACT_IDENTITY" "$EXACT_ISSUER" || fail keyless-manifest-policy
+EXPECTED_COSIGN_IDENTITY="$EXACT_IDENTITY" EXPECTED_COSIGN_ISSUER="$EXACT_ISSUER" \
+    PATH="$WORK/bin:$PATH" "$ROOT/scripts/verify_release.sh" \
+    --manifest "$WORK/keyless/manifest.json" --artifact-dir "$WORK/keyless" >/dev/null ||
+    fail derived-keyless-verification
+if PATH="$WORK/bin:$PATH" "$ROOT/scripts/verify_release.sh" \
+    --certificate-identity 'github.com/.*SeenLang' \
+    --manifest "$WORK/keyless/manifest.json" --artifact-dir "$WORK/keyless" \
+    >/dev/null 2>&1; then fail broad-verification-identity; fi
 [[ -f "$ROOT/compiler_seen/src/release/artifact_pins.seen" ]] || fail native-policy
 [[ -f "$ROOT/compiler_seen/tests/reproducibility/core_004b_artifact_pins.seen" ]] || fail native-test
 [[ -f "$ROOT/compiler_seen/examples/release_artifact_pins.seen" ]] || fail example

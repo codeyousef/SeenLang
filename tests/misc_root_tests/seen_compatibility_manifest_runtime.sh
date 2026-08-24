@@ -13,6 +13,8 @@ INSTALLER="$ROOT_DIR/scripts/build_installers.sh"
 DEB_INSTALLER="$ROOT_DIR/installer/linux/build-deb.sh"
 RPM_INSTALLER="$ROOT_DIR/installer/linux/build-rpm.sh"
 APPIMAGE_INSTALLER="$ROOT_DIR/installer/linux/build-appimage.sh"
+GENERIC_INSTALLER="$ROOT_DIR/installer/scripts/install.sh"
+GENERIC_RELEASE="$ROOT_DIR/scripts/build_release.sh"
 CI_REQUIRED="$ROOT_DIR/scripts/ci_required.sh"
 ARTIFACT_HELPER="$ROOT_DIR/scripts/artifact_root.sh"
 
@@ -77,6 +79,8 @@ python3 "$CHECKER" "$PRODUCTION" >"$TEST_ROOT/production.json" ||
     fail "production compatibility manifest"
 cmp -s "$TEST_ROOT/production.json" "$PRODUCTION" ||
     fail "production manifest is not canonical generator output"
+python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); assert value["components"]["llvm"]["minimum_major"] == 19' \
+    "$PRODUCTION" || fail "production LLVM minimum is not 19"
 
 for symbol in CompatibilityReleaseInputs generateCompatibilityManifest \
     renderCompatibilityManifest parseCompatibilityManifest \
@@ -111,6 +115,26 @@ grep -Fq 'install -m 644 compatibility-manifest.json %{buildroot}%{_bindir}/comp
     "$RPM_INSTALLER" || fail "RPM does not install the manifest beside seen"
 grep -Fq '%{_bindir}/compatibility-manifest.json' "$RPM_INSTALLER" ||
     fail "RPM file manifest omits the compatibility manifest"
+grep -Fq 'Depends: libc6 (>= 2.28), libgcc-s1 (>= 3.0), libstdc++6 (>= 5.2), llvm-20 | llvm-19 | llvm (>= 1:19), clang-20 | clang-19 | clang (>= 1:19), lld-20 | lld-19 | lld (>= 1:19)' \
+    "$DEB_INSTALLER" || fail "DEB metadata does not require LLVM 19 and prefer LLVM 20"
+for requirement in 'Requires:       clang >= 19' 'Requires:       llvm >= 19' \
+    'Requires:       lld >= 19'; do
+
+    grep -Fq "$requirement" "$RPM_INSTALLER" ||
+        fail "RPM metadata omitted toolchain requirement: $requirement"
+done
+for installer in "$DEB_INSTALLER" "$RPM_INSTALLER" "$GENERIC_RELEASE"; do
+    grep -Fq 'llvm_min_version=19' "$installer" ||
+        fail "package toolchain metadata minimum is not LLVM 19: $installer"
+    grep -Fq 'llvm_preferred_version=20' "$installer" ||
+        fail "package toolchain metadata preference is not LLVM 20: $installer"
+done
+grep -Fq 'LLVM_MIN_VERSION=19' "$GENERIC_INSTALLER" ||
+    fail "generic Linux installer minimum is not LLVM 19"
+grep -Fq 'LLVM_PREFERRED_VERSION=20' "$GENERIC_INSTALLER" ||
+    fail "generic Linux installer preference is not LLVM 20"
+grep -Fq 'LLVM ${LLVM_MIN_VERSION}+ tools are not ready (LLVM $LLVM_PREFERRED_VERSION preferred).' \
+    "$GENERIC_INSTALLER" || fail "generic Linux installer does not report its LLVM policy"
 grep -Fq 'cp "$SOURCE_DIR/compatibility-manifest.json" "$appdir/usr/bin/"' \
     "$APPIMAGE_INSTALLER" || fail "AppImage does not install the manifest beside seen"
 source_root_bindings=$(grep -Ec 'SEEN_COMPILER_SOURCE_ROOT=.*REPO_ROOT' \

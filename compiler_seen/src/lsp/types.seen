@@ -5,7 +5,6 @@ Defines all the types needed for Language Server Protocol communication
 
 import json.value.{JsonValue, JsonValue_emptyObject, JsonValue_string, JsonValue_number, JsonValue_bool, JsonValue_emptyArray, JsonValue_array, JsonValue_nullValue}
 import json.parser.{parseJson}
-import json.builder.{jsonToString}
 
 ///
 ============================================================================
@@ -361,6 +360,7 @@ class CompletionList {
             i = i + 1
         }
         let itemsArr = JsonValue_array(itemsArrElems)
+        itemsArrElems.free()
         obj.set("items", itemsArr)
         return obj
     }
@@ -581,6 +581,7 @@ class ServerCapabilities {
         triggerItems.push(JsonValue_string("."))
         triggerItems.push(JsonValue_string(":"))
         let triggers = JsonValue_array(triggerItems)
+        triggerItems.free()
         completion.set("triggerCharacters", triggers)
         caps.set("completionProvider", completion)
 
@@ -602,6 +603,7 @@ class ServerCapabilities {
         kindItems.push(JsonValue_string("quickfix"))
         kindItems.push(JsonValue_string("refactor"))
         let kinds = JsonValue_array(kindItems)
+        kindItems.free()
         codeAction.set("codeActionKinds", kinds)
         caps.set("codeActionProvider", codeAction)
 
@@ -646,7 +648,7 @@ fun InitializeResult_new() r: InitializeResult {
     result.capabilities = ServerCapabilities()
     result.serverInfo = ServerInfo()
     result.serverInfo.name = "Seen Language Server"
-    result.serverInfo.version = "0.11.0"
+    result.serverInfo.version = "0.11.1"
     return result
 }
 
@@ -926,6 +928,7 @@ class PublishDiagnosticsParams {
             i = i + 1
         }
         let diagsArr = JsonValue_array(diagsArrElems)
+        diagsArrElems.free()
         obj.set("diagnostics", diagsArr)
         return obj
     }

@@ -11,18 +11,36 @@ pub import json.value.{
     JSON_NUMBER,
     JSON_STRING,
     JSON_ARRAY,
-    JSON_OBJECT
+    JSON_OBJECT,
+    JsonValue_nullValue,
+    JsonValue_fromBool,
+    JsonValue_bool,
+    JsonValue_number,
+    JsonValue_numberFloat,
+    JsonValue_string,
+    JsonValue_stringCopy,
+    JsonValue_array,
+    JsonValue_emptyArray,
+    JsonValue_object,
+    JsonValue_emptyObject,
+    JsonValue_destroy
 }
 
 pub import json.parser.{
     JsonParser,
     JsonParseResult,
-    parseJson
+    JsonParser_new,
+    parseJson,
+    parseJsonWithLimits,
+    destroyJsonParseResult
 }
 
 pub import json.builder.{
     JsonBuilder,
+    JsonBuilder_new,
+    destroyJsonBuilder,
     escapeJsonString,
-    toJson,
-    toJsonPretty
+    jsonToString,
+    toJsonPretty,
+    releaseJsonText
 }

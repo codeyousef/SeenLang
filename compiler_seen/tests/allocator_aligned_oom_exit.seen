@@ -1,0 +1,16 @@
+import memory.allocation.{setMemoryLimitBytes, memoryStats}
+
+fun main() r: Int {
+    // Array<String> grows through seen_aligned_realloc_array. The initial
+    // container is established before the deterministic limit, then repeated
+    // literal pushes force an aligned resize beyond the remaining budget.
+    let values = Array<String>()
+    let baseline = memoryStats()
+    setMemoryLimitBytes(baseline.usedBytes + 256)
+    var index = 0
+    while index < 1024 {
+        values.push("x")
+        index = index + 1
+    }
+    return 99
+}

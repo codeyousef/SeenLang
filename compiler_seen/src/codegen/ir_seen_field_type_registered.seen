@@ -149,8 +149,12 @@ fun getSeenFieldTypeEmptyRegistryFallbackImpl(structName: String,
         if fieldName == "boolValue" { return "Bool" }
         if fieldName == "numberValue" { return "Float" }
         if fieldName == "stringValue" { return "String" }
+        if fieldName == "ownsString" { return "Bool" }
+        if fieldName == "isContainerOwned" { return "Bool" }
+        if fieldName == "destroyState" { return "Int" }
         if fieldName == "arrayValue" { return "Array<JsonValue>" }
         if fieldName == "objectKeys" { return "Array<String>" }
+        if fieldName == "objectKeyOwnership" { return "Array<Bool>" }
         if fieldName == "objectValues" { return "Array<JsonValue>" }
     }
     if structName == "MessageDispatcher" {

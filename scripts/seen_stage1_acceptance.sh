@@ -445,6 +445,16 @@ if [ "$compiler_version_line" != "Seen $EXPECTED_VERSION" ]; then
 fi
 "$DIRECT_COMPILER" --help >/dev/null
 
+# Run release-blocking stabilization regressions before the broader acceptance
+# corpus so a known compiler/runtime regression fails locally within minutes.
+COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_allocator_oom_exit.sh"
+COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_project_qualified_test_import_regression.sh"
+COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_imported_function_method_collision.sh"
+COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_nested_array_batch_regression.sh"
+COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_safetensors_slot_return_regression.sh"
+COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_json_tiny_object_regression.sh"
+COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_stdlib_string_io_cycle.sh"
+
 SEEN_EXPECTED_VERSION="$EXPECTED_VERSION" \
     "$REPO_ROOT/tests/misc_root_tests/seen_cli_surface.sh"
 run_fixture type-ref "$REPO_ROOT/compiler_seen/tests/type_ref.seen"
