@@ -47,6 +47,10 @@ class Tests(unittest.TestCase):
             self.assertEqual(benchmark.benchmark_clock_ns(), 123)
             clock.assert_called_once_with()
 
+    def test_frozen_benchmark_control_matches_accepted_fixture(self):
+        raw = FIXTURE.read_bytes()
+        self.assertEqual(benchmark.baseline_validate(raw), checker.validate(raw))
+
     def test_json_cancel_and_byte_bounds(self):
         raw = FIXTURE.read_bytes()
         for malformed in (b"{", b"\xff", b'{"schema":1,"schema":2}', b"[]"):

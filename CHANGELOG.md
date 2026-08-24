@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made keyless release signing tolerate bounded, classified transient Sigstore
   transport failures while continuing to fail immediately for permanent
   signing or identity errors.
+- Normalized the leak/soak checker benchmark against its frozen accepted
+  implementation so the unchanged 5/30/5 regression gate measures checker
+  changes instead of differences between hosted-runner CPU models.
 
 ### Changed
 
