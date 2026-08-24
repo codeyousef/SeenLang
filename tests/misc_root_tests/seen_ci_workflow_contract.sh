@@ -48,6 +48,52 @@ cmp -s "$TEST_ROOT/happy-a.json" "$TEST_ROOT/happy-b.json" ||
 cmp -s "$TEST_ROOT/happy-a.json" "$EXPECTED" ||
     fail "CORE-001A_happy bytes changed"
 
+# actions/checkout receives github.ref and github.sha for tag events. Without
+# an explicit `ref` input its targeted SHA refspec materializes refs/tags/<tag>
+# as a lightweight commit alias. Supplying the exact event SHA makes the action
+# fetch all tag refs, check out that commit, and avoid overwriting the annotated
+# tag object required by the release policy.
+TAG_SOURCE="$TEST_ROOT/tag-source"
+TAG_RUNNER="$TEST_ROOT/tag-runner"
+git init -q "$TAG_SOURCE" || fail "tag source initialization"
+git -C "$TAG_SOURCE" config user.name "Seen CI fixture" || fail "tag source user"
+git -C "$TAG_SOURCE" config user.email "ci-fixture@example.invalid" ||
+    fail "tag source email"
+git -C "$TAG_SOURCE" -c commit.gpgSign=false commit -q --allow-empty -m "fixture" ||
+    fail "tag source commit"
+tag_commit=$(git -C "$TAG_SOURCE" rev-parse HEAD) || fail "tag source identity"
+git -C "$TAG_SOURCE" -c tag.gpgSign=false tag -a v1.2.3 -m "fixture tag" ||
+    fail "annotated source tag"
+tag_object=$(git -C "$TAG_SOURCE" rev-parse refs/tags/v1.2.3) ||
+    fail "tag source object"
+[ "$tag_object" != "$tag_commit" ] || fail "annotated source tag collapsed to its commit"
+
+git init -q "$TAG_RUNNER" || fail "tag runner initialization"
+git -C "$TAG_RUNNER" remote add origin "$TAG_SOURCE" || fail "tag runner origin"
+git -C "$TAG_RUNNER" fetch -q --force --no-tags origin \
+    '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*' ||
+    fail "initial full-history tag fetch"
+[ "$(git -C "$TAG_RUNNER" cat-file -t refs/tags/v1.2.3)" = tag ] ||
+    fail "initial full-history fetch did not preserve the annotated tag"
+git -C "$TAG_RUNNER" fetch -q --no-tags origin \
+    "+$tag_commit:refs/tags/v1.2.3" || fail "targeted SHA checkout simulation"
+[ "$(git -C "$TAG_RUNNER" cat-file -t refs/tags/v1.2.3)" = commit ] ||
+    fail "targeted SHA checkout did not reproduce a lightweight tag"
+
+git -C "$TAG_RUNNER" fetch -q --force --no-tags origin \
+    '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*' ||
+    fail "full-history explicit-SHA checkout simulation"
+git -C "$TAG_RUNNER" checkout -q --force "$tag_commit" ||
+    fail "explicit-SHA checkout selection"
+[ "$(git -C "$TAG_RUNNER" rev-parse HEAD)" = "$tag_commit" ] ||
+    fail "explicit-SHA checkout selected the wrong commit"
+[ "$(git -C "$TAG_RUNNER" cat-file -t refs/tags/v1.2.3)" = tag ] ||
+    fail "explicit-SHA checkout did not preserve the annotated tag"
+[ "$(git -C "$TAG_RUNNER" rev-parse refs/tags/v1.2.3)" = "$tag_object" ] ||
+    fail "explicit-SHA checkout changed the tag object"
+[ "$(git -C "$TAG_RUNNER" rev-parse 'refs/tags/v1.2.3^{commit}')" = "$tag_commit" ] ||
+    fail "explicit-SHA checkout changed the peeled commit"
+
 before_invalid=$(find "$INVALID" -type f -exec sha256sum {} + | sort)
 if python3 "$CHECKER" --root "$INVALID" \
     > "$TEST_ROOT/invalid.json" 2> "$TEST_ROOT/invalid.err"; then

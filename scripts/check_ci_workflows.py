@@ -91,6 +91,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
       - name: Verify successful main certification
         run: scripts/verify_release_ci_run.sh
       - name: Set up pinned Go
@@ -233,6 +234,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "required_check": "CI / required",
         "release_cosign": "v3.1.3",
         "release_ci_attestation": "scripts/verify_release_ci_run.sh",
+        "release_checkout_ref": "explicit-event-commit-sha",
         "release_cpu_baseline": "x86-64",
         "release_signing": "github-oidc-keyless",
         "release_toolchain_artifact": "exact-main-run",
@@ -241,7 +243,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "timeout_minutes": 210,
         "trigger": "push-main-only",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 5,
+        "version": 6,
     }
 
 

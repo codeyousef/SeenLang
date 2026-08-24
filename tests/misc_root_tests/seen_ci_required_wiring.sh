@@ -80,6 +80,8 @@ grep -Fxq '        run: scripts/provision_ci_host.sh' "$WORKFLOW" ||
     fail "workflow does not invoke the CI host provisioner"
 grep -Fxq '        run: scripts/verify_release_ci_run.sh' "$RELEASE_WORKFLOW" ||
     fail "release workflow does not attest successful main CI"
+grep -Fxq '          ref: ${{ github.sha }}' "$RELEASE_WORKFLOW" ||
+    fail "release checkout does not select the exact event commit explicitly"
 if grep -Fq 'run: scripts/run_ci_required.sh' "$RELEASE_WORKFLOW"; then
     fail "release workflow redundantly reruns full certification"
 fi

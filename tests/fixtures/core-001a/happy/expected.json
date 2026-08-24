@@ -23,6 +23,7 @@
     "macos": "static-policy",
     "windows": "static-policy"
   },
+  "release_checkout_ref": "explicit-event-commit-sha",
   "release_ci_attestation": "scripts/verify_release_ci_run.sh",
   "release_cosign": "v3.1.3",
   "release_cpu_baseline": "x86-64",
@@ -35,5 +36,5 @@
   "timeout_minutes": 210,
   "trigger": "push-main-only",
   "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-  "version": 5
+  "version": 6
 }
