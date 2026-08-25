@@ -44,7 +44,7 @@ For keyless releases, the script derives one exact certificate identity from
 the manifest version: the SeenLang `release.yml` workflow at that exact
 `refs/tags/v<version>` ref. The regular expression is anchored and all literal
 dots are escaped—for example,
-`^https://github\.com/codeyousef/SeenLang/\.github/workflows/release\.yml@refs/tags/v0\.11\.1$`.
+`^https://github\.com/codeyousef/SeenLang/\.github/workflows/release\.yml@refs/tags/v0\.12\.0$`.
 A broader `--certificate-identity` override, a different workflow or tag, or a
 non-GitHub-Actions issuer is rejected before signature verification.
 
