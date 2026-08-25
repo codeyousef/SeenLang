@@ -1,0 +1,17 @@
+import io.bytes.{ByteBuffer}
+
+fun main() r: Int {
+    let buffer = ByteBuffer.fromArray([83, 101, 101, 110])
+    let selected = buffer.slice(0, buffer.length())
+    if selected.isErr() { return 1 }
+    let bytes = selected.unwrap()
+    let first = bytes.get(0)
+    if first.isErr() or first.unwrap() != 83 { return 1 }
+    let closed = bytes.close()
+    let released = buffer.release()
+    if closed.isErr() or released.isErr() { return 1 }
+    println("checked byte slice length=4")
+    return 0
+}
+
+main()

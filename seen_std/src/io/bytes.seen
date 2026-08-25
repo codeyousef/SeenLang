@@ -1,0 +1,260 @@
+// Checked byte ownership and borrowed-view primitives.
+//
+// Byte counts use nonnegative 64-bit Int values. Views retain their owner,
+// record its generation, and must be closed explicitly. A mutable view is
+// exclusive; releasing its owner invalidates every outstanding view.
+
+import core.result.{Result, Ok, Err}
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext}
+
+class IoError {
+    var code: AsciiString
+    var operation: AsciiString
+    var message: String
+    var retryable: Bool
+}
+
+let BYTE_MAX_COUNT: Int = 9223372036854775807
+let BYTE_ERROR_INVALID: String = "byte.invalid"
+let BYTE_ERROR_LIMIT: String = "byte.limit"
+let BYTE_ERROR_CANCELLED: String = "byte.cancelled"
+let BYTE_ERROR_TIMEOUT: String = "byte.timeout"
+let BYTE_ERROR_UNAVAILABLE: String = "byte.unavailable"
+let BYTE_ERROR_UNSUPPORTED_PLATFORM: String = "byte.unsupported_platform"
+
+fun byteFailure(code: String, operation: String, message: String,
+    retryable: Bool = false) r: IoError {
+
+    return IoError{
+        code: AsciiString{ value: code },
+        operation: AsciiString{ value: operation },
+        message: message, retryable: retryable
+    }
+}
+
+fun validateByteRange(totalLength: Int, offset: Int, count: Int)
+    r: Result<Bool, IoError> {
+
+    if totalLength < 0 or offset < 0 or count < 0 {
+        return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "slice",
+            "byte range values must be nonnegative"))
+    }
+    if totalLength > BYTE_MAX_COUNT or offset > totalLength or
+        count > totalLength - offset {
+
+        return Err<Bool, IoError>(byteFailure(BYTE_ERROR_LIMIT, "slice",
+            "byte range exceeds its owner bound"))
+    }
+    return Ok<Bool, IoError>(true)
+}
+
+fun validateByteRangeInContext(context: OperationContext, totalLength: Int,
+    offset: Int, count: Int) r: Result<Bool, IoError> {
+
+    if context.cancellation {
+        return Err<Bool, IoError>(byteFailure(BYTE_ERROR_CANCELLED, "slice",
+            "byte slice acquisition is cancelled"))
+    }
+    return validateByteRange(totalLength, offset, count)
+}
+
+class ByteOwner {
+    var data: Array<Int>
+    var generation: Int
+    var active: Bool
+    var sharedBorrows: Int
+    var mutableBorrowed: Bool
+}
+
+@move
+class ByteBuffer {
+    var owner: ByteOwner
+
+    static fun fromArray(source: Array<Int>) r: ByteBuffer {
+        let copied = Array<Int>()
+        var index = 0
+        while index < source.length() {
+            copied.push(source[index] & 255)
+            index = index + 1
+        }
+        return ByteBuffer{
+            owner: ByteOwner{
+                data: copied, generation: 1, active: true,
+                sharedBorrows: 0, mutableBorrowed: false
+            }
+        }
+    }
+
+    static fun empty() r: ByteBuffer {
+        return ByteBuffer.fromArray(Array<Int>())
+    }
+
+    fun length() r: Int {
+        if not this.owner.active { return 0 }
+        return this.owner.data.length()
+    }
+
+    fun slice(offset: Int, count: Int) r: Result<ByteSlice, IoError> {
+        if not this.owner.active {
+            return Err<ByteSlice, IoError>(byteFailure(BYTE_ERROR_INVALID, "slice",
+                "byte owner has been released"))
+        }
+        if this.owner.mutableBorrowed {
+            return Err<ByteSlice, IoError>(byteFailure(BYTE_ERROR_INVALID, "slice",
+                "byte owner has an active mutable borrow"))
+        }
+        let checked = validateByteRange(this.owner.data.length(), offset, count)
+        if checked.isErr() {
+            return Err<ByteSlice, IoError>(checked.unwrapErr())
+        }
+        this.owner.sharedBorrows = this.owner.sharedBorrows + 1
+        return Ok<ByteSlice, IoError>(ByteSlice{
+            owner: this.owner, offset: offset, count: count,
+            generation: this.owner.generation, active: true
+        })
+    }
+
+    fun sliceInContext(context: OperationContext, offset: Int, count: Int)
+        r: Result<ByteSlice, IoError> {
+
+        let checked = validateByteRangeInContext(context,
+            this.owner.data.length(), offset, count)
+        if checked.isErr() {
+            return Err<ByteSlice, IoError>(checked.unwrapErr())
+        }
+        return this.slice(offset, count)
+    }
+
+    fun mutableSlice(offset: Int, count: Int)
+        r: Result<MutableByteSlice, IoError> {
+
+        if not this.owner.active {
+            return Err<MutableByteSlice, IoError>(byteFailure(
+                BYTE_ERROR_INVALID, "mutable-slice", "byte owner has been released"))
+        }
+        if this.owner.mutableBorrowed or this.owner.sharedBorrows > 0 {
+            return Err<MutableByteSlice, IoError>(byteFailure(
+                BYTE_ERROR_INVALID, "mutable-slice",
+                "byte owner already has an active borrow"))
+        }
+        let checked = validateByteRange(this.owner.data.length(), offset, count)
+        if checked.isErr() {
+            return Err<MutableByteSlice, IoError>(checked.unwrapErr())
+        }
+        this.owner.mutableBorrowed = true
+        return Ok<MutableByteSlice, IoError>(MutableByteSlice{
+            owner: this.owner, offset: offset, count: count,
+            generation: this.owner.generation, active: true
+        })
+    }
+
+    fun mutableSliceInContext(context: OperationContext, offset: Int,
+        count: Int) r: Result<MutableByteSlice, IoError> {
+
+        let checked = validateByteRangeInContext(context,
+            this.owner.data.length(), offset, count)
+        if checked.isErr() {
+            return Err<MutableByteSlice, IoError>(checked.unwrapErr())
+        }
+        return this.mutableSlice(offset, count)
+    }
+
+    fun release() r: Result<Bool, IoError> {
+        if not this.owner.active { return Ok<Bool, IoError>(false) }
+        this.owner.active = false
+        this.owner.generation = this.owner.generation + 1
+        this.owner.sharedBorrows = 0
+        this.owner.mutableBorrowed = false
+        this.owner.data = Array<Int>()
+        return Ok<Bool, IoError>(true)
+    }
+}
+
+class ByteSlice {
+    var owner: ByteOwner
+    var offset: Int
+    var count: Int
+    var generation: Int
+    var active: Bool
+
+    fun length() r: Int { return this.count }
+
+    fun get(index: Int) r: Result<Int, IoError> {
+        if not this.active or not this.owner.active or
+            this.generation != this.owner.generation {
+
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID, "read",
+                "byte slice is stale or closed"))
+        }
+        let checked = validateByteRange(this.count, index, 1)
+        if checked.isErr() {
+            return Err<Int, IoError>(checked.unwrapErr())
+        }
+        return Ok<Int, IoError>(this.owner.data[this.offset + index])
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        if this.owner.active and this.generation == this.owner.generation and
+            this.owner.sharedBorrows > 0 {
+
+            this.owner.sharedBorrows = this.owner.sharedBorrows - 1
+        }
+        return Ok<Bool, IoError>(true)
+    }
+}
+
+@move
+class MutableByteSlice {
+    var owner: ByteOwner
+    var offset: Int
+    var count: Int
+    var generation: Int
+    var active: Bool
+
+    fun length() r: Int { return this.count }
+
+    fun get(index: Int) r: Result<Int, IoError> {
+        if not this.active or not this.owner.active or
+            this.generation != this.owner.generation {
+
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID, "read",
+                "mutable byte slice is stale or closed"))
+        }
+        let checked = validateByteRange(this.count, index, 1)
+        if checked.isErr() {
+            return Err<Int, IoError>(checked.unwrapErr())
+        }
+        return Ok<Int, IoError>(this.owner.data[this.offset + index])
+    }
+
+    fun set(index: Int, value: Int) r: Result<Bool, IoError> {
+        if value < 0 or value > 255 {
+            return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "write",
+                "byte value is outside 0 through 255"))
+        }
+        if not this.active or not this.owner.active or
+            this.generation != this.owner.generation {
+
+            return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "write",
+                "mutable byte slice is stale or closed"))
+        }
+        let checked = validateByteRange(this.count, index, 1)
+        if checked.isErr() {
+            return Err<Bool, IoError>(checked.unwrapErr())
+        }
+        this.owner.data[this.offset + index] = value
+        return Ok<Bool, IoError>(true)
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        if this.owner.active and this.generation == this.owner.generation {
+            this.owner.mutableBorrowed = false
+        }
+        return Ok<Bool, IoError>(true)
+    }
+}

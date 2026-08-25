@@ -561,6 +561,10 @@ run_fixture owned-resource \
     "$REPO_ROOT/seen_std/tests/error/p0_own_001_owned_resource.seen"
 run_fixture owned-resource-example \
     "$REPO_ROOT/seen_std/examples/owned_resource.seen"
+run_fixture checked-byte-slices \
+    "$REPO_ROOT/seen_std/tests/byte/bytes-001a.seen"
+run_fixture checked-byte-slices-example \
+    "$REPO_ROOT/seen_std/examples/byte_slices.seen"
 run_fixture secret-markers \
     "$REPO_ROOT/seen_std/tests/error/p0_secret_001_secret_markers.seen"
 run_fixture secret-markers-example \

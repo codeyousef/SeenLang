@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added native checked byte ownership with 64-bit range geometry,
+  generation-bound immutable views, exclusive mutable views, cancellation-aware
+  acquisition, stable `byte.*` failures, and idempotent cleanup.
+
 ## [0.11.1] - 2026-08-24
 
 ### Fixed
