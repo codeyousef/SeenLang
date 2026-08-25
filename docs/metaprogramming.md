@@ -1,6 +1,6 @@
 # Metaprogramming
 
-Seen 0.11.1 provides a focused set of compile-time expressions and generated
+Seen 0.12.0 provides a focused set of compile-time expressions and generated
 class features. Treat parser acceptance of an annotation as separate from a
 guarantee that every lowering path implements it.
 
@@ -47,7 +47,7 @@ comptime assert(target.pointerSize == 8, "this program needs a 64-bit target")
 
 The current evaluator is deliberately limited. Arbitrary recursive
 `comptime fun` execution, heap-backed array construction, I/O, and general
-runtime calls are not established 0.11.1 features.
+runtime calls are not established 0.12.0 features.
 
 ## Derive and reflection
 
@@ -87,7 +87,7 @@ do not automatically provide a complete runtime framework. For example,
 
 Feature names can be supplied in `Seen.toml`; the compiler source also accepts
 `--feature=<name>` on compile paths, though this flag is not listed in the
-compact top-level help in 0.11.1.
+compact top-level help in 0.12.0.
 
 ## User macros
 

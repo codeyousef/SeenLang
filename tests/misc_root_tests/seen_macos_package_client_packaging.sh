@@ -27,6 +27,7 @@ FAKE_BIN="$TMP_DIR/bin"
 MARKER="$TMP_DIR/pkgbuild-verified"
 mkdir -p \
     "$FIXTURE_ROOT/installer/macos" \
+    "$FIXTURE_ROOT/scripts" \
     "$FIXTURE_ROOT/compiler_seen/target" \
     "$FIXTURE_ROOT/seen_std/src" \
     "$FIXTURE_ROOT/languages/en" \
@@ -34,11 +35,13 @@ mkdir -p \
     "$FAKE_BIN"
 cp "$ROOT_DIR/installer/macos/build-pkg.sh" \
     "$FIXTURE_ROOT/installer/macos/build-pkg.sh"
+cp "$ROOT_DIR/scripts/artifact_root.sh" \
+    "$FIXTURE_ROOT/scripts/artifact_root.sh"
 
 cat > "$FIXTURE_ROOT/compiler_seen/target/seen" <<'COMPILER_EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "--version" ]]; then
-    echo 'Seen 0.11.1'
+    echo 'Seen 0.12.0'
     exit 0
 fi
 exit 2
@@ -46,8 +49,8 @@ COMPILER_EOF
 
 cat > "$FIXTURE_ROOT/compiler_seen/target/seen-pkg" <<'HELPER_EOF'
 #!/usr/bin/env bash
-if [[ "$*" == '--expect-version 0.11.1 version --machine' ]]; then
-    printf 'protocol=SEENPKG1\nversion=0.11.1\n'
+if [[ "$*" == '--expect-version 0.12.0 version --machine' ]]; then
+    printf 'protocol=SEENPKG1\nversion=0.12.0\n'
     exit 0
 fi
 exit 2
@@ -94,13 +97,14 @@ touch "$FIXTURE_ROOT/languages/en/keywords.toml"
 touch "$FIXTURE_ROOT/seen_runtime/seen_runtime.h"
 
 PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH" \
+SEEN_ARTIFACT_ROOT="$FIXTURE_ROOT/.seen/agent-tools" \
 SEEN_MACOS_FIXTURE_MARKER="$MARKER" \
-VERSION=0.11.1 \
+VERSION=0.12.0 \
 bash "$FIXTURE_ROOT/installer/macos/build-pkg.sh" \
     "$FIXTURE_ROOT/compiler_seen/target/seen" >/dev/null
 
 [[ -f "$MARKER" ]]
-[[ -f "$FIXTURE_ROOT/installer/macos/seen-0.11.1-macos-arm64.pkg" ]]
+[[ -f "$FIXTURE_ROOT/installer/macos/seen-0.12.0-macos-arm64.pkg" ]]
 
 cat > "$TMP_DIR/wrong-seen-pkg" <<'WRONG_HELPER_EOF'
 #!/usr/bin/env bash
@@ -110,9 +114,10 @@ WRONG_HELPER_EOF
 chmod +x "$TMP_DIR/wrong-seen-pkg"
 
 if PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH" \
+    SEEN_ARTIFACT_ROOT="$FIXTURE_ROOT/.seen/agent-tools" \
     SEEN_MACOS_FIXTURE_MARKER="$MARKER" \
     SEEN_PACKAGE_CLIENT_BIN="$TMP_DIR/wrong-seen-pkg" \
-    VERSION=0.11.1 \
+    VERSION=0.12.0 \
     bash "$FIXTURE_ROOT/installer/macos/build-pkg.sh" \
         "$FIXTURE_ROOT/compiler_seen/target/seen" >/dev/null 2>&1; then
     echo "macOS installer accepted a mismatched package client" >&2
@@ -120,6 +125,7 @@ if PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH" \
 fi
 
 if PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH" \
+    SEEN_ARTIFACT_ROOT="$FIXTURE_ROOT/.seen/agent-tools" \
     SEEN_MACOS_FIXTURE_MARKER="$MARKER" \
     VERSION=0.9.0 \
     bash "$FIXTURE_ROOT/installer/macos/build-pkg.sh" \
