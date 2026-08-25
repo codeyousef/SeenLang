@@ -1,0 +1,109 @@
+import error.{AsciiString}
+import operation_context.{OperationLimits, OperationContext}
+import io.bytes.{ByteBuffer, validateByteRange}
+
+fun byteContext(cancelled: Bool) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "bytes-001a" }
+    }
+}
+
+fun main() r: Int {
+    let buffer = ByteBuffer.fromArray([10, 20, 30, 40])
+    let happyResult = buffer.slice(1, 2)
+    if happyResult.isErr() {
+        println("FAIL: BYTES-001A_happy"); return 1
+    }
+    let happy = happyResult.unwrap()
+    let first = happy.get(0)
+    let second = happy.get(1)
+    if first.isErr() or second.isErr() or first.unwrap() != 20 or
+        second.unwrap() != 30 {
+
+        println("FAIL: BYTES-001A_happy"); return 1
+    }
+    println("PASS: BYTES-001A_happy")
+
+    let emptyResult = buffer.slice(4, 0)
+    if emptyResult.isErr() or emptyResult.unwrap().length() != 0 {
+        println("FAIL: BYTES-001A_partial"); return 1
+    }
+    let empty = emptyResult.unwrap()
+    println("PASS: BYTES-001A_partial")
+
+    let mutableWhileShared = buffer.mutableSlice(0, 1)
+    if not mutableWhileShared.isErr() or
+        mutableWhileShared.unwrapErr().code.value != "byte.invalid" {
+
+        println("FAIL: BYTES-001A_invalid"); return 1
+    }
+    let closeHappy = happy.close()
+    let closeEmpty = empty.close()
+    if closeHappy.isErr() or closeEmpty.isErr() {
+        println("FAIL: BYTES-001A_invalid"); return 1
+    }
+    let mutableResult = buffer.mutableSlice(0, 1)
+    if mutableResult.isErr() {
+        println("FAIL: BYTES-001A_invalid"); return 1
+    }
+    let mutable = mutableResult.unwrap()
+    let sharedWhileMutable = buffer.slice(0, 1)
+    if not sharedWhileMutable.isErr() or
+        sharedWhileMutable.unwrapErr().code.value != "byte.invalid" {
+
+        println("FAIL: BYTES-001A_invalid"); return 1
+    }
+    let invalidByte = mutable.set(0, 256)
+    if not invalidByte.isErr() or
+        invalidByte.unwrapErr().code.value != "byte.invalid" {
+
+        println("FAIL: BYTES-001A_invalid"); return 1
+    }
+    println("PASS: BYTES-001A_invalid")
+
+    let wide = validateByteRange(5368709120, 4294967296, 1073741824)
+    let limited = validateByteRange(4, 3, 2)
+    if wide.isErr() or not limited.isErr() or
+        limited.unwrapErr().code.value != "byte.limit" {
+
+        println("FAIL: BYTES-001A_limit"); return 1
+    }
+    println("PASS: BYTES-001A_limit")
+
+    let cancelled = buffer.sliceInContext(byteContext(true), 0, 1)
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "byte.cancelled" {
+
+        println("FAIL: BYTES-001A_cancel"); return 1
+    }
+    println("PASS: BYTES-001A_cancel")
+
+    let firstClose = mutable.close()
+    let secondClose = mutable.close()
+    let staleResult = buffer.slice(0, 1)
+    if staleResult.isErr() {
+        println("FAIL: BYTES-001A_cleanup"); return 1
+    }
+    let stale = staleResult.unwrap()
+    let firstRelease = buffer.release()
+    let secondRelease = buffer.release()
+    let staleRead = stale.get(0)
+    if firstClose.isErr() or secondClose.isErr() or
+        not firstClose.unwrap() or secondClose.unwrap() or
+        firstRelease.isErr() or secondRelease.isErr() or
+        not firstRelease.unwrap() or secondRelease.unwrap() or
+        not staleRead.isErr() or staleRead.unwrapErr().code.value != "byte.invalid" {
+
+        println("FAIL: BYTES-001A_cleanup"); return 1
+    }
+    println("PASS: BYTES-001A_cleanup")
+    return 0
+}
+
+main()

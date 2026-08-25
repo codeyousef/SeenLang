@@ -1,0 +1,17 @@
+{
+  "benchmark": {
+    "baseline_ratio": 1.5,
+    "iterations_per_sample": 20000,
+    "samples": 30,
+    "warmups": 5
+  },
+  "cases": [
+    {"count": 2, "expected": "ok", "offset": 1, "total": 4},
+    {"count": 0, "expected": "ok", "offset": 4, "total": 4},
+    {"count": 1073741824, "expected": "ok", "offset": 4294967296, "total": 5368709120},
+    {"count": 1, "expected": "byte.invalid", "offset": -1, "total": 4},
+    {"count": 2, "expected": "byte.limit", "offset": 3, "total": 4}
+  ],
+  "fuzz_seed": 1101,
+  "schema": "seen-byte-slices-v1"
+}

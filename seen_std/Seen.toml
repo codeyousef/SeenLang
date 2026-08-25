@@ -40,6 +40,7 @@ modules = [
     "src/hash/mod.seen",
 
     # I/O and filesystem
+    "src/io/bytes.seen",
     "src/io/file.seen",
     "src/fs/path.seen",
 

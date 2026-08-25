@@ -131,8 +131,18 @@ modules are listed here so missing API-reference coverage is visible.
 ### `io`
 
 - `io/buffered`
+- `io/bytes`
 - `io/file`
 - `io/stdio`
+
+`io/bytes` defines the native `ByteBuffer`, `ByteSlice`, and
+`MutableByteSlice` ownership contract. Byte ranges use checked nonnegative
+64-bit `Int` geometry, including offsets above 4 GiB. Immutable views share an
+owner generation; mutable views are exclusive. Closing views and releasing the
+owner are idempotent, and any view whose owner was released is rejected with
+the stable `byte.invalid` code. Cancellation-aware acquisition reports
+`byte.cancelled`. See `seen_std/examples/byte_slices.seen` for a compiling
+example.
 
 ### `json`
 
