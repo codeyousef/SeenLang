@@ -1056,3 +1056,339 @@ fun copyLimited(context: OperationContext, source: ByteReader,
         complete: source.remaining() == 0 and readTotal == writtenTotal
     })
 }
+
+fun utf8Continuation(byte: Int) r: Bool {
+    return byte >= 128 and byte <= 191
+}
+
+fun decodeUtf8Strict(context: OperationContext, source: ByteSlice,
+    maxOutputBytes: Int) r: Result<String, IoError> {
+
+    let allowed = validateByteOperation(context, "utf8-decode")
+    if allowed.isErr() { return Err<String, IoError>(allowed.unwrapErr()) }
+    if not source.active or not source.owner.active or
+        source.generation != source.owner.generation or maxOutputBytes < 0 {
+
+        return Err<String, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "utf8-decode", "UTF-8 source is stale or output bound is invalid"))
+    }
+    if source.count > maxOutputBytes {
+        return Err<String, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+            "utf8-decode", "UTF-8 output exceeds the caller bound"))
+    }
+    var output = ""
+    var index = 0
+    while index < source.count {
+        let first = source.owner.data[source.offset + index]
+        var width = 0
+        var codepoint = 0
+        if first <= 127 {
+            width = 1
+            codepoint = first
+        } else if first >= 194 and first <= 223 {
+            width = 2
+        } else if first >= 224 and first <= 239 {
+            width = 3
+        } else if first >= 240 and first <= 244 {
+            width = 4
+        } else {
+            return Err<String, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "utf8-decode", "UTF-8 leading byte is invalid"))
+        }
+        if index + width > source.count {
+            return Err<String, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "utf8-decode", "UTF-8 sequence is truncated"))
+        }
+        if width >= 2 {
+            let second = source.owner.data[source.offset + index + 1]
+            if not utf8Continuation(second) or
+                (first == 224 and second < 160) or
+                (first == 237 and second > 159) or
+                (first == 240 and second < 144) or
+                (first == 244 and second > 143) {
+
+                return Err<String, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                    "utf8-decode", "UTF-8 continuation or scalar range is invalid"))
+            }
+            if width == 2 {
+                codepoint = ((first & 31) << 6) | (second & 63)
+            }
+        }
+        if width >= 3 {
+            let third = source.owner.data[source.offset + index + 2]
+            if not utf8Continuation(third) {
+                return Err<String, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                    "utf8-decode", "UTF-8 continuation byte is invalid"))
+            }
+            if width == 3 {
+                let second = source.owner.data[source.offset + index + 1]
+                codepoint = ((first & 15) << 12) |
+                    ((second & 63) << 6) | (third & 63)
+            }
+        }
+        if width == 4 {
+            let fourth = source.owner.data[source.offset + index + 3]
+            if not utf8Continuation(fourth) {
+                return Err<String, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                    "utf8-decode", "UTF-8 continuation byte is invalid"))
+            }
+            let second = source.owner.data[source.offset + index + 1]
+            let third = source.owner.data[source.offset + index + 2]
+            codepoint = ((first & 7) << 18) | ((second & 63) << 12) |
+                ((third & 63) << 6) | (fourth & 63)
+        }
+        output = output + String.fromCharCode(codepoint)
+        index = index + width
+    }
+    return Ok<String, IoError>(output)
+}
+
+fun decodeUtf8Lossy(context: OperationContext, source: ByteSlice,
+    maxOutputBytes: Int) r: Result<String, IoError> {
+
+    let allowed = validateByteOperation(context, "utf8-decode-lossy")
+    if allowed.isErr() { return Err<String, IoError>(allowed.unwrapErr()) }
+    if not source.active or not source.owner.active or
+        source.generation != source.owner.generation or maxOutputBytes < 0 {
+
+        return Err<String, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "utf8-decode-lossy", "UTF-8 source or output bound is invalid"))
+    }
+    var output = ""
+    var producedBytes = 0
+    var index = 0
+    while index < source.count {
+        let first = source.owner.data[source.offset + index]
+        var width = 0
+        if first <= 127 { width = 1 }
+        else if first >= 194 and first <= 223 { width = 2 }
+        else if first >= 224 and first <= 239 { width = 3 }
+        else if first >= 240 and first <= 244 { width = 4 }
+        var valid = width > 0 and index + width <= source.count
+        if valid and width >= 2 {
+            let second = source.owner.data[source.offset + index + 1]
+            valid = utf8Continuation(second) and
+                not (first == 224 and second < 160) and
+                not (first == 237 and second > 159) and
+                not (first == 240 and second < 144) and
+                not (first == 244 and second > 143)
+        }
+        if valid and width >= 3 {
+            valid = utf8Continuation(
+                source.owner.data[source.offset + index + 2])
+        }
+        if valid and width == 4 {
+            valid = utf8Continuation(
+                source.owner.data[source.offset + index + 3])
+        }
+        if valid {
+            var codepoint = first
+            if width == 2 {
+                codepoint = ((first & 31) << 6) |
+                    (source.owner.data[source.offset + index + 1] & 63)
+            } else if width == 3 {
+                codepoint = ((first & 15) << 12) |
+                    ((source.owner.data[source.offset + index + 1] & 63) << 6) |
+                    (source.owner.data[source.offset + index + 2] & 63)
+            } else if width == 4 {
+                codepoint = ((first & 7) << 18) |
+                    ((source.owner.data[source.offset + index + 1] & 63) << 12) |
+                    ((source.owner.data[source.offset + index + 2] & 63) << 6) |
+                    (source.owner.data[source.offset + index + 3] & 63)
+            }
+            if producedBytes > maxOutputBytes - width {
+                return Err<String, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+                    "utf8-decode-lossy", "UTF-8 output exceeds the caller bound"))
+            }
+            output = output + String.fromCharCode(codepoint)
+            producedBytes = producedBytes + width
+            index = index + width
+        } else {
+            if producedBytes > maxOutputBytes - 3 {
+                return Err<String, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+                    "utf8-decode-lossy", "replacement output exceeds the caller bound"))
+            }
+            output = output + String.fromCharCode(65533)
+            producedBytes = producedBytes + 3
+            index = index + 1
+        }
+    }
+    return Ok<String, IoError>(output)
+}
+
+fun encodeUtf8(context: OperationContext, text: String, maxBytes: Int)
+    r: Result<ByteBuffer, IoError> {
+
+    let allowed = validateByteOperation(context, "utf8-encode")
+    if allowed.isErr() { return Err<ByteBuffer, IoError>(allowed.unwrapErr()) }
+    if maxBytes < 0 {
+        return Err<ByteBuffer, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "utf8-encode", "UTF-8 output bound is negative"))
+    }
+    if text.length() > maxBytes or text.length() > BYTE_MAX_CAPACITY {
+        return Err<ByteBuffer, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+            "utf8-encode", "UTF-8 bytes exceed the caller bound"))
+    }
+    let result = tryByteBufferWithCapacity(text.length(), 32)
+    if result.isErr() { return Err<ByteBuffer, IoError>(result.unwrapErr()) }
+    let output = result.unwrap()
+    var index = 0
+    while index < text.length() {
+        let pushed = output.push(text.byteAt(index))
+        if pushed.isErr() {
+            let ignoredRelease = output.release()
+            return Err<ByteBuffer, IoError>(pushed.unwrapErr())
+        }
+        index = index + 1
+    }
+    return Ok<ByteBuffer, IoError>(output)
+}
+
+fun readEndianBits(source: ByteSlice, offset: Int, width: Int,
+    littleEndian: Bool) r: Result<Int, IoError> {
+
+    if width != 2 and width != 4 and width != 8 {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "decode-endian", "codec width must be 2, 4, or 8 bytes"))
+    }
+    let checked = validateByteRange(source.count, offset, width)
+    if checked.isErr() { return Err<Int, IoError>(checked.unwrapErr()) }
+    if not source.active or not source.owner.active or
+        source.generation != source.owner.generation {
+
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "decode-endian", "codec source is stale or closed"))
+    }
+    var value = 0
+    var index = 0
+    while index < width {
+        var shift = index * 8
+        if not littleEndian { shift = (width - 1 - index) * 8 }
+        value = value | (source.owner.data[source.offset + offset + index] << shift)
+        index = index + 1
+    }
+    return Ok<Int, IoError>(value)
+}
+
+fun writeEndianBits(destination: MutableByteSlice, offset: Int, width: Int,
+    value: Int, littleEndian: Bool) r: Result<Int, IoError> {
+
+    if width != 2 and width != 4 and width != 8 {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "encode-endian", "codec width must be 2, 4, or 8 bytes"))
+    }
+    let checked = validateByteRange(destination.count, offset, width)
+    if checked.isErr() { return Err<Int, IoError>(checked.unwrapErr()) }
+    if not destination.active or not destination.owner.active or
+        destination.generation != destination.owner.generation {
+
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "encode-endian", "codec destination is stale or closed"))
+    }
+    var index = 0
+    while index < width {
+        var shift = index * 8
+        if not littleEndian { shift = (width - 1 - index) * 8 }
+        destination.owner.data[destination.offset + offset + index] =
+            (value >> shift) & 255
+        index = index + 1
+    }
+    return Ok<Int, IoError>(width)
+}
+
+fun readU16LittleEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readEndianBits(source, offset, 2, true) }
+fun readU16BigEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readEndianBits(source, offset, 2, false) }
+fun readU32LittleEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readEndianBits(source, offset, 4, true) }
+fun readU32BigEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readEndianBits(source, offset, 4, false) }
+fun readI64LittleEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readEndianBits(source, offset, 8, true) }
+fun readI64BigEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readEndianBits(source, offset, 8, false) }
+
+fun writeU16LittleEndian(destination: MutableByteSlice, offset: Int,
+    value: Int) r: Result<Int, IoError> {
+    if value < 0 or value > 65535 {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+            "encode-u16-le", "value exceeds unsigned 16-bit storage"))
+    }
+    return writeEndianBits(destination, offset, 2, value, true)
+}
+
+fun writeU16BigEndian(destination: MutableByteSlice, offset: Int,
+    value: Int) r: Result<Int, IoError> {
+    if value < 0 or value > 65535 {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+            "encode-u16-be", "value exceeds unsigned 16-bit storage"))
+    }
+    return writeEndianBits(destination, offset, 2, value, false)
+}
+
+fun writeU32LittleEndian(destination: MutableByteSlice, offset: Int,
+    value: Int) r: Result<Int, IoError> {
+    if value < 0 or value > 4294967295 {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+            "encode-u32-le", "value exceeds unsigned 32-bit storage"))
+    }
+    return writeEndianBits(destination, offset, 4, value, true)
+}
+
+fun writeU32BigEndian(destination: MutableByteSlice, offset: Int,
+    value: Int) r: Result<Int, IoError> {
+    if value < 0 or value > 4294967295 {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+            "encode-u32-be", "value exceeds unsigned 32-bit storage"))
+    }
+    return writeEndianBits(destination, offset, 4, value, false)
+}
+
+fun writeI64LittleEndian(destination: MutableByteSlice, offset: Int,
+    value: Int) r: Result<Int, IoError> {
+    return writeEndianBits(destination, offset, 8, value, true)
+}
+
+fun writeI64BigEndian(destination: MutableByteSlice, offset: Int,
+    value: Int) r: Result<Int, IoError> {
+    return writeEndianBits(destination, offset, 8, value, false)
+}
+
+fun readFloat16BitsLittleEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readU16LittleEndian(source, offset) }
+fun readFloat16BitsBigEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readU16BigEndian(source, offset) }
+fun readBFloat16BitsLittleEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readU16LittleEndian(source, offset) }
+fun readBFloat16BitsBigEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readU16BigEndian(source, offset) }
+
+fun writeFloat16BitsLittleEndian(destination: MutableByteSlice, offset: Int,
+    bits: Int) r: Result<Int, IoError> {
+    return writeU16LittleEndian(destination, offset, bits)
+}
+fun writeFloat16BitsBigEndian(destination: MutableByteSlice, offset: Int,
+    bits: Int) r: Result<Int, IoError> {
+    return writeU16BigEndian(destination, offset, bits)
+}
+fun writeBFloat16BitsLittleEndian(destination: MutableByteSlice, offset: Int,
+    bits: Int) r: Result<Int, IoError> {
+    return writeU16LittleEndian(destination, offset, bits)
+}
+fun writeBFloat16BitsBigEndian(destination: MutableByteSlice, offset: Int,
+    bits: Int) r: Result<Int, IoError> {
+    return writeU16BigEndian(destination, offset, bits)
+}
+fun readFloat64BitsLittleEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readI64LittleEndian(source, offset) }
+fun readFloat64BitsBigEndian(source: ByteSlice, offset: Int = 0)
+    r: Result<Int, IoError> { return readI64BigEndian(source, offset) }
+fun writeFloat64BitsLittleEndian(destination: MutableByteSlice, offset: Int,
+    bits: Int) r: Result<Int, IoError> {
+    return writeI64LittleEndian(destination, offset, bits)
+}
+fun writeFloat64BitsBigEndian(destination: MutableByteSlice, offset: Int,
+    bits: Int) r: Result<Int, IoError> {
+    return writeI64BigEndian(destination, offset, bits)
+}

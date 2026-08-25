@@ -1,0 +1,40 @@
+import error.{AsciiString}
+import operation_context.{OperationLimits, OperationContext}
+import core.result.{Result}
+import io.bytes.{ByteBuffer, IoError, decodeUtf8Strict,
+    readFloat16BitsLittleEndian}
+
+fun codecContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "byte-codecs-example" }
+    }
+}
+
+fun main() r: Int {
+    let owner = ByteBuffer.fromArray([83, 101, 101, 110, 0, 60])
+    let textSliceResult = owner.slice(0, 4)
+    if textSliceResult.isErr() { return 1 }
+    let textSlice = textSliceResult.unwrap()
+    let decoded: Result<String, IoError> =
+        decodeUtf8Strict(codecContext(), textSlice, 4)
+    let textClosed = textSlice.close()
+    let halfSliceResult = owner.slice(4, 2)
+    if decoded.isErr() or decoded.unwrap() != "Seen" or textClosed.isErr() or
+        halfSliceResult.isErr() { return 1 }
+    let halfSlice = halfSliceResult.unwrap()
+    let half: Result<Int, IoError> = readFloat16BitsLittleEndian(halfSlice, 0)
+    let halfClosed = halfSlice.close()
+    let released = owner.release()
+    if half.isErr() or half.unwrap() != 15360 or halfClosed.isErr() or
+        released.isErr() { return 1 }
+    println("strict UTF-8 and Float16 bits decoded")
+    return 0
+}
+
+main()

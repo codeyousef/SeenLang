@@ -1,0 +1,211 @@
+import error.{AsciiString}
+import operation_context.{OperationLimits, OperationContext}
+import core.result.{Result}
+import io.bytes.{ByteBuffer, IoError, decodeUtf8Lossy,
+    decodeUtf8Strict, encodeUtf8, readBFloat16BitsBigEndian,
+    readFloat16BitsLittleEndian, readFloat64BitsBigEndian,
+    readFloat64BitsLittleEndian, readU16BigEndian, readU16LittleEndian,
+    readU32BigEndian, readU32LittleEndian, writeFloat64BitsBigEndian,
+    writeFloat64BitsLittleEndian, writeU16BigEndian, writeU16LittleEndian,
+    writeU32BigEndian, writeU32LittleEndian}
+
+fun byteCodecContext(cancelled: Bool) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "bytes-001e" }
+    }
+}
+
+fun main() r: Int {
+    let utf8Owner = ByteBuffer.fromArray([83, 101, 101, 110, 240, 159, 152, 128])
+    let utf8SliceResult = utf8Owner.slice(0, 8)
+    if utf8SliceResult.isErr() { println("FAIL: BYTES-001E_happy"); return 1 }
+    let utf8Slice = utf8SliceResult.unwrap()
+    let decoded: Result<String, IoError> = decodeUtf8Strict(
+        byteCodecContext(false), utf8Slice, 8)
+    let expected = "Seen" + String.fromCharCode(128512)
+    let encoded: Result<ByteBuffer, IoError> = encodeUtf8(
+        byteCodecContext(false), expected, 8)
+    if decoded.isErr() {
+        println("FAIL: BYTES-001E_happy"); return 1
+    }
+    if decoded.unwrap() != expected {
+        println("FAIL: BYTES-001E_happy"); return 1
+    }
+    if encoded.isErr() {
+        println("FAIL: BYTES-001E_happy"); return 1
+    }
+    let encodedBuffer = encoded.unwrap()
+    if encodedBuffer.length() != 8 {
+
+        println("FAIL: BYTES-001E_happy"); return 1
+    }
+
+    let endianOwner = ByteBuffer.fromArray([0, 0, 0, 0, 0, 0, 0, 0])
+    let endianMutableResult = endianOwner.mutableSlice(0, 8)
+    if endianMutableResult.isErr() {
+        println("FAIL: BYTES-001E_happy"); return 1
+    }
+    let endianMutable = endianMutableResult.unwrap()
+    let u16leWrite: Result<Int, IoError> =
+        writeU16LittleEndian(endianMutable, 0, 4660)
+    let u16beWrite: Result<Int, IoError> =
+        writeU16BigEndian(endianMutable, 2, 4660)
+    let f64leWrite: Result<Int, IoError> = writeFloat64BitsLittleEndian(
+        endianMutable, 0, 4607182418800017408)
+    let endianMutableClosed = endianMutable.close()
+    let endianSliceResult = endianOwner.slice(0, 8)
+    if u16leWrite.isErr() { println("FAIL: BYTES-001E_happy"); return 1 }
+    if u16beWrite.isErr() { println("FAIL: BYTES-001E_happy"); return 1 }
+    if f64leWrite.isErr() { println("FAIL: BYTES-001E_happy"); return 1 }
+    if endianMutableClosed.isErr() or endianSliceResult.isErr() {
+        println("FAIL: BYTES-001E_happy"); return 1
+    }
+    let endianSlice = endianSliceResult.unwrap()
+    let f64leBits: Result<Int, IoError> =
+        readFloat64BitsLittleEndian(endianSlice, 0)
+    if f64leBits.isErr() or f64leBits.unwrap() != 4607182418800017408 {
+        println("FAIL: BYTES-001E_happy-f64bits"); return 1
+    }
+
+    let bigFloatOwner = ByteBuffer.fromArray([0, 0, 0, 0, 0, 0, 0, 0])
+    let bigFloatMutableResult = bigFloatOwner.mutableSlice(0, 8)
+    if bigFloatMutableResult.isErr() {
+        println("FAIL: BYTES-001E_happy"); return 1
+    }
+    let bigFloatMutable = bigFloatMutableResult.unwrap()
+    let f64beWrite: Result<Int, IoError> = writeFloat64BitsBigEndian(
+        bigFloatMutable, 0, 4607182418800017408)
+    let bigFloatMutableClosed = bigFloatMutable.close()
+    let bigFloatSliceResult = bigFloatOwner.slice(0, 8)
+    if f64beWrite.isErr() or bigFloatMutableClosed.isErr() or
+        bigFloatSliceResult.isErr() {
+
+        println("FAIL: BYTES-001E_happy"); return 1
+    }
+    let bigFloatSlice = bigFloatSliceResult.unwrap()
+    let f64be: Result<Int, IoError> =
+        readFloat64BitsBigEndian(bigFloatSlice, 0)
+    if f64be.isErr() or f64be.unwrap() != 4607182418800017408 {
+        println("FAIL: BYTES-001E_happy-f64be"); return 1
+    }
+    println("PASS: BYTES-001E_happy")
+
+    let geometryOwner = ByteBuffer.fromArray([99, 98, 18, 52, 86, 120, 97])
+    let geometrySliceResult = geometryOwner.slice(0, 7)
+    if geometrySliceResult.isErr() {
+        println("FAIL: BYTES-001E_partial"); return 1
+    }
+    let geometrySlice = geometrySliceResult.unwrap()
+    let u16be: Result<Int, IoError> = readU16BigEndian(geometrySlice, 2)
+    let u16le: Result<Int, IoError> = readU16LittleEndian(geometrySlice, 2)
+    let u32be: Result<Int, IoError> = readU32BigEndian(geometrySlice, 2)
+    let u32le: Result<Int, IoError> = readU32LittleEndian(geometrySlice, 2)
+    if u16be.isErr() or u16be.unwrap() != 4660 or u16le.isErr() or
+        u16le.unwrap() != 13330 or u32be.isErr() or
+        u32be.unwrap() != 305419896 or u32le.isErr() or
+        u32le.unwrap() != 2018915346 {
+
+        println("FAIL: BYTES-001E_partial"); return 1
+    }
+    println("PASS: BYTES-001E_partial")
+
+    let malformedOwner = ByteBuffer.fromArray([192, 128, 65])
+    let malformedSliceResult = malformedOwner.slice(0, 3)
+    if malformedSliceResult.isErr() {
+        println("FAIL: BYTES-001E_invalid"); return 1
+    }
+    let malformedSlice = malformedSliceResult.unwrap()
+    let strictInvalid: Result<String, IoError> = decodeUtf8Strict(
+        byteCodecContext(false), malformedSlice, 8)
+    let lossy: Result<String, IoError> = decodeUtf8Lossy(
+        byteCodecContext(false), malformedSlice, 8)
+    let lossyExpected = String.fromCharCode(65533) +
+        String.fromCharCode(65533) + "A"
+    if not strictInvalid.isErr() or
+        strictInvalid.unwrapErr().code.value != "byte.invalid" or
+        lossy.isErr() or lossy.unwrap() != lossyExpected {
+
+        println("FAIL: BYTES-001E_invalid"); return 1
+    }
+    println("PASS: BYTES-001E_invalid")
+
+    let tooSmall: Result<String, IoError> = decodeUtf8Lossy(
+        byteCodecContext(false), malformedSlice, 2)
+    let smallOwner = ByteBuffer.fromArray([0, 0, 0, 0])
+    let smallMutableResult = smallOwner.mutableSlice(0, 4)
+    if smallMutableResult.isErr() {
+        println("FAIL: BYTES-001E_limit"); return 1
+    }
+    let smallMutable = smallMutableResult.unwrap()
+    let u16Overflow: Result<Int, IoError> =
+        writeU16LittleEndian(smallMutable, 0, 65536)
+    let u32beWrite: Result<Int, IoError> =
+        writeU32BigEndian(smallMutable, 0, 4294967295)
+    let u32leWrite: Result<Int, IoError> =
+        writeU32LittleEndian(smallMutable, 0, 4294967295)
+    let smallMutableClosed = smallMutable.close()
+    if not tooSmall.isErr() or not u16Overflow.isErr() or
+        tooSmall.unwrapErr().code.value != "byte.limit" or
+        u16Overflow.unwrapErr().code.value != "byte.limit" or
+        u32beWrite.isErr() or u32leWrite.isErr() or smallMutableClosed.isErr() {
+
+        println("FAIL: BYTES-001E_limit"); return 1
+    }
+    println("PASS: BYTES-001E_limit")
+
+    let cancelled: Result<String, IoError> = decodeUtf8Strict(
+        byteCodecContext(true), utf8Slice, 8)
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "byte.cancelled" {
+
+        println("FAIL: BYTES-001E_cancel"); return 1
+    }
+    println("PASS: BYTES-001E_cancel")
+
+    let halfOwner = ByteBuffer.fromArray([0, 60, 63, 128])
+    let halfSliceResult = halfOwner.slice(0, 4)
+    if halfSliceResult.isErr() {
+        println("FAIL: BYTES-001E_cleanup"); return 1
+    }
+    let halfSlice = halfSliceResult.unwrap()
+    let f16bits: Result<Int, IoError> =
+        readFloat16BitsLittleEndian(halfSlice, 0)
+    let bf16bits: Result<Int, IoError> =
+        readBFloat16BitsBigEndian(halfSlice, 2)
+    let encodedReleased = encodedBuffer.release()
+    let utf8SliceClosed = utf8Slice.close()
+    let utf8Released = utf8Owner.release()
+    let endianSliceClosed = endianSlice.close()
+    let endianReleased = endianOwner.release()
+    let bigFloatSliceClosed = bigFloatSlice.close()
+    let bigFloatReleased = bigFloatOwner.release()
+    let geometrySliceClosed = geometrySlice.close()
+    let geometryReleased = geometryOwner.release()
+    let malformedSliceClosed = malformedSlice.close()
+    let malformedReleased = malformedOwner.release()
+    let smallReleased = smallOwner.release()
+    let halfSliceClosed = halfSlice.close()
+    let halfReleased = halfOwner.release()
+    if f16bits.isErr() or f16bits.unwrap() != 15360 or bf16bits.isErr() or
+        bf16bits.unwrap() != 16256 or encodedReleased.isErr() or
+        utf8SliceClosed.isErr() or utf8Released.isErr() or
+        endianSliceClosed.isErr() or endianReleased.isErr() or
+        bigFloatSliceClosed.isErr() or bigFloatReleased.isErr() or
+        geometrySliceClosed.isErr() or geometryReleased.isErr() or
+        malformedSliceClosed.isErr() or malformedReleased.isErr() or
+        smallReleased.isErr() or halfSliceClosed.isErr() or
+        halfReleased.isErr() {
+
+        println("FAIL: BYTES-001E_cleanup"); return 1
+    }
+    println("PASS: BYTES-001E_cleanup")
+    return 0
+}
+
+main()

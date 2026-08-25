@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added bounded limited, counting, tee, hashing, and buffered stream adapters,
   plus `copyLimited` with caller-sized scratch storage, separate read/write
   progress, explicit completion/limit state, and deterministic cleanup.
+- Added strict and lossy bounded UTF-8 codecs plus checked little- and
+  big-endian integer and lossless Float16, BFloat16, and Float64 bit-pattern
+  storage codecs.
 
 ## [0.12.0] - 2026-08-25
 

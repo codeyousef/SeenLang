@@ -575,6 +575,10 @@ run_fixture bounded-byte-adapters \
     "$REPO_ROOT/seen_std/tests/byte/bytes-001d.seen"
 run_fixture bounded-byte-adapters-example \
     "$REPO_ROOT/seen_std/examples/byte_adapters.seen"
+run_fixture byte-codecs \
+    "$REPO_ROOT/seen_std/tests/byte/bytes-001e.seen"
+run_fixture byte-codecs-example \
+    "$REPO_ROOT/seen_std/examples/byte_codecs.seen"
 run_fixture secret-markers \
     "$REPO_ROOT/seen_std/tests/error/p0_secret_001_secret_markers.seen"
 run_fixture secret-markers-example \

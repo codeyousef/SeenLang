@@ -169,6 +169,14 @@ copy accounting covers only bytes actually accepted; cancellation is checked
 before progress and every owned adapter closes idempotently. See
 `seen_std/examples/byte_adapters.seen`.
 
+UTF-8 codecs provide strict validation, lossy U+FFFD replacement, bounded
+encoding, and cancellation before side effects. Endian codecs read and write
+checked 16-, 32-, and 64-bit integer storage in both byte orders. Float16,
+BFloat16, and Float64 helpers deliberately preserve raw IEEE bit patterns so
+NaN payloads and signed zero round-trip exactly; scalar interpretation belongs
+to the scalar type layer. Every codec validates its complete range before
+mutation. See `seen_std/examples/byte_codecs.seen`.
+
 ### `json`
 
 - `json/builder`

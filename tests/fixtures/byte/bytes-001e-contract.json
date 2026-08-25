@@ -1,0 +1,14 @@
+{
+  "benchmark": {"baseline_ratio": 1.5, "iterations_per_sample": 20000, "samples": 30, "warmups": 5},
+  "endian": [
+    {"bytes": [18, 52], "big": 4660, "little": 13330, "width": 2},
+    {"bytes": [18, 52, 86, 120], "big": 305419896, "little": 2018915346, "width": 4}
+  ],
+  "fuzz_seed": 1101,
+  "schema": "seen-byte-codecs-v1",
+  "utf8": [
+    {"hex": "5365656e", "strict": "Seen"},
+    {"hex": "f09f9880", "strict": "😀"},
+    {"hex": "c080", "strict": null}
+  ]
+}
