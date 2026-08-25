@@ -1,4 +1,4 @@
-// Web-oriented sample source. Seen 0.12.0 does not ship a wasm32 compile target.
+// Web-oriented sample source. Seen 0.13.0 does not ship a wasm32 compile target.
 
 fun main() -> Int {
     let value = 42

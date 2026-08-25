@@ -7,12 +7,12 @@ import (
 
 func TestDecodeRequest(t *testing.T) {
 	t.Parallel()
-	request := "SEENPKG1\n3\n16\n--expect-version\n6\n0.12.0\n5\nfetch\n"
+	request := "SEENPKG1\n3\n16\n--expect-version\n6\n0.13.0\n5\nfetch\n"
 	arguments, err := DecodeRequest(strings.NewReader(request))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--expect-version", "0.12.0", "fetch"}
+	want := []string{"--expect-version", "0.13.0", "fetch"}
 	for index := range want {
 		if arguments[index] != want[index] {
 			t.Fatalf("arguments = %#v", arguments)

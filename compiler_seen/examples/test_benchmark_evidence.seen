@@ -9,7 +9,7 @@ fun main() r: Int {
     while index < 30 { samples.push(1000 + index); index = index + 1 }
     let evidence = TestBenchmarkEvidence{schema: "seen-benchmark-evidence-v1",
         name: "parser-throughput", target: "linux-x86_64", backend: "cpu",
-        maturity: "verified", hardware: "x86_64 CPU", toolchain: "seen-0.12.0",
+        maturity: "verified", hardware: "x86_64 CPU", toolchain: "seen-0.13.0",
         sourceCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         baselineCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         command: "seen test --benchmark parser-throughput", cgroup:

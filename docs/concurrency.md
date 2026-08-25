@@ -1,6 +1,6 @@
 # Concurrency
 
-Seen 0.12.0 provides LLVM-coroutine async functions, a cooperative runtime,
+Seen 0.13.0 provides LLVM-coroutine async functions, a cooperative runtime,
 capture-free parallel loops, and low-level synchronization primitives. These
 features are usable, but their current boundaries matter.
 
@@ -67,7 +67,7 @@ parallel_for i in 0..1000 {
 }
 ```
 
-In the shipped 0.12.0 compiler, a parallel body has no capture environment.
+In the shipped 0.13.0 compiler, a parallel body has no capture environment.
 Keep it capture-free: do not read or mutate enclosing locals from the body.
 Explicit value/reference/move captures and compiler-proven disjoint mutation
 are planned language work, not part of this release. Worker count and scheduling
@@ -129,7 +129,7 @@ passed as `Int` values. It is not yet a closure- or typed-task API.
 ## Thread-safety markers
 
 The parser recognizes `@send` and `@sync` type markers. They express thread
-safety intent, but 0.12.0 does not use them to make outer-local captures in
+safety intent, but 0.13.0 does not use them to make outer-local captures in
 `parallel_for` safe; such captures are not lowered at all.
 
 Actor declaration syntax and a general actor runtime are not shipped in the

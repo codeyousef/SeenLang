@@ -76,7 +76,7 @@ function Show-Help {
     Write-Host ""
     Write-Host "Examples:"
     Write-Host "  .\install.ps1                              # Install latest version"
-    Write-Host "  .\install.ps1 -Version 0.12.0              # Install specific version"
+    Write-Host "  .\install.ps1 -Version 0.13.0              # Install specific version"
     Write-Host "  .\install.ps1 -System                      # System-wide installation"
     Write-Host "  .\install.ps1 -InstallDir C:\Tools\Seen    # Custom directory"
     Write-Host ""

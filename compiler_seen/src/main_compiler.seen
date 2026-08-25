@@ -1453,7 +1453,7 @@ fun removePathIfExists(path: String) r: Void {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.12.0"
+    return "0.13.0"
 }
 
 fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
@@ -1517,7 +1517,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
             runtimeAbi: "runtime-v2",
-            standardLibraryVersion: "0.2.0",
+            standardLibraryVersion: "0.3.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
             packageClientProtocol: "SEENPKG1",
@@ -15885,7 +15885,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.12.0"
+    return "0.13.0"
 }
 
 fun printVersion() r: Void {

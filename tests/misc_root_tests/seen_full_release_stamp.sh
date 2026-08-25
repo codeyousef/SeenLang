@@ -12,7 +12,7 @@ cp "$ROOT_DIR/scripts/build_trace_common.sh" "$REPO/scripts/"
 cat > "$REPO/bin/seen" <<'SEEN_EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "--version" ]]; then
-    echo "Seen 0.12.0"
+    echo "Seen 0.13.0"
     exit 0
 fi
 exit 2
