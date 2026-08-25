@@ -161,6 +161,14 @@ views and checked-limit overflow, and reports cancellation or expiration before
 side effects. `ByteWriter` is created with `tryByteWriterWithLimit`; it never
 grows beyond the caller's bound. See `seen_std/examples/byte_streams.seen`.
 
+Bounded adapters include `LimitedReader`, `CountingReader`, `TeeReader`,
+`HashingWriter`, `BufferedReader`, and `BufferedWriter`. `copyLimited` uses a
+caller-bounded scratch buffer and returns `CopyResult` with separate read and
+write progress, an explicit limit marker, and completion state. Tee, hash, and
+copy accounting covers only bytes actually accepted; cancellation is checked
+before progress and every owned adapter closes idempotently. See
+`seen_std/examples/byte_adapters.seen`.
+
 ### `json`
 
 - `json/builder`

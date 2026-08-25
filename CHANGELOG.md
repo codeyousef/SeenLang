@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added synchronous byte stream traits and bounded native Seen memory streams
   with context-aware read, write, seek, buffered-read, flush, exact partial
   progress, stable cancellation/timeout failures, and idempotent cleanup.
+- Added bounded limited, counting, tee, hashing, and buffered stream adapters,
+  plus `copyLimited` with caller-sized scratch storage, separate read/write
+  progress, explicit completion/limit state, and deterministic cleanup.
 
 ## [0.12.0] - 2026-08-25
 

@@ -1,0 +1,172 @@
+import error.{AsciiString}
+import operation_context.{OperationLimits, OperationContext}
+import core.result.{Result}
+import io.bytes.{ByteBuffer, ByteReader, ByteWriter, BufferedReader,
+    BufferedWriter, CopyResult, CountingReader, HashingWriter, IoError,
+    LimitedReader, TeeReader, copyLimited, tryBufferedWriter,
+    tryByteWriterWithLimit, tryHashingWriter, tryTeeReader}
+
+fun byteAdapterContext(cancelled: Bool) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "bytes-001d" }
+    }
+}
+
+fun main() r: Int {
+    let source = ByteReader.fromArray([1, 2, 3, 4, 5])
+    let destinationResult: Result<ByteWriter, IoError> =
+        tryByteWriterWithLimit(5)
+    if destinationResult.isErr() {
+        println("FAIL: BYTES-001D_happy"); return 1
+    }
+    let destination = destinationResult.unwrap()
+    let copied: Result<CopyResult, IoError> = copyLimited(
+        byteAdapterContext(false), source, destination, 5, 2)
+    let destinationCopy = destination.toArray()
+    if copied.isErr() or copied.unwrap().readBytes != 5 or
+        copied.unwrap().writtenBytes != 5 or not copied.unwrap().complete or
+        destinationCopy.isErr() or destinationCopy.unwrap()[4] != 5 {
+
+        println("FAIL: BYTES-001D_happy"); return 1
+    }
+    let hashSource = ByteBuffer.fromArray([1, 2, 3])
+    let hashSliceResult = hashSource.slice(0, 3)
+    let hashingResult: Result<HashingWriter, IoError> = tryHashingWriter(3)
+    if hashSliceResult.isErr() or hashingResult.isErr() {
+        println("FAIL: BYTES-001D_happy"); return 1
+    }
+    let hashSlice = hashSliceResult.unwrap()
+    let hashing = hashingResult.unwrap()
+    let hashProgress = hashing.write(byteAdapterContext(false), hashSlice)
+    if hashProgress.isErr() or hashProgress.unwrap() != 3 or
+        hashing.digest() != 66566 {
+
+        println("FAIL: BYTES-001D_happy"); return 1
+    }
+    println("PASS: BYTES-001D_happy")
+
+    let partialSource = ByteReader.fromArray([10, 20, 30, 40, 50])
+    let partialDestinationResult: Result<ByteWriter, IoError> =
+        tryByteWriterWithLimit(3)
+    if partialDestinationResult.isErr() {
+        println("FAIL: BYTES-001D_partial"); return 1
+    }
+    let partialDestination = partialDestinationResult.unwrap()
+    let partial: Result<CopyResult, IoError> = copyLimited(
+        byteAdapterContext(false), partialSource, partialDestination, 5, 2)
+    if partial.isErr() or partial.unwrap().readBytes != 4 or
+        partial.unwrap().writtenBytes != 3 or partial.unwrap().complete or
+        not partial.unwrap().limitReached {
+
+        println("FAIL: BYTES-001D_partial"); return 1
+    }
+    println("PASS: BYTES-001D_partial")
+
+    let invalidSource = ByteReader.fromArray([1])
+    let invalidDestinationResult: Result<ByteWriter, IoError> =
+        tryByteWriterWithLimit(1)
+    if invalidDestinationResult.isErr() {
+        println("FAIL: BYTES-001D_invalid"); return 1
+    }
+    let invalidDestination = invalidDestinationResult.unwrap()
+    let invalid: Result<CopyResult, IoError> = copyLimited(
+        byteAdapterContext(false), invalidSource, invalidDestination, 1, 0)
+    let badBuffered: Result<BufferedWriter, IoError> =
+        tryBufferedWriter(8, 0)
+    if not invalid.isErr() or not badBuffered.isErr() or
+        invalid.unwrapErr().code.value != "byte.invalid" or
+        badBuffered.unwrapErr().code.value != "byte.invalid" {
+
+        println("FAIL: BYTES-001D_invalid"); return 1
+    }
+    println("PASS: BYTES-001D_invalid")
+
+    let limitedSource = ByteReader.fromArray([9, 8, 7])
+    let limitedDestinationResult: Result<ByteWriter, IoError> =
+        tryByteWriterWithLimit(3)
+    if limitedDestinationResult.isErr() {
+        println("FAIL: BYTES-001D_limit"); return 1
+    }
+    let limitedDestination = limitedDestinationResult.unwrap()
+    let limited: Result<CopyResult, IoError> = copyLimited(
+        byteAdapterContext(false), limitedSource, limitedDestination, 2, 1)
+    if limited.isErr() or limited.unwrap().readBytes != 2 or
+        limited.unwrap().writtenBytes != 2 or limited.unwrap().complete or
+        not limited.unwrap().limitReached {
+
+        println("FAIL: BYTES-001D_limit"); return 1
+    }
+    println("PASS: BYTES-001D_limit")
+
+    let cancelledSource = ByteReader.fromArray([1, 2])
+    let cancelledDestinationResult: Result<ByteWriter, IoError> =
+        tryByteWriterWithLimit(2)
+    if cancelledDestinationResult.isErr() {
+        println("FAIL: BYTES-001D_cancel"); return 1
+    }
+    let cancelledDestination = cancelledDestinationResult.unwrap()
+    let cancelled: Result<CopyResult, IoError> = copyLimited(
+        byteAdapterContext(true), cancelledSource, cancelledDestination, 2, 1)
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "byte.cancelled" or
+        cancelledSource.remaining() != 2 or cancelledDestination.length() != 0 {
+
+        println("FAIL: BYTES-001D_cancel"); return 1
+    }
+    println("PASS: BYTES-001D_cancel")
+
+    let limitedReader = LimitedReader.fromArray([1, 2, 3], 2)
+    let countingReader = CountingReader.fromArray([1, 2, 3])
+    let bufferedReader = BufferedReader.fromArray([1, 2, 3], 2)
+    let teeResult: Result<TeeReader, IoError> = tryTeeReader([1, 2, 3], 3)
+    let bufferedWriterResult: Result<BufferedWriter, IoError> =
+        tryBufferedWriter(3, 2)
+    if teeResult.isErr() or bufferedWriterResult.isErr() {
+        println("FAIL: BYTES-001D_cleanup"); return 1
+    }
+    let tee = teeResult.unwrap()
+    let bufferedWriter = bufferedWriterResult.unwrap()
+    let limitedClosed = limitedReader.close()
+    let limitedClosedAgain = limitedReader.close()
+    let countingClosed = countingReader.close()
+    let bufferedReaderClosed = bufferedReader.close()
+    let teeClosed = tee.close()
+    let bufferedWriterClosed = bufferedWriter.close()
+    let sourceClosed = source.close()
+    let destinationClosed = destination.close()
+    let hashSliceClosed = hashSlice.close()
+    let hashSourceReleased = hashSource.release()
+    let hashingClosed = hashing.close()
+    let partialSourceClosed = partialSource.close()
+    let partialDestinationClosed = partialDestination.close()
+    let invalidSourceClosed = invalidSource.close()
+    let invalidDestinationClosed = invalidDestination.close()
+    let limitedSourceClosed = limitedSource.close()
+    let limitedDestinationClosed = limitedDestination.close()
+    let cancelledSourceClosed = cancelledSource.close()
+    let cancelledDestinationClosed = cancelledDestination.close()
+    if limitedClosed.isErr() or limitedClosedAgain.isErr() or
+        not limitedClosed.unwrap() or limitedClosedAgain.unwrap() or
+        countingClosed.isErr() or bufferedReaderClosed.isErr() or
+        teeClosed.isErr() or bufferedWriterClosed.isErr() or
+        sourceClosed.isErr() or destinationClosed.isErr() or
+        hashSliceClosed.isErr() or hashSourceReleased.isErr() or
+        hashingClosed.isErr() or partialSourceClosed.isErr() or
+        partialDestinationClosed.isErr() or invalidSourceClosed.isErr() or
+        invalidDestinationClosed.isErr() or limitedSourceClosed.isErr() or
+        limitedDestinationClosed.isErr() or cancelledSourceClosed.isErr() or
+        cancelledDestinationClosed.isErr() {
+
+        println("FAIL: BYTES-001D_cleanup"); return 1
+    }
+    println("PASS: BYTES-001D_cleanup")
+    return 0
+}
+
+main()

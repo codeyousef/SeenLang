@@ -664,3 +664,395 @@ fun tryByteWriterWithLimit(maxBytes: Int) r: Result<ByteWriter, IoError> {
         storage: allocated.unwrap(), maxBytes: maxBytes, active: true
     })
 }
+
+class CopyResult {
+    var readBytes: Int
+    var writtenBytes: Int
+    var limitReached: Bool
+    var complete: Bool
+}
+
+@move
+class LimitedReader {
+    var reader: ByteReader
+    var remainingLimit: Int
+    var active: Bool
+
+    static fun fromArray(source: Array<Int>, limit: Int) r: LimitedReader {
+        var bounded = limit
+        if bounded < 0 { bounded = 0 }
+        return LimitedReader{
+            reader: ByteReader.fromArray(source), remainingLimit: bounded,
+            active: true
+        }
+    }
+
+    fun read(context: OperationContext, destination: MutableByteSlice)
+        r: Result<Int, IoError> {
+
+        let allowed = validateByteOperation(context, "limited-read")
+        if allowed.isErr() { return Err<Int, IoError>(allowed.unwrapErr()) }
+        if not this.active or not destination.active or
+            not destination.owner.active or
+            destination.generation != destination.owner.generation {
+
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "limited-read", "limited reader or destination is closed"))
+        }
+        var count = destination.count
+        if count > this.remainingLimit { count = this.remainingLimit }
+        let available = this.reader.remaining()
+        if count > available { count = available }
+        var index = 0
+        while index < count {
+            destination.owner.data[destination.offset + index] =
+                this.reader.storage.owner.data[this.reader.position + index]
+            index = index + 1
+        }
+        this.reader.position = this.reader.position + count
+        this.remainingLimit = this.remainingLimit - count
+        return Ok<Int, IoError>(count)
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        return this.reader.close()
+    }
+}
+
+@move
+class CountingReader {
+    var reader: ByteReader
+    var bytesRead: Int
+    var active: Bool
+
+    static fun fromArray(source: Array<Int>) r: CountingReader {
+        return CountingReader{
+            reader: ByteReader.fromArray(source), bytesRead: 0, active: true
+        }
+    }
+
+    fun read(context: OperationContext, destination: MutableByteSlice)
+        r: Result<Int, IoError> {
+
+        if not this.active {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "counting-read", "counting reader is closed"))
+        }
+        let progress = this.reader.read(context, destination)
+        if progress.isErr() { return Err<Int, IoError>(progress.unwrapErr()) }
+        this.bytesRead = this.bytesRead + progress.unwrap()
+        return progress
+    }
+
+    fun count() r: Int { return this.bytesRead }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        return this.reader.close()
+    }
+}
+
+@move
+class TeeReader {
+    var reader: ByteReader
+    var sink: ByteWriter
+    var bytesRead: Int
+    var bytesTeeWritten: Int
+    var active: Bool
+
+    fun read(context: OperationContext, destination: MutableByteSlice)
+        r: Result<Int, IoError> {
+
+        let allowed = validateByteOperation(context, "tee-read")
+        if allowed.isErr() { return Err<Int, IoError>(allowed.unwrapErr()) }
+        if not this.active or not destination.active or
+            not destination.owner.active or
+            destination.generation != destination.owner.generation {
+
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "tee-read", "tee reader or destination is closed"))
+        }
+        var count = destination.count
+        let available = this.reader.remaining()
+        if count > available { count = available }
+        let sinkAvailable = this.sink.maxBytes - this.sink.storage.length()
+        if count > sinkAvailable { count = sinkAvailable }
+        if count == 0 and available > 0 and destination.count > 0 {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT, "tee-read",
+                "tee sink byte limit is exhausted"))
+        }
+        var index = 0
+        while index < count {
+            let value = this.reader.storage.owner.data[
+                this.reader.position + index]
+            destination.owner.data[destination.offset + index] = value
+            let pushed = this.sink.storage.push(value)
+            if pushed.isErr() { return Err<Int, IoError>(pushed.unwrapErr()) }
+            index = index + 1
+        }
+        this.reader.position = this.reader.position + count
+        this.bytesRead = this.bytesRead + count
+        this.bytesTeeWritten = this.bytesTeeWritten + count
+        return Ok<Int, IoError>(count)
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        let readerClosed = this.reader.close()
+        let sinkClosed = this.sink.close()
+        if readerClosed.isErr() { return Err<Bool, IoError>(readerClosed.unwrapErr()) }
+        if sinkClosed.isErr() { return Err<Bool, IoError>(sinkClosed.unwrapErr()) }
+        return Ok<Bool, IoError>(true)
+    }
+}
+
+fun tryTeeReader(source: Array<Int>, sinkLimit: Int)
+    r: Result<TeeReader, IoError> {
+
+    let sink = tryByteWriterWithLimit(sinkLimit)
+    if sink.isErr() { return Err<TeeReader, IoError>(sink.unwrapErr()) }
+    return Ok<TeeReader, IoError>(TeeReader{
+        reader: ByteReader.fromArray(source), sink: sink.unwrap(),
+        bytesRead: 0, bytesTeeWritten: 0, active: true
+    })
+}
+
+@move
+class HashingWriter {
+    var writer: ByteWriter
+    var hashValue: Int
+    var bytesWritten: Int
+    var active: Bool
+
+    fun write(context: OperationContext, source: ByteSlice)
+        r: Result<Int, IoError> {
+
+        if not this.active {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "hash-write", "hashing writer is closed"))
+        }
+        let progress = this.writer.write(context, source)
+        if progress.isErr() { return Err<Int, IoError>(progress.unwrapErr()) }
+        let count = progress.unwrap()
+        var index = 0
+        while index < count {
+            this.hashValue = ((this.hashValue * 257) +
+                source.owner.data[source.offset + index]) & 2147483647
+            index = index + 1
+        }
+        this.bytesWritten = this.bytesWritten + count
+        return Ok<Int, IoError>(count)
+    }
+
+    fun digest() r: Int { return this.hashValue }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        return this.writer.close()
+    }
+}
+
+fun tryHashingWriter(limit: Int) r: Result<HashingWriter, IoError> {
+    let writer = tryByteWriterWithLimit(limit)
+    if writer.isErr() {
+        return Err<HashingWriter, IoError>(writer.unwrapErr())
+    }
+    return Ok<HashingWriter, IoError>(HashingWriter{
+        writer: writer.unwrap(), hashValue: 0, bytesWritten: 0, active: true
+    })
+}
+
+@move
+class BufferedReader {
+    var reader: ByteReader
+    var chunkLimit: Int
+    var active: Bool
+
+    static fun fromArray(source: Array<Int>, chunkLimit: Int)
+        r: BufferedReader {
+
+        var bounded = chunkLimit
+        if bounded < 1 { bounded = 1 }
+        return BufferedReader{
+            reader: ByteReader.fromArray(source), chunkLimit: bounded,
+            active: true
+        }
+    }
+
+    fun read(context: OperationContext, destination: MutableByteSlice)
+        r: Result<Int, IoError> {
+
+        let allowed = validateByteOperation(context, "buffered-read")
+        if allowed.isErr() { return Err<Int, IoError>(allowed.unwrapErr()) }
+        if not this.active or not destination.active or
+            not destination.owner.active {
+
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "buffered-read", "buffered reader or destination is closed"))
+        }
+        var count = destination.count
+        if count > this.chunkLimit { count = this.chunkLimit }
+        let available = this.reader.remaining()
+        if count > available { count = available }
+        var index = 0
+        while index < count {
+            destination.owner.data[destination.offset + index] =
+                this.reader.storage.owner.data[this.reader.position + index]
+            index = index + 1
+        }
+        this.reader.position = this.reader.position + count
+        return Ok<Int, IoError>(count)
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        return this.reader.close()
+    }
+}
+
+@move
+class BufferedWriter {
+    var writer: ByteWriter
+    var chunkLimit: Int
+    var active: Bool
+
+    fun write(context: OperationContext, source: ByteSlice)
+        r: Result<Int, IoError> {
+
+        let allowed = validateByteOperation(context, "buffered-write")
+        if allowed.isErr() { return Err<Int, IoError>(allowed.unwrapErr()) }
+        if not this.active or not source.active or not source.owner.active {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "buffered-write", "buffered writer or source is closed"))
+        }
+        var count = source.count
+        if count > this.chunkLimit { count = this.chunkLimit }
+        let available = this.writer.maxBytes - this.writer.storage.length()
+        if count > available { count = available }
+        if count == 0 and source.count > 0 {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+                "buffered-write", "buffered writer limit is exhausted"))
+        }
+        var index = 0
+        while index < count {
+            let pushed = this.writer.storage.push(
+                source.owner.data[source.offset + index])
+            if pushed.isErr() { return Err<Int, IoError>(pushed.unwrapErr()) }
+            index = index + 1
+        }
+        return Ok<Int, IoError>(count)
+    }
+
+    fun flush(context: OperationContext) r: Result<Bool, IoError> {
+        if not this.active {
+            return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "buffered-flush", "buffered writer is closed"))
+        }
+        return this.writer.flush(context)
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        return this.writer.close()
+    }
+}
+
+fun tryBufferedWriter(limit: Int, chunkLimit: Int)
+    r: Result<BufferedWriter, IoError> {
+
+    if chunkLimit <= 0 or chunkLimit > BYTE_MAX_CAPACITY {
+        return Err<BufferedWriter, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "buffered-writer", "buffer chunk limit is invalid"))
+    }
+    let writer = tryByteWriterWithLimit(limit)
+    if writer.isErr() {
+        return Err<BufferedWriter, IoError>(writer.unwrapErr())
+    }
+    return Ok<BufferedWriter, IoError>(BufferedWriter{
+        writer: writer.unwrap(), chunkLimit: chunkLimit, active: true
+    })
+}
+
+fun copyLimited(context: OperationContext, source: ByteReader,
+    destination: ByteWriter, limit: Int, scratchCapacity: Int)
+    r: Result<CopyResult, IoError> {
+
+    let allowed = validateByteOperation(context, "copy-limited")
+    if allowed.isErr() {
+        return Err<CopyResult, IoError>(allowed.unwrapErr())
+    }
+    if limit < 0 or scratchCapacity <= 0 or
+        scratchCapacity > BYTE_MAX_CAPACITY {
+
+        return Err<CopyResult, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "copy-limited", "copy limit or scratch capacity is invalid"))
+    }
+    var readTotal = 0
+    var writtenTotal = 0
+    var stopped = false
+    while readTotal < limit and source.remaining() > 0 and not stopped {
+        var chunk = limit - readTotal
+        if chunk > scratchCapacity { chunk = scratchCapacity }
+        if chunk > source.remaining() { chunk = source.remaining() }
+        let scratchResult = tryZeroedByteBuffer(chunk, 32)
+        if scratchResult.isErr() {
+            return Err<CopyResult, IoError>(scratchResult.unwrapErr())
+        }
+        let scratch = scratchResult.unwrap()
+        let mutableResult = scratch.mutableSlice(0, chunk)
+        if mutableResult.isErr() {
+            let ignoredRelease = scratch.release()
+            return Err<CopyResult, IoError>(mutableResult.unwrapErr())
+        }
+        let mutable = mutableResult.unwrap()
+        let readProgress = source.read(context, mutable)
+        let mutableClosed = mutable.close()
+        if mutableClosed.isErr() {
+            let ignoredRelease = scratch.release()
+            return Err<CopyResult, IoError>(mutableClosed.unwrapErr())
+        }
+        if readProgress.isErr() {
+            let ignoredRelease = scratch.release()
+            return Err<CopyResult, IoError>(readProgress.unwrapErr())
+        }
+        let readCount = readProgress.unwrap()
+        readTotal = readTotal + readCount
+        let immutableResult = scratch.slice(0, readCount)
+        if immutableResult.isErr() {
+            let ignoredRelease = scratch.release()
+            return Err<CopyResult, IoError>(immutableResult.unwrapErr())
+        }
+        let immutable = immutableResult.unwrap()
+        let writeProgress = destination.write(context, immutable)
+        let immutableClosed = immutable.close()
+        let scratchReleased = scratch.release()
+        if immutableClosed.isErr() or scratchReleased.isErr() {
+            return Err<CopyResult, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "copy-limited", "scratch cleanup failed"))
+        }
+        if writeProgress.isErr() {
+            if writeProgress.unwrapErr().code.value == BYTE_ERROR_LIMIT {
+                stopped = true
+            } else {
+                return Err<CopyResult, IoError>(writeProgress.unwrapErr())
+            }
+        } else {
+            let wrote = writeProgress.unwrap()
+            writtenTotal = writtenTotal + wrote
+            if wrote < readCount { stopped = true }
+        }
+        if readCount == 0 { stopped = true }
+    }
+    return Ok<CopyResult, IoError>(CopyResult{
+        readBytes: readTotal, writtenBytes: writtenTotal,
+        limitReached: readTotal >= limit or stopped,
+        complete: source.remaining() == 0 and readTotal == writtenTotal
+    })
+}

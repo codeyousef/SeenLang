@@ -1,0 +1,17 @@
+{
+  "benchmark": {
+    "baseline_ratio": 2.0,
+    "iterations_per_sample": 20000,
+    "samples": 30,
+    "warmups": 5
+  },
+  "cases": [
+    {"destination": 5, "expected_read": 5, "expected_written": 5, "limit": 5, "source": 5},
+    {"destination": 3, "expected_read": 4, "expected_written": 3, "limit": 5, "source": 5},
+    {"destination": 5, "expected_read": 2, "expected_written": 2, "limit": 2, "source": 5},
+    {"destination": 0, "expected_read": 2, "expected_written": 0, "limit": 5, "source": 5}
+  ],
+  "fuzz_seed": 1101,
+  "scratch_capacity": 2,
+  "schema": "seen-byte-adapters-v1"
+}

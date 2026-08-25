@@ -1,0 +1,39 @@
+import error.{AsciiString}
+import operation_context.{OperationLimits, OperationContext}
+import core.result.{Result}
+import io.bytes.{ByteReader, ByteWriter, CopyResult, IoError, copyLimited,
+    tryByteWriterWithLimit}
+
+fun adapterContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "byte-adapters-example" }
+    }
+}
+
+fun main() r: Int {
+    let source = ByteReader.fromArray([83, 101, 101, 110])
+    let destinationResult: Result<ByteWriter, IoError> =
+        tryByteWriterWithLimit(4)
+    if destinationResult.isErr() { return 1 }
+    let destination = destinationResult.unwrap()
+    let copied: Result<CopyResult, IoError> = copyLimited(
+        adapterContext(), source, destination, 4, 2)
+    if copied.isErr() or copied.unwrap().readBytes != 4 or
+        copied.unwrap().writtenBytes != 4 or not copied.unwrap().complete {
+
+        return 1
+    }
+    let sourceClosed = source.close()
+    let destinationClosed = destination.close()
+    if sourceClosed.isErr() or destinationClosed.isErr() { return 1 }
+    println("bounded copy progress=4")
+    return 0
+}
+
+main()
