@@ -144,6 +144,15 @@ the stable `byte.invalid` code. Cancellation-aware acquisition reports
 `byte.cancelled`. See `seen_std/examples/byte_slices.seen` for a compiling
 example.
 
+`ByteBuffer` also provides bounded growable storage. Call
+`tryByteBufferWithCapacity` or `tryZeroedByteBuffer` to select a checked
+logical capacity and power-of-two alignment up to 32 bytes. `reserve`, `push`,
+and `append` reject growth while any view is borrowed, preserve existing
+bytes, and cap every allocation at `BYTE_MAX_CAPACITY`. Native Seen arrays are
+32-byte aligned by the runtime; smaller requested alignments are compatibility
+requirements satisfied by that storage. `toArray` is the explicit copying
+escape hatch; slices remain generation-checked zero-copy views.
+
 ### `json`
 
 - `json/builder`

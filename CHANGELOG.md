@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added native bounded growable byte storage with explicit alignment policy,
+  checked capacity and growth limits, borrow-safe mutation, zeroed allocation,
+  explicit copying, stable failures, and deterministic cleanup.
+
 ## [0.12.0] - 2026-08-25
 
 ### Added

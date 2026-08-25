@@ -1,4 +1,5 @@
-import io.bytes.{ByteBuffer}
+import core.result.{Result}
+import io.bytes.{ByteBuffer, IoError, tryByteBufferWithCapacity}
 
 fun main() r: Int {
     let buffer = ByteBuffer.fromArray([83, 101, 101, 110])
@@ -11,6 +12,20 @@ fun main() r: Int {
     let released = buffer.release()
     if closed.isErr() or released.isErr() { return 1 }
     println("checked byte slice length=4")
+
+    let allocated: Result<ByteBuffer, IoError> =
+        tryByteBufferWithCapacity(64, 32)
+    if allocated.isErr() { return 1 }
+    let growable = allocated.unwrap()
+    let pushed = growable.push(42)
+    if pushed.isErr() or growable.capacity() != 64 or
+        growable.alignment() != 32 {
+
+        return 1
+    }
+    let growableReleased = growable.release()
+    if growableReleased.isErr() { return 1 }
+    println("bounded byte storage capacity=64 alignment=32")
     return 0
 }
 

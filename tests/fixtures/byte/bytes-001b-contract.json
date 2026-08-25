@@ -1,0 +1,19 @@
+{
+  "alignments": [1, 2, 4, 8, 16, 32],
+  "benchmark": {
+    "baseline_ratio": 1.5,
+    "iterations_per_sample": 20000,
+    "samples": 30,
+    "warmups": 5
+  },
+  "cases": [
+    {"expected": "ok", "initial": 0, "required": 0},
+    {"expected": "ok", "initial": 4, "required": 4},
+    {"expected": "grow", "initial": 4, "required": 9},
+    {"expected": "byte.invalid", "initial": -1, "required": 0},
+    {"expected": "byte.limit", "initial": 8, "required": 1073741825}
+  ],
+  "fuzz_seed": 1101,
+  "max_capacity": 1073741824,
+  "schema": "seen-byte-storage-v1"
+}

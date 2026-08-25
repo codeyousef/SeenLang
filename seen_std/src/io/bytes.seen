@@ -16,6 +16,9 @@ class IoError {
 }
 
 let BYTE_MAX_COUNT: Int = 9223372036854775807
+let BYTE_MAX_CAPACITY: Int = 1073741824
+let BYTE_DEFAULT_ALIGNMENT: Int = 32
+let BYTE_MAX_ALIGNMENT: Int = 32
 let BYTE_ERROR_INVALID: String = "byte.invalid"
 let BYTE_ERROR_LIMIT: String = "byte.limit"
 let BYTE_ERROR_CANCELLED: String = "byte.cancelled"
@@ -59,8 +62,29 @@ fun validateByteRangeInContext(context: OperationContext, totalLength: Int,
     return validateByteRange(totalLength, offset, count)
 }
 
+fun isValidByteAlignment(alignment: Int) r: Bool {
+    if alignment <= 0 or alignment > BYTE_MAX_ALIGNMENT { return false }
+    return (alignment & (alignment - 1)) == 0
+}
+
+fun validateByteCapacity(capacity: Int, alignment: Int)
+    r: Result<Bool, IoError> {
+
+    if capacity < 0 or not isValidByteAlignment(alignment) {
+        return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "allocate",
+            "byte capacity must be nonnegative and alignment must be a power of two through 32"))
+    }
+    if capacity > BYTE_MAX_CAPACITY {
+        return Err<Bool, IoError>(byteFailure(BYTE_ERROR_LIMIT, "allocate",
+            "byte capacity exceeds the bounded allocation limit"))
+    }
+    return Ok<Bool, IoError>(true)
+}
+
 class ByteOwner {
     var data: Array<Int>
+    var capacity: Int
+    var alignment: Int
     var generation: Int
     var active: Bool
     var sharedBorrows: Int
@@ -80,7 +104,8 @@ class ByteBuffer {
         }
         return ByteBuffer{
             owner: ByteOwner{
-                data: copied, generation: 1, active: true,
+                data: copied, capacity: copied.length(),
+                alignment: BYTE_DEFAULT_ALIGNMENT, generation: 1, active: true,
                 sharedBorrows: 0, mutableBorrowed: false
             }
         }
@@ -93,6 +118,112 @@ class ByteBuffer {
     fun length() r: Int {
         if not this.owner.active { return 0 }
         return this.owner.data.length()
+    }
+
+    fun capacity() r: Int {
+        if not this.owner.active { return 0 }
+        return this.owner.capacity
+    }
+
+    fun alignment() r: Int {
+        if not this.owner.active { return 0 }
+        return this.owner.alignment
+    }
+
+    fun reserve(requiredCapacity: Int) r: Result<Bool, IoError> {
+        if not this.owner.active {
+            return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "reserve",
+                "byte owner has been released"))
+        }
+        if this.owner.mutableBorrowed or this.owner.sharedBorrows > 0 {
+            return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "reserve",
+                "byte owner cannot grow while a view is borrowed"))
+        }
+        let checked = validateByteCapacity(requiredCapacity, this.owner.alignment)
+        if checked.isErr() {
+            return Err<Bool, IoError>(checked.unwrapErr())
+        }
+        if requiredCapacity <= this.owner.capacity {
+            return Ok<Bool, IoError>(false)
+        }
+        let replacement = Array<Int>()
+        var index = 0
+        while index < this.owner.data.length() {
+            replacement.push(this.owner.data[index])
+            index = index + 1
+        }
+        this.owner.data = replacement
+        this.owner.capacity = requiredCapacity
+        this.owner.generation = this.owner.generation + 1
+        return Ok<Bool, IoError>(true)
+    }
+
+    fun push(value: Int) r: Result<Bool, IoError> {
+        if value < 0 or value > 255 {
+            return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "push",
+                "byte value is outside 0 through 255"))
+        }
+        if not this.owner.active or this.owner.mutableBorrowed or
+            this.owner.sharedBorrows > 0 {
+
+            return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "push",
+                "byte owner is released or borrowed"))
+        }
+        if this.owner.data.length() >= this.owner.capacity {
+            var nextCapacity = this.owner.capacity * 2
+            if nextCapacity < 1 { nextCapacity = 1 }
+            if nextCapacity < this.owner.data.length() + 1 {
+                nextCapacity = this.owner.data.length() + 1
+            }
+            let grown = this.reserve(nextCapacity)
+            if grown.isErr() { return Err<Bool, IoError>(grown.unwrapErr()) }
+        }
+        this.owner.data.push(value)
+        return Ok<Bool, IoError>(true)
+    }
+
+    fun append(source: ByteSlice) r: Result<Int, IoError> {
+        if not source.active or not source.owner.active or
+            source.generation != source.owner.generation {
+
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID, "append",
+                "source byte slice is stale or closed"))
+        }
+        if not this.owner.active or this.owner.mutableBorrowed or
+            this.owner.sharedBorrows > 0 {
+
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID, "append",
+                "destination byte owner is released or borrowed"))
+        }
+        if source.count > BYTE_MAX_CAPACITY - this.owner.data.length() {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT, "append",
+                "appended bytes exceed the bounded allocation limit"))
+        }
+        let required = this.owner.data.length() + source.count
+        if required > this.owner.capacity {
+            let grown = this.reserve(required)
+            if grown.isErr() { return Err<Int, IoError>(grown.unwrapErr()) }
+        }
+        var index = 0
+        while index < source.count {
+            this.owner.data.push(source.owner.data[source.offset + index])
+            index = index + 1
+        }
+        return Ok<Int, IoError>(source.count)
+    }
+
+    fun toArray() r: Result<Array<Int>, IoError> {
+        if not this.owner.active {
+            return Err<Array<Int>, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "copy", "byte owner has been released"))
+        }
+        let copied = Array<Int>()
+        var index = 0
+        while index < this.owner.data.length() {
+            copied.push(this.owner.data[index])
+            index = index + 1
+        }
+        return Ok<Array<Int>, IoError>(copied)
     }
 
     fun slice(offset: Int, count: Int) r: Result<ByteSlice, IoError> {
@@ -167,8 +298,41 @@ class ByteBuffer {
         this.owner.sharedBorrows = 0
         this.owner.mutableBorrowed = false
         this.owner.data = Array<Int>()
+        this.owner.capacity = 0
         return Ok<Bool, IoError>(true)
     }
+}
+
+fun tryByteBufferWithCapacity(capacity: Int,
+    alignment: Int = BYTE_DEFAULT_ALIGNMENT) r: Result<ByteBuffer, IoError> {
+
+    let checked = validateByteCapacity(capacity, alignment)
+    if checked.isErr() {
+        return Err<ByteBuffer, IoError>(checked.unwrapErr())
+    }
+    return Ok<ByteBuffer, IoError>(ByteBuffer{
+        owner: ByteOwner{
+            data: Array<Int>(), capacity: capacity,
+            alignment: alignment, generation: 1, active: true,
+            sharedBorrows: 0, mutableBorrowed: false
+        }
+    })
+}
+
+fun tryZeroedByteBuffer(length: Int,
+    alignment: Int = BYTE_DEFAULT_ALIGNMENT) r: Result<ByteBuffer, IoError> {
+
+    let allocated = tryByteBufferWithCapacity(length, alignment)
+    if allocated.isErr() {
+        return Err<ByteBuffer, IoError>(allocated.unwrapErr())
+    }
+    let buffer = allocated.unwrap()
+    var index = 0
+    while index < length {
+        buffer.owner.data.push(0)
+        index = index + 1
+    }
+    return Ok<ByteBuffer, IoError>(buffer)
 }
 
 class ByteSlice {
