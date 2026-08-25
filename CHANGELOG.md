@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added strict and lossy bounded UTF-8 codecs plus checked little- and
   big-endian integer and lossless Float16, BFloat16, and Float64 bit-pattern
   storage codecs.
+- Added asynchronous byte stream traits and native direct-ready memory streams
+  with checked borrowed spans, exact 64-bit partial progress, cancellation
+  before side effects, bounded writes, and deterministic cleanup.
+- Fixed async coroutine IR register allocation so generated setup instructions
+  are emitted in valid SSA order.
 
 ## [0.12.0] - 2026-08-25
 

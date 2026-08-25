@@ -177,6 +177,15 @@ NaN payloads and signed zero round-trip exactly; scalar interpretation belongs
 to the scalar type layer. Every codec validates its complete range before
 mutation. See `seen_std/examples/byte_codecs.seen`.
 
+Asynchronous byte I/O is specified by `AsyncReader`, `AsyncWriter`,
+`AsyncSeeker`, `AsyncBufRead`, and `AsyncFlush`. The native Seen
+`AsyncByteReader` and `AsyncByteWriter` preserve checked borrowed spans,
+nonnegative 64-bit progress, exact partial completion, cancellation before side
+effects, and idempotent cleanup. Memory-backed operations are direct-ready
+coroutines; readiness scheduling and operating-system queues remain the
+responsibility of backend implementations. See
+`seen_std/examples/async_byte_streams.seen`.
+
 ### `json`
 
 - `json/builder`

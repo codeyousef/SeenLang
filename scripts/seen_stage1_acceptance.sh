@@ -579,6 +579,10 @@ run_fixture byte-codecs \
     "$REPO_ROOT/seen_std/tests/byte/bytes-001e.seen"
 run_fixture byte-codecs-example \
     "$REPO_ROOT/seen_std/examples/byte_codecs.seen"
+run_fixture asynchronous-byte-streams \
+    "$REPO_ROOT/seen_std/tests/byte/bytes-002a.seen"
+run_fixture asynchronous-byte-streams-example \
+    "$REPO_ROOT/seen_std/examples/async_byte_streams.seen"
 run_fixture secret-markers \
     "$REPO_ROOT/seen_std/tests/error/p0_secret_001_secret_markers.seen"
 run_fixture secret-markers-example \

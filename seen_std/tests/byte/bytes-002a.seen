@@ -1,0 +1,154 @@
+import error.{AsciiString}
+import operation_context.{OperationLimits, OperationContext}
+import core.result.{Result}
+import io.bytes.{AsyncByteReader, AsyncByteWriter, ByteBuffer, ByteSlice, IoError,
+    asyncConsume, asyncFillBuf, asyncFlush, asyncRead, asyncSeek, asyncWrite,
+    BYTE_SEEK_START, tryAsyncByteWriterWithLimit}
+
+fun asyncByteContext(cancelled: Bool) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "bytes-002a" }
+    }
+}
+
+fun main() r: Int {
+    let reader = AsyncByteReader.fromArray([10, 20, 30, 40])
+    let destination = ByteBuffer.fromArray([0, 0, 0, 0])
+    let destinationViewResult = destination.mutableSlice(0, 4)
+    if destinationViewResult.isErr() {
+        println("FAIL: BYTES-002A_happy"); return 1
+    }
+    let destinationView = destinationViewResult.unwrap()
+    let read: Result<Int, IoError> = await asyncRead(reader,
+        asyncByteContext(false), destinationView)
+    let destinationViewClosed = destinationView.close()
+    let copied = destination.toArray()
+    if read.isErr() or read.unwrap() != 4 or destinationViewClosed.isErr() or
+        copied.isErr() or copied.unwrap()[3] != 40 {
+
+        println("FAIL: BYTES-002A_happy"); return 1
+    }
+    println("PASS: BYTES-002A_happy")
+
+    let bufferedReader = AsyncByteReader.fromArray([50, 60, 70])
+    let buffered: Result<ByteSlice, IoError> = await asyncFillBuf(
+        bufferedReader, asyncByteContext(false))
+    if buffered.isErr() or buffered.unwrap().length() != 3 {
+        println("FAIL: BYTES-002A_happy"); return 1
+    }
+    let bufferedView = buffered.unwrap()
+    let bufferedViewClosed = bufferedView.close()
+    let consumed: Result<Int, IoError> = await asyncConsume(
+        bufferedReader, asyncByteContext(false), 2)
+    if bufferedViewClosed.isErr() or consumed.isErr() or
+        consumed.unwrap() != 2 or bufferedReader.remaining() != 1 {
+
+        println("FAIL: BYTES-002A_happy"); return 1
+    }
+
+    let partialReader = AsyncByteReader.fromArray([1, 2])
+    let partialDestination = ByteBuffer.fromArray([0, 0, 0, 0])
+    let partialViewResult = partialDestination.mutableSlice(0, 4)
+    if partialViewResult.isErr() {
+        println("FAIL: BYTES-002A_partial"); return 1
+    }
+    let partialView = partialViewResult.unwrap()
+    let partial: Result<Int, IoError> = await asyncRead(partialReader,
+        asyncByteContext(false), partialView)
+    let partialClosed = partialView.close()
+    if partial.isErr() or partial.unwrap() != 2 or partialClosed.isErr() or
+        partialReader.remaining() != 0 {
+
+        println("FAIL: BYTES-002A_partial"); return 1
+    }
+    println("PASS: BYTES-002A_partial")
+
+    let invalidWriter: Result<AsyncByteWriter, IoError> =
+        tryAsyncByteWriterWithLimit(-1)
+    if not invalidWriter.isErr() or
+        invalidWriter.unwrapErr().code.value != "byte.invalid" {
+
+        println("FAIL: BYTES-002A_invalid"); return 1
+    }
+    println("PASS: BYTES-002A_invalid")
+
+    let writerResult: Result<AsyncByteWriter, IoError> =
+        tryAsyncByteWriterWithLimit(2)
+    if writerResult.isErr() {
+        println("FAIL: BYTES-002A_limit"); return 1
+    }
+    let writer = writerResult.unwrap()
+    let source = ByteBuffer.fromArray([7, 8, 9])
+    let sourceViewResult = source.slice(0, 3)
+    if sourceViewResult.isErr() {
+        println("FAIL: BYTES-002A_limit"); return 1
+    }
+    let sourceView = sourceViewResult.unwrap()
+    let limited: Result<Int, IoError> = await asyncWrite(writer,
+        asyncByteContext(false), sourceView)
+    let flushed: Result<Bool, IoError> = await asyncFlush(
+        writer, asyncByteContext(false))
+    if limited.isErr() or limited.unwrap() != 2 or writer.length() != 2 or
+        flushed.isErr() or not flushed.unwrap() {
+        println("FAIL: BYTES-002A_limit"); return 1
+    }
+    println("PASS: BYTES-002A_limit")
+
+    let cancelledReader = AsyncByteReader.fromArray([5])
+    let cancelledDestination = ByteBuffer.fromArray([0])
+    let cancelledViewResult = cancelledDestination.mutableSlice(0, 1)
+    if cancelledViewResult.isErr() {
+        println("FAIL: BYTES-002A_cancel"); return 1
+    }
+    let cancelledView = cancelledViewResult.unwrap()
+    let cancelled: Result<Int, IoError> = await asyncRead(cancelledReader,
+        asyncByteContext(true), cancelledView)
+    let cancelledViewClosed = cancelledView.close()
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "byte.cancelled" or
+        cancelledReader.remaining() != 1 or cancelledViewClosed.isErr() {
+
+        println("FAIL: BYTES-002A_cancel"); return 1
+    }
+    println("PASS: BYTES-002A_cancel")
+
+    let seeked: Result<Int, IoError> = await asyncSeek(
+        partialReader, asyncByteContext(false), 0, BYTE_SEEK_START)
+    if seeked.isErr() or seeked.unwrap() != 0 or partialReader.remaining() != 2 {
+        println("FAIL: BYTES-002A_cleanup"); return 1
+    }
+
+    let sourceViewClosed = sourceView.close()
+    let writerClosed = writer.close()
+    let writerClosedAgain = writer.close()
+    let sourceReleased = source.release()
+    let readerClosed = reader.close()
+    let readerClosedAgain = reader.close()
+    let destinationReleased = destination.release()
+    let partialReaderClosed = partialReader.close()
+    let bufferedReaderClosed = bufferedReader.close()
+    let partialDestinationReleased = partialDestination.release()
+    let cancelledReaderClosed = cancelledReader.close()
+    let cancelledDestinationReleased = cancelledDestination.release()
+    if sourceViewClosed.isErr() or writerClosed.isErr() or
+        writerClosedAgain.isErr() or writerClosedAgain.unwrap() or
+        sourceReleased.isErr() or readerClosed.isErr() or
+        readerClosedAgain.isErr() or readerClosedAgain.unwrap() or
+        destinationReleased.isErr() or partialReaderClosed.isErr() or
+        bufferedReaderClosed.isErr() or partialDestinationReleased.isErr() or
+        cancelledReaderClosed.isErr() or
+        cancelledDestinationReleased.isErr() {
+
+        println("FAIL: BYTES-002A_cleanup"); return 1
+    }
+    println("PASS: BYTES-002A_cleanup")
+    return 0
+}
+
+main()

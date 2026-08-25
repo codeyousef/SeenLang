@@ -1392,3 +1392,231 @@ fun writeFloat64BitsBigEndian(destination: MutableByteSlice, offset: Int,
     bits: Int) r: Result<Int, IoError> {
     return writeI64BigEndian(destination, offset, bits)
 }
+
+// Asynchronous byte-stream contracts preserve the checked borrowed-view and
+// progress semantics of the synchronous traits. Memory-backed operations are
+// direct-ready coroutines; readiness-driven backends implement these traits in
+// SEEN-IO-002 without changing their ownership or error surface.
+
+trait AsyncReader {
+    @async
+    fun read(this: AsyncReader, context: OperationContext,
+        destination: MutableByteSlice) r: Result<Int, IoError>
+}
+
+trait AsyncWriter {
+    @async
+    fun write(this: AsyncWriter, context: OperationContext,
+        source: ByteSlice) r: Result<Int, IoError>
+}
+
+trait AsyncSeeker {
+    @async
+    fun seek(this: AsyncSeeker, context: OperationContext, offset: Int,
+        origin: Int) r: Result<Int, IoError>
+}
+
+trait AsyncBufRead {
+    @async
+    fun fillBuf(this: AsyncBufRead, context: OperationContext)
+        r: Result<ByteSlice, IoError>
+    @async
+    fun consume(this: AsyncBufRead, context: OperationContext, count: Int)
+        r: Result<Int, IoError>
+}
+
+trait AsyncFlush {
+    @async
+    fun flush(this: AsyncFlush, context: OperationContext)
+        r: Result<Bool, IoError>
+}
+
+@move
+class AsyncByteReader {
+    var reader: ByteReader
+    var active: Bool
+
+    static fun fromArray(source: Array<Int>) r: AsyncByteReader {
+        return AsyncByteReader{
+            reader: ByteReader.fromArray(source), active: true
+        }
+    }
+
+    fun remaining() r: Int {
+        if not this.active { return 0 }
+        return this.reader.remaining()
+    }
+
+    @async
+    fun read(context: OperationContext, destination: MutableByteSlice)
+        r: Result<Int, IoError> {
+
+        if not this.active {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "async-read", "asynchronous reader is closed"))
+        }
+        return this.reader.read(context, destination)
+    }
+
+    @async
+    fun seek(context: OperationContext, offset: Int, origin: Int)
+        r: Result<Int, IoError> {
+
+        if not this.active {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "async-seek", "asynchronous reader is closed"))
+        }
+        return this.reader.seek(context, offset, origin)
+    }
+
+    @async
+    fun fillBuf(context: OperationContext) r: Result<ByteSlice, IoError> {
+        if not this.active {
+            return Err<ByteSlice, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "async-fill-buffer", "asynchronous reader is closed"))
+        }
+        return this.reader.fillBuf(context)
+    }
+
+    @async
+    fun consume(context: OperationContext, count: Int)
+        r: Result<Int, IoError> {
+
+        if not this.active {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "async-consume", "asynchronous reader is closed"))
+        }
+        return this.reader.consume(context, count)
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        return this.reader.close()
+    }
+}
+
+@move
+class AsyncByteWriter {
+    var writer: ByteWriter
+    var active: Bool
+
+    fun length() r: Int {
+        if not this.active { return 0 }
+        return this.writer.length()
+    }
+
+    fun toArray() r: Result<Array<Int>, IoError> {
+        if not this.active {
+            return Err<Array<Int>, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "async-copy", "asynchronous writer is closed"))
+        }
+        return this.writer.toArray()
+    }
+
+    @async
+    fun write(context: OperationContext, source: ByteSlice)
+        r: Result<Int, IoError> {
+
+        if not this.active {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "async-write", "asynchronous writer is closed"))
+        }
+        return this.writer.write(context, source)
+    }
+
+    @async
+    fun flush(context: OperationContext) r: Result<Bool, IoError> {
+        if not this.active {
+            return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "async-flush", "asynchronous writer is closed"))
+        }
+        return this.writer.flush(context)
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        return this.writer.close()
+    }
+}
+
+fun tryAsyncByteWriterWithLimit(maxBytes: Int)
+    r: Result<AsyncByteWriter, IoError> {
+
+    let created = tryByteWriterWithLimit(maxBytes)
+    if created.isErr() {
+        return Err<AsyncByteWriter, IoError>(created.unwrapErr())
+    }
+    return Ok<AsyncByteWriter, IoError>(AsyncByteWriter{
+        writer: created.unwrap(), active: true
+    })
+}
+
+// Free coroutine entrypoints provide a stable call surface and dispatch to the
+// same concrete operations required by the public async traits.
+@async
+fun asyncRead(reader: AsyncByteReader, context: OperationContext,
+    destination: MutableByteSlice) r: Result<Int, IoError> {
+
+    if not reader.active {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "async-read", "asynchronous reader is closed"))
+    }
+    return reader.reader.read(context, destination)
+}
+
+@async
+fun asyncSeek(reader: AsyncByteReader, context: OperationContext, offset: Int,
+    origin: Int) r: Result<Int, IoError> {
+
+    if not reader.active {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "async-seek", "asynchronous reader is closed"))
+    }
+    return reader.reader.seek(context, offset, origin)
+}
+
+@async
+fun asyncFillBuf(reader: AsyncByteReader, context: OperationContext)
+    r: Result<ByteSlice, IoError> {
+
+    if not reader.active {
+        return Err<ByteSlice, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "async-fill-buffer", "asynchronous reader is closed"))
+    }
+    return reader.reader.fillBuf(context)
+}
+
+@async
+fun asyncConsume(reader: AsyncByteReader, context: OperationContext,
+    count: Int) r: Result<Int, IoError> {
+
+    if not reader.active {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "async-consume", "asynchronous reader is closed"))
+    }
+    return reader.reader.consume(context, count)
+}
+
+@async
+fun asyncWrite(writer: AsyncByteWriter, context: OperationContext,
+    source: ByteSlice) r: Result<Int, IoError> {
+
+    if not writer.active {
+        return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "async-write", "asynchronous writer is closed"))
+    }
+    return writer.writer.write(context, source)
+}
+
+@async
+fun asyncFlush(writer: AsyncByteWriter, context: OperationContext)
+    r: Result<Bool, IoError> {
+
+    if not writer.active {
+        return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "async-flush", "asynchronous writer is closed"))
+    }
+    return writer.writer.flush(context)
+}
