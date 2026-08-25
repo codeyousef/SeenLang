@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added native bounded growable byte storage with explicit alignment policy,
   checked capacity and growth limits, borrow-safe mutation, zeroed allocation,
   explicit copying, stable failures, and deterministic cleanup.
+- Added synchronous byte stream traits and bounded native Seen memory streams
+  with context-aware read, write, seek, buffered-read, flush, exact partial
+  progress, stable cancellation/timeout failures, and idempotent cleanup.
 
 ## [0.12.0] - 2026-08-25
 

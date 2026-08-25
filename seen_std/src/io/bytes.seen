@@ -422,3 +422,245 @@ class MutableByteSlice {
         return Ok<Bool, IoError>(true)
     }
 }
+
+let BYTE_SEEK_START: Int = 0
+let BYTE_SEEK_CURRENT: Int = 1
+let BYTE_SEEK_END: Int = 2
+
+fun validateByteOperation(context: OperationContext, operation: String)
+    r: Result<Bool, IoError> {
+
+    if context.cancellation {
+        return Err<Bool, IoError>(byteFailure(BYTE_ERROR_CANCELLED, operation,
+            "byte operation is cancelled"))
+    }
+    if context.monotonicDeadline < 0 {
+        return Err<Bool, IoError>(byteFailure(BYTE_ERROR_TIMEOUT, operation,
+            "byte operation deadline has expired"))
+    }
+    return Ok<Bool, IoError>(true)
+}
+
+trait Reader {
+    fun read(this: Reader, context: OperationContext,
+        destination: MutableByteSlice) r: Result<Int, IoError>
+}
+
+trait Writer {
+    fun write(this: Writer, context: OperationContext,
+        source: ByteSlice) r: Result<Int, IoError>
+}
+
+trait Seeker {
+    fun seek(this: Seeker, context: OperationContext, offset: Int,
+        origin: Int) r: Result<Int, IoError>
+}
+
+trait BufRead {
+    fun fillBuf(this: BufRead, context: OperationContext)
+        r: Result<ByteSlice, IoError>
+    fun consume(this: BufRead, context: OperationContext, count: Int)
+        r: Result<Int, IoError>
+}
+
+trait Flush {
+    fun flush(this: Flush, context: OperationContext) r: Result<Bool, IoError>
+}
+
+@move
+class ByteReader {
+    var storage: ByteBuffer
+    var position: Int
+    var active: Bool
+
+    static fun fromArray(source: Array<Int>) r: ByteReader {
+        return ByteReader{
+            storage: ByteBuffer.fromArray(source), position: 0, active: true
+        }
+    }
+
+    fun remaining() r: Int {
+        if not this.active { return 0 }
+        return this.storage.length() - this.position
+    }
+
+    fun read(context: OperationContext,
+        destination: MutableByteSlice) r: Result<Int, IoError> {
+
+        let allowed = validateByteOperation(context, "read")
+        if allowed.isErr() { return Err<Int, IoError>(allowed.unwrapErr()) }
+        if not this.active or not destination.active or
+            not destination.owner.active or
+            destination.generation != destination.owner.generation {
+
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID, "read",
+                "reader or destination byte slice is closed or stale"))
+        }
+        var count = destination.count
+        let available = this.storage.length() - this.position
+        if count > available { count = available }
+        var index = 0
+        while index < count {
+            destination.owner.data[destination.offset + index] =
+                this.storage.owner.data[this.position + index]
+            index = index + 1
+        }
+        this.position = this.position + count
+        return Ok<Int, IoError>(count)
+    }
+
+    fun seek(context: OperationContext, offset: Int,
+        origin: Int) r: Result<Int, IoError> {
+
+        let allowed = validateByteOperation(context, "seek")
+        if allowed.isErr() { return Err<Int, IoError>(allowed.unwrapErr()) }
+        if not this.active {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID, "seek",
+                "reader is closed"))
+        }
+        var base = 0
+        if origin == BYTE_SEEK_CURRENT {
+            base = this.position
+        } else if origin == BYTE_SEEK_END {
+            base = this.storage.length()
+        } else if origin != BYTE_SEEK_START {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID, "seek",
+                "seek origin is invalid"))
+        }
+        if offset > 0 and base > BYTE_MAX_COUNT - offset {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT, "seek",
+                "seek position overflows checked byte geometry"))
+        }
+        let target = base + offset
+        if target < 0 or target > this.storage.length() {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT, "seek",
+                "seek position is outside the reader"))
+        }
+        this.position = target
+        return Ok<Int, IoError>(target)
+    }
+
+    fun fillBuf(context: OperationContext)
+        r: Result<ByteSlice, IoError> {
+
+        let allowed = validateByteOperation(context, "fill-buffer")
+        if allowed.isErr() {
+            return Err<ByteSlice, IoError>(allowed.unwrapErr())
+        }
+        if not this.active {
+            return Err<ByteSlice, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "fill-buffer", "reader is closed"))
+        }
+        return this.storage.slice(this.position,
+            this.storage.length() - this.position)
+    }
+
+    fun consume(context: OperationContext, count: Int)
+        r: Result<Int, IoError> {
+
+        let allowed = validateByteOperation(context, "consume")
+        if allowed.isErr() { return Err<Int, IoError>(allowed.unwrapErr()) }
+        if not this.active or count < 0 {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID, "consume",
+                "reader is closed or count is negative"))
+        }
+        if count > this.storage.length() - this.position {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT, "consume",
+                "consume count exceeds buffered bytes"))
+        }
+        this.position = this.position + count
+        return Ok<Int, IoError>(count)
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        let released = this.storage.release()
+        if released.isErr() { return Err<Bool, IoError>(released.unwrapErr()) }
+        return Ok<Bool, IoError>(true)
+    }
+}
+
+@move
+class ByteWriter {
+    var storage: ByteBuffer
+    var maxBytes: Int
+    var active: Bool
+
+    fun length() r: Int {
+        if not this.active { return 0 }
+        return this.storage.length()
+    }
+
+    fun toArray() r: Result<Array<Int>, IoError> {
+        if not this.active {
+            return Err<Array<Int>, IoError>(byteFailure(BYTE_ERROR_INVALID,
+                "copy", "writer is closed"))
+        }
+        return this.storage.toArray()
+    }
+
+    fun write(context: OperationContext, source: ByteSlice)
+        r: Result<Int, IoError> {
+
+        let allowed = validateByteOperation(context, "write")
+        if allowed.isErr() { return Err<Int, IoError>(allowed.unwrapErr()) }
+        if not this.active or not source.active or not source.owner.active or
+            source.generation != source.owner.generation {
+
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_INVALID, "write",
+                "writer or source byte slice is closed or stale"))
+        }
+        let available = this.maxBytes - this.storage.length()
+        if available <= 0 and source.count > 0 {
+            return Err<Int, IoError>(byteFailure(BYTE_ERROR_LIMIT, "write",
+                "writer byte limit is exhausted"))
+        }
+        var count = source.count
+        if count > available { count = available }
+        var index = 0
+        while index < count {
+            let pushed = this.storage.push(
+                source.owner.data[source.offset + index])
+            if pushed.isErr() { return Err<Int, IoError>(pushed.unwrapErr()) }
+            index = index + 1
+        }
+        return Ok<Int, IoError>(count)
+    }
+
+    fun flush(context: OperationContext) r: Result<Bool, IoError> {
+        let allowed = validateByteOperation(context, "flush")
+        if allowed.isErr() { return Err<Bool, IoError>(allowed.unwrapErr()) }
+        if not this.active {
+            return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "flush",
+                "writer is closed"))
+        }
+        return Ok<Bool, IoError>(true)
+    }
+
+    fun close() r: Result<Bool, IoError> {
+        if not this.active { return Ok<Bool, IoError>(false) }
+        this.active = false
+        let released = this.storage.release()
+        if released.isErr() { return Err<Bool, IoError>(released.unwrapErr()) }
+        return Ok<Bool, IoError>(true)
+    }
+}
+
+fun tryByteWriterWithLimit(maxBytes: Int) r: Result<ByteWriter, IoError> {
+    if maxBytes < 0 {
+        return Err<ByteWriter, IoError>(byteFailure(BYTE_ERROR_INVALID,
+            "writer", "writer limit must be nonnegative"))
+    }
+    if maxBytes > BYTE_MAX_CAPACITY {
+        return Err<ByteWriter, IoError>(byteFailure(BYTE_ERROR_LIMIT,
+            "writer", "writer limit exceeds bounded capacity"))
+    }
+    let allocated = tryByteBufferWithCapacity(0, 32)
+    if allocated.isErr() {
+        return Err<ByteWriter, IoError>(allocated.unwrapErr())
+    }
+    return Ok<ByteWriter, IoError>(ByteWriter{
+        storage: allocated.unwrap(), maxBytes: maxBytes, active: true
+    })
+}

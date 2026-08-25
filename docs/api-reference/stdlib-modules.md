@@ -153,6 +153,14 @@ bytes, and cap every allocation at `BYTE_MAX_CAPACITY`. Native Seen arrays are
 requirements satisfied by that storage. `toArray` is the explicit copying
 escape hatch; slices remain generation-checked zero-copy views.
 
+Synchronous byte I/O is specified by the `Reader`, `Writer`, `Seeker`,
+`BufRead`, and `Flush` traits. The native Seen `ByteReader` and `ByteWriter`
+implement the same concrete contracts without foreign policy: each operation
+accepts an `OperationContext`, returns exact partial progress, rejects stale
+views and checked-limit overflow, and reports cancellation or expiration before
+side effects. `ByteWriter` is created with `tryByteWriterWithLimit`; it never
+grows beyond the caller's bound. See `seen_std/examples/byte_streams.seen`.
+
 ### `json`
 
 - `json/builder`

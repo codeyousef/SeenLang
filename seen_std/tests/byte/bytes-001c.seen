@@ -1,0 +1,117 @@
+import error.{AsciiString}
+import operation_context.{OperationLimits, OperationContext}
+import core.result.{Result}
+import io.bytes.{ByteBuffer, ByteReader, ByteWriter, IoError,
+    BYTE_SEEK_START, BYTE_SEEK_END, tryByteWriterWithLimit}
+
+fun byteStreamContext(cancelled: Bool, deadline: Int64 = 1)
+    r: OperationContext {
+
+    return OperationContext{
+        cancellation: cancelled, monotonicDeadline: deadline,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "bytes-001c" }
+    }
+}
+
+fun main() r: Int {
+    let reader = ByteReader.fromArray([10, 20, 30, 40, 50])
+    let destination = ByteBuffer.fromArray([0, 0, 0])
+    let mutableResult = destination.mutableSlice(0, 3)
+    if mutableResult.isErr() { println("FAIL: BYTES-001C_happy"); return 1 }
+    let mutable = mutableResult.unwrap()
+    let read = reader.read(byteStreamContext(false), mutable)
+    let mutableClosed = mutable.close()
+    let copied = destination.toArray()
+    if read.isErr() or read.unwrap() != 3 or mutableClosed.isErr() or
+        copied.isErr() or copied.unwrap()[0] != 10 or copied.unwrap()[2] != 30 {
+
+        println("FAIL: BYTES-001C_happy"); return 1
+    }
+    println("PASS: BYTES-001C_happy")
+
+    let tail = ByteBuffer.fromArray([0, 0, 0, 0])
+    let tailMutableResult = tail.mutableSlice(0, 4)
+    if tailMutableResult.isErr() {
+        println("FAIL: BYTES-001C_partial"); return 1
+    }
+    let tailMutable = tailMutableResult.unwrap()
+    let partial = reader.read(byteStreamContext(false), tailMutable)
+    let tailClosed = tailMutable.close()
+    let tailCopy = tail.toArray()
+    if partial.isErr() or partial.unwrap() != 2 or tailClosed.isErr() or
+        tailCopy.isErr() or tailCopy.unwrap()[0] != 40 or
+        tailCopy.unwrap()[1] != 50 or reader.remaining() != 0 {
+
+        println("FAIL: BYTES-001C_partial"); return 1
+    }
+    println("PASS: BYTES-001C_partial")
+
+    let sourceOwner = ByteBuffer.fromArray([7, 8, 9, 10])
+    let sourceResult = sourceOwner.slice(0, 4)
+    let writerResult: Result<ByteWriter, IoError> = tryByteWriterWithLimit(2)
+    if sourceResult.isErr() or writerResult.isErr() {
+        println("FAIL: BYTES-001C_invalid"); return 1
+    }
+    let source = sourceResult.unwrap()
+    let writer = writerResult.unwrap()
+    let written = writer.write(byteStreamContext(false), source)
+    let exhausted = writer.write(byteStreamContext(false), source)
+    let flushed = writer.flush(byteStreamContext(false))
+    let writtenCopy = writer.toArray()
+    if written.isErr() or written.unwrap() != 2 or not exhausted.isErr() or
+        exhausted.unwrapErr().code.value != "byte.limit" or flushed.isErr() or
+        writtenCopy.isErr() or writtenCopy.unwrap()[0] != 7 or
+        writtenCopy.unwrap()[1] != 8 {
+
+        println("FAIL: BYTES-001C_invalid"); return 1
+    }
+    println("PASS: BYTES-001C_invalid")
+
+    let reset = reader.seek(byteStreamContext(false), 0, BYTE_SEEK_START)
+    let end = reader.seek(byteStreamContext(false), 0, BYTE_SEEK_END)
+    let beyond = reader.seek(byteStreamContext(false), 1, BYTE_SEEK_END)
+    if reset.isErr() or reset.unwrap() != 0 or end.isErr() or
+        end.unwrap() != 5 or not beyond.isErr() or
+        beyond.unwrapErr().code.value != "byte.limit" {
+
+        println("FAIL: BYTES-001C_limit"); return 1
+    }
+    println("PASS: BYTES-001C_limit")
+
+    let cancelled = reader.seek(byteStreamContext(true), 0, BYTE_SEEK_START)
+    let timedOut = writer.flush(byteStreamContext(false, -1))
+    if not cancelled.isErr() or not timedOut.isErr() or
+        cancelled.unwrapErr().code.value != "byte.cancelled" or
+        timedOut.unwrapErr().code.value != "byte.timeout" {
+
+        println("FAIL: BYTES-001C_cancel"); return 1
+    }
+    println("PASS: BYTES-001C_cancel")
+
+    let sourceClosed = source.close()
+    let firstReaderClose = reader.close()
+    let secondReaderClose = reader.close()
+    let firstWriterClose = writer.close()
+    let secondWriterClose = writer.close()
+    let destinationRelease = destination.release()
+    let tailRelease = tail.release()
+    let sourceRelease = sourceOwner.release()
+    if sourceClosed.isErr() or firstReaderClose.isErr() or
+        secondReaderClose.isErr() or firstWriterClose.isErr() or
+        secondWriterClose.isErr() or not firstReaderClose.unwrap() or
+        secondReaderClose.unwrap() or not firstWriterClose.unwrap() or
+        secondWriterClose.unwrap() or destinationRelease.isErr() or
+        tailRelease.isErr() or sourceRelease.isErr() {
+
+        println("FAIL: BYTES-001C_cleanup"); return 1
+    }
+    println("PASS: BYTES-001C_cleanup")
+    return 0
+}
+
+main()

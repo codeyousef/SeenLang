@@ -567,6 +567,10 @@ run_fixture checked-byte-slices-example \
     "$REPO_ROOT/seen_std/examples/byte_slices.seen"
 run_fixture bounded-byte-storage \
     "$REPO_ROOT/seen_std/tests/byte/bytes-001b.seen"
+run_fixture synchronous-byte-streams \
+    "$REPO_ROOT/seen_std/tests/byte/bytes-001c.seen"
+run_fixture synchronous-byte-streams-example \
+    "$REPO_ROOT/seen_std/examples/byte_streams.seen"
 run_fixture secret-markers \
     "$REPO_ROOT/seen_std/tests/error/p0_secret_001_secret_markers.seen"
 run_fixture secret-markers-example \

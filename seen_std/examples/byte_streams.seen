@@ -1,0 +1,38 @@
+import error.{AsciiString}
+import operation_context.{OperationLimits, OperationContext}
+import io.bytes.{ByteBuffer, ByteReader}
+
+fun streamContext() r: OperationContext {
+    return OperationContext{
+        cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4096,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "byte-streams-example" }
+    }
+}
+
+fun main() r: Int {
+    let reader = ByteReader.fromArray([83, 101, 101, 110])
+    let destination = ByteBuffer.fromArray([0, 0, 0, 0])
+    let mutableResult = destination.mutableSlice(0, 4)
+    if mutableResult.isErr() { return 1 }
+    let mutable = mutableResult.unwrap()
+    let progress = reader.read(streamContext(), mutable)
+    let closed = mutable.close()
+    let copied = destination.toArray()
+    if progress.isErr() or progress.unwrap() != 4 or closed.isErr() or
+        copied.isErr() or copied.unwrap()[0] != 83 {
+
+        return 1
+    }
+    let readerClosed = reader.close()
+    let destinationReleased = destination.release()
+    if readerClosed.isErr() or destinationReleased.isErr() { return 1 }
+    println("synchronous byte stream progress=4")
+    return 0
+}
+
+main()

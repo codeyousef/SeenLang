@@ -1,0 +1,16 @@
+{
+  "benchmark": {
+    "baseline_ratio": 1.5,
+    "iterations_per_sample": 20000,
+    "samples": 30,
+    "warmups": 5
+  },
+  "cases": [
+    {"available": 5, "capacity": 3, "expected": 3},
+    {"available": 2, "capacity": 4, "expected": 2},
+    {"available": 0, "capacity": 4, "expected": 0},
+    {"available": 4, "capacity": 0, "expected": 0}
+  ],
+  "fuzz_seed": 1101,
+  "schema": "seen-byte-streams-v1"
+}
