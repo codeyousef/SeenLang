@@ -185,6 +185,18 @@ for required_command in \
         fail "required gate omitted $required_command"
 done
 
+gate0_line=$(grep -nF 'scripts/certify_gate0_clean_checkout.sh' "$REQUIRED" |
+    cut -d: -f1)
+fs_line=$(grep -nF 'tests/misc_root_tests/seen_fs_contract.sh' "$REQUIRED" |
+    cut -d: -f1)
+tokenizers_line=$(grep -nF 'tests/misc_root_tests/seen_tokenizers_a.sh' "$REQUIRED" |
+    cut -d: -f1)
+case "$gate0_line:$fs_line:$tokenizers_line" in
+    *[!0-9:]*|:*|*::*) fail "build-dependent gate ordering is ambiguous" ;;
+esac
+[ "$fs_line" -gt "$gate0_line" ] && [ "$tokenizers_line" -gt "$gate0_line" ] ||
+    fail "filesystem and tokenizer gates must follow the clean-checkout rebuild"
+
 [ ! -e "$ROOT_DIR/.github/workflows-disabled" ] ||
     fail "retired workflow directory remains"
 if find "$ROOT_DIR/.github/workflows" -maxdepth 1 -type f -name '*.disabled' -print -quit |

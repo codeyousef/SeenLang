@@ -137,8 +137,6 @@ python3 scripts/benchmark_package_layout.py \
     tests/fixtures/pkg-layout-001/happy/benchmark.json
 tests/misc_root_tests/seen_native_boundaries_ledger.sh
 tests/misc_root_tests/seen_native_inventory_gate.sh
-tests/misc_root_tests/seen_fs_contract.sh
-tests/misc_root_tests/seen_tokenizers_a.sh
 tests/misc_root_tests/seen_ci_workflow_contract.sh
 tests/misc_root_tests/seen_ci_containment_contract.sh
 tests/misc_root_tests/seen_ci_required_wiring.sh
@@ -147,5 +145,7 @@ tests/misc_root_tests/seen_low_task_helper_serialization.sh
 git diff --check
 
 scripts/certify_gate0_clean_checkout.sh
+tests/misc_root_tests/seen_fs_contract.sh
+tests/misc_root_tests/seen_tokenizers_a.sh
 
 echo "PASS: required CI gates"
