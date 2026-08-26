@@ -261,7 +261,7 @@ MISMATCH_DIR="$TMP_DIR/version-mismatch"
 mkdir -p "$MISMATCH_DIR"
 tar -xzf "$TARBALL" -C "$MISMATCH_DIR"
 MISMATCH_PACKAGE="$MISMATCH_DIR/seen-0.15.0-linux-x64"
-sed -i 's/Seen 0\.12\.0/Seen 9.9.9/' "$MISMATCH_PACKAGE/bin/seen"
+sed -i 's/Seen 0\.15\.0/Seen 9.9.9/' "$MISMATCH_PACKAGE/bin/seen"
 MISMATCH_TARBALL="$TMP_DIR/seen-version-mismatch.tar.gz"
 tar -czf "$MISMATCH_TARBALL" -C "$MISMATCH_DIR" "$(basename "$MISMATCH_PACKAGE")"
 set +e
@@ -329,6 +329,21 @@ if ! "$PREFIX/bin/seen" --version | grep -q '0.15.0'; then
     echo "installed seen binary did not come from the release package" >&2
     exit 1
 fi
+
+cmp -s "$PREFIX/bin/compatibility-manifest.json" \
+    "$ROOT_DIR/releases/compatibility-manifest.json" || {
+    echo "installed compatibility manifest is missing or stale" >&2
+    exit 1
+}
+for installed_module in \
+    "$PREFIX/lib/seen/std/json/strict.seen" \
+    "$PREFIX/lib/seen/std/crypto/sha256.seen" \
+    "$PREFIX/lib/seen/runtime/src/memory.seen"; do
+    if [[ ! -f "$installed_module" ]]; then
+        echo "installed standard-library payload omits $installed_module" >&2
+        exit 1
+    fi
+done
 
 grep -qx 'cpu-baseline=x86-64' "$PACKAGE_DIR/share/doc/seen/release-cpu-baseline.txt"
 test -f "$PACKAGE_DIR/share/doc/seen/CHANGELOG.md"

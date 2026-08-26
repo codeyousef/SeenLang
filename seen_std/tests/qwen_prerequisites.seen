@@ -34,6 +34,11 @@ fun main() r: Int {
     let limits = StrictJsonLimits.manifests()
     let valid = parseStrictJson("{\"a\":1}", limits)
     require(valid.isOkay(), "strict JSON accepts canonical object")
+    let validRoot = valid.unwrap().value.unwrap()
+    require(validRoot.keyAt(0).unwrap() == "a" and
+        validRoot.valueAt(0).unwrap().getInt() == 1 and
+        validRoot.keyAt(-1).isNone() and validRoot.valueAt(1).isNone(),
+        "strict JSON object indexed traversal")
     let known = Array<String>(); known.push("a")
     require(enforceStrictJsonUnknownFields(valid.unwrap().value.unwrap(),
         known, JSON_UNKNOWN_FIELDS_REJECT).isOkay(),

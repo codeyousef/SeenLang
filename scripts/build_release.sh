@@ -51,6 +51,7 @@ prune_packaged_stdlib_artifacts() {
 release_payload_hash() {
     if declare -F seen_build_hash_paths >/dev/null 2>&1; then
         seen_build_hash_paths \
+            "$SCRIPT_DIR/build_release.sh" \
             "$ROOT_DIR/seen_std/src" \
             "$ROOT_DIR/seen_runtime" \
             "$ROOT_DIR/languages" \
@@ -366,6 +367,9 @@ if [[ "$PAYLOAD_CACHE_HIT" != "1" ]]; then
         for f in "$ROOT_DIR/seen_runtime"/*.a "$ROOT_DIR/seen_runtime"/*.o "$ROOT_DIR/seen_runtime"/*.sig; do
             [[ -f "$f" ]] && cp "$f" "$STAGING/lib/seen/runtime/"
         done
+        if [[ -d "$ROOT_DIR/seen_runtime/src" ]]; then
+            cp -r "$ROOT_DIR/seen_runtime/src" "$STAGING/lib/seen/runtime/"
+        fi
     fi
 
     echo "[4/6] Copying language files..."
@@ -469,6 +473,8 @@ echo "Installing Seen Language to $PREFIX ..."
 run_install mkdir -p "$PREFIX/bin" "$PREFIX/lib/seen" "$PREFIX/share/seen" "$PREFIX/share/doc/seen"
 install_file_no_follow "bin/seen" "$PREFIX/bin/seen" 755
 install_file_no_follow "bin/seen-pkg" "$PREFIX/bin/seen-pkg" 755
+install_file_no_follow "bin/compatibility-manifest.json" \
+    "$PREFIX/bin/compatibility-manifest.json" 644
 run_install cp -r lib/seen/* "$PREFIX/lib/seen/"
 run_install cp -r share/seen/* "$PREFIX/share/seen/"
 run_install cp -r share/doc/seen/* "$PREFIX/share/doc/seen/"

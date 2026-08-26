@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without truncation or representation drift.
 - Made strict JSON grammar scans byte-indexed while preserving decoded Unicode
   strings, allowing valid Qwen vocabulary files to parse deterministically.
+- Kept strict JSON parsing behind a release-safe stack boundary and added
+  bounded indexed object traversal for large model vocabulary objects.
+- Installed the compatibility manifest alongside the compiler and certified
+  that release payloads include the strict JSON and SHA-256 standard modules.
 - Corrected LLVM 22 coroutine-end declaration and call emission while retaining
   the prior LLVM ABI on older supported toolchains.
 

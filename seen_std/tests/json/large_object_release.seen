@@ -1,0 +1,34 @@
+import io.file.{readTextChecked}
+import env.env.{args}
+import json.strict.{StrictJsonLimits, parseStrictJson}
+import json.parser.{destroyJsonParseResult}
+
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let argv = args()
+    require(argv.length() == 2, "expected large-object fixture path")
+    let input = readTextChecked(argv[1])
+    require(input.success, "read large-object fixture")
+    let parsed = parseStrictJson(input.content, StrictJsonLimits.manifests())
+    require(parsed.isOkay(), "parse large object")
+    let root = parsed.unwrap().value.unwrap()
+    require(root.length() == 8192, "large-object entry count")
+    var index = 0
+    var sum: Int64 = 0
+    while index < root.length() {
+        require(root.keyAt(index).isSome(), "large-object indexed key")
+        let value = root.valueAt(index)
+        require(value.isSome(), "large-object indexed value")
+        sum = sum + (value.unwrap().getInt() as Int64)
+        index = index + 1
+    }
+    require(sum == (33550336 as Int64), "large-object indexed value sum")
+    destroyJsonParseResult(parsed.unwrap(), true)
+    println("PASS: release-mode strict JSON large-object traversal")
+    return 0
+}
+
+main()

@@ -82,6 +82,31 @@ class JsonValue {
         return this.arrayValue[index]
     }
 
+    /// Return an object key by insertion index without performing a lookup.
+    /// This is the bounded traversal path for large objects whose callers need
+    /// to materialize every entry. The returned string is borrowed.
+    fun keyAt(index: Int) r: String? {
+        if this.kind != 5 {
+            return null
+        }
+        if index < 0 or index >= this.objectKeys.length() {
+            return null
+        }
+        return this.objectKeys[index]
+    }
+
+    /// Return an object value by insertion index without rescanning its keys.
+    /// The returned JsonValue is borrowed from this object's ownership tree.
+    fun valueAt(index: Int) r: JsonValue? {
+        if this.kind != 5 {
+            return null
+        }
+        if index < 0 or index >= this.objectValues.length() {
+            return null
+        }
+        return this.objectValues[index]
+    }
+
     fun keys() r: Array<String> {
         return this.objectKeys
     }

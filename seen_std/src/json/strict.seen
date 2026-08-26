@@ -82,6 +82,11 @@ fun validateJsonUtf8(input: String) r: Result<Bool, StrictJsonError> {
     return Ok<Bool, StrictJsonError>(true)
 }
 
+// Keep the parser's release-mode temporary stack frame out of callers. Large
+// manifest and vocabulary objects otherwise retain those dynamic allocations
+// until the consuming function returns, which can exhaust the default stack
+// before the first post-parse object access.
+@noinline
 fun parseStrictJson(input: String, limits: StrictJsonLimits)
     r: Result<JsonParseResult, StrictJsonError> {
     if limits.maxInputBytes < 1 or limits.maxDepth < 1 or

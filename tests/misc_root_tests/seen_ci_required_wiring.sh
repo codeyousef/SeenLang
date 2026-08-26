@@ -103,6 +103,12 @@ grep -Fq 'tests/misc_root_tests/seen_qwen_prerequisites.sh' \
 grep -Fq 'qwen_prerequisites.seen' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits Qwen prerequisite contracts"
+grep -Fq 'seen_json_large_object_release.sh' \
+    "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
+    fail "fresh-compiler acceptance omits large-object JSON release regression"
+grep -Fq 'seen_release_install_payload.sh' \
+    "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
+    fail "fresh-compiler acceptance omits installed release payload regression"
 grep -Fq 'projects/seen_ml/qwen38/tests/prerequisites.seen' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits Qwen project contracts"

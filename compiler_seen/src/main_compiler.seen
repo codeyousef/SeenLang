@@ -502,6 +502,17 @@ fun buildToolVersionForCache(toolName: String) r: String {
 fun runtimeSourceContentForCache(relativePath: String) r: String {
     let root = getCompilerRoot()
     if root != "" {
+        if relativePath.startsWith("seen_runtime/") and
+            compilerUsesInstalledLayout(root) {
+
+            let installedRelative = relativePath.substring(13,
+                relativePath.length())
+            let installedContent = loadFileContent(
+                compilerRuntimeBasePath() + installedRelative)
+            if installedContent != "" {
+                return installedContent
+            }
+        }
         let rootedPath = root + "/" + relativePath
         let rootedContent = loadFileContent(rootedPath)
         if rootedContent != "" {
@@ -1555,7 +1566,16 @@ fun packageCompatibilityContext() r: OperationContext {
 fun packageCompatibilityManifestPath() r: String {
     let compilerRoot = getCompilerRoot()
     if compilerRoot != "" {
-        return compilerRoot + "/releases/compatibility-manifest.json"
+        let checkoutManifest = compilerRoot +
+            "/releases/compatibility-manifest.json"
+        if exists(checkoutManifest) {
+            return checkoutManifest
+        }
+        let installedManifest = compilerRoot +
+            "/bin/compatibility-manifest.json"
+        if exists(installedManifest) {
+            return installedManifest
+        }
     }
     let executable = currentCompilerExecutablePathForCache()
     if executable == "" { return "" }
@@ -1575,6 +1595,14 @@ fun packageClientHelperPath() r: String {
     // the running Seen executable without consulting PATH.
     let compilerRoot = getCompilerRoot()
     if compilerRoot != "" {
+        let installedHelper = compilerRoot + "/bin/seen-pkg"
+        if exists(installedHelper) {
+            return installedHelper
+        }
+        let installedHelperExe = installedHelper + ".exe"
+        if exists(installedHelperExe) {
+            return installedHelperExe
+        }
         let targetHelper = compilerRoot + "/tools/seen-pkg/bin/seen-pkg"
         if exists(targetHelper) {
             return targetHelper
@@ -5642,9 +5670,8 @@ fun resolveModulePath(modulePath: String) r: String {
     var basePath = "compiler_seen/src/"
     if isStdlibImportRoot(firstModuleSegment(modulePath)) or
         modulePath == "testing.categories" {
-        basePath = "seen_std/src/"
-    }
-    if root != "" {
+        basePath = compilerStdlibBasePath()
+    } else if root != "" {
         basePath = root + "/" + basePath
     }
 
@@ -5679,6 +5706,8 @@ fun isCompilerSourceDir(sourceDir: String) r: Bool {
 fun isStdlibSourceDir(sourceDir: String) r: Bool {
     if sourceDir.startsWith("seen_std/") { return true }
     if sourceDir.contains("/seen_std/") { return true }
+    if sourceDir.contains("/lib/seen/std/") { return true }
+    if sourceDir.endsWith("/lib/seen/std") { return true }
     return false
 }
 
@@ -5734,11 +5763,7 @@ fun tryStdlibShortImportPath(moduleName: String, sourceDir: String) r: String {
     if not isCompilerSourceDir(sourceDir) and not isStdlibSourceDir(sourceDir) {
         return ""
     }
-    var basePath = "seen_std/src/"
-    let root = getCompilerRoot()
-    if root != "" {
-        basePath = root + "/seen_std/src/"
-    }
+    let basePath = compilerStdlibBasePath()
     let ioPath = basePath + "io/" + moduleName + ".seen"
     if readText(ioPath) != "" {
         return ioPath
@@ -5810,6 +5835,13 @@ fun getCompilerRoot() r: String {
         // Binary is at <root>/compiler_seen/target/seen — strip 3 levels
         let binDir = getSourceDir(exePath)
         if binDir != "" {
+            let installedRoot = getSourceDir(binDir)
+            if installedRoot != "" and
+                directoryExists(installedRoot + "/lib/seen/std") and
+                directoryExists(installedRoot + "/lib/seen/runtime") {
+
+                return installedRoot
+            }
             let targetDir = getSourceDir(binDir)
             if targetDir != "" {
                 let compilerDir = getSourceDir(targetDir)
@@ -5829,6 +5861,13 @@ fun getCompilerRoot() r: String {
     let binPath = allArgs[0]
     let binDir2 = getSourceDir(binPath)
     if binDir2 == "" { return "" }
+    let installedRoot2 = getSourceDir(binDir2)
+    if installedRoot2 != "" and
+        directoryExists(installedRoot2 + "/lib/seen/std") and
+        directoryExists(installedRoot2 + "/lib/seen/runtime") {
+
+        return installedRoot2
+    }
     let targetDir2 = getSourceDir(binDir2)
     if targetDir2 == "" { return "" }
     let root2 = getSourceDir(targetDir2)
@@ -5838,6 +5877,30 @@ fun getCompilerRoot() r: String {
         return root2
     }
     return ""
+}
+
+fun compilerUsesInstalledLayout(root: String) r: Bool {
+    if root == "" { return false }
+    return directoryExists(root + "/lib/seen/std") and
+        directoryExists(root + "/lib/seen/runtime")
+}
+
+fun compilerStdlibBasePath() r: String {
+    let root = getCompilerRoot()
+    if root == "" { return "seen_std/src/" }
+    if compilerUsesInstalledLayout(root) {
+        return root + "/lib/seen/std/"
+    }
+    return root + "/seen_std/src/"
+}
+
+fun compilerRuntimeBasePath() r: String {
+    let root = getCompilerRoot()
+    if root == "" { return "seen_runtime/" }
+    if compilerUsesInstalledLayout(root) {
+        return root + "/lib/seen/runtime/"
+    }
+    return root + "/seen_runtime/"
 }
 
 ///
@@ -5916,11 +5979,7 @@ fun resolveStdlibRootImportPath(importPath: Array<String>) r: String {
         return ""
     }
 
-    var stdlibBase = "seen_std/src/"
-    let compRoot = getCompilerRoot()
-    if compRoot != "" {
-        stdlibBase = compRoot + "/seen_std/src/"
-    }
+    var stdlibBase = compilerStdlibBasePath()
     var i = 0
     while i < importPath.length() {
         if i > 0 {
@@ -5949,12 +6008,8 @@ fun resolveImportPath(importPath: Array<String>, sourceDir: String) r: String {
         if importPath.length() == 2 and firstSegment == "testing" and
             importPath[1] == "categories" {
 
-            var testingCategoriesPath = "seen_std/src/testing/categories.seen"
-            let testingRoot = getCompilerRoot()
-            if testingRoot != "" {
-                testingCategoriesPath = testingRoot + "/" +
-                    testingCategoriesPath
-            }
+            let testingCategoriesPath = compilerStdlibBasePath() +
+                "testing/categories.seen"
             if readText(testingCategoriesPath) != "" {
                 return testingCategoriesPath
             }
@@ -7097,7 +7152,8 @@ fun resolveImplicitRuntimeMemoryImportPath(sourceDir: String) r: String {
 
     let compilerRoot = getCompilerRoot()
     if compilerRoot != "" {
-        let compilerRuntimePath = compilerRoot + "/seen_runtime/src/memory.seen"
+        let compilerRuntimePath = compilerRuntimeBasePath() +
+            "src/memory.seen"
         if loadFileContent(compilerRuntimePath) != "" {
             return compilerRuntimePath
         }
@@ -7139,6 +7195,22 @@ fun generatedTestStableModuleIdentity(normalizedPath: String) r: String {
     let projectRootIdx = normalizedPath.indexOf(projectRootMarker, 0)
     if projectRootIdx >= 0 {
         return normalizedPath.substring(projectRootIdx + projectRootMarker.length(), normalizedPath.length())
+    }
+
+    let installedStdMarker = "/lib/seen/std/"
+    let installedStdIdx = normalizedPath.indexOf(installedStdMarker, 0)
+    if installedStdIdx >= 0 {
+        return "seen_std/src/" + normalizedPath.substring(
+            installedStdIdx + installedStdMarker.length(),
+            normalizedPath.length())
+    }
+    let installedRuntimeMarker = "/lib/seen/runtime/"
+    let installedRuntimeIdx = normalizedPath.indexOf(
+        installedRuntimeMarker, 0)
+    if installedRuntimeIdx >= 0 {
+        return "seen_runtime/" + normalizedPath.substring(
+            installedRuntimeIdx + installedRuntimeMarker.length(),
+            normalizedPath.length())
     }
 
     let markers = Array<String>()
@@ -14549,11 +14621,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     seen_arr_push) into user code at link time.
     When sanitizer is enabled, the runtime must be recompiled with sanitizer flags.
     ///
-    let compRoot = getCompilerRoot()
-    var rtPrefix = "seen_runtime"
-    if compRoot != "" {
-        rtPrefix = compRoot + "/seen_runtime"
-    }
+    let rtPrefix = compilerRuntimeBasePath()
     var picCompileFlag = ""
     if g_picMode == 1 {
         picCompileFlag = " -fPIC"
@@ -15257,10 +15325,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 platformShimLinkFlags = platformShimLinkFlags + " " + evdevLibs
             }
         }
-        var platformShimSrc = "seen_std/src/platform/linux/shim/seen_platform_shim.c"
-        if compRoot != "" {
-            platformShimSrc = compRoot + "/seen_std/src/platform/linux/shim/seen_platform_shim.c"
-        }
+        let platformShimSrc = compilerStdlibBasePath() +
+            "platform/linux/shim/seen_platform_shim.c"
         let shimSourceCheck: CommandResult = runCommand("test -f " +
             mainCompilerShellQuote(platformShimSrc))
         if not commandWasSuccessful(shimSourceCheck) {
@@ -15654,11 +15720,7 @@ fun defaultOutput(sourceFile: String) r: String {
 
 // Ensure JIT runtime object (non-LTO ELF) exists for lli --extra-object
 fun ensureJitRuntime() r: String {
-    let jitRoot = getCompilerRoot()
-    var jitRtDir = "seen_runtime"
-    if jitRoot != "" {
-        jitRtDir = jitRoot + "/seen_runtime"
-    }
+    let jitRtDir = compilerRuntimeBasePath()
     let jitObj = compilerArtifactPath("seen_runtime_jit.o")
     let checkResult: CommandResult = runCommand("test " +
         mainCompilerShellQuote(jitObj) + " -nt " +

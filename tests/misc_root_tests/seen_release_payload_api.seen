@@ -1,0 +1,24 @@
+import crypto.sha256.{sha256}
+import json.strict.{StrictJsonLimits, parseStrictJson}
+import json.parser.{destroyJsonParseResult}
+
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let digest = sha256("abc")
+    require(digest.isOkay() and digest.unwrap() ==
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "installed SHA-256 module")
+    let parsed = parseStrictJson("{\"installed\":true}",
+        StrictJsonLimits.manifests())
+    require(parsed.isOkay() and
+        parsed.unwrap().value.unwrap().valueAt(0).unwrap().getBool(),
+        "installed strict JSON module")
+    destroyJsonParseResult(parsed.unwrap(), true)
+    println("PASS: installed release standard-library payload")
+    return 0
+}
+
+main()
