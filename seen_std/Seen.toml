@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seen_std"
-version = "0.3.0"
+version = "0.4.0"
 language = "en"
 visibility = "explicit"
 description = "Core Seen standard library modules used by the self-hosted compiler"
@@ -42,7 +42,12 @@ modules = [
     # I/O and filesystem
     "src/io/bytes.seen",
     "src/io/file.seen",
+    "src/io/direct.seen",
+    "src/fs/types.seen",
+    "src/fs/file.seen",
+    "src/fs/operations.seen",
     "src/fs/path.seen",
+    "src/fs/mod.seen",
 
     # Environment and process
     "src/env/env.seen",

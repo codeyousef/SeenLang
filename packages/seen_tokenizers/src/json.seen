@@ -1,0 +1,515 @@
+/// Bounded Hugging Face byte-BPE tokenizer JSON ingestion.
+
+import core.result.{Result, Ok, Err}
+import json.strict.{StrictJsonLimits, parseStrictJson}
+import json.parser.{JsonParseResult, destroyJsonParseResult}
+import json.value.{JsonValue}
+import seen_tokenizers.errors.{TokenizerError, tokenizerError}
+import seen_tokenizers.unicode.{tokenizerIsValidUtf8}
+
+extern "C" fun seen_string_clone_owned(value: String) r: String
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
+fun tokenizerByteCompare(left: String, right: String) r: Int {
+    let shared = if left.length() < right.length() {
+        left.length()
+    } else {
+        right.length()
+    }
+    var index = 0
+    while index < shared {
+        let leftByte = left.byteAt(index)
+        let rightByte = right.byteAt(index)
+        if leftByte < rightByte { return -1 }
+        if leftByte > rightByte { return 1 }
+        index = index + 1
+    }
+    if left.length() < right.length() { return -1 }
+    if left.length() > right.length() { return 1 }
+    return 0
+}
+
+class TokenizerLimits {
+    var maxInputBytes: Int
+    var maxDepth: Int
+    var maxValues: Int
+    var maxTokenBytes: Int
+    var maxVocab: Int
+    var maxMerges: Int
+    var maxSpecialTokens: Int
+
+    static fun qwen() r: TokenizerLimits {
+        return TokenizerLimits{ maxInputBytes: 67108864, maxDepth: 128,
+            maxValues: 2000000, maxTokenBytes: 16777216,
+            maxVocab: 1000000, maxMerges: 1000000,
+            maxSpecialTokens: 65536 }
+    }
+}
+
+class TokenizerSpec {
+    var tokens: Array<String>
+    var tokenIds: Array<Int>
+    var ids: Array<Int>
+    var idTokens: Array<String>
+    var mergeLeft: Array<String>
+    var mergeRight: Array<String>
+    var mergeRanks: Array<Int>
+    var specialTexts: Array<String>
+    var specialIds: Array<Int>
+
+    fun tokenId(token: String) r: Int {
+        var low = 0
+        var high = this.tokens.length()
+        while low < high {
+            let middle = low + (high - low) / 2
+            let order = tokenizerByteCompare(token, this.tokens[middle])
+            if order < 0 { high = middle }
+            else if order > 0 { low = middle + 1 }
+            else { return this.tokenIds[middle] }
+        }
+        return -1
+    }
+
+    fun tokenForId(id: Int) r: String {
+        var low = 0
+        var high = this.ids.length()
+        while low < high {
+            let middle = low + (high - low) / 2
+            if id < this.ids[middle] { high = middle }
+            else if id > this.ids[middle] { low = middle + 1 }
+            else { return this.idTokens[middle] }
+        }
+        return ""
+    }
+
+    fun mergeRank(left: String, right: String) r: Int {
+        var low = 0
+        var high = this.mergeRanks.length()
+        while low < high {
+            let middle = low + (high - low) / 2
+            let leftAt = this.mergeLeft[middle]
+            let rightAt = this.mergeRight[middle]
+            let leftOrder = tokenizerByteCompare(left, leftAt)
+            let rightOrder = tokenizerByteCompare(right, rightAt)
+            if leftOrder < 0 or (leftOrder == 0 and rightOrder < 0) {
+                high = middle
+            } else if leftOrder > 0 or (leftOrder == 0 and rightOrder > 0) {
+                low = middle + 1
+            } else {
+                return this.mergeRanks[middle]
+            }
+        }
+        return -1
+    }
+
+    fun specialId(text: String) r: Int {
+        var index = 0
+        while index < this.specialTexts.length() {
+            if this.specialTexts[index] == text { return this.specialIds[index] }
+            index = index + 1
+        }
+        return -1
+    }
+
+    fun close() r: Void {
+        var index = 0
+        while index < this.tokens.length() {
+            seen_string_release_owned(this.tokens[index])
+            index = index + 1
+        }
+        index = 0
+        while index < this.mergeLeft.length() {
+            seen_string_release_owned(this.mergeLeft[index])
+            seen_string_release_owned(this.mergeRight[index])
+            index = index + 1
+        }
+        index = 0
+        while index < this.specialTexts.length() {
+            seen_string_release_owned(this.specialTexts[index])
+            index = index + 1
+        }
+        this.tokens.free(); this.tokenIds.free(); this.ids.free()
+        this.idTokens.free(); this.mergeLeft.free(); this.mergeRight.free()
+        this.mergeRanks.free(); this.specialTexts.free(); this.specialIds.free()
+    }
+}
+
+fun tokenizerEmptySpec() r: TokenizerSpec {
+    return TokenizerSpec{ tokens: Array<String>(), tokenIds: Array<Int>(),
+        ids: Array<Int>(), idTokens: Array<String>(),
+        mergeLeft: Array<String>(), mergeRight: Array<String>(),
+        mergeRanks: Array<Int>(), specialTexts: Array<String>(),
+        specialIds: Array<Int>() }
+}
+
+fun tokenizerReleaseStrings(values: Array<String>) r: Void {
+    var index = 0
+    while index < values.length() {
+        seen_string_release_owned(values[index])
+        index = index + 1
+    }
+    values.free()
+}
+
+fun tokenizerJsonFailure(code: String, message: String,
+    parsed: JsonParseResult, spec: TokenizerSpec)
+    r: Result<TokenizerSpec, TokenizerError> {
+    spec.close()
+    destroyJsonParseResult(parsed, true)
+    return Err<TokenizerSpec, TokenizerError>(tokenizerError(code, 0, message))
+}
+
+fun mergeVocabulary(tokens: Array<String>, ids: Array<Int>,
+    scratchTokens: Array<String>, scratchIds: Array<Int>, start: Int,
+    middle: Int, end: Int) r: Void {
+    var left = start; var right = middle; var output = start
+    while left < middle and right < end {
+        if tokenizerByteCompare(tokens[right], tokens[left]) >= 0 {
+            scratchTokens[output] = tokens[left]; scratchIds[output] = ids[left]
+            left = left + 1
+        } else {
+            scratchTokens[output] = tokens[right]; scratchIds[output] = ids[right]
+            right = right + 1
+        }
+        output = output + 1
+    }
+    while left < middle {
+        scratchTokens[output] = tokens[left]; scratchIds[output] = ids[left]
+        left = left + 1; output = output + 1
+    }
+    while right < end {
+        scratchTokens[output] = tokens[right]; scratchIds[output] = ids[right]
+        right = right + 1; output = output + 1
+    }
+    output = start
+    while output < end {
+        tokens[output] = scratchTokens[output]; ids[output] = scratchIds[output]
+        output = output + 1
+    }
+}
+
+fun sortVocabularyRange(tokens: Array<String>, ids: Array<Int>,
+    scratchTokens: Array<String>, scratchIds: Array<Int>, start: Int,
+    end: Int) r: Void {
+    if end - start <= 1 { return }
+    let middle = start + (end - start) / 2
+    sortVocabularyRange(tokens, ids, scratchTokens, scratchIds, start, middle)
+    sortVocabularyRange(tokens, ids, scratchTokens, scratchIds, middle, end)
+    mergeVocabulary(tokens, ids, scratchTokens, scratchIds, start, middle, end)
+}
+
+fun sortVocabulary(tokens: Array<String>, ids: Array<Int>) r: Void {
+    let scratchTokens = Array<String>(); let scratchIds = Array<Int>()
+    var index = 0
+    while index < tokens.length() {
+        scratchTokens.push(""); scratchIds.push(0); index = index + 1
+    }
+    sortVocabularyRange(tokens, ids, scratchTokens, scratchIds, 0,
+        tokens.length())
+    scratchTokens.free(); scratchIds.free()
+}
+
+fun mergeIds(ids: Array<Int>, tokens: Array<String>, scratchIds: Array<Int>,
+    scratchTokens: Array<String>, start: Int, middle: Int, end: Int) r: Void {
+    var left = start; var right = middle; var output = start
+    while left < middle and right < end {
+        if ids[left] <= ids[right] {
+            scratchIds[output] = ids[left]; scratchTokens[output] = tokens[left]
+            left = left + 1
+        } else {
+            scratchIds[output] = ids[right]; scratchTokens[output] = tokens[right]
+            right = right + 1
+        }
+        output = output + 1
+    }
+    while left < middle {
+        scratchIds[output] = ids[left]; scratchTokens[output] = tokens[left]
+        left = left + 1; output = output + 1
+    }
+    while right < end {
+        scratchIds[output] = ids[right]; scratchTokens[output] = tokens[right]
+        right = right + 1; output = output + 1
+    }
+    output = start
+    while output < end {
+        ids[output] = scratchIds[output]; tokens[output] = scratchTokens[output]
+        output = output + 1
+    }
+}
+
+fun sortIdsRange(ids: Array<Int>, tokens: Array<String>,
+    scratchIds: Array<Int>, scratchTokens: Array<String>, start: Int,
+    end: Int) r: Void {
+    if end - start <= 1 { return }
+    let middle = start + (end - start) / 2
+    sortIdsRange(ids, tokens, scratchIds, scratchTokens, start, middle)
+    sortIdsRange(ids, tokens, scratchIds, scratchTokens, middle, end)
+    mergeIds(ids, tokens, scratchIds, scratchTokens, start, middle, end)
+}
+
+fun sortIds(ids: Array<Int>, tokens: Array<String>) r: Void {
+    let scratchIds = Array<Int>(); let scratchTokens = Array<String>()
+    var index = 0
+    while index < ids.length() {
+        scratchIds.push(0); scratchTokens.push(""); index = index + 1
+    }
+    sortIdsRange(ids, tokens, scratchIds, scratchTokens, 0, ids.length())
+    scratchIds.free(); scratchTokens.free()
+}
+
+fun mergePairLess(leftA: String, rightA: String, leftB: String,
+    rightB: String) r: Bool {
+    let leftOrder = tokenizerByteCompare(leftA, leftB)
+    return leftOrder < 0 or
+        (leftOrder == 0 and tokenizerByteCompare(rightA, rightB) < 0)
+}
+
+fun mergeMergePairs(lefts: Array<String>, rights: Array<String>,
+    ranks: Array<Int>, scratchLefts: Array<String>,
+    scratchRights: Array<String>, scratchRanks: Array<Int>, start: Int,
+    middle: Int, end: Int) r: Void {
+    var left = start; var right = middle; var output = start
+    while left < middle and right < end {
+        if not mergePairLess(lefts[right], rights[right], lefts[left],
+            rights[left]) {
+            scratchLefts[output] = lefts[left]
+            scratchRights[output] = rights[left]
+            scratchRanks[output] = ranks[left]; left = left + 1
+        } else {
+            scratchLefts[output] = lefts[right]
+            scratchRights[output] = rights[right]
+            scratchRanks[output] = ranks[right]; right = right + 1
+        }
+        output = output + 1
+    }
+    while left < middle {
+        scratchLefts[output] = lefts[left]
+        scratchRights[output] = rights[left]
+        scratchRanks[output] = ranks[left]
+        left = left + 1; output = output + 1
+    }
+    while right < end {
+        scratchLefts[output] = lefts[right]
+        scratchRights[output] = rights[right]
+        scratchRanks[output] = ranks[right]
+        right = right + 1; output = output + 1
+    }
+    output = start
+    while output < end {
+        lefts[output] = scratchLefts[output]
+        rights[output] = scratchRights[output]
+        ranks[output] = scratchRanks[output]; output = output + 1
+    }
+}
+
+fun sortMergePairsRange(lefts: Array<String>, rights: Array<String>,
+    ranks: Array<Int>, scratchLefts: Array<String>,
+    scratchRights: Array<String>, scratchRanks: Array<Int>, start: Int,
+    end: Int) r: Void {
+    if end - start <= 1 { return }
+    let middle = start + (end - start) / 2
+    sortMergePairsRange(lefts, rights, ranks, scratchLefts, scratchRights,
+        scratchRanks, start, middle)
+    sortMergePairsRange(lefts, rights, ranks, scratchLefts, scratchRights,
+        scratchRanks, middle, end)
+    mergeMergePairs(lefts, rights, ranks, scratchLefts, scratchRights,
+        scratchRanks, start, middle, end)
+}
+
+fun sortMergePairs(lefts: Array<String>, rights: Array<String>,
+    ranks: Array<Int>) r: Void {
+    let scratchLefts = Array<String>(); let scratchRights = Array<String>()
+    let scratchRanks = Array<Int>()
+    var index = 0
+    while index < ranks.length() {
+        scratchLefts.push(""); scratchRights.push("")
+        scratchRanks.push(0); index = index + 1
+    }
+    sortMergePairsRange(lefts, rights, ranks, scratchLefts, scratchRights,
+        scratchRanks, 0, ranks.length())
+    scratchLefts.free(); scratchRights.free(); scratchRanks.free()
+}
+
+fun parseTokenizerJson(input: String, limits: TokenizerLimits)
+    r: Result<TokenizerSpec, TokenizerError> {
+    if limits.maxInputBytes < 1 or limits.maxDepth < 1 or
+        limits.maxValues < 1 or limits.maxTokenBytes < 1 or
+        limits.maxVocab < 1 or limits.maxMerges < 0 or
+        limits.maxSpecialTokens < 0 {
+        return Err<TokenizerSpec, TokenizerError>(tokenizerError(
+            "tokenizer.limits", 0, "tokenizer limits must be non-negative and bounded"))
+    }
+    if not tokenizerIsValidUtf8(input) {
+        return Err<TokenizerSpec, TokenizerError>(tokenizerError(
+            "tokenizer.utf8", 0, "tokenizer JSON must be canonical UTF-8"))
+    }
+    let strict = parseStrictJson(input, StrictJsonLimits{
+        maxInputBytes: limits.maxInputBytes, maxDepth: limits.maxDepth,
+        maxValues: limits.maxValues, maxStringBytes: limits.maxTokenBytes
+    })
+    if strict.isErr() {
+        let error = strict.unwrapErr()
+        return Err<TokenizerSpec, TokenizerError>(tokenizerError(
+            "tokenizer.json", error.position, error.message))
+    }
+    let parsed = strict.unwrap()
+    let spec = tokenizerEmptySpec()
+    let root = parsed.value.unwrap()
+    if not root.isObject() {
+        return tokenizerJsonFailure("tokenizer.root", "root must be an object",
+            parsed, spec)
+    }
+    let modelOption = root.get("model")
+    if modelOption.isNone() or not modelOption.unwrap().isObject() {
+        return tokenizerJsonFailure("tokenizer.model", "model object is required",
+            parsed, spec)
+    }
+    let model = modelOption.unwrap()
+    let typeOption = model.get("type")
+    if typeOption.isNone() or not typeOption.unwrap().isString() or
+        typeOption.unwrap().getString() != "BPE" {
+        return tokenizerJsonFailure("tokenizer.model_type",
+            "only byte-level BPE tokenizer models are supported", parsed, spec)
+    }
+    let vocabOption = model.get("vocab")
+    if vocabOption.isNone() or not vocabOption.unwrap().isObject() {
+        return tokenizerJsonFailure("tokenizer.vocab", "model.vocab is required",
+            parsed, spec)
+    }
+    let vocab = vocabOption.unwrap()
+    let vocabKeys = vocab.keys()
+    if vocabKeys.length() > limits.maxVocab {
+        return tokenizerJsonFailure("tokenizer.vocab_limit",
+            "vocabulary exceeds the configured entry limit", parsed, spec)
+    }
+    var index = 0
+    while index < vocabKeys.length() {
+        let token = vocabKeys[index]
+        let idValue = vocab.get(token).unwrap()
+        if token.length() > limits.maxTokenBytes or not idValue.isNumber() {
+            return tokenizerJsonFailure("tokenizer.vocab_entry",
+                "vocabulary entry has invalid token bytes or identifier", parsed, spec)
+        }
+        let id = idValue.getInt()
+        if id < 0 or id > 2147483647 or
+            idValue.getNumber() != id.toFloat() {
+            return tokenizerJsonFailure("tokenizer.vocab_id",
+                "vocabulary identifier must be a non-negative integer", parsed, spec)
+        }
+        spec.tokens.push(seen_string_clone_owned(token)); spec.tokenIds.push(id)
+        spec.ids.push(id); spec.idTokens.push(spec.tokens[spec.tokens.length() - 1])
+        index = index + 1
+    }
+    sortVocabulary(spec.tokens, spec.tokenIds)
+    sortIds(spec.ids, spec.idTokens)
+    index = 1
+    while index < spec.ids.length() {
+        if spec.ids[index] == spec.ids[index - 1] {
+            return tokenizerJsonFailure("tokenizer.duplicate_id",
+                "vocabulary identifiers must be unique", parsed, spec)
+        }
+        index = index + 1
+    }
+
+    let mergesOption = model.get("merges")
+    if mergesOption.isSome() {
+        let merges = mergesOption.unwrap()
+        if not merges.isArray() or merges.length() > limits.maxMerges {
+            return tokenizerJsonFailure("tokenizer.merges_limit",
+                "model.merges must be a bounded array", parsed, spec)
+        }
+        index = 0
+        while index < merges.length() {
+            let merge = merges.getAt(index).unwrap()
+            var left = ""; var right = ""; var valid = false
+            if merge.isString() {
+                let text = merge.getString()
+                let separator = text.indexOf(" ", 0)
+                if separator > 0 and separator + 1 < text.length() {
+                    left = text.substring(0, separator)
+                    right = text.substring(separator + 1, text.length())
+                    valid = true
+                }
+            } else if merge.isArray() and merge.length() == 2 {
+                let first = merge.getAt(0).unwrap()
+                let second = merge.getAt(1).unwrap()
+                if first.isString() and second.isString() {
+                    left = seen_string_clone_owned(first.getString())
+                    right = seen_string_clone_owned(second.getString())
+                    valid = true
+                }
+            }
+            if not valid or left.length() == 0 or right.length() == 0 or
+                left.length() > limits.maxTokenBytes or
+                right.length() > limits.maxTokenBytes {
+                return tokenizerJsonFailure("tokenizer.merge",
+                    "merge must contain exactly two bounded non-empty symbols",
+                    parsed, spec)
+            }
+            spec.mergeLeft.push(left); spec.mergeRight.push(right)
+            spec.mergeRanks.push(index); index = index + 1
+        }
+        sortMergePairs(spec.mergeLeft, spec.mergeRight, spec.mergeRanks)
+        index = 1
+        while index < spec.mergeRanks.length() {
+            if spec.mergeLeft[index] == spec.mergeLeft[index - 1] and
+                spec.mergeRight[index] == spec.mergeRight[index - 1] {
+                return tokenizerJsonFailure("tokenizer.duplicate_merge",
+                    "merge pairs must be unique", parsed, spec)
+            }
+            index = index + 1
+        }
+    }
+
+    let addedOption = root.get("added_tokens")
+    if addedOption.isSome() {
+        let added = addedOption.unwrap()
+        if not added.isArray() or added.length() > limits.maxSpecialTokens {
+            return tokenizerJsonFailure("tokenizer.special_limit",
+                "added_tokens must be a bounded array", parsed, spec)
+        }
+        index = 0
+        while index < added.length() {
+            let item = added.getAt(index).unwrap()
+            if not item.isObject() {
+                return tokenizerJsonFailure("tokenizer.special",
+                    "added token entries must be objects", parsed, spec)
+            }
+            let specialOption = item.get("special")
+            if specialOption.isSome() and specialOption.unwrap().isBool() and
+                specialOption.unwrap().getBool() {
+                let contentOption = item.get("content")
+                let idOption = item.get("id")
+                if contentOption.isNone() or idOption.isNone() or
+                    not contentOption.unwrap().isString() or
+                    not idOption.unwrap().isNumber() {
+                    return tokenizerJsonFailure("tokenizer.special",
+                        "special tokens require string content and integer id",
+                        parsed, spec)
+                }
+                let content = contentOption.unwrap().getString()
+                let specialTokenId = idOption.unwrap().getInt()
+                if content.length() == 0 or content.length() > limits.maxTokenBytes or
+                    specialTokenId < 0 or specialTokenId > 2147483647 or
+                    idOption.unwrap().getNumber() != specialTokenId.toFloat() {
+                    return tokenizerJsonFailure("tokenizer.special",
+                        "special token content or identifier is invalid", parsed, spec)
+                }
+                if spec.specialId(content) >= 0 {
+                    return tokenizerJsonFailure("tokenizer.duplicate_special",
+                        "special token content must be unique", parsed, spec)
+                }
+                spec.specialTexts.push(seen_string_clone_owned(content))
+                spec.specialIds.push(specialTokenId)
+            }
+            index = index + 1
+        }
+    }
+    destroyJsonParseResult(parsed, true)
+    return Ok<TokenizerSpec, TokenizerError>(spec)
+}
+
+fun parseTokenizerJsonDefault(input: String)
+    r: Result<TokenizerSpec, TokenizerError> {
+    return parseTokenizerJson(input, TokenizerLimits.qwen())
+}

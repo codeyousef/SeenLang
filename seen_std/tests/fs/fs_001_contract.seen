@@ -1,0 +1,134 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import fs.mod.{Path, OpenOptions, DirectIoPolicy, File, Directory,
+    AtomicOptions, createDirectoryPath, createSymbolicLink, atomicReplace,
+    confinedChild, removeRecursively}
+import fs.path.{normalize}
+import io.direct.{IoSegment, readGather, writeGather}
+
+fun fsContext(cancelled: Bool, deadline: Int64) r: OperationContext {
+    return OperationContext{
+        cancellation: cancelled, monotonicDeadline: deadline,
+        limits: OperationLimits{
+            maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4095,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4
+        },
+        traceId: AsciiString{ value: "fs-001" }
+    }
+}
+
+fun main() r: Int {
+    let path = Path.fromString(".")
+    if path.isErr() { return 1 }
+    let options = OpenOptions.readOnly()
+    if not options.read or options.write { return 2 }
+    let segment = IoSegment{ bytes: Array<Int>(), offset: 0, count: 0 }
+    if segment.count != 0 { return 3 }
+    let unicodePath = Path.fromString("models/▁qwen/tokenizer.json")
+    if unicodePath.isErr() or
+        unicodePath.unwrap().byteLength() != 29 or
+        normalize("models/▁qwen/../tokenizer.json") !=
+            "models/tokenizer.json" { return 4 }
+    let embeddedNul = Path.fromString("bad" + String.fromCharCode(0) + "path")
+    if not embeddedNul.isErr() { return 5 }
+    println("PASS: FS-001A_happy")
+    println("PASS: FS-001A_invalid")
+
+    let context = fsContext(false, 1 as Int64)
+    let rootResult = Path.fromString("/tmp/seen-fs-001-contract")
+    if rootResult.isErr() { return 6 }
+    let root = rootResult.unwrap()
+    let created = createDirectoryPath(context, root, 448 as UInt64)
+    if created.isErr() { return 7 }
+
+    let filePathResult = confinedChild(root, "data.bin")
+    if filePathResult.isErr() { return 8 }
+    let filePath = filePathResult.unwrap()
+    let cancelledOpen = File.open(fsContext(true, 1 as Int64), filePath,
+        OpenOptions.createNew(), DirectIoPolicy.Off)
+    if not cancelledOpen.isErr() or
+        cancelledOpen.unwrapErr().code != "fs.cancelled" { return 9 }
+    let timedOutOpen = File.open(fsContext(false, -1 as Int64), filePath,
+        OpenOptions.createNew(), DirectIoPolicy.Off)
+    if not timedOutOpen.isErr() or
+        timedOutOpen.unwrapErr().code != "fs.timeout" { return 10 }
+
+    let opened = File.open(context, filePath, OpenOptions.createNew(),
+        DirectIoPolicy.Off)
+    if opened.isErr() { return 11 }
+    let file = opened.unwrap()
+    let first = IoSegment{ bytes: [10, 20], offset: 0, count: 2 }
+    let second = IoSegment{ bytes: [30, 40], offset: 0, count: 2 }
+    let writes = Array<IoSegment>()
+    writes.push(first)
+    writes.push(second)
+    if writes.length() != 2 { return 101 }
+    if writes[0].count != 2 or writes[1].count != 2 { return 102 }
+    if writes[0].bytes.length() != 2 or writes[1].bytes.length() != 2 {
+        return 103
+    }
+    let gatheredWrite = writeGather(file.handle, context, 0 as UInt64, writes)
+    if gatheredWrite.isErr() { return 12 }
+    let writeCompletion = gatheredWrite.unwrap()
+    if writeCompletion.bytesTransferred != (4 as UInt64) or
+        writeCompletion.partial { return 12 }
+    let metadata = file.metadata(context)
+    if metadata.isErr() { return 13 }
+    let fileMetadata = metadata.unwrap()
+    if fileMetadata.size != (4 as UInt64) { return 13 }
+    let output = IoSegment{ bytes: [0, 0, 0, 0, 0, 0], offset: 0, count: 6 }
+    let reads = Array<IoSegment>()
+    reads.push(output)
+    let gatheredRead = readGather(file.handle, context, 0 as UInt64, reads)
+    if gatheredRead.isErr() { return 14 }
+    let readCompletion = gatheredRead.unwrap()
+    if readCompletion.bytesTransferred != (4 as UInt64) or
+        not readCompletion.partial { return 14 }
+    let locked = file.lock(context, true, false)
+    let unlocked = file.unlock(context)
+    let synced = file.sync(context, false)
+    let closed = file.close()
+    if locked.isErr() or unlocked.isErr() or synced.isErr() or
+        closed.isErr() { return 15 }
+    println("PASS: FS-001B_happy")
+    println("PASS: SEEN-IO-001B_partial")
+    println("PASS: FS-001D_happy")
+
+    let linkPathResult = confinedChild(root, "data.link")
+    if linkPathResult.isErr() { return 16 }
+    let linked = createSymbolicLink(context, filePath, linkPathResult.unwrap())
+    let directory = Directory.open(context, root)
+    if linked.isErr() or directory.isErr() { return 17 }
+    let iterator = directory.unwrap()
+    let entry = iterator.next(context)
+    let iteratorClosed = iterator.close()
+    if entry.isErr() or entry.unwrap().end or iteratorClosed.isErr() {
+        return 18
+    }
+    let traversal = confinedChild(root, "../escape")
+    var manyComponents = "a"
+    var componentCount = 1
+    while componentCount < 33 {
+        manyComponents = manyComponents + "/a"
+        componentCount = componentCount + 1
+    }
+    let tooDeep = confinedChild(root, manyComponents)
+    if not traversal.isErr() or not tooDeep.isErr() { return 19 }
+    println("PASS: FS-001C_happy")
+    println("PASS: FS-001C_limit")
+
+    let atomicPathResult = confinedChild(root, "atomic.bin")
+    if atomicPathResult.isErr() { return 20 }
+    let replaced = atomicReplace(context, atomicPathResult.unwrap(),
+        [1, 2, 3, 4], AtomicOptions.durable())
+    if replaced.isErr() { return 21 }
+    println("PASS: FS-001E_happy")
+    println("PASS: FS-001F_happy")
+
+    let removed = removeRecursively(context, root)
+    if removed.isErr() { return 22 }
+    println("PASS: FS-001G_cleanup")
+    println("PASS: FS-001H_happy")
+    return 0
+}

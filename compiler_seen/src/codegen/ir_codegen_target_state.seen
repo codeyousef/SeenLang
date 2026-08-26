@@ -5,6 +5,34 @@ import str.string.{StringBuilder}
 
 var g_hostTargetTriple: String = ""
 var g_hostDataLayout: String = ""
+var g_llvmCoroEndReturnsVoid: Bool = false
+
+fun configureLlvmCoroutineEndAbi(versionText: String) r: Void {
+    let marker = "LLVM version "
+    let markerIndex = versionText.indexOf(marker, 0)
+    if markerIndex < 0 {
+        g_llvmCoroEndReturnsVoid = false
+        return
+    }
+
+    var cursor = markerIndex + marker.length()
+    var major = 0
+    var foundDigit = false
+    while cursor < versionText.length() {
+        let byte = versionText.byteAt(cursor)
+        if byte < 48 or byte > 57 {
+            break
+        }
+        foundDigit = true
+        major = major * 10 + byte - 48
+        cursor = cursor + 1
+    }
+    g_llvmCoroEndReturnsVoid = foundDigit and major >= 22
+}
+
+fun llvmCoroutineEndReturnsVoid() r: Bool {
+    return g_llvmCoroEndReturnsVoid
+}
 
 fun getIrgenTraceTimeSeconds() r: Int {
     let result: CommandResult = runCommand("date +%s")

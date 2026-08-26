@@ -2017,7 +2017,35 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     fi
     MEMORY_GUARD_RESERVE_KB="${SEEN_GUARD_RESERVE_KB:-$(derive_memory_guard_reserve_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB")}"
     DERIVED_MEMORY_CAP_KB=$(derive_memory_guard_rss_kb "$SYSTEM_MEMORY_KB" "$SYSTEM_AVAILABLE_KB" "$MEMORY_GUARD_RESERVE_KB")
-    MEMORY_GUARD_RSS_KB="${SEEN_GUARD_RSS_KB:-$DERIVED_MEMORY_CAP_KB}"
+    MEMORY_CAP_CEILING_KB=$DERIVED_MEMORY_CAP_KB
+    VERIFIED_CONTAINING_RSS_KB=""
+    if [ "${SEEN_CI_CONTAINMENT_IN_SCOPE:-0}" = "1" ] &&
+        [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" = "1" ] &&
+        [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ] &&
+        is_positive_integer "${SEEN_MEMORY_GUARD_RSS_KB:-}"; then
+
+        # The owning guard derived this cap before entering the cgroup.
+        # MemAvailable may fall during earlier gates, so validate the live
+        # cgroup and use its exact read-back instead of rejecting a safe nested
+        # command because of a later availability snapshot.
+        if ! "$HARD_MEMORY_SCOPE_WRAPPER" \
+            --label "safe rebuild containing CI cap read-back" \
+            --verify-only -- >/dev/null; then
+
+            echo -e "${RED}ERROR: containing CI memory scope read-back failed.${NC}" >&2
+            exit 126
+        fi
+        stable_total_ceiling_kb=$((SYSTEM_MEMORY_KB * 60 / 100))
+        if [ "$SEEN_MEMORY_GUARD_RSS_KB" -gt "$stable_total_ceiling_kb" ]; then
+            echo -e "${RED}ERROR: verified containing cap exceeds the stable total-memory ceiling.${NC}" >&2
+            exit 126
+        fi
+        VERIFIED_CONTAINING_RSS_KB=$SEEN_MEMORY_GUARD_RSS_KB
+        if [ "$VERIFIED_CONTAINING_RSS_KB" -gt "$MEMORY_CAP_CEILING_KB" ]; then
+            MEMORY_CAP_CEILING_KB=$VERIFIED_CONTAINING_RSS_KB
+        fi
+    fi
+    MEMORY_GUARD_RSS_KB="${SEEN_GUARD_RSS_KB:-${VERIFIED_CONTAINING_RSS_KB:-$DERIVED_MEMORY_CAP_KB}}"
     MEMORY_GUARD_TASKS_MAX="${SEEN_GUARD_TASKS_MAX:-24}"
     MEMORY_GUARD_CGROUP_STOP_KB="${SEEN_GUARD_CGROUP_STOP_KB:-$MEMORY_GUARD_RSS_KB}"
     if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
@@ -2027,8 +2055,8 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     export SEEN_MEMORY_GUARD_RESERVE_KB="$MEMORY_GUARD_RESERVE_KB"
     export SEEN_MEMORY_GUARD_TASKS_MAX="$MEMORY_GUARD_TASKS_MAX"
     export SEEN_MEMORY_GUARD_CGROUP_STOP_KB="$MEMORY_GUARD_CGROUP_STOP_KB"
-    if [ "$MEMORY_GUARD_RSS_KB" -gt "$DERIVED_MEMORY_CAP_KB" ]; then
-        echo -e "${RED}ERROR: SEEN_GUARD_RSS_KB may not exceed the current-memory-derived cap ($DERIVED_MEMORY_CAP_KB KiB).${NC}" >&2
+    if [ "$MEMORY_GUARD_RSS_KB" -gt "$MEMORY_CAP_CEILING_KB" ]; then
+        echo -e "${RED}ERROR: SEEN_GUARD_RSS_KB may not exceed the current-memory-derived or verified containing cap ($MEMORY_CAP_CEILING_KB KiB).${NC}" >&2
         exit 1
     fi
     if [ "$MEMORY_GUARD_TASKS_MAX" -gt 24 ]; then
@@ -2078,8 +2106,8 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         echo -e "${RED}ERROR: Low-memory rebuild caps must be positive integer KB values.${NC}"
         exit 1
     fi
-    if [ "$MAIN_COMPILER_VMEM_KB" -gt "$DERIVED_MEMORY_CAP_KB" ]; then
-        echo -e "${RED}ERROR: SEEN_MAIN_VMEM_KB may not exceed the current-memory-derived cap ($DERIVED_MEMORY_CAP_KB KiB).${NC}" >&2
+    if [ "$MAIN_COMPILER_VMEM_KB" -gt "$MEMORY_CAP_CEILING_KB" ]; then
+        echo -e "${RED}ERROR: SEEN_MAIN_VMEM_KB may not exceed the current-memory-derived or verified containing cap ($MEMORY_CAP_CEILING_KB KiB).${NC}" >&2
         exit 1
     fi
     if [ "$OPT_VMEM_KB" -gt 2097152 ]; then

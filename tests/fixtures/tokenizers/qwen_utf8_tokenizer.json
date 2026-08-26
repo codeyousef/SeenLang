@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "model": {
+    "type": "BPE",
+    "vocab": {
+      "â": 0,
+      "ĸ": 1,
+      "ģ": 2,
+      "h": 3,
+      "i": 4,
+      "hi": 5,
+      "âĸ": 6,
+      "âĸģ": 7,
+      "âĸģhi": 8,
+      "▁hello": 9
+    },
+    "merges": ["â ĸ", "âĸ ģ", "h i", "âĸģ hi"]
+  },
+  "added_tokens": [
+    {"id": 100, "content": "<|end|>", "special": true}
+  ]
+}

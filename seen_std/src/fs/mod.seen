@@ -1,0 +1,9 @@
+/// Public production filesystem surface.
+
+pub import fs.types.{FsError, OsString, Path, OpenOptions, FileKind,
+    FileMetadata, DirectIoPolicy, DirectIoDiagnostics, SpaceInfo}
+pub import fs.file.{File}
+pub import fs.operations.{DirectoryEntry, DirectoryNext, Directory, TemporaryFile,
+    AtomicOptions, createDirectoryPath, createSymbolicLink, readSymbolicLink,
+    createTemporaryBeside, atomicReplace, confinedChild, removeRecursively,
+    moveAcrossFilesystems, filesystemKind}

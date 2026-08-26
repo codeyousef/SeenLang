@@ -1,0 +1,27 @@
+manifest-version = 1
+
+[project]
+name = "seen_tokenizers"
+version = "0.1.0"
+language = "en"
+modules = [
+    "src/mod.seen",
+    "src/errors.seen",
+    "src/unicode_tables.seen",
+    "src/unicode.seen",
+    "src/json.seen",
+    "src/bpe.seen"
+]
+license = "MIT"
+repository = "https://github.com/codeyousef/SeenLang"
+
+[package]
+identity = "seen/seen-tokenizers"
+visibility = "public"
+include = ["src/**/*.seen", "README.md", "LICENSE"]
+assets = []
+capabilities = []
+
+[dependencies]
+
+[native.dependencies]

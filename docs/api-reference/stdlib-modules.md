@@ -4,6 +4,12 @@ This index lists every module currently present under `seen_std/src`. Detailed
 pages cover the stable/user-facing families; lower-level platform and runtime
 modules are listed here so missing API-reference coverage is visible.
 
+The separately versioned `seen/seen-tokenizers` package lives under
+`packages/seen_tokenizers`. It provides bounded strict tokenizer JSON,
+reproducibly generated Unicode 16.0.0 classification tables, deterministic GPT
+byte-level BPE, validated decoding, and explicit special-token policies. Its
+byte-offset and Unicode-codepoint APIs are intentionally distinct.
+
 ## Module Families
 
 | Family | Purpose |
@@ -16,7 +22,7 @@ modules are listed here so missing API-reference coverage is visible.
 | `env` | Environment helpers |
 | `ffi` | C type and interop helpers |
 | `framework` | Component, routing, middleware, store, VDOM, hot reload |
-| `fs` | Path utilities |
+| `fs` | Raw paths, move-only files, directories, links, durability, and traversal |
 | `graphics` | GPU, renderer, shader helpers |
 | `hash` | Hash helpers |
 | `input` | Gamepad/input abstractions |
@@ -112,7 +118,11 @@ modules are listed here so missing API-reference coverage is visible.
 
 ### `fs`
 
+- `fs/file`
+- `fs/mod`
+- `fs/operations`
 - `fs/path`
+- `fs/types`
 
 ### `graphics`
 
@@ -133,6 +143,7 @@ modules are listed here so missing API-reference coverage is visible.
 
 - `io/buffered`
 - `io/bytes`
+- `io/direct`
 - `io/file`
 - `io/stdio`
 

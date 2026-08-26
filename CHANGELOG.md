@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-26
+
+### Added
+
+- Added the production `fs` surface with raw bounded `OsString` and `Path`
+  values, move-only files and directories, checked 64-bit positional I/O and
+  metadata, confined traversal, symbolic links, secure adjacent temporary
+  files, advisory locks, durability, preallocation, sparse-file operations,
+  space queries, crash-safe atomic replacement, recursive cleanup, and
+  cross-filesystem move policy.
+- Added backend-neutral bounded gather I/O and explicit direct-I/O
+  `Off`/`Preferred`/`Required` policy with alignment diagnostics, partial
+  completion, and observable fallback counters.
+- Added reproducible Unicode 16.0 tables and the independently packable
+  `seen_tokenizers` package with bounded strict tokenizer JSON, deterministic
+  byte-level BPE, byte fallback, explicit special-token policy, hostile-input
+  fixtures, and Qwen UTF-8 vocabulary coverage.
+- Added real ext4 and XFS filesystem certification, offsets above 4 GiB,
+  direct-I/O execution, lock contention, overflow, sparse allocation,
+  durability, resource cleanup, and native-boundary inventory coverage.
+
+### Fixed
+
+- Defined and tested distinct UTF-8 byte and codepoint indexing contracts so
+  U+2581 and other non-ASCII tokenizer entries can be scanned and sliced
+  without truncation or representation drift.
+- Made strict JSON grammar scans byte-indexed while preserving decoded Unicode
+  strings, allowing valid Qwen vocabulary files to parse deterministically.
+- Corrected LLVM 22 coroutine-end declaration and call emission while retaining
+  the prior LLVM ABI on older supported toolchains.
+
+### Changed
+
+- Updated required CI to run the filesystem and tokenizer release contracts
+  inside the existing read-back-verified aggregate scope with serial workers,
+  per-command virtual-memory bounds, swap disabled, and bounded timeouts.
+
 ## [0.14.0] - 2026-08-26
 
 ### Added

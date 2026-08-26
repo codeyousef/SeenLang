@@ -418,6 +418,11 @@ grep -Fq 'total_ceiling_kb=$((total_kb * 60 / 100))' "$HARD_SCOPE" ||
 grep -Fq 'if [ "$VERIFY_ONLY" = "0" ] && [ "$derived_rss_kb" -gt "$available_cap_kb" ]' \
     "$HARD_SCOPE" ||
     fail "scope creation no longer derives its cap from current availability"
+grep -Fq 'safe rebuild containing CI cap read-back' "$SAFE_REBUILD" ||
+    fail "nested rebuild does not reverify the containing cgroup cap"
+grep -Fq 'MEMORY_CAP_CEILING_KB=$VERIFIED_CONTAINING_RSS_KB' \
+    "$SAFE_REBUILD" ||
+    fail "nested rebuild does not retain the exact verified containing cap"
 grep -Fq 'fork serializer target rejection self-test' "$SAFE_REBUILD" ||
     fail "serializer attestation omits mismatched-target rejection"
 
@@ -724,10 +729,10 @@ for direct_compile_script in \
     grep -Fq 'SEEN_FORK_SERIALIZER_TARGET' "$direct_compile_script" ||
         fail "direct compiler entry does not bind the serializer target: $direct_compile_script"
 done
-grep -Fq '[ "$MAIN_COMPILER_VMEM_KB" -gt "$DERIVED_MEMORY_CAP_KB" ]' "$SAFE_REBUILD" ||
-    fail "safe rebuild accepts a compiler cap above the current-memory-derived limit"
-grep -Fq '[ "$MEMORY_GUARD_RSS_KB" -gt "$DERIVED_MEMORY_CAP_KB" ]' "$SAFE_REBUILD" ||
-    fail "safe rebuild accepts an aggregate guard cap above the current-memory-derived limit"
+grep -Fq '[ "$MAIN_COMPILER_VMEM_KB" -gt "$MEMORY_CAP_CEILING_KB" ]' "$SAFE_REBUILD" ||
+    fail "safe rebuild accepts a compiler cap above its derived or verified limit"
+grep -Fq '[ "$MEMORY_GUARD_RSS_KB" -gt "$MEMORY_CAP_CEILING_KB" ]' "$SAFE_REBUILD" ||
+    fail "safe rebuild accepts an aggregate guard cap above its derived or verified limit"
 grep -Fq '[ "$OPT_VMEM_KB" -gt 2097152 ]' "$SAFE_REBUILD" ||
     fail "safe rebuild lacks the 2 GiB optimizer hard maximum"
 grep -Fq '[ "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" -gt "$((MAIN_COMPILER_VMEM_KB * 1024))" ]' "$SAFE_REBUILD" ||

@@ -23,15 +23,22 @@ let notEqual = "abc" != "xyz"           // inequality
 ### Length
 
 ```seen
-let s = "hello"
-let len = s.length()           // byte length: 5
+let s = "▁Seen"
+let bytes = s.length()                       // UTF-8 byte length: 7
+let codepoints = utf8CodepointLength(s)      // Unicode scalar count: 5
 ```
+
+`String.length()`, `byteAt()`, `substring()`, and `indexOf()` use UTF-8 byte
+offsets. `charAt()` uses a Unicode codepoint index. Never pass a `charAt()` loop
+index directly to `substring()` when the text may be non-ASCII; convert it with
+`utf8ByteIndex()` or use `substringByCodepoints()`.
 
 ### Character Access
 
 ```seen
-let ch = seen_char_at(s, 0)   // Unicode code point at index
-let byte = seen_byte_at(s, 0) // raw byte at index
+let ch = s.charAt(0)           // U+2581, codepoint index
+let byte = s.byteAt(0)         // 0xE2, byte index
+let marker = substringByCodepoints(s, 0, 1) // "▁"
 ```
 
 ### String Functions
@@ -74,6 +81,9 @@ a single-byte `memchr` path for delimiter-heavy workloads.
 | `String_count` | `(s: String, needle: String) r: Int` | Count occurrences |
 | `String_replace` | `(s: String, old: String, new: String) r: String` | Replace all occurrences |
 | `String_fromCharCode` | `(code: Int) r: String` | Create from Unicode code point |
+| `utf8CodepointLength` | `(s: String) r: Int` | Count Unicode codepoints explicitly |
+| `utf8ByteIndex` | `(s: String, codepointIndex: Int) r: Int` | Convert a codepoint index to a byte offset |
+| `substringByCodepoints` | `(s: String, start: Int, end: Int) r: String` | Slice by codepoint indexes without truncating UTF-8 |
 
 ### Extended String Functions (seen_std/src/str/)
 

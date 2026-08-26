@@ -79,7 +79,8 @@ import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfCompa
 import codegen.ir_egraph_emit.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_inline_heuristics.{mlShouldInlineWeighted, selfCallCheck}
 import codegen.ir_codegen_metrics_state.{cseLookup, cseRecord, cseClear, callCountRecord, callCountClear, selfCallClear, initCollectionBoxes, syncCollectionBoxes, getOptStats, resetOptCounters, loadMLWeights}
-import codegen.ir_codegen_target_state.{detectHostPlatform, overrideTargetTripleImpl}
+import codegen.ir_codegen_target_state.{detectHostPlatform, overrideTargetTripleImpl,
+    configureLlvmCoroutineEndAbi}
 import codegen.ir_generator_config_driver.{setGeneratorTypeHeaderPathState}
 import codegen.ir_codegen_global_state.{preAllocatedRegs, activeVarCount, structNames, structLayouts, structFieldNames, structFieldTypes, funcNames, funcRetTypes, currentClassName, moduleConstantNames, moduleConstantTypes, getModuleConstantTypeWithGlobalStateImpl}
 import codegen.ir_codegen_module_state.{g_xmDeclareNames, g_xmDeclareCount, resetModuleConstantGenerationState, resetLateUserDeclareState, resetIrgenFieldLookupCaches, findModuleConstantWithModuleStateImpl, getModuleConstantTypeWithModuleStateImpl, getModuleConstSeenTypeWithModuleStateImpl, isModuleConstMutableWithModuleStateImpl, moduleConstantInvariantLoadSuffixWithModuleStateImpl}
@@ -1453,7 +1454,7 @@ fun removePathIfExists(path: String) r: Void {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.14.0"
+    return "0.15.0"
 }
 
 fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
@@ -1517,7 +1518,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
             runtimeAbi: "runtime-v2",
-            standardLibraryVersion: "0.3.0",
+            standardLibraryVersion: "0.4.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
             packageClientProtocol: "SEENPKG1",
@@ -12964,6 +12965,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let llvmOptScriptTool = llvmToolCommandForGeneratedScript(llvmOptTool,
         "opt")
 
+    if llvmOptTool != "" {
+        let llvmVersionResult: CommandResult = runCommand(llvmOptTool +
+            " --version 2>/dev/null")
+        if commandWasSuccessful(llvmVersionResult) {
+            configureLlvmCoroutineEndAbi(llvmVersionResult.output)
+        }
+    }
+
     if normalizedCrossTarget == "android-arm64" and targetClangArgs == "" {
         println("  Error: Android cross-compilation requires ANDROID_NDK_HOME or ANDROID_NDK_ROOT with a valid LLVM sysroot")
         return 1
@@ -15893,7 +15902,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.14.0"
+    return "0.15.0"
 }
 
 fun printVersion() r: Void {

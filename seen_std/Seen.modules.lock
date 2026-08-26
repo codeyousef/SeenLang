@@ -37,12 +37,32 @@ path = "src/io/file.seen"
 hash = "0d05ce6ead70588da35997a2cff60d169034494b69a8471ed896a5ef0b7d6c46"
 
 [[modules]]
+path = "src/io/direct.seen"
+hash = "d331c0645bec6b5c84d23986d164ccc2781942feb9df45addaf4dad3e7c87d5a"
+
+[[modules]]
 path = "src/env/env.seen"
 hash = "88069c4a0b043083cc5891436c6ace45e205ca3ae7ba265d92d54b64dc329c65"
 
 [[modules]]
+path = "src/fs/types.seen"
+hash = "73e7033a969faba051057481c0e5f8af9823daddaed532d6caa426a7cc804e49"
+
+[[modules]]
+path = "src/fs/file.seen"
+hash = "6bc1c0380f4830e699cd527c3ba214a6d0c647ef2f7ceecc1bb037cea2738fcc"
+
+[[modules]]
+path = "src/fs/operations.seen"
+hash = "a2524b7f3911d988edcbdb8dc18c9c8102046c9ee219b116596ea035698994c2"
+
+[[modules]]
 path = "src/fs/path.seen"
-hash = "da0e27d6ad4770c005322cc49a2bb7103573f81fe381e6ef45b982f1c26c642f"
+hash = "b00e9e63a0cdc43ab123bac0476d4788efec1301932d3ee584fc1d014d1b820c"
+
+[[modules]]
+path = "src/fs/mod.seen"
+hash = "7da694f20baa2f578bc85af14f69d02e5fddeb0123b7327b97ddca5bd4d31a2d"
 
 [[modules]]
 path = "src/process/process.seen"

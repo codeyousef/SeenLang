@@ -2,6 +2,43 @@
 
 ## File I/O
 
+### Production filesystem API
+
+New code should import `fs.mod`. `OsString` and `Path` preserve the
+length-delimited operating-system path bytes and reject empty, oversized, or
+NUL-containing values before an ABI call. `File` is move-only and accepts an
+`OperationContext`, `Path`, `OpenOptions`, and explicit `DirectIoPolicy`.
+
+The production surface provides checked 64-bit positional reads and writes,
+metadata, durability, preallocation, truncation, sparse-hole punching, space
+queries, advisory locks, directory iteration, symbolic links, exclusive
+temporary files, crash-safe atomic replacement, confined child paths,
+non-following recursive deletion, and cross-filesystem tree moves. All
+operations return stable `fs.*` errors; cleanup is explicit and idempotent.
+
+`io.direct` adds bounded positional gather reads and writes. Gather functions
+accept the opaque `File.handle` value without transferring the move-only
+`File`; the caller remains responsible for synchronization and close. `Off` never asks
+the operating system for direct I/O. `Preferred` may fall back only during
+open and exposes `fallbackCount`; `Required` fails if direct I/O cannot be
+established. Active direct I/O rejects misaligned offsets, lengths, and
+buffers. Partial completion is reported rather than silently retried.
+
+The older `io.file.FsFile` and scalar helpers below remain for bootstrap and
+source compatibility. They are not the production filesystem ownership API.
+
+| Production function/type | Contract |
+|--------------------------|----------|
+| `Path.fromString` | Preserve path bytes and reject empty, oversized, or embedded-NUL values |
+| `File.open` | Open a move-only handle with explicit options and direct-I/O policy |
+| `File.readAt` / `writeAt` | Checked positional I/O with exact partial progress |
+| `Directory.open` / `next` | Owned bounded directory iteration with explicit close |
+| `createDirectoryPath` | Context-aware directory creation for a checked `Path` |
+| `confinedChild` | Reject absolute, empty, dot, and parent traversal components |
+| `atomicReplace` | Adjacent exclusive temporary file, data sync, rename, and optional directory sync |
+| `moveAcrossFilesystems` | Rename first, then bounded copy/sync/remove only on `EXDEV` |
+| `readGather` / `writeGather` | At most 64 validated segments with explicit partial completion |
+
 ### High-Level Functions
 
 ```seen
@@ -130,7 +167,7 @@ import fs.path
 |----------|-----------|-------------|
 | `isAbsolute` | `(path: String) r: Bool` | Check absolute path |
 | `normalize` | `(path: String) r: String` | Normalize path |
-| `join` | `(parts: Array<String>) r: String` | Join path components |
+| `joinPath` | `(parts: Array<String>) r: String` | Join path components |
 | `basename` | `(path: String) r: String` | Get filename |
 | `dirname` | `(path: String) r: String` | Get directory |
 | `pathExtension` | `(path: String) r: String` | Get file extension |
@@ -140,7 +177,7 @@ import fs.path
 ### Example
 
 ```seen
-let full = join(["home", "user", "docs", "file.txt"])
+let full = joinPath(["home", "user", "docs", "file.txt"])
 let dir = dirname(full)       // "home/user/docs"
 let file = basename(full)     // "file.txt"
 let ext = pathExtension(full) // "txt"

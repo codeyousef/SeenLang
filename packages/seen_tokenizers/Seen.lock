@@ -1,0 +1,7 @@
+version = 2
+manifest_sha256 = "2033f375326014144a583c1ea7ce0a0cbeb225675b5fa9c0d34d087f2e9d3321"
+
+[root]
+name = "seen_tokenizers"
+version = "0.1.0"
+dependencies = []

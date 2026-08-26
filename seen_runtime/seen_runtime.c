@@ -30,6 +30,16 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <limits.h>
+#include <dirent.h>
+#include <sys/statvfs.h>
+#include <sys/file.h>
+#if defined(__linux__)
+#include <sys/random.h>
+#include <sys/vfs.h>
+#include <linux/magic.h>
+#include <linux/fs.h>
+#endif
 #if !defined(__ANDROID__)
 #include <execinfo.h>
 #endif
@@ -10936,6 +10946,722 @@ void seen_rwlock_destroy(int64_t handle) {
     }
 }
 #endif
+
+// ============================================================================
+// Filesystem and direct-I/O adapter
+// ============================================================================
+
+typedef struct SeenFsFile {
+#ifdef _WIN32
+    intptr_t fd;
+#else
+    int fd;
+#endif
+    uint64_t alignment;
+    bool direct_active;
+} SeenFsFile;
+
+typedef struct SeenFsDirectory {
+#ifdef _WIN32
+    int unsupported;
+#else
+    DIR *directory;
+    struct dirent *current;
+#endif
+} SeenFsDirectory;
+
+static int seen_fs_copy_path(int64_t path_len, const char *path_data,
+                             char path[4096]) {
+    if (!path_data || path_len <= 0 || path_len >= 4096) return 0;
+    if (memchr(path_data, '\0', (size_t)path_len) != NULL) return 0;
+    memcpy(path, path_data, (size_t)path_len);
+    path[path_len] = '\0';
+    return 1;
+}
+
+static int32_t seen_fs_status_from_errno(int error, int32_t fallback) {
+    switch (error) {
+        case 0: return SEEN_FS_OK;
+        case EINVAL: return SEEN_FS_INVALID;
+#ifdef ENOTSUP
+        case ENOTSUP: return SEEN_FS_UNSUPPORTED;
+#endif
+#if defined(EOPNOTSUPP) && (!defined(ENOTSUP) || EOPNOTSUPP != ENOTSUP)
+        case EOPNOTSUPP: return SEEN_FS_UNSUPPORTED;
+#endif
+        case ENOENT: return SEEN_FS_NOT_FOUND;
+        case EEXIST: return SEEN_FS_EXISTS;
+        case ERANGE:
+        case EOVERFLOW: return SEEN_FS_RANGE;
+        case EBUSY:
+        case EAGAIN: return SEEN_FS_BUSY;
+        case EXDEV: return SEEN_FS_CROSS_DEVICE;
+        case ENOTDIR: return SEEN_FS_NOT_DIRECTORY;
+        case ELOOP: return SEEN_FS_SYMLINK;
+        case ENOSPC:
+#ifdef EDQUOT
+        case EDQUOT:
+#endif
+            return SEEN_FS_NO_SPACE;
+        default: return fallback;
+    }
+}
+
+static int seen_fs_u64_fits_offset(uint64_t value) {
+    return value <= (uint64_t)INT64_MAX;
+}
+
+int32_t seen_fs_open(int64_t path_len, const char *path_data, int32_t flags,
+                     int32_t direct_mode, uint64_t *out_handle,
+                     uint64_t *out_alignment, int32_t *out_direct_active,
+                     uint64_t *out_fallback_count) {
+    char path[4096];
+    if (!out_handle || !out_alignment || !out_direct_active ||
+        !out_fallback_count || direct_mode < 0 || direct_mode > 2 ||
+        !seen_fs_copy_path(path_len, path_data, path)) return SEEN_FS_INVALID;
+    *out_handle = 0;
+    *out_alignment = 0;
+    *out_direct_active = 0;
+    *out_fallback_count = 0;
+#ifdef _WIN32
+    (void)flags;
+    return direct_mode == 2 ? SEEN_FS_UNSUPPORTED : SEEN_FS_UNSUPPORTED;
+#else
+    bool read = (flags & 1) != 0;
+    bool write = (flags & 2) != 0;
+    if (!read && !write) return SEEN_FS_INVALID;
+    int native_flags = read && write ? O_RDWR : write ? O_WRONLY : O_RDONLY;
+    if ((flags & 4) != 0) native_flags |= O_CREAT;
+    if ((flags & 8) != 0) native_flags |= O_TRUNC;
+    if ((flags & 16) != 0) native_flags |= O_APPEND;
+    if ((flags & 32) != 0) native_flags |= O_EXCL;
+#ifdef O_DIRECTORY
+    if ((flags & 64) != 0) native_flags |= O_DIRECTORY;
+#endif
+#ifdef O_NOFOLLOW
+    if ((flags & 128) != 0) native_flags |= O_NOFOLLOW;
+#endif
+#ifdef O_CLOEXEC
+    native_flags |= O_CLOEXEC;
+#endif
+    int base_flags = native_flags;
+    bool direct_requested_active = false;
+#if defined(__linux__) && defined(O_DIRECT)
+    if (direct_mode != 0) {
+        native_flags |= O_DIRECT;
+        direct_requested_active = true;
+    }
+#else
+    if (direct_mode == 2) return SEEN_FS_UNSUPPORTED;
+    if (direct_mode == 1) *out_fallback_count = 1;
+#endif
+    int fd;
+    do { fd = open(path, native_flags, 0666); } while (fd < 0 && errno == EINTR);
+#if defined(__linux__) && defined(O_DIRECT)
+    if (fd < 0 && direct_mode == 1 &&
+        (errno == EINVAL || errno == ENOTSUP || errno == EOPNOTSUPP)) {
+        do { fd = open(path, base_flags, 0666); }
+        while (fd < 0 && errno == EINTR);
+        if (fd >= 0) {
+            *out_fallback_count = 1;
+            direct_requested_active = false;
+        }
+    }
+#endif
+    if (fd < 0) return seen_fs_status_from_errno(errno, SEEN_FS_OPEN_FAILED);
+    struct stat st;
+    if (fstat(fd, &st) != 0) {
+        int error = errno;
+        close(fd);
+        return seen_fs_status_from_errno(error, SEEN_FS_IO_FAILED);
+    }
+    SeenFsFile *file = (SeenFsFile *)seen_try_malloc(sizeof(*file));
+    if (!file) {
+        close(fd);
+        return SEEN_FS_OPEN_FAILED;
+    }
+    file->fd = fd;
+    file->alignment = st.st_blksize > 0 ? (uint64_t)st.st_blksize : 4096U;
+    if (file->alignment < 512U) file->alignment = 512U;
+    file->direct_active = direct_requested_active;
+    *out_handle = (uint64_t)(uintptr_t)file;
+    *out_alignment = file->alignment;
+    *out_direct_active = file->direct_active ? 1 : 0;
+    return SEEN_FS_OK;
+#endif
+}
+
+int32_t seen_fs_close(uint64_t *handle) {
+    if (!handle) return SEEN_FS_INVALID;
+    if (*handle == 0) return SEEN_FS_OK;
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)*handle;
+#ifdef _WIN32
+    (void)file;
+    return SEEN_FS_UNSUPPORTED;
+#else
+    /* POSIX leaves descriptor state unspecified after close(2) returns EINTR;
+       retrying can close a newly reused descriptor. */
+    int result = close(file->fd);
+    if (result != 0) return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    seen_runtime_free_budgeted(file, sizeof(*file));
+    *handle = 0;
+    return SEEN_FS_OK;
+#endif
+}
+
+int32_t seen_fs_close_value(uint64_t handle) {
+    return seen_fs_close(&handle);
+}
+
+int32_t seen_fs_metadata(uint64_t handle, uint64_t *out_size,
+                         int32_t *out_kind, uint64_t *out_mode,
+                         int64_t *out_mtime_ns, uint64_t *out_device,
+                         uint64_t *out_inode, uint64_t *out_links) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!file || !out_size || !out_kind || !out_mode || !out_mtime_ns ||
+        !out_device || !out_inode || !out_links) return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    struct stat st;
+    if (fstat(file->fd, &st) != 0)
+        return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    if (st.st_size < 0) return SEEN_FS_RANGE;
+    *out_size = (uint64_t)st.st_size;
+    *out_kind = S_ISREG(st.st_mode) ? 1 : S_ISDIR(st.st_mode) ? 2 :
+        S_ISLNK(st.st_mode) ? 3 : 4;
+    *out_mode = (uint64_t)st.st_mode;
+#if defined(__APPLE__)
+    *out_mtime_ns = (int64_t)st.st_mtimespec.tv_sec * 1000000000LL +
+        (int64_t)st.st_mtimespec.tv_nsec;
+#else
+    *out_mtime_ns = (int64_t)st.st_mtim.tv_sec * 1000000000LL +
+        (int64_t)st.st_mtim.tv_nsec;
+#endif
+    *out_device = (uint64_t)st.st_dev;
+    *out_inode = (uint64_t)st.st_ino;
+    *out_links = (uint64_t)st.st_nlink;
+    return SEEN_FS_OK;
+#endif
+}
+
+static int32_t seen_fs_check_io(SeenFsFile *file, uint64_t file_offset,
+                                uint64_t buffer_length,
+                                uint64_t buffer_offset, uint64_t count) {
+    if (!file || !seen_fs_u64_fits_offset(file_offset) ||
+        buffer_offset > buffer_length || count > buffer_length - buffer_offset ||
+        count > (uint64_t)SSIZE_MAX ||
+        count > (uint64_t)INT64_MAX - file_offset) return SEEN_FS_RANGE;
+    if (file->direct_active && ((file_offset % file->alignment) != 0 ||
+        (count % file->alignment) != 0)) return SEEN_FS_ALIGNMENT;
+    return SEEN_FS_OK;
+}
+
+int32_t seen_fs_read_at(uint64_t handle, uint64_t file_offset, void *buffer,
+                        uint64_t buffer_length, uint64_t buffer_offset,
+                        uint64_t count, uint64_t *out_read) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!buffer || !out_read) return SEEN_FS_INVALID;
+    *out_read = 0;
+    int32_t check = seen_fs_check_io(file, file_offset, buffer_length,
+                                     buffer_offset, count);
+    if (check != SEEN_FS_OK) return check;
+    if (file->direct_active &&
+        ((uintptr_t)((uint8_t *)buffer + buffer_offset) % file->alignment) != 0)
+        return SEEN_FS_ALIGNMENT;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    ssize_t result;
+    do { result = pread(file->fd, (uint8_t *)buffer + buffer_offset,
+                        (size_t)count, (off_t)file_offset); }
+    while (result < 0 && errno == EINTR);
+    if (result < 0) return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    *out_read = (uint64_t)result;
+    return SEEN_FS_OK;
+#endif
+}
+
+int32_t seen_fs_write_at(uint64_t handle, uint64_t file_offset,
+                         const void *buffer, uint64_t buffer_length,
+                         uint64_t buffer_offset, uint64_t count,
+                         uint64_t *out_written) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!buffer || !out_written) return SEEN_FS_INVALID;
+    *out_written = 0;
+    int32_t check = seen_fs_check_io(file, file_offset, buffer_length,
+                                     buffer_offset, count);
+    if (check != SEEN_FS_OK) return check;
+    if (file->direct_active &&
+        ((uintptr_t)((const uint8_t *)buffer + buffer_offset) % file->alignment) != 0)
+        return SEEN_FS_ALIGNMENT;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    ssize_t result;
+    do { result = pwrite(file->fd, (const uint8_t *)buffer + buffer_offset,
+                         (size_t)count, (off_t)file_offset); }
+    while (result < 0 && errno == EINTR);
+    if (result < 0) return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    *out_written = (uint64_t)result;
+    return SEEN_FS_OK;
+#endif
+}
+
+int32_t seen_fs_pread_array(uint64_t handle, uint64_t file_offset,
+                            SeenArray *bytes, int64_t array_offset,
+                            int64_t count, uint64_t *out_read) {
+    if (!bytes || !out_read || array_offset < 0 || count < 0 ||
+        bytes->element_size != (int64_t)sizeof(int64_t) ||
+        array_offset > bytes->len || count > bytes->len - array_offset)
+        return SEEN_FS_INVALID;
+    *out_read = 0;
+    if (count == 0) return SEEN_FS_OK;
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    int64_t alignment = file && file->direct_active ?
+        (int64_t)file->alignment : (int64_t)sizeof(void *);
+    uint8_t *buffer = file && file->direct_active ?
+        (uint8_t *)seen_try_aligned_realloc(NULL, 0, count, alignment) :
+        (uint8_t *)seen_try_malloc(count);
+    if (!buffer) return SEEN_FS_IO_FAILED;
+    uint64_t got = 0;
+    int32_t status = seen_fs_read_at(handle, file_offset, buffer,
+        (uint64_t)count, 0, (uint64_t)count, &got);
+    if (status == SEEN_FS_OK) {
+        int64_t *values = (int64_t *)bytes->data;
+        for (uint64_t i = 0; i < got; ++i) values[array_offset + (int64_t)i] = buffer[i];
+        *out_read = got;
+    }
+    if (file && file->direct_active)
+        seen_aligned_buffer_free(buffer, count, alignment);
+    else
+        seen_runtime_free_budgeted(buffer, count);
+    return status;
+}
+
+int32_t seen_fs_pwrite_array(uint64_t handle, uint64_t file_offset,
+                             SeenArray *bytes, int64_t array_offset,
+                             int64_t count, uint64_t *out_written) {
+    if (!bytes || !out_written || array_offset < 0 || count < 0 ||
+        bytes->element_size != (int64_t)sizeof(int64_t) ||
+        array_offset > bytes->len || count > bytes->len - array_offset)
+        return SEEN_FS_INVALID;
+    *out_written = 0;
+    if (count == 0) return SEEN_FS_OK;
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    int64_t alignment = file && file->direct_active ?
+        (int64_t)file->alignment : (int64_t)sizeof(void *);
+    uint8_t *buffer = file && file->direct_active ?
+        (uint8_t *)seen_try_aligned_realloc(NULL, 0, count, alignment) :
+        (uint8_t *)seen_try_malloc(count);
+    if (!buffer) return SEEN_FS_IO_FAILED;
+    int64_t *values = (int64_t *)bytes->data;
+    for (int64_t i = 0; i < count; ++i) {
+        if (values[array_offset + i] < 0 || values[array_offset + i] > 255) {
+            if (file && file->direct_active)
+                seen_aligned_buffer_free(buffer, count, alignment);
+            else
+                seen_runtime_free_budgeted(buffer, count);
+            return SEEN_FS_RANGE;
+        }
+        buffer[i] = (uint8_t)values[array_offset + i];
+    }
+    int32_t status = seen_fs_write_at(handle, file_offset, buffer,
+        (uint64_t)count, 0, (uint64_t)count, out_written);
+    if (file && file->direct_active)
+        seen_aligned_buffer_free(buffer, count, alignment);
+    else
+        seen_runtime_free_budgeted(buffer, count);
+    return status;
+}
+
+int64_t seen_fs_pread_array_result(uint64_t handle, uint64_t file_offset,
+                                  SeenArray *bytes, int64_t array_offset,
+                                  int64_t count) {
+    uint64_t transferred = 0;
+    int32_t status = seen_fs_pread_array(handle, file_offset, bytes,
+        array_offset, count, &transferred);
+    if (status != SEEN_FS_OK) return -(int64_t)status;
+    if (transferred > (uint64_t)INT64_MAX) return -(int64_t)SEEN_FS_RANGE;
+    return (int64_t)transferred;
+}
+
+int64_t seen_fs_pwrite_array_result(uint64_t handle, uint64_t file_offset,
+                                   SeenArray *bytes, int64_t array_offset,
+                                   int64_t count) {
+    uint64_t transferred = 0;
+    int32_t status = seen_fs_pwrite_array(handle, file_offset, bytes,
+        array_offset, count, &transferred);
+    if (status != SEEN_FS_OK) return -(int64_t)status;
+    if (transferred > (uint64_t)INT64_MAX) return -(int64_t)SEEN_FS_RANGE;
+    return (int64_t)transferred;
+}
+
+int32_t seen_fs_sync(uint64_t handle, int32_t data_only) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!file) return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    int result;
+#if defined(__APPLE__)
+    (void)data_only;
+    result = fsync(file->fd);
+#else
+    result = data_only ? fdatasync(file->fd) : fsync(file->fd);
+#endif
+    return result == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#endif
+}
+
+int32_t seen_fs_preallocate(uint64_t handle, uint64_t offset, uint64_t length) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!file || !seen_fs_u64_fits_offset(offset) ||
+        !seen_fs_u64_fits_offset(length) ||
+        length > (uint64_t)INT64_MAX - offset)
+        return SEEN_FS_RANGE;
+#if defined(__linux__)
+    int result = fallocate(file->fd, 0, (off_t)offset, (off_t)length);
+    return result == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#elif !defined(_WIN32)
+    int result = posix_fallocate(file->fd, (off_t)offset, (off_t)length);
+    return result == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(result, SEEN_FS_IO_FAILED);
+#else
+    return SEEN_FS_UNSUPPORTED;
+#endif
+}
+
+int32_t seen_fs_truncate(uint64_t handle, uint64_t length) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!file || !seen_fs_u64_fits_offset(length)) return SEEN_FS_RANGE;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    return ftruncate(file->fd, (off_t)length) == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#endif
+}
+
+int32_t seen_fs_punch_hole(uint64_t handle, uint64_t offset, uint64_t length) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!file || !seen_fs_u64_fits_offset(offset) ||
+        !seen_fs_u64_fits_offset(length) ||
+        length > (uint64_t)INT64_MAX - offset)
+        return SEEN_FS_RANGE;
+#if defined(__linux__) && defined(FALLOC_FL_PUNCH_HOLE)
+    return fallocate(file->fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+                     (off_t)offset, (off_t)length) == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#else
+    return SEEN_FS_UNSUPPORTED;
+#endif
+}
+
+int32_t seen_fs_space(uint64_t handle, uint64_t *out_available,
+                      uint64_t *out_total, uint64_t *out_block_size) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!file || !out_available || !out_total || !out_block_size)
+        return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    struct statvfs info;
+    if (fstatvfs(file->fd, &info) != 0)
+        return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    if (info.f_frsize != 0 &&
+        ((uint64_t)info.f_bavail > UINT64_MAX / (uint64_t)info.f_frsize ||
+         (uint64_t)info.f_blocks > UINT64_MAX / (uint64_t)info.f_frsize))
+        return SEEN_FS_RANGE;
+    *out_available = (uint64_t)info.f_bavail * (uint64_t)info.f_frsize;
+    *out_total = (uint64_t)info.f_blocks * (uint64_t)info.f_frsize;
+    *out_block_size = (uint64_t)(info.f_frsize ? info.f_frsize : info.f_bsize);
+    return SEEN_FS_OK;
+#endif
+}
+
+int32_t seen_fs_lock(uint64_t handle, int32_t exclusive, int32_t wait) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!file) return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    int operation = exclusive ? LOCK_EX : LOCK_SH;
+    if (!wait) operation |= LOCK_NB;
+    return flock(file->fd, operation) == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#endif
+}
+
+int32_t seen_fs_unlock(uint64_t handle) {
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)handle;
+    if (!file) return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    return flock(file->fd, LOCK_UN) == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#endif
+}
+
+int32_t seen_fs_random_u64(uint64_t *out_value) {
+    if (!out_value) return SEEN_FS_INVALID;
+#if defined(__linux__)
+    ssize_t result;
+    do { result = getrandom(out_value, sizeof(*out_value), 0); }
+    while (result < 0 && errno == EINTR);
+    return result == (ssize_t)sizeof(*out_value) ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#elif !defined(_WIN32)
+    arc4random_buf(out_value, sizeof(*out_value));
+    return SEEN_FS_OK;
+#else
+    return SEEN_FS_UNSUPPORTED;
+#endif
+}
+
+int32_t seen_fs_create_directory(int64_t path_len, const char *path_data,
+                                 uint64_t mode) {
+    char path[4096];
+    if (!seen_fs_copy_path(path_len, path_data, path) || mode > 07777U)
+        return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    return mkdir(path, (mode_t)mode) == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#endif
+}
+
+int32_t seen_fs_path_kind(int64_t path_len, const char *path_data,
+                          int32_t *out_kind) {
+    char path[4096];
+    if (!out_kind || !seen_fs_copy_path(path_len, path_data, path))
+        return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    struct stat st;
+    if (lstat(path, &st) != 0)
+        return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    *out_kind = S_ISREG(st.st_mode) ? 1 : S_ISDIR(st.st_mode) ? 2 :
+        S_ISLNK(st.st_mode) ? 3 : 4;
+    return SEEN_FS_OK;
+#endif
+}
+
+int64_t seen_fs_path_kind_result(int64_t path_len, const char *path_data) {
+    int32_t kind = 0;
+    int32_t status = seen_fs_path_kind(path_len, path_data, &kind);
+    return status == SEEN_FS_OK ? (int64_t)kind : -(int64_t)status;
+}
+
+int32_t seen_fs_remove_path(int64_t path_len, const char *path_data,
+                            int32_t directory) {
+    char path[4096];
+    if (!seen_fs_copy_path(path_len, path_data, path)) return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    int result = directory ? rmdir(path) : unlink(path);
+    return result == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#endif
+}
+
+int32_t seen_fs_rename(int64_t source_len, const char *source_data,
+                       int64_t destination_len, const char *destination_data,
+                       int32_t no_replace) {
+    char source[4096], destination[4096];
+    if (!seen_fs_copy_path(source_len, source_data, source) ||
+        !seen_fs_copy_path(destination_len, destination_data, destination))
+        return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    if (no_replace) {
+#if defined(__linux__) && defined(SYS_renameat2) && defined(RENAME_NOREPLACE)
+        if (syscall(SYS_renameat2, AT_FDCWD, source, AT_FDCWD, destination,
+                    RENAME_NOREPLACE) == 0) return SEEN_FS_OK;
+        if (errno != ENOSYS && errno != EINVAL)
+            return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#endif
+        /* A check-then-rename fallback would violate no-replace atomics. */
+        return SEEN_FS_UNSUPPORTED;
+    }
+    return rename(source, destination) == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#endif
+}
+
+int32_t seen_fs_symlink(int64_t target_len, const char *target_data,
+                        int64_t link_len, const char *link_data) {
+    char target[4096], link_path[4096];
+    if (!seen_fs_copy_path(target_len, target_data, target) ||
+        !seen_fs_copy_path(link_len, link_data, link_path)) return SEEN_FS_INVALID;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    return symlink(target, link_path) == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#endif
+}
+
+SeenString seen_fs_readlink(int64_t path_len, const char *path_data,
+                            int32_t *out_status) {
+    SeenString empty = {0, ""};
+    char path[4096], target[4096];
+    if (!out_status || !seen_fs_copy_path(path_len, path_data, path)) {
+        if (out_status) *out_status = SEEN_FS_INVALID;
+        return empty;
+    }
+#ifdef _WIN32
+    *out_status = SEEN_FS_UNSUPPORTED;
+    return empty;
+#else
+    ssize_t length = readlink(path, target, sizeof(target) - 1U);
+    if (length < 0) {
+        *out_status = seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+        return empty;
+    }
+    if ((size_t)length == sizeof(target) - 1U) {
+        *out_status = SEEN_FS_RANGE;
+        return empty;
+    }
+    target[length] = '\0';
+    *out_status = SEEN_FS_OK;
+    return seen_str_copy(target);
+#endif
+}
+
+int32_t seen_fs_directory_open(int64_t path_len, const char *path_data,
+                               uint64_t *out_handle) {
+    char path[4096];
+    if (!out_handle || !seen_fs_copy_path(path_len, path_data, path))
+        return SEEN_FS_INVALID;
+    *out_handle = 0;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    DIR *directory = opendir(path);
+    if (!directory) return seen_fs_status_from_errno(errno, SEEN_FS_OPEN_FAILED);
+    SeenFsDirectory *iterator =
+        (SeenFsDirectory *)seen_try_malloc(sizeof(*iterator));
+    if (!iterator) {
+        closedir(directory);
+        return SEEN_FS_OPEN_FAILED;
+    }
+    iterator->directory = directory;
+    iterator->current = NULL;
+    *out_handle = (uint64_t)(uintptr_t)iterator;
+    return SEEN_FS_OK;
+#endif
+}
+
+SeenString seen_fs_directory_next(uint64_t handle, int32_t *out_kind,
+                                  int32_t *out_status) {
+    SeenString empty = {0, ""};
+    SeenFsDirectory *iterator = (SeenFsDirectory *)(uintptr_t)handle;
+    if (!iterator || !out_kind || !out_status) {
+        if (out_status) *out_status = SEEN_FS_INVALID;
+        return empty;
+    }
+#ifdef _WIN32
+    *out_status = SEEN_FS_UNSUPPORTED;
+    return empty;
+#else
+    errno = 0;
+    struct dirent *entry;
+    do { entry = readdir(iterator->directory); }
+    while (entry && (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")));
+    if (!entry) {
+        *out_status = errno == 0 ? SEEN_FS_END :
+            seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+        return empty;
+    }
+    *out_kind = entry->d_type == DT_REG ? 1 : entry->d_type == DT_DIR ? 2 :
+        entry->d_type == DT_LNK ? 3 : 4;
+    *out_status = SEEN_FS_OK;
+    return seen_str_copy(entry->d_name);
+#endif
+}
+
+int64_t seen_fs_directory_advance(uint64_t handle) {
+    SeenFsDirectory *iterator = (SeenFsDirectory *)(uintptr_t)handle;
+    if (!iterator) return -(int64_t)SEEN_FS_INVALID;
+#ifdef _WIN32
+    return -(int64_t)SEEN_FS_UNSUPPORTED;
+#else
+    errno = 0;
+    struct dirent *entry;
+    do { entry = readdir(iterator->directory); }
+    while (entry && (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")));
+    iterator->current = entry;
+    if (!entry) {
+        return errno == 0 ? 0 :
+            -(int64_t)seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    }
+    return entry->d_type == DT_REG ? 1 : entry->d_type == DT_DIR ? 2 :
+        entry->d_type == DT_LNK ? 3 : 4;
+#endif
+}
+
+SeenString seen_fs_directory_current_name(uint64_t handle) {
+    SeenFsDirectory *iterator = (SeenFsDirectory *)(uintptr_t)handle;
+    SeenString empty = {0, ""};
+#ifdef _WIN32
+    (void)iterator;
+    return empty;
+#else
+    if (!iterator || !iterator->current) return empty;
+    return seen_str_copy(iterator->current->d_name);
+#endif
+}
+
+int32_t seen_fs_directory_close(uint64_t *handle) {
+    if (!handle) return SEEN_FS_INVALID;
+    if (*handle == 0) return SEEN_FS_OK;
+    SeenFsDirectory *iterator = (SeenFsDirectory *)(uintptr_t)*handle;
+#ifdef _WIN32
+    return SEEN_FS_UNSUPPORTED;
+#else
+    if (closedir(iterator->directory) != 0)
+        return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    seen_runtime_free_budgeted(iterator, sizeof(*iterator));
+    *handle = 0;
+    return SEEN_FS_OK;
+#endif
+}
+
+int32_t seen_fs_directory_close_value(uint64_t handle) {
+    return seen_fs_directory_close(&handle);
+}
+
+int32_t seen_fs_filesystem_kind(int64_t path_len, const char *path_data,
+                                int32_t *out_kind) {
+    char path[4096];
+    if (!out_kind || !seen_fs_copy_path(path_len, path_data, path))
+        return SEEN_FS_INVALID;
+#if defined(__linux__)
+    struct statfs info;
+    if (statfs(path, &info) != 0)
+        return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    *out_kind = info.f_type == EXT4_SUPER_MAGIC ? 1 :
+        info.f_type == XFS_SUPER_MAGIC ? 2 : 0;
+    return SEEN_FS_OK;
+#else
+    return SEEN_FS_UNSUPPORTED;
+#endif
+}
+
+int64_t seen_fs_filesystem_kind_result(int64_t path_len,
+                                       const char *path_data) {
+    int32_t kind = 0;
+    int32_t status = seen_fs_filesystem_kind(path_len, path_data, &kind);
+    return status == SEEN_FS_OK ? (int64_t)kind : -(int64_t)status;
+}
 
 typedef struct SeenMappedFileV2 {
 #ifdef _WIN32

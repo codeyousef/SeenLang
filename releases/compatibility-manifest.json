@@ -6,21 +6,21 @@
       "package_interface_schema": "seen-package-interface-v2",
       "package_object_manifest_schema": "seen-package-object-manifest-v2",
       "prebuilt_package_schema": "seen-prebuilt-package-v2",
-      "version": "0.14.0"
+      "version": "0.15.0"
     },
     "llvm": {
       "minimum_major": 19
     },
     "package_client": {
       "protocol": "SEENPKG1",
-      "version": "0.14.0"
+      "version": "0.15.0"
     },
     "runtime": {
       "abi": "runtime-v2"
     },
     "standard_library": {
       "module_manifest_version": 1,
-      "version": "0.3.0"
+      "version": "0.4.0"
     }
   },
   "platforms": {
@@ -29,7 +29,7 @@
     "macos": "declared-toolchain-dependent",
     "windows": "declared-toolchain-dependent"
   },
-  "release_version": "0.14.0",
+  "release_version": "0.15.0",
   "schema": "seen-compatibility-manifest-v1",
   "schema_version": 1,
   "targets": [

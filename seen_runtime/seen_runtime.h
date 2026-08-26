@@ -422,6 +422,94 @@ bool seen_replace_file(SeenString source, SeenString destination);
 // destinations are rejected rather than followed.
 bool seen_write_text_atomic(SeenString destination, SeenString content);
 
+// Stable filesystem/direct-I/O status ABI. Higher-level validation, policy,
+// traversal, fallback decisions, and cleanup sequencing remain native Seen.
+enum {
+    SEEN_FS_OK = 0,
+    SEEN_FS_INVALID = 1,
+    SEEN_FS_UNSUPPORTED = 2,
+    SEEN_FS_OPEN_FAILED = 3,
+    SEEN_FS_IO_FAILED = 4,
+    SEEN_FS_NOT_FOUND = 5,
+    SEEN_FS_EXISTS = 6,
+    SEEN_FS_RANGE = 7,
+    SEEN_FS_BUSY = 8,
+    SEEN_FS_CROSS_DEVICE = 9,
+    SEEN_FS_NOT_DIRECTORY = 10,
+    SEEN_FS_SYMLINK = 11,
+    SEEN_FS_NO_SPACE = 12,
+    SEEN_FS_ALIGNMENT = 13,
+    SEEN_FS_END = 14
+};
+
+int32_t seen_fs_open(int64_t path_len, const char *path_data, int32_t flags,
+                     int32_t direct_mode, uint64_t *out_handle,
+                     uint64_t *out_alignment, int32_t *out_direct_active,
+                     uint64_t *out_fallback_count);
+int32_t seen_fs_close(uint64_t *handle);
+int32_t seen_fs_close_value(uint64_t handle);
+int32_t seen_fs_metadata(uint64_t handle, uint64_t *out_size,
+                         int32_t *out_kind, uint64_t *out_mode,
+                         int64_t *out_mtime_ns, uint64_t *out_device,
+                         uint64_t *out_inode, uint64_t *out_links);
+int32_t seen_fs_read_at(uint64_t handle, uint64_t file_offset, void *buffer,
+                        uint64_t buffer_length, uint64_t buffer_offset,
+                        uint64_t count, uint64_t *out_read);
+int32_t seen_fs_write_at(uint64_t handle, uint64_t file_offset,
+                         const void *buffer, uint64_t buffer_length,
+                         uint64_t buffer_offset, uint64_t count,
+                         uint64_t *out_written);
+int32_t seen_fs_pread_array(uint64_t handle, uint64_t file_offset,
+                            SeenArray *bytes, int64_t array_offset,
+                            int64_t count, uint64_t *out_read);
+int32_t seen_fs_pwrite_array(uint64_t handle, uint64_t file_offset,
+                             SeenArray *bytes, int64_t array_offset,
+                             int64_t count, uint64_t *out_written);
+// Result-returning forms avoid requiring foreign out-pointer writes to be
+// observed by bootstrap-generated Seen code. Nonnegative values are byte
+// counts; negative values are negated SEEN_FS_* status codes.
+int64_t seen_fs_pread_array_result(uint64_t handle, uint64_t file_offset,
+                                  SeenArray *bytes, int64_t array_offset,
+                                  int64_t count);
+int64_t seen_fs_pwrite_array_result(uint64_t handle, uint64_t file_offset,
+                                   SeenArray *bytes, int64_t array_offset,
+                                   int64_t count);
+int32_t seen_fs_sync(uint64_t handle, int32_t data_only);
+int32_t seen_fs_preallocate(uint64_t handle, uint64_t offset, uint64_t length);
+int32_t seen_fs_truncate(uint64_t handle, uint64_t length);
+int32_t seen_fs_punch_hole(uint64_t handle, uint64_t offset, uint64_t length);
+int32_t seen_fs_space(uint64_t handle, uint64_t *out_available,
+                      uint64_t *out_total, uint64_t *out_block_size);
+int32_t seen_fs_lock(uint64_t handle, int32_t exclusive, int32_t wait);
+int32_t seen_fs_unlock(uint64_t handle);
+int32_t seen_fs_random_u64(uint64_t *out_value);
+int32_t seen_fs_create_directory(int64_t path_len, const char *path_data,
+                                 uint64_t mode);
+int32_t seen_fs_path_kind(int64_t path_len, const char *path_data,
+                          int32_t *out_kind);
+int64_t seen_fs_path_kind_result(int64_t path_len, const char *path_data);
+int32_t seen_fs_remove_path(int64_t path_len, const char *path_data,
+                            int32_t directory);
+int32_t seen_fs_rename(int64_t source_len, const char *source_data,
+                       int64_t destination_len, const char *destination_data,
+                       int32_t no_replace);
+int32_t seen_fs_symlink(int64_t target_len, const char *target_data,
+                        int64_t link_len, const char *link_data);
+SeenString seen_fs_readlink(int64_t path_len, const char *path_data,
+                            int32_t *out_status);
+int32_t seen_fs_directory_open(int64_t path_len, const char *path_data,
+                               uint64_t *out_handle);
+SeenString seen_fs_directory_next(uint64_t handle, int32_t *out_kind,
+                                  int32_t *out_status);
+int64_t seen_fs_directory_advance(uint64_t handle);
+SeenString seen_fs_directory_current_name(uint64_t handle);
+int32_t seen_fs_directory_close(uint64_t *handle);
+int32_t seen_fs_directory_close_value(uint64_t handle);
+int32_t seen_fs_filesystem_kind(int64_t path_len, const char *path_data,
+                                int32_t *out_kind);
+int64_t seen_fs_filesystem_kind_result(int64_t path_len,
+                                       const char *path_data);
+
 #if defined(SEEN_TEST_ATOMIC_IO_FAILURE_INJECTION)
 enum {
     SEEN_ATOMIC_IO_FAIL_NONE = 0,

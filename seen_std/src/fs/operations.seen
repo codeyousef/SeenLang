@@ -1,0 +1,479 @@
+/// Seen-owned directory, link, temporary-file, atomic replacement, recursive
+/// deletion, and cross-filesystem move policies.
+
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import fs.types.{FS_OK, FS_END, FsError, OsString, Path, OpenOptions, DirectIoPolicy,
+    fsFailure, validateFsContext}
+import fs.file.{File}
+import fs.path.{dirname, joinPath, isAbsolute, splitComponents}
+
+extern "C" fun seen_fs_random_u64(value: *UInt64) r: Int32
+extern "C" fun seen_int_to_string(value: Int64) r: String
+extern "C" fun seen_fs_create_directory(pathLength: Int64,
+    path: *const Char, mode: UInt64) r: Int32
+extern "C" fun seen_fs_path_kind_result(pathLength: Int64,
+    path: *const Char) r: Int64
+extern "C" fun seen_fs_remove_path(pathLength: Int64, path: *const Char,
+    directory: Int32) r: Int32
+extern "C" fun seen_fs_rename(sourceLength: Int64, source: *const Char,
+    destinationLength: Int64, destination: *const Char,
+    noReplace: Int32) r: Int32
+extern "C" fun seen_fs_symlink(targetLength: Int64, target: *const Char,
+    linkLength: Int64, linkPath: *const Char) r: Int32
+extern "C" fun seen_fs_readlink(pathLength: Int64, path: *const Char,
+    status: *Int32) r: String
+extern "C" fun seen_fs_directory_open(pathLength: Int64, path: *const Char,
+    handle: *UInt64) r: Int32
+extern "C" fun seen_fs_directory_advance(handle: UInt64) r: Int64
+extern "C" fun seen_fs_directory_current_name(handle: UInt64) r: String
+extern "C" fun seen_fs_directory_close_value(handle: UInt64) r: Int32
+extern "C" fun seen_fs_filesystem_kind_result(pathLength: Int64,
+    path: *const Char) r: Int64
+
+class DirectoryEntry {
+    var name: String
+    var kind: Int
+}
+
+/// Explicit end-of-stream result. This avoids using null as a directory-entry
+/// sentinel and keeps iteration representable on every supported bootstrap.
+class DirectoryNext {
+    var end: Bool
+    var entry: DirectoryEntry
+}
+
+@move
+class Directory {
+    var handle: UInt64
+    var path: Path
+
+    static fun open(context: OperationContext, path: Path)
+        r: Result<Directory, FsError> {
+        let checked = validateFsContext(context, "directory-open")
+        if checked.isErr() { return Err<Directory, FsError>(checked.unwrapErr()) }
+        var handle: UInt64 = 0 as UInt64
+        let value = path.asString()
+        let status = seen_fs_directory_open(value.length() as Int64,
+            value.toCString(), &handle)
+        if status != FS_OK {
+            return Err<Directory, FsError>(fsFailure(status, "directory-open"))
+        }
+        return Ok<Directory, FsError>(Directory{ handle: handle, path: path })
+    }
+
+    fun next(context: OperationContext) r: Result<DirectoryNext, FsError> {
+        let checked = validateFsContext(context, "directory-next")
+        if checked.isErr() {
+            return Err<DirectoryNext, FsError>(checked.unwrapErr())
+        }
+        let code = seen_fs_directory_advance(this.handle)
+        if code == 0 {
+            return Ok<DirectoryNext, FsError>(DirectoryNext{
+                end: true, entry: DirectoryEntry{ name: "", kind: 0 }
+            })
+        }
+        if code < 0 {
+            return Err<DirectoryNext, FsError>(fsFailure((-code) as Int32,
+                "directory-next"))
+        }
+        let name = seen_fs_directory_current_name(this.handle)
+        return Ok<DirectoryNext, FsError>(DirectoryNext{
+            end: false,
+            entry: DirectoryEntry{ name: name, kind: code as Int }
+        })
+    }
+
+    fun close() r: Result<Bool, FsError> {
+        let status = seen_fs_directory_close_value(this.handle)
+        if status != FS_OK {
+            return Err<Bool, FsError>(fsFailure(status, "directory-close"))
+        }
+        this.handle = 0 as UInt64
+        return Ok<Bool, FsError>(true)
+    }
+}
+
+fun pathStatus(path: Path, operation: String) r: Result<Int, FsError> {
+    let value = path.asString()
+    let kind = seen_fs_path_kind_result(value.length() as Int64,
+        value.toCString())
+    if kind < 0 {
+        return Err<Int, FsError>(fsFailure((-kind) as Int32, operation))
+    }
+    return Ok<Int, FsError>(kind as Int)
+}
+
+fun createDirectoryPath(context: OperationContext, path: Path, mode: UInt64)
+    r: Result<Bool, FsError> {
+    let checked = validateFsContext(context, "create-directory")
+    if checked.isErr() { return Err<Bool, FsError>(checked.unwrapErr()) }
+    let value = path.asString()
+    let status = seen_fs_create_directory(value.length() as Int64,
+        value.toCString(), mode)
+    if status != FS_OK {
+        return Err<Bool, FsError>(fsFailure(status, "create-directory"))
+    }
+    return Ok<Bool, FsError>(true)
+}
+
+fun createSymbolicLink(context: OperationContext, target: Path, linkPath: Path)
+    r: Result<Bool, FsError> {
+    let checked = validateFsContext(context, "symlink")
+    if checked.isErr() { return Err<Bool, FsError>(checked.unwrapErr()) }
+    let targetValue = target.asString()
+    let linkValue = linkPath.asString()
+    let status = seen_fs_symlink(targetValue.length() as Int64,
+        targetValue.toCString(), linkValue.length() as Int64,
+        linkValue.toCString())
+    if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "symlink")) }
+    return Ok<Bool, FsError>(true)
+}
+
+fun readSymbolicLink(context: OperationContext, path: Path)
+    r: Result<OsString, FsError> {
+    let checked = validateFsContext(context, "readlink")
+    if checked.isErr() { return Err<OsString, FsError>(checked.unwrapErr()) }
+    var status: Int32 = 0 as Int32
+    let value = path.asString()
+    let target = seen_fs_readlink(value.length() as Int64, value.toCString(),
+        &status)
+    if status != FS_OK { return Err<OsString, FsError>(fsFailure(status, "readlink")) }
+    let raw = OsString.fromString(target)
+    if raw.isErr() { return Err<OsString, FsError>(raw.unwrapErr()) }
+    return Ok<OsString, FsError>(raw.unwrap())
+}
+
+class TemporaryFile {
+    var file: File
+    var path: Path
+}
+
+fun createTemporaryBeside(context: OperationContext, destination: Path)
+    r: Result<TemporaryFile, FsError> {
+    let checked = validateFsContext(context, "temporary-file")
+    if checked.isErr() { return Err<TemporaryFile, FsError>(checked.unwrapErr()) }
+    var attempt = 0
+    while attempt < 16 {
+        var random: UInt64 = 0 as UInt64
+        let randomStatus = seen_fs_random_u64(&random)
+        if randomStatus != FS_OK {
+            return Err<TemporaryFile, FsError>(fsFailure(randomStatus,
+                "temporary-file"))
+        }
+        let candidateText = destination.asString() + ".seen-tmp-" +
+            seen_int_to_string((random & (0x7FFFFFFFFFFFFFFF as UInt64)) as Int64)
+        let candidateResult = Path.fromString(candidateText)
+        if candidateResult.isErr() {
+            return Err<TemporaryFile, FsError>(candidateResult.unwrapErr())
+        }
+        let candidate = candidateResult.unwrap()
+        let opened = File.open(context, candidate, OpenOptions.createNew(),
+            DirectIoPolicy.Off)
+        if not opened.isErr() {
+            return Ok<TemporaryFile, FsError>(TemporaryFile{
+                file: opened.unwrap(), path: candidate
+            })
+        }
+        if opened.unwrapErr().code != "fs.exists" {
+            return Err<TemporaryFile, FsError>(opened.unwrapErr())
+        }
+        attempt = attempt + 1
+    }
+    return Err<TemporaryFile, FsError>(fsFailure(6 as Int32,
+        "temporary-file"))
+}
+
+fun removeSingle(path: Path, directory: Bool) r: Result<Bool, FsError> {
+    let value = path.asString()
+    var directoryFlag: Int32 = 0 as Int32
+    if directory { directoryFlag = 1 as Int32 }
+    let status = seen_fs_remove_path(value.length() as Int64,
+        value.toCString(), directoryFlag)
+    if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "remove")) }
+    return Ok<Bool, FsError>(true)
+}
+
+fun renamePath(source: Path, destination: Path, noReplace: Bool)
+    r: Result<Bool, FsError> {
+    let sourceValue = source.asString()
+    let destinationValue = destination.asString()
+    var noReplaceFlag: Int32 = 0 as Int32
+    if noReplace { noReplaceFlag = 1 as Int32 }
+    let status = seen_fs_rename(sourceValue.length() as Int64,
+        sourceValue.toCString(), destinationValue.length() as Int64,
+        destinationValue.toCString(), noReplaceFlag)
+    if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "rename")) }
+    return Ok<Bool, FsError>(true)
+}
+
+class AtomicOptions {
+    var replaceExisting: Bool
+    var syncDirectory: Bool
+
+    static fun durable() r: AtomicOptions {
+        return AtomicOptions{ replaceExisting: true, syncDirectory: true }
+    }
+}
+
+fun atomicReplace(context: OperationContext, destination: Path,
+    bytes: Array<Int>, options: AtomicOptions)
+    r: Result<Bool, FsError> {
+    let temporaryResult = createTemporaryBeside(context, destination)
+    if temporaryResult.isErr() {
+        return Err<Bool, FsError>(temporaryResult.unwrapErr())
+    }
+    let temporary = temporaryResult.unwrap()
+    let written = temporary.file.writeAllAt(context, 0 as UInt64, bytes)
+    if written.isErr() {
+        let closeAfterWriteFailure = temporary.file.close()
+        let removeAfterWriteFailure = removeSingle(temporary.path, false)
+        return Err<Bool, FsError>(written.unwrapErr())
+    }
+    let synced = temporary.file.sync(context, false)
+    if synced.isErr() {
+        let closeAfterSyncFailure = temporary.file.close()
+        let removeAfterSyncFailure = removeSingle(temporary.path, false)
+        return Err<Bool, FsError>(synced.unwrapErr())
+    }
+    let closed = temporary.file.close()
+    if closed.isErr() {
+        let removeAfterCloseFailure = removeSingle(temporary.path, false)
+        return Err<Bool, FsError>(closed.unwrapErr())
+    }
+    let renamed = renamePath(temporary.path, destination,
+        not options.replaceExisting)
+    if renamed.isErr() {
+        let removeAfterRenameFailure = removeSingle(temporary.path, false)
+        return Err<Bool, FsError>(renamed.unwrapErr())
+    }
+    if options.syncDirectory {
+        let parentResult = Path.fromString(dirname(destination.asString()))
+        if parentResult.isErr() { return Err<Bool, FsError>(parentResult.unwrapErr()) }
+        let directoryOptions = OpenOptions{
+            read: true, write: false, create: false, truncate: false,
+            append: false, exclusive: false, directory: true, noFollow: true
+        }
+        let parent = File.open(context, parentResult.unwrap(), directoryOptions,
+            DirectIoPolicy.Off)
+        if parent.isErr() { return Err<Bool, FsError>(parent.unwrapErr()) }
+        let directorySync = parent.unwrap().sync(context, false)
+        let directoryClose = parent.unwrap().close()
+        if directorySync.isErr() { return Err<Bool, FsError>(directorySync.unwrapErr()) }
+        if directoryClose.isErr() { return Err<Bool, FsError>(directoryClose.unwrapErr()) }
+    }
+    return Ok<Bool, FsError>(true)
+}
+
+fun childPath(parent: Path, name: String) r: Result<Path, FsError> {
+    let parts = Array<String>()
+    parts.push(parent.asString())
+    parts.push(name)
+    return Path.fromString(joinPath(parts))
+}
+
+fun confinedChild(base: Path, relative: String) r: Result<Path, FsError> {
+    if relative.length() == 0 or isAbsolute(relative) {
+        return Err<Path, FsError>(fsFailure(1 as Int32, "confined-path"))
+    }
+    let components = splitComponents(relative)
+    if components.length() > 32 {
+        return Err<Path, FsError>(fsFailure(7 as Int32, "confined-path"))
+    }
+    var index = 0
+    while index < components.length() {
+        if components[index] == ".." or components[index] == "." or
+            components[index].length() == 0 {
+            return Err<Path, FsError>(fsFailure(1 as Int32, "confined-path"))
+        }
+        index = index + 1
+    }
+    return childPath(base, relative)
+}
+
+fun removeRecursively(context: OperationContext, path: Path)
+    r: Result<Bool, FsError> {
+    let checked = validateFsContext(context, "remove-recursively")
+    if checked.isErr() { return Err<Bool, FsError>(checked.unwrapErr()) }
+    let kindResult = pathStatus(path, "remove-recursively")
+    if kindResult.isErr() { return Err<Bool, FsError>(kindResult.unwrapErr()) }
+    if kindResult.unwrap() != 2 {
+        return removeSingle(path, false)
+    }
+    let opened = Directory.open(context, path)
+    if opened.isErr() { return Err<Bool, FsError>(opened.unwrapErr()) }
+    let directory = opened.unwrap()
+    var done = false
+    while not done {
+        let next = directory.next(context)
+        if next.isErr() {
+            let closeAfterNextFailure = directory.close()
+            return Err<Bool, FsError>(next.unwrapErr())
+        }
+        let entry = next.unwrap()
+        if entry.end {
+            done = true
+        } else {
+            let child = childPath(path, entry.entry.name)
+            if child.isErr() {
+                let closeAfterChildFailure = directory.close()
+                return Err<Bool, FsError>(child.unwrapErr())
+            }
+            let removed = removeRecursively(context, child.unwrap())
+            if removed.isErr() {
+                let closeAfterRemoveFailure = directory.close()
+                return Err<Bool, FsError>(removed.unwrapErr())
+            }
+        }
+    }
+    let closed = directory.close()
+    if closed.isErr() { return Err<Bool, FsError>(closed.unwrapErr()) }
+    return removeSingle(path, true)
+}
+
+fun copyRegularFile(context: OperationContext, source: Path, destination: Path)
+    r: Result<Bool, FsError> {
+    let sourceFile = File.open(context, source, OpenOptions.readOnly(),
+        DirectIoPolicy.Off)
+    if sourceFile.isErr() { return Err<Bool, FsError>(sourceFile.unwrapErr()) }
+    let destinationFile = File.open(context, destination,
+        OpenOptions.createNew(), DirectIoPolicy.Off)
+    if destinationFile.isErr() {
+        let closeSourceAfterOpenFailure = sourceFile.unwrap().close()
+        return Err<Bool, FsError>(destinationFile.unwrapErr())
+    }
+    let buffer = Array<Int>()
+    var fill = 0
+    while fill < 1048576 { buffer.push(0); fill = fill + 1 }
+    var offset: UInt64 = 0 as UInt64
+    var done = false
+    while not done {
+        let read = sourceFile.unwrap().readAt(context, offset, buffer, 0,
+            buffer.length())
+        if read.isErr() {
+            let closeSourceAfterReadFailure = sourceFile.unwrap().close()
+            let closeDestinationAfterReadFailure = destinationFile.unwrap().close()
+            let removeAfterReadFailure = removeSingle(destination, false)
+            return Err<Bool, FsError>(read.unwrapErr())
+        }
+        let count = read.unwrap()
+        if count == 0 {
+            done = true
+        } else {
+            let written = destinationFile.unwrap().writeAt(context, offset,
+                buffer, 0, count as Int)
+            if written.isErr() or written.unwrap() != count {
+                let closeSourceAfterWriteFailure = sourceFile.unwrap().close()
+                let closeDestinationAfterWriteFailure = destinationFile.unwrap().close()
+                let removeAfterCopyWriteFailure = removeSingle(destination, false)
+                if written.isErr() { return Err<Bool, FsError>(written.unwrapErr()) }
+                return Err<Bool, FsError>(fsFailure(4 as Int32, "copy"))
+            }
+            offset = offset + (count as UInt64)
+        }
+    }
+    let synced = destinationFile.unwrap().sync(context, false)
+    let sourceClosed = sourceFile.unwrap().close()
+    let destinationClosed = destinationFile.unwrap().close()
+    if synced.isErr() { return Err<Bool, FsError>(synced.unwrapErr()) }
+    if sourceClosed.isErr() { return Err<Bool, FsError>(sourceClosed.unwrapErr()) }
+    if destinationClosed.isErr() { return Err<Bool, FsError>(destinationClosed.unwrapErr()) }
+    return Ok<Bool, FsError>(true)
+}
+
+fun copyTreeAcrossFilesystems(context: OperationContext, source: Path,
+    destination: Path) r: Result<Bool, FsError> {
+    let kind = pathStatus(source, "copy-tree")
+    if kind.isErr() { return Err<Bool, FsError>(kind.unwrapErr()) }
+    if kind.unwrap() == (1 as Int32) {
+        return copyRegularFile(context, source, destination)
+    }
+    if kind.unwrap() == (3 as Int32) {
+        let target = readSymbolicLink(context, source)
+        if target.isErr() { return Err<Bool, FsError>(target.unwrapErr()) }
+        let targetPath = Path.fromString(target.unwrap().asString())
+        if targetPath.isErr() {
+            return Err<Bool, FsError>(targetPath.unwrapErr())
+        }
+        return createSymbolicLink(context, targetPath.unwrap(), destination)
+    }
+    if kind.unwrap() != (2 as Int32) {
+        return Err<Bool, FsError>(fsFailure(2 as Int32, "copy-tree-kind"))
+    }
+    // Seen integer literals are decimal; 448 is POSIX mode 0700.
+    let created = createDirectoryPath(context, destination, 448 as UInt64)
+    if created.isErr() { return Err<Bool, FsError>(created.unwrapErr()) }
+    let opened = Directory.open(context, source)
+    if opened.isErr() {
+        let removeEmptyDestination = removeSingle(destination, true)
+        return Err<Bool, FsError>(opened.unwrapErr())
+    }
+    let directory = opened.unwrap()
+    var done = false
+    while not done {
+        let next = directory.next(context)
+        if next.isErr() {
+            let closeAfterCopyNextFailure = directory.close()
+            let cleanupAfterCopyNextFailure = removeRecursively(context,
+                destination)
+            return Err<Bool, FsError>(next.unwrapErr())
+        }
+        let entry = next.unwrap()
+        if entry.end {
+            done = true
+        } else {
+            let sourceChild = childPath(source, entry.entry.name)
+            let destinationChild = childPath(destination, entry.entry.name)
+            if sourceChild.isErr() or destinationChild.isErr() {
+                let closeAfterCopyPathFailure = directory.close()
+                let cleanupAfterCopyPathFailure = removeRecursively(context,
+                    destination)
+                if sourceChild.isErr() {
+                    return Err<Bool, FsError>(sourceChild.unwrapErr())
+                }
+                return Err<Bool, FsError>(destinationChild.unwrapErr())
+            }
+            let copied = copyTreeAcrossFilesystems(context, sourceChild.unwrap(),
+                destinationChild.unwrap())
+            if copied.isErr() {
+                let closeAfterCopyFailure = directory.close()
+                let cleanupAfterCopyFailure = removeRecursively(context,
+                    destination)
+                return Err<Bool, FsError>(copied.unwrapErr())
+            }
+        }
+    }
+    let closed = directory.close()
+    if closed.isErr() {
+        let cleanupAfterCopyCloseFailure = removeRecursively(context, destination)
+        return Err<Bool, FsError>(closed.unwrapErr())
+    }
+    return Ok<Bool, FsError>(true)
+}
+
+fun moveAcrossFilesystems(context: OperationContext, source: Path,
+    destination: Path) r: Result<Bool, FsError> {
+    let direct = renamePath(source, destination, true)
+    if not direct.isErr() { return direct }
+    if direct.unwrapErr().code != "fs.cross_device" {
+        return Err<Bool, FsError>(direct.unwrapErr())
+    }
+    let kind = pathStatus(source, "move")
+    if kind.isErr() { return Err<Bool, FsError>(kind.unwrapErr()) }
+    let copied = copyTreeAcrossFilesystems(context, source, destination)
+    if copied.isErr() { return copied }
+    let removed = removeRecursively(context, source)
+    if removed.isErr() { return Err<Bool, FsError>(removed.unwrapErr()) }
+    return Ok<Bool, FsError>(true)
+}
+
+fun filesystemKind(path: Path) r: Result<Int, FsError> {
+    let value = path.asString()
+    let kind = seen_fs_filesystem_kind_result(value.length() as Int64,
+        value.toCString())
+    if kind < 0 {
+        return Err<Int, FsError>(fsFailure((-kind) as Int32,
+            "filesystem-kind"))
+    }
+    return Ok<Int, FsError>(kind as Int)
+}

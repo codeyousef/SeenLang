@@ -1,0 +1,71 @@
+/// Pinned Unicode predicates and UTF-8 index conversion contracts.
+
+import seen_tokenizers.unicode_tables.{
+    SEEN_TOKENIZERS_UNICODE_VERSION,
+    SEEN_TOKENIZERS_UNICODE_DATA_SHA256,
+    unicodeIsLetter,
+    unicodeIsNumber,
+    unicodeIsWhitespace
+}
+import str.string.{utf8CodepointLength, utf8ByteIndex, substringByCodepoints}
+
+fun tokenizerUnicodeVersion() r: String {
+    return SEEN_TOKENIZERS_UNICODE_VERSION
+}
+
+fun tokenizerUnicodeDataSha256() r: String {
+    return SEEN_TOKENIZERS_UNICODE_DATA_SHA256
+}
+
+fun tokenizerCodepointLength(text: String) r: Int {
+    return utf8CodepointLength(text)
+}
+
+fun tokenizerByteIndex(text: String, codepointIndex: Int) r: Int {
+    return utf8ByteIndex(text, codepointIndex)
+}
+
+fun tokenizerSubstringByCodepoints(text: String, start: Int, end: Int)
+    r: String {
+    return substringByCodepoints(text, start, end)
+}
+
+fun tokenizerCodepointAt(text: String, codepointIndex: Int) r: Int {
+    if codepointIndex < 0 or codepointIndex >= utf8CodepointLength(text) {
+        return -1
+    }
+    return text.charAt(codepointIndex)
+}
+
+fun tokenizerIsValidUtf8(text: String) r: Bool {
+    var index = 0
+    while index < text.length() {
+        let first = text.byteAt(index)
+        var width = 0
+        if first <= 127 { width = 1 }
+        else if first >= 194 and first <= 223 { width = 2 }
+        else if first >= 224 and first <= 239 { width = 3 }
+        else if first >= 240 and first <= 244 { width = 4 }
+        if width == 0 or index + width > text.length() { return false }
+        if width >= 2 {
+            let second = text.byteAt(index + 1)
+            if second < 128 or second > 191 or
+                (first == 224 and second < 160) or
+                (first == 237 and second > 159) or
+                (first == 240 and second < 144) or
+                (first == 244 and second > 143) {
+                return false
+            }
+        }
+        if width >= 3 {
+            let third = text.byteAt(index + 2)
+            if third < 128 or third > 191 { return false }
+        }
+        if width == 4 {
+            let fourth = text.byteAt(index + 3)
+            if fourth < 128 or fourth > 191 { return false }
+        }
+        index = index + width
+    }
+    return true
+}

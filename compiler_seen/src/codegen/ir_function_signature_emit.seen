@@ -6,6 +6,7 @@ Extracted from ir_function_gen.seen
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_function_box_utils.{ensureFunctionStringBoxValue}
+import codegen.ir_codegen_target_state.{llvmCoroutineEndReturnsVoid}
 
 // emitFunctionSignatureImpl — emit function header, parameters, and entry label
 fun emitFunctionSignatureImpl(output: StringBuilder, signaturePrefix: String,
@@ -114,7 +115,13 @@ fun emitAsyncCoroutineEpilogueImpl(output: StringBuilder, regBox: Array<Int>, bl
     output.append("  br label %" + suspendLabel + "\n")
 
     output.append("\n" + suspendLabel + ":\n")
-    let coroEndReg = getNextRegFn(regBox)
-    output.append("  " + coroEndReg + " = call i1 @llvm.coro.end(ptr " + coroHdl + ", i1 false, token none)\n")
+    if llvmCoroutineEndReturnsVoid() {
+        output.append("  call void @llvm.coro.end(ptr " + coroHdl +
+            ", i1 false, token none)\n")
+    } else {
+        let coroEndReg = getNextRegFn(regBox)
+        output.append("  " + coroEndReg + " = call i1 @llvm.coro.end(ptr " +
+            coroHdl + ", i1 false, token none)\n")
+    }
     output.append("  ret ptr " + coroHdl + "\n")
 }

@@ -1,0 +1,12 @@
+/// Stable, non-secret tokenizer diagnostics.
+
+class TokenizerError {
+    var code: String
+    var position: Int
+    var message: String
+}
+
+fun tokenizerError(code: String, position: Int, message: String)
+    r: TokenizerError {
+    return TokenizerError{ code: code, position: position, message: message }
+}

@@ -1,0 +1,180 @@
+/// Raw operating-system path values and stable filesystem error contracts.
+
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+
+let FS_OK: Int32 = 0 as Int32
+let FS_END: Int32 = 14 as Int32
+let FS_MAX_PATH_BYTES: Int = 4095
+
+class FsError {
+    var code: String
+    var operation: String
+    var nativeStatus: Int
+    var retryable: Bool
+}
+
+fun fsCode(status: Int32) r: String {
+    if status == (1 as Int32) { return "fs.invalid" }
+    if status == (2 as Int32) { return "fs.unsupported" }
+    if status == (3 as Int32) { return "fs.open_failed" }
+    if status == (4 as Int32) { return "fs.io_failed" }
+    if status == (5 as Int32) { return "fs.not_found" }
+    if status == (6 as Int32) { return "fs.exists" }
+    if status == (7 as Int32) { return "fs.range" }
+    if status == (8 as Int32) { return "fs.unavailable" }
+    if status == (9 as Int32) { return "fs.cross_device" }
+    if status == (10 as Int32) { return "fs.not_directory" }
+    if status == (11 as Int32) { return "fs.symlink" }
+    if status == (12 as Int32) { return "fs.no_space" }
+    if status == (13 as Int32) { return "fs.alignment" }
+    return "fs.unknown"
+}
+
+fun fsFailure(status: Int32, operation: String) r: FsError {
+    return FsError{
+        code: fsCode(status), operation: operation, nativeStatus: status as Int,
+        retryable: status == (8 as Int32)
+    }
+}
+
+fun validateFsContext(context: OperationContext, operation: String)
+    r: Result<Bool, FsError> {
+    if context.cancellation {
+        return Err<Bool, FsError>(FsError{
+            code: "fs.cancelled", operation: operation,
+            nativeStatus: 1, retryable: false
+        })
+    }
+    if context.monotonicDeadline < 0 {
+        return Err<Bool, FsError>(FsError{
+            code: "fs.timeout", operation: operation,
+            nativeStatus: 1, retryable: false
+        })
+    }
+    if context.limits.maxPathBytes <= 0 or
+        context.limits.maxPathBytes > FS_MAX_PATH_BYTES {
+        return Err<Bool, FsError>(FsError{
+            code: "fs.limit", operation: operation,
+            nativeStatus: 1, retryable: false
+        })
+    }
+    return Ok<Bool, FsError>(true)
+}
+
+/// Seen strings are length-delimited byte sequences. OsString deliberately
+/// preserves those bytes and rejects embedded NUL before crossing the C ABI.
+class OsString {
+    var bytes: String
+
+    static fun fromString(value: String) r: Result<OsString, FsError> {
+        if value.length() <= 0 or value.length() > FS_MAX_PATH_BYTES {
+            return Err<OsString, FsError>(fsFailure(1 as Int32, "os-string"))
+        }
+        var index = 0
+        while index < value.length() {
+            if value.byteAt(index) == 0 {
+                return Err<OsString, FsError>(fsFailure(1 as Int32, "os-string"))
+            }
+            index = index + 1
+        }
+        return Ok<OsString, FsError>(OsString{ bytes: value })
+    }
+
+    fun length() r: Int { return this.bytes.length() }
+    fun asString() r: String { return this.bytes }
+}
+
+class Path {
+    var raw: OsString
+
+    static fun fromString(value: String) r: Result<Path, FsError> {
+        let checked = OsString.fromString(value)
+        if checked.isErr() {
+            return Err<Path, FsError>(checked.unwrapErr())
+        }
+        return Ok<Path, FsError>(Path{ raw: checked.unwrap() })
+    }
+
+    fun asString() r: String { return this.raw.asString() }
+    fun byteLength() r: Int { return this.raw.length() }
+}
+
+class OpenOptions {
+    var read: Bool
+    var write: Bool
+    var create: Bool
+    var truncate: Bool
+    var append: Bool
+    var exclusive: Bool
+    var directory: Bool
+    var noFollow: Bool
+
+    static fun readOnly() r: OpenOptions {
+        return OpenOptions{
+            read: true, write: false, create: false, truncate: false,
+            append: false, exclusive: false, directory: false, noFollow: true
+        }
+    }
+
+    static fun createNew() r: OpenOptions {
+        return OpenOptions{
+            read: true, write: true, create: true, truncate: false,
+            append: false, exclusive: true, directory: false, noFollow: true
+        }
+    }
+
+    fun nativeFlags() r: Int32 {
+        var flags: Int = 0
+        if this.read { flags = flags | 1 }
+        if this.write { flags = flags | 2 }
+        if this.create { flags = flags | 4 }
+        if this.truncate { flags = flags | 8 }
+        if this.append { flags = flags | 16 }
+        if this.exclusive { flags = flags | 32 }
+        if this.directory { flags = flags | 64 }
+        if this.noFollow { flags = flags | 128 }
+        return flags as Int32
+    }
+}
+
+enum FileKind {
+    Regular
+    Directory
+    SymbolicLink
+    Other
+}
+
+class FileMetadata {
+    var size: UInt64
+    var kind: Int
+    var mode: UInt64
+    var modifiedNanoseconds: Int64
+    var device: UInt64
+    var inode: UInt64
+    var links: UInt64
+}
+
+enum DirectIoPolicy {
+    Off
+    Preferred
+    Required
+}
+
+fun directIoMode(policy: DirectIoPolicy) r: Int32 {
+    if policy == DirectIoPolicy.Preferred { return 1 as Int32 }
+    if policy == DirectIoPolicy.Required { return 2 as Int32 }
+    return 0 as Int32
+}
+
+class DirectIoDiagnostics {
+    var active: Bool
+    var alignment: UInt64
+    var fallbackCount: UInt64
+}
+
+class SpaceInfo {
+    var available: UInt64
+    var total: UInt64
+    var blockSize: UInt64
+}

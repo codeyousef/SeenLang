@@ -1,0 +1,114 @@
+import io.file.{readText}
+import seen_tokenizers.mod.{parseTokenizerJson, TokenizerLimits,
+    tokenizerUnicodeVersion, tokenizerUnicodeDataSha256,
+    tokenizerCodepointLength, tokenizerByteIndex,
+    tokenizerSubstringByCodepoints, tokenizerCodepointAt,
+    byteBpeEncodePiece, byteBpeEncode, byteBpeDecode,
+    SPECIAL_TOKENS_DISALLOW, SPECIAL_TOKENS_ALLOW_LISTED}
+
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { panic(message) }
+}
+
+fun main() r: Void {
+    let marker = String.fromCharCode(9601)
+    let constructed = marker + "Seen"
+    let literal = "▁Seen"
+    require(constructed == literal, "fromCharCode must use canonical UTF-8")
+    require(literal.length() == 7, "String.length is a byte length")
+    require(literal.byteAt(0) == 226, "byteAt uses byte indexes")
+    require(tokenizerCodepointLength(literal) == 5,
+        "codepoint length must be explicit")
+    require(tokenizerCodepointAt(literal, 0) == 9601,
+        "codepoint access must decode U+2581")
+    require(tokenizerByteIndex(literal, 1) == 3,
+        "codepoint-to-byte conversion must cross U+2581")
+    require(tokenizerSubstringByCodepoints(literal, 0, 1) == marker,
+        "codepoint slicing must not truncate UTF-8")
+
+    let input = readText("tests/fixtures/tokenizers/qwen_utf8_tokenizer.json")
+    let parsed = parseTokenizerJson(input, TokenizerLimits.qwen())
+    require(not parsed.isErr(), "valid UTF-8 Qwen vocabulary must parse")
+    let spec = parsed.unwrap()
+    require(spec.tokenId("▁hello") == 9,
+        "raw UTF-8 vocabulary key must survive JSON parsing")
+    require(spec.specialId("<|end|>") == 100,
+        "special-token metadata must be explicit")
+    require(spec.tokenId("âĸģhi") == 8,
+        "composed byte-BPE vocabulary entry must survive sorting")
+    require(spec.mergeRank("h", "i") == 2 and
+        spec.mergeRank("âĸģ", "hi") == 3,
+        "merge ranks must survive JSON ownership transfer")
+
+    let asciiEncoded = byteBpeEncodePiece(spec, "hi", 16)
+    require(not asciiEncoded.isErr(), "ASCII merge fixture must encode")
+    let asciiIds = asciiEncoded.unwrap()
+    require(asciiIds.length() == 1 and asciiIds[0] == 5,
+        "ASCII merge rank must produce its composed token")
+    asciiIds.free()
+
+    let encoded = byteBpeEncodePiece(spec, "▁hi", 16)
+    require(not encoded.isErr(), "byte BPE piece must encode")
+    let ids = encoded.unwrap()
+    if ids.length() != 1 or ids[0] != 8 {
+        var detail = ""
+        var idIndex = 0
+        while idIndex < ids.length() {
+            if idIndex > 0 { detail = detail + "," }
+            detail = detail + ids[idIndex].toString()
+            idIndex = idIndex + 1
+        }
+        println("byte BPE diagnostic ids=[" + detail + "]")
+    }
+    require(ids.length() == 1 and ids[0] == 8,
+        "merge ranks must produce the deterministic token")
+    let decoded = byteBpeDecode(spec, ids, 64)
+    require(not decoded.isErr() and decoded.unwrap() == "▁hi",
+        "byte BPE must round trip UTF-8")
+    ids.free()
+
+    let rejected = byteBpeEncode(spec, "<|end|>",
+        SPECIAL_TOKENS_DISALLOW, 4)
+    require(rejected.isErr() and
+        rejected.unwrapErr().code == "tokenizer.disallowed_special",
+        "special tokens must fail closed by policy")
+    let allowed = byteBpeEncode(spec, "<|end|>",
+        SPECIAL_TOKENS_ALLOW_LISTED, 4)
+    require(not allowed.isErr(), "listed special token must be allowed explicitly")
+    let specialIds = allowed.unwrap()
+    require(specialIds.length() == 1 and specialIds[0] == 100,
+        "special token must preserve its pinned identifier")
+    specialIds.free()
+
+    let duplicate = parseTokenizerJson(
+        "{\"model\":{\"type\":\"BPE\",\"vocab\":{\"a\":0,\"a\":1}}}",
+        TokenizerLimits.qwen())
+    require(duplicate.isErr() and duplicate.unwrapErr().code == "tokenizer.json",
+        "duplicate JSON keys must be rejected")
+    let duplicateId = parseTokenizerJson(readText(
+        "tests/fixtures/tokenizers/duplicate-id.json"), TokenizerLimits.qwen())
+    require(duplicateId.isErr() and
+        duplicateId.unwrapErr().code == "tokenizer.duplicate_id",
+        "duplicate vocabulary identifiers must be rejected")
+    let badMerge = parseTokenizerJson(readText(
+        "tests/fixtures/tokenizers/invalid-merge.json"), TokenizerLimits.qwen())
+    require(badMerge.isErr() and badMerge.unwrapErr().code == "tokenizer.merge",
+        "malformed merge entries must be rejected")
+    let tinyLimits = TokenizerLimits{ maxInputBytes: 8, maxDepth: 2,
+        maxValues: 2, maxTokenBytes: 2, maxVocab: 1, maxMerges: 0,
+        maxSpecialTokens: 0 }
+    require(parseTokenizerJson(input, tinyLimits).isErr(),
+        "caller-provided parser limits must fail closed")
+    var soak = 0
+    while soak < 64 {
+        let repeated = parseTokenizerJson(input, TokenizerLimits.qwen())
+        require(not repeated.isErr(), "repeated tokenizer parsing must succeed")
+        repeated.unwrap().close()
+        soak = soak + 1
+    }
+    require(tokenizerUnicodeVersion() == "16.0.0" and
+        tokenizerUnicodeDataSha256().length() == 64,
+        "Unicode tables must expose their exact reproducibility lock")
+    spec.close()
+    println("PASS: FEL-589/FEL-1125/FEL-1126 UTF-8, Unicode, JSON, and byte BPE")
+}

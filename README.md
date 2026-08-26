@@ -25,7 +25,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="docs/cli-reference.md"><img src="https://img.shields.io/badge/release-0.14.0-2f855a.svg" alt="Seen 0.14.0"></a>
+  <a href="docs/cli-reference.md"><img src="https://img.shields.io/badge/release-0.15.0-2f855a.svg" alt="Seen 0.15.0"></a>
   <a href="docs/targets.md"><img src="https://img.shields.io/badge/backend-LLVM-5f43b2.svg" alt="LLVM backend"></a>
   <a href="docs/bootstrap.md"><img src="https://img.shields.io/badge/compiler-self--hosted-brightgreen.svg" alt="Self-hosted compiler"></a>
   <a href="docs/multilingual.md"><img src="https://img.shields.io/badge/languages-6-orange.svg" alt="6 keyword languages"></a>
@@ -122,7 +122,7 @@ live in [docs/bootstrap.md](docs/bootstrap.md).
 
 ## Packages
 
-Seen 0.14.0 resolves package dependencies declared in `Seen.toml` and records
+Seen 0.15.0 resolves package dependencies declared in `Seen.toml` and records
 the complete verified graph in `Seen.lock` version 2:
 
 ```toml
@@ -273,7 +273,7 @@ See [docs/tooling.md](docs/tooling.md) for editor setup and diagnostics.
 ## Benchmark Gates
 
 Seen keeps small, capped performance gates for the compiler, stdlib, runtime,
-release LTO, and packages. Current 0.14.0 baseline coverage includes:
+release LTO, and packages. Current 0.15.0 baseline coverage includes:
 
 | Suite | Maintained Gate Coverage |
 |-------|--------------------------|

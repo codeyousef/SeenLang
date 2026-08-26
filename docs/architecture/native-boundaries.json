@@ -12,6 +12,15 @@
       "production": false
     },
     {
+      "id": "filesystem-direct-io-adapter",
+      "subsystem": "stdlib.fs",
+      "purpose": "Narrow OS adapter for move-only file handles, metadata, positional and direct I/O, allocation, durability, locks, directory iteration, links, and filesystem identification. Native Seen owns raw-path validation, bounds, traversal, temporary naming, atomic replacement, recursive operations, gather sequencing, fallback policy, diagnostics, and cleanup. Exercised by sparse files above 4 GiB, aligned O_DIRECT, hostile paths, crash-safe replacement, and ext4/XFS certification.",
+      "abi": "OS filesystem C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_fs_close", "seen_fs_close_value", "seen_fs_create_directory", "seen_fs_directory_advance", "seen_fs_directory_close", "seen_fs_directory_close_value", "seen_fs_directory_current_name", "seen_fs_directory_next", "seen_fs_directory_open", "seen_fs_filesystem_kind", "seen_fs_filesystem_kind_result", "seen_fs_lock", "seen_fs_metadata", "seen_fs_open", "seen_fs_path_kind", "seen_fs_path_kind_result", "seen_fs_pread_array", "seen_fs_pread_array_result", "seen_fs_preallocate", "seen_fs_punch_hole", "seen_fs_pwrite_array", "seen_fs_pwrite_array_result", "seen_fs_random_u64", "seen_fs_read_at", "seen_fs_readlink", "seen_fs_remove_path", "seen_fs_rename", "seen_fs_space", "seen_fs_symlink", "seen_fs_sync", "seen_fs_truncate", "seen_fs_unlock", "seen_fs_write_at"],
+      "production": true
+    },
+    {
       "id": "host-aligned-buffer",
       "subsystem": "stdlib.memory",
       "purpose": "Minimal allocation ABI for move-only aligned Seen buffers. Seen validates geometry and alignment and owns lifetime policy; the runtime only performs platform-correct allocation and free. Exercised by layout, alignment, move, and leak tests. Permanent until compiler-owned allocation intrinsics can preserve the same C ABI.",

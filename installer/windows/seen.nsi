@@ -1,7 +1,7 @@
 ; NSIS installer for Seen Language
 ;
-; Build on Linux:  makensis -DVERSION=0.14.0 -DSOURCE_DIR=path/to/staged seen.nsi
-; Build on Windows: makensis /DVERSION=0.14.0 /DSOURCE_DIR=path\to\staged seen.nsi
+; Build on Linux:  makensis -DVERSION=0.15.0 -DSOURCE_DIR=path/to/staged seen.nsi
+; Build on Windows: makensis /DVERSION=0.15.0 /DSOURCE_DIR=path\to\staged seen.nsi
 ;
 ; Install NSIS:
 ;   Arch Linux: sudo pacman -S nsis
@@ -9,13 +9,13 @@
 ;   Windows:    https://nsis.sourceforge.io/Download
 
 !ifndef VERSION
-  !define VERSION "0.14.0"
+  !define VERSION "0.15.0"
 !endif
 !ifndef SOURCE_DIR
   !define SOURCE_DIR "../../target-windows/seen-${VERSION}-windows-x64"
 !endif
 !ifndef PRODUCT_VERSION
-  !define PRODUCT_VERSION "0.14.0.0"
+  !define PRODUCT_VERSION "0.15.0.0"
 !endif
 
 !define PRODUCT_NAME "Seen Language"

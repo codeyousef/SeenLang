@@ -4363,6 +4363,176 @@
       ]
     },
     {
+      "name": "seen_fs_close_value",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_create_directory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_directory_advance",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_directory_close_value",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_directory_current_name",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_directory_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_filesystem_kind_result",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_lock",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_metadata",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_path_kind_result",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_pread_array_result",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen",
+        "seen_std/src/io/direct.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_preallocate",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_punch_hole",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_pwrite_array_result",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen",
+        "seen_std/src/io/direct.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_random_u64",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_readlink",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_remove_path",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_rename",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_space",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_symlink",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_sync",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_truncate",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
+      "name": "seen_fs_unlock",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
       "name": "seen_gamepad_axis_value",
       "abi": "Seen",
       "sources": [
@@ -4773,6 +4943,13 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/collections/byte_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_int_to_string",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/operations.seen"
       ]
     },
     {

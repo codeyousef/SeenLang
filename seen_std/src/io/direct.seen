@@ -1,0 +1,132 @@
+/// Backend-neutral aligned positional and gather-I/O policy.
+/// Linux uses the filesystem adapter's pread/pwrite and optional O_DIRECT;
+/// gather ordering, bounds, partial completion, and fallback remain Seen-owned.
+
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import fs.types.{FsError, fsFailure, validateFsContext}
+
+extern "C" fun seen_fs_pread_array_result(handle: UInt64,
+    fileOffset: UInt64, bytes: Array<Int>, arrayOffset: Int64,
+    count: Int64) r: Int64
+extern "C" fun seen_fs_pwrite_array_result(handle: UInt64,
+    fileOffset: UInt64, bytes: Array<Int>, arrayOffset: Int64,
+    count: Int64) r: Int64
+
+let MAX_GATHER_SEGMENTS: Int = 64
+
+class IoSegment {
+    var bytes: Array<Int>
+    var offset: Int
+    var count: Int
+}
+
+class GatherCompletion {
+    var bytesTransferred: UInt64
+    var segmentsCompleted: Int
+    var partial: Bool
+}
+
+fun validateSegments(segments: Array<IoSegment>, operation: String)
+    r: Result<Bool, FsError> {
+    if segments.length() <= 0 or segments.length() > MAX_GATHER_SEGMENTS {
+        return Err<Bool, FsError>(fsFailure(7 as Int32, operation))
+    }
+    var index = 0
+    while index < segments.length() {
+        if segments[index].offset < 0 or segments[index].count < 0 or
+            segments[index].offset > segments[index].bytes.length() or
+            segments[index].count > segments[index].bytes.length() -
+                segments[index].offset {
+            return Err<Bool, FsError>(fsFailure(7 as Int32, operation))
+        }
+        index = index + 1
+    }
+    return Ok<Bool, FsError>(true)
+}
+
+fun readGather(handle: UInt64, context: OperationContext, fileOffset: UInt64,
+    segments: Array<IoSegment>) r: Result<GatherCompletion, FsError> {
+    let contextCheck = validateFsContext(context, "read-gather")
+    if contextCheck.isErr() {
+        return Err<GatherCompletion, FsError>(contextCheck.unwrapErr())
+    }
+    let checked = validateSegments(segments, "read-gather")
+    if checked.isErr() {
+        return Err<GatherCompletion, FsError>(checked.unwrapErr())
+    }
+    var total = 0
+    var completed = 0
+    var partial = false
+    while completed < segments.length() {
+        let requestedOffset = segments[completed].offset
+        let requestedCount = segments[completed].count
+        let requestedCount64 = requestedCount as UInt64
+        let requestedBytes = segments[completed].bytes
+        let transferredResult = seen_fs_pread_array_result(handle,
+            fileOffset + (total as UInt64), requestedBytes,
+            requestedOffset as Int64, requestedCount as Int64)
+        if transferredResult < 0 {
+            return Err<GatherCompletion, FsError>(fsFailure(
+                (-transferredResult) as Int32, "read-gather"))
+        }
+        let transferred = transferredResult as Int
+        total = total + transferred
+        if (transferred as UInt64) != requestedCount64 {
+            partial = true
+            return Ok<GatherCompletion, FsError>(GatherCompletion{
+                bytesTransferred: total as UInt64, segmentsCompleted: completed,
+                partial: true
+            })
+        } else {
+            completed = completed + 1
+        }
+    }
+    return Ok<GatherCompletion, FsError>(GatherCompletion{
+        bytesTransferred: total as UInt64, segmentsCompleted: completed,
+        partial: partial
+    })
+}
+
+fun writeGather(handle: UInt64, context: OperationContext, fileOffset: UInt64,
+    segments: Array<IoSegment>) r: Result<GatherCompletion, FsError> {
+    let contextCheck = validateFsContext(context, "write-gather")
+    if contextCheck.isErr() {
+        return Err<GatherCompletion, FsError>(contextCheck.unwrapErr())
+    }
+    let checked = validateSegments(segments, "write-gather")
+    if checked.isErr() {
+        return Err<GatherCompletion, FsError>(checked.unwrapErr())
+    }
+    var total = 0
+    var completed = 0
+    var partial = false
+    while completed < segments.length() {
+        let requestedOffset = segments[completed].offset
+        let requestedCount = segments[completed].count
+        let requestedCount64 = requestedCount as UInt64
+        let requestedBytes = segments[completed].bytes
+        let transferredResult = seen_fs_pwrite_array_result(handle,
+            fileOffset + (total as UInt64), requestedBytes,
+            requestedOffset as Int64, requestedCount as Int64)
+        if transferredResult < 0 {
+            return Err<GatherCompletion, FsError>(fsFailure(
+                (-transferredResult) as Int32, "write-gather"))
+        }
+        let transferred = transferredResult as Int
+        total = total + transferred
+        if (transferred as UInt64) != requestedCount64 {
+            partial = true
+            return Ok<GatherCompletion, FsError>(GatherCompletion{
+                bytesTransferred: total as UInt64, segmentsCompleted: completed,
+                partial: true
+            })
+        } else {
+            completed = completed + 1
+        }
+    }
+    return Ok<GatherCompletion, FsError>(GatherCompletion{
+        bytesTransferred: total as UInt64, segmentsCompleted: completed,
+        partial: partial
+    })
+}

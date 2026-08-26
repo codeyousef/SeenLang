@@ -1,6 +1,7 @@
 // Memory, synchronization, and LLVM intrinsic runtime declarations.
 
 import str.string.{StringBuilder}
+import codegen.ir_codegen_target_state.{llvmCoroutineEndReturnsVoid}
 
 fun emitMemoryRuntimeDecls(output: StringBuilder) r: Void {
     // Memory allocation — allockind attributes enable heap-to-stack promotion and DSE
@@ -93,7 +94,11 @@ fun emitMemoryRuntimeDecls(output: StringBuilder) r: Void {
     output.append("declare ptr @llvm.coro.begin(token, ptr)\n")
     output.append("declare token @llvm.coro.save(ptr)\n")
     output.append("declare i8 @llvm.coro.suspend(token, i1)\n")
-    output.append("declare i1 @llvm.coro.end(ptr, i1, token)\n")
+    if llvmCoroutineEndReturnsVoid() {
+        output.append("declare void @llvm.coro.end(ptr, i1, token)\n")
+    } else {
+        output.append("declare i1 @llvm.coro.end(ptr, i1, token)\n")
+    }
     output.append("declare ptr @llvm.coro.free(token, ptr)\n")
     output.append("declare void @llvm.coro.resume(ptr)\n")
     output.append("declare void @llvm.coro.destroy(ptr)\n")

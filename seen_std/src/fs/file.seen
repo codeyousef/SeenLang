@@ -1,0 +1,238 @@
+/// Move-only files, checked 64-bit positional I/O, metadata, durability,
+/// advisory locks, sparse allocation, and explicit direct-I/O diagnostics.
+
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import fs.types.{FS_OK, FsError, Path, OpenOptions, FileMetadata,
+    DirectIoPolicy, DirectIoDiagnostics, SpaceInfo, directIoMode, fsFailure,
+    validateFsContext}
+
+extern "C" fun seen_fs_open(pathLength: Int64, path: *const Char,
+    flags: Int32, directMode: Int32, outHandle: *UInt64,
+    outAlignment: *UInt64, outDirectActive: *Int32,
+    outFallbackCount: *UInt64) r: Int32
+extern "C" fun seen_fs_close_value(handle: UInt64) r: Int32
+extern "C" fun seen_fs_metadata(handle: UInt64, size: *UInt64,
+    kind: *Int32, mode: *UInt64, modified: *Int64, device: *UInt64,
+    inode: *UInt64, links: *UInt64) r: Int32
+extern "C" fun seen_fs_pread_array_result(handle: UInt64,
+    fileOffset: UInt64, bytes: Array<Int>, arrayOffset: Int64,
+    count: Int64) r: Int64
+extern "C" fun seen_fs_pwrite_array_result(handle: UInt64,
+    fileOffset: UInt64, bytes: Array<Int>, arrayOffset: Int64,
+    count: Int64) r: Int64
+extern "C" fun seen_fs_sync(handle: UInt64, dataOnly: Int32) r: Int32
+extern "C" fun seen_fs_preallocate(handle: UInt64, offset: UInt64,
+    length: UInt64) r: Int32
+extern "C" fun seen_fs_truncate(handle: UInt64, length: UInt64) r: Int32
+extern "C" fun seen_fs_punch_hole(handle: UInt64, offset: UInt64,
+    length: UInt64) r: Int32
+extern "C" fun seen_fs_space(handle: UInt64, available: *UInt64,
+    total: *UInt64, blockSize: *UInt64) r: Int32
+extern "C" fun seen_fs_lock(handle: UInt64, exclusive: Int32,
+    wait: Int32) r: Int32
+extern "C" fun seen_fs_unlock(handle: UInt64) r: Int32
+
+fun validateArrayRange(values: Array<Int>, offset: Int, count: Int,
+    operation: String) r: Result<Bool, FsError> {
+    if offset < 0 or count < 0 or offset > values.length() or
+        count > values.length() - offset {
+        return Err<Bool, FsError>(fsFailure(7 as Int32, operation))
+    }
+    return Ok<Bool, FsError>(true)
+}
+
+@move
+class File {
+    var handle: UInt64
+    var path: Path
+    var directIo: DirectIoDiagnostics
+
+    static fun open(context: OperationContext, path: Path,
+        options: OpenOptions, policy: DirectIoPolicy)
+        r: Result<File, FsError> {
+        let contextCheck = validateFsContext(context, "open")
+        if contextCheck.isErr() {
+            return Err<File, FsError>(contextCheck.unwrapErr())
+        }
+        if path.byteLength() > context.limits.maxPathBytes {
+            return Err<File, FsError>(fsFailure(1 as Int32, "open"))
+        }
+        var handle: UInt64 = 0 as UInt64
+        var alignment: UInt64 = 0 as UInt64
+        var active: Int32 = 0 as Int32
+        var fallbacks: UInt64 = 0 as UInt64
+        let value = path.asString()
+        let status = seen_fs_open(value.length() as Int64, value.toCString(),
+            options.nativeFlags(), directIoMode(policy), &handle, &alignment,
+            &active, &fallbacks)
+        if status != FS_OK {
+            return Err<File, FsError>(fsFailure(status, "open"))
+        }
+        return Ok<File, FsError>(File{
+            handle: handle, path: path,
+            directIo: DirectIoDiagnostics{
+                active: active != (0 as Int32), alignment: alignment,
+                fallbackCount: fallbacks
+            }
+        })
+    }
+
+    fun metadata(context: OperationContext) r: Result<FileMetadata, FsError> {
+        let contextCheck = validateFsContext(context, "metadata")
+        if contextCheck.isErr() {
+            return Err<FileMetadata, FsError>(contextCheck.unwrapErr())
+        }
+        var size: UInt64 = 0 as UInt64
+        var kind: Int32 = 0 as Int32
+        var mode: UInt64 = 0 as UInt64
+        var modified: Int64 = 0 as Int64
+        var device: UInt64 = 0 as UInt64
+        var inode: UInt64 = 0 as UInt64
+        var links: UInt64 = 0 as UInt64
+        let status = seen_fs_metadata(this.handle, &size, &kind, &mode,
+            &modified, &device, &inode, &links)
+        if status != FS_OK {
+            return Err<FileMetadata, FsError>(fsFailure(status, "metadata"))
+        }
+        return Ok<FileMetadata, FsError>(FileMetadata{
+            size: size, kind: kind as Int, mode: mode,
+            modifiedNanoseconds: modified, device: device,
+            inode: inode, links: links
+        })
+    }
+
+    fun readAt(context: OperationContext, fileOffset: UInt64,
+        destination: Array<Int>, destinationOffset: Int, count: Int)
+        r: Result<Int, FsError> {
+        let contextCheck = validateFsContext(context, "read-at")
+        if contextCheck.isErr() {
+            return Err<Int, FsError>(contextCheck.unwrapErr())
+        }
+        let range = validateArrayRange(destination, destinationOffset, count,
+            "read-at")
+        if range.isErr() { return Err<Int, FsError>(range.unwrapErr()) }
+        let transferred = seen_fs_pread_array_result(this.handle, fileOffset,
+            destination, destinationOffset as Int64, count as Int64)
+        if transferred < 0 {
+            return Err<Int, FsError>(fsFailure((-transferred) as Int32,
+                "read-at"))
+        }
+        return Ok<Int, FsError>(transferred as Int)
+    }
+
+    fun writeAt(context: OperationContext, fileOffset: UInt64,
+        source: Array<Int>, sourceOffset: Int, count: Int)
+        r: Result<Int, FsError> {
+        let contextCheck = validateFsContext(context, "write-at")
+        if contextCheck.isErr() {
+            return Err<Int, FsError>(contextCheck.unwrapErr())
+        }
+        let range = validateArrayRange(source, sourceOffset, count, "write-at")
+        if range.isErr() { return Err<Int, FsError>(range.unwrapErr()) }
+        let transferred = seen_fs_pwrite_array_result(this.handle, fileOffset,
+            source, sourceOffset as Int64, count as Int64)
+        if transferred < 0 {
+            return Err<Int, FsError>(fsFailure((-transferred) as Int32,
+                "write-at"))
+        }
+        return Ok<Int, FsError>(transferred as Int)
+    }
+
+    fun writeAllAt(context: OperationContext, fileOffset: UInt64,
+        source: Array<Int>) r: Result<Int, FsError> {
+        var completed = 0
+        while completed < source.length() {
+            let next = this.writeAt(context, fileOffset + (completed as UInt64),
+                source, completed, source.length() - completed)
+            if next.isErr() { return Err<Int, FsError>(next.unwrapErr()) }
+            let count = next.unwrap()
+            if count == 0 {
+                return Err<Int, FsError>(fsFailure(4 as Int32, "write-all"))
+            }
+            completed = completed + count
+        }
+        return Ok<Int, FsError>(completed)
+    }
+
+    fun sync(context: OperationContext, dataOnly: Bool)
+        r: Result<Bool, FsError> {
+        let contextCheck = validateFsContext(context, "sync")
+        if contextCheck.isErr() {
+            return Err<Bool, FsError>(contextCheck.unwrapErr())
+        }
+        var dataFlag: Int32 = 0 as Int32
+        if dataOnly { dataFlag = 1 as Int32 }
+        let status = seen_fs_sync(this.handle, dataFlag)
+        if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "sync")) }
+        return Ok<Bool, FsError>(true)
+    }
+
+    fun preallocate(context: OperationContext, offset: UInt64, length: UInt64)
+        r: Result<Bool, FsError> {
+        let contextCheck = validateFsContext(context, "preallocate")
+        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        let status = seen_fs_preallocate(this.handle, offset, length)
+        if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "preallocate")) }
+        return Ok<Bool, FsError>(true)
+    }
+
+    fun truncate(context: OperationContext, length: UInt64)
+        r: Result<Bool, FsError> {
+        let contextCheck = validateFsContext(context, "truncate")
+        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        let status = seen_fs_truncate(this.handle, length)
+        if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "truncate")) }
+        return Ok<Bool, FsError>(true)
+    }
+
+    fun punchHole(context: OperationContext, offset: UInt64, length: UInt64)
+        r: Result<Bool, FsError> {
+        let contextCheck = validateFsContext(context, "punch-hole")
+        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        let status = seen_fs_punch_hole(this.handle, offset, length)
+        if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "punch-hole")) }
+        return Ok<Bool, FsError>(true)
+    }
+
+    fun space(context: OperationContext) r: Result<SpaceInfo, FsError> {
+        let contextCheck = validateFsContext(context, "space")
+        if contextCheck.isErr() { return Err<SpaceInfo, FsError>(contextCheck.unwrapErr()) }
+        var available: UInt64 = 0 as UInt64
+        var total: UInt64 = 0 as UInt64
+        var blockSize: UInt64 = 0 as UInt64
+        let status = seen_fs_space(this.handle, &available, &total, &blockSize)
+        if status != FS_OK { return Err<SpaceInfo, FsError>(fsFailure(status, "space")) }
+        return Ok<SpaceInfo, FsError>(SpaceInfo{
+            available: available, total: total, blockSize: blockSize
+        })
+    }
+
+    fun lock(context: OperationContext, exclusive: Bool, wait: Bool)
+        r: Result<Bool, FsError> {
+        let contextCheck = validateFsContext(context, "lock")
+        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        var exclusiveFlag: Int32 = 0 as Int32
+        var waitFlag: Int32 = 0 as Int32
+        if exclusive { exclusiveFlag = 1 as Int32 }
+        if wait { waitFlag = 1 as Int32 }
+        let status = seen_fs_lock(this.handle, exclusiveFlag, waitFlag)
+        if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "lock")) }
+        return Ok<Bool, FsError>(true)
+    }
+
+    fun unlock(context: OperationContext) r: Result<Bool, FsError> {
+        let contextCheck = validateFsContext(context, "unlock")
+        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        let status = seen_fs_unlock(this.handle)
+        if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "unlock")) }
+        return Ok<Bool, FsError>(true)
+    }
+
+    fun close() r: Result<Bool, FsError> {
+        let status = seen_fs_close_value(this.handle)
+        if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "close")) }
+        this.handle = 0 as UInt64
+        return Ok<Bool, FsError>(true)
+    }
+}

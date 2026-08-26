@@ -123,7 +123,7 @@ import sys
 capture = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 expected = [
     "--expect-version",
-    "0.14.0",
+    "0.15.0",
     "fetch",
     sys.argv[2],
     "--quiet",
