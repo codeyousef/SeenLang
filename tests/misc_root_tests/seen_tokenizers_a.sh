@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PACKAGE_CLIENT="$ROOT_DIR/tools/seen-pkg/bin/seen-pkg"
+PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT_DIR/compiler_seen/target/seen-pkg}"
 PACKAGE_ARTIFACT_ROOT="${SEEN_ARTIFACT_ROOT:-$ROOT_DIR/.seen/agent-tools}"
 UNICODE_CHECK_ROOT="$PACKAGE_ARTIFACT_ROOT/tokenizers-unicode-check"
 mkdir -p "$UNICODE_CHECK_ROOT/python-shadow"
@@ -28,7 +28,7 @@ grep -Fq 'generated Unicode tables are stale: expected sha256' \
     exit 1
 }
 [ -x "$PACKAGE_CLIENT" ] || {
-    echo "FAIL: v0.15 package client is unavailable" >&2
+    echo "FAIL: verified v0.15 package client is unavailable at $PACKAGE_CLIENT" >&2
     exit 1
 }
 mkdir -p "$PACKAGE_ARTIFACT_ROOT/tokenizers-package"

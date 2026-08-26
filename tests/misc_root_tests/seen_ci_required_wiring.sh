@@ -209,6 +209,13 @@ case "$gate0_line:$fs_line:$tokenizers_line" in
 esac
 [ "$fs_line" -gt "$gate0_line" ] && [ "$tokenizers_line" -gt "$gate0_line" ] ||
     fail "filesystem and tokenizer gates must follow the clean-checkout rebuild"
+grep -Fq 'PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT_DIR/compiler_seen/target/seen-pkg}"' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_tokenizers_a.sh" ||
+    fail "tokenizer gate does not consume the verified rebuild package client"
+if grep -Fq 'tools/seen-pkg/bin/seen-pkg' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_tokenizers_a.sh"; then
+    fail "tokenizer gate depends on a local-only package client"
+fi
 
 [ ! -e "$ROOT_DIR/.github/workflows-disabled" ] ||
     fail "retired workflow directory remains"
