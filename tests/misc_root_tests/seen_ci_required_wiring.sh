@@ -55,6 +55,8 @@ esac
 grep -Fxq 'name: CI' "$WORKFLOW" || fail "workflow name is not CI"
 grep -Fxq '    branches: [main]' "$WORKFLOW" ||
     fail "required CI is not scoped to main pushes"
+grep -Fxq '  workflow_dispatch:' "$WORKFLOW" ||
+    fail "required CI has no explicit manual fallback when push dispatch is lost"
 if grep -Fq 'pull_request:' "$WORKFLOW"; then
     fail "full required CI must not run for pull requests"
 fi

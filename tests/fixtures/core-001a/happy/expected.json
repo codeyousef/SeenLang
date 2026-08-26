@@ -34,7 +34,7 @@
   "runner": "ubuntu-24.04",
   "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
   "timeout_minutes": 210,
-  "trigger": "push-main-only",
+  "trigger": "push-main-or-explicit-manual",
   "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-  "version": 6
+  "version": 7
 }

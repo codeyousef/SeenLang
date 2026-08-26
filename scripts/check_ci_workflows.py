@@ -19,6 +19,7 @@ EXPECTED_WORKFLOW = """name: CI
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -241,9 +242,9 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
         "timeout_minutes": 210,
-        "trigger": "push-main-only",
+        "trigger": "push-main-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 6,
+        "version": 7,
     }
 
 

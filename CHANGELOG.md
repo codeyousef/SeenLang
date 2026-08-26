@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pinned required CI to the hosted 8 MiB stack and the large-object JSON
   regression to the portable x86-64 release target, preventing developer-shell
   limits or host-native instructions from masking release failures.
+- Added an explicit manual trigger for required CI so an exact-main
+  certification can be dispatched when GitHub records a push without creating
+  its workflow run.
 
 ## [0.14.0] - 2026-08-26
 
