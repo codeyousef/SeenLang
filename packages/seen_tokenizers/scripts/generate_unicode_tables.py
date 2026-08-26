@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import unicodedata
 from pathlib import Path
 
 
 PINNED_UNICODE_VERSION = "16.0.0"
+PINNED_OUTPUT_SHA256 = "992f4c5c4eabc004b748d7149e51e7df3f144ca3356c37df474056d665945f6d"
 
 
 def ranges_for(predicate) -> list[tuple[int, int]]:
@@ -35,6 +35,8 @@ def render_ranges(name: str, ranges: list[tuple[int, int]]) -> str:
 
 
 def render() -> str:
+    import unicodedata
+
     if unicodedata.unidata_version != PINNED_UNICODE_VERSION:
         raise SystemExit(
             "Unicode database mismatch: expected "
@@ -91,16 +93,32 @@ fun unicodeIsWhitespace(codepoint: Int) r: Bool {
     )
 
 
+def check_pinned_output(output: Path) -> None:
+    if not output.is_file() or output.is_symlink():
+        raise SystemExit("generated Unicode tables are missing or unsafe")
+    digest = hashlib.sha256(output.read_bytes()).hexdigest()
+    if digest != PINNED_OUTPUT_SHA256:
+        raise SystemExit(
+            "generated Unicode tables are stale: expected sha256 "
+            f"{PINNED_OUTPUT_SHA256}, got {digest}"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    generated = render()
     if args.check:
-        if not args.output.is_file() or args.output.read_text(encoding="utf-8") != generated:
-            raise SystemExit("generated Unicode tables are stale")
+        check_pinned_output(args.output)
         return 0
+    generated = render()
+    generated_digest = hashlib.sha256(generated.encode("utf-8")).hexdigest()
+    if generated_digest != PINNED_OUTPUT_SHA256:
+        raise SystemExit(
+            "generated Unicode table digest mismatch: expected sha256 "
+            f"{PINNED_OUTPUT_SHA256}, got {generated_digest}"
+        )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(generated, encoding="utf-8", newline="\n")
     return 0

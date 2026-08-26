@@ -53,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added an explicit manual trigger for required CI so an exact-main
   certification can be dispatched when GitHub records a push without creating
   its workflow run.
+- Made Unicode 16 tokenizer asset checks verify the committed pinned digest
+  without depending on the host Python Unicode database version; regeneration
+  still requires UCD 16 and must reproduce the same digest.
 
 ## [0.14.0] - 2026-08-26
 

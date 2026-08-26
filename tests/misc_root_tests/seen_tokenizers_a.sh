@@ -4,8 +4,29 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PACKAGE_CLIENT="$ROOT_DIR/tools/seen-pkg/bin/seen-pkg"
 PACKAGE_ARTIFACT_ROOT="${SEEN_ARTIFACT_ROOT:-$ROOT_DIR/.seen/agent-tools}"
-python3 "$ROOT_DIR/packages/seen_tokenizers/scripts/generate_unicode_tables.py" \
-    --output "$ROOT_DIR/packages/seen_tokenizers/src/unicode_tables.seen" --check
+UNICODE_CHECK_ROOT="$PACKAGE_ARTIFACT_ROOT/tokenizers-unicode-check"
+mkdir -p "$UNICODE_CHECK_ROOT/python-shadow"
+printf '%s\n' 'raise RuntimeError("host unicodedata must not be imported in check mode")' \
+    > "$UNICODE_CHECK_ROOT/python-shadow/unicodedata.py"
+PYTHONPATH="$UNICODE_CHECK_ROOT/python-shadow" \
+    python3 "$ROOT_DIR/packages/seen_tokenizers/scripts/generate_unicode_tables.py" \
+        --output "$ROOT_DIR/packages/seen_tokenizers/src/unicode_tables.seen" --check
+cp "$ROOT_DIR/packages/seen_tokenizers/src/unicode_tables.seen" \
+    "$UNICODE_CHECK_ROOT/corrupt-unicode-tables.seen"
+printf '\n' >> "$UNICODE_CHECK_ROOT/corrupt-unicode-tables.seen"
+if PYTHONPATH="$UNICODE_CHECK_ROOT/python-shadow" \
+    python3 "$ROOT_DIR/packages/seen_tokenizers/scripts/generate_unicode_tables.py" \
+        --output "$UNICODE_CHECK_ROOT/corrupt-unicode-tables.seen" --check \
+        >"$UNICODE_CHECK_ROOT/corrupt.out" 2>"$UNICODE_CHECK_ROOT/corrupt.err"; then
+
+    echo "FAIL: Unicode asset checker accepted corrupted pinned tables" >&2
+    exit 1
+fi
+grep -Fq 'generated Unicode tables are stale: expected sha256' \
+    "$UNICODE_CHECK_ROOT/corrupt.err" || {
+    echo "FAIL: Unicode asset checker omitted the pinned-digest diagnostic" >&2
+    exit 1
+}
 [ -x "$PACKAGE_CLIENT" ] || {
     echo "FAIL: v0.15 package client is unavailable" >&2
     exit 1
