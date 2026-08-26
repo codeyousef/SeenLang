@@ -1,0 +1,418 @@
+/// Explicitly linked CUDA resource ABI. Importing declarations never discovers
+/// or links a CUDA SDK; projects opt in to libseen_cuda separately.
+
+import accelerator.cuda.error.{CudaNativeStatus, CudaError, cudaSucceeded, cudaError}
+import core.result.{Result, Ok, Err}
+
+let CUDA_ABI_VERSION: UInt32 = 1 as UInt32
+let CUDA_COPY_HOST_TO_DEVICE: Int32 = 1 as Int32
+let CUDA_COPY_DEVICE_TO_HOST: Int32 = 2 as Int32
+let CUDA_COPY_DEVICE_TO_DEVICE: Int32 = 3 as Int32
+
+@repr(C)
+@trivially_copyable
+class CudaMatmulDescriptor {
+    var abiVersion: UInt32
+    var dataType: Int32
+    var transposeA: Int32
+    var transposeB: Int32
+    var m: UInt64
+    var n: UInt64
+    var k: UInt64
+    var leadingA: Int64
+    var leadingB: Int64
+    var leadingC: Int64
+    var workspaceLimitBytes: UInt64
+}
+
+@repr(C)
+@trivially_copyable
+class CudaAlgorithm {
+    var algorithmId: Int32
+    var tileId: Int32
+    var splitK: Int32
+    var reductionScheme: Int32
+    var workspaceBytes: UInt64
+    var cacheIdentity: UInt64
+}
+
+extern "C" fun seen_cuda_abi_version() r: UInt32
+extern "C" fun seen_cuda_runtime_version(version: *Int32) r: CudaNativeStatus
+extern "C" fun seen_cuda_driver_version(version: *Int32) r: CudaNativeStatus
+extern "C" fun seen_cuda_device_count(count: *Int32) r: CudaNativeStatus
+extern "C" fun seen_cuda_device_capability(device: Int32,
+    computeMajor: *Int32, computeMinor: *Int32,
+    totalMemoryBytes: *UInt64, freeMemoryBytes: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_set_device(device: Int32) r: CudaNativeStatus
+extern "C" fun seen_cuda_malloc(device: Int32, bytes: UInt64,
+    allocation: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_free(allocation: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_allocation_address(allocation: UInt64,
+    address: **Void, bytes: *UInt64, device: *Int32) r: CudaNativeStatus
+extern "C" fun seen_cuda_host_alloc(bytes: UInt64,
+    allocation: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_host_free(allocation: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_host_allocation_address(allocation: UInt64,
+    address: **Void, bytes: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_stream_create(device: Int32,
+    stream: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_stream_destroy(stream: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_stream_synchronize(stream: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_event_create(device: Int32,
+    event: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_event_record(event: UInt64,
+    stream: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_event_synchronize(event: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_event_elapsed_ms(start: UInt64, finish: UInt64,
+    milliseconds: *Float32) r: CudaNativeStatus
+extern "C" fun seen_cuda_event_destroy(event: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_memcpy_async(destination: *Void, source: *const Void,
+    bytes: UInt64, kind: Int32, stream: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_memset_async(destination: *Void, value: Int32,
+    bytes: UInt64, stream: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_graph_begin_capture(stream: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_graph_end_capture(stream: UInt64,
+    graph: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_graph_instantiate(graph: UInt64,
+    graphExec: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_graph_launch(graphExec: UInt64,
+    stream: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_graph_exec_update(graphExec: UInt64, graph: UInt64,
+    updated: *Int32) r: CudaNativeStatus
+extern "C" fun seen_cuda_graph_exec_destroy(graphExec: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_graph_destroy(graph: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cublaslt_create(device: Int32,
+    handle: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cublaslt_destroy(handle: *UInt64) r: CudaNativeStatus
+extern "C" fun seen_cublaslt_select_algorithm(handle: UInt64,
+    descriptor: *const CudaMatmulDescriptor,
+    algorithm: *CudaAlgorithm) r: CudaNativeStatus
+extern "C" fun seen_cublaslt_matmul(handle: UInt64,
+    descriptor: *const CudaMatmulDescriptor, algorithm: *const CudaAlgorithm,
+    a: *const Void, b: *const Void, c: *Void, workspace: *Void,
+    stream: UInt64) r: CudaNativeStatus
+
+class CudaDevice {
+    var ordinal: Int32
+    var runtimeVersion: Int32
+    var driverVersion: Int32
+    var computeMajor: Int32
+    var computeMinor: Int32
+    var totalMemoryBytes: UInt64
+    var freeMemoryBytes: UInt64
+
+    static fun open(ordinal: Int32) r: Result<CudaDevice, CudaError> {
+        var count: Int32 = 0 as Int32
+        var runtimeVersion: Int32 = 0 as Int32
+        var driverVersion: Int32 = 0 as Int32
+        var computeMajor: Int32 = 0 as Int32
+        var computeMinor: Int32 = 0 as Int32
+        var totalMemoryBytes: UInt64 = 0 as UInt64
+        var freeMemoryBytes: UInt64 = 0 as UInt64
+        let counted = seen_cuda_device_count(&count)
+        if not cudaSucceeded(counted) { return Err<CudaDevice, CudaError>(cudaError(counted)) }
+        if ordinal < (0 as Int32) or ordinal >= count {
+            return Err<CudaDevice, CudaError>(CudaError{ code: 1 as Int32,
+                nativeCode: 0 as Int32, deviceOrdinal: ordinal,
+                maturity: 2 as Int32, operation: "device.open",
+                message: "CUDA device ordinal is out of range",
+                sourceFile: "<cuda-call>", sourceLine: 0, sourceColumn: 0 })
+        }
+        let runtimeStatus = seen_cuda_runtime_version(&runtimeVersion)
+        if not cudaSucceeded(runtimeStatus) { return Err<CudaDevice, CudaError>(cudaError(runtimeStatus)) }
+        let driverStatus = seen_cuda_driver_version(&driverVersion)
+        if not cudaSucceeded(driverStatus) { return Err<CudaDevice, CudaError>(cudaError(driverStatus)) }
+        let capabilityStatus = seen_cuda_device_capability(ordinal,
+            &computeMajor, &computeMinor, &totalMemoryBytes, &freeMemoryBytes)
+        if not cudaSucceeded(capabilityStatus) {
+            return Err<CudaDevice, CudaError>(cudaError(capabilityStatus))
+        }
+        let selected = seen_cuda_set_device(ordinal)
+        if not cudaSucceeded(selected) { return Err<CudaDevice, CudaError>(cudaError(selected)) }
+        return Ok<CudaDevice, CudaError>(CudaDevice{ ordinal: ordinal,
+            runtimeVersion: runtimeVersion, driverVersion: driverVersion,
+            computeMajor: computeMajor, computeMinor: computeMinor,
+            totalMemoryBytes: totalMemoryBytes,
+            freeMemoryBytes: freeMemoryBytes })
+    }
+}
+
+@move
+class CudaAllocation {
+    var handle: UInt64
+    var data: *Void
+    var byteLength: UInt64
+    var device: Int32
+
+    static fun allocate(device: Int32, bytes: UInt64)
+        r: Result<CudaAllocation, CudaError> {
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_cuda_malloc(device, bytes, &handle)
+        if not cudaSucceeded(status) {
+            return Err<CudaAllocation, CudaError>(cudaError(status))
+        }
+        var data: *Void = null as *Void
+        var actualBytes: UInt64 = 0 as UInt64
+        var actualDevice: Int32 = -1 as Int32
+        let queried = seen_cuda_allocation_address(handle, &data, &actualBytes,
+            &actualDevice)
+        if not cudaSucceeded(queried) {
+            let _ = seen_cuda_free(&handle)
+            return Err<CudaAllocation, CudaError>(cudaError(queried))
+        }
+        return Ok<CudaAllocation, CudaError>(CudaAllocation{ handle: handle,
+            data: data, byteLength: actualBytes, device: actualDevice })
+    }
+
+    fun close() r: Result<Bool, CudaError> {
+        if this.handle == (0 as UInt64) { return Ok<Bool, CudaError>(false) }
+        let status = seen_cuda_free(&this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        this.data = null as *Void; this.byteLength = 0 as UInt64
+        return Ok<Bool, CudaError>(true)
+    }
+}
+
+@move
+class PinnedHostAllocation {
+    var handle: UInt64
+    var data: *Void
+    var byteLength: UInt64
+
+    static fun allocate(bytes: UInt64)
+        r: Result<PinnedHostAllocation, CudaError> {
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_cuda_host_alloc(bytes, &handle)
+        if not cudaSucceeded(status) {
+            return Err<PinnedHostAllocation, CudaError>(cudaError(status))
+        }
+        var data: *Void = null as *Void
+        var actualBytes: UInt64 = 0 as UInt64
+        let queried = seen_cuda_host_allocation_address(handle, &data, &actualBytes)
+        if not cudaSucceeded(queried) {
+            let _ = seen_cuda_host_free(&handle)
+            return Err<PinnedHostAllocation, CudaError>(cudaError(queried))
+        }
+        return Ok<PinnedHostAllocation, CudaError>(PinnedHostAllocation{
+            handle: handle, data: data, byteLength: actualBytes })
+    }
+
+    fun close() r: Result<Bool, CudaError> {
+        if this.handle == (0 as UInt64) { return Ok<Bool, CudaError>(false) }
+        let status = seen_cuda_host_free(&this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        this.data = null as *Void; this.byteLength = 0 as UInt64
+        return Ok<Bool, CudaError>(true)
+    }
+}
+
+@move
+class CudaStream {
+    var handle: UInt64
+    var device: Int32
+
+    static fun create(device: Int32) r: Result<CudaStream, CudaError> {
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_cuda_stream_create(device, &handle)
+        if not cudaSucceeded(status) { return Err<CudaStream, CudaError>(cudaError(status)) }
+        return Ok<CudaStream, CudaError>(CudaStream{ handle: handle, device: device })
+    }
+
+    fun synchronize() r: Result<Bool, CudaError> {
+        let status = seen_cuda_stream_synchronize(this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+
+    fun beginCapture() r: Result<Bool, CudaError> {
+        let status = seen_cuda_graph_begin_capture(this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+
+    fun endCapture() r: Result<CudaGraph, CudaError> {
+        var graph: UInt64 = 0 as UInt64
+        let status = seen_cuda_graph_end_capture(this.handle, &graph)
+        if not cudaSucceeded(status) { return Err<CudaGraph, CudaError>(cudaError(status)) }
+        return Ok<CudaGraph, CudaError>(CudaGraph{ handle: graph, device: this.device })
+    }
+
+    fun close() r: Result<Bool, CudaError> {
+        if this.handle == (0 as UInt64) { return Ok<Bool, CudaError>(false) }
+        let status = seen_cuda_stream_destroy(&this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+}
+
+@move
+class CudaEvent {
+    var handle: UInt64
+    var device: Int32
+
+    static fun create(device: Int32) r: Result<CudaEvent, CudaError> {
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_cuda_event_create(device, &handle)
+        if not cudaSucceeded(status) { return Err<CudaEvent, CudaError>(cudaError(status)) }
+        return Ok<CudaEvent, CudaError>(CudaEvent{ handle: handle, device: device })
+    }
+
+    fun record(stream: CudaStream) r: Result<Bool, CudaError> {
+        let status = seen_cuda_event_record(this.handle, stream.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+
+    fun synchronize() r: Result<Bool, CudaError> {
+        let status = seen_cuda_event_synchronize(this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+
+    fun elapsedMilliseconds(finish: CudaEvent) r: Result<Float32, CudaError> {
+        var milliseconds: Float32 = 0.0 as Float32
+        let status = seen_cuda_event_elapsed_ms(this.handle, finish.handle,
+            &milliseconds)
+        if not cudaSucceeded(status) { return Err<Float32, CudaError>(cudaError(status)) }
+        return Ok<Float32, CudaError>(milliseconds)
+    }
+
+    fun close() r: Result<Bool, CudaError> {
+        if this.handle == (0 as UInt64) { return Ok<Bool, CudaError>(false) }
+        let status = seen_cuda_event_destroy(&this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+}
+
+@move
+class CudaGraph {
+    var handle: UInt64
+    var device: Int32
+
+    fun instantiate() r: Result<CudaGraphExec, CudaError> {
+        var graphExec: UInt64 = 0 as UInt64
+        let status = seen_cuda_graph_instantiate(this.handle, &graphExec)
+        if not cudaSucceeded(status) { return Err<CudaGraphExec, CudaError>(cudaError(status)) }
+        return Ok<CudaGraphExec, CudaError>(CudaGraphExec{
+            handle: graphExec, device: this.device
+        })
+    }
+
+    fun close() r: Result<Bool, CudaError> {
+        if this.handle == (0 as UInt64) { return Ok<Bool, CudaError>(false) }
+        let status = seen_cuda_graph_destroy(&this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+}
+
+@move
+class CudaGraphExec {
+    var handle: UInt64
+    var device: Int32
+
+    fun launch(stream: CudaStream) r: Result<Bool, CudaError> {
+        let status = seen_cuda_graph_launch(this.handle, stream.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+
+    fun update(graph: CudaGraph) r: Result<Bool, CudaError> {
+        var updated: Int32 = 0 as Int32
+        let status = seen_cuda_graph_exec_update(this.handle, graph.handle, &updated)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(updated == (1 as Int32))
+    }
+
+    fun close() r: Result<Bool, CudaError> {
+        if this.handle == (0 as UInt64) { return Ok<Bool, CudaError>(false) }
+        let status = seen_cuda_graph_exec_destroy(&this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+}
+
+@move
+class CublasLtHandle {
+    var handle: UInt64
+    var device: Int32
+
+    static fun create(device: Int32) r: Result<CublasLtHandle, CudaError> {
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_cublaslt_create(device, &handle)
+        if not cudaSucceeded(status) { return Err<CublasLtHandle, CudaError>(cudaError(status)) }
+        return Ok<CublasLtHandle, CudaError>(CublasLtHandle{ handle: handle, device: device })
+    }
+
+    fun selectAlgorithm(descriptor: CudaMatmulDescriptor)
+        r: Result<CudaAlgorithm, CudaError> {
+        var algorithm = CudaAlgorithm{ algorithmId: 0 as Int32,
+            tileId: 0 as Int32, splitK: 0 as Int32,
+            reductionScheme: 0 as Int32, workspaceBytes: 0 as UInt64,
+            cacheIdentity: 0 as UInt64 }
+        let status = seen_cublaslt_select_algorithm(this.handle, &descriptor,
+            &algorithm)
+        if not cudaSucceeded(status) { return Err<CudaAlgorithm, CudaError>(cudaError(status)) }
+        return Ok<CudaAlgorithm, CudaError>(algorithm)
+    }
+
+    fun matmul(descriptor: CudaMatmulDescriptor, algorithm: CudaAlgorithm,
+        a: *const Void, b: *const Void, c: *Void, workspace: *Void,
+        stream: CudaStream) r: Result<Bool, CudaError> {
+        let status = seen_cublaslt_matmul(this.handle, &descriptor, &algorithm,
+            a, b, c, workspace, stream.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+
+    fun close() r: Result<Bool, CudaError> {
+        if this.handle == (0 as UInt64) { return Ok<Bool, CudaError>(false) }
+        let status = seen_cublaslt_destroy(&this.handle)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(true)
+    }
+}
+
+/// Move-only policy owner for deterministic algorithm qualification. Native
+/// selection remains bounded by the descriptor and the copied workspace cap.
+@move
+class CublasLtPreference {
+    var workspaceLimitBytes: UInt64
+    var active: Bool
+
+    static fun create(workspaceLimitBytes: UInt64)
+        r: Result<CublasLtPreference, CudaError> {
+        if workspaceLimitBytes > (0x7FFFFFFFFFFFFFFF as UInt64) {
+            return Err<CublasLtPreference, CudaError>(CudaError{
+                code: 9 as Int32, nativeCode: 0 as Int32,
+                deviceOrdinal: -1 as Int32, maturity: 2 as Int32,
+                operation: "cublaslt.preference.create",
+                message: "workspace limit exceeds the bounded ABI",
+                sourceFile: "<cuda-call>", sourceLine: 0, sourceColumn: 0 })
+        }
+        return Ok<CublasLtPreference, CudaError>(CublasLtPreference{
+            workspaceLimitBytes: workspaceLimitBytes, active: true })
+    }
+
+    fun apply(descriptor: CudaMatmulDescriptor)
+        r: Result<CudaMatmulDescriptor, CudaError> {
+        if not this.active {
+            return Err<CudaMatmulDescriptor, CudaError>(CudaError{
+                code: 8 as Int32, nativeCode: 0 as Int32,
+                deviceOrdinal: -1 as Int32, maturity: 2 as Int32,
+                operation: "cublaslt.preference.apply",
+                message: "cuBLASLt preference is closed",
+                sourceFile: "<cuda-call>", sourceLine: 0, sourceColumn: 0 })
+        }
+        descriptor.workspaceLimitBytes = this.workspaceLimitBytes
+        return Ok<CudaMatmulDescriptor, CudaError>(descriptor)
+    }
+
+    fun close() r: Bool {
+        if not this.active { return false }
+        this.active = false
+        this.workspaceLimitBytes = 0 as UInt64
+        return true
+    }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "seen-qwen-model-lock-v1",
+  "model_id": "Qwen/Qwen3.8-27B",
+  "revision": "mutable-main",
+  "license": "Apache-2.0",
+  "config_sha256": "not-a-digest",
+  "text_contract": "seen-qwen38-text-v1",
+  "files": [],
+  "tensor_index": {
+    "total_size": 0,
+    "shards": 0,
+    "required_text_tensors": 0,
+    "required_mtp_tensors": 0,
+    "excluded_vision_tensors": 0
+  }
+}

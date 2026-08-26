@@ -136,6 +136,7 @@ void* seen_checked_malloc(int64_t size);
 void* seen_checked_realloc(void* old, int64_t old_size, int64_t new_size);
 void* seen_checked_aligned_alloc(int64_t alignment, int64_t size);
 void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size, int64_t alignment);
+void seen_aligned_buffer_free(void* ptr, int64_t size, int64_t alignment);
 
 // String equality (SeenString == char*)
 static inline bool seen_str_eq(SeenString a, const char* b) {
@@ -492,6 +493,7 @@ SeenString seen_string_builder_flatten(SeenArray* parts, int64_t totalLength);
 SeenString seen_string_builder_flatten_owned(SeenArray* parts, int64_t totalLength);
 SeenString seen_string_clone_owned(SeenString value);
 void seen_string_release_owned(SeenString value);
+SeenString seen_string_view_bytes(const uint8_t* data, int64_t length);
 
 void* seen_byte_array_new(int64_t capacity);
 int64_t seen_byte_array_len(void* handle);
@@ -918,6 +920,37 @@ int64_t seen_mapped_data(int64_t handle);
 void    seen_mapped_sync(int64_t handle);
 void    seen_mapped_free(int64_t handle);
 int64_t seen_mapped_length(int64_t handle);
+
+// Read-only, large-file-safe mapping ownership. The file handle owns the
+// descriptor; each window owns one mapping and must be closed before the file.
+// Every operation returns a stable status instead of raising or aborting.
+enum {
+    SEEN_MMAP_OK = 0,
+    SEEN_MMAP_INVALID = 1,
+    SEEN_MMAP_OPEN_FAILED = 2,
+    SEEN_MMAP_STAT_FAILED = 3,
+    SEEN_MMAP_RANGE = 4,
+    SEEN_MMAP_MAP_FAILED = 5,
+    SEEN_MMAP_TRUNCATED = 6,
+    SEEN_MMAP_BUSY = 7,
+    SEEN_MMAP_UNSUPPORTED = 8,
+    SEEN_MMAP_LOCK_FAILED = 9,
+    SEEN_MMAP_NUMA_FAILED = 10
+};
+int32_t seen_mapped_file_open_readonly(int64_t path_len, const char *path_data,
+                                       uint64_t *out_handle,
+                                       uint64_t *out_length);
+int32_t seen_mapped_file_length(uint64_t handle, uint64_t *out_length);
+int32_t seen_mapped_file_window(uint64_t file_handle, uint64_t offset,
+                                uint64_t length, uint64_t *out_window,
+                                const uint8_t **out_data);
+int32_t seen_mapped_window_validate(uint64_t window_handle);
+int32_t seen_mapped_window_advise(uint64_t window_handle, int32_t advice);
+int32_t seen_mapped_window_lock(uint64_t window_handle);
+int32_t seen_mapped_window_unlock(uint64_t window_handle);
+int32_t seen_mapped_window_bind_numa(uint64_t window_handle, int32_t node);
+int32_t seen_mapped_window_close(uint64_t *window_handle);
+int32_t seen_mapped_file_close(uint64_t *file_handle);
 
 // ============================================================================
 // RwLock (Reader-Writer Lock)

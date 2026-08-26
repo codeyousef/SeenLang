@@ -1,0 +1,307 @@
+/// Streaming SHA-256 with bounded file reads and canonical digest encoding.
+
+import collections.vec.{Vec}
+import str.string.{StringBuilder}
+import io.file.{FsFile}
+import core.result.{Result, Ok, Err}
+
+class Sha256Error {
+    var code: String
+    var message: String
+}
+
+fun sha256Error(code: String, message: String) r: Sha256Error {
+    return Sha256Error{ code: code, message: message }
+}
+
+class Sha256 {
+    var state: Array<UInt32>
+    var block: Array<UInt8>
+    var blockLength: Int
+    var totalBytes: UInt64
+    var finalized: Bool
+
+    static fun new() r: Sha256 {
+        let state = Array<UInt32>()
+        state.push(0x6A09E667 as UInt32); state.push(0xBB67AE85 as UInt32)
+        state.push(0x3C6EF372 as UInt32); state.push(0xA54FF53A as UInt32)
+        state.push(0x510E527F as UInt32); state.push(0x9B05688C as UInt32)
+        state.push(0x1F83D9AB as UInt32); state.push(0x5BE0CD19 as UInt32)
+        let block = Array<UInt8>()
+        var index = 0
+        while index < 64 { block.push(0 as UInt8); index = index + 1 }
+        return Sha256{ state: state, block: block, blockLength: 0,
+            totalBytes: 0 as UInt64, finalized: false }
+    }
+
+    fun updateBytes(bytes: Array<Int>) r: Result<UInt64, Sha256Error> {
+        if this.finalized {
+            return Err<UInt64, Sha256Error>(sha256Error("sha256.finalized",
+                "digest state is already finalized"))
+        }
+        if (bytes.length() as UInt64) >
+            (0x1FFFFFFFFFFFFFFF as UInt64) - this.totalBytes {
+            return Err<UInt64, Sha256Error>(sha256Error("sha256.limit",
+                "SHA-256 bit length would overflow"))
+        }
+        var index = 0
+        while index < bytes.length() {
+            this.block[this.blockLength] = (bytes[index] & 255) as UInt8
+            this.blockLength = this.blockLength + 1
+            this.totalBytes = this.totalBytes + (1 as UInt64)
+            if this.blockLength == 64 {
+                this.compress()
+                this.blockLength = 0
+            }
+            index = index + 1
+        }
+        return Ok<UInt64, Sha256Error>(bytes.length() as UInt64)
+    }
+
+    fun updateString(text: String) r: Result<UInt64, Sha256Error> {
+        let bytes = Array<Int>()
+        var index = 0
+        while index < text.length() {
+            bytes.push(text.byteAt(index))
+            index = index + 1
+        }
+        let result = this.updateBytes(bytes)
+        bytes.free()
+        return result
+    }
+
+    fun rotateRight(value: UInt32, count: UInt32) r: UInt32 {
+        return (value >> count) | (value << ((32 as UInt32) - count))
+    }
+
+    fun compress() r: Void {
+        let words = Array<UInt32>()
+        var index = 0
+        while index < 64 { words.push(0 as UInt32); index = index + 1 }
+        index = 0
+        while index < 16 {
+            let base = index * 4
+            words[index] = ((this.block[base] as UInt32) << 24) |
+                ((this.block[base + 1] as UInt32) << 16) |
+                ((this.block[base + 2] as UInt32) << 8) |
+                (this.block[base + 3] as UInt32)
+            index = index + 1
+        }
+        index = 16
+        while index < 64 {
+            let x = words[index - 15]
+            let y = words[index - 2]
+            let s0 = this.rotateRight(x, 7 as UInt32) ^
+                this.rotateRight(x, 18 as UInt32) ^ (x >> 3)
+            let s1 = this.rotateRight(y, 17 as UInt32) ^
+                this.rotateRight(y, 19 as UInt32) ^ (y >> 10)
+            words[index] = words[index - 16] + s0 + words[index - 7] + s1
+            index = index + 1
+        }
+        let constants = sha256Constants()
+        var a = this.state[0]; var b = this.state[1]
+        var c = this.state[2]; var d = this.state[3]
+        var e = this.state[4]; var f = this.state[5]
+        var g = this.state[6]; var h = this.state[7]
+        index = 0
+        while index < 64 {
+            let sum1 = this.rotateRight(e, 6 as UInt32) ^
+                this.rotateRight(e, 11 as UInt32) ^
+                this.rotateRight(e, 25 as UInt32)
+            let choose = (e & f) ^ ((~e) & g)
+            let temp1 = h + sum1 + choose + constants[index] + words[index]
+            let sum0 = this.rotateRight(a, 2 as UInt32) ^
+                this.rotateRight(a, 13 as UInt32) ^
+                this.rotateRight(a, 22 as UInt32)
+            let majority = (a & b) ^ (a & c) ^ (b & c)
+            let temp2 = sum0 + majority
+            h = g; g = f; f = e; e = d + temp1
+            d = c; c = b; b = a; a = temp1 + temp2
+            index = index + 1
+        }
+        this.state[0] = this.state[0] + a
+        this.state[1] = this.state[1] + b
+        this.state[2] = this.state[2] + c
+        this.state[3] = this.state[3] + d
+        this.state[4] = this.state[4] + e
+        this.state[5] = this.state[5] + f
+        this.state[6] = this.state[6] + g
+        this.state[7] = this.state[7] + h
+        constants.free()
+        words.free()
+    }
+
+    fun finalizeHex() r: Result<String, Sha256Error> {
+        if this.finalized {
+            return Err<String, Sha256Error>(sha256Error("sha256.finalized",
+                "digest state is already finalized"))
+        }
+        let bitLength = this.totalBytes * (8 as UInt64)
+        this.block[this.blockLength] = 0x80 as UInt8
+        this.blockLength = this.blockLength + 1
+        if this.blockLength > 56 {
+            while this.blockLength < 64 {
+                this.block[this.blockLength] = 0 as UInt8
+                this.blockLength = this.blockLength + 1
+            }
+            this.compress()
+            this.blockLength = 0
+        }
+        while this.blockLength < 56 {
+            this.block[this.blockLength] = 0 as UInt8
+            this.blockLength = this.blockLength + 1
+        }
+        var shift = 56
+        while shift >= 0 {
+            this.block[this.blockLength] =
+                ((bitLength >> (shift as UInt64)) & (255 as UInt64)) as UInt8
+            this.blockLength = this.blockLength + 1
+            shift = shift - 8
+        }
+        this.compress()
+        this.finalized = true
+        let builder = StringBuilder.new()
+        let digits = "0123456789abcdef"
+        var wordIndex = 0
+        while wordIndex < 8 {
+            var nibble = 7
+            while nibble >= 0 {
+                let value = (this.state[wordIndex] >>
+                    ((nibble * 4) as UInt32)) & (15 as UInt32)
+                builder.appendChar(digits.charAt(value as Int))
+                nibble = nibble - 1
+            }
+            wordIndex = wordIndex + 1
+        }
+        let digest = builder.toString()
+        this.state.free()
+        this.block.free()
+        return Ok<String, Sha256Error>(digest)
+    }
+}
+
+fun sha256Constants() r: Array<UInt32> {
+    let k = Array<UInt32>()
+    k.push(0x428A2F98 as UInt32); k.push(0x71374491 as UInt32)
+    k.push(0xB5C0FBCF as UInt32); k.push(0xE9B5DBA5 as UInt32)
+    k.push(0x3956C25B as UInt32); k.push(0x59F111F1 as UInt32)
+    k.push(0x923F82A4 as UInt32); k.push(0xAB1C5ED5 as UInt32)
+    k.push(0xD807AA98 as UInt32); k.push(0x12835B01 as UInt32)
+    k.push(0x243185BE as UInt32); k.push(0x550C7DC3 as UInt32)
+    k.push(0x72BE5D74 as UInt32); k.push(0x80DEB1FE as UInt32)
+    k.push(0x9BDC06A7 as UInt32); k.push(0xC19BF174 as UInt32)
+    k.push(0xE49B69C1 as UInt32); k.push(0xEFBE4786 as UInt32)
+    k.push(0x0FC19DC6 as UInt32); k.push(0x240CA1CC as UInt32)
+    k.push(0x2DE92C6F as UInt32); k.push(0x4A7484AA as UInt32)
+    k.push(0x5CB0A9DC as UInt32); k.push(0x76F988DA as UInt32)
+    k.push(0x983E5152 as UInt32); k.push(0xA831C66D as UInt32)
+    k.push(0xB00327C8 as UInt32); k.push(0xBF597FC7 as UInt32)
+    k.push(0xC6E00BF3 as UInt32); k.push(0xD5A79147 as UInt32)
+    k.push(0x06CA6351 as UInt32); k.push(0x14292967 as UInt32)
+    k.push(0x27B70A85 as UInt32); k.push(0x2E1B2138 as UInt32)
+    k.push(0x4D2C6DFC as UInt32); k.push(0x53380D13 as UInt32)
+    k.push(0x650A7354 as UInt32); k.push(0x766A0ABB as UInt32)
+    k.push(0x81C2C92E as UInt32); k.push(0x92722C85 as UInt32)
+    k.push(0xA2BFE8A1 as UInt32); k.push(0xA81A664B as UInt32)
+    k.push(0xC24B8B70 as UInt32); k.push(0xC76C51A3 as UInt32)
+    k.push(0xD192E819 as UInt32); k.push(0xD6990624 as UInt32)
+    k.push(0xF40E3585 as UInt32); k.push(0x106AA070 as UInt32)
+    k.push(0x19A4C116 as UInt32); k.push(0x1E376C08 as UInt32)
+    k.push(0x2748774C as UInt32); k.push(0x34B0BCB5 as UInt32)
+    k.push(0x391C0CB3 as UInt32); k.push(0x4ED8AA4A as UInt32)
+    k.push(0x5B9CCA4F as UInt32); k.push(0x682E6FF3 as UInt32)
+    k.push(0x748F82EE as UInt32); k.push(0x78A5636F as UInt32)
+    k.push(0x84C87814 as UInt32); k.push(0x8CC70208 as UInt32)
+    k.push(0x90BEFFFA as UInt32); k.push(0xA4506CEB as UInt32)
+    k.push(0xBEF9A3F7 as UInt32); k.push(0xC67178F2 as UInt32)
+    return k
+}
+
+fun sha256(text: String) r: Result<String, Sha256Error> {
+    let state = Sha256.new()
+    let updated = state.updateString(text)
+    if updated.isErr() { return Err<String, Sha256Error>(updated.unwrapErr()) }
+    return state.finalizeHex()
+}
+
+fun sha256File(path: String, chunkBytes: Int = 1048576)
+    r: Result<String, Sha256Error> {
+    if chunkBytes < 1 or chunkBytes > 16777216 {
+        return Err<String, Sha256Error>(sha256Error("sha256.chunk_limit",
+            "streaming chunk must be between 1 byte and 16 MiB"))
+    }
+    let opened = FsFile.open(path)
+    if opened.isErr() {
+        return Err<String, Sha256Error>(sha256Error("sha256.open",
+            "failed to open digest input"))
+    }
+    let file = opened.unwrap()
+    let state = Sha256.new()
+    var failed = false
+    let measuredSize = file.size()
+    if measuredSize.isErr() {
+        let _ = file.closeFile()
+        return Err<String, Sha256Error>(sha256Error("sha256.size",
+            "failed to determine digest input size"))
+    }
+    var remaining = measuredSize.unwrap()
+    while remaining > 0 and not failed {
+        var wanted = chunkBytes
+        if remaining < wanted { wanted = remaining }
+        let chunk = file.read_bytes(wanted)
+        if chunk.isErr() or chunk.unwrap().length() != wanted {
+            if chunk.isOkay() { chunk.unwrap().free() }
+            failed = true
+        } else {
+            let chunkBytesValue = chunk.unwrap()
+            let updated = state.updateBytes(chunkBytesValue)
+            chunkBytesValue.free()
+            if updated.isErr() { failed = true }
+        }
+        remaining = remaining - wanted
+    }
+    let closed = file.closeFile()
+    if failed or closed.isErr() {
+        return Err<String, Sha256Error>(sha256Error("sha256.read",
+            "failed while streaming digest input"))
+    }
+    return state.finalizeHex()
+}
+
+fun parseSha256Digest(text: String) r: Result<Array<UInt8>, Sha256Error> {
+    if text.length() != 64 {
+        return Err<Array<UInt8>, Sha256Error>(sha256Error("sha256.encoding",
+            "SHA-256 digest must contain exactly 64 lowercase hex characters"))
+    }
+    let bytes = Array<UInt8>()
+    var index = 0
+    while index < 64 {
+        let high = sha256HexNibble(text.charAt(index))
+        let low = sha256HexNibble(text.charAt(index + 1))
+        if high < 0 or low < 0 {
+            bytes.free()
+            return Err<Array<UInt8>, Sha256Error>(sha256Error("sha256.encoding",
+                "SHA-256 digest is not canonical lowercase hexadecimal"))
+        }
+        bytes.push(((high << 4) | low) as UInt8)
+        index = index + 2
+    }
+    return Ok<Array<UInt8>, Sha256Error>(bytes)
+}
+
+fun sha256HexNibble(value: Int) r: Int {
+    if value >= 48 and value <= 57 { return value - 48 }
+    if value >= 97 and value <= 102 { return value - 87 }
+    return -1
+}
+
+fun sha256DigestEqual(left: Array<UInt8>, right: Array<UInt8>) r: Bool {
+    if left.length() != 32 or right.length() != 32 { return false }
+    var difference: UInt8 = 0 as UInt8
+    var index = 0
+    while index < 32 {
+        difference = difference | (left[index] ^ right[index])
+        index = index + 1
+    }
+    return difference == (0 as UInt8)
+}

@@ -5,6 +5,7 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
+import codegen.ir_type_mapping.{getFixedWidthScalarLlvmTypeImpl}
 
 class OverloadedUnaryPlan {
     var funcName: String
@@ -90,13 +91,19 @@ fun emitUnaryNegationImpl(output: StringBuilder, regBox: Array<Int>,
     operandReg: String, operandType: String) r: String {
 
     let resultReg = getNextRegFn(regBox)
-    if operandType == "Float" {
+    if operandType == "Float" or operandType == "Float64" {
         let doubleOperandReg = normalizeDoubleLiteralForLlvmImpl(operandReg)
         output.append("  " + resultReg + " = fneg fast double " +
             doubleOperandReg + "\n")
-    } else {
-        output.append("  " + resultReg + " = sub nsw i64 0, " +
+    } else if operandType == "Float32" {
+        output.append("  " + resultReg + " = fneg fast float " +
             operandReg + "\n")
+    } else {
+        let fixedLlvmType = getFixedWidthScalarLlvmTypeImpl(operandType)
+        var operandLlvmType = "i64"
+        if fixedLlvmType != "" { operandLlvmType = fixedLlvmType }
+        output.append("  " + resultReg + " = sub nsw " + operandLlvmType +
+            " 0, " + operandReg + "\n")
     }
     return resultReg
 }
@@ -162,9 +169,22 @@ fun isUnaryBitwiseNotOperatorImpl(operator: String) r: Bool {
 }
 
 fun emitUnaryBitwiseNotImpl(output: StringBuilder, regBox: Array<Int>,
-    operandReg: String) r: String {
+    operandReg: String, operandType: String) r: String {
 
     let resultReg = getNextRegFn(regBox)
-    output.append("  " + resultReg + " = xor i64 " + operandReg + ", -1\n")
+    let llvmType = getFixedWidthScalarLlvmTypeImpl(operandType)
+    if llvmType == "i8" {
+        output.append("  " + resultReg + " = xor i8 " + operandReg +
+            ", -1\n")
+    } else if llvmType == "i16" {
+        output.append("  " + resultReg + " = xor i16 " + operandReg +
+            ", -1\n")
+    } else if llvmType == "i32" {
+        output.append("  " + resultReg + " = xor i32 " + operandReg +
+            ", -1\n")
+    } else {
+        output.append("  " + resultReg + " = xor i64 " + operandReg +
+            ", -1\n")
+    }
     return resultReg
 }

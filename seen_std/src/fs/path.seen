@@ -87,7 +87,7 @@ fun normalize(path: String) r: String {
     return builder.toString()
 }
 
-fun join(parts: Array<String>) r: String {
+fun joinPath(parts: Array<String>) r: String {
     if parts.length() == 0 {
         return "."
     }

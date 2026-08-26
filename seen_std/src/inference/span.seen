@@ -1,0 +1,122 @@
+/// Checked borrowed pointer-and-length views for large inference buffers.
+
+import core.result.{Result, Ok, Err}
+
+class SpanError {
+    var code: String
+    var message: String
+}
+
+fun spanError(code: String, message: String) r: SpanError {
+    return SpanError{ code: code, message: message }
+}
+
+@repr(C)
+@trivially_copyable
+class Span<T> {
+    var data: *const T
+    var length: UInt64
+
+    fun subspan(offset: UInt64, count: UInt64) r: Result<Span<T>, SpanError> {
+        if offset > this.length or count > this.length - offset {
+            return Err<Span<T>, SpanError>(spanError("span.range",
+                "span range exceeds its owner bound"))
+        }
+        return Ok<Span<T>, SpanError>(Span<T>{
+            data: (this.data as *T) + (offset as Int), length: count
+        })
+    }
+}
+
+@repr(C)
+@trivially_copyable
+class MutableSpan<T> {
+    var data: *T
+    var length: UInt64
+
+    fun subspan(offset: UInt64, count: UInt64)
+        r: Result<MutableSpan<T>, SpanError> {
+        if offset > this.length or count > this.length - offset {
+            return Err<MutableSpan<T>, SpanError>(spanError("span.range",
+                "mutable span range exceeds its owner bound"))
+        }
+        return Ok<MutableSpan<T>, SpanError>(MutableSpan<T>{
+            data: this.data + (offset as Int), length: count
+        })
+    }
+}
+
+@repr(C)
+@trivially_copyable
+class PackedView {
+    var data: *const UInt8
+    var elementCount: UInt64
+    var byteCount: UInt64
+    var bitsPerElement: UInt8
+}
+
+@repr(C)
+@trivially_copyable
+class MutablePackedView {
+    var data: *UInt8
+    var elementCount: UInt64
+    var byteCount: UInt64
+    var bitsPerElement: UInt8
+}
+
+fun packedView(data: *const UInt8, elementCount: UInt64, byteCount: UInt64,
+    bitsPerElement: UInt8) r: PackedView? {
+    if bitsPerElement != (2 as UInt8) and bitsPerElement != (3 as UInt8) and
+        bitsPerElement != (4 as UInt8) and bitsPerElement != (8 as UInt8) {
+        return null
+    }
+    if elementCount > (0x7FFFFFFFFFFFFFFF as UInt64) /
+        (bitsPerElement as UInt64) { return null }
+    let required = (elementCount * (bitsPerElement as UInt64) +
+        (7 as UInt64)) / (8 as UInt64)
+    if required > byteCount or (required > (0 as UInt64) and
+        data == (null as *const UInt8)) { return null }
+    return PackedView{ data: data, elementCount: elementCount,
+        byteCount: byteCount, bitsPerElement: bitsPerElement }
+}
+
+fun packedGet(view: PackedView, index: UInt64) r: UInt8? {
+    if index >= view.elementCount or view.bitsPerElement < (2 as UInt8) or
+        view.bitsPerElement > (8 as UInt8) { return null }
+    let bitOffset = index * (view.bitsPerElement as UInt64)
+    let byteIndex = bitOffset / (8 as UInt64)
+    let shift = (bitOffset % (8 as UInt64)) as UInt8
+    if byteIndex >= view.byteCount { return null }
+    var word = *(view.data + (byteIndex as Int)) as UInt16
+    if shift + view.bitsPerElement > (8 as UInt8) {
+        if byteIndex + (1 as UInt64) >= view.byteCount { return null }
+        word = word | ((*(view.data + (byteIndex as Int) + 1) as UInt16) << 8)
+    }
+    let mask = ((1 as UInt16) << (view.bitsPerElement as UInt16)) - (1 as UInt16)
+    return ((word >> (shift as UInt16)) & mask) as UInt8
+}
+
+fun packedSet(view: MutablePackedView, index: UInt64, value: UInt8) r: Bool {
+    if index >= view.elementCount or view.bitsPerElement < (2 as UInt8) or
+        view.bitsPerElement > (8 as UInt8) or
+        (view.bitsPerElement < (8 as UInt8) and
+         (value as UInt16) >= ((1 as UInt16) <<
+          (view.bitsPerElement as UInt16))) { return false }
+    let bitOffset = index * (view.bitsPerElement as UInt64)
+    let byteIndex = bitOffset / (8 as UInt64)
+    let shift = (bitOffset % (8 as UInt64)) as UInt8
+    if byteIndex >= view.byteCount { return false }
+    var word = *(view.data + (byteIndex as Int)) as UInt16
+    if shift + view.bitsPerElement > (8 as UInt8) {
+        if byteIndex + (1 as UInt64) >= view.byteCount { return false }
+        word = word | ((*(view.data + (byteIndex as Int) + 1) as UInt16) << 8)
+    }
+    let mask = (((1 as UInt16) << (view.bitsPerElement as UInt16)) -
+        (1 as UInt16)) << (shift as UInt16)
+    word = (word & (~mask)) | ((value as UInt16) << (shift as UInt16))
+    *(view.data + (byteIndex as Int)) = (word & (255 as UInt16)) as UInt8
+    if shift + view.bitsPerElement > (8 as UInt8) {
+        *(view.data + (byteIndex as Int) + 1) = (word >> 8) as UInt8
+    }
+    return true
+}

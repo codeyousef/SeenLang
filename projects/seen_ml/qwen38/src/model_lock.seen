@@ -1,0 +1,143 @@
+/// Strict validation for the immutable official Qwen model lock.
+
+import core.result.{Result, Ok, Err}
+import crypto.sha256.{parseSha256Digest}
+import json.strict.{StrictJsonLimits, parseStrictJson,
+    enforceStrictJsonUnknownFields, JSON_UNKNOWN_FIELDS_REJECT}
+import json.parser.{destroyJsonParseResult}
+import json.value.{JsonValue}
+
+class QwenModelLockError { var field: String; var message: String }
+class QwenModelLockSummary {
+    var files: Int; var shards: Int; var sourceBytes: UInt64
+}
+
+fun qwenLockError(field: String, message: String) r: QwenModelLockError {
+    return QwenModelLockError{ field: field, message: message }
+}
+
+fun qwenLockString(object: JsonValue, field: String, expected: String) r: Bool {
+    let value = object.get(field)
+    return not value.isNone() and value.unwrap().isString() and
+        value.unwrap().getString() == expected
+}
+
+fun qwenLockExactUInt(object: JsonValue, field: String) r: UInt64? {
+    let value = object.get(field)
+    if value.isNone() or not value.unwrap().isNumber() { return null }
+    let number = value.unwrap().getNumber()
+    if number < 0.0 or number > 9007199254740991.0 or
+        number != number.toInt().toFloat() { return null }
+    return number.toInt() as UInt64
+}
+
+fun validateQwenModelLock(text: String)
+    r: Result<QwenModelLockSummary, QwenModelLockError> {
+    let parsed = parseStrictJson(text, StrictJsonLimits{ maxInputBytes: 1048576,
+        maxDepth: 16, maxValues: 4096, maxStringBytes: 4096 })
+    if parsed.isErr() {
+        return Err<QwenModelLockSummary, QwenModelLockError>(qwenLockError(
+            "json", parsed.unwrapErr().message))
+    }
+    let document = parsed.unwrap(); let root = document.value.unwrap()
+    let rootFields = Array<String>()
+    rootFields.push("schema"); rootFields.push("model_id")
+    rootFields.push("revision"); rootFields.push("license")
+    rootFields.push("config_sha256"); rootFields.push("text_contract")
+    rootFields.push("files"); rootFields.push("tensor_index")
+    let rootShape = enforceStrictJsonUnknownFields(root, rootFields,
+        JSON_UNKNOWN_FIELDS_REJECT)
+    rootFields.free()
+    if not root.isObject() or
+        rootShape.isErr() or
+        not qwenLockString(root, "schema", "seen-qwen-model-lock-v1") or
+        not qwenLockString(root, "model_id", "Qwen/Qwen3.8-27B") or
+        not qwenLockString(root, "revision",
+            "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0") or
+        not qwenLockString(root, "license", "Apache-2.0") or
+        not qwenLockString(root, "config_sha256",
+            "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab") {
+        destroyJsonParseResult(document, true)
+        return Err<QwenModelLockSummary, QwenModelLockError>(qwenLockError(
+            "identity", "model lock identity is not the frozen official revision"))
+    }
+    let filesValue = root.get("files")
+    if filesValue.isNone() or not filesValue.unwrap().isArray() or
+        filesValue.unwrap().length() != 27 {
+        destroyJsonParseResult(document, true)
+        return Err<QwenModelLockSummary, QwenModelLockError>(qwenLockError(
+            "files", "model lock must contain the exact 27 official files"))
+    }
+    let files = filesValue.unwrap().getArray(); var index = 0; var shards = 0
+    var shardBytes: UInt64 = 0 as UInt64
+    while index < files.length() {
+        let file = files[index]
+        let fileFields = Array<String>()
+        fileFields.push("path"); fileFields.push("bytes")
+        fileFields.push("sha256"); fileFields.push("purpose")
+        let fileShape = enforceStrictJsonUnknownFields(file, fileFields,
+            JSON_UNKNOWN_FIELDS_REJECT)
+        fileFields.free()
+        let path = file.get("path"); let bytes = qwenLockExactUInt(file, "bytes")
+        let digest = file.get("sha256"); let purpose = file.get("purpose")
+        if not file.isObject() or fileShape.isErr() or path.isNone() or
+            not path.unwrap().isString() or
+            path.unwrap().getString().contains("..") or
+            path.unwrap().getString().startsWith("/") or bytes.isNone() or
+            digest.isNone() or not digest.unwrap().isString() or
+            purpose.isNone() or not purpose.unwrap().isString() {
+            destroyJsonParseResult(document, true)
+            return Err<QwenModelLockSummary, QwenModelLockError>(qwenLockError(
+                "files", "unsafe path, size, digest, or purpose in model lock"))
+        }
+        let parsedDigest = parseSha256Digest(digest.unwrap().getString())
+        if parsedDigest.isErr() {
+            destroyJsonParseResult(document, true)
+            return Err<QwenModelLockSummary, QwenModelLockError>(qwenLockError(
+                "files", "non-canonical file digest"))
+        }
+        parsedDigest.unwrap().free()
+        var previous = 0
+        while previous < index {
+            if files[previous].get("path").unwrap().getString() ==
+                path.unwrap().getString() {
+                destroyJsonParseResult(document, true)
+                return Err<QwenModelLockSummary, QwenModelLockError>(qwenLockError(
+                    "files", "duplicate model file path"))
+            }
+            previous = previous + 1
+        }
+        if purpose.unwrap().getString() == "safetensors-shard" {
+            shards = shards + 1
+            shardBytes = shardBytes + bytes.unwrap()
+        }
+        index = index + 1
+    }
+    let tensorIndex = root.get("tensor_index")
+    if tensorIndex.isNone() or not tensorIndex.unwrap().isObject() {
+        destroyJsonParseResult(document, true)
+        return Err<QwenModelLockSummary, QwenModelLockError>(qwenLockError(
+            "tensor_index", "source size or shard count mismatch"))
+    }
+    let tensorIndexFields = Array<String>()
+    tensorIndexFields.push("total_size"); tensorIndexFields.push("shards")
+    tensorIndexFields.push("required_text_tensors")
+    tensorIndexFields.push("required_mtp_tensors")
+    tensorIndexFields.push("excluded_vision_tensors")
+    let tensorIndexShape = enforceStrictJsonUnknownFields(tensorIndex.unwrap(),
+        tensorIndexFields, JSON_UNKNOWN_FIELDS_REJECT)
+    tensorIndexFields.free()
+    let totalSize = qwenLockExactUInt(tensorIndex.unwrap(), "total_size")
+    let shardCount = qwenLockExactUInt(tensorIndex.unwrap(), "shards")
+    if tensorIndexShape.isErr() or totalSize.isNone() or shardCount.isNone() or
+        totalSize.unwrap() != (55562855904 as UInt64) or
+        shardCount.unwrap() != (18 as UInt64) or shards != 18 or
+        shardBytes < totalSize.unwrap() {
+        destroyJsonParseResult(document, true)
+        return Err<QwenModelLockSummary, QwenModelLockError>(qwenLockError(
+            "tensor_index", "source size or shard count mismatch"))
+    }
+    destroyJsonParseResult(document, true)
+    return Ok<QwenModelLockSummary, QwenModelLockError>(QwenModelLockSummary{
+        files: 27, shards: 18, sourceBytes: 55562855904 as UInt64 })
+}

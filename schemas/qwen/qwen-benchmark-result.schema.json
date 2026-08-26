@@ -1,0 +1,486 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/qwen-benchmark-result-v1.json",
+  "title": "Seen Qwen Benchmark Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "identity",
+    "qualification",
+    "scenario",
+    "runtime",
+    "quality",
+    "samples",
+    "summary",
+    "memory",
+    "telemetry",
+    "comparison",
+    "maturity"
+  ],
+  "properties": {
+    "schema": {
+      "const": "seen-qwen-benchmark-result-v1"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seen_commit",
+        "engine_id",
+        "model_lock_sha256",
+        "source_lock_sha256",
+        "environment_lock_sha256"
+      ],
+      "properties": {
+        "seen_commit": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64
+        },
+        "engine_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_lock_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_lock_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "environment_lock_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "gpu_name",
+        "gpu_uuid",
+        "compute_capability",
+        "driver",
+        "cuda",
+        "power_limit_watts",
+        "thermal_qualified",
+        "other_gpu_processes"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "qualified",
+            "excluded"
+          ]
+        },
+        "gpu_name": {
+          "type": "string"
+        },
+        "gpu_uuid": {
+          "type": "string"
+        },
+        "compute_capability": {
+          "const": "8.9"
+        },
+        "driver": {
+          "type": "string"
+        },
+        "cuda": {
+          "type": "string"
+        },
+        "power_limit_watts": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "thermal_qualified": {
+          "type": "boolean"
+        },
+        "other_gpu_processes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exclusion_reason": {
+          "type": "string"
+        }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "prompt_tokens",
+        "generated_tokens",
+        "batch",
+        "context_capacity",
+        "residency",
+        "sampling",
+        "profile"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "prompt_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "batch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "context_capacity": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "residency": {
+          "enum": [
+            "resident",
+            "offloaded",
+            "mixed"
+          ]
+        },
+        "sampling": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "string"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version_or_commit",
+        "build_sha256",
+        "weight_policy",
+        "kv_policy",
+        "gdn_state",
+        "cuda_graph",
+        "mtp"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version_or_commit": {
+          "type": "string"
+        },
+        "build_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "weight_policy": {
+          "type": "string"
+        },
+        "kv_policy": {
+          "type": "string"
+        },
+        "gdn_state": {
+          "type": "string"
+        },
+        "cuda_graph": {
+          "type": "boolean"
+        },
+        "mtp": {
+          "type": "boolean"
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_id",
+        "status",
+        "perplexity_relative_delta",
+        "mean_logit_cosine",
+        "top5_overlap"
+      ],
+      "properties": {
+        "contract_id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "not_run"
+          ]
+        },
+        "perplexity_relative_delta": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mean_logit_cosine": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -1,
+          "maximum": 1
+        },
+        "top5_overlap": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "long_context_retrieval": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "prefill_seconds",
+          "decode_seconds",
+          "prefill_tokens_per_second",
+          "accepted_tokens_per_second",
+          "ttft_ms",
+          "peak_vram_bytes",
+          "host_to_device_bytes",
+          "device_to_host_bytes",
+          "effective_bandwidth_gbps",
+          "gpu_max_temp_c"
+        ],
+        "properties": {
+          "prefill_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "decode_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "prefill_tokens_per_second": {
+            "type": "number",
+            "minimum": 0
+          },
+          "accepted_tokens_per_second": {
+            "type": "number",
+            "minimum": 0
+          },
+          "model_steps_per_second": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "ttft_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "peak_vram_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "host_to_device_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "device_to_host_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "effective_bandwidth_gbps": {
+            "type": "number",
+            "minimum": 0
+          },
+          "peak_rss_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "gpu_max_temp_c": {
+            "type": "number"
+          },
+          "energy_joules": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      },
+      "required": [
+        "median_prefill_tokens_per_second",
+        "median_accepted_tokens_per_second",
+        "median_ttft_ms"
+      ]
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "weights_bytes",
+        "metadata_bytes",
+        "state_bytes",
+        "kv_bytes",
+        "workspace_bytes",
+        "peak_vram_bytes"
+      ],
+      "properties": {
+        "weights_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "metadata_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kv_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workspace_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "peak_vram_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "peak_rss_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "kernel_launches",
+        "synchronizations",
+        "fallbacks"
+      ],
+      "properties": {
+        "kernel_launches": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "synchronizations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fallbacks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mtp_acceptance": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "baseline_id",
+        "equivalent_quality",
+        "equivalent_context",
+        "equivalent_sampling",
+        "correctness_passed",
+        "kernel_regression_fraction",
+        "hard_gate_fraction",
+        "reason"
+      ],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "baseline_id": {
+          "type": "string"
+        },
+        "equivalent_quality": {
+          "type": "boolean"
+        },
+        "equivalent_context": {
+          "type": "boolean"
+        },
+        "equivalent_sampling": {
+          "type": "boolean"
+        },
+        "correctness_passed": {
+          "const": true
+        },
+        "kernel_regression_fraction": {
+          "type": "number",
+          "maximum": 0.05
+        },
+        "hard_gate_fraction": {
+          "const": 0.05
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "maturity": {
+      "enum": [
+        "unsupported",
+        "compile-only",
+        "experimental-hardware",
+        "verified",
+        "production-certified"
+      ]
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

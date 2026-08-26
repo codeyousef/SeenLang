@@ -140,8 +140,9 @@ fun generateUnaryState(ctx: CodegenLoweringContext,
     }
     if isUnaryBitwiseNotOperatorImpl(expr.operator) {
         let operandReg = lowerExpression(ctx, expr.operands[0])
+        let operandType = inferLoweredExpressionType(ctx, expr.operands[0])
         return emitUnaryBitwiseNotImpl(output, getFeatureRegBoxImpl(),
-            operandReg)
+            operandReg, operandType)
     }
     return getNextRegFn(getFeatureRegBoxImpl())
 }

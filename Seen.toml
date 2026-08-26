@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seenlang"
-version = "0.13.0"
+version = "0.14.0"
 language = "en"
 description = "Seen language compiler and standard library workspace"
 

@@ -284,6 +284,7 @@ python3 -m py_compile "$SCRIPT_DIR/fix_ir.py" \
     "$SCRIPT_DIR/check_production_source_policy.py" \
     "$SCRIPT_DIR/benchmark_production_source_policy.py" \
     "$SCRIPT_DIR/check_codegen_abi_boundaries.py" \
+    "$SCRIPT_DIR/check_qwen_contracts.py" \
     "$SCRIPT_DIR/verify_ir_call_shapes.py" \
     "$REPO_ROOT/tests/package_registry_contracts.py"
 bash -n "$SCRIPT_DIR/artifact_root.sh" \
@@ -336,7 +337,14 @@ bash -n "$SCRIPT_DIR/artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_test_reporters_contract.sh" \
     "$REPO_ROOT/tests/e2e_multilang/run_all_e2e.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_pkg_local_registry.sh" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_pkg_scoped_identity.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_pkg_scoped_identity.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_qwen_cpu_isolation.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_qwen_cuda_foundation.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_qwen_g0_baseline.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_qwen_mapped_file_large.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_qwen_native_dependency.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_qwen_prerequisites.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_qwen_seen_contracts.sh"
 
 echo "Prebuild gates: Stage-1 acceptance wiring..."
 grep -Fq 'run_stage1_acceptance_checks "$compiler_path" "$REBUILD_TIER"' \
@@ -360,6 +368,9 @@ grep -Fq 'seen_atomic_text_io.sh' "$SCRIPT_DIR/seen_stage1_acceptance.sh"
 grep -Fq 'seen_linux_installer_handshake.sh' \
     "$SCRIPT_DIR/seen_stage1_acceptance.sh"
 grep -Fq 'run_all_e2e.sh' "$SCRIPT_DIR/seen_stage1_acceptance.sh"
+grep -Fq 'qwen_prerequisites.seen' "$SCRIPT_DIR/seen_stage1_acceptance.sh"
+grep -Fq 'projects/seen_ml/qwen38/tests/prerequisites.seen' \
+    "$SCRIPT_DIR/seen_stage1_acceptance.sh"
 grep -Fq 'SEEN_PROJECT_ARTIFACT_WRAPPER' \
     "$REPO_ROOT/tests/e2e_multilang/run_all_e2e.sh"
 cli_expected_separator_count=$(grep -Fc -- 'grep -Fq -- "$expected"' \

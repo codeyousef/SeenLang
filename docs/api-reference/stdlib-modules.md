@@ -88,6 +88,7 @@ modules are listed here so missing API-reference coverage is visible.
 ### `crypto`
 
 - `crypto/md5`
+- `crypto/sha256`
 
 ### `env`
 
@@ -189,9 +190,20 @@ responsibility of backend implementations. See
 ### `json`
 
 - `json/builder`
+- `json/canonical`
 - `json/mod`
 - `json/parser`
+- `json/strict`
 - `json/value`
+
+### `formats`
+
+- `formats/safetensors`
+
+### `inference`
+
+- `inference/scalars`
+- `inference/span`
 
 ### `math`
 
@@ -199,10 +211,16 @@ responsibility of backend implementations. See
 
 ### `memory`
 
+- `memory/aligned_buffer`
 - `memory/allocation`
 - `memory/mapped_region`
 - `memory/pool_region`
 - `memory/stack_region`
+
+### `accelerator`
+
+- `accelerator/cuda/error` (explicit Linux x86-64 CUDA dependency)
+- `accelerator/cuda/mod` (experimental hardware maturity)
 
 ### `net`
 

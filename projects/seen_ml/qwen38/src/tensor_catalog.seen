@@ -1,0 +1,57 @@
+/// Exact one-role classification for the pinned Qwen tensor index.
+
+import core.result.{Result, Ok, Err}
+
+let QWEN_TENSOR_TEXT: Int = 1
+let QWEN_TENSOR_MTP: Int = 2
+let QWEN_TENSOR_EXCLUDED_VISION: Int = 3
+
+class QwenTensorCatalogError { var tensor: String; var message: String }
+class QwenTensorCatalogSummary {
+    var text: Int; var mtp: Int; var excludedVision: Int
+}
+
+fun classifyQwenTensor(name: String) r: Result<Int, QwenTensorCatalogError> {
+    if name == "lm_head.weight" or name.startsWith("model.language_model.") {
+        return Ok<Int, QwenTensorCatalogError>(QWEN_TENSOR_TEXT)
+    }
+    if name.startsWith("mtp.") { return Ok<Int, QwenTensorCatalogError>(QWEN_TENSOR_MTP) }
+    if name.startsWith("model.visual.") {
+        return Ok<Int, QwenTensorCatalogError>(QWEN_TENSOR_EXCLUDED_VISION)
+    }
+    return Err<Int, QwenTensorCatalogError>(QwenTensorCatalogError{
+        tensor: name, message: "tensor is outside the frozen Qwen contract" })
+}
+
+fun validateQwenTensorCatalog(names: Array<String>)
+    r: Result<QwenTensorCatalogSummary, QwenTensorCatalogError> {
+    var text = 0; var mtp = 0; var vision = 0; var index = 0
+    while index < names.length() {
+        var previous = 0
+        while previous < index {
+            if names[previous] == names[index] {
+                return Err<QwenTensorCatalogSummary, QwenTensorCatalogError>(
+                    QwenTensorCatalogError{ tensor: names[index],
+                        message: "duplicate tensor name" })
+            }
+            previous = previous + 1
+        }
+        let classified = classifyQwenTensor(names[index])
+        if classified.isErr() {
+            return Err<QwenTensorCatalogSummary, QwenTensorCatalogError>(
+                classified.unwrapErr())
+        }
+        if classified.unwrap() == QWEN_TENSOR_TEXT { text = text + 1 }
+        if classified.unwrap() == QWEN_TENSOR_MTP { mtp = mtp + 1 }
+        if classified.unwrap() == QWEN_TENSOR_EXCLUDED_VISION { vision = vision + 1 }
+        index = index + 1
+    }
+    if text != 851 or mtp != 15 or vision != 333 {
+        return Err<QwenTensorCatalogSummary, QwenTensorCatalogError>(
+            QwenTensorCatalogError{ tensor: "", message:
+                "tensor role counts do not match the pinned model index" })
+    }
+    return Ok<QwenTensorCatalogSummary, QwenTensorCatalogError>(
+        QwenTensorCatalogSummary{ text: text, mtp: mtp,
+            excludedVision: vision })
+}

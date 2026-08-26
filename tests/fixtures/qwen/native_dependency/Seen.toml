@@ -1,0 +1,10 @@
+manifest-version = 1
+
+[project]
+name = "qwen_native_dependency_probe"
+version = "0.14.0"
+language = "en"
+modules = ["src/main.seen"]
+
+[native.dependencies]
+qwen_probe = { path = "native/lib" }

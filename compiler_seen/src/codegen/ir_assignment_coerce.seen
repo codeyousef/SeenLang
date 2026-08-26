@@ -129,6 +129,14 @@ fun coerceAssignmentStoreValueCoreImpl(output: StringBuilder, regBox: Array<Int>
 
     let sourceLlvmType = mapAssignmentSourceValueTypeCoreImpl(sourceSeenType,
         structNames)
+    if targetLlvmType == "ptr" and valueReg == "0" {
+        return "null"
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "ptr" and
+        valueReg == "0" {
+
+        return "0"
+    }
     if sourceLlvmType == "" or sourceLlvmType == targetLlvmType {
         return valueReg
     }

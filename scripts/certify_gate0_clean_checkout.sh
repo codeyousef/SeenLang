@@ -69,6 +69,11 @@ if readelf -d "$ROOT/compiler_seen/target/seen" |
     fail unverified "rebuilt compiler retained an unused optional GPU/window dependency"
 fi
 
+echo "Gate 0: certifying CPU-only Qwen prerequisite contracts"
+SEEN_BIN="$ROOT/compiler_seen/target/seen" \
+    "$ROOT/tests/misc_root_tests/seen_qwen_prerequisites.sh" ||
+    fail unverified "Qwen prerequisite contracts failed"
+
 # The full rebuild validates this same canonical test during Stage-1 acceptance,
 # then deliberately removes .seen_cache before installing the verified compiler.
 # Run it once more against that installed compiler so the certification evidence

@@ -3404,6 +3404,13 @@
       ]
     },
     {
+      "name": "seen_aligned_buffer_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/aligned_buffer.seen"
+      ]
+    },
+    {
       "name": "seen_alsa_close",
       "abi": "C",
       "sources": [
@@ -3926,6 +3933,237 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/platform/darwin/sdl3.seen"
+      ]
+    },
+    {
+      "name": "seen_cublaslt_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cublaslt_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cublaslt_matmul",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cublaslt_select_algorithm",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_abi_version",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_allocation_address",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_device_capability",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_device_count",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_driver_version",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_event_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_event_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_event_elapsed_ms",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_event_record",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_event_synchronize",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_graph_begin_capture",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_graph_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_graph_end_capture",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_graph_exec_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_graph_exec_update",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_graph_instantiate",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_graph_launch",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_host_alloc",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_host_allocation_address",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_host_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_malloc",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_memcpy_async",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_memset_async",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_runtime_version",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_set_device",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_stream_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_stream_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_stream_synchronize",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
       ]
     },
     {
@@ -4776,6 +5014,34 @@
       ]
     },
     {
+      "name": "seen_mapped_file_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_file_length",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_file_open_readonly",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_file_window",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
+      ]
+    },
+    {
       "name": "seen_mapped_free",
       "abi": "Seen",
       "sources": [
@@ -4801,6 +5067,48 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/memory/mapped_region.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_window_advise",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_window_bind_numa",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_window_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_window_lock",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_window_unlock",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
+      ]
+    },
+    {
+      "name": "seen_mapped_window_validate",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/mapped_file.seen"
       ]
     },
     {
@@ -5494,6 +5802,7 @@
       "name": "seen_string_clone_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/formats/safetensors.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/value.seen"
       ]
@@ -5530,6 +5839,7 @@
       "name": "seen_string_release_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/formats/safetensors.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/parser.seen",
         "seen_std/src/json/value.seen"
@@ -5540,6 +5850,13 @@
       "abi": "C",
       "sources": [
         "seen_std/src/str/string.seen"
+      ]
+    },
+    {
+      "name": "seen_string_view_bytes",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/formats/safetensors.seen"
       ]
     },
     {
@@ -5568,6 +5885,13 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/sync/thread_local.seen"
+      ]
+    },
+    {
+      "name": "seen_try_aligned_realloc",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/memory/aligned_buffer.seen"
       ]
     },
     {

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/qwen-source-lock-v1.json",
+  "title": "Seen Qwen Source Lock v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "created_at", "seen", "model", "references", "cuda", "baselines", "datasets", "tools"],
+  "properties": {
+    "schema": {"const": "seen-qwen-source-lock-v1"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "seen": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository", "baseline_commit", "compiler_sha256", "runtime_abi", "cuda_abi"],
+      "properties": {
+        "repository": {"const": "https://github.com/codeyousef/SeenLang"},
+        "baseline_commit": {"$ref": "#/$defs/commit"},
+        "compiler_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_abi": {"const": 1},
+        "cuda_abi": {"const": 1}
+      }
+    },
+    "model": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "revision", "lock"],
+      "properties": {
+        "id": {"const": "Qwen/Qwen3.8-27B"},
+        "revision": {"$ref": "#/$defs/commit"},
+        "lock": {"const": "qwen-model-lock.json"}
+      }
+    },
+    "references": {
+      "type": "array", "minItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "repository", "commit"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "repository": {"type": "string", "minLength": 1},
+          "commit": {"$ref": "#/$defs/commit"},
+          "paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "cuda": {
+      "type": "object", "additionalProperties": false,
+      "required": ["driver", "toolkit", "target"],
+      "properties": {
+        "driver": {"type": "string", "minLength": 1},
+        "toolkit": {"type": "string", "minLength": 1},
+        "target": {"const": "sm_89"}
+      }
+    },
+    "baselines": {
+      "type": "array", "minItems": 2, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "repository", "commit", "build_flags"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "repository": {"type": "string", "pattern": "^https://.+$"},
+          "commit": {"$ref": "#/$defs/commit"},
+          "build_flags": {"type": "array", "minItems": 1, "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "datasets": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "revision", "lock"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "revision": {"$ref": "#/$defs/commit"},
+          "lock": {"type": "string", "pattern": "^[A-Za-z0-9._-]+\\.json$"}
+        }
+      }
+    },
+    "tools": {
+      "type": "array", "minItems": 3, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "version"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "version": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+  }
+}

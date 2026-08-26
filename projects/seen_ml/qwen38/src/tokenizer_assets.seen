@@ -1,0 +1,22 @@
+/// Pinned tokenizer/chat assets required by the Qwen release profile.
+
+class QwenTokenizerAsset {
+    var path: String
+    var bytes: UInt64
+    var sha256: String
+}
+
+fun qwenTokenizerAssets() r: Array<QwenTokenizerAsset> {
+    let assets = Array<QwenTokenizerAsset>()
+    assets.push(QwenTokenizerAsset{ path: "tokenizer.json", bytes: 12809320 as UInt64,
+        sha256: "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3" })
+    assets.push(QwenTokenizerAsset{ path: "tokenizer_config.json", bytes: 17928 as UInt64,
+        sha256: "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27" })
+    assets.push(QwenTokenizerAsset{ path: "vocab.json", bytes: 6722759 as UInt64,
+        sha256: "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003" })
+    assets.push(QwenTokenizerAsset{ path: "merges.txt", bytes: 3353259 as UInt64,
+        sha256: "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d" })
+    assets.push(QwenTokenizerAsset{ path: "chat_template.jinja", bytes: 8952 as UInt64,
+        sha256: "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041" })
+    return assets
+}

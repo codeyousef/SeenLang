@@ -1,4 +1,4 @@
-import fs.path.{normalize, join, basename, dirname, pathExtension, withoutExtension, isAbsolute}
+import fs.path.{normalize, joinPath, basename, dirname, pathExtension, withoutExtension, isAbsolute}
 
 fun expect(condition: Bool, message: String) -> Void {
     if not condition {
@@ -13,7 +13,8 @@ fun main() -> Int {
     parts.push("/usr")
     parts.push("local")
     parts.push("bin")
-    expect(join(parts) == "/usr/local/bin", "join should concatenate parts")
+    expect(joinPath(parts) == "/usr/local/bin",
+        "joinPath should concatenate parts")
     expect(basename("/usr/local/bin") == "bin", "basename mismatch")
     expect(dirname("/usr/local/bin") == "/usr/local", "dirname mismatch")
     expect(pathExtension("archive.tar.gz") == "gz", "extension should honor last segment")

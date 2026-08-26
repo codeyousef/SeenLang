@@ -18,7 +18,7 @@ class IoError {
 let BYTE_MAX_COUNT: Int = 9223372036854775807
 let BYTE_MAX_CAPACITY: Int = 1073741824
 let BYTE_DEFAULT_ALIGNMENT: Int = 32
-let BYTE_MAX_ALIGNMENT: Int = 32
+let BYTE_MAX_ALIGNMENT: Int = 256
 let BYTE_ERROR_INVALID: String = "byte.invalid"
 let BYTE_ERROR_LIMIT: String = "byte.limit"
 let BYTE_ERROR_CANCELLED: String = "byte.cancelled"
@@ -72,7 +72,7 @@ fun validateByteCapacity(capacity: Int, alignment: Int)
 
     if capacity < 0 or not isValidByteAlignment(alignment) {
         return Err<Bool, IoError>(byteFailure(BYTE_ERROR_INVALID, "allocate",
-            "byte capacity must be nonnegative and alignment must be a power of two through 32"))
+            "byte capacity must be nonnegative and alignment must be a power of two through 256"))
     }
     if capacity > BYTE_MAX_CAPACITY {
         return Err<Bool, IoError>(byteFailure(BYTE_ERROR_LIMIT, "allocate",

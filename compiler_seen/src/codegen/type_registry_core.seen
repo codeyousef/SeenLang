@@ -2,7 +2,8 @@
 
 import trace.{traceGen}
 import codegen.ir_type_info.{getKnownLspFieldIndexImpl}
-import codegen.ir_type_mapping.{isDataTypeImpl, isClassTypeImpl}
+import codegen.ir_type_mapping.{isDataTypeImpl, isClassTypeImpl,
+    isFixedWidthScalarTypeImpl, getFixedWidthScalarSizeImpl}
 import codegen.ir_type_tables.{registerKnownDataTypesImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl, parseSeenStaticArrayLengthImpl, parseSeenStaticArrayElementTypeImpl, isSeenStaticArrayTypeImpl}
 import codegen.type_registry_cache.{findCachedStructIndex, cacheStructIndex, findCachedFunctionReturnIndex, cacheFunctionReturnIndex, findCachedFieldIndex, cacheFieldIndex, resetFieldInfoCache}
@@ -144,6 +145,9 @@ fun getTypeSizeReg(typeName: String, structNames: Array<String>, structSizes: Ar
     if typeName == "Int" { return 8 }
     if typeName == "Bool" or typeName == "Boolean" { return 8 }
     if typeName == "Float" { return 8 }
+    if isFixedWidthScalarTypeImpl(typeName) {
+        return getFixedWidthScalarSizeImpl(typeName)
+    }
     if typeName == "String" { return 16 }
     if typeName.startsWith("Array<") or typeName.startsWith("List<") { return 8 }
     if isDataTypeReg(typeName) {

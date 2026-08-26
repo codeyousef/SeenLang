@@ -1,0 +1,148 @@
+/// Deterministic RFC 8785-style JSON serialization for strict manifest trees.
+
+import json.value.{JsonValue}
+import json.builder.{jsonAppendBorrowedPart, jsonAppendEscapedString,
+    jsonFinishOwned}
+import str.string.{StringBuilder}
+import core.result.{Result, Ok, Err}
+
+class CanonicalJsonError {
+    var code: String
+    var message: String
+}
+
+fun canonicalJsonError(code: String, message: String) r: CanonicalJsonError {
+    return CanonicalJsonError{ code: code, message: message }
+}
+
+fun jsonUtf8CodePoint(text: String, offset: Int) r: Int {
+    let first = text.byteAt(offset)
+    if first < 0x80 { return first }
+    if first < 0xE0 {
+        return ((first & 0x1F) << 6) | (text.byteAt(offset + 1) & 0x3F)
+    }
+    if first < 0xF0 {
+        return ((first & 0x0F) << 12) |
+            ((text.byteAt(offset + 1) & 0x3F) << 6) |
+            (text.byteAt(offset + 2) & 0x3F)
+    }
+    return ((first & 0x07) << 18) |
+        ((text.byteAt(offset + 1) & 0x3F) << 12) |
+        ((text.byteAt(offset + 2) & 0x3F) << 6) |
+        (text.byteAt(offset + 3) & 0x3F)
+}
+
+fun jsonUtf8Width(text: String, offset: Int) r: Int {
+    let first = text.byteAt(offset)
+    if first < 0x80 { return 1 }
+    if first < 0xE0 { return 2 }
+    if first < 0xF0 { return 3 }
+    return 4
+}
+
+fun jsonUtf16Compare(left: String, right: String) r: Int {
+    var leftIndex = 0; var rightIndex = 0
+    while leftIndex < left.length() and rightIndex < right.length() {
+        let leftPoint = jsonUtf8CodePoint(left, leftIndex)
+        let rightPoint = jsonUtf8CodePoint(right, rightIndex)
+        let leftFirst = if leftPoint <= 0xFFFF { leftPoint } else {
+            0xD800 + ((leftPoint - 0x10000) >> 10)
+        }
+        let rightFirst = if rightPoint <= 0xFFFF { rightPoint } else {
+            0xD800 + ((rightPoint - 0x10000) >> 10)
+        }
+        if leftFirst < rightFirst { return -1 }
+        if leftFirst > rightFirst { return 1 }
+        if leftPoint > 0xFFFF and rightPoint > 0xFFFF {
+            let leftSecond = 0xDC00 + ((leftPoint - 0x10000) & 0x3FF)
+            let rightSecond = 0xDC00 + ((rightPoint - 0x10000) & 0x3FF)
+            if leftSecond < rightSecond { return -1 }
+            if leftSecond > rightSecond { return 1 }
+        }
+        leftIndex = leftIndex + jsonUtf8Width(left, leftIndex)
+        rightIndex = rightIndex + jsonUtf8Width(right, rightIndex)
+    }
+    if leftIndex < left.length() { return 1 }
+    if rightIndex < right.length() { return -1 }
+    return 0
+}
+
+fun appendCanonicalJson(builder: StringBuilder, ownership: Array<Bool>,
+    value: JsonValue) r: Result<Bool, CanonicalJsonError> {
+    if value.isNull() { jsonAppendBorrowedPart(builder, ownership, "null"); return Ok(true) }
+    if value.isBool() {
+        jsonAppendBorrowedPart(builder, ownership,
+            if value.getBool() { "true" } else { "false" })
+        return Ok(true)
+    }
+    if value.isNumber() {
+        let number = value.getNumber()
+        let encoded = if number == 0.0 { "0" } else { number.toString() }
+        if encoded == "nan" or encoded == "NaN" or encoded == "inf" or
+            encoded == "Infinity" or encoded == "-inf" or
+            encoded == "-Infinity" {
+            return Err<Bool, CanonicalJsonError>(canonicalJsonError(
+                "json.jcs_number", "JCS rejects non-finite numbers"))
+        }
+        jsonAppendBorrowedPart(builder, ownership, encoded)
+        return Ok(true)
+    }
+    if value.isString() {
+        jsonAppendEscapedString(builder, ownership, value.getString())
+        return Ok(true)
+    }
+    if value.isArray() {
+        jsonAppendBorrowedPart(builder, ownership, "[")
+        let values = value.getArray(); var index = 0
+        while index < values.length() {
+            if index > 0 { jsonAppendBorrowedPart(builder, ownership, ",") }
+            let appended = appendCanonicalJson(builder, ownership, values[index])
+            if appended.isErr() { return appended }
+            index = index + 1
+        }
+        jsonAppendBorrowedPart(builder, ownership, "]")
+        return Ok(true)
+    }
+    if value.isObject() {
+        let keys = Array<String>(); let sourceKeys = value.keys()
+        var keyIndex = 0
+        while keyIndex < sourceKeys.length() {
+            keys.push(sourceKeys[keyIndex]); keyIndex = keyIndex + 1
+        }
+        var index = 1
+        while index < keys.length() {
+            var position = index
+            while position > 0 and
+                jsonUtf16Compare(keys[position], keys[position - 1]) < 0 {
+                let swap = keys[position - 1]
+                keys[position - 1] = keys[position]; keys[position] = swap
+                position = position - 1
+            }
+            index = index + 1
+        }
+        jsonAppendBorrowedPart(builder, ownership, "{"); index = 0
+        while index < keys.length() {
+            if index > 0 { jsonAppendBorrowedPart(builder, ownership, ",") }
+            jsonAppendEscapedString(builder, ownership, keys[index])
+            jsonAppendBorrowedPart(builder, ownership, ":")
+            let appended = appendCanonicalJson(builder, ownership,
+                value.get(keys[index]).unwrap())
+            if appended.isErr() { keys.free(); return appended }
+            index = index + 1
+        }
+        keys.free(); jsonAppendBorrowedPart(builder, ownership, "}")
+        return Ok(true)
+    }
+    return Err<Bool, CanonicalJsonError>(canonicalJsonError(
+        "json.jcs_kind", "unknown JSON value kind"))
+}
+
+fun canonicalizeJson(value: JsonValue) r: Result<String, CanonicalJsonError> {
+    let builder = StringBuilder.new(); let ownership = Array<Bool>()
+    let appended = appendCanonicalJson(builder, ownership, value)
+    if appended.isErr() {
+        ownership.free(); builder.parts.free(); builder.free()
+        return Err<String, CanonicalJsonError>(appended.unwrapErr())
+    }
+    return Ok<String, CanonicalJsonError>(jsonFinishOwned(builder, ownership))
+}

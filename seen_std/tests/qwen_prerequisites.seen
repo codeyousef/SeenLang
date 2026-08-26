@@ -1,0 +1,117 @@
+import crypto.sha256.{sha256, parseSha256Digest, sha256DigestEqual}
+import formats.safetensors.{SafeTensorPolicy, parseSafeTensorHeader,
+    parseSafeTensorShardIndex}
+import inference.scalars.{checkedAdd64, checkedMultiply64,
+    checkedTensorElements, packedByteCount}
+import json.strict.{StrictJsonLimits, parseStrictJson, parseStrictInt64,
+    enforceStrictJsonUnknownFields, JSON_UNKNOWN_FIELDS_ALLOW,
+    JSON_UNKNOWN_FIELDS_REJECT}
+import json.canonical.{canonicalizeJson}
+import json.builder.{releaseJsonText}
+import json.parser.{destroyJsonParseResult}
+
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let empty = sha256("")
+    let abc = sha256("abc")
+    require(empty.isOkay() and empty.unwrap() ==
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "empty SHA-256 vector")
+    require(abc.isOkay() and abc.unwrap() ==
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "abc SHA-256 vector")
+    let emptyBytes = parseSha256Digest(empty.unwrap())
+    let emptyBytesAgain = parseSha256Digest(empty.unwrap())
+    require(emptyBytes.isOkay() and emptyBytesAgain.isOkay() and
+        sha256DigestEqual(emptyBytes.unwrap(), emptyBytesAgain.unwrap()),
+        "digest equality")
+    emptyBytes.unwrap().free(); emptyBytesAgain.unwrap().free()
+    require(parseSha256Digest("ABC").isErr(), "canonical digest rejection")
+
+    let limits = StrictJsonLimits.manifests()
+    let valid = parseStrictJson("{\"a\":1}", limits)
+    require(valid.isOkay(), "strict JSON accepts canonical object")
+    let known = Array<String>(); known.push("a")
+    require(enforceStrictJsonUnknownFields(valid.unwrap().value.unwrap(),
+        known, JSON_UNKNOWN_FIELDS_REJECT).isOkay(),
+        "strict JSON accepts known fields")
+    known.free()
+    destroyJsonParseResult(valid.unwrap(), true)
+    let withUnknown = parseStrictJson("{\"a\":1,\"b\":2}", limits)
+    let onlyA = Array<String>(); onlyA.push("a")
+    require(enforceStrictJsonUnknownFields(withUnknown.unwrap().value.unwrap(),
+        onlyA, JSON_UNKNOWN_FIELDS_REJECT).isErr(),
+        "strict JSON rejects unknown fields by policy")
+    require(enforceStrictJsonUnknownFields(withUnknown.unwrap().value.unwrap(),
+        onlyA, JSON_UNKNOWN_FIELDS_ALLOW).isOkay(),
+        "strict JSON allows unknown fields by policy")
+    onlyA.free()
+    destroyJsonParseResult(withUnknown.unwrap(), true)
+    let unordered = parseStrictJson("{\"b\":2,\"a\":1}", limits)
+    let canonical = canonicalizeJson(unordered.unwrap().value.unwrap())
+    require(canonical.isOkay() and canonical.unwrap() == "{\"a\":1,\"b\":2}",
+        "JCS object ordering")
+    releaseJsonText(canonical.unwrap())
+    destroyJsonParseResult(unordered.unwrap(), true)
+    require(parseStrictJson("{\"a\":1,\"a\":2}", limits).isErr(),
+        "strict JSON rejects duplicate names")
+    require(parseStrictJson("\"\\uD800\"", limits).isErr(),
+        "strict JSON rejects unpaired surrogates")
+    let tinyString = StrictJsonLimits{ maxInputBytes: 64, maxDepth: 4,
+        maxValues: 8, maxStringBytes: 2 }
+    require(parseStrictJson("\"abc\"", tinyString).isErr(),
+        "strict JSON enforces decoded string limits")
+    require(parseStrictInt64("9223372036854775807").isOkay(),
+        "strict Int64 upper bound")
+    require(parseStrictInt64("9223372036854775808").isErr(),
+        "strict Int64 overflow")
+
+    let shape = Array<UInt64>(); shape.push(3 as UInt64); shape.push(7 as UInt64)
+    require(checkedTensorElements(shape).unwrap() == (21 as UInt64),
+        "checked geometry")
+    shape.free()
+    require(checkedAdd64(0x7FFFFFFFFFFFFFFF as UInt64, 1 as UInt64).isNone(),
+        "checked add overflow")
+    require(checkedMultiply64(0x7FFFFFFFFFFFFFFF as UInt64,
+        2 as UInt64).isNone(), "checked multiply overflow")
+    require(packedByteCount(9 as UInt64, 3 as UInt8).unwrap() == (4 as UInt64),
+        "three-bit packed geometry")
+
+    let words = Array<UInt32>()
+    require((0x6A09E667 as UInt32) == (1779033703 as UInt32),
+        "hex literals containing E remain integers")
+    words.push(0x6A09E667 as UInt32); words.push(0xBB67AE85 as UInt32)
+    words[0] = words[0] + (1 as UInt32)
+    require(words[0] == (0x6A09E668 as UInt32) and
+        words[1] == (0xBB67AE85 as UInt32), "fixed-width array ABI")
+    words.free()
+
+    let header = "{\"x\":{\"dtype\":\"F16\",\"shape\":[2],\"data_offsets\":[0,4]}" + "}"
+    let metadata = parseSafeTensorHeader(header,
+        (header.length() + 12) as UInt64, SafeTensorPolicy.modelWeights())
+    require(metadata.isOkay(), "bounded safetensors metadata")
+    require(metadata.unwrap().tensor("x").unwrap().dataLength == (4 as UInt64),
+        "safetensors tensor geometry")
+    metadata.unwrap().close()
+    let overlap = "{\"x\":{\"dtype\":\"U8\",\"shape\":[2],\"data_offsets\":[0,2]},\"y\":{\"dtype\":\"U8\",\"shape\":[2],\"data_offsets\":[1,3]}" + "}"
+    require(parseSafeTensorHeader(overlap,
+        (overlap.length() + 11) as UInt64,
+        SafeTensorPolicy.modelWeights()).isErr(), "overlap rejection")
+
+    let shardIndex = parseSafeTensorShardIndex(
+        "{\"weight_map\":{\"x\":\"model-00001-of-00002.safetensors\"}" + "}")
+    require(shardIndex.isOkay(), "bounded shard index")
+    require(shardIndex.unwrap().shardFor("x").unwrap() ==
+        "model-00001-of-00002.safetensors", "shard routing")
+    shardIndex.unwrap().close()
+    require(parseSafeTensorShardIndex(
+        "{\"weight_map\":{\"x\":\"../escape.safetensors\"}" + "}").isErr(),
+        "shard traversal rejection")
+    println("PASS: Qwen prerequisite Seen contracts")
+    return 0
+}
+
+main()

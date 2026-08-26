@@ -482,6 +482,12 @@ void* seen_checked_aligned_alloc(int64_t alignment, int64_t size) {
     return ptr;
 }
 
+void seen_aligned_buffer_free(void* ptr, int64_t size, int64_t alignment) {
+    if (!ptr) return;
+    seen_memory_release_reservation(seen_aligned_accounted_size(size, alignment));
+    seen_aligned_free(ptr);
+}
+
 static void seen_oom_abort(const char* context, int64_t size) {
     if (!context) context = "allocation";
     fprintf(stderr,
@@ -4490,6 +4496,16 @@ SeenString seen_string_clone_owned(SeenString value) {
     }
     data[value.len] = 0;
     SeenString result = { value.len, data };
+    return result;
+}
+
+SeenString seen_string_view_bytes(const uint8_t* data, int64_t length) {
+    SeenString result = {0, NULL};
+    if (length < 0 || (length > 0 && data == NULL)) {
+        return result;
+    }
+    result.len = length;
+    result.data = (char*)(uintptr_t)data;
     return result;
 }
 
@@ -10705,6 +10721,10 @@ int64_t seen_pool_region_available(int64_t handle) {
 #ifndef _WIN32
 #include <sys/mman.h>
 #include <fcntl.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#include <linux/mempolicy.h>
+#endif
 // MAP_ANONYMOUS may not be defined on macOS with strict C standards
 #ifndef MAP_ANONYMOUS
 #ifdef MAP_ANON
@@ -10877,6 +10897,7 @@ void seen_rwlock_destroy(int64_t handle) {
     // SRWLOCK has no destroy function
     seen_runtime_free_budgeted(l, sizeof(SeenRwLock));
 }
+
 #else
 typedef struct { pthread_rwlock_t rw; } SeenRwLock;
 
@@ -10915,6 +10936,291 @@ void seen_rwlock_destroy(int64_t handle) {
     }
 }
 #endif
+
+typedef struct SeenMappedFileV2 {
+#ifdef _WIN32
+    HANDLE file;
+#else
+    int fd;
+#endif
+    uint64_t length;
+    uint64_t active_windows;
+} SeenMappedFileV2;
+
+typedef struct SeenMappedWindowV2 {
+    SeenMappedFileV2 *owner;
+    void *mapping;
+    size_t mapping_length;
+    const uint8_t *data;
+    uint64_t offset;
+    uint64_t length;
+    bool locked;
+} SeenMappedWindowV2;
+
+static int seen_mapped_copy_path(int64_t path_len, const char *path_data,
+                                 char path[4096]) {
+    if (!path_data || path_len <= 0 || path_len >= 4096) return 0;
+    if (memchr(path_data, '\0', (size_t)path_len) != NULL) return 0;
+    memcpy(path, path_data, (size_t)path_len);
+    path[path_len] = '\0';
+    return 1;
+}
+
+int32_t seen_mapped_file_open_readonly(int64_t path_len, const char *path_data,
+                                       uint64_t *out_handle,
+                                       uint64_t *out_length) {
+    char path[4096];
+    if (!out_handle || !out_length ||
+        !seen_mapped_copy_path(path_len, path_data, path)) {
+        return SEEN_MMAP_INVALID;
+    }
+    *out_handle = 0;
+    *out_length = 0;
+    SeenMappedFileV2 *file = (SeenMappedFileV2 *)seen_try_malloc(sizeof(*file));
+    if (!file) return SEEN_MMAP_OPEN_FAILED;
+    memset(file, 0, sizeof(*file));
+#ifdef _WIN32
+    file->file = CreateFileA(path, GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file->file == INVALID_HANDLE_VALUE) {
+        seen_runtime_free_budgeted(file, sizeof(*file));
+        return SEEN_MMAP_OPEN_FAILED;
+    }
+    LARGE_INTEGER size;
+    if (!GetFileSizeEx(file->file, &size) || size.QuadPart < 0) {
+        CloseHandle(file->file);
+        seen_runtime_free_budgeted(file, sizeof(*file));
+        return SEEN_MMAP_STAT_FAILED;
+    }
+    file->length = (uint64_t)size.QuadPart;
+#else
+    file->fd = open(path, O_RDONLY
+#ifdef O_CLOEXEC
+        | O_CLOEXEC
+#endif
+    );
+    if (file->fd < 0) {
+        seen_runtime_free_budgeted(file, sizeof(*file));
+        return SEEN_MMAP_OPEN_FAILED;
+    }
+    struct stat st;
+    if (fstat(file->fd, &st) != 0 || st.st_size < 0) {
+        close(file->fd);
+        seen_runtime_free_budgeted(file, sizeof(*file));
+        return SEEN_MMAP_STAT_FAILED;
+    }
+    file->length = (uint64_t)st.st_size;
+#endif
+    *out_length = file->length;
+    *out_handle = (uint64_t)(uintptr_t)file;
+    return SEEN_MMAP_OK;
+}
+
+int32_t seen_mapped_file_length(uint64_t handle, uint64_t *out_length) {
+    SeenMappedFileV2 *file = (SeenMappedFileV2 *)(uintptr_t)handle;
+    if (!file || !out_length) return SEEN_MMAP_INVALID;
+#ifdef _WIN32
+    LARGE_INTEGER size;
+    if (!GetFileSizeEx(file->file, &size) || size.QuadPart < 0)
+        return SEEN_MMAP_STAT_FAILED;
+    *out_length = (uint64_t)size.QuadPart;
+#else
+    struct stat st;
+    if (fstat(file->fd, &st) != 0 || st.st_size < 0)
+        return SEEN_MMAP_STAT_FAILED;
+    *out_length = (uint64_t)st.st_size;
+#endif
+    return *out_length < file->length ? SEEN_MMAP_TRUNCATED : SEEN_MMAP_OK;
+}
+
+int32_t seen_mapped_file_window(uint64_t file_handle, uint64_t offset,
+                                uint64_t length, uint64_t *out_window,
+                                const uint8_t **out_data) {
+    SeenMappedFileV2 *file = (SeenMappedFileV2 *)(uintptr_t)file_handle;
+    if (!file || !out_window || !out_data) return SEEN_MMAP_INVALID;
+    *out_window = 0;
+    *out_data = NULL;
+    if (length == 0 || offset > UINT64_MAX - length ||
+        offset + length > file->length || length > (uint64_t)SIZE_MAX)
+        return SEEN_MMAP_RANGE;
+    uint64_t current = 0;
+    int32_t status = seen_mapped_file_length(file_handle, &current);
+    if (status != SEEN_MMAP_OK || offset + length > current)
+        return status == SEEN_MMAP_OK ? SEEN_MMAP_TRUNCATED : status;
+    SeenMappedWindowV2 *window =
+        (SeenMappedWindowV2 *)seen_try_malloc(sizeof(*window));
+    if (!window) return SEEN_MMAP_MAP_FAILED;
+    memset(window, 0, sizeof(*window));
+#ifdef _WIN32
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    uint64_t granularity = (uint64_t)info.dwAllocationGranularity;
+#else
+    long page_size_long = sysconf(_SC_PAGE_SIZE);
+    if (page_size_long <= 0) {
+        seen_runtime_free_budgeted(window, sizeof(*window));
+        return SEEN_MMAP_MAP_FAILED;
+    }
+    uint64_t granularity = (uint64_t)page_size_long;
+#endif
+    uint64_t aligned_offset = offset - (offset % granularity);
+    uint64_t delta = offset - aligned_offset;
+    if (delta > SIZE_MAX || length > SIZE_MAX - delta) {
+        seen_runtime_free_budgeted(window, sizeof(*window));
+        return SEEN_MMAP_RANGE;
+    }
+    size_t map_length = (size_t)(delta + length);
+#ifdef _WIN32
+    HANDLE mapping = CreateFileMappingA(file->file, NULL, PAGE_READONLY, 0, 0, NULL);
+    if (!mapping) {
+        seen_runtime_free_budgeted(window, sizeof(*window));
+        return SEEN_MMAP_MAP_FAILED;
+    }
+    void *base = MapViewOfFile(mapping, FILE_MAP_READ,
+        (DWORD)(aligned_offset >> 32), (DWORD)aligned_offset, map_length);
+    CloseHandle(mapping);
+    if (!base) {
+        seen_runtime_free_budgeted(window, sizeof(*window));
+        return SEEN_MMAP_MAP_FAILED;
+    }
+#else
+    void *base = mmap(NULL, map_length, PROT_READ, MAP_PRIVATE, file->fd,
+                      (off_t)aligned_offset);
+    if (base == MAP_FAILED) {
+        seen_runtime_free_budgeted(window, sizeof(*window));
+        return SEEN_MMAP_MAP_FAILED;
+    }
+#endif
+    window->owner = file;
+    window->mapping = base;
+    window->mapping_length = map_length;
+    window->data = (const uint8_t *)base + delta;
+    window->offset = offset;
+    window->length = length;
+    file->active_windows++;
+    *out_window = (uint64_t)(uintptr_t)window;
+    *out_data = window->data;
+    return SEEN_MMAP_OK;
+}
+
+int32_t seen_mapped_window_validate(uint64_t window_handle) {
+    SeenMappedWindowV2 *window = (SeenMappedWindowV2 *)(uintptr_t)window_handle;
+    if (!window || !window->owner) return SEEN_MMAP_INVALID;
+    uint64_t current = 0;
+    int32_t status = seen_mapped_file_length(
+        (uint64_t)(uintptr_t)window->owner, &current);
+    if (status != SEEN_MMAP_OK) return status;
+    if (window->offset > UINT64_MAX - window->length ||
+        window->offset + window->length > current) return SEEN_MMAP_TRUNCATED;
+    return SEEN_MMAP_OK;
+}
+
+int32_t seen_mapped_window_advise(uint64_t window_handle, int32_t advice) {
+    SeenMappedWindowV2 *window = (SeenMappedWindowV2 *)(uintptr_t)window_handle;
+    if (!window || advice < 0 || advice > 5) return SEEN_MMAP_INVALID;
+#ifdef _WIN32
+    (void)advice;
+    return SEEN_MMAP_UNSUPPORTED;
+#else
+    int native_advice = advice == 0 ? MADV_NORMAL :
+        advice == 1 ? MADV_SEQUENTIAL :
+        advice == 2 ? MADV_RANDOM :
+        advice == 3 ? MADV_WILLNEED :
+#ifdef MADV_HUGEPAGE
+        advice == 4 ? MADV_HUGEPAGE :
+#else
+        advice == 4 ? -1 :
+#endif
+        MADV_DONTNEED;
+    if (native_advice < 0) return SEEN_MMAP_UNSUPPORTED;
+    return madvise(window->mapping, window->mapping_length, native_advice) == 0
+        ? SEEN_MMAP_OK : SEEN_MMAP_MAP_FAILED;
+#endif
+}
+
+int32_t seen_mapped_window_lock(uint64_t window_handle) {
+    SeenMappedWindowV2 *window = (SeenMappedWindowV2 *)(uintptr_t)window_handle;
+    if (!window) return SEEN_MMAP_INVALID;
+    if (window->locked) return SEEN_MMAP_OK;
+#ifdef _WIN32
+    if (!VirtualLock(window->mapping, window->mapping_length))
+        return SEEN_MMAP_LOCK_FAILED;
+#else
+    if (mlock(window->mapping, window->mapping_length) != 0)
+        return SEEN_MMAP_LOCK_FAILED;
+#endif
+    window->locked = true;
+    return SEEN_MMAP_OK;
+}
+
+int32_t seen_mapped_window_unlock(uint64_t window_handle) {
+    SeenMappedWindowV2 *window = (SeenMappedWindowV2 *)(uintptr_t)window_handle;
+    if (!window) return SEEN_MMAP_INVALID;
+    if (!window->locked) return SEEN_MMAP_OK;
+#ifdef _WIN32
+    if (!VirtualUnlock(window->mapping, window->mapping_length))
+        return SEEN_MMAP_LOCK_FAILED;
+#else
+    if (munlock(window->mapping, window->mapping_length) != 0)
+        return SEEN_MMAP_LOCK_FAILED;
+#endif
+    window->locked = false;
+    return SEEN_MMAP_OK;
+}
+
+int32_t seen_mapped_window_bind_numa(uint64_t window_handle, int32_t node) {
+    SeenMappedWindowV2 *window = (SeenMappedWindowV2 *)(uintptr_t)window_handle;
+    if (!window || node < 0) return SEEN_MMAP_INVALID;
+#if defined(__linux__) && defined(SYS_mbind)
+    if ((uint32_t)node >= sizeof(unsigned long) * 8U)
+        return SEEN_MMAP_UNSUPPORTED;
+    unsigned long mask = 1UL << (uint32_t)node;
+    long result = syscall(SYS_mbind, window->mapping, window->mapping_length,
+        MPOL_BIND, &mask, sizeof(mask) * 8U, MPOL_MF_MOVE);
+    return result == 0 ? SEEN_MMAP_OK : SEEN_MMAP_NUMA_FAILED;
+#else
+    (void)node;
+    return SEEN_MMAP_UNSUPPORTED;
+#endif
+}
+
+int32_t seen_mapped_window_close(uint64_t *window_handle) {
+    if (!window_handle) return SEEN_MMAP_INVALID;
+    if (*window_handle == 0) return SEEN_MMAP_OK;
+    SeenMappedWindowV2 *window =
+        (SeenMappedWindowV2 *)(uintptr_t)*window_handle;
+    if (window->locked) {
+        int32_t unlock_status = seen_mapped_window_unlock(*window_handle);
+        if (unlock_status != SEEN_MMAP_OK) return unlock_status;
+    }
+#ifdef _WIN32
+    if (!UnmapViewOfFile(window->mapping)) return SEEN_MMAP_MAP_FAILED;
+#else
+    if (munmap(window->mapping, window->mapping_length) != 0)
+        return SEEN_MMAP_MAP_FAILED;
+#endif
+    if (window->owner && window->owner->active_windows > 0)
+        window->owner->active_windows--;
+    seen_runtime_free_budgeted(window, sizeof(*window));
+    *window_handle = 0;
+    return SEEN_MMAP_OK;
+}
+
+int32_t seen_mapped_file_close(uint64_t *file_handle) {
+    if (!file_handle) return SEEN_MMAP_INVALID;
+    if (*file_handle == 0) return SEEN_MMAP_OK;
+    SeenMappedFileV2 *file = (SeenMappedFileV2 *)(uintptr_t)*file_handle;
+    if (file->active_windows != 0) return SEEN_MMAP_BUSY;
+#ifdef _WIN32
+    if (!CloseHandle(file->file)) return SEEN_MMAP_STAT_FAILED;
+#else
+    if (close(file->fd) != 0) return SEEN_MMAP_STAT_FAILED;
+#endif
+    seen_runtime_free_budgeted(file, sizeof(*file));
+    *file_handle = 0;
+    return SEEN_MMAP_OK;
+}
 
 // ============================================================================
 // Barrier

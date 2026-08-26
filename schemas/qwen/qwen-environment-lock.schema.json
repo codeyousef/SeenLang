@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/qwen-environment-lock-v1.json",
+  "title": "Seen Qwen Environment Lock v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "captured_at",
+    "os",
+    "cpu",
+    "memory",
+    "gpu",
+    "nvidia",
+    "compiler",
+    "repository",
+    "conditions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "seen-qwen-environment-lock-v1"
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "os": {
+      "type": "object"
+    },
+    "cpu": {
+      "type": "object"
+    },
+    "memory": {
+      "type": "object",
+      "required": [
+        "total_bytes",
+        "build_limit_bytes"
+      ],
+      "properties": {
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "build_limit_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "gpu": {
+      "type": "object",
+      "required": [
+        "name",
+        "uuid",
+        "memory_bytes",
+        "compute_capability"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "memory_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "compute_capability": {
+          "const": "8.9"
+        }
+      }
+    },
+    "nvidia": {
+      "type": "object",
+      "required": [
+        "driver",
+        "cuda_toolkit",
+        "cublaslt"
+      ],
+      "properties": {
+        "driver": {
+          "type": "string"
+        },
+        "cuda_toolkit": {
+          "type": "string"
+        },
+        "cublaslt": {
+          "type": "string"
+        }
+      }
+    },
+    "compiler": {
+      "type": "object",
+      "required": [
+        "seen_sha256",
+        "llvm"
+      ],
+      "properties": {
+        "seen_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "llvm": {
+          "type": "string"
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "required": [
+        "commit",
+        "dirty"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string",
+          "minLength": 40
+        },
+        "dirty": {
+          "const": false
+        }
+      }
+    },
+    "conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ambient_celsius", "variables"],
+      "properties": {
+        "ambient_celsius": {"type": ["number", "null"]},
+        "variables": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 256}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

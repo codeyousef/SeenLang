@@ -1,0 +1,155 @@
+/// Move-only ownership for read-only files and bounded mapped windows.
+
+import core.result.{Result, Ok, Err}
+
+let MMAP_OK: Int32 = 0 as Int32
+
+extern "C" fun seen_mapped_file_open_readonly(pathLength: Int64,
+    path: *const Char, outHandle: *UInt64, outLength: *UInt64) r: Int32
+extern "C" fun seen_mapped_file_length(handle: UInt64,
+    outLength: *UInt64) r: Int32
+extern "C" fun seen_mapped_file_window(handle: UInt64, offset: UInt64,
+    length: UInt64, outWindow: *UInt64, outData: **const UInt8) r: Int32
+extern "C" fun seen_mapped_window_validate(handle: UInt64) r: Int32
+extern "C" fun seen_mapped_window_advise(handle: UInt64, advice: Int32) r: Int32
+extern "C" fun seen_mapped_window_lock(handle: UInt64) r: Int32
+extern "C" fun seen_mapped_window_unlock(handle: UInt64) r: Int32
+extern "C" fun seen_mapped_window_bind_numa(handle: UInt64, node: Int32) r: Int32
+extern "C" fun seen_mapped_window_close(handle: *UInt64) r: Int32
+extern "C" fun seen_mapped_file_close(handle: *UInt64) r: Int32
+
+class MmapError {
+    var code: Int32
+    var operation: String
+}
+
+fun mmapFailure(code: Int32, operation: String) r: MmapError {
+    return MmapError{ code: code, operation: operation }
+}
+
+@move
+class MappedWindow {
+    var handle: UInt64
+    var data: *const UInt8
+    var offset: UInt64
+    var length: UInt64
+
+    fun validate() r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_validate(this.handle)
+        if status != MMAP_OK {
+            return Err<Bool, MmapError>(mmapFailure(status, "validate"))
+        }
+        return Ok<Bool, MmapError>(true)
+    }
+
+    fun prefetch() r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_advise(this.handle, 3 as Int32)
+        if status != MMAP_OK {
+            return Err<Bool, MmapError>(mmapFailure(status, "prefetch"))
+        }
+        return Ok<Bool, MmapError>(true)
+    }
+
+    fun sequential() r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_advise(this.handle, 1 as Int32)
+        if status != MMAP_OK { return Err<Bool, MmapError>(mmapFailure(status, "sequential")) }
+        return Ok<Bool, MmapError>(true)
+    }
+
+    fun randomAccess() r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_advise(this.handle, 2 as Int32)
+        if status != MMAP_OK { return Err<Bool, MmapError>(mmapFailure(status, "random")) }
+        return Ok<Bool, MmapError>(true)
+    }
+
+    fun preferHugePages() r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_advise(this.handle, 4 as Int32)
+        if status != MMAP_OK { return Err<Bool, MmapError>(mmapFailure(status, "huge-pages")) }
+        return Ok<Bool, MmapError>(true)
+    }
+
+    fun discardPages() r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_advise(this.handle, 5 as Int32)
+        if status != MMAP_OK { return Err<Bool, MmapError>(mmapFailure(status, "discard")) }
+        return Ok<Bool, MmapError>(true)
+    }
+
+    fun lockPages() r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_lock(this.handle)
+        if status != MMAP_OK { return Err<Bool, MmapError>(mmapFailure(status, "lock")) }
+        return Ok<Bool, MmapError>(true)
+    }
+
+    fun unlockPages() r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_unlock(this.handle)
+        if status != MMAP_OK { return Err<Bool, MmapError>(mmapFailure(status, "unlock")) }
+        return Ok<Bool, MmapError>(true)
+    }
+
+    fun bindNuma(node: Int32) r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_bind_numa(this.handle, node)
+        if status != MMAP_OK { return Err<Bool, MmapError>(mmapFailure(status, "numa")) }
+        return Ok<Bool, MmapError>(true)
+    }
+
+    fun close() r: Result<Bool, MmapError> {
+        let status = seen_mapped_window_close(&this.handle)
+        if status != MMAP_OK {
+            return Err<Bool, MmapError>(mmapFailure(status, "close-window"))
+        }
+        this.data = null as *const UInt8
+        this.length = 0 as UInt64
+        return Ok<Bool, MmapError>(true)
+    }
+}
+
+@move
+class MappedFile {
+    var handle: UInt64
+    var length: UInt64
+
+    static fun openReadonly(path: String) r: Result<MappedFile, MmapError> {
+        var handle: UInt64 = 0 as UInt64
+        var length: UInt64 = 0 as UInt64
+        let status = seen_mapped_file_open_readonly(path.length() as Int64,
+            path.toCString(), &handle, &length)
+        if status != MMAP_OK {
+            return Err<MappedFile, MmapError>(mmapFailure(status, "open"))
+        }
+        return Ok<MappedFile, MmapError>(MappedFile{
+            handle: handle, length: length
+        })
+    }
+
+    fun lenBytes() r: Result<UInt64, MmapError> {
+        var current: UInt64 = 0 as UInt64
+        let status = seen_mapped_file_length(this.handle, &current)
+        if status != MMAP_OK {
+            return Err<UInt64, MmapError>(mmapFailure(status, "length"))
+        }
+        return Ok<UInt64, MmapError>(current)
+    }
+
+    fun window(offset: UInt64, length: UInt64)
+        r: Result<MappedWindow, MmapError> {
+        var handle: UInt64 = 0 as UInt64
+        var data: *const UInt8 = null as *const UInt8
+        let status = seen_mapped_file_window(this.handle, offset, length,
+            &handle, &data)
+        if status != MMAP_OK {
+            return Err<MappedWindow, MmapError>(mmapFailure(status, "window"))
+        }
+        return Ok<MappedWindow, MmapError>(MappedWindow{
+            handle: handle, data: data, offset: offset, length: length
+        })
+    }
+
+    fun close() r: Result<Bool, MmapError> {
+        let status = seen_mapped_file_close(&this.handle)
+        if status != MMAP_OK {
+            return Err<Bool, MmapError>(mmapFailure(status, "close-file"))
+        }
+        this.length = 0 as UInt64
+        return Ok<Bool, MmapError>(true)
+    }
+}

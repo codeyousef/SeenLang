@@ -515,6 +515,22 @@ scan, cache hashing, IR/object emission, runtime object reuse, release merge,
 release-LTO mode, and link. `SEEN_BUILD_TRACE=<path>` remains a compatibility
 alias. Compiler trace events use millisecond timestamps and escaped JSON fields.
 
+## Accelerator native dependencies
+
+Accelerator SDKs are explicit native dependencies, never implicit compiler
+dependencies. Importing Seen declarations does not probe an SDK. The CUDA
+foundation under `seen_runtime/cuda` stops before CUDA language or package
+discovery unless `SEEN_ENABLE_CUDA=ON` is supplied to its isolated build.
+Consequently the default compiler, runtime, and standard-library build remains
+CPU-only and has no CUDA/cuBLAS linkage.
+
+The `seen_cuda_*` resource ABI is versioned separately from compiler lowering.
+It provides fixed-width statuses and opaque owned handles; scheduling,
+allocation bounds, fallback, graph policy, algorithm caching, and model
+semantics remain native Seen behavior. Version 0.14 ships Linux x86-64 `sm_89`
+support at `experimental-hardware` maturity. Compile-only results never imply a
+hardware certification, and fallback is never silent.
+
 ## Key Source Areas
 
 | Area | Purpose |

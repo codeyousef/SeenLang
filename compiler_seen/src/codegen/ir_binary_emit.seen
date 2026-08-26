@@ -9,6 +9,8 @@ import codegen.ir_type_ops.{emitBinaryOpImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_ml_logging.{mlLogDecision}
+import codegen.ir_type_mapping.{getFixedWidthScalarLlvmTypeImpl}
+import codegen.ir_optimization.{getNextRegFn}
 
 class CoreBinaryEmitStateResult {
     var resultReg: String
@@ -112,6 +114,28 @@ fun emitPreparedCoreBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
 
     var emitLeftReg = leftReg
     var emitRightReg = rightReg
+    var emitLeftType = leftType
+    var emitRightType = rightType
+    var fixedResultSeenType: String = ""
+    if leftType == rightType {
+        fixedResultSeenType = leftType
+    } else if rightType == "Int" {
+        fixedResultSeenType = leftType
+    } else if leftType == "Int" {
+        fixedResultSeenType = rightType
+    }
+    let fixedResultLlvmType =
+        getFixedWidthScalarLlvmTypeImpl(fixedResultSeenType)
+    if (leftType == "Float32" or leftType == "Float64") and
+        (rightType == "Float32" or rightType == "Float64") {
+
+        emitLeftReg = coerceValueForLlvmTargetImpl(output, regBox, "double",
+            leftType, leftMappedType, leftReg)
+        emitRightReg = coerceValueForLlvmTargetImpl(output, regBox, "double",
+            rightType, rightMappedType, rightReg)
+        emitLeftType = "Float"
+        emitRightType = "Float"
+    }
     if shouldWidenIntegerBinaryOperandsForI64Impl(operator, leftType,
         rightType, leftMappedType) {
 
@@ -120,10 +144,28 @@ fun emitPreparedCoreBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
         emitRightReg = coerceValueForLlvmTargetImpl(output, regBox, "i64",
             rightType, rightMappedType, rightReg)
     }
-    return emitBinaryOpImpl(output, regBox, boundsBox, cseSig, operator,
-        emitLeftReg, emitRightReg, leftType, rightType, leftKind,
+    let rawResult = emitBinaryOpImpl(output, regBox, boundsBox, cseSig,
+        operator, emitLeftReg, emitRightReg, emitLeftType, emitRightType, leftKind,
         leftLiteralValue, leftVariableName, rightKind, rightLiteralValue,
         panicFlag, inductionVarName, leftMappedType)
+    let producesValue = not (operator == "==" or operator == "!=" or
+        operator == "<" or operator == "<=" or operator == ">" or
+        operator == ">=")
+    if producesValue and fixedResultLlvmType != "" and
+        fixedResultLlvmType != "i64" and
+        fixedResultLlvmType != "double" {
+
+        let narrowedResult = getNextRegFn(regBox)
+        if fixedResultLlvmType == "float" {
+            output.append("  " + narrowedResult + " = fptrunc double " +
+                rawResult + " to float\n")
+        } else {
+            output.append("  " + narrowedResult + " = trunc i64 " +
+                rawResult + " to " + fixedResultLlvmType + "\n")
+        }
+        return narrowedResult
+    }
+    return rawResult
 }
 
 fun emitPreparedCoreBinaryOpState(output: StringBuilder,

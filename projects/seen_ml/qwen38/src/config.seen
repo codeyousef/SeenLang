@@ -1,0 +1,108 @@
+/// Frozen Qwen3.8-27B text configuration contract.
+
+import core.result.{Result, Ok, Err}
+import json.strict.{StrictJsonLimits, parseStrictJson}
+import json.parser.{destroyJsonParseResult}
+import json.value.{JsonValue}
+
+class QwenConfigError { var field: String; var message: String }
+
+class Qwen38Config {
+    var layers: Int
+    var hiddenSize: Int
+    var intermediateSize: Int
+    var vocabularySize: Int
+    var maxPositions: Int
+    var fullAttentionInterval: Int
+    var mtpLayers: Int
+}
+
+fun qwenConfigError(field: String, message: String) r: QwenConfigError {
+    return QwenConfigError{ field: field, message: message }
+}
+
+fun qwenExactString(object: JsonValue, field: String, expected: String) r: Bool {
+    let value = object.get(field)
+    return not value.isNone() and value.unwrap().isString() and
+        value.unwrap().getString() == expected
+}
+
+fun qwenExactBool(object: JsonValue, field: String, expected: Bool) r: Bool {
+    let value = object.get(field)
+    return not value.isNone() and value.unwrap().isBool() and
+        value.unwrap().getBool() == expected
+}
+
+fun qwenExactInt(object: JsonValue, field: String, expected: Int) r: Bool {
+    let value = object.get(field)
+    return not value.isNone() and value.unwrap().isNumber() and
+        value.unwrap().getNumber() == expected.toFloat()
+}
+
+fun validateQwen38Config(text: String) r: Result<Qwen38Config, QwenConfigError> {
+    let parsed = parseStrictJson(text, StrictJsonLimits{ maxInputBytes: 1048576,
+        maxDepth: 16, maxValues: 4096, maxStringBytes: 65536 })
+    if parsed.isErr() {
+        return Err<Qwen38Config, QwenConfigError>(qwenConfigError("json",
+            parsed.unwrapErr().message))
+    }
+    let document = parsed.unwrap(); let root = document.value.unwrap()
+    if not root.isObject() or not qwenExactString(root, "model_type", "qwen3_5") or
+        not qwenExactBool(root, "language_model_only", false) or
+        not qwenExactBool(root, "tie_word_embeddings", false) {
+        destroyJsonParseResult(document, true)
+        return Err<Qwen38Config, QwenConfigError>(qwenConfigError("identity",
+            "top-level Qwen3.8-27B identity does not match the frozen contract"))
+    }
+    let architectures = root.get("architectures")
+    let textConfigValue = root.get("text_config")
+    if architectures.isNone() or not architectures.unwrap().isArray() or
+        architectures.unwrap().length() != 1 or
+        not architectures.unwrap().getAt(0).unwrap().isString() or
+        architectures.unwrap().getAt(0).unwrap().getString() !=
+            "Qwen3_5ForConditionalGeneration" or
+        textConfigValue.isNone() or not textConfigValue.unwrap().isObject() {
+        destroyJsonParseResult(document, true)
+        return Err<Qwen38Config, QwenConfigError>(qwenConfigError("architecture",
+            "Qwen architecture or text_config is incompatible"))
+    }
+    let config = textConfigValue.unwrap()
+    if not qwenExactString(config, "model_type", "qwen3_5_text") or
+        not qwenExactInt(config, "num_hidden_layers", 64) or
+        not qwenExactInt(config, "hidden_size", 5120) or
+        not qwenExactInt(config, "intermediate_size", 17408) or
+        not qwenExactInt(config, "vocab_size", 248320) or
+        not qwenExactInt(config, "max_position_embeddings", 262144) or
+        not qwenExactInt(config, "full_attention_interval", 4) or
+        not qwenExactInt(config, "mtp_num_hidden_layers", 1) or
+        not qwenExactBool(config, "mtp_use_dedicated_embeddings", false) or
+        not qwenExactBool(config, "tie_word_embeddings", false) {
+        destroyJsonParseResult(document, true)
+        return Err<Qwen38Config, QwenConfigError>(qwenConfigError("text_config",
+            "text configuration does not match Qwen3.8-27B"))
+    }
+    let layerTypes = config.get("layer_types")
+    if layerTypes.isNone() or not layerTypes.unwrap().isArray() or
+        layerTypes.unwrap().length() != 64 {
+        destroyJsonParseResult(document, true)
+        return Err<Qwen38Config, QwenConfigError>(qwenConfigError("layer_types",
+            "exact 64-layer schedule is required"))
+    }
+    var layer = 0
+    while layer < 64 {
+        let entry = layerTypes.unwrap().getAt(layer).unwrap()
+        let expected = if layer % 4 == 3 { "full_attention" } else {
+            "linear_attention"
+        }
+        if not entry.isString() or entry.getString() != expected {
+            destroyJsonParseResult(document, true)
+            return Err<Qwen38Config, QwenConfigError>(qwenConfigError(
+                "layer_types", "linear/full attention schedule mismatch"))
+        }
+        layer = layer + 1
+    }
+    destroyJsonParseResult(document, true)
+    return Ok<Qwen38Config, QwenConfigError>(Qwen38Config{ layers: 64,
+        hiddenSize: 5120, intermediateSize: 17408, vocabularySize: 248320,
+        maxPositions: 262144, fullAttentionInterval: 4, mtpLayers: 1 })
+}

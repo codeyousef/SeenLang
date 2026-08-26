@@ -78,6 +78,7 @@ python3 -m py_compile \
     scripts/release_toolchain_artifact.py \
     scripts/check_ci_containment.py \
     scripts/check_gate0_certification.py \
+    scripts/check_qwen_contracts.py \
     scripts/benchmark_gate0_certification.py \
     scripts/measure_gate0_certification_coverage.py \
     tests/runner/test_gate0_certification_unit.py \

@@ -1,0 +1,60 @@
+import seen_qwen_foundation.config.{validateQwen38Config}
+import seen_qwen_foundation.model_lock.{validateQwenModelLock}
+import seen_qwen_foundation.tensor_catalog.{classifyQwenTensor, QWEN_TENSOR_TEXT,
+    QWEN_TENSOR_MTP, QWEN_TENSOR_EXCLUDED_VISION}
+import seen_qwen_foundation.tokenizer_assets.{qwenTokenizerAssets}
+import io.file.{readTextChecked}
+import seen_qwen_foundation.artifact_store.{artifactPath}
+
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let locked = readTextChecked(
+        "projects/seen_ml/qwen38/locks/qwen-model-lock.json")
+    require(locked.success, "read model lock")
+    let validated = validateQwenModelLock(locked.content)
+    require(validated.isOkay() and validated.unwrap().files == 27 and
+        validated.unwrap().shards == 18, "validate official model lock")
+
+    let sourceLocked = readTextChecked(
+        "projects/seen_ml/qwen38/locks/qwen-source-lock.json")
+    require(sourceLocked.success and sourceLocked.content.contains(
+        "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0") and
+        sourceLocked.content.contains("562cfd944ee1f20702cfb0f4404014ee27c24813"),
+        "read frozen source lock")
+
+    require(classifyQwenTensor("lm_head.weight").unwrap() == QWEN_TENSOR_TEXT,
+        "text tensor classification")
+    require(classifyQwenTensor("mtp.layer.weight").unwrap() == QWEN_TENSOR_MTP,
+        "MTP tensor classification")
+    require(classifyQwenTensor("model.visual.patch.weight").unwrap() ==
+        QWEN_TENSOR_EXCLUDED_VISION, "vision exclusion classification")
+    require(classifyQwenTensor("unexpected.weight").isErr(),
+        "unknown tensor rejection")
+
+    let assets = qwenTokenizerAssets()
+    require(assets.length() == 5 and assets[0].path == "tokenizer.json",
+        "pinned tokenizer asset catalog")
+    assets.free()
+
+    // The exact official config is validated after digest verification during
+    // Q2 ingestion. This hostile near-match proves fail-closed identity here.
+    require(validateQwen38Config("{\"model_type\":\"other\"}").isErr(),
+        "incompatible config rejection")
+    let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    let artifact = artifactPath("artifacts", "sqw", digest)
+    require(artifact.isOkay() and artifact.unwrap() ==
+        "artifacts/sha256/01/" + digest + ".sqw",
+        "content-addressed artifact identity")
+    require(artifactPath("artifacts", "../sqw", digest).isErr(),
+        "artifact kind traversal rejection")
+    require(artifactPath("artifacts", "sqw",
+        "A123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").isErr(),
+        "non-canonical artifact digest rejection")
+    println("PASS: Qwen model lock, config, tensor, and tokenizer foundations")
+    return 0
+}
+
+main()

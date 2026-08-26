@@ -1,0 +1,21 @@
+@repr(C)
+@trivially_copyable
+class QwenAbiProbe {
+    var tag: UInt32
+    var bytes: UInt64
+    var data: *const UInt8
+}
+
+extern "C" fun qwen_probe_fixed_width(value: UInt32,
+    probe: *const QwenAbiProbe) r: UInt64
+
+fun main() r: Int {
+    let probe = QwenAbiProbe{ tag: 7 as UInt32, bytes: 32 as UInt64,
+        data: null as *const UInt8 }
+    let result = qwen_probe_fixed_width(3 as UInt32, &probe)
+    if result != (42 as UInt64) { return 1 }
+    println("PASS: fixed-width native dependency ABI")
+    return 0
+}
+
+main()

@@ -661,6 +661,12 @@ class RealParser {
         if not looksLikeIntegerLiteral(tokenValue) {
             return false
         }
+        if tokenValue.startsWith("0x") or tokenValue.startsWith("0X") or
+            tokenValue.startsWith("0b") or tokenValue.startsWith("0B") or
+            tokenValue.startsWith("0o") or tokenValue.startsWith("0O") {
+
+            return false
+        }
         return tokenValue.contains(".") or tokenValue.contains("e") or tokenValue.contains("E")
     }
 
@@ -5872,10 +5878,11 @@ class RealParser {
         ///
         if checkToken(SeenTokenType.BitwiseNot) {
             advance()
+            let operator = previous().getValue()
             let operand = parseUnary()
             let expr = ParserExpressionNode.new()
             expr.kind = "Unary"
-            expr.operator = previous().getValue()
+            expr.operator = operator
             expr.operands.push(operand)
             return expr
         }

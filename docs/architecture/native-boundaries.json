@@ -3,6 +3,24 @@
   "inventory": "native-inventory.json",
   "boundaries": [
     {
+      "id": "accelerator-cuda-resource-abi",
+      "subsystem": "stdlib.accelerator.cuda",
+      "purpose": "Explicitly linked CUDA resource adapter for device allocation, pinned staging, streams, events, graphs, and deterministic cuBLASLt execution. Seen owns policy, ownership order, cache identity, fallback, and diagnostics; CPU-only builds neither discover nor link the adapter. Exercised by the RTX 4090 Qwen foundation canary. Experimental until the later hardware-certification gate.",
+      "abi": "CUDA C",
+      "platforms": ["linux-x86_64"],
+      "symbols": ["seen_cublaslt_create", "seen_cublaslt_destroy", "seen_cublaslt_matmul", "seen_cublaslt_select_algorithm", "seen_cuda_abi_version", "seen_cuda_allocation_address", "seen_cuda_device_capability", "seen_cuda_device_count", "seen_cuda_device_get", "seen_cuda_driver_version", "seen_cuda_event_create", "seen_cuda_event_destroy", "seen_cuda_event_elapsed_ms", "seen_cuda_event_record", "seen_cuda_event_synchronize", "seen_cuda_free", "seen_cuda_graph_begin_capture", "seen_cuda_graph_destroy", "seen_cuda_graph_end_capture", "seen_cuda_graph_exec_destroy", "seen_cuda_graph_exec_update", "seen_cuda_graph_instantiate", "seen_cuda_graph_launch", "seen_cuda_host_alloc", "seen_cuda_host_allocation_address", "seen_cuda_host_free", "seen_cuda_malloc", "seen_cuda_memcpy_async", "seen_cuda_memset_async", "seen_cuda_runtime_version", "seen_cuda_set_device", "seen_cuda_stream_create", "seen_cuda_stream_destroy", "seen_cuda_stream_synchronize"],
+      "production": false
+    },
+    {
+      "id": "host-aligned-buffer",
+      "subsystem": "stdlib.memory",
+      "purpose": "Minimal allocation ABI for move-only aligned Seen buffers. Seen validates geometry and alignment and owns lifetime policy; the runtime only performs platform-correct allocation and free. Exercised by layout, alignment, move, and leak tests. Permanent until compiler-owned allocation intrinsics can preserve the same C ABI.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_aligned_buffer_free", "seen_try_aligned_realloc"],
+      "production": true
+    },
+    {
       "id": "json-number-range-parser",
       "subsystem": "stdlib.json",
       "purpose": "Bounded C-library decimal-to-binary conversion after native Seen JSON syntax validation. No storage escapes; invalid bounds, incomplete conversion, overflow, and underflow return NaN, which the Seen parser maps to a stable range error. Exercised by FEL-507 malformed-number sanitizer and soak cases. Permanent until native Seen supplies a correctly rounded bounded conversion; migrate parser and symbol together.",
@@ -27,6 +45,15 @@
       "abi": "C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["LLVMContextCreate", "LLVMDisposeContext", "LLVMModuleCreateWithNameInContext"],
+      "production": true
+    },
+    {
+      "id": "mapped-file-window",
+      "subsystem": "stdlib.memory",
+      "purpose": "Large-file-safe file and mapped-window ownership adapter with stable status codes, checked offsets, truncation validation, advisory paging, page locking, and optional NUMA binding. Seen owns bounds, retry, placement, and cleanup policy. Exercised with sparse files above 60 GiB, truncation, busy-close, lock, advice, and cleanup cases.",
+      "abi": "OS memory mapping C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_mapped_file_close", "seen_mapped_file_length", "seen_mapped_file_open_readonly", "seen_mapped_file_window", "seen_mapped_window_advise", "seen_mapped_window_bind_numa", "seen_mapped_window_close", "seen_mapped_window_lock", "seen_mapped_window_unlock", "seen_mapped_window_validate", "seen_string_view_bytes"],
       "production": true
     },
     {

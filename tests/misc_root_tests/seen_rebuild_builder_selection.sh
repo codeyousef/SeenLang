@@ -88,7 +88,7 @@ new_scenario() {
 select_builder() {
     local root=$1
     shift
-    bash "$SELECTOR" --repo-root "$root" --checkout-version 0.13.0 \
+    bash "$SELECTOR" --repo-root "$root" --checkout-version 0.14.0 \
         --source-sidecar "$root/source-sidecar" "$@"
 }
 
@@ -96,10 +96,10 @@ select_builder() {
 # not even probed.
 scenario=$(new_scenario preferred)
 log="$scenario/invocations.log"
-make_compiler "$scenario/compiler_seen/target/seen" current 0.13.0 "$log"
-make_compiler "$scenario/target/release/seen" release 0.13.0 "$log"
-make_compiler "$scenario/stage3_recovery_head" recovery 0.13.0 "$log"
-make_sidecar "$scenario/source-sidecar" 0.13.0 "$log"
+make_compiler "$scenario/compiler_seen/target/seen" current 0.14.0 "$log"
+make_compiler "$scenario/target/release/seen" release 0.14.0 "$log"
+make_compiler "$scenario/stage3_recovery_head" recovery 0.14.0 "$log"
+make_sidecar "$scenario/source-sidecar" 0.14.0 "$log"
 selected=$(select_builder "$scenario")
 [ "$selected" = "$scenario/compiler_seen/target/seen" ] ||
     fail "checkout compiler was not preferred"
@@ -111,9 +111,9 @@ fi
 # Absence—not failure or mismatch—permits the next preferred path.
 scenario=$(new_scenario release-fallback)
 log="$scenario/invocations.log"
-make_compiler "$scenario/target/release/seen" release 0.13.0 "$log"
-make_compiler "$scenario/stage3_recovery_head" recovery 0.13.0 "$log"
-make_sidecar "$scenario/source-sidecar" 0.13.0 "$log"
+make_compiler "$scenario/target/release/seen" release 0.14.0 "$log"
+make_compiler "$scenario/stage3_recovery_head" recovery 0.14.0 "$log"
+make_sidecar "$scenario/source-sidecar" 0.14.0 "$log"
 selected=$(select_builder "$scenario")
 [ "$selected" = "$scenario/target/release/seen" ] ||
     fail "release compiler was not selected when checkout compiler was absent"
@@ -123,8 +123,8 @@ fi
 
 scenario=$(new_scenario recovery-fallback)
 log="$scenario/invocations.log"
-make_compiler "$scenario/stage3_recovery_head" recovery 0.13.0 "$log"
-make_sidecar "$scenario/source-sidecar" 0.13.0 "$log"
+make_compiler "$scenario/stage3_recovery_head" recovery 0.14.0 "$log"
+make_sidecar "$scenario/source-sidecar" 0.14.0 "$log"
 selected=$(select_builder "$scenario")
 [ "$selected" = "$scenario/stage3_recovery_head" ] ||
     fail "recovery compiler was not selected when preferred files were absent"
@@ -132,9 +132,9 @@ selected=$(select_builder "$scenario")
 # An explicit builder overrides every implicit path.
 scenario=$(new_scenario explicit)
 log="$scenario/invocations.log"
-make_compiler "$scenario/custom/seen" explicit 0.13.0 "$log"
-make_compiler "$scenario/compiler_seen/target/seen" current 0.13.0 "$log"
-make_sidecar "$scenario/source-sidecar" 0.13.0 "$log"
+make_compiler "$scenario/custom/seen" explicit 0.14.0 "$log"
+make_compiler "$scenario/compiler_seen/target/seen" current 0.14.0 "$log"
+make_sidecar "$scenario/source-sidecar" 0.14.0 "$log"
 selected=$(select_builder "$scenario" --explicit-builder custom/seen)
 [ "$selected" = "$scenario/custom/seen" ] || fail "explicit builder did not win"
 if grep -Fxq current "$log"; then
@@ -146,9 +146,9 @@ fi
 scenario=$(new_scenario version-mismatch)
 log="$scenario/invocations.log"
 make_compiler "$scenario/compiler_seen/target/seen" current 0.10.0 "$log"
-make_compiler "$scenario/target/release/seen" release 0.13.0 "$log"
-make_compiler "$scenario/stage3_recovery_head" recovery 0.13.0 "$log"
-make_sidecar "$scenario/source-sidecar" 0.13.0 "$log"
+make_compiler "$scenario/target/release/seen" release 0.14.0 "$log"
+make_compiler "$scenario/stage3_recovery_head" recovery 0.14.0 "$log"
+make_sidecar "$scenario/source-sidecar" 0.14.0 "$log"
 if select_builder "$scenario" >"$scenario/stdout" 2>"$scenario/stderr"; then
     fail "version-mismatched preferred compiler was accepted"
 fi
@@ -161,7 +161,7 @@ fi
 # A source-sidecar mismatch is terminal before any compile-like command exists.
 scenario=$(new_scenario sidecar-mismatch)
 log="$scenario/invocations.log"
-make_compiler "$scenario/compiler_seen/target/seen" current 0.13.0 "$log"
+make_compiler "$scenario/compiler_seen/target/seen" current 0.14.0 "$log"
 make_sidecar "$scenario/source-sidecar" 0.10.0 "$log"
 if select_builder "$scenario" >"$scenario/stdout" 2>"$scenario/stderr"; then
     fail "mismatched source sidecar was accepted"

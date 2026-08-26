@@ -1,0 +1,61 @@
+/// Move-only, explicitly aligned host storage.
+
+import core.result.{Result, Ok, Err}
+
+extern "C" fun seen_try_aligned_realloc(old: *Void, oldSize: Int64,
+    newSize: Int64, alignment: Int64) r: *Void
+extern "C" fun seen_aligned_buffer_free(data: *Void, size: Int64,
+    alignment: Int64) r: Void
+
+class AlignedBufferError {
+    var code: String
+    var requestedBytes: UInt64
+    var alignment: UInt64
+}
+
+fun isSupportedAlignment(alignment: UInt64) r: Bool {
+    if alignment < (16 as UInt64) or alignment > (256 as UInt64) { return false }
+    return (alignment & (alignment - (1 as UInt64))) == (0 as UInt64)
+}
+
+@move
+class OwnedBuffer<T> {
+    var data: *T
+    var byteLength: UInt64
+    var elementCount: UInt64
+    var alignment: UInt64
+
+    static fun allocate(elementCount: UInt64, elementSize: UInt64,
+        alignment: UInt64) r: Result<OwnedBuffer<T>, AlignedBufferError> {
+        if not isSupportedAlignment(alignment) or elementSize == (0 as UInt64) or
+            elementCount > (0x7FFFFFFFFFFFFFFF as UInt64) / elementSize {
+            return Err<OwnedBuffer<T>, AlignedBufferError>(AlignedBufferError{
+                code: "aligned.invalid", requestedBytes: 0 as UInt64,
+                alignment: alignment
+            })
+        }
+        let bytes = elementCount * elementSize
+        let raw = seen_try_aligned_realloc(null as *Void, 0 as Int64,
+            bytes as Int64, alignment as Int64)
+        if raw == (null as *Void) {
+            return Err<OwnedBuffer<T>, AlignedBufferError>(AlignedBufferError{
+                code: "aligned.out_of_memory", requestedBytes: bytes,
+                alignment: alignment
+            })
+        }
+        return Ok<OwnedBuffer<T>, AlignedBufferError>(OwnedBuffer<T>{
+            data: raw as *T, byteLength: bytes, elementCount: elementCount,
+            alignment: alignment
+        })
+    }
+
+    fun close() r: Bool {
+        if this.data == (null as *T) { return false }
+        seen_aligned_buffer_free(this.data as *Void, this.byteLength as Int64,
+            this.alignment as Int64)
+        this.data = null as *T
+        this.byteLength = 0 as UInt64
+        this.elementCount = 0 as UInt64
+        return true
+    }
+}

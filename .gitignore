@@ -220,3 +220,10 @@ benchmarks/quick_benchmark.sh
 benchmarks/run_comprehensive_comparison.sh
 vscode-seen/package-lock.json
 .codex
+
+# Qwen model inputs, generated engines, and machine evidence stay local.
+/projects/seen_ml/qwen38/models/
+/projects/seen_ml/qwen38/artifacts/
+/projects/seen_ml/qwen38/evidence/
+/projects/seen_ml/qwen38/**/*.safetensors
+/projects/seen_ml/qwen38/**/*.sqw

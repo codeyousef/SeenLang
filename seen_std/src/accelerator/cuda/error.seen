@@ -1,0 +1,52 @@
+/// Stable CUDA status and redacted accelerator diagnostics.
+
+@repr(C)
+@trivially_copyable
+class CudaNativeStatus {
+    var code: Int32
+    var nativeCode: Int32
+    var deviceOrdinal: Int32
+    var maturity: Int32
+    var operation: *const Char
+    var message: *const Char
+}
+
+class CudaError {
+    var code: Int32
+    var nativeCode: Int32
+    var deviceOrdinal: Int32
+    var maturity: Int32
+    var operation: String
+    var message: String
+    var sourceFile: String
+    var sourceLine: Int
+    var sourceColumn: Int
+}
+
+class CudaSourceLocation {
+    var file: String
+    var line: Int
+    var column: Int
+}
+
+fun cudaSucceeded(status: CudaNativeStatus) r: Bool {
+    return status.code == (0 as Int32)
+}
+
+fun cudaError(status: CudaNativeStatus) r: CudaError {
+    return cudaErrorAt(status, CudaSourceLocation{
+        file: "<cuda-call>", line: 0, column: 0
+    })
+}
+
+fun cudaErrorAt(status: CudaNativeStatus, location: CudaSourceLocation)
+    r: CudaError {
+    // Native strings are fixed diagnostics owned by the subsystem and contain
+    // neither user paths nor model data.
+    return CudaError{ code: status.code, nativeCode: status.nativeCode,
+        deviceOrdinal: status.deviceOrdinal, maturity: status.maturity,
+        operation: String.fromCString(status.operation),
+        message: String.fromCString(status.message),
+        sourceFile: location.file, sourceLine: location.line,
+        sourceColumn: location.column }
+}

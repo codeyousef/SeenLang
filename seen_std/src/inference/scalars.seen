@@ -1,0 +1,72 @@
+///
+/// Stable storage and C-ABI representations used by inference packages.
+/// These types intentionally provide bit storage only; arithmetic is explicit.
+///
+
+@repr(C)
+@trivially_copyable
+class Float16 {
+    var bits: UInt16
+}
+
+@repr(C)
+@trivially_copyable
+class BFloat16 {
+    var bits: UInt16
+}
+
+@repr(C)
+@trivially_copyable
+class Float8E4M3 {
+    var bits: UInt8
+}
+
+@repr(C)
+@trivially_copyable
+class Float8E5M2 {
+    var bits: UInt8
+}
+
+@repr(C)
+@trivially_copyable
+class PackedQ4Block64 {
+    var scales: *const Float16
+    var values: *const UInt8
+}
+
+let GEOMETRY_MAX: UInt64 = 0x7FFFFFFFFFFFFFFF as UInt64
+
+fun checkedAdd64(left: UInt64, right: UInt64) r: UInt64? {
+    if left > GEOMETRY_MAX or right > GEOMETRY_MAX - left { return null }
+    return left + right
+}
+
+fun checkedMultiply64(left: UInt64, right: UInt64) r: UInt64? {
+    if left > GEOMETRY_MAX or right > GEOMETRY_MAX { return null }
+    if left != (0 as UInt64) and right > GEOMETRY_MAX / left { return null }
+    return left * right
+}
+
+fun checkedTensorElements(shape: Array<UInt64>) r: UInt64? {
+    var total: UInt64 = 1 as UInt64
+    var index = 0
+    while index < shape.length() {
+        let next = checkedMultiply64(total, shape[index])
+        if next.isNone() { return null }
+        total = next.unwrap()
+        index = index + 1
+    }
+    return total
+}
+
+fun packedByteCount(elementCount: UInt64, bitsPerElement: UInt8) r: UInt64? {
+    if bitsPerElement != (2 as UInt8) and bitsPerElement != (3 as UInt8) and
+        bitsPerElement != (4 as UInt8) and bitsPerElement != (8 as UInt8) {
+        return null
+    }
+    let bits = checkedMultiply64(elementCount, bitsPerElement as UInt64)
+    if bits.isNone() { return null }
+    let rounded = checkedAdd64(bits.unwrap(), 7 as UInt64)
+    if rounded.isNone() { return null }
+    return rounded.unwrap() / (8 as UInt64)
+}

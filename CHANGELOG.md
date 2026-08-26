@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-26
+
+### Added
+
+- Added stable low-precision storage ABI types, checked 64-bit tensor geometry,
+  borrowed spans, bounded 2/3/4/8-bit packed views, and move-only aligned host
+  buffers with 16–256-byte alignment.
+- Added move-only read-only mapped files and bounded windows with offsets above
+  4 GiB, truncation detection, paging advice, page locking, optional NUMA
+  placement, deterministic cleanup, and 60 GiB sparse-file certification.
+- Added native streaming SHA-256, strict bounded I-JSON parsing, deterministic
+  canonical JSON output, and zero-copy Safetensors tensor windows with hostile
+  metadata validation and shard-index routing.
+- Added an explicit Linux x86-64 CUDA resource subsystem for devices, device
+  and pinned memory, asynchronous transfers, streams, events, graph
+  capture/replay/update, and deterministic F16/BF16 cuBLASLt selection.
+- Added frozen Qwen3.8-27B source/model/tokenizer locks, strict configuration
+  and tensor-role contracts, content-addressed artifact promotion, environment
+  capture, and versioned correctness, benchmark, engine, profile, SQW, and
+  terminal-experiment evidence schemas.
+- Added release-blocking CPU-only dependency isolation, native-boundary
+  inventory, sanitizer/leak paths, schema rejection fixtures, and real RTX 4090
+  prerequisite certification. Qwen model execution remains planned for 0.15.
+
 ## [0.13.0] - 2026-08-25
 
 ### Added

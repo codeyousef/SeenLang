@@ -95,6 +95,11 @@ grep -Fq 'seen_release_verify_published_tag' "$RELEASE_INNER" ||
     fail "release uploader does not reverify the annotated published tag"
 grep -Fq 'tests/misc_root_tests/seen_release_upload_artifact_scope.sh' "$REQUIRED" ||
     fail "required CI omits the release mutation-safety regression"
+grep -Fq 'scripts/check_qwen_contracts.py' "$REQUIRED" ||
+    fail "required CI omits the Qwen schema checker"
+grep -Fq 'tests/misc_root_tests/seen_qwen_prerequisites.sh' \
+    "$ROOT_DIR/scripts/certify_gate0_clean_checkout.sh" ||
+    fail "clean-checkout certification omits CPU-only Qwen prerequisites"
 for required_tag_ref in 'refs/heads/main' '"$tag_ref"' '"$tag_ref^{}"'; do
     grep -Fq "$required_tag_ref" "$RELEASE_TAG_POLICY" ||
         fail "release tag policy omits $required_tag_ref"

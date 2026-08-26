@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/qwen-model-lock-v1.json",
+  "title": "Seen Qwen Model Lock v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "model_id",
+    "revision",
+    "license",
+    "config_sha256",
+    "text_contract",
+    "files",
+    "tensor_index"
+  ],
+  "properties": {
+    "schema": {
+      "const": "seen-qwen-model-lock-v1"
+    },
+    "model_id": {
+      "const": "Qwen/Qwen3.8-27B"
+    },
+    "revision": {
+      "type": "string",
+      "minLength": 40
+    },
+    "license": {
+      "const": "Apache-2.0"
+    },
+    "config_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "text_contract": {
+      "const": "seen-qwen38-text-v1"
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "bytes",
+          "sha256",
+          "purpose"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "purpose": {
+            "enum": [
+              "config",
+              "tensor-index",
+              "safetensors-shard",
+              "tokenizer",
+              "chat-template",
+              "generation",
+              "license",
+              "other-approved"
+            ]
+          }
+        }
+      }
+    },
+    "tensor_index": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_size",
+        "shards",
+        "required_text_tensors",
+        "required_mtp_tensors",
+        "excluded_vision_tensors"
+      ],
+      "properties": {
+        "total_size": {
+          "const": 55562855904
+        },
+        "shards": {
+          "const": 18
+        },
+        "required_text_tensors": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "required_mtp_tensors": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "excluded_vision_tensors": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

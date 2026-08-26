@@ -4,6 +4,8 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_field_layout.{emitSeenArrayLengthLoadImpl}
 import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
+import codegen.ir_type_mapping.{isFixedWidthScalarTypeImpl,
+    getFixedWidthScalarLlvmTypeImpl}
 
 fun emitPointerIndexAccessImpl(output: StringBuilder, regBox: Array<Int>,
     baseReg: String, indexReg: String) r: String {
@@ -189,9 +191,13 @@ fun emitFallbackIndexElementAccessImpl(output: StringBuilder,
         output.append("  " + ptrResultReg +
             " = call ptr @seen_arr_get_element_ptr(ptr " + arrayReg +
             ", i64 " + indexReg + ")\n")
+        var payloadType = "i64"
+        if isFixedWidthScalarTypeImpl(elementType) {
+            payloadType = getFixedWidthScalarLlvmTypeImpl(elementType)
+        }
         let payloadReg = getNextRegFn(regBox)
-        output.append("  " + payloadReg + " = load i64, ptr " +
-            ptrResultReg + "\n")
+        output.append("  " + payloadReg + " = load " + payloadType +
+            ", ptr " + ptrResultReg + "\n")
         if elementType == "Bool" {
             let boolReg = getNextRegFn(regBox)
             output.append("  " + boolReg + " = icmp ne i64 " +

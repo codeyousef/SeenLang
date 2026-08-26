@@ -142,6 +142,9 @@ fun shouldWidenIntegerBinaryOperandsForI64Impl(operator: String,
     if leftMappedType == "ptr" {
         return false
     }
+    if leftMappedType == "float" or leftMappedType == "double" {
+        return false
+    }
     if operator == "+" or operator == "-" or operator == "*" or
         operator == "/" or operator == "%" or operator == "==" or
         operator == "!=" or operator == "<" or operator == "<=" or

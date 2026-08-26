@@ -6,6 +6,7 @@ Extracted from ir_type_ops.seen
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
+import codegen.ir_type_mapping.{getFixedWidthScalarLlvmTypeImpl, getFixedWidthScalarSizeImpl}
 
 ///
 StringBuilder method dispatch: append, writeToFile, appendInt, appendFloat, appendChar, clear, length, toString
@@ -223,6 +224,36 @@ fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String
     if castDone == 0 and (innerType == "Int64" or innerType == "UInt64") and castTarget == "Int" {
         castResultReg = innerReg
         castDone = 1
+    }
+    // Fixed-width integer conversions use the real source and destination
+    // LLVM widths. Signedness controls extension; equal-width signed/unsigned
+    // conversions are representation-preserving no-ops.
+    if castDone == 0 {
+        let sourceFixedLlvm = getFixedWidthScalarLlvmTypeImpl(innerType)
+        let targetFixedLlvm = getFixedWidthScalarLlvmTypeImpl(castTarget)
+        let sourceFixedSize = getFixedWidthScalarSizeImpl(innerType)
+        let targetFixedSize = getFixedWidthScalarSizeImpl(castTarget)
+        let sourceIsInteger = sourceFixedLlvm.startsWith("i")
+        let targetIsInteger = targetFixedLlvm.startsWith("i")
+        if sourceIsInteger and targetIsInteger and sourceFixedSize > 0 and
+            targetFixedSize > 0 {
+
+            if sourceFixedSize == targetFixedSize {
+                castResultReg = innerReg
+            } else if sourceFixedSize < targetFixedSize {
+                var extendOp = "sext"
+                if innerType.startsWith("UInt") { extendOp = "zext" }
+                output.append("  " + cReg + " = " + extendOp + " " +
+                    sourceFixedLlvm + " " + innerReg + " to " +
+                    targetFixedLlvm + "\n")
+                castResultReg = cReg
+            } else {
+                output.append("  " + cReg + " = trunc " + sourceFixedLlvm +
+                    " " + innerReg + " to " + targetFixedLlvm + "\n")
+                castResultReg = cReg
+            }
+            castDone = 1
+        }
     }
     // Same type / unknown — no-op: castResultReg stays as innerReg
     return castResultReg

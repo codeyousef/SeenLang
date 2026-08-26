@@ -1,0 +1,50 @@
+// Regression: fixed-width Array<T> storage must use T's ABI width rather than
+// pointer-sized slots or class-handle conversions.
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    require((0x6A09E667 as UInt32) == (1779033703 as UInt32),
+        "hex literals containing E remain integers")
+    let bytes = Array<UInt8>()
+    bytes.push(1 as UInt8)
+    bytes.push(255 as UInt8)
+    require((bytes[0] as Int) == 1 and (bytes[1] as Int) == 255,
+        "UInt8 array read")
+    bytes[0] = 17 as UInt8
+    require((bytes[0] as Int) == 17, "UInt8 array assignment")
+
+    let words = Array<UInt32>()
+    words.push(0x6A09E667 as UInt32)
+    words.push(0xBB67AE85 as UInt32)
+    require(words[0] == (0x6A09E667 as UInt32) and
+        words[1] == (0xBB67AE85 as UInt32), "UInt32 array storage")
+    words[0] = words[0] + (1 as UInt32)
+    require(words[0] == (0x6A09E668 as UInt32),
+        "UInt32 arithmetic preserves storage width")
+    let rotated = (words[1] >> (8 as UInt32)) |
+        (words[1] << (24 as UInt32))
+    require(rotated == (0x85BB67AE as UInt32),
+        "UInt32 shifts preserve storage width")
+    words[0] = (words[0] << 3) | (words[0] >> 29)
+    require(words[0] == (0x504F3343 as UInt32),
+        "UInt32 shifts accept machine-Int counts without widening")
+    require((~(0 as UInt32)) == (0xFFFFFFFF as UInt32),
+        "UInt32 bitwise not preserves storage width")
+
+    let counts = Array<UInt64>()
+    counts.push(0x100000000 as UInt64)
+    require(counts[0] == (0x100000000 as UInt64), "UInt64 array storage")
+
+    let values = Array<Float32>()
+    values.push(1.5 as Float32)
+    require((values[0] as Float) > 1.49 and
+        (values[0] as Float) < 1.51, "Float32 array storage")
+
+    bytes.free(); words.free(); counts.free(); values.free()
+    println("PASS: fixed-width array storage")
+    return 0
+}
+
+main()

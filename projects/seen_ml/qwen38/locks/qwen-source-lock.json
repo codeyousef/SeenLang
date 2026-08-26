@@ -1,0 +1,62 @@
+{
+  "schema": "seen-qwen-source-lock-v1",
+  "created_at": "2026-08-25T21:27:02Z",
+  "seen": {
+    "repository": "https://github.com/codeyousef/SeenLang",
+    "baseline_commit": "0ee19d947ec3933b2fcbb862b8f115d7d2ef8e81",
+    "compiler_sha256": "0c730efbac5f95285b8ef6401261f617b46517c04afa6b1286c18d42f7424850",
+    "runtime_abi": 1,
+    "cuda_abi": 1
+  },
+  "model": {
+    "id": "Qwen/Qwen3.8-27B",
+    "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "lock": "qwen-model-lock.json"
+  },
+  "references": [
+    {
+      "id": "qwen3.8",
+      "repository": "https://github.com/QwenLM/Qwen3.8",
+      "commit": "2ea10dc725823bf7c3e21ce8557cbe15245132ae"
+    },
+    {
+      "id": "transformers-qwen3_5",
+      "repository": "https://github.com/huggingface/transformers",
+      "commit": "562cfd944ee1f20702cfb0f4404014ee27c24813",
+      "paths": [
+        "src/transformers/models/qwen3_5"
+      ]
+    }
+  ],
+  "cuda": {
+    "driver": "610.57.04",
+    "toolkit": "13.3.73",
+    "target": "sm_89"
+  },
+  "baselines": [
+    {
+      "id": "llama.cpp",
+      "repository": "https://github.com/ggml-org/llama.cpp",
+      "commit": "d222767c7a6516559a3f49e7721b6c6b1acc87b4",
+      "build_flags": ["CUDA", "sm_89", "release"]
+    },
+    {
+      "id": "vllm",
+      "repository": "https://github.com/vllm-project/vllm",
+      "commit": "80771bbbddf9e5153eea3aca8055049ee5aaaed1",
+      "build_flags": ["CUDA", "sm_89", "release"]
+    }
+  ],
+  "datasets": [
+    {
+      "id": "qwen3.8-27b-official-assets",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+      "lock": "qwen-model-lock.json"
+    }
+  ],
+  "tools": [
+    {"id": "go", "version": "1.26.5"},
+    {"id": "llvm", "version": "20-ci/21-local-parity"},
+    {"id": "cuda", "version": "13.3.73"}
+  ]
+}

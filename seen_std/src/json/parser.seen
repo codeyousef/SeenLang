@@ -99,6 +99,7 @@ class JsonParser {
     var maxDepth: Int
     var valueCount: Int
     var maxValues: Int
+    var maxStringBytes: Int
 
     // Main parse function
     fun parse() r: JsonParseResult {
@@ -257,6 +258,11 @@ class JsonParser {
         let partOwnership = Array<Bool>()
         var segmentStart = this.pos
         while this.pos < this.len {
+            if builder.totalLength + (this.pos - segmentStart) >
+                this.maxStringBytes {
+                destroyJsonParserStringBuilder(builder, partOwnership)
+                return JsonParseResult_err("JSON string limit exceeded", this.pos)
+            }
             let ch = this.input.charAt(this.pos)
 
             if ch == 34 {  // Closing quote
@@ -305,15 +311,50 @@ class JsonParser {
                         destroyJsonParserStringBuilder(builder, partOwnership)
                         return JsonParseResult_err("Invalid unicode escape", this.pos)
                     }
-                    builder.append(seen_char_to_owned_string(codepoint))
+                    var scalar = codepoint
+                    if codepoint >= 0xD800 and codepoint <= 0xDBFF {
+                        if this.pos + 10 >= this.len or
+                            this.input.charAt(this.pos + 5) != 92 or
+                            this.input.charAt(this.pos + 6) != 117 {
+                            destroyJsonParserStringBuilder(builder, partOwnership)
+                            return JsonParseResult_err("Unpaired Unicode surrogate", this.pos)
+                        }
+                        let low = this.parseHexAt(this.pos + 7)
+                        if low < 0xDC00 or low > 0xDFFF {
+                            destroyJsonParserStringBuilder(builder, partOwnership)
+                            return JsonParseResult_err("Unpaired Unicode surrogate", this.pos)
+                        }
+                        scalar = 0x10000 + ((codepoint - 0xD800) << 10) +
+                            (low - 0xDC00)
+                        this.pos = this.pos + 11
+                    } else {
+                        if codepoint >= 0xDC00 and codepoint <= 0xDFFF {
+                            destroyJsonParserStringBuilder(builder, partOwnership)
+                            return JsonParseResult_err("Unpaired Unicode surrogate", this.pos)
+                        }
+                        this.pos = this.pos + 5
+                    }
+                    let scalarText = seen_char_to_owned_string(scalar)
+                    if builder.totalLength + scalarText.length() >
+                        this.maxStringBytes {
+                        seen_string_release_owned(scalarText)
+                        destroyJsonParserStringBuilder(builder, partOwnership)
+                        return JsonParseResult_err("JSON string limit exceeded", this.pos)
+                    }
+                    builder.append(scalarText)
                     partOwnership.push(true)
-                    this.pos = this.pos + 5
                     segmentStart = this.pos
                     continue
                 }
                 if escapeHandled == 0 {
                     destroyJsonParserStringBuilder(builder, partOwnership)
                     return JsonParseResult_err("Invalid escape sequence", this.pos)
+                }
+                if builder.totalLength + escapedChar.length() >
+                    this.maxStringBytes {
+                    if escapedOwned { seen_string_release_owned(escapedChar) }
+                    destroyJsonParserStringBuilder(builder, partOwnership)
+                    return JsonParseResult_err("JSON string limit exceeded", this.pos)
                 }
                 builder.append(escapedChar)
                 partOwnership.push(escapedOwned)
@@ -691,6 +732,23 @@ class JsonParser {
             let keyJsonVal = keyOptVal.unwrap()
             let key = keyJsonVal.getString()
 
+            // RFC 8259 permits implementations to choose duplicate handling,
+            // but configuration and model manifests must be unambiguous. The
+            // canonical Seen parser therefore rejects duplicates rather than
+            // silently selecting the first or last value.
+            var existingKeyIndex = 0
+            var duplicateKey = false
+            while existingKeyIndex < keys.length() {
+                if keys[existingKeyIndex] == key { duplicateKey = true }
+                existingKeyIndex = existingKeyIndex + 1
+            }
+            if duplicateKey {
+                JsonValue_destroy(keyJsonVal)
+                destroyJsonParseResult(keyResult, false)
+                destroyJsonParserObjectParts(keys, values)
+                return JsonParseResult_err("Duplicate object key", this.pos)
+            }
+
             // Expect colon
             this.skipWhitespace()
             if this.pos >= this.len or this.input.charAt(this.pos) != 58 {
@@ -767,7 +825,21 @@ fun jsonParserNewWithLimits(input: String, maxInputBytes: Int,
     parser.maxDepth = maxDepth
     parser.valueCount = 0
     parser.maxValues = maxValues
+    parser.maxStringBytes = maxInputBytes
     return parser
+}
+
+fun parseJsonWithStrictLimits(input: String, maxInputBytes: Int,
+    maxDepth: Int, maxValues: Int, maxStringBytes: Int) r: JsonParseResult {
+    if maxStringBytes < 1 {
+        return JsonParseResult_err("JSON string limit must be positive", 0)
+    }
+    let parser = jsonParserNewWithLimits(input, maxInputBytes, maxDepth,
+        maxValues)
+    parser.maxStringBytes = maxStringBytes
+    let result = parser.parse()
+    parser.free()
+    return result
 }
 
 // Parse under explicit adversarial-input bounds. maxInputBytes limits the

@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/qwen-engine-v1.json",
+  "title": "Seen Qwen Engine Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "engine_id",
+    "model_lock_sha256",
+    "source_lock_sha256",
+    "format",
+    "model",
+    "quantization",
+    "backend",
+    "memory",
+    "compatible_profiles",
+    "created_by"
+  ],
+  "properties": {
+    "schema": {
+      "const": "seen-qwen-engine-v1"
+    },
+    "engine_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_lock_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "source_lock_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "format": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sqw_version",
+        "weights_file",
+        "weights_sha256"
+      ],
+      "properties": {
+        "sqw_version": {
+          "const": "1.0"
+        },
+        "weights_file": {
+          "type": "string"
+        },
+        "weights_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "layers",
+        "vocab_size",
+        "native_context"
+      ],
+      "properties": {
+        "contract": {
+          "const": "seen-qwen38-text-v1"
+        },
+        "layers": {
+          "const": 64
+        },
+        "vocab_size": {
+          "const": 248320
+        },
+        "native_context": {
+          "const": 262144
+        }
+      }
+    },
+    "quantization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_id",
+        "policy_sha256",
+        "per_tensor_summary"
+      ],
+      "properties": {
+        "policy_id": {
+          "type": "string"
+        },
+        "policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "per_tensor_summary": {
+          "type": "object"
+        }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "target",
+        "kernel_bundle_sha256",
+        "algorithm_cache_sha256"
+      ],
+      "properties": {
+        "kind": {
+          "const": "cuda"
+        },
+        "target": {
+          "const": "sm_89"
+        },
+        "kernel_bundle_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "algorithm_cache_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "weight_bytes",
+        "persistent_state_bytes",
+        "max_profile_bytes"
+      ],
+      "properties": {
+        "weight_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "persistent_state_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_profile_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "compatible_profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seen_commit",
+        "compiler_sha256"
+      ],
+      "properties": {
+        "seen_commit": {
+          "type": "string",
+          "minLength": 40
+        },
+        "compiler_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

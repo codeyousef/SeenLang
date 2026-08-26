@@ -1,0 +1,83 @@
+/// Content-addressed Qwen artifact promotion. Producers write a sibling
+/// temporary file; promotion streams its digest and atomically renames it.
+
+import core.result.{Result, Ok, Err}
+import crypto.sha256.{sha256File}
+import io.file.{exists, replaceFile, ensureParentDirectories}
+
+class ArtifactStoreError {
+    var code: String
+    var message: String
+}
+
+fun artifactStoreError(code: String, message: String) r: ArtifactStoreError {
+    return ArtifactStoreError{ code: code, message: message }
+}
+
+fun isCanonicalArtifactDigest(digest: String) r: Bool {
+    if digest.length() != 64 { return false }
+    var index = 0
+    while index < 64 {
+        let value = digest.charAt(index)
+        if not ((value >= 48 and value <= 57) or
+                (value >= 97 and value <= 102)) { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun isSafeArtifactKind(kind: String) r: Bool {
+    if kind.length() < 1 or kind.length() > 64 { return false }
+    var index = 0
+    while index < kind.length() {
+        let value = kind.charAt(index)
+        if not ((value >= 97 and value <= 122) or
+                (value >= 48 and value <= 57) or value == 45) { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun artifactPath(root: String, kind: String, digest: String)
+    r: Result<String, ArtifactStoreError> {
+    if not isSafeArtifactKind(kind) or not isCanonicalArtifactDigest(digest) {
+        return Err<String, ArtifactStoreError>(artifactStoreError(
+            "artifact.invalid", "artifact kind or digest is not canonical"))
+    }
+    return Ok<String, ArtifactStoreError>(root + "/sha256/" +
+        digest.substring(0, 2) + "/" + digest + "." + kind)
+}
+
+fun promoteArtifact(temporaryPath: String, storeRoot: String, kind: String,
+    expectedDigest: String) r: Result<String, ArtifactStoreError> {
+    if not temporaryPath.contains(".partial.") {
+        return Err<String, ArtifactStoreError>(artifactStoreError(
+            "artifact.temporary", "promotion requires an owned partial path"))
+    }
+    let destination = artifactPath(storeRoot, kind, expectedDigest)
+    if destination.isErr() {
+        return Err<String, ArtifactStoreError>(destination.unwrapErr())
+    }
+    let actual = sha256File(temporaryPath)
+    if actual.isErr() or actual.unwrap() != expectedDigest {
+        return Err<String, ArtifactStoreError>(artifactStoreError(
+            "artifact.digest", "artifact digest does not match its identity"))
+    }
+    if exists(destination.unwrap()) {
+        let existing = sha256File(destination.unwrap())
+        if existing.isErr() or existing.unwrap() != expectedDigest {
+            return Err<String, ArtifactStoreError>(artifactStoreError(
+                "artifact.collision", "content-addressed destination is corrupt"))
+        }
+        return Ok<String, ArtifactStoreError>(destination.unwrap())
+    }
+    if not ensureParentDirectories(destination.unwrap()) {
+        return Err<String, ArtifactStoreError>(artifactStoreError(
+            "artifact.directory", "content-addressed destination is unavailable"))
+    }
+    if not replaceFile(temporaryPath, destination.unwrap()) {
+        return Err<String, ArtifactStoreError>(artifactStoreError(
+            "artifact.promote", "atomic artifact promotion failed"))
+    }
+    return Ok<String, ArtifactStoreError>(destination.unwrap())
+}

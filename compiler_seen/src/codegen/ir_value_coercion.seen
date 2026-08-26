@@ -8,8 +8,37 @@ fun coerceValueForLlvmTargetImpl(output: StringBuilder, regBox: Array<Int>,
     targetLlvmType: String, sourceSeenType: String, sourceLlvmType: String,
     valueReg: String) r: String {
 
+    if targetLlvmType == "ptr" and valueReg == "0" {
+        return "null"
+    }
+    if targetLlvmType == "i64" and sourceLlvmType == "ptr" and
+        valueReg == "0" {
+
+        return "0"
+    }
     if sourceLlvmType == "" or sourceLlvmType == targetLlvmType {
         return valueReg
+    }
+    if targetLlvmType == "double" and sourceLlvmType == "float" {
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = fpext float " + valueReg +
+            " to double\n")
+        return coercedReg
+    }
+    if targetLlvmType == "float" and sourceLlvmType == "double" {
+        let coercedReg = getNextRegFn(regBox)
+        let doubleValue = normalizeDoubleLiteralForLlvmImpl(valueReg)
+        output.append("  " + coercedReg + " = fptrunc double " +
+            doubleValue + " to float\n")
+        return coercedReg
+    }
+    if (targetLlvmType == "i8" or targetLlvmType == "i16" or
+        targetLlvmType == "i32") and sourceLlvmType == "i64" {
+
+        let coercedReg = getNextRegFn(regBox)
+        output.append("  " + coercedReg + " = trunc i64 " + valueReg +
+            " to " + targetLlvmType + "\n")
+        return coercedReg
     }
     if targetLlvmType == "double" and sourceLlvmType == "i64" {
         let coercedReg = getNextRegFn(regBox)

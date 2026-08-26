@@ -56,6 +56,21 @@ modules = [
     "src/ffi/cinterop.seen",
     "src/str/string.seen",
 
+    # Production inference foundations
+    "src/inference/scalars.seen",
+    "src/inference/span.seen",
+    "src/memory/aligned_buffer.seen",
+    "src/memory/mapped_file.seen",
+    "src/crypto/sha256.seen",
+    "src/json/value.seen",
+    "src/json/parser.seen",
+    "src/json/builder.seen",
+    "src/json/strict.seen",
+    "src/json/canonical.seen",
+    "src/formats/safetensors.seen",
+    "src/accelerator/cuda/error.seen",
+    "src/accelerator/cuda/mod.seen",
+
     # Math
     "src/math/math.seen",
 

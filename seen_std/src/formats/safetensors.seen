@@ -1,0 +1,723 @@
+/// Bounded Safetensors metadata validation and zero-copy tensor geometry.
+
+import core.result.{Result, Ok, Err}
+import json.strict.{StrictJsonLimits, parseStrictJson,
+    enforceStrictJsonUnknownFields, JSON_UNKNOWN_FIELDS_REJECT}
+import json.parser.{destroyJsonParseResult}
+import json.value.{JsonValue}
+import memory.mapped_file.{MappedFile, MappedWindow, MmapError}
+import io.file.{readTextChecked}
+import fs.path.{dirname}
+
+extern "C" fun seen_string_clone_owned(value: String) r: String
+extern "C" fun seen_string_release_owned(value: String) r: Void
+extern "C" fun seen_string_view_bytes(data: *const UInt8,
+    length: Int64) r: String
+
+class SafeTensorError {
+    var code: String
+    var tensor: String
+    var message: String
+}
+
+fun safeTensorError(code: String, tensor: String, message: String)
+    r: SafeTensorError {
+    return SafeTensorError{ code: code, tensor: tensor, message: message }
+}
+
+class SafeTensorPolicy {
+    var maxHeaderBytes: UInt64
+    var maxTensors: UInt64
+    var allowPrefixes: Array<String>
+    var denyPrefixes: Array<String>
+
+    static fun modelWeights() r: SafeTensorPolicy {
+        return SafeTensorPolicy{ maxHeaderBytes: 104857600 as UInt64,
+            maxTensors: 1000000 as UInt64, allowPrefixes: Array<String>(),
+            denyPrefixes: Array<String>() }
+    }
+}
+
+class TensorBytes {
+    var dataOffset: UInt64
+    var dataLength: UInt64
+    var elementCount: UInt64
+    var elementBytes: UInt64
+    var dtype: String
+    var shape: Array<UInt64>
+
+    fun close() r: Void {
+        seen_string_release_owned(this.dtype)
+        this.shape.free()
+    }
+}
+
+class SafeTensorMetadata {
+    var names: Array<String>
+    var tensors: Array<TensorBytes>
+    var dataStart: UInt64
+    var fileLength: UInt64
+
+    fun tensor(name: String) r: Result<TensorBytes, SafeTensorError> {
+        var index = 0
+        while index < this.names.length() {
+            if this.names[index] == name {
+                return Ok<TensorBytes, SafeTensorError>(this.tensors[index])
+            }
+            index = index + 1
+        }
+        return Err<TensorBytes, SafeTensorError>(safeTensorError(
+            "safetensors.missing", name, "tensor name is not present"))
+    }
+
+    fun close() r: Void {
+        var index = 0
+        while index < this.names.length() {
+            seen_string_release_owned(this.names[index])
+            seen_string_release_owned(this.tensors[index].dtype)
+            this.tensors[index].shape.free()
+            index = index + 1
+        }
+        this.names.free()
+        this.tensors.free()
+    }
+}
+
+@move
+class SafeTensorFile {
+    var file: MappedFile
+    var metadata: SafeTensorMetadata
+
+    static fun open(path: String, policy: SafeTensorPolicy)
+        r: Result<SafeTensorFile, SafeTensorError> {
+        let opened = MappedFile.openReadonly(path)
+        if opened.isErr() {
+            return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
+                "safetensors.open", "", "failed to open tensor file"))
+        }
+        let file = opened.unwrap()
+        if file.length < (8 as UInt64) {
+            let closeTruncated = file.close()
+            return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
+                "safetensors.truncated", "", "file has no metadata length"))
+        }
+        let prefixResult = file.window(0 as UInt64, 8 as UInt64)
+        if prefixResult.isErr() {
+            let closePrefixFailure = file.close()
+            return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
+                "safetensors.map", "", "failed to map metadata length"))
+        }
+        let prefix = prefixResult.unwrap()
+        let prefixBytes = seen_string_view_bytes(prefix.data, 8 as Int64)
+        var headerLength: UInt64 = 0 as UInt64
+        var byteIndex = 0
+        while byteIndex < 8 {
+            headerLength = headerLength | ((prefixBytes.byteAt(byteIndex) as UInt64) <<
+                ((byteIndex * 8) as UInt64))
+            byteIndex = byteIndex + 1
+        }
+        let closePrefix = prefix.close()
+        if headerLength == (0 as UInt64) or headerLength > policy.maxHeaderBytes or
+            headerLength > file.length - (8 as UInt64) {
+            let closeHeaderLimit = file.close()
+            return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
+                "safetensors.header_limit", "", "metadata length is invalid"))
+        }
+        let headerResult = file.window(8 as UInt64, headerLength)
+        if headerResult.isErr() {
+            let closeHeaderMapFailure = file.close()
+            return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
+                "safetensors.map", "", "failed to map metadata"))
+        }
+        let headerWindow = headerResult.unwrap()
+        let header = seen_string_view_bytes(headerWindow.data, headerLength as Int64)
+        let parsed = parseSafeTensorHeader(header, file.length, policy)
+        let closeHeader = headerWindow.close()
+        if parsed.isErr() {
+            let error = parsed.unwrapErr()
+            let closeParseFailure = file.close()
+            return Err<SafeTensorFile, SafeTensorError>(error)
+        }
+        return Ok<SafeTensorFile, SafeTensorError>(SafeTensorFile{
+            file: file, metadata: parsed.unwrap()
+        })
+    }
+
+    fun tensorWindow(name: String) r: Result<MappedWindow, SafeTensorError> {
+        let tensor = this.metadata.tensor(name)
+        if tensor.isErr() {
+            return Err<MappedWindow, SafeTensorError>(tensor.unwrapErr())
+        }
+        let geometry = tensor.unwrap()
+        let mapped = this.file.window(geometry.dataOffset, geometry.dataLength)
+        if mapped.isErr() {
+            return Err<MappedWindow, SafeTensorError>(safeTensorError(
+                "safetensors.map", name, "failed to map tensor bytes"))
+        }
+        return Ok<MappedWindow, SafeTensorError>(mapped.unwrap())
+    }
+
+    fun close() r: Result<Bool, SafeTensorError> {
+        this.metadata.close()
+        let closed = this.file.close()
+        if closed.isErr() {
+            return Err<Bool, SafeTensorError>(safeTensorError(
+                "safetensors.close", "", "failed to close tensor file"))
+        }
+        return Ok<Bool, SafeTensorError>(closed.unwrap())
+    }
+}
+
+class SafeTensorShardIndex {
+    var tensorNames: Array<String>
+    var shardNames: Array<String>
+
+    fun shardFor(tensor: String) r: Result<String, SafeTensorError> {
+        var index = 0
+        while index < this.tensorNames.length() {
+            if this.tensorNames[index] == tensor {
+                return Ok<String, SafeTensorError>(this.shardNames[index])
+            }
+            index = index + 1
+        }
+        return Err<String, SafeTensorError>(safeTensorError(
+            "safetensors.index_missing", tensor,
+            "tensor is absent from the shard index"))
+    }
+
+    fun close() r: Void {
+        var index = 0
+        while index < this.tensorNames.length() {
+            seen_string_release_owned(this.tensorNames[index])
+            seen_string_release_owned(this.shardNames[index])
+            index = index + 1
+        }
+        this.tensorNames.free(); this.shardNames.free()
+    }
+}
+
+fun safeTensorShardNameAllowed(name: String) r: Bool {
+    if name.length() < 13 or name.length() > 255 or
+        not name.endsWith(".safetensors") { return false }
+    var index = 0
+    while index < name.length() {
+        let value = name.charAt(index)
+        if not ((value >= 48 and value <= 57) or
+                (value >= 65 and value <= 90) or
+                (value >= 97 and value <= 122) or
+                value == 45 or value == 46 or value == 95) { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun destroySafeTensorShardParts(names: Array<String>, shards: Array<String>)
+    r: Void {
+    var index = 0
+    while index < names.length() {
+        seen_string_release_owned(names[index])
+        seen_string_release_owned(shards[index])
+        index = index + 1
+    }
+    names.free(); shards.free()
+}
+
+fun parseSafeTensorShardIndex(indexText: String, maxBytes: UInt64 =
+    104857600 as UInt64, maxTensors: UInt64 = 1000000 as UInt64)
+    r: Result<SafeTensorShardIndex, SafeTensorError> {
+    let limits = StrictJsonLimits{ maxInputBytes: maxBytes as Int,
+        maxDepth: 16, maxValues: (maxTensors * (4 as UInt64)) as Int,
+        maxStringBytes: 4096 }
+    let strict = parseStrictJson(indexText, limits)
+    if strict.isErr() {
+        return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
+            "safetensors.index_json", "", strict.unwrapErr().message))
+    }
+    let parsed = strict.unwrap()
+    let names = Array<String>(); let shards = Array<String>()
+    let root = parsed.value.unwrap()
+    if not root.isObject() {
+        destroySafeTensorShardParts(names, shards)
+        destroyJsonParseResult(parsed, true)
+        return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
+            "safetensors.index_root", "", "index root must be an object"))
+    }
+    let weightMap = root.get("weight_map")
+    if weightMap.isNone() or not weightMap.unwrap().isObject() {
+        destroySafeTensorShardParts(names, shards)
+        destroyJsonParseResult(parsed, true)
+        return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
+            "safetensors.index_root", "", "weight_map object is required"))
+    }
+    let keys = weightMap.unwrap().keys()
+    if (keys.length() as UInt64) > maxTensors {
+        destroySafeTensorShardParts(names, shards)
+        destroyJsonParseResult(parsed, true)
+        return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
+            "safetensors.index_limit", "", "weight_map exceeds tensor limit"))
+    }
+    var keyIndex = 0
+    while keyIndex < keys.length() {
+        let name = keys[keyIndex]
+        let shardValue = weightMap.unwrap().get(name).unwrap()
+        if not shardValue.isString() or
+            not safeTensorShardNameAllowed(shardValue.getString()) {
+            destroySafeTensorShardParts(names, shards)
+            destroyJsonParseResult(parsed, true)
+            return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
+                "safetensors.index_shard", name,
+                "shard must be a bounded local safetensors filename"))
+        }
+        names.push(seen_string_clone_owned(name))
+        shards.push(seen_string_clone_owned(shardValue.getString()))
+        keyIndex = keyIndex + 1
+    }
+    var index = 1
+    while index < names.length() {
+        var position = index
+        while position > 0 and names[position] < names[position - 1] {
+            let nameSwap = names[position - 1]
+            names[position - 1] = names[position]; names[position] = nameSwap
+            let shardSwap = shards[position - 1]
+            shards[position - 1] = shards[position]; shards[position] = shardSwap
+            position = position - 1
+        }
+        index = index + 1
+    }
+    destroyJsonParseResult(parsed, true)
+    return Ok<SafeTensorShardIndex, SafeTensorError>(SafeTensorShardIndex{
+        tensorNames: names, shardNames: shards
+    })
+}
+
+fun openIndexedSafeTensor(index: SafeTensorShardIndex, root: String,
+    tensor: String, policy: SafeTensorPolicy)
+    r: Result<SafeTensorFile, SafeTensorError> {
+    let shard = index.shardFor(tensor)
+    if shard.isErr() {
+        return Err<SafeTensorFile, SafeTensorError>(shard.unwrapErr())
+    }
+    let opened = SafeTensorFile.open(root + "/" + shard.unwrap(), policy)
+    if opened.isErr() {
+        return Err<SafeTensorFile, SafeTensorError>(opened.unwrapErr())
+    }
+    let indexedFile = opened.unwrap()
+    let geometry = indexedFile.metadata.tensor(tensor)
+    if geometry.isErr() {
+        let closeIndexMismatch = indexedFile.close()
+        return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
+            "safetensors.index_mismatch", tensor,
+            "index names a tensor absent from its shard"))
+    }
+    return Ok<SafeTensorFile, SafeTensorError>(indexedFile)
+}
+
+fun cloneTensorBytes(source: TensorBytes) r: TensorBytes {
+    let shape = Array<UInt64>()
+    var index = 0
+    while index < source.shape.length() {
+        shape.push(source.shape[index])
+        index = index + 1
+    }
+    return TensorBytes{ dataOffset: source.dataOffset,
+        dataLength: source.dataLength, elementCount: source.elementCount,
+        elementBytes: source.elementBytes,
+        dtype: seen_string_clone_owned(source.dtype), shape: shape }
+}
+
+fun cloneSafeTensorPolicy(source: SafeTensorPolicy) r: SafeTensorPolicy {
+    let allowed = Array<String>()
+    let denied = Array<String>()
+    var index = 0
+    while index < source.allowPrefixes.length() {
+        allowed.push(seen_string_clone_owned(source.allowPrefixes[index]))
+        index = index + 1
+    }
+    index = 0
+    while index < source.denyPrefixes.length() {
+        denied.push(seen_string_clone_owned(source.denyPrefixes[index]))
+        index = index + 1
+    }
+    return SafeTensorPolicy{ maxHeaderBytes: source.maxHeaderBytes,
+        maxTensors: source.maxTensors, allowPrefixes: allowed,
+        denyPrefixes: denied }
+}
+
+fun closeSafeTensorPolicy(policy: SafeTensorPolicy) r: Void {
+    var index = 0
+    while index < policy.allowPrefixes.length() {
+        seen_string_release_owned(policy.allowPrefixes[index])
+        index = index + 1
+    }
+    index = 0
+    while index < policy.denyPrefixes.length() {
+        seen_string_release_owned(policy.denyPrefixes[index])
+        index = index + 1
+    }
+    policy.allowPrefixes.free()
+    policy.denyPrefixes.free()
+}
+
+/// A deterministic shard-or-index facade. Metadata and mapped windows remain
+/// bounded by SafeTensorPolicy; returned tensor records own their copied
+/// scalar geometry, while tensor bytes stay available through SafeTensorFile.
+@move
+class SafeTensorSet {
+    var sourcePath: String
+    var policy: SafeTensorPolicy
+    var indexed: Bool
+    var active: Bool
+
+    static fun open(indexOrShard: String, policy: SafeTensorPolicy)
+        r: Result<SafeTensorSet, SafeTensorError> {
+        if indexOrShard.length() == 0 {
+            return Err<SafeTensorSet, SafeTensorError>(safeTensorError(
+                "safetensors.path", "", "index or shard path is required"))
+        }
+        let isIndex = indexOrShard.endsWith(".json")
+        if isIndex {
+            let text = readTextChecked(indexOrShard)
+            if not text.success {
+                return Err<SafeTensorSet, SafeTensorError>(safeTensorError(
+                    "safetensors.index_open", "", "failed to read shard index"))
+            }
+            let parsed = parseSafeTensorShardIndex(text.content,
+                policy.maxHeaderBytes, policy.maxTensors)
+            if parsed.isErr() {
+                return Err<SafeTensorSet, SafeTensorError>(parsed.unwrapErr())
+            }
+            parsed.unwrap().close()
+        } else {
+            let opened = SafeTensorFile.open(indexOrShard, policy)
+            if opened.isErr() {
+                return Err<SafeTensorSet, SafeTensorError>(opened.unwrapErr())
+            }
+            let closeValidatedShard = opened.unwrap().close()
+        }
+        return Ok<SafeTensorSet, SafeTensorError>(SafeTensorSet{
+            sourcePath: seen_string_clone_owned(indexOrShard),
+            policy: cloneSafeTensorPolicy(policy), indexed: isIndex,
+            active: true })
+    }
+
+    fun tensor(name: String) r: Result<TensorBytes, SafeTensorError> {
+        if not this.active {
+            return Err<TensorBytes, SafeTensorError>(safeTensorError(
+                "safetensors.closed", name, "tensor set is closed"))
+        }
+        if this.indexed {
+            let text = readTextChecked(this.sourcePath)
+            if not text.success {
+                return Err<TensorBytes, SafeTensorError>(safeTensorError(
+                    "safetensors.index_open", name, "failed to read shard index"))
+            }
+            let parsed = parseSafeTensorShardIndex(text.content,
+                this.policy.maxHeaderBytes, this.policy.maxTensors)
+            if parsed.isErr() {
+                return Err<TensorBytes, SafeTensorError>(parsed.unwrapErr())
+            }
+            let index = parsed.unwrap()
+            let opened = openIndexedSafeTensor(index, dirname(this.sourcePath),
+                name, this.policy)
+            index.close()
+            if opened.isErr() {
+                return Err<TensorBytes, SafeTensorError>(opened.unwrapErr())
+            }
+            let file = opened.unwrap()
+            let found = file.metadata.tensor(name)
+            if found.isErr() {
+                let closeMissingFile = file.close()
+                return Err<TensorBytes, SafeTensorError>(found.unwrapErr())
+            }
+            let result = cloneTensorBytes(found.unwrap())
+            let closeTensorFile = file.close()
+            return Ok<TensorBytes, SafeTensorError>(result)
+        }
+        let opened = SafeTensorFile.open(this.sourcePath, this.policy)
+        if opened.isErr() {
+            return Err<TensorBytes, SafeTensorError>(opened.unwrapErr())
+        }
+        let file = opened.unwrap()
+        let found = file.metadata.tensor(name)
+        if found.isErr() {
+            let closeMissingFile = file.close()
+            return Err<TensorBytes, SafeTensorError>(found.unwrapErr())
+        }
+        let result = cloneTensorBytes(found.unwrap())
+        let closeTensorFile = file.close()
+        return Ok<TensorBytes, SafeTensorError>(result)
+    }
+
+    fun names() r: Array<String> {
+        let names = Array<String>()
+        if not this.active { return names }
+        if this.indexed {
+            let text = readTextChecked(this.sourcePath)
+            if not text.success { return names }
+            let parsed = parseSafeTensorShardIndex(text.content,
+                this.policy.maxHeaderBytes, this.policy.maxTensors)
+            if parsed.isErr() { return names }
+            let index = parsed.unwrap()
+            var position = 0
+            while position < index.tensorNames.length() {
+                names.push(seen_string_clone_owned(index.tensorNames[position]))
+                position = position + 1
+            }
+            index.close()
+            return names
+        }
+        let opened = SafeTensorFile.open(this.sourcePath, this.policy)
+        if opened.isErr() { return names }
+        let file = opened.unwrap()
+        var position = 0
+        while position < file.metadata.names.length() {
+            names.push(seen_string_clone_owned(file.metadata.names[position]))
+            position = position + 1
+        }
+        let closeNamesFile = file.close()
+        return names
+    }
+
+    fun close() r: Bool {
+        if not this.active { return false }
+        this.active = false
+        seen_string_release_owned(this.sourcePath)
+        closeSafeTensorPolicy(this.policy)
+        return true
+    }
+}
+
+fun destroySafeTensorParts(names: Array<String>, tensors: Array<TensorBytes>)
+    r: Void {
+    var index = 0
+    while index < names.length() {
+        seen_string_release_owned(names[index])
+        seen_string_release_owned(tensors[index].dtype)
+        tensors[index].shape.free()
+        index = index + 1
+    }
+    names.free()
+    tensors.free()
+}
+
+fun safeTensorDtypeBytes(dtype: String) r: UInt64? {
+    if dtype == "BOOL" or dtype == "I8" or dtype == "U8" { return 1 as UInt64 }
+    if dtype == "F16" or dtype == "BF16" or dtype == "I16" or dtype == "U16" {
+        return 2 as UInt64
+    }
+    if dtype == "F32" or dtype == "I32" or dtype == "U32" { return 4 as UInt64 }
+    if dtype == "F64" or dtype == "I64" or dtype == "U64" { return 8 as UInt64 }
+    return null
+}
+
+fun safeTensorNameAllowed(name: String, policy: SafeTensorPolicy) r: Bool {
+    var index = 0
+    while index < policy.denyPrefixes.length() {
+        if name.startsWith(policy.denyPrefixes[index]) { return false }
+        index = index + 1
+    }
+    if policy.allowPrefixes.length() == 0 { return true }
+    index = 0
+    while index < policy.allowPrefixes.length() {
+        if name.startsWith(policy.allowPrefixes[index]) { return true }
+        index = index + 1
+    }
+    return false
+}
+
+fun safeTensorExactUInt(value: JsonValue, tensor: String, field: String)
+    r: Result<UInt64, SafeTensorError> {
+    if not value.isNumber() {
+        return Err<UInt64, SafeTensorError>(safeTensorError(
+            "safetensors.type", tensor, field + " must be an integer"))
+    }
+    let numeric = value.getNumber()
+    if numeric < 0.0 or numeric > 9007199254740991.0 or
+        numeric != numeric.toInt().toFloat() {
+        return Err<UInt64, SafeTensorError>(safeTensorError(
+            "safetensors.integer", tensor,
+            field + " is not an exactly representable bounded integer"))
+    }
+    return Ok<UInt64, SafeTensorError>(numeric.toInt() as UInt64)
+}
+
+fun parseSafeTensorHeader(header: String, fileLength: UInt64,
+    policy: SafeTensorPolicy) r: Result<SafeTensorMetadata, SafeTensorError> {
+    if (header.length() as UInt64) > policy.maxHeaderBytes {
+        return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+            "safetensors.header_limit", "", "metadata header exceeds policy"))
+    }
+    let limits = StrictJsonLimits{ maxInputBytes: policy.maxHeaderBytes as Int,
+        maxDepth: 32, maxValues: (policy.maxTensors * (16 as UInt64)) as Int,
+        maxStringBytes: 16777216 }
+    let strict = parseStrictJson(header, limits)
+    if strict.isErr() {
+        return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+            "safetensors.json", "", strict.unwrapErr().message))
+    }
+    let result = strict.unwrap()
+    let names = Array<String>()
+    let tensors = Array<TensorBytes>()
+    let root = result.value.unwrap()
+    if not root.isObject() {
+        destroySafeTensorParts(names, tensors)
+        destroyJsonParseResult(result, true)
+        return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+            "safetensors.root", "", "metadata root must be an object"))
+    }
+    let dataStart = (8 as UInt64) + (header.length() as UInt64)
+    if dataStart > fileLength {
+        destroySafeTensorParts(names, tensors)
+        destroyJsonParseResult(result, true)
+        return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+            "safetensors.truncated", "", "header exceeds file length"))
+    }
+    let rootKeys = root.keys()
+    var keyIndex = 0
+    while keyIndex < rootKeys.length() {
+        let name = rootKeys[keyIndex]
+        if name != "__metadata__" {
+            if (names.length() as UInt64) >= policy.maxTensors or
+                not safeTensorNameAllowed(name, policy) {
+                destroySafeTensorParts(names, tensors)
+                destroyJsonParseResult(result, true)
+                return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                    "safetensors.policy", name,
+                    "tensor count or name policy rejected metadata"))
+            }
+            let entry = root.get(name).unwrap()
+            if not entry.isObject() {
+                destroySafeTensorParts(names, tensors)
+                destroyJsonParseResult(result, true)
+                return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                    "safetensors.entry", name, "tensor entry must be an object"))
+            }
+            let entryFields = Array<String>()
+            entryFields.push("dtype"); entryFields.push("shape")
+            entryFields.push("data_offsets")
+            let entryShape = enforceStrictJsonUnknownFields(entry, entryFields,
+                JSON_UNKNOWN_FIELDS_REJECT)
+            entryFields.free()
+            if entryShape.isErr() {
+                destroySafeTensorParts(names, tensors)
+                destroyJsonParseResult(result, true)
+                return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                    "safetensors.unknown_field", name,
+                    "tensor entry contains an unknown field"))
+            }
+            let dtypeValue = entry.get("dtype")
+            let shapeValue = entry.get("shape")
+            let offsetsValue = entry.get("data_offsets")
+            if dtypeValue.isNone() or shapeValue.isNone() or offsetsValue.isNone() or
+                not dtypeValue.unwrap().isString() or
+                not shapeValue.unwrap().isArray() or
+                not offsetsValue.unwrap().isArray() or
+                offsetsValue.unwrap().length() != 2 {
+                destroySafeTensorParts(names, tensors)
+                destroyJsonParseResult(result, true)
+                return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                    "safetensors.fields", name,
+                    "dtype, shape, and two data offsets are required"))
+            }
+            let dtype = dtypeValue.unwrap().getString()
+            let elementBytes = safeTensorDtypeBytes(dtype)
+            if elementBytes.isNone() {
+                destroySafeTensorParts(names, tensors)
+                destroyJsonParseResult(result, true)
+                return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                    "safetensors.dtype", name, "unsupported tensor dtype"))
+            }
+            let shape = Array<UInt64>()
+            var elementCount: UInt64 = 1 as UInt64
+            let shapeValues = shapeValue.unwrap().getArray()
+            var dimensionIndex = 0
+            while dimensionIndex < shapeValues.length() {
+                let dimensionResult = safeTensorExactUInt(shapeValues[dimensionIndex],
+                    name, "shape")
+                if dimensionResult.isErr() {
+                    shape.free()
+                    destroySafeTensorParts(names, tensors)
+                    destroyJsonParseResult(result, true)
+                    return Err<SafeTensorMetadata, SafeTensorError>(dimensionResult.unwrapErr())
+                }
+                let dimension = dimensionResult.unwrap()
+                if dimension != (0 as UInt64) and
+                    elementCount > (0x7FFFFFFFFFFFFFFF as UInt64) / dimension {
+                    shape.free()
+                    destroySafeTensorParts(names, tensors)
+                    destroyJsonParseResult(result, true)
+                    return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                        "safetensors.geometry", name, "tensor shape overflows"))
+                }
+                elementCount = elementCount * dimension
+                shape.push(dimension)
+                dimensionIndex = dimensionIndex + 1
+            }
+            let offsets = offsetsValue.unwrap().getArray()
+            let startResult = safeTensorExactUInt(offsets[0], name, "data_offsets[0]")
+            let endResult = safeTensorExactUInt(offsets[1], name, "data_offsets[1]")
+            if startResult.isErr() or endResult.isErr() {
+                shape.free()
+                destroySafeTensorParts(names, tensors)
+                destroyJsonParseResult(result, true)
+                return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                    "safetensors.offset", name, "invalid tensor data offsets"))
+            }
+            let start = startResult.unwrap(); let end = endResult.unwrap()
+            let byteCount = elementCount * elementBytes.unwrap()
+            if end < start or end - start != byteCount or
+                start > fileLength - dataStart or
+                end > fileLength - dataStart {
+                shape.free()
+                destroySafeTensorParts(names, tensors)
+                destroyJsonParseResult(result, true)
+                return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                    "safetensors.range", name,
+                    "tensor byte range does not match shape or file"))
+            }
+            var previous = 0
+            while previous < tensors.length() {
+                let prior = tensors[previous]
+                let priorStart = prior.dataOffset - dataStart
+                let priorEnd = priorStart + prior.dataLength
+                if start < priorEnd and priorStart < end {
+                    shape.free()
+                    destroySafeTensorParts(names, tensors)
+                    destroyJsonParseResult(result, true)
+                    return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                        "safetensors.overlap", name, "tensor byte ranges overlap"))
+                }
+                previous = previous + 1
+            }
+            let ownedName = seen_string_clone_owned(name)
+            let ownedDtype = seen_string_clone_owned(dtype)
+            names.push(ownedName)
+            tensors.push(TensorBytes{ dataOffset: dataStart + start,
+                dataLength: byteCount, elementCount: elementCount,
+                elementBytes: elementBytes.unwrap(), dtype: ownedDtype,
+                shape: shape })
+        }
+        keyIndex = keyIndex + 1
+    }
+    // Deterministic insertion sort keeps names and tensor records paired.
+    var index = 1
+    while index < names.length() {
+        var position = index
+        while position > 0 and names[position] < names[position - 1] {
+            let nameSwap = names[position - 1]
+            names[position - 1] = names[position]
+            names[position] = nameSwap
+            let tensorSwap = tensors[position - 1]
+            tensors[position - 1] = tensors[position]
+            tensors[position] = tensorSwap
+            position = position - 1
+        }
+        index = index + 1
+    }
+    // The returned records own copied scalar geometry; the parse tree may go.
+    destroyJsonParseResult(result, true)
+    return Ok<SafeTensorMetadata, SafeTensorError>(SafeTensorMetadata{
+        names: names, tensors: tensors, dataStart: dataStart,
+        fileLength: fileLength
+    })
+}
