@@ -98,8 +98,14 @@ grep -Fq 'tests/misc_root_tests/seen_release_upload_artifact_scope.sh' "$REQUIRE
 grep -Fq 'scripts/check_qwen_contracts.py' "$REQUIRED" ||
     fail "required CI omits the Qwen schema checker"
 grep -Fq 'tests/misc_root_tests/seen_qwen_prerequisites.sh' \
-    "$ROOT_DIR/scripts/certify_gate0_clean_checkout.sh" ||
-    fail "clean-checkout certification omits CPU-only Qwen prerequisites"
+    "$ROOT_DIR/scripts/seen_prebuild_gates.sh" ||
+    fail "serialized prebuild gates omit CPU-only Qwen prerequisites"
+grep -Fq 'qwen_prerequisites.seen' \
+    "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
+    fail "fresh-compiler acceptance omits Qwen prerequisite contracts"
+grep -Fq 'projects/seen_ml/qwen38/tests/prerequisites.seen' \
+    "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
+    fail "fresh-compiler acceptance omits Qwen project contracts"
 for required_tag_ref in 'refs/heads/main' '"$tag_ref"' '"$tag_ref^{}"'; do
     grep -Fq "$required_tag_ref" "$RELEASE_TAG_POLICY" ||
         fail "release tag policy omits $required_tag_ref"
