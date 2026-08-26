@@ -5,6 +5,7 @@ ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 SCOPE=seen-json-large-object-release
+RELEASE_TARGET_CPU=x86-64
 
 if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ] &&
    [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != 1 ]; then
@@ -35,7 +36,7 @@ timeout --foreground --kill-after=10s 900s \
     "${COMPILER_PREFIX[@]}" "$COMPILER" compile \
     "$ROOT_DIR/seen_std/tests/json/large_object_release.seen" \
     "$WORK_DIR/large-object" --release --lto thin --no-cache --no-fork \
-    --jobs 1 --opt-jobs 1
+    --target-cpu "$RELEASE_TARGET_CPU" --jobs 1 --opt-jobs 1
 timeout --foreground --kill-after=5s 300s \
     "$WORK_DIR/large-object" "$WORK_DIR/object.json"
 

@@ -2,6 +2,17 @@
 
 set -euo pipefail
 
+# Match the conventional GitHub-hosted Linux runner stack. Inheriting a
+# larger developer-shell limit can hide release-mode stack regressions.
+if ! ulimit -S -s 8192 2>/dev/null; then
+    echo "ci-containment: core.001b.invalid: could not set the required 8192 KiB stack limit" >&2
+    exit 126
+fi
+if [ "$(ulimit -S -s)" != "8192" ]; then
+    echo "ci-containment: core.001b.invalid: required CI stack limit read-back failed" >&2
+    exit 126
+fi
+
 ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)"
 cd -- "$ROOT_DIR"
 

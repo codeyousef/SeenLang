@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated required CI to run the filesystem and tokenizer release contracts
   inside the existing read-back-verified aggregate scope with serial workers,
   per-command virtual-memory bounds, swap disabled, and bounded timeouts.
+- Pinned required CI to the hosted 8 MiB stack and the large-object JSON
+  regression to the portable x86-64 release target, preventing developer-shell
+  limits or host-native instructions from masking release failures.
 
 ## [0.14.0] - 2026-08-26
 

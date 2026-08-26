@@ -106,6 +106,11 @@ grep -Fq 'qwen_prerequisites.seen' \
 grep -Fq 'seen_json_large_object_release.sh' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits large-object JSON release regression"
+grep -Fq 'ulimit -S -s 8192' "$REQUIRED" ||
+    fail "required CI does not pin the hosted-runner stack limit"
+grep -Fq -- '--target-cpu "$RELEASE_TARGET_CPU"' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_json_large_object_release.sh" ||
+    fail "large-object JSON release regression does not pin the release CPU baseline"
 grep -Fq 'seen_release_install_payload.sh' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits installed release payload regression"
