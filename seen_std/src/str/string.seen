@@ -333,31 +333,32 @@ fun lastIndexOf(text: String, needle: String) r: Int {
 
 fun lines(text: String, dropEmpty: Bool = false) r: Array<String> {
     let result = Array<String>()
-    let codepointLength = utf8CodepointLength(text)
-    if codepointLength == 0 {
+    let byteLength = text.length()
+    if byteLength == 0 {
         if not dropEmpty {
             result.push("")
         }
         return result
     }
-    var lineStart = 0
-    var index = 0
-    while index < codepointLength {
-        let ch = text.charAt(index)
-        if ch == '\n' or ch == '\r' {
-            let line = substringByCodepoints(text, lineStart, index)
+    var lineStartByte = 0
+    var byteIndex = 0
+    while byteIndex < byteLength {
+        let byte = text.byteAt(byteIndex)
+        if byte == 10 or byte == 13 {
+            let line = text.substring(lineStartByte, byteIndex)
             if not(dropEmpty and line.length() == 0) {
                 result.push(line)
             }
-            if ch == '\r' and index + 1 < codepointLength and text.charAt(index + 1) == '\n' {
-                index = index + 1
+            if byte == 13 and byteIndex + 1 < byteLength and
+                text.byteAt(byteIndex + 1) == 10 {
+                byteIndex = byteIndex + 1
             }
-            lineStart = index + 1
+            lineStartByte = byteIndex + 1
         }
-        index = index + 1
+        byteIndex = byteIndex + 1
     }
-    if lineStart <= codepointLength {
-        let tail: String = substringByCodepoints(text, lineStart, codepointLength)
+    if lineStartByte <= byteLength {
+        let tail = text.substring(lineStartByte, byteLength)
         if not(dropEmpty and tail.length() == 0) {
             result.push(tail)
         }

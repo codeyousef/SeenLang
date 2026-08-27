@@ -92,7 +92,7 @@ a single-byte `memchr` path for delimiter-heavy workloads.
 | `trimStart` | `(s: String) r: String` | Trim leading whitespace |
 | `trimEnd` | `(s: String) r: String` | Trim trailing whitespace |
 | `lastIndexOf` | `(s: String, needle: String) r: Int` | Last occurrence |
-| `lines` | `(s: String) r: Array<String>` | Split into lines |
+| `lines` | `(s: String, dropEmpty: Bool = false) r: Array<String>` | Linear byte-indexed split over LF, CR, or CRLF while preserving UTF-8 and trailing empty lines |
 | `splitWhitespace` | `(s: String) r: Array<String>` | Split on whitespace |
 | `words` | `(s: String) r: Array<String>` | Split into words |
 | `replaceFirst` | `(s: String, old: String, new: String) r: String` | Replace first occurrence |

@@ -1,0 +1,40 @@
+import env.env.{args}
+import io.file.{readTextChecked}
+import str.string.{lines}
+import time.time.{Instant}
+
+fun exactCases() r: Void {
+    if lines("").length() != 1 { abort("empty input") }
+    if lines("a\n").length() != 2 { abort("trailing LF") }
+    if lines("a\r").length() != 2 { abort("trailing CR") }
+    let crlf = lines("a\r\nb")
+    if crlf.length() != 2 or crlf[0] != "a" or crlf[1] != "b" {
+        abort("CRLF")
+    }
+    let interior = lines("a\n\nβ")
+    if interior.length() != 3 or interior[1] != "" or
+        interior[2] != "β" {
+        abort("interior empty and UTF-8")
+    }
+    if lines("\n\r\n", true).length() != 0 { abort("dropEmpty") }
+}
+
+fun main() r: Int {
+    exactCases()
+    let argv = args()
+    if argv.length() == 1 { return 0 }
+    if argv.length() != 3 { abort("expected path and line count") }
+    let input = readTextChecked(argv[1])
+    if not input.success { abort("read lines corpus") }
+    let expected = argv[2].toInt()
+    let started = Instant.now()
+    let values = lines(input.content)
+    let elapsed = Instant.now().durationSince(started).nanoseconds
+    if values.length() != expected + 1 { abort("line count") }
+    if values[0] != "αβγxxxxxxx" { abort("first UTF-8 line") }
+    if values[expected - 1] != "αβγxxxxxx" { abort("last UTF-8 line") }
+    if values[expected] != "" { abort("trailing empty line") }
+    println(elapsed.toString())
+    values.free()
+    return 0
+}
