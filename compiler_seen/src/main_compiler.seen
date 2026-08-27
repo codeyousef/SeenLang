@@ -562,18 +562,80 @@ fun runtimeObjectIsFresh(objectPath: String, signature: String) r: Bool {
     return loadFileContent(sigPath) == signature
 }
 
-fun writeRuntimeObjectSignature(objectPath: String, signature: String) r: Void {
-    let _ = writeText(objectPath + ".sig", signature)
-    return
+fun writeRuntimeObjectSignature(objectPath: String, signature: String) r: Bool {
+    if objectPath == "" or signature == "" {
+        return false
+    }
+    let signatureTemp = objectPath + ".sig.tmp"
+    if not writeText(signatureTemp, signature) {
+        return false
+    }
+    let publish = runCommand("mv -f -- " +
+        mainCompilerShellQuote(signatureTemp) + " " +
+        mainCompilerShellQuote(objectPath + ".sig"))
+    return commandWasSuccessful(publish)
 }
 
 fun runtimeObjectCachePath(name: String, signature: String) r: String {
-    if signature == "" {
+    if name == "" or signature == "" {
         return ""
     }
-    let dir = "target/seen-build/runtime-objects/" + signature
-    let _ = runCommand("mkdir -p " + mainCompilerShellQuote(dir))
+    let cacheRoot = compilerArtifactPath("runtime-objects")
+    if cacheRoot == "" or not ensureDirectory(cacheRoot) or
+        not compilerArtifactTreeIsSafe(cacheRoot) {
+
+        return ""
+    }
+    let dir = cacheRoot + "/" + signature
+    if not ensureDirectory(dir) or not compilerArtifactTreeIsSafe(dir) {
+        return ""
+    }
     return dir + "/" + name + ".o"
+}
+
+fun compileRuntimeObjectAtomically(objectPath: String, signature: String,
+    compileCommand: String) r: Bool {
+
+    if objectPath == "" or signature == "" or compileCommand == "" or
+        not compilerArtifactTreeIsSafe(objectPath) {
+
+        return false
+    }
+    let temporaryResult = runCommand("mktemp " +
+        mainCompilerShellQuote(objectPath + ".tmp.XXXXXX"))
+    if not commandWasSuccessful(temporaryResult) {
+        println(temporaryResult.output)
+        return false
+    }
+    let temporaryPath = temporaryResult.output.trim()
+    if temporaryPath == "" or not compilerArtifactTreeIsSafe(temporaryPath) {
+        return false
+    }
+    let compileResult = runCommand(compileCommand + " -o " +
+        mainCompilerShellQuote(temporaryPath))
+    if not commandWasSuccessful(compileResult) {
+        println(compileResult.output)
+        let _ = runCommand("rm -f -- " + mainCompilerShellQuote(temporaryPath))
+        return false
+    }
+    let removeOldSignature = runCommand("rm -f -- " +
+        mainCompilerShellQuote(objectPath + ".sig"))
+    if not commandWasSuccessful(removeOldSignature) {
+        let _ = runCommand("rm -f -- " + mainCompilerShellQuote(temporaryPath))
+        return false
+    }
+    let publishObject = runCommand("mv -f -- " +
+        mainCompilerShellQuote(temporaryPath) + " " +
+        mainCompilerShellQuote(objectPath))
+    if not commandWasSuccessful(publishObject) or
+        not writeRuntimeObjectSignature(objectPath, signature) {
+
+        let _ = runCommand("rm -f -- " + mainCompilerShellQuote(objectPath))
+        let _ = runCommand("rm -f -- " +
+            mainCompilerShellQuote(objectPath + ".sig.tmp"))
+        return false
+    }
+    return runtimeObjectIsFresh(objectPath, signature)
 }
 
 fun releaseLtoCacheDir() r: String {
@@ -14626,15 +14688,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if g_picMode == 1 {
         picCompileFlag = " -fPIC"
     }
-    var runtimeObj = rtPrefix + "/seen_runtime.o"
-    if g_picMode == 1 {
-        runtimeObj = rtPrefix + "/seen_runtime_pic.o"
-    }
+    var runtimeObj = ""
     let runtimeSrc = rtPrefix + "/seen_runtime.c"
-    var teeRuntimeObj = rtPrefix + "/seen_tee_common.o"
-    if g_picMode == 1 {
-        teeRuntimeObj = rtPrefix + "/seen_tee_common_pic.o"
-    }
+    var teeRuntimeObj = ""
     let teeRuntimeSrc = rtPrefix + "/seen_tee_common.c"
     let teeSgxRuntimeSrc = rtPrefix + "/seen_tee_sgx.c"
     let teeSevRuntimeSrc = rtPrefix + "/seen_tee_sev.c"
@@ -14676,32 +14732,32 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             println("    Warning: OpenSSL pkg-config metadata not found; building TEE runtime without SEV backend")
         }
     }
-    if sanitizePolicy == "" {
+    if normalizedCrossTarget == "" and sanitizePolicy == "" {
         let runtimeSig = runtimeObjectBuildSignature("seen_runtime",
             runtimeSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
             pgoRuntimeSignatureFlags, effectiveTarget, teeRuntimeCompileFlags)
         let runtimeObjForSig = runtimeObjectCachePath("seen_runtime",
             runtimeSig)
-        if runtimeObjForSig != "" {
-            runtimeObj = runtimeObjForSig
+        if runtimeObjForSig == "" {
+            println("    Error: could not create project-local runtime object cache")
+            return 1
         }
+        runtimeObj = runtimeObjForSig
         if not runtimeObjectIsFresh(runtimeObj, runtimeSig) {
             println("  [3a] Pre-compiling runtime...")
-            let rtCompile: CommandResult =
-                runCommand("clang -O3 -flto=thin " + clangMarch +
-                    " -ffunction-sections -fdata-sections -pthread" +
-                    sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                    " -c -I " +
-                    mainCompilerShellQuote(rtPrefix) + " " +
-                    mainCompilerShellQuote(runtimeSrc) + " -o " +
-                    mainCompilerShellQuote(runtimeObj))
-            if not commandWasSuccessful(rtCompile) {
-                println("    Warning: Runtime pre-compilation failed, will compile inline")
-            } else {
-                writeRuntimeObjectSignature(runtimeObj, runtimeSig)
-                buildTraceEmit("runtime object cache", "miss", 0,
-                    "seen_runtime")
+            let runtimeCompileCommand = "clang -O3 -flto=thin " + clangMarch +
+                " -ffunction-sections -fdata-sections -pthread" +
+                sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+                " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
+                mainCompilerShellQuote(runtimeSrc)
+            if not compileRuntimeObjectAtomically(runtimeObj, runtimeSig,
+                runtimeCompileCommand) {
+
+                println("    Error: runtime object cache compilation failed")
+                return 1
             }
+            buildTraceEmit("runtime object cache", "miss", 0,
+                "seen_runtime")
         } else {
             buildTraceEmit("runtime object cache", "hit", 0,
                 "seen_runtime")
@@ -14713,70 +14769,76 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 teeRuntimeCompileFlags)
             let teeRuntimeObjForSig = runtimeObjectCachePath(
                 "seen_tee_common", teeSig)
-            if teeRuntimeObjForSig != "" {
-                teeRuntimeObj = teeRuntimeObjForSig
+            if teeRuntimeObjForSig == "" {
+                println("    Error: could not create project-local TEE runtime object cache")
+                return 1
             }
+            teeRuntimeObj = teeRuntimeObjForSig
             if not runtimeObjectIsFresh(teeRuntimeObj, teeSig) {
-                let teeRtCompile: CommandResult =
-                    runCommand("clang -O3 -flto=thin " + clangMarch +
-                        " -ffunction-sections -fdata-sections -pthread" +
-                        sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                        " -c -I " +
-                        mainCompilerShellQuote(rtPrefix) + " " +
-                        mainCompilerShellQuote(teeRuntimeSrc) + " -o " +
-                        mainCompilerShellQuote(teeRuntimeObj))
-                if not commandWasSuccessful(teeRtCompile) {
-                    println("    Warning: TEE runtime pre-compilation failed, will compile inline")
-                } else {
-                    writeRuntimeObjectSignature(teeRuntimeObj, teeSig)
-                    buildTraceEmit("runtime object cache", "miss",
-                        0, "seen_tee_common")
+                let teeCompileCommand = "clang -O3 -flto=thin " + clangMarch +
+                    " -ffunction-sections -fdata-sections -pthread" +
+                    sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+                    " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
+                    mainCompilerShellQuote(teeRuntimeSrc)
+                if not compileRuntimeObjectAtomically(teeRuntimeObj, teeSig,
+                    teeCompileCommand) {
+
+                    println("    Error: TEE runtime object cache compilation failed")
+                    return 1
                 }
+                buildTraceEmit("runtime object cache", "miss",
+                    0, "seen_tee_common")
             } else {
                 buildTraceEmit("runtime object cache", "hit", 0,
                     "seen_tee_common")
             }
         }
-    } else {
+    } else if normalizedCrossTarget == "" {
         // With sanitizer, recompile runtime with sanitizer flags
         println("  [3a] Compiling runtime with sanitizer...")
-        var sanitizedRuntimeObj = compilerArtifactPath(
-            "seen_runtime_sanitized.o")
-        if g_picMode == 1 {
-            sanitizedRuntimeObj = compilerArtifactPath(
-                "seen_runtime_sanitized_pic.o")
-        }
-        let rtCompile: CommandResult =
-            runCommand("clang -O3 " + clangMarch +
-                " -ffunction-sections -fdata-sections -pthread" +
-                sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                " -c -I " +
-                mainCompilerShellQuote(rtPrefix) + " " +
-                mainCompilerShellQuote(runtimeSrc) + " -o " +
-                mainCompilerShellQuote(sanitizedRuntimeObj))
-        if not commandWasSuccessful(rtCompile) {
-            println("    Error: instrumented runtime compilation failed")
-            println(rtCompile.output)
+        let runtimeSig = runtimeObjectBuildSignature("seen_runtime",
+            runtimeSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
+            pgoRuntimeSignatureFlags, effectiveTarget, teeRuntimeCompileFlags)
+        let sanitizedRuntimeObj = runtimeObjectCachePath("seen_runtime",
+            runtimeSig)
+        if sanitizedRuntimeObj == "" {
+            println("    Error: could not create instrumented runtime object cache")
             return 1
         }
+        let runtimeCompileCommand = "clang -O3 " + clangMarch +
+            " -ffunction-sections -fdata-sections -pthread" +
+            sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+            " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
+            mainCompilerShellQuote(runtimeSrc)
+        if not runtimeObjectIsFresh(sanitizedRuntimeObj, runtimeSig) and
+            not compileRuntimeObjectAtomically(sanitizedRuntimeObj,
+                runtimeSig, runtimeCompileCommand) {
+
+            println("    Error: instrumented runtime compilation failed")
+            return 1
+        }
+        runtimeObj = sanitizedRuntimeObj
         if hasTeeRuntime {
-            var sanitizedTeeRuntimeObj = compilerArtifactPath(
-                "seen_tee_common_sanitized.o")
-            if g_picMode == 1 {
-                sanitizedTeeRuntimeObj = compilerArtifactPath(
-                    "seen_tee_common_sanitized_pic.o")
+            let teeSig = runtimeObjectBuildSignature("seen_tee_common",
+                teeRuntimeSrc, clangMarch, picCompileFlag,
+                sanitizerClangFlags, pgoRuntimeSignatureFlags,
+                effectiveTarget, teeRuntimeCompileFlags)
+            let sanitizedTeeRuntimeObj = runtimeObjectCachePath(
+                "seen_tee_common", teeSig)
+            if sanitizedTeeRuntimeObj == "" {
+                println("    Error: could not create instrumented TEE object cache")
+                return 1
             }
-            let teeRtCompile: CommandResult =
-                runCommand("clang -O3 " + clangMarch +
-                    " -ffunction-sections -fdata-sections -pthread" +
-                    sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                    " -c -I " +
-                    mainCompilerShellQuote(rtPrefix) + " " +
-                    mainCompilerShellQuote(teeRuntimeSrc) + " -o " +
-                    mainCompilerShellQuote(sanitizedTeeRuntimeObj))
-            if not commandWasSuccessful(teeRtCompile) {
+            let teeCompileCommand = "clang -O3 " + clangMarch +
+                " -ffunction-sections -fdata-sections -pthread" +
+                sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+                " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
+                mainCompilerShellQuote(teeRuntimeSrc)
+            if not runtimeObjectIsFresh(sanitizedTeeRuntimeObj, teeSig) and
+                not compileRuntimeObjectAtomically(sanitizedTeeRuntimeObj,
+                    teeSig, teeCompileCommand) {
+
                 println("    Error: instrumented TEE runtime compilation failed")
-                println(teeRtCompile.output)
                 return 1
             }
             // The link selection below is shared with non-sanitized builds.
@@ -14790,15 +14852,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     // Check if pre-compiled runtime exists
     var runtimeArg = ""
     var teeRuntimeSourceArg = ""
-    if hasTeeRuntime {
+    if normalizedCrossTarget == "" and hasTeeRuntime {
         let usePrecompiledTee: CommandResult =
             runCommand("test -f " + mainCompilerShellQuote(teeRuntimeObj))
         if commandWasSuccessful(usePrecompiledTee) {
             teeRuntimeSourceArg = " " +
                 mainCompilerShellQuote(teeRuntimeObj)
         } else {
-            teeRuntimeSourceArg = " " +
-                mainCompilerShellQuote(teeRuntimeSrc)
+            println("    Error: required project-local TEE runtime cache object is unavailable")
+            return 1
         }
     }
     if hasTeeSgxRuntime {
@@ -14824,14 +14886,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         teeInlineArg = teeInlineArg + teeRuntimeSourceArg
     }
-    if sanitizePolicy != "" {
+    if normalizedCrossTarget == "" and sanitizePolicy != "" {
         // Use sanitized runtime object
-        var sanitizedRuntimeObj2 = compilerArtifactPath(
-            "seen_runtime_sanitized.o")
-        if g_picMode == 1 {
-            sanitizedRuntimeObj2 = compilerArtifactPath(
-                "seen_runtime_sanitized_pic.o")
-        }
+        let sanitizedRuntimeObj2 = runtimeObj
         let useSanitizedRt: CommandResult =
             runCommand("test -f " +
                 mainCompilerShellQuote(sanitizedRuntimeObj2))
@@ -14839,53 +14896,68 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             runtimeArg = mainCompilerShellQuote(sanitizedRuntimeObj2) +
                 teeInlineArg
         } else {
-            runtimeArg = "-I " + mainCompilerShellQuote(rtPrefix) +
-                sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                teeRuntimeCompileFlags + " " +
-                mainCompilerShellQuote(runtimeSrc) + teeRuntimeSourceArg
+            println("    Error: required instrumented runtime cache object is unavailable")
+            return 1
         }
-    } else {
+    } else if normalizedCrossTarget == "" {
         let usePrecompiledRt: CommandResult = runCommand("test -f " +
             mainCompilerShellQuote(runtimeObj))
         if commandWasSuccessful(usePrecompiledRt) {
             runtimeArg = mainCompilerShellQuote(runtimeObj) + teeInlineArg
         } else {
-            runtimeArg = "-I " + mainCompilerShellQuote(rtPrefix) +
-                sanitizerClangFlags + picCompileFlag +
-                teeRuntimeCompileFlags + " " +
-                mainCompilerShellQuote(runtimeSrc) + teeRuntimeSourceArg
+            println("    Error: required project-local runtime cache object is unavailable")
+            return 1
         }
     }
 
     if normalizedCrossTarget != "" {
         println("  [3a-target] Compiling runtime for " + effectiveTarget + "...")
         if targetClangArgs != "" {
-            let rtTargetOut = compilerArtifactPath("seen_runtime_" +
-                effectiveTarget + ".o")
-            let rtTargetCmd: CommandResult = runCommand(targetClangDriver +
+            let targetRuntimeSig = runtimeObjectBuildSignature(
+                "seen_runtime_" + effectiveTarget, runtimeSrc, "", "", "",
+                "", effectiveTarget, targetClangDriver + " " +
+                targetClangArgs + targetRuntimeFlags)
+            let rtTargetOut = runtimeObjectCachePath("seen_runtime_" +
+                effectiveTarget, targetRuntimeSig)
+            if rtTargetOut == "" {
+                println("    Error: could not create target runtime object cache")
+                return 1
+            }
+            let rtTargetCommand = targetClangDriver +
                 " -O3 -flto=thin -ffunction-sections -fdata-sections" +
                 targetRuntimeFlags + " -c " + targetClangArgs + " -I " +
                 mainCompilerShellQuote(rtPrefix) + " " +
-                mainCompilerShellQuote(rtPrefix + "/seen_runtime.c") +
-                " -o " + mainCompilerShellQuote(rtTargetOut))
-            if commandWasSuccessful(rtTargetCmd) {
+                mainCompilerShellQuote(runtimeSrc)
+            if runtimeObjectIsFresh(rtTargetOut, targetRuntimeSig) or
+                compileRuntimeObjectAtomically(rtTargetOut, targetRuntimeSig,
+                    rtTargetCommand) {
+
                 runtimeArg = mainCompilerShellQuote(rtTargetOut)
                 if hasTeeRuntime {
-                    let teeTargetOut = compilerArtifactPath(
-                        "seen_tee_common_" + effectiveTarget + ".o")
-                    let teeTargetCmd: CommandResult = runCommand(
-                        targetClangDriver +
+                    let teeTargetSig = runtimeObjectBuildSignature(
+                        "seen_tee_common_" + effectiveTarget, teeRuntimeSrc,
+                        "", "", "", "", effectiveTarget,
+                        targetClangDriver + " " + targetClangArgs +
+                        targetRuntimeFlags)
+                    let teeTargetOut = runtimeObjectCachePath(
+                        "seen_tee_common_" + effectiveTarget, teeTargetSig)
+                    if teeTargetOut == "" {
+                        println("    Error: could not create target TEE object cache")
+                        return 1
+                    }
+                    let teeTargetCommand = targetClangDriver +
                         " -O3 -flto=thin -ffunction-sections -fdata-sections" +
                         targetRuntimeFlags + " -c " + targetClangArgs +
                         " -I " + mainCompilerShellQuote(rtPrefix) + " " +
-                        mainCompilerShellQuote(teeRuntimeSrc) + " -o " +
-                        mainCompilerShellQuote(teeTargetOut))
-                    if commandWasSuccessful(teeTargetCmd) {
+                        mainCompilerShellQuote(teeRuntimeSrc)
+                    if runtimeObjectIsFresh(teeTargetOut, teeTargetSig) or
+                        compileRuntimeObjectAtomically(teeTargetOut,
+                            teeTargetSig, teeTargetCommand) {
+
                         runtimeArg = runtimeArg + " " +
                             mainCompilerShellQuote(teeTargetOut)
                     } else {
                         println("    Error: target TEE runtime compilation failed for " + effectiveTarget)
-                        println(teeTargetCmd.output)
                         return 1
                     }
                 }
@@ -14899,7 +14971,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 }
             } else {
                 println("    Error: target runtime compilation failed for " + effectiveTarget)
-                println(rtTargetCmd.output)
                 return 1
             }
         } else {
@@ -15022,154 +15093,154 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         linkCmd = linkCmd + mainCompilerShellQuote(objectFiles[oi]) + " "
         oi = oi + 1
     }
-    // Pre-compile region allocator if not already built
-    var regionObj = rtPrefix + "/seen_region.o"
-    if g_picMode == 1 {
-        regionObj = rtPrefix + "/seen_region_pic.o"
-    }
+    // Build the native region allocator only for native links. Cross-target
+    // paths compile their own target object below.
+    var regionObj = ""
     let regionSrc = rtPrefix + "/seen_region.c"
-    let regionSig = runtimeObjectBuildSignature("seen_region",
-        regionSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
-        pgoRuntimeSignatureFlags, effectiveTarget, "")
-    if not runtimeObjectIsFresh(regionObj, regionSig) {
-        let regionSrcCheck: CommandResult = runCommand("test -f " +
-            mainCompilerShellQuote(regionSrc))
-        if commandWasSuccessful(regionSrcCheck) {
-            let hostRegionCmd = "clang -O3 -flto=thin " + clangMarch +
-                " -ffunction-sections -fdata-sections" + picCompileFlag +
-                sanitizerClangFlags + pgoClangFlags + " -c -I " +
-                mainCompilerShellQuote(rtPrefix) + " " +
-                mainCompilerShellQuote(regionSrc) + " -o " +
-                mainCompilerShellQuote(regionObj)
-            let rtRegion: CommandResult = runCommand(hostRegionCmd)
-            if commandWasSuccessful(rtRegion) {
-                writeRuntimeObjectSignature(regionObj, regionSig)
-                buildTraceEmit("runtime object cache", "miss", 0,
-                    "seen_region")
-            }
-        }
-    } else {
-        buildTraceEmit("runtime object cache", "hit", 0, "seen_region")
-    }
     // Add region allocator object if it exists
     var regionArg = ""
     if normalizedCrossTarget != "" {
         if targetSupportsRegionRuntime(effectiveTarget) {
-            let targetRegionOut = compilerArtifactPath("seen_region_" +
-                effectiveTarget + ".o")
+            let targetRegionSig = runtimeObjectBuildSignature(
+                "seen_region_" + effectiveTarget, regionSrc, "", "", "",
+                "", effectiveTarget, targetClangDriver + " " +
+                targetClangArgs + targetRuntimeFlags)
+            let targetRegionOut = runtimeObjectCachePath("seen_region_" +
+                effectiveTarget, targetRegionSig)
+            if targetRegionOut == "" {
+                println("    Error: could not create target region object cache")
+                return 1
+            }
             let regionSrcCheck2: CommandResult = runCommand("test -f " +
                 mainCompilerShellQuote(rtPrefix + "/seen_region.c"))
             if commandWasSuccessful(regionSrcCheck2) and targetClangArgs != "" {
-                let targetRegionCmd = targetClangDriver +
+                let targetRegionCommand = targetClangDriver +
                     " -O3 -flto=thin -ffunction-sections -fdata-sections" +
                     targetRuntimeFlags + " -c " + targetClangArgs +
                     " -I " + mainCompilerShellQuote(rtPrefix) + " " +
-                    mainCompilerShellQuote(rtPrefix + "/seen_region.c") +
-                    " -o " + mainCompilerShellQuote(targetRegionOut)
-                let targetRegionResult: CommandResult = runCommand(targetRegionCmd)
-                if commandWasSuccessful(targetRegionResult) {
+                    mainCompilerShellQuote(rtPrefix + "/seen_region.c")
+                if runtimeObjectIsFresh(targetRegionOut, targetRegionSig) or
+                    compileRuntimeObjectAtomically(targetRegionOut,
+                        targetRegionSig, targetRegionCommand) {
+
                     regionArg = " " +
                         mainCompilerShellQuote(targetRegionOut)
                 } else {
-                    println("    Warning: target region runtime compilation failed for " + effectiveTarget)
-                    println(targetRegionResult.output)
+                    println("    Error: target region runtime compilation failed for " + effectiveTarget)
+                    return 1
                 }
+            } else {
+                println("    Error: target region runtime source or toolchain is unavailable for " + effectiveTarget)
+                return 1
             }
         } else {
             println("    Skipping region runtime for " + effectiveTarget + " (no supported target-specific implementation yet)")
         }
     } else {
-        let useRegionObj: CommandResult = runCommand("test -f " +
-            mainCompilerShellQuote(regionObj))
-        if commandWasSuccessful(useRegionObj) {
-            regionArg = " " + mainCompilerShellQuote(regionObj)
+        let regionSig = runtimeObjectBuildSignature("seen_region",
+            regionSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
+            pgoRuntimeSignatureFlags, effectiveTarget, "")
+        regionObj = runtimeObjectCachePath("seen_region", regionSig)
+        if regionObj == "" {
+            println("    Error: could not create project-local region object cache")
+            return 1
         }
+        if not runtimeObjectIsFresh(regionObj, regionSig) {
+            let hostRegionCommand = "clang -O3 -flto=thin " + clangMarch +
+                " -ffunction-sections -fdata-sections" + picCompileFlag +
+                sanitizerClangFlags + pgoClangFlags + " -c -I " +
+                mainCompilerShellQuote(rtPrefix) + " " +
+                mainCompilerShellQuote(regionSrc)
+            if not compileRuntimeObjectAtomically(regionObj, regionSig,
+                hostRegionCommand) {
+
+                println("    Error: region runtime object cache compilation failed")
+                return 1
+            }
+            buildTraceEmit("runtime object cache", "miss", 0,
+                "seen_region")
+        } else {
+            buildTraceEmit("runtime object cache", "hit", 0,
+                "seen_region")
+        }
+        regionArg = " " + mainCompilerShellQuote(regionObj)
     }
     // Pre-compile GPU runtime if not already built
     var gpuArg = ""
     let needsGpuRuntime = sourcesNeedGpuRuntime(modulePaths)
     if needsGpuRuntime {
-        var hostGpuObj = rtPrefix + "/seen_gpu.o"
-        if g_picMode == 1 {
-            hostGpuObj = rtPrefix + "/seen_gpu_pic.o"
-        }
         let gpuSrc = rtPrefix + "/seen_gpu.c"
-        let gpuSig = runtimeObjectBuildSignature("seen_gpu", gpuSrc,
-            clangMarch, picCompileFlag, sanitizerClangFlags,
-            pgoRuntimeSignatureFlags,
-            effectiveTarget, getHostVulkanCflags())
-        if not runtimeObjectIsFresh(hostGpuObj, gpuSig) {
-            let gpuSrcCheck: CommandResult = runCommand("test -f " +
-                mainCompilerShellQuote(gpuSrc))
-            if commandWasSuccessful(gpuSrcCheck) {
-                // Check if vulkan headers are available before trying to compile
-                let vulkanCheck: CommandResult = runCommand("pkg-config --exists vulkan 2>/dev/null")
-                if commandWasSuccessful(vulkanCheck) {
-                    let rtGpu: CommandResult =
-                        runCommand("clang -O3 -flto=thin " + clangMarch +
-                            " -ffunction-sections -fdata-sections" +
-                            picCompileFlag + sanitizerClangFlags +
-                            pgoClangFlags +
-                            " -c -I " +
-                            mainCompilerShellQuote(rtPrefix) + " " +
-                            mainCompilerShellQuote(gpuSrc) + " -o " +
-                            mainCompilerShellQuote(hostGpuObj) +
-                            " $(pkg-config --cflags vulkan) 2>&1")
-                    if commandWasSuccessful(rtGpu) {
-                        writeRuntimeObjectSignature(hostGpuObj, gpuSig)
-                        buildTraceEmit("runtime object cache", "miss",
-                            0, "seen_gpu")
-                    }
-                } else {
-                    // Try without pkg-config (headers might be in standard paths)
-                    let rtGpu2: CommandResult =
-                        runCommand("clang -O3 -flto=thin " + clangMarch +
-                            " -ffunction-sections -fdata-sections" +
-                            picCompileFlag + sanitizerClangFlags +
-                            pgoClangFlags +
-                            " -c -I " +
-                            mainCompilerShellQuote(rtPrefix) + " " +
-                            mainCompilerShellQuote(gpuSrc) + " -o " +
-                            mainCompilerShellQuote(hostGpuObj) +
-                            " 2>&1")
-                    if commandWasSuccessful(rtGpu2) {
-                        writeRuntimeObjectSignature(hostGpuObj, gpuSig)
-                        buildTraceEmit("runtime object cache", "miss",
-                            0, "seen_gpu")
-                    }
-                }
-            }
-        } else {
-            buildTraceEmit("runtime object cache", "hit", 0, "seen_gpu")
-        }
         if normalizedCrossTarget == "" {
-            let useGpuObj: CommandResult = runCommand("test -f " +
-                mainCompilerShellQuote(hostGpuObj))
-            if commandWasSuccessful(useGpuObj) {
-                gpuArg = " " + mainCompilerShellQuote(hostGpuObj)
+            let hostVulkanCflags = getHostVulkanCflags()
+            let gpuSig = runtimeObjectBuildSignature("seen_gpu", gpuSrc,
+                clangMarch, picCompileFlag, sanitizerClangFlags,
+                pgoRuntimeSignatureFlags, effectiveTarget, hostVulkanCflags)
+            let hostGpuObj = runtimeObjectCachePath("seen_gpu", gpuSig)
+            if hostGpuObj == "" {
+                println("    Error: could not create project-local GPU object cache")
+                return 1
             }
+            if not runtimeObjectIsFresh(hostGpuObj, gpuSig) {
+                var hostGpuCommand = "clang -O3 -flto=thin " + clangMarch +
+                    " -ffunction-sections -fdata-sections" +
+                    picCompileFlag + sanitizerClangFlags + pgoClangFlags +
+                    " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
+                    mainCompilerShellQuote(gpuSrc)
+                if hostVulkanCflags != "" {
+                    hostGpuCommand = hostGpuCommand + " " + hostVulkanCflags
+                }
+                if not compileRuntimeObjectAtomically(hostGpuObj, gpuSig,
+                    hostGpuCommand) {
+
+                    println("    Error: GPU runtime object cache compilation failed")
+                    return 1
+                }
+                buildTraceEmit("runtime object cache", "miss", 0,
+                    "seen_gpu")
+            } else {
+                buildTraceEmit("runtime object cache", "hit", 0,
+                    "seen_gpu")
+            }
+            gpuArg = " " + mainCompilerShellQuote(hostGpuObj)
         } else {
             if targetSupportsGpuRuntime(effectiveTarget) and targetClangArgs != "" {
-                let targetGpuOut = compilerArtifactPath("seen_gpu_" +
-                    effectiveTarget + ".o")
+                var targetGpuExtraFlags = targetClangDriver + " " +
+                    targetClangArgs + targetRuntimeFlags
+                if effectiveTarget == "linux-x86_64" or effectiveTarget == "linux-arm64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "macos-arm64" {
+                    let hostVulkanCflags = getHostVulkanCflags()
+                    if hostVulkanCflags != "" {
+                        targetGpuExtraFlags = targetGpuExtraFlags + " " +
+                            hostVulkanCflags
+                    }
+                }
+                let targetGpuSig = runtimeObjectBuildSignature(
+                    "seen_gpu_" + effectiveTarget, gpuSrc, "", "", "", "",
+                    effectiveTarget, targetGpuExtraFlags)
+                let targetGpuOut = runtimeObjectCachePath("seen_gpu_" +
+                    effectiveTarget, targetGpuSig)
+                if targetGpuOut == "" {
+                    println("    Error: could not create target GPU object cache")
+                    return 1
+                }
                 var targetGpuCmd = targetClangDriver +
                     " -O3 -flto=thin -ffunction-sections -fdata-sections" +
                     targetRuntimeFlags + " -c " + targetClangArgs +
                     " -I " + mainCompilerShellQuote(rtPrefix) + " " +
-                    mainCompilerShellQuote(rtPrefix + "/seen_gpu.c") +
-                    " -o " + mainCompilerShellQuote(targetGpuOut)
+                    mainCompilerShellQuote(rtPrefix + "/seen_gpu.c")
                 if effectiveTarget == "linux-x86_64" or effectiveTarget == "linux-arm64" or effectiveTarget == "macos-x86_64" or effectiveTarget == "macos-arm64" {
                     let hostVulkanCflags = getHostVulkanCflags()
                     if hostVulkanCflags != "" {
                         targetGpuCmd = targetGpuCmd + " " + hostVulkanCflags
                     }
                 }
-                let targetGpuResult: CommandResult = runCommand(targetGpuCmd)
-                if commandWasSuccessful(targetGpuResult) {
+                if runtimeObjectIsFresh(targetGpuOut, targetGpuSig) or
+                    compileRuntimeObjectAtomically(targetGpuOut, targetGpuSig,
+                        targetGpuCmd) {
+
                     gpuArg = " " + mainCompilerShellQuote(targetGpuOut)
                 } else {
-                    println("    Warning: target GPU runtime compilation failed for " + effectiveTarget)
-                    println(targetGpuResult.output)
+                    println("    Error: target GPU runtime compilation failed for " + effectiveTarget)
+                    return 1
                 }
             }
         }
@@ -15193,62 +15264,63 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
         if normalizedCrossTarget != "" {
-            let targetHotReloadOut = compilerArtifactPath(
-                "seen_hotreload_" + effectiveTarget + ".o")
+            let targetHotReloadSig = runtimeObjectBuildSignature(
+                "seen_hotreload_" + effectiveTarget, hotReloadSrc, "", "",
+                "", "", effectiveTarget, targetClangDriver + " " +
+                targetClangArgs + targetRuntimeFlags)
+            let targetHotReloadOut = runtimeObjectCachePath(
+                "seen_hotreload_" + effectiveTarget, targetHotReloadSig)
+            if targetHotReloadOut == "" {
+                println("    Error: could not create target hotreload object cache")
+                return 1
+            }
             let targetHotReloadCmd = targetClangDriver +
                 " -O3 -flto=thin -ffunction-sections -fdata-sections" +
                 targetRuntimeFlags + " -c " + targetClangArgs + " -I " +
                 mainCompilerShellQuote(rtPrefix) + " " +
-                mainCompilerShellQuote(hotReloadSrc) + " -o " +
-                mainCompilerShellQuote(targetHotReloadOut)
-            let targetHotReloadResult: CommandResult =
-                runCommand(targetHotReloadCmd)
-            if commandWasSuccessful(targetHotReloadResult) {
+                mainCompilerShellQuote(hotReloadSrc)
+            if runtimeObjectIsFresh(targetHotReloadOut, targetHotReloadSig) or
+                compileRuntimeObjectAtomically(targetHotReloadOut,
+                    targetHotReloadSig, targetHotReloadCmd) {
+
                 hotReloadArg = " " +
                     mainCompilerShellQuote(targetHotReloadOut)
             } else {
                 println("    Error: hotreload runtime compilation failed for " +
                     effectiveTarget)
-                println(targetHotReloadResult.output)
                 return 1
             }
         } else {
-            var hotReloadObj = rtPrefix + "/seen_hotreload.o"
-            if g_picMode == 1 {
-                hotReloadObj = rtPrefix + "/seen_hotreload_pic.o"
-            }
             let hotReloadSig = runtimeObjectBuildSignature("seen_hotreload",
                 hotReloadSrc, clangMarch, picCompileFlag,
                 sanitizerClangFlags, pgoRuntimeSignatureFlags,
                 effectiveTarget, "")
+            let hotReloadObj = runtimeObjectCachePath("seen_hotreload",
+                hotReloadSig)
+            if hotReloadObj == "" {
+                println("    Error: could not create project-local hotreload object cache")
+                return 1
+            }
             if not runtimeObjectIsFresh(hotReloadObj, hotReloadSig) {
                 let hotReloadCmd = "clang -O3 -flto=thin " + clangMarch +
                     " -ffunction-sections -fdata-sections" +
                     picCompileFlag + sanitizerClangFlags + pgoClangFlags +
                     " -c -I " +
                     mainCompilerShellQuote(rtPrefix) + " " +
-                    mainCompilerShellQuote(hotReloadSrc) + " -o " +
-                    mainCompilerShellQuote(hotReloadObj)
-                let hotReloadResult: CommandResult =
-                    runCommand(hotReloadCmd)
-                if not commandWasSuccessful(hotReloadResult) {
-                    println("    Error: hotreload runtime compilation failed")
-                    println(hotReloadResult.output)
+                    mainCompilerShellQuote(hotReloadSrc)
+                if not compileRuntimeObjectAtomically(hotReloadObj,
+                    hotReloadSig, hotReloadCmd) {
+
+                    println("    Error: hotreload runtime object cache compilation failed")
                     return 1
                 }
-                writeRuntimeObjectSignature(hotReloadObj, hotReloadSig)
                 buildTraceEmit("runtime object cache", "miss", 0,
                     "seen_hotreload")
             } else {
                 buildTraceEmit("runtime object cache", "hit", 0,
                     "seen_hotreload")
             }
-            let useHotReloadObj: CommandResult =
-                runCommand("test -f " +
-                    mainCompilerShellQuote(hotReloadObj))
-            if commandWasSuccessful(useHotReloadObj) {
-                hotReloadArg = " " + mainCompilerShellQuote(hotReloadObj)
-            }
+            hotReloadArg = " " + mainCompilerShellQuote(hotReloadObj)
         }
     }
     var platformShimArg = ""

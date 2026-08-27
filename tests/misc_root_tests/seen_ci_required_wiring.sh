@@ -116,6 +116,21 @@ grep -Fq -- '--target-cpu "$RELEASE_TARGET_CPU"' \
 grep -Fq 'seen_release_install_payload.sh' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits installed release payload regression"
+grep -Fq '248044' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_json_large_object_release.sh" ||
+    fail "large-object regression does not preserve the production vocabulary size"
+grep -Fq '@llvm.stacksave()' \
+    "$ROOT_DIR/compiler_seen/src/codegen/ir_method_array_mutator_emit.seen" ||
+    fail "generic Array push lowering lacks bounded scratch lifetime"
+grep -Fq '@llvm.stackrestore(ptr' \
+    "$ROOT_DIR/compiler_seen/src/codegen/ir_assignment_gen.seen" ||
+    fail "generic Array assignment lowering lacks bounded scratch lifetime"
+grep -Fq 'seen_arr_set_i64' \
+    "$ROOT_DIR/compiler_seen/tests/array_bool_push_codegen.seen" ||
+    fail "Boolean Array assignment direct-lowering contract is missing"
+grep -Fq 'production_vocab_contract.seen' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_utf8_string_indexing.sh" ||
+    fail "tokenizer verification omits the production vocabulary contract"
 grep -Fq 'projects/seen_ml/qwen38/tests/prerequisites.seen' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits Qwen project contracts"

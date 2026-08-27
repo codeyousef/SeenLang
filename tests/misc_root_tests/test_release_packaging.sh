@@ -134,6 +134,25 @@ fi
 
 TARBALL="$DIST_DIR/seen-0.15.0-linux-x64.tar.gz"
 test -f "$TARBALL"
+RUNTIME_COMPONENT="$DIST_DIR/seen-runtime-0.15.0-linux-x64.tar.gz"
+test -f "$RUNTIME_COMPONENT"
+tar -tzf "$TARBALL" > "$TMP_DIR/installer-archive-contents.txt"
+tar -tzf "$RUNTIME_COMPONENT" > "$TMP_DIR/runtime-component-contents.txt"
+if grep -Eq '/runtime/.*\.(o|sig|a)$' \
+    "$TMP_DIR/installer-archive-contents.txt"; then
+    echo "release installer archive contains generated runtime objects" >&2
+    exit 1
+fi
+if grep -Eq '\.(o|sig|a)$' "$TMP_DIR/runtime-component-contents.txt"; then
+    echo "signed runtime component contains generated runtime objects" >&2
+    exit 1
+fi
+grep -Fqx \
+    'seen-0.15.0-linux-x64/lib/seen/runtime/cuda/src/seen_cuda.cu' \
+    "$TMP_DIR/installer-archive-contents.txt"
+grep -Fqx \
+    'seen_runtime/cuda/src/seen_cuda.cu' \
+    "$TMP_DIR/runtime-component-contents.txt"
 tar -xOf "$TARBALL" \
     seen-0.15.0-linux-x64/bin/compatibility-manifest.json \
     > "$TMP_DIR/packaged-compatibility-manifest.json"
@@ -296,7 +315,14 @@ tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
 PACKAGE_DIR="$EXTRACT_DIR/seen-0.15.0-linux-x64"
 
 PREFIX="$TMP_DIR/prefix"
-mkdir -p "$PREFIX/bin"
+mkdir -p "$PREFIX/bin" "$PREFIX/lib/seen/runtime"
+for legacy_runtime_object in seen_runtime.o seen_runtime.o.sig \
+    seen_region.o seen_region.o.sig seen_gpu.o seen_gpu.o.sig \
+    seen_hotreload.o seen_hotreload.o.sig seen_tee_common.o \
+    seen_tee_common.o.sig; do
+    printf 'legacy generated object\n' > \
+        "$PREFIX/lib/seen/runtime/$legacy_runtime_object"
+done
 SYMLINK_TARGET="$TMP_DIR/original-target"
 printf 'original target content\n' > "$SYMLINK_TARGET"
 ln -s "$SYMLINK_TARGET" "$PREFIX/bin/seen"
@@ -305,6 +331,16 @@ printf 'original package target content\n' > "$PKG_SYMLINK_TARGET"
 ln -s "$PKG_SYMLINK_TARGET" "$PREFIX/bin/seen-pkg"
 
 (cd "$PACKAGE_DIR" && SEEN_SKIP_TOOLCHAIN=1 ./install.sh "$PREFIX" >/dev/null)
+
+for legacy_runtime_object in seen_runtime.o seen_runtime.o.sig \
+    seen_region.o seen_region.o.sig seen_gpu.o seen_gpu.o.sig \
+    seen_hotreload.o seen_hotreload.o.sig seen_tee_common.o \
+    seen_tee_common.o.sig; do
+    if [[ -e "$PREFIX/lib/seen/runtime/$legacy_runtime_object" ]]; then
+        echo "install.sh retained legacy runtime object $legacy_runtime_object" >&2
+        exit 1
+    fi
+done
 
 if [[ "$(cat "$SYMLINK_TARGET")" != "original target content" ]]; then
     echo "install.sh followed the existing seen symlink and overwrote its target" >&2

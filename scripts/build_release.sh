@@ -48,6 +48,27 @@ prune_packaged_stdlib_artifacts() {
         -prune -exec rm -rf {} +
 }
 
+tracked_runtime_files() {
+    local path
+    while IFS= read -r -d '' path; do
+        case "$path" in
+            *.o|*.sig|*.a) continue ;;
+            seen_runtime/*) printf '%s\0' "$path" ;;
+        esac
+    done < <(git -C "$ROOT_DIR" ls-files -z -- seen_runtime)
+}
+
+copy_tracked_runtime_payload() {
+    local destination="$1"
+    local path relative target
+    while IFS= read -r -d '' path; do
+        relative="${path#seen_runtime/}"
+        target="$destination/$relative"
+        mkdir -p "$(dirname "$target")"
+        cp "$ROOT_DIR/$path" "$target"
+    done < <(tracked_runtime_files)
+}
+
 release_payload_hash() {
     if declare -F seen_build_hash_paths >/dev/null 2>&1; then
         seen_build_hash_paths \
@@ -361,15 +382,7 @@ if [[ "$PAYLOAD_CACHE_HIT" != "1" ]]; then
 
     echo "[3/6] Copying runtime..."
     if [[ -d "$ROOT_DIR/seen_runtime" ]]; then
-        for f in "$ROOT_DIR/seen_runtime"/*.{c,h}; do
-            [[ -f "$f" ]] && cp "$f" "$STAGING/lib/seen/runtime/"
-        done
-        for f in "$ROOT_DIR/seen_runtime"/*.a "$ROOT_DIR/seen_runtime"/*.o "$ROOT_DIR/seen_runtime"/*.sig; do
-            [[ -f "$f" ]] && cp "$f" "$STAGING/lib/seen/runtime/"
-        done
-        if [[ -d "$ROOT_DIR/seen_runtime/src" ]]; then
-            cp -r "$ROOT_DIR/seen_runtime/src" "$STAGING/lib/seen/runtime/"
-        fi
+        copy_tracked_runtime_payload "$STAGING/lib/seen/runtime"
     fi
 
     echo "[4/6] Copying language files..."
@@ -475,6 +488,20 @@ install_file_no_follow "bin/seen" "$PREFIX/bin/seen" 755
 install_file_no_follow "bin/seen-pkg" "$PREFIX/bin/seen-pkg" 755
 install_file_no_follow "bin/compatibility-manifest.json" \
     "$PREFIX/bin/compatibility-manifest.json" 644
+legacy_runtime_objects=(
+    seen_runtime.o seen_runtime.o.sig seen_runtime_pic.o seen_runtime_pic.o.sig
+    seen_runtime_jit.o seen_runtime_jit.o.sig
+    seen_region.o seen_region.o.sig seen_region_pic.o seen_region_pic.o.sig
+    seen_gpu.o seen_gpu.o.sig seen_gpu_pic.o seen_gpu_pic.o.sig
+    seen_hotreload.o seen_hotreload.o.sig
+    seen_hotreload_pic.o seen_hotreload_pic.o.sig
+    seen_tee_common.o seen_tee_common.o.sig
+    seen_tee_common_pic.o seen_tee_common_pic.o.sig
+)
+for legacy_runtime_object in "${legacy_runtime_objects[@]}"; do
+    run_install rm -f -- \
+        "$PREFIX/lib/seen/runtime/$legacy_runtime_object"
+done
 run_install cp -r lib/seen/* "$PREFIX/lib/seen/"
 run_install cp -r share/seen/* "$PREFIX/share/seen/"
 run_install cp -r share/doc/seen/* "$PREFIX/share/doc/seen/"
@@ -518,8 +545,9 @@ if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
     cp "$COMPILER_BIN" "$COMPILER_COMPONENT"
     cp "$PACKAGE_CLIENT_BIN" "$PACKAGE_CLIENT_COMPONENT"
     chmod +x "$COMPILER_COMPONENT" "$PACKAGE_CLIENT_COMPONENT"
-    (cd "$ROOT_DIR" && tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
-        --numeric-owner -cf - seen_runtime | gzip -n > "$RUNTIME_COMPONENT")
+    (cd "$ROOT_DIR" && tracked_runtime_files | \
+        tar --null --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 \
+            --group=0 --numeric-owner -T - -cf - | gzip -n > "$RUNTIME_COMPONENT")
     (cd "$ROOT_DIR" && tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
         --numeric-owner -cf - seen_std/src | gzip -n > "$STDLIB_COMPONENT")
 fi

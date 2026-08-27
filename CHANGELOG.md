@@ -41,6 +41,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that release payloads include the strict JSON and SHA-256 standard modules.
 - Corrected LLVM 22 coroutine-end declaration and call emission while retaining
   the prior LLVM ABI on older supported toolchains.
+- Lowered Boolean Array push and assignment and String Array assignment through
+  width-correct runtime helpers, and bounded remaining synchronous generic
+  mutation scratch so production vocabulary loops cannot exhaust an 8 MiB
+  stack.
+- Moved installed-compiler runtime object generation into signed,
+  content-addressed project-local caches with atomic publication and
+  fail-closed compilation, eliminating writes to installed prefixes and stale
+  object fallback.
+- Changed bulk tokenizer vocabulary ingestion to indexed object traversal and
+  certified all 248,044 mixed UTF-8 entries with deterministic ownership and
+  cleanup.
 
 ### Changed
 
@@ -56,6 +67,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made Unicode 16 tokenizer asset checks verify the committed pinned digest
   without depending on the host Python Unicode database version; regeneration
   still requires UCD 16 and must reproduce the same digest.
+- Made installer and signed runtime-component payloads source-only and
+  recursive, including CUDA sources, while explicitly removing legacy runtime
+  object cache files during upgrades.
 
 ## [0.14.0] - 2026-08-26
 
