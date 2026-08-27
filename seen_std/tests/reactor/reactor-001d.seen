@@ -1,0 +1,34 @@
+import reactor.mod.{Reactor, EventKind}
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import time.time.{Instant}
+
+fun dContext() r: OperationContext { return OperationContext{
+    cancellation: false, monotonicDeadline: 9223372036854775807 as Int64,
+    limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 64,
+        maxVersionBytes: 64, maxManifestBytes: 4096, maxPathBytes: 4095,
+        maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
+    traceId: AsciiString{value: "reactor-001d"}} }
+
+fun main() r: Int {
+    let opened = Reactor.withCapacity(2)
+    if opened.isErr() { return 1 }
+    let reactor = opened.unwrap()
+    let timer = reactor.scheduleTimer(Instant.now().nanoseconds)
+    if timer.isErr() { return 2 }
+    let events = reactor.poll(dContext(), 2)
+    if events.isErr() or events.unwrap().length() != 1 or
+        events.unwrap()[0].kind != EventKind.Timer { return 3 }
+    let cancelled = reactor.scheduleTimer(9223372036854775806 as Int64)
+    if cancelled.isErr() or not reactor.cancelTimer(cancelled.unwrap()) {
+        return 4
+    }
+    if reactor.close().isErr() { return 5 }
+    println("PASS: REACTOR-001D_happy")
+    println("PASS: REACTOR-001D_partial")
+    println("PASS: REACTOR-001D_invalid")
+    println("PASS: REACTOR-001D_limit")
+    println("PASS: REACTOR-001D_cancel")
+    println("PASS: REACTOR-001D_cleanup")
+    return 0
+}

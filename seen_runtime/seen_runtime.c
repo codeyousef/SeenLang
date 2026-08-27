@@ -86,6 +86,8 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 
 #include <ctype.h>
 
+#include "reactor_abi.c"
+
 static inline size_t seen_align_up(size_t n, size_t align);
 
 // ============================================================================

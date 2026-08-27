@@ -3621,6 +3621,41 @@
       ]
     },
     {
+      "name": "seen_blocking_pool_cancel",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_blocking_pool_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_blocking_pool_completion",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_blocking_pool_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_blocking_pool_submit",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
       "name": "seen_byte_array_append",
       "abi": "Seen",
       "sources": [
@@ -5853,6 +5888,69 @@
       "abi": "C",
       "sources": [
         "seen_std/src/platform/linux/pipewire.seen"
+      ]
+    },
+    {
+      "name": "seen_reactor_backend_capability",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_reactor_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_reactor_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_reactor_deregister",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_reactor_event",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_reactor_native_handle_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_reactor_poll",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_reactor_register",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
+      ]
+    },
+    {
+      "name": "seen_reactor_wakeup",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/reactor/reactor.seen"
       ]
     },
     {

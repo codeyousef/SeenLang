@@ -586,6 +586,10 @@ run_fixture asynchronous-byte-streams-example \
 run_fixture qwen-prerequisites \
     "$REPO_ROOT/seen_std/tests/qwen_prerequisites.seen"
 "$REPO_ROOT/tests/misc_root_tests/seen_json_large_object_release.sh"
+COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_safetensors_reader_ownership.sh"
+COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_reactor_contract.sh"
 COMPILER="$REAL_COMPILER" SEEN_PACKAGE_CLIENT_BIN="${SEEN_PACKAGE_CLIENT:?}" \
     "$REPO_ROOT/tests/misc_root_tests/seen_release_install_payload.sh"
 run_fixture qwen-project-prerequisites \

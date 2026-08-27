@@ -523,9 +523,11 @@ fun runtimeSourceContentForCache(relativePath: String) r: String {
 }
 
 fun runtimeSourceSignatureForCache() r: String {
-    var input = "runtime-v2"
+    var input = "runtime-v3"
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_runtime.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_runtime.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/reactor_abi.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/reactor_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_gpu.c"))
@@ -1528,7 +1530,7 @@ fun removePathIfExists(path: String) r: Void {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.16.0"
+    return "0.17.0"
 }
 
 fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
@@ -1591,7 +1593,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                 packageObjectManifestSchema:
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
-            runtimeAbi: "runtime-v2",
+            runtimeAbi: "runtime-v3",
             standardLibraryVersion: "0.5.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
@@ -5684,6 +5686,7 @@ fun isStdlibImportRoot(segment: String) r: Bool {
     if segment == "platform" { return true }
     if segment == "process" { return true }
     if segment == "random" { return true }
+    if segment == "reactor" { return true }
     if segment == "scripting" { return true }
     if segment == "security" { return true }
     if segment == "simd" { return true }
@@ -16174,7 +16177,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.16.0"
+    return "0.17.0"
 }
 
 fun printVersion() r: Void {

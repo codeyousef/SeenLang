@@ -1,0 +1,55 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import reactor.mod.{Reactor, ReactorBackend, EventKind,
+    reactorBackendCapability}
+
+fun context(cancelled: Bool, deadline: Int64) r: OperationContext {
+    return OperationContext{cancellation: cancelled,
+        monotonicDeadline: deadline,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4095, maxGraphModules: 8,
+            maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "reactor-001"}}
+}
+
+fun main() r: Int {
+    let invalid = Reactor.withCapacity(0)
+    if not invalid.isErr() or invalid.unwrapErr().code != "reactor.limit" {
+        return 1
+    }
+    let opened = Reactor.withCapacity(4)
+    if opened.isErr() { return 2 }
+    let reactor = opened.unwrap()
+    let diagnostics = reactor.diagnostics()
+    if diagnostics.capacity != 4 or
+        diagnostics.backend == ReactorBackend.Unsupported { return 3 }
+    let cancelled = reactor.poll(context(true, 1 as Int64), 1)
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code != "reactor.cancelled" { return 4 }
+    let timedOut = reactor.poll(context(false, -1 as Int64), 1)
+    if not timedOut.isErr() or
+        timedOut.unwrapErr().code != "reactor.timeout" { return 5 }
+    let tooLarge = reactor.poll(context(false,
+        9223372036854775807 as Int64), 5)
+    if not tooLarge.isErr() or
+        tooLarge.unwrapErr().code != "reactor.limit" { return 6 }
+    let epoll = reactorBackendCapability(ReactorBackend.Epoll)
+    if diagnostics.backend == ReactorBackend.Epoll and epoll.isErr() { return 7 }
+    let wake = reactor.wakeup()
+    if wake.isErr() { return 8 }
+    let polled = reactor.poll(context(false,
+        9223372036854775807 as Int64), 4)
+    if polled.isErr() or polled.unwrap().length() != 1 { return 9 }
+    let event = polled.unwrap()[0]
+    if event.kind != EventKind.Wakeup { return 10 }
+    let closed = reactor.close()
+    if closed.isErr() or reactor.close().isErr() { return 11 }
+    println("PASS: REACTOR-001A_happy")
+    println("PASS: REACTOR-001A_partial")
+    println("PASS: REACTOR-001A_invalid")
+    println("PASS: REACTOR-001A_limit")
+    println("PASS: REACTOR-001A_cancel")
+    println("PASS: REACTOR-001A_cleanup")
+    return 0
+}

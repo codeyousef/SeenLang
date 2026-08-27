@@ -108,6 +108,12 @@ grep -Fq 'qwen_prerequisites.seen' \
 grep -Fq 'seen_json_large_object_release.sh' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits large-object JSON release regression"
+grep -Fq 'seen_safetensors_reader_ownership.sh' \
+    "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
+    fail "fresh-compiler acceptance omits FEL-1538 ownership regression"
+grep -Fq 'seen_reactor_contract.sh' \
+    "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
+    fail "fresh-compiler acceptance omits reactor contract"
 grep -Fq 'ulimit -S -s 8192' "$REQUIRED" ||
     fail "required CI does not pin the hosted-runner stack limit"
 grep -Fq -- '--target-cpu "$RELEASE_TARGET_CPU"' \

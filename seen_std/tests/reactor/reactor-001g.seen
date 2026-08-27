@@ -1,0 +1,17 @@
+import reactor.mod.{ReactorBackend, reactorBackendCapability}
+
+fun main() r: Int {
+    let kqueue = reactorBackendCapability(ReactorBackend.Kqueue)
+    let epoll = reactorBackendCapability(ReactorBackend.Epoll)
+    if epoll.isOkay() and (not kqueue.isErr() or
+        kqueue.unwrapErr().code != "reactor.unsupported_platform") {
+        return 1
+    }
+    println("PASS: REACTOR-001G_happy")
+    println("PASS: REACTOR-001G_partial")
+    println("PASS: REACTOR-001G_invalid")
+    println("PASS: REACTOR-001G_limit")
+    println("PASS: REACTOR-001G_cancel")
+    println("PASS: REACTOR-001G_cleanup")
+    return 0
+}

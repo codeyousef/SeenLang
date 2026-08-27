@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdint.h>
+#include "reactor_abi.h"
 #include <inttypes.h>
 
 // ============================================================================

@@ -92,7 +92,7 @@ WRAPPER_EOF
 compile_runtime() {
     local runtime_key runtime_cache_dir runtime_cache_obj
     runtime_key=$(windows_hash_key \
-        "runtime-v2" \
+        "runtime-v3" \
         "$RUNTIME_DIR/seen_runtime.c" \
         "$RUNTIME_DIR/seen_runtime.h" \
         "$RUNTIME_DIR/seen_region.c" \

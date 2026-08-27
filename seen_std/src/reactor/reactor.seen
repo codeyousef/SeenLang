@@ -1,0 +1,633 @@
+/// Native-Seen reactor policy over narrow platform readiness/completion ABIs.
+
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import time.time.{Instant}
+
+let REACTOR_OK: Int32 = 0 as Int32
+let REACTOR_INVALID: Int32 = 1 as Int32
+let REACTOR_LIMIT: Int32 = 2 as Int32
+let REACTOR_UNAVAILABLE: Int32 = 3 as Int32
+let REACTOR_UNSUPPORTED: Int32 = 4 as Int32
+let REACTOR_INTERRUPTED: Int32 = 5 as Int32
+let REACTOR_NOT_FOUND: Int32 = 6 as Int32
+let REACTOR_BUSY: Int32 = 7 as Int32
+let REACTOR_MAX_CAPACITY: Int = 1048576
+
+extern "C" fun seen_reactor_backend_capability(backend: Int32) r: Int32
+extern "C" fun seen_reactor_create(capacity: UInt64, handle: *UInt64,
+    backend: *Int32) r: Int32
+extern "C" fun seen_reactor_register(handle: UInt64, nativeHandle: Int64,
+    interest: Int32, token: UInt64, generation: UInt64) r: Int32
+extern "C" fun seen_reactor_deregister(handle: UInt64,
+    nativeHandle: Int64, token: UInt64, generation: UInt64) r: Int32
+extern "C" fun seen_reactor_wakeup(handle: UInt64) r: Int32
+extern "C" fun seen_reactor_poll(handle: UInt64, timeoutNanoseconds: Int64,
+    maxEvents: UInt64, count: *UInt64) r: Int32
+extern "C" fun seen_reactor_event(handle: UInt64, index: UInt64,
+    token: *UInt64, generation: *UInt64, flags: *Int32,
+    nativeStatus: *Int64, progress: *UInt64) r: Int32
+extern "C" fun seen_reactor_close(handle: *UInt64) r: Int32
+extern "C" fun seen_reactor_native_handle_close(handle: Int64) r: Int32
+
+extern "C" fun seen_blocking_pool_create(workers: UInt64,
+    capacity: UInt64, handle: *UInt64) r: Int32
+extern "C" fun seen_blocking_pool_submit(handle: UInt64, token: UInt64,
+    functionAddress: Int64, argument: Int64) r: Int32
+extern "C" fun seen_blocking_pool_cancel(handle: UInt64,
+    token: UInt64) r: Int32
+extern "C" fun seen_blocking_pool_completion(handle: UInt64,
+    token: *UInt64, result: *Int64) r: Int32
+extern "C" fun seen_blocking_pool_close(handle: *UInt64) r: Int32
+
+class ReactorError {
+    var code: String
+    var operation: String
+    var nativeStatus: Int
+    var retryable: Bool
+    var completed: UInt64
+}
+
+fun reactorCode(status: Int32) r: String {
+    if status == REACTOR_INVALID { return "reactor.invalid" }
+    if status == REACTOR_LIMIT { return "reactor.limit" }
+    if status == REACTOR_UNAVAILABLE { return "reactor.unavailable" }
+    if status == REACTOR_UNSUPPORTED {
+        return "reactor.unsupported_platform"
+    }
+    if status == REACTOR_INTERRUPTED { return "reactor.unavailable" }
+    if status == REACTOR_NOT_FOUND { return "reactor.invalid" }
+    if status == REACTOR_BUSY { return "reactor.unavailable" }
+    return "reactor.invalid"
+}
+
+fun reactorFailure(status: Int32, operation: String,
+    completed: UInt64) r: ReactorError {
+    return ReactorError{code: reactorCode(status), operation: operation,
+        nativeStatus: status as Int,
+        retryable: status == REACTOR_UNAVAILABLE or
+            status == REACTOR_INTERRUPTED or status == REACTOR_BUSY,
+        completed: completed}
+}
+
+fun reactorContextFailure(context: OperationContext, operation: String)
+    r: Result<Bool, ReactorError> {
+    if context.cancellation {
+        return Err<Bool, ReactorError>(ReactorError{
+            code: "reactor.cancelled", operation: operation,
+            nativeStatus: 0, retryable: false, completed: 0 as UInt64})
+    }
+    if context.monotonicDeadline < (0 as Int64) {
+        return Err<Bool, ReactorError>(ReactorError{
+            code: "reactor.timeout", operation: operation,
+            nativeStatus: 0, retryable: false, completed: 0 as UInt64})
+    }
+    return Ok<Bool, ReactorError>(true)
+}
+
+enum ReactorBackend { Epoll; Kqueue; Iocp; Unsupported }
+enum Interest { Readable; Writable; ReadWrite; Completion }
+enum EventKind { Readiness; Completion; Wakeup; Timer }
+
+fun reactorBackendNumber(backend: ReactorBackend) r: Int32 {
+    if backend == ReactorBackend.Epoll { return 1 as Int32 }
+    if backend == ReactorBackend.Kqueue { return 2 as Int32 }
+    if backend == ReactorBackend.Iocp { return 3 as Int32 }
+    return 0 as Int32
+}
+
+fun reactorBackendFromNumber(backend: Int32) r: ReactorBackend {
+    if backend == (1 as Int32) { return ReactorBackend.Epoll }
+    if backend == (2 as Int32) { return ReactorBackend.Kqueue }
+    if backend == (3 as Int32) { return ReactorBackend.Iocp }
+    return ReactorBackend.Unsupported
+}
+
+fun reactorBackendCapability(backend: ReactorBackend)
+    r: Result<Bool, ReactorError> {
+    let status = seen_reactor_backend_capability(reactorBackendNumber(backend))
+    if status != REACTOR_OK {
+        return Err<Bool, ReactorError>(reactorFailure(status,
+            "backend-capability", 0 as UInt64))
+    }
+    return Ok<Bool, ReactorError>(true)
+}
+
+fun interestFlags(interest: Interest) r: Int32 {
+    if interest == Interest.Readable { return 1 as Int32 }
+    if interest == Interest.Writable { return 2 as Int32 }
+    if interest == Interest.ReadWrite { return 3 as Int32 }
+    return 16 as Int32
+}
+
+@move
+class OwnedHandle {
+    var native: Int64
+    var owned: Bool
+    var valid: Bool
+
+    static fun adopt(native: Int64) r: Result<OwnedHandle, ReactorError> {
+        if native < (0 as Int64) {
+            return Err<OwnedHandle, ReactorError>(reactorFailure(
+                REACTOR_INVALID, "owned-handle.adopt", 0 as UInt64))
+        }
+        return Ok<OwnedHandle, ReactorError>(OwnedHandle{native: native,
+            owned: true, valid: true})
+    }
+
+    static fun borrow(native: Int64) r: Result<OwnedHandle, ReactorError> {
+        if native < (0 as Int64) {
+            return Err<OwnedHandle, ReactorError>(reactorFailure(
+                REACTOR_INVALID, "owned-handle.borrow", 0 as UInt64))
+        }
+        return Ok<OwnedHandle, ReactorError>(OwnedHandle{native: native,
+            owned: false, valid: true})
+    }
+
+    fun close() r: Result<Bool, ReactorError> {
+        if not this.valid { return Ok<Bool, ReactorError>(true) }
+        if this.owned {
+            let status = seen_reactor_native_handle_close(this.native)
+            if status != REACTOR_OK {
+                return Err<Bool, ReactorError>(reactorFailure(status,
+                    "owned-handle.close", 0 as UInt64))
+            }
+        }
+        this.valid = false
+        this.native = -1 as Int64
+        return Ok<Bool, ReactorError>(true)
+    }
+}
+
+class Registration {
+    var token: UInt64
+    var generation: UInt64
+}
+
+class ReactorEntry {
+    var token: UInt64
+    var generation: UInt64
+    var nativeHandle: Int64
+    var owned: Bool
+    var active: Bool
+}
+
+class ReactorTimer {
+    var token: UInt64
+    var generation: UInt64
+    var deadlineNanoseconds: Int64
+    var active: Bool
+}
+
+class Event {
+    var token: UInt64
+    var generation: UInt64
+    var kind: EventKind
+    var readable: Bool
+    var writable: Bool
+    var failed: Bool
+    var hungUp: Bool
+    var nativeStatus: Int64
+    var progress: UInt64
+}
+
+class ReactorDiagnostics {
+    var backend: ReactorBackend
+    var capacity: Int
+    var activeRegistrations: UInt64
+    var polls: UInt64
+    var deliveredEvents: UInt64
+    var wakeups: UInt64
+    var staleEvents: UInt64
+    var deregistrations: UInt64
+    var timerEvents: UInt64
+    var fairTurn: UInt64
+}
+
+@move
+class Reactor {
+    var handle: UInt64
+    var capacity: Int
+    var nextToken: UInt64
+    var nextGeneration: UInt64
+    var entries: Array<ReactorEntry>
+    var timers: Array<ReactorTimer>
+    var diagnosticsValue: ReactorDiagnostics
+
+    static fun withCapacity(capacity: Int) r: Result<Reactor, ReactorError> {
+        if capacity <= 0 or capacity > REACTOR_MAX_CAPACITY {
+            return Err<Reactor, ReactorError>(reactorFailure(REACTOR_LIMIT,
+                "create", 0 as UInt64))
+        }
+        var handle: UInt64 = 0 as UInt64
+        var backend: Int32 = 0 as Int32
+        let status = seen_reactor_create(capacity as UInt64, &handle, &backend)
+        if status != REACTOR_OK {
+            return Err<Reactor, ReactorError>(reactorFailure(status,
+                "create", 0 as UInt64))
+        }
+        let mappedBackend = reactorBackendFromNumber(backend)
+        return Ok<Reactor, ReactorError>(Reactor{handle: handle,
+            capacity: capacity, nextToken: 1 as UInt64,
+            nextGeneration: 1 as UInt64, entries: Array<ReactorEntry>(),
+            timers: Array<ReactorTimer>(),
+            diagnosticsValue: ReactorDiagnostics{backend: mappedBackend,
+                capacity: capacity, activeRegistrations: 0 as UInt64,
+                polls: 0 as UInt64, deliveredEvents: 0 as UInt64,
+                wakeups: 0 as UInt64, staleEvents: 0 as UInt64,
+                deregistrations: 0 as UInt64, timerEvents: 0 as UInt64,
+                fairTurn: 0 as UInt64}})
+    }
+
+    fun allocateIdentity() r: Registration {
+        let token = this.nextToken
+        let generation = this.nextGeneration
+        if this.nextToken == (4294967295 as UInt64) {
+            this.nextToken = 1 as UInt64
+            this.nextGeneration = this.nextGeneration + (1 as UInt64)
+            if this.nextGeneration > (4294967295 as UInt64) {
+                this.nextGeneration = 1 as UInt64
+            }
+        } else {
+            this.nextToken = this.nextToken + (1 as UInt64)
+        }
+        return Registration{token: token, generation: generation}
+    }
+
+    fun register(handle: OwnedHandle, interest: Interest)
+        r: Result<Registration, ReactorError> {
+        if this.handle == (0 as UInt64) or not handle.valid {
+            return Err<Registration, ReactorError>(reactorFailure(
+                REACTOR_INVALID, "register", 0 as UInt64))
+        }
+        if this.diagnosticsValue.activeRegistrations >=
+            (this.capacity as UInt64) {
+            return Err<Registration, ReactorError>(reactorFailure(
+                REACTOR_LIMIT, "register", 0 as UInt64))
+        }
+        let registration = this.allocateIdentity()
+        let status = seen_reactor_register(this.handle, handle.native,
+            interestFlags(interest), registration.token,
+            registration.generation)
+        if status != REACTOR_OK {
+            return Err<Registration, ReactorError>(reactorFailure(status,
+                "register", 0 as UInt64))
+        }
+        var reusableIndex = -1
+        var entryIndex = 0
+        while entryIndex < this.entries.length() {
+            if not this.entries[entryIndex].active and reusableIndex < 0 {
+                reusableIndex = entryIndex
+            }
+            entryIndex = entryIndex + 1
+        }
+        if reusableIndex >= 0 {
+            let reusable = this.entries[reusableIndex]
+            reusable.token = registration.token
+            reusable.generation = registration.generation
+            reusable.nativeHandle = handle.native
+            reusable.owned = handle.owned
+            reusable.active = true
+        } else {
+            this.entries.push(ReactorEntry{token: registration.token,
+                generation: registration.generation,
+                nativeHandle: handle.native, owned: handle.owned, active: true})
+        }
+        handle.valid = false
+        this.diagnosticsValue.activeRegistrations =
+            this.diagnosticsValue.activeRegistrations + (1 as UInt64)
+        return Ok<Registration, ReactorError>(registration)
+    }
+
+    fun deregister(registration: Registration)
+        r: Result<Bool, ReactorError> {
+        var index = 0
+        while index < this.entries.length() {
+            let entry = this.entries[index]
+            if entry.active and entry.token == registration.token and
+                entry.generation == registration.generation {
+                let status = seen_reactor_deregister(this.handle,
+                    entry.nativeHandle, entry.token, entry.generation)
+                if status != REACTOR_OK {
+                    return Err<Bool, ReactorError>(reactorFailure(status,
+                        "deregister", 0 as UInt64))
+                }
+                entry.active = false
+                this.diagnosticsValue.activeRegistrations =
+                    this.diagnosticsValue.activeRegistrations - (1 as UInt64)
+                this.diagnosticsValue.deregistrations =
+                    this.diagnosticsValue.deregistrations + (1 as UInt64)
+                if entry.owned {
+                    let closeStatus = seen_reactor_native_handle_close(
+                        entry.nativeHandle)
+                    if closeStatus != REACTOR_OK {
+                        return Err<Bool, ReactorError>(reactorFailure(
+                            closeStatus, "deregister.close", 0 as UInt64))
+                    }
+                }
+                return Ok<Bool, ReactorError>(true)
+            }
+            index = index + 1
+        }
+        return Err<Bool, ReactorError>(reactorFailure(REACTOR_NOT_FOUND,
+            "deregister", 0 as UInt64))
+    }
+
+    fun wakeup() r: Result<Bool, ReactorError> {
+        let status = seen_reactor_wakeup(this.handle)
+        if status != REACTOR_OK {
+            return Err<Bool, ReactorError>(reactorFailure(status,
+                "wakeup", 0 as UInt64))
+        }
+        this.diagnosticsValue.wakeups = this.diagnosticsValue.wakeups +
+            (1 as UInt64)
+        return Ok<Bool, ReactorError>(true)
+    }
+
+    fun scheduleTimer(deadlineNanoseconds: Int64)
+        r: Result<Registration, ReactorError> {
+        var activeCount = 0
+        var reusableIndex = -1
+        var index = 0
+        while index < this.timers.length() {
+            if this.timers[index].active { activeCount = activeCount + 1 }
+            else if reusableIndex < 0 { reusableIndex = index }
+            index = index + 1
+        }
+        if activeCount >= this.capacity {
+            return Err<Registration, ReactorError>(reactorFailure(
+                REACTOR_LIMIT, "timer.schedule", 0 as UInt64))
+        }
+        let registration = this.allocateIdentity()
+        if reusableIndex >= 0 {
+            let reusable = this.timers[reusableIndex]
+            reusable.token = registration.token
+            reusable.generation = registration.generation
+            reusable.deadlineNanoseconds = deadlineNanoseconds
+            reusable.active = true
+        } else {
+            this.timers.push(ReactorTimer{token: registration.token,
+                generation: registration.generation,
+                deadlineNanoseconds: deadlineNanoseconds, active: true})
+        }
+        return Ok<Registration, ReactorError>(registration)
+    }
+
+    fun cancelTimer(registration: Registration) r: Bool {
+        var index = 0
+        while index < this.timers.length() {
+            let timer = this.timers[index]
+            if timer.active and timer.token == registration.token and
+                timer.generation == registration.generation {
+                timer.active = false
+                return true
+            }
+            index = index + 1
+        }
+        return false
+    }
+
+    fun nearestTimerTimeout(now: Int64, contextDeadline: Int64) r: Int64 {
+        var nearest = contextDeadline
+        var index = 0
+        while index < this.timers.length() {
+            let timer = this.timers[index]
+            if timer.active and timer.deadlineNanoseconds < nearest {
+                nearest = timer.deadlineNanoseconds
+            }
+            index = index + 1
+        }
+        if nearest <= now { return 0 as Int64 }
+        return nearest - now
+    }
+
+    fun hasDueTimer(now: Int64) r: Bool {
+        var index = 0
+        while index < this.timers.length() {
+            if this.timers[index].active and
+                this.timers[index].deadlineNanoseconds <= now { return true }
+            index = index + 1
+        }
+        return false
+    }
+
+    fun appendDueTimers(events: Array<Event>, now: Int64,
+        maxEvents: Int) r: Void {
+        var index = 0
+        while index < this.timers.length() and events.length() < maxEvents {
+            let timer = this.timers[index]
+            if timer.active and timer.deadlineNanoseconds <= now {
+                events.push(Event{token: timer.token,
+                    generation: timer.generation, kind: EventKind.Timer,
+                    readable: false, writable: false, failed: false,
+                    hungUp: false, nativeStatus: 0 as Int64,
+                    progress: 0 as UInt64})
+                timer.active = false
+                this.diagnosticsValue.timerEvents =
+                    this.diagnosticsValue.timerEvents + (1 as UInt64)
+            }
+            index = index + 1
+        }
+    }
+
+    fun poll(context: OperationContext, maxEvents: Int)
+        r: Result<Array<Event>, ReactorError> {
+        let contextCheck = reactorContextFailure(context, "poll")
+        if contextCheck.isErr() {
+            return Err<Array<Event>, ReactorError>(contextCheck.unwrapErr())
+        }
+        if maxEvents <= 0 or maxEvents > this.capacity {
+            return Err<Array<Event>, ReactorError>(reactorFailure(
+                REACTOR_LIMIT, "poll", 0 as UInt64))
+        }
+        let before = Instant.now().nanoseconds
+        if context.monotonicDeadline <= before {
+            return Err<Array<Event>, ReactorError>(ReactorError{
+                code: "reactor.timeout", operation: "poll",
+                nativeStatus: 0, retryable: false, completed: 0 as UInt64})
+        }
+        let dueBeforePoll = this.hasDueTimer(before)
+        var timerFirst = false
+        if dueBeforePoll and
+            (this.diagnosticsValue.fairTurn % (2 as UInt64)) == (1 as UInt64) {
+            timerFirst = true
+        }
+        let events = Array<Event>()
+        if timerFirst { this.appendDueTimers(events, before, maxEvents) }
+        var nativeLimit = maxEvents - events.length()
+        if dueBeforePoll and not timerFirst and nativeLimit > 1 {
+            nativeLimit = nativeLimit - 1
+        }
+        var timeout = this.nearestTimerTimeout(before,
+            context.monotonicDeadline)
+        if dueBeforePoll { timeout = 0 as Int64 }
+        var nativeCount: UInt64 = 0 as UInt64
+        if nativeLimit > 0 {
+            let status = seen_reactor_poll(this.handle, timeout,
+                nativeLimit as UInt64, &nativeCount)
+            if status != REACTOR_OK {
+                return Err<Array<Event>, ReactorError>(reactorFailure(status,
+                    "poll", 0 as UInt64))
+            }
+        }
+        var index: UInt64 = 0 as UInt64
+        while index < nativeCount and events.length() < maxEvents {
+            var token: UInt64 = 0 as UInt64
+            var generation: UInt64 = 0 as UInt64
+            var flags: Int32 = 0 as Int32
+            var nativeStatus: Int64 = 0 as Int64
+            var progress: UInt64 = 0 as UInt64
+            let eventStatus = seen_reactor_event(this.handle, index, &token,
+                &generation, &flags, &nativeStatus, &progress)
+            if eventStatus != REACTOR_OK {
+                return Err<Array<Event>, ReactorError>(reactorFailure(
+                    eventStatus, "poll.event", index))
+            }
+            var kind = EventKind.Readiness
+            if (flags & (32 as Int32)) != (0 as Int32) {
+                kind = EventKind.Wakeup
+            } else if (flags & (16 as Int32)) != (0 as Int32) {
+                kind = EventKind.Completion
+            }
+            events.push(Event{token: token, generation: generation,
+                kind: kind,
+                readable: (flags & (1 as Int32)) != (0 as Int32),
+                writable: (flags & (2 as Int32)) != (0 as Int32),
+                failed: (flags & (4 as Int32)) != (0 as Int32),
+                hungUp: (flags & (8 as Int32)) != (0 as Int32),
+                nativeStatus: nativeStatus, progress: progress})
+            index = index + (1 as UInt64)
+        }
+        this.appendDueTimers(events, Instant.now().nanoseconds, maxEvents)
+        this.diagnosticsValue.polls = this.diagnosticsValue.polls +
+            (1 as UInt64)
+        this.diagnosticsValue.deliveredEvents =
+            this.diagnosticsValue.deliveredEvents +
+            (events.length() as UInt64)
+        this.diagnosticsValue.fairTurn =
+            this.diagnosticsValue.fairTurn + (1 as UInt64)
+        return Ok<Array<Event>, ReactorError>(events)
+    }
+
+    fun diagnostics() r: ReactorDiagnostics {
+        return this.diagnosticsValue
+    }
+
+    fun close() r: Result<Bool, ReactorError> {
+        if this.handle == (0 as UInt64) {
+            return Ok<Bool, ReactorError>(true)
+        }
+        var index = 0
+        var firstFailure: Int32 = REACTOR_OK
+        while index < this.entries.length() {
+            let entry = this.entries[index]
+            if entry.active {
+                let deregisterStatus = seen_reactor_deregister(this.handle,
+                    entry.nativeHandle, entry.token, entry.generation)
+                if deregisterStatus != REACTOR_OK and
+                    deregisterStatus != REACTOR_NOT_FOUND {
+                    firstFailure = deregisterStatus
+                }
+                if entry.owned {
+                    let nativeCloseStatus = seen_reactor_native_handle_close(
+                        entry.nativeHandle)
+                    if nativeCloseStatus != REACTOR_OK and
+                        firstFailure == REACTOR_OK {
+                        firstFailure = nativeCloseStatus
+                    }
+                }
+                entry.active = false
+            }
+            index = index + 1
+        }
+        let status = seen_reactor_close(&this.handle)
+        if status != REACTOR_OK {
+            return Err<Bool, ReactorError>(reactorFailure(status,
+                "close", 0 as UInt64))
+        }
+        this.diagnosticsValue.activeRegistrations = 0 as UInt64
+        if firstFailure != REACTOR_OK {
+            return Err<Bool, ReactorError>(reactorFailure(firstFailure,
+                "close.resource", 0 as UInt64))
+        }
+        return Ok<Bool, ReactorError>(true)
+    }
+}
+
+class BlockingCompletion {
+    var token: UInt64
+    var result: Int64
+}
+
+@move
+class BlockingPool {
+    var handle: UInt64
+    var capacity: Int
+    var workers: Int
+    var submitted: UInt64
+    var completed: UInt64
+    var rejected: UInt64
+
+    static fun create(workers: Int, capacity: Int)
+        r: Result<BlockingPool, ReactorError> {
+        if workers <= 0 or workers > 64 or capacity <= 0 or
+            capacity > REACTOR_MAX_CAPACITY {
+            return Err<BlockingPool, ReactorError>(reactorFailure(
+                REACTOR_LIMIT, "blocking-pool.create", 0 as UInt64))
+        }
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_blocking_pool_create(workers as UInt64,
+            capacity as UInt64, &handle)
+        if status != REACTOR_OK {
+            return Err<BlockingPool, ReactorError>(reactorFailure(status,
+                "blocking-pool.create", 0 as UInt64))
+        }
+        return Ok<BlockingPool, ReactorError>(BlockingPool{handle: handle,
+            capacity: capacity, workers: workers, submitted: 0 as UInt64,
+            completed: 0 as UInt64, rejected: 0 as UInt64})
+    }
+
+    fun submit(token: UInt64, functionAddress: Int64, argument: Int64)
+        r: Result<Bool, ReactorError> {
+        let status = seen_blocking_pool_submit(this.handle, token,
+            functionAddress, argument)
+        if status != REACTOR_OK {
+            this.rejected = this.rejected + (1 as UInt64)
+            return Err<Bool, ReactorError>(reactorFailure(status,
+                "blocking-pool.submit", 0 as UInt64))
+        }
+        this.submitted = this.submitted + (1 as UInt64)
+        return Ok<Bool, ReactorError>(true)
+    }
+
+    fun cancel(token: UInt64) r: Result<Bool, ReactorError> {
+        let status = seen_blocking_pool_cancel(this.handle, token)
+        if status != REACTOR_OK {
+            return Err<Bool, ReactorError>(reactorFailure(status,
+                "blocking-pool.cancel", 0 as UInt64))
+        }
+        return Ok<Bool, ReactorError>(true)
+    }
+
+    fun takeCompletion() r: Result<BlockingCompletion, ReactorError> {
+        var token: UInt64 = 0 as UInt64
+        var result: Int64 = 0 as Int64
+        let status = seen_blocking_pool_completion(this.handle, &token, &result)
+        if status != REACTOR_OK {
+            return Err<BlockingCompletion, ReactorError>(reactorFailure(status,
+                "blocking-pool.completion", 0 as UInt64))
+        }
+        this.completed = this.completed + (1 as UInt64)
+        return Ok<BlockingCompletion, ReactorError>(BlockingCompletion{
+            token: token, result: result})
+    }
+
+    fun close() r: Result<Bool, ReactorError> {
+        let status = seen_blocking_pool_close(&this.handle)
+        if status != REACTOR_OK {
+            return Err<Bool, ReactorError>(reactorFailure(status,
+                "blocking-pool.close", 0 as UInt64))
+        }
+        return Ok<Bool, ReactorError>(true)
+    }
+}

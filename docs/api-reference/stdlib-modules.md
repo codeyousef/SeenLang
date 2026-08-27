@@ -198,6 +198,18 @@ coroutines; readiness scheduling and operating-system queues remain the
 responsibility of backend implementations. See
 `seen_std/examples/async_byte_streams.seen`.
 
+### `reactor`
+
+- `reactor/mod`
+- `reactor/reactor`
+
+The reactor provides move-only native handles, generation-safe registrations,
+finite event batches, prompt wakeups, monotonic timers, fair diagnostics, and a
+fixed-worker bounded blocking pool. Linux epoll, macOS kqueue readiness, and
+Windows IOCP completion share one event contract while retaining explicit
+capability and unsupported-platform diagnostics. See
+`docs/api-reference/reactor.md`.
+
 ### `json`
 
 - `json/builder`

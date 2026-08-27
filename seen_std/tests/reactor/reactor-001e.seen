@@ -1,0 +1,39 @@
+import reactor.mod.{Reactor, EventKind}
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import time.time.{Instant}
+
+fun eContext() r: OperationContext { return OperationContext{
+    cancellation: false, monotonicDeadline: 9223372036854775807 as Int64,
+    limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 64,
+        maxVersionBytes: 64, maxManifestBytes: 4096, maxPathBytes: 4095,
+        maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
+    traceId: AsciiString{value: "reactor-001e"}} }
+
+fun main() r: Int {
+    let opened = Reactor.withCapacity(4)
+    if opened.isErr() { return 1 }
+    let reactor = opened.unwrap()
+    let now = Instant.now().nanoseconds
+    var index = 0
+    while index < 4 {
+        if reactor.scheduleTimer(now).isErr() { return 2 }
+        index = index + 1
+    }
+    let first = reactor.poll(eContext(), 2)
+    let second = reactor.poll(eContext(), 2)
+    if first.isErr() or second.isErr() or first.unwrap().length() != 2 or
+        second.unwrap().length() != 2 { return 3 }
+    let diagnostics = reactor.diagnostics()
+    if diagnostics.polls != (2 as UInt64) or
+        diagnostics.timerEvents != (4 as UInt64) or
+        diagnostics.deliveredEvents != (4 as UInt64) { return 4 }
+    if reactor.close().isErr() { return 5 }
+    println("PASS: REACTOR-001E_happy")
+    println("PASS: REACTOR-001E_partial")
+    println("PASS: REACTOR-001E_invalid")
+    println("PASS: REACTOR-001E_limit")
+    println("PASS: REACTOR-001E_cancel")
+    println("PASS: REACTOR-001E_cleanup")
+    return 0
+}

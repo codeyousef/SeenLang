@@ -1,0 +1,5 @@
+/// Backend-neutral bounded reactor and fixed blocking-pool contracts.
+
+pub import reactor.reactor.{ReactorError, ReactorBackend, Interest, EventKind,
+    OwnedHandle, Registration, Event, ReactorDiagnostics, Reactor,
+    BlockingCompletion, BlockingPool, reactorBackendCapability}

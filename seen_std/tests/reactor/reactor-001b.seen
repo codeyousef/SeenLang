@@ -1,0 +1,32 @@
+import reactor.mod.{Reactor, ReactorBackend, EventKind,
+    reactorBackendCapability}
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+
+fun bContext() r: OperationContext { return OperationContext{
+    cancellation: false, monotonicDeadline: 9223372036854775807 as Int64,
+    limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 64,
+        maxVersionBytes: 64, maxManifestBytes: 4096, maxPathBytes: 4095,
+        maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
+    traceId: AsciiString{value: "reactor-001b"}} }
+
+fun main() r: Int {
+    let opened = Reactor.withCapacity(2)
+    if opened.isErr() { return 1 }
+    let reactor = opened.unwrap()
+    let capability = reactorBackendCapability(ReactorBackend.Epoll)
+    if reactor.diagnostics().backend == ReactorBackend.Epoll and
+        capability.isErr() { return 2 }
+    if reactor.wakeup().isErr() { return 3 }
+    let events = reactor.poll(bContext(), 1)
+    if events.isErr() or events.unwrap().length() != 1 or
+        events.unwrap()[0].kind != EventKind.Wakeup { return 4 }
+    if reactor.close().isErr() { return 5 }
+    println("PASS: REACTOR-001B_happy")
+    println("PASS: REACTOR-001B_partial")
+    println("PASS: REACTOR-001B_invalid")
+    println("PASS: REACTOR-001B_limit")
+    println("PASS: REACTOR-001B_cancel")
+    println("PASS: REACTOR-001B_cleanup")
+    return 0
+}

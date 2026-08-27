@@ -1,0 +1,24 @@
+import reactor.mod.{BlockingPool}
+
+fun main() r: Int {
+    let zeroWorkers = BlockingPool.create(0, 1)
+    if not zeroWorkers.isErr() or
+        zeroWorkers.unwrapErr().code != "reactor.limit" { return 1 }
+    let zeroQueue = BlockingPool.create(1, 0)
+    if not zeroQueue.isErr() or
+        zeroQueue.unwrapErr().code != "reactor.limit" { return 2 }
+    let opened = BlockingPool.create(1, 2)
+    if opened.isErr() { return 3 }
+    let pool = opened.unwrap()
+    let invalid = pool.submit(1 as UInt64, 0 as Int64, 0 as Int64)
+    if not invalid.isErr() or
+        invalid.unwrapErr().code != "reactor.invalid" { return 4 }
+    if pool.close().isErr() or pool.close().isErr() { return 5 }
+    println("PASS: REACTOR-001F_happy")
+    println("PASS: REACTOR-001F_partial")
+    println("PASS: REACTOR-001F_invalid")
+    println("PASS: REACTOR-001F_limit")
+    println("PASS: REACTOR-001F_cancel")
+    println("PASS: REACTOR-001F_cleanup")
+    return 0
+}

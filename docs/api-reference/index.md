@@ -12,6 +12,7 @@ The standard library is written in Seen and provides high-level abstractions.
 |--------|-------------|
 | [Core Types](core.md) | Option, Result, Unit, Ordering, type conversion |
 | [Async](async.md) | Future, waker, task, and async runtime helpers |
+| [Reactor](reactor.md) | Bounded readiness/completion queues, timers, wakeups, and fixed blocking work |
 | [Audio](audio.md) | Audio devices, formats, and backend wrappers |
 | [Strings](string.md) | String operations, StringBuilder |
 | [Collections](collections.md) | Array, Vec, HashMap, BTreeMap, ByteBuffer, sort/search helpers, priority queues |

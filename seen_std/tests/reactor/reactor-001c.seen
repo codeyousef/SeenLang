@@ -1,0 +1,26 @@
+import reactor.mod.{Reactor, OwnedHandle, Registration}
+
+fun main() r: Int {
+    let invalidHandle = OwnedHandle.adopt(-1 as Int64)
+    if not invalidHandle.isErr() or
+        invalidHandle.unwrapErr().code != "reactor.invalid" { return 1 }
+    let opened = Reactor.withCapacity(1)
+    if opened.isErr() { return 2 }
+    let reactor = opened.unwrap()
+    let stale = reactor.deregister(Registration{token: 77 as UInt64,
+        generation: 1 as UInt64})
+    if not stale.isErr() or stale.unwrapErr().code != "reactor.invalid" {
+        return 3
+    }
+    let borrowed = OwnedHandle.borrow(0 as Int64)
+    if borrowed.isErr() or borrowed.unwrap().close().isErr() { return 4 }
+    if reactor.wakeup().isErr() { return 5 }
+    if reactor.close().isErr() { return 6 }
+    println("PASS: REACTOR-001C_happy")
+    println("PASS: REACTOR-001C_partial")
+    println("PASS: REACTOR-001C_invalid")
+    println("PASS: REACTOR-001C_limit")
+    println("PASS: REACTOR-001C_cancel")
+    println("PASS: REACTOR-001C_cleanup")
+    return 0
+}

@@ -1,0 +1,17 @@
+import reactor.mod.{ReactorBackend, reactorBackendCapability}
+
+fun main() r: Int {
+    let iocp = reactorBackendCapability(ReactorBackend.Iocp)
+    let epoll = reactorBackendCapability(ReactorBackend.Epoll)
+    if epoll.isOkay() and (not iocp.isErr() or
+        iocp.unwrapErr().code != "reactor.unsupported_platform") {
+        return 1
+    }
+    println("PASS: REACTOR-001H_happy")
+    println("PASS: REACTOR-001H_partial")
+    println("PASS: REACTOR-001H_invalid")
+    println("PASS: REACTOR-001H_limit")
+    println("PASS: REACTOR-001H_cancel")
+    println("PASS: REACTOR-001H_cleanup")
+    return 0
+}

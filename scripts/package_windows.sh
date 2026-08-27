@@ -31,14 +31,25 @@ prune_packaged_stdlib_artifacts() {
         -prune -exec rm -rf {} +
 }
 
+copy_tracked_runtime_payload() {
+    local destination="$1"
+    local path relative target
+    while IFS= read -r -d '' path; do
+        case "$path" in
+            *.o|*.sig|*.a) continue ;;
+        esac
+        relative="${path#seen_runtime/}"
+        target="$destination/$relative"
+        mkdir -p "$(dirname "$target")"
+        cp "$PROJECT_DIR/$path" "$target"
+    done < <(git -C "$PROJECT_DIR" ls-files -z -- seen_runtime)
+}
+
 windows_payload_hash() {
     if declare -F seen_build_hash_paths >/dev/null 2>&1; then
         seen_build_hash_paths \
             "$PROJECT_DIR/seen_std/src" \
-            "$PROJECT_DIR/seen_runtime/seen_runtime.h" \
-            "$PROJECT_DIR/seen_runtime/seen_region.h" \
-            "$PROJECT_DIR/seen_runtime/seen_gpu.h" \
-            "$PROJECT_DIR/seen_runtime/seen_compat_win32.h" \
+            "$PROJECT_DIR/seen_runtime" \
             "$PROJECT_DIR/languages" \
             "$PROJECT_DIR/docs" \
             "$PROJECT_DIR/installer/windows/install-llvm.ps1" \
@@ -47,10 +58,7 @@ windows_payload_hash() {
             "${SEEN_WINDOWS_LLVM_INSTALLER:-}"
     else
         find "$PROJECT_DIR/seen_std/src" \
-            "$PROJECT_DIR/seen_runtime/seen_runtime.h" \
-            "$PROJECT_DIR/seen_runtime/seen_region.h" \
-            "$PROJECT_DIR/seen_runtime/seen_gpu.h" \
-            "$PROJECT_DIR/seen_runtime/seen_compat_win32.h" \
+            "$PROJECT_DIR/seen_runtime" \
             "$PROJECT_DIR/languages" "$PROJECT_DIR/docs" \
             "$PACKAGE_CLIENT_BIN" \
             -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
@@ -223,14 +231,16 @@ if [ -f "$PROJECT_DIR/seen_std/Seen.toml" ]; then
     cp "$PROJECT_DIR/seen_std/Seen.toml" "$PACKAGE_DIR/lib/seen/std/"
 fi
 
-# --- Runtime headers ---
-for header in seen_runtime.h seen_region.h seen_gpu.h seen_compat_win32.h; do
-    if [ -f "$PROJECT_DIR/seen_runtime/$header" ]; then
-        cp "$PROJECT_DIR/seen_runtime/$header" "$PACKAGE_DIR/lib/seen/runtime/"
-    fi
-done
-HEADER_COUNT=$(find "$PACKAGE_DIR/lib/seen/runtime" -type f | wc -l)
-echo "  lib/seen/runtime/ ($HEADER_COUNT headers)"
+# --- Source-only runtime payload ---
+copy_tracked_runtime_payload "$PACKAGE_DIR/lib/seen/runtime"
+RUNTIME_COUNT=$(find "$PACKAGE_DIR/lib/seen/runtime" -type f | wc -l)
+if find "$PACKAGE_DIR/lib/seen/runtime" -type f \
+    \( -name '*.o' -o -name '*.sig' -o -name '*.a' \) -print -quit |
+    grep -q .; then
+    echo "ERROR: generated runtime object escaped into Windows package" >&2
+    exit 1
+fi
+echo "  lib/seen/runtime/ ($RUNTIME_COUNT source/header files)"
 
 # --- LLVM toolchain / prerequisite helper ---
 TOOLCHAIN_MODE="managed-installer"

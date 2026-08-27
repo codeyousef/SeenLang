@@ -75,6 +75,15 @@
       "production": true
     },
     {
+      "id": "reactor-os-adapter",
+      "subsystem": "stdlib.reactor",
+      "purpose": "Narrow epoll, kqueue, IOCP, wakeup, native-handle, and fixed-worker execution ABI. Native Seen owns bounds, registration generations, readiness/completion scheduling, timers, fairness, cancellation, fallback policy, diagnostics, and exactly-once cleanup. Exercised by named cross-platform capability fixtures plus Linux readiness, stale-generation, cancellation, sanitizer, leak, and 30-sample wakeup contracts.",
+      "abi": "OS event queue C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_blocking_pool_cancel", "seen_blocking_pool_close", "seen_blocking_pool_completion", "seen_blocking_pool_create", "seen_blocking_pool_live_workers", "seen_blocking_pool_submit", "seen_reactor_backend_capability", "seen_reactor_close", "seen_reactor_create", "seen_reactor_deregister", "seen_reactor_event", "seen_reactor_live_handles", "seen_reactor_native_handle_close", "seen_reactor_poll", "seen_reactor_register", "seen_reactor_wakeup"],
+      "production": true
+    },
+    {
       "id": "time-clock-adapter",
       "subsystem": "stdlib.time",
       "purpose": "Narrow clock and sleep normalization ABI. Native Seen owns checked duration geometry, injected/manual clocks, timer queue bounds, missed-tick policy, RFC3339 parsing, cancellation, and backoff. The runtime only reads monotonic/wall clocks and performs an interrupt-safe sleep.",
