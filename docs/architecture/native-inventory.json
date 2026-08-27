@@ -2040,13 +2040,6 @@
       ]
     },
     {
-      "name": "__GetTimestamp",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/time/time.seen"
-      ]
-    },
-    {
       "name": "__HasEnv",
       "abi": "Seen",
       "sources": [
@@ -6034,6 +6027,27 @@
       "abi": "C",
       "sources": [
         "seen_std/src/formats/safetensors.seen"
+      ]
+    },
+    {
+      "name": "seen_time_monotonic_nanos",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/time/time.seen"
+      ]
+    },
+    {
+      "name": "seen_time_sleep_nanos",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/time/time.seen"
+      ]
+    },
+    {
+      "name": "seen_time_system_nanos",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/time/time.seen"
       ]
     },
     {
