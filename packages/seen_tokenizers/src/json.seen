@@ -377,15 +377,22 @@ fun parseTokenizerJson(input: String, limits: TokenizerLimits)
             parsed, spec)
     }
     let vocab = vocabOption.unwrap()
-    let vocabKeys = vocab.keys()
-    if vocabKeys.length() > limits.maxVocab {
+    let vocabCount = vocab.length()
+    if vocabCount > limits.maxVocab {
         return tokenizerJsonFailure("tokenizer.vocab_limit",
             "vocabulary exceeds the configured entry limit", parsed, spec)
     }
     var index = 0
-    while index < vocabKeys.length() {
-        let token = vocabKeys[index]
-        let idValue = vocab.get(token).unwrap()
+    while index < vocabCount {
+        let tokenOption = vocab.keyAt(index)
+        let idValueOption = vocab.valueAt(index)
+        if tokenOption.isNone() or idValueOption.isNone() {
+            return tokenizerJsonFailure("tokenizer.vocab_entry",
+                "vocabulary entry disappeared during indexed traversal",
+                parsed, spec)
+        }
+        let token = tokenOption.unwrap()
+        let idValue = idValueOption.unwrap()
         if token.length() > limits.maxTokenBytes or not idValue.isNumber() {
             return tokenizerJsonFailure("tokenizer.vocab_entry",
                 "vocabulary entry has invalid token bytes or identifier", parsed, spec)

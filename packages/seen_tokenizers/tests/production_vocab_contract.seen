@@ -1,0 +1,52 @@
+import env.env.{args}
+import io.file.{readTextChecked}
+import seen_tokenizers.mod.{parseTokenizerJson, TokenizerLimits}
+
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { panic(message) }
+}
+
+fun main() r: Void {
+    let argv = args()
+    require(argv.length() == 2, "expected production tokenizer fixture")
+    let input = readTextChecked(argv[1])
+    require(input.success, "read production tokenizer fixture")
+
+    let tooSmall = TokenizerLimits{ maxInputBytes: 67108864,
+        maxDepth: 128, maxValues: 2000000, maxTokenBytes: 16777216,
+        maxVocab: 248043, maxMerges: 1000000,
+        maxSpecialTokens: 65536 }
+    let limited = parseTokenizerJson(input.content, tooSmall)
+    require(limited.isErr() and
+        limited.unwrapErr().code == "tokenizer.vocab_limit",
+        "production vocabulary limit must fail closed")
+
+    let parsed = parseTokenizerJson(input.content, TokenizerLimits.qwen())
+    require(not parsed.isErr(), "production UTF-8 vocabulary must parse")
+    let spec = parsed.unwrap()
+    require(spec.tokens.length() == 248044,
+        "production vocabulary count")
+    require(spec.tokenId("token_0_العربية") == 0,
+        "production first token ID")
+    require(spec.tokenId("token_124022_🙂") == 124022,
+        "production middle token ID")
+    require(spec.tokenId("token_248043_العربية") == 248043,
+        "production last token ID")
+    require(spec.tokenForId(0) == "token_0_العربية",
+        "production first ownership transfer")
+    require(spec.tokenForId(248043) == "token_248043_العربية",
+        "production last ownership transfer")
+    spec.close()
+
+    let duplicateInput = readTextChecked(
+        "tests/fixtures/tokenizers/duplicate-id.json")
+    require(duplicateInput.success, "read duplicate-ID fixture")
+    let duplicateId = parseTokenizerJson(duplicateInput.content,
+        TokenizerLimits.qwen())
+    require(duplicateId.isErr() and
+        duplicateId.unwrapErr().code == "tokenizer.duplicate_id",
+        "production path must reject duplicate IDs")
+    println("PASS: production tokenizer traversal, limits, ownership, and cleanup")
+}
+
+main()

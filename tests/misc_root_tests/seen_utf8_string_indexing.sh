@@ -54,4 +54,30 @@ timeout --foreground --kill-after=10s 600s \
 }
 cd "$ROOT_DIR"
 timeout --foreground --kill-after=5s 60s "$TMP_DIR/tokenizers-contract"
+
+awk 'BEGIN {
+    printf "{\"model\":{\"type\":\"BPE\",\"vocab\":{";
+    for (i = 0; i < 248044; i++) {
+        if (i > 0) printf ","
+        if (i % 3 == 0) printf "\"token_%d_العربية\":%d", i, i
+        else if (i % 3 == 1) printf "\"token_%d_中文\":%d", i, i
+        else printf "\"token_%d_🙂\":%d", i, i
+    }
+    printf "},\"merges\":[]},\"added_tokens\":[]}\n"
+}' > "$TMP_DIR/production-tokenizer.json"
+
+cd "$ROOT_DIR/packages/seen_tokenizers"
+timeout --foreground --kill-after=10s 900s \
+    "${COMPILER_PREFIX[@]}" "$COMPILER" compile \
+    tests/production_vocab_contract.seen "$TMP_DIR/production-vocab-contract" \
+    --release --lto thin --no-cache --no-fork --target-cpu x86-64 \
+    --jobs 1 --opt-jobs 1 >"$TMP_DIR/production-compile.log" 2>&1 || {
+    tail -c 32768 "$TMP_DIR/production-compile.log" >&2
+    exit 1
+}
+cd "$ROOT_DIR"
+timeout --foreground --kill-after=10s 900s \
+    bash -c 'ulimit -S -s 8192; exec "$1" "$2"' _ \
+    "$TMP_DIR/production-vocab-contract" \
+    "$TMP_DIR/production-tokenizer.json"
 echo "PASS: FEL-589 UTF-8 byte/codepoint indexing contract"
