@@ -132,7 +132,7 @@ assert_ir_contract() {
     timeout --foreground --kill-after=10s 900s \
         bash "$ATTESTED_SEEN" "$COMPILER" compile "$FIXTURE" \
             --emit-module-ir-dir "$WORK_DIR/ir" --stop-after-ir --no-cache \
-            --jobs 1 --opt-jobs 1 --no-fork --fast \
+            --fast \
             >"$compile_log" 2>&1 || compile_status=$?
     if [ "$compile_status" -ne 0 ]; then
         tail -c 32768 -- "$compile_log" >&2 || true
@@ -164,7 +164,7 @@ compile_and_run() {
 
     timeout --foreground --kill-after=10s 900s \
         bash "$ATTESTED_SEEN" "$COMPILER" compile "$FIXTURE" "$binary" --no-cache \
-            --jobs 1 --opt-jobs 1 --no-fork "$@" \
+            "$@" \
             >"$compile_log" 2>&1 || compile_status=$?
     if [ "$compile_status" -ne 0 ]; then
         tail -c 32768 -- "$compile_log" >&2 || true
@@ -196,7 +196,7 @@ compile_and_run() {
 
 assert_ir_contract
 compile_and_run fast --fast
-compile_and_run release --release --lto thin --target-cpu=x86-64 --no-fork
+compile_and_run release --release --lto thin --target-cpu=x86-64
 compile_and_run undefined --fast --sanitize undefined
 compile_and_run address --fast --sanitize address
 

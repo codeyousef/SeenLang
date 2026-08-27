@@ -1,5 +1,5 @@
 version = 2
-manifest_sha256 = "f23bd699d5c3f4b74eea70dedd28e7534d3e4ec832a7c9bc87eadaf32ef62c45"
+manifest_sha256 = "08e4bfd3aa75d12d7072c22bb4e7b5a53832263c3513b50606c86c6d1ba4cc26"
 
 [root]
 name = "seen_qwen_foundation"
