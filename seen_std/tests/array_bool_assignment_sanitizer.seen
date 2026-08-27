@@ -1,0 +1,23 @@
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { panic(message) }
+}
+
+fun main() r: Void {
+    let values = Array<Bool>()
+    var index = 0
+    while index < 131072 {
+        values.push(false)
+        index = index + 1
+    }
+    index = 0
+    while index < values.length() {
+        values[index] = index % 2 == 0
+        index = index + 1
+    }
+    require(values[0] and not values[1] and values[131070] and
+        not values[131071], "Boolean assignment values")
+    values.free()
+    println("PASS: Boolean Array assignment sanitizer width contract")
+}
+
+main()

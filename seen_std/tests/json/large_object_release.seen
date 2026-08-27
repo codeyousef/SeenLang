@@ -15,17 +15,32 @@ fun main() r: Int {
     let parsed = parseStrictJson(input.content, StrictJsonLimits.manifests())
     require(parsed.isOkay(), "parse large object")
     let root = parsed.unwrap().value.unwrap()
-    require(root.length() == 8192, "large-object entry count")
+    require(root.length() == 248044, "large-object entry count")
+    let seenIds = Array<Bool>()
+    let tokens = Array<String>()
     var index = 0
-    var sum: Int64 = 0
     while index < root.length() {
-        require(root.keyAt(index).isSome(), "large-object indexed key")
+        seenIds.push(false)
+        tokens.push("")
+        let key = root.keyAt(index)
         let value = root.valueAt(index)
+        require(key.isSome(), "large-object indexed key")
         require(value.isSome(), "large-object indexed value")
-        sum = sum + (value.unwrap().getInt() as Int64)
+        seenIds[index] = true
+        tokens[index] = key.unwrap()
+        require(value.unwrap().getInt() == index,
+            "large-object indexed ID")
         index = index + 1
     }
-    require(sum == (33550336 as Int64), "large-object indexed value sum")
+    require(seenIds[0] and seenIds[124022] and seenIds[248043],
+        "large-object Boolean assignment")
+    require(tokens[0] == "token_0_العربية", "large-object first key")
+    require(tokens[124022] == "token_124022_🙂",
+        "large-object middle key")
+    require(tokens[248043] == "token_248043_العربية",
+        "large-object last key")
+    seenIds.free()
+    tokens.free()
     destroyJsonParseResult(parsed.unwrap(), true)
     println("PASS: release-mode strict JSON large-object traversal")
     return 0

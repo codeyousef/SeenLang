@@ -388,6 +388,18 @@ fun emitPrimitiveIndexAssignmentStoreImpl(output: StringBuilder,
         output.append("  store i64 " + storedValueReg + ", ptr " + elemPtrReg + ", align 8, !tbaa !105\n")
         return 1
     }
+    if elementType == "Bool" {
+        let storedValueReg = coerceAssignmentStoreValueCoreImpl(output,
+            regBox, "i64", valueSeenType, valueReg, structNames)
+        output.append("  call void @seen_arr_set_i64(ptr " + arrayReg +
+            ", i64 " + indexReg + ", i64 " + storedValueReg + ")\n")
+        return 1
+    }
+    if elementType == "String" {
+        output.append("  call void @seen_arr_set_str(ptr " + arrayReg +
+            ", i64 " + indexReg + ", %SeenString " + valueReg + ")\n")
+        return 1
+    }
     if elementType == "Float" {
         let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
             "double", valueSeenType, valueReg, structNames)
@@ -409,6 +421,9 @@ fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int
     llvmElementType: String, valueIsStructLiteral: Int, valueSeenType: String,
     structNames: Array<String>) r: Void {
 
+    let stackMarkerReg = getNextRegFn(regBox)
+    output.append("  " + stackMarkerReg +
+        " = call ptr @llvm.stacksave()\n")
     var valuePtrReg = ""
     if isClassTypeImpl(elementType, structNames) == 1 or
         isClassHandleLikeTypeImpl(elementType, structNames) == 1 {
@@ -446,6 +461,8 @@ fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int
         valuePtrReg = tmpReg
     }
     output.append("  call void @Array_set(ptr " + arrayReg + ", i64 " + indexReg + ", ptr " + valuePtrReg + ")\n")
+    output.append("  call void @llvm.stackrestore(ptr " + stackMarkerReg +
+        ")\n")
 }
 
 fun emitPreparedIndexAssignmentStoreImpl(output: StringBuilder,

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+ASAN_RUNNER="$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh"
 SCOPE=seen-json-large-object-release
 RELEASE_TARGET_CPU=x86-64
 
@@ -25,9 +26,11 @@ trap cleanup EXIT
 
 awk 'BEGIN {
     printf "{"
-    for (i = 0; i < 8192; i++) {
+    for (i = 0; i < 248044; i++) {
         if (i > 0) printf ","
-        printf "\"token_%d\":%d", i, i
+        if (i % 3 == 0) printf "\"token_%d_العربية\":%d", i, i
+        else if (i % 3 == 1) printf "\"token_%d_中文\":%d", i, i
+        else printf "\"token_%d_🙂\":%d", i, i
     }
     printf "}\n"
 }' > "$WORK_DIR/object.json"
@@ -38,7 +41,30 @@ timeout --foreground --kill-after=10s 900s \
     "$WORK_DIR/large-object" --release --lto thin --no-cache --no-fork \
     --target-cpu "$RELEASE_TARGET_CPU" --jobs 1 --opt-jobs 1
 timeout --foreground --kill-after=5s 300s \
+    bash -c 'ulimit -S -s 8192; exec "$1" "$2"' _ \
     "$WORK_DIR/large-object" "$WORK_DIR/object.json"
+
+ASAN_COMPILE_LOG="$WORK_DIR/bool-assignment-sanitizer.compile.log"
+if ! timeout --foreground --kill-after=10s 600s \
+    "${COMPILER_PREFIX[@]}" "$COMPILER" compile \
+    "$ROOT_DIR/seen_std/tests/array_bool_assignment_sanitizer.seen" \
+    "$WORK_DIR/bool-assignment-sanitizer" --fast --sanitize=address \
+    --no-cache --no-fork --target-cpu "$RELEASE_TARGET_CPU" \
+    --jobs 1 --opt-jobs 1 >"$ASAN_COMPILE_LOG" 2>&1; then
+
+    tail -c 32768 "$ASAN_COMPILE_LOG" >&2
+    exit 1
+fi
+ASAN_COMMAND=(bash "$ASAN_RUNNER" --target-root "$WORK_DIR" \
+    --compile-log "$ASAN_COMPILE_LOG" -- \
+    "$WORK_DIR/bool-assignment-sanitizer")
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" = 1 ]; then
+    timeout --foreground --kill-after=5s 300s "${ASAN_COMMAND[@]}"
+else
+    timeout --foreground --kill-after=5s 300s \
+        bash "$CAPPED_ENTRY" "$SCOPE-asan" --compiler "$COMPILER" -- \
+        "${ASAN_COMMAND[@]}"
+fi
 
 grep -Fq '@noinline' "$ROOT_DIR/seen_std/src/json/strict.seen" || {
     echo "FAIL: strict JSON parser lost its release stack boundary" >&2

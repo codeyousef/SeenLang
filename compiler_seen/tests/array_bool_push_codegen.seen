@@ -5,6 +5,8 @@ import str.string.{StringBuilder}
 import codegen.llvm_ir_gen.{LLVMIRGenerator}
 import codegen.ir_method_array_mutator_emit.{emitArrayPushMutationImpl}
 import codegen.ir_index_access_gen.{emitFallbackIndexElementAccessImpl}
+import codegen.ir_assignment_gen.{emitPrimitiveIndexAssignmentStoreImpl,
+    emitGenericIndexAssignmentStoreImpl}
 
 fun arrayBoolPushExpect(condition: Bool, message: String) r: Void {
     if not condition { abort(message) }
@@ -22,14 +24,62 @@ fun main() r: Int {
         "%array", "%flag", "Bool", "Array<Bool>", false, structNames)
     let ir = output.toString()
 
-    arrayBoolPushExpect(result != "",
-        "Array<Bool>.push must emit a result register")
+    arrayBoolPushExpect(result == "0",
+        "Array<Bool>.push must use the typed runtime helper")
     arrayBoolPushExpect(ir.contains(" = zext i1 %flag to i64\n"),
         "Array<Bool>.push must widen its i1 value to the eight-byte array ABI")
     arrayBoolPushExpect(not ir.contains("store i64 %flag"),
         "Array<Bool>.push must not store an i1 register as i64")
-    arrayBoolPushExpect(ir.contains("call i64 @Array_push(ptr %array"),
-        "Array<Bool>.push must pass the widened value slot to Array_push")
+    arrayBoolPushExpect(ir.contains(
+        "call void @seen_arr_push_i64(ptr %array"),
+        "Array<Bool>.push must pass the widened value to seen_arr_push_i64")
+    arrayBoolPushExpect(not ir.contains("alloca"),
+        "Array<Bool>.push must not allocate loop-local scratch")
+
+    let boolSetOutput = StringBuilder.new()
+    let boolSetRegisters = Array<Int>()
+    boolSetRegisters.push(0)
+    let boolSetResult = emitPrimitiveIndexAssignmentStoreImpl(boolSetOutput,
+        boolSetRegisters, "%array", "%index", "%flag", "Bool", "Bool",
+        structNames)
+    let boolSetIr = boolSetOutput.toString()
+    arrayBoolPushExpect(boolSetResult == 1,
+        "Array<Bool> assignment must use direct lowering")
+    arrayBoolPushExpect(boolSetIr.contains("zext i1 %flag to i64"),
+        "Array<Bool> assignment must widen its one-byte SSA value")
+    arrayBoolPushExpect(boolSetIr.contains(
+        "call void @seen_arr_set_i64(ptr %array"),
+        "Array<Bool> assignment must use the eight-byte runtime ABI")
+    arrayBoolPushExpect(not boolSetIr.contains("alloca"),
+        "Array<Bool> assignment must not allocate scratch")
+
+    let stringSetOutput = StringBuilder.new()
+    let stringSetRegisters = Array<Int>()
+    stringSetRegisters.push(0)
+    let stringSetResult = emitPrimitiveIndexAssignmentStoreImpl(
+        stringSetOutput, stringSetRegisters, "%strings", "%index", "%text",
+        "String", "String", structNames)
+    let stringSetIr = stringSetOutput.toString()
+    arrayBoolPushExpect(stringSetResult == 1,
+        "Array<String> assignment must use direct lowering")
+    arrayBoolPushExpect(stringSetIr.contains(
+        "call void @seen_arr_set_str(ptr %strings"),
+        "Array<String> assignment must use seen_arr_set_str")
+    arrayBoolPushExpect(not stringSetIr.contains("alloca"),
+        "Array<String> assignment must not allocate scratch")
+
+    let genericSetOutput = StringBuilder.new()
+    let genericSetRegisters = Array<Int>()
+    genericSetRegisters.push(0)
+    emitGenericIndexAssignmentStoreImpl(genericSetOutput,
+        genericSetRegisters, "%values", "%index", "%value", "U16", "i16",
+        0, "U16", structNames)
+    let genericSetIr = genericSetOutput.toString()
+    arrayBoolPushExpect(genericSetIr.contains("call ptr @llvm.stacksave()"),
+        "generic Array assignment must bound synchronous scratch lifetime")
+    arrayBoolPushExpect(genericSetIr.contains(
+        "call void @llvm.stackrestore(ptr"),
+        "generic Array assignment must restore synchronous scratch")
 
     let nestedOutput = StringBuilder.new()
     let nestedRegisters = Array<Int>()
