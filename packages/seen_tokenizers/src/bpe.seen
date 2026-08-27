@@ -1,6 +1,7 @@
 /// Deterministic byte-level BPE with explicit special-token policy.
 
 import core.result.{Result, Ok, Err}
+import str.string.{indexOf}
 import seen_tokenizers.errors.{TokenizerError, tokenizerError}
 import seen_tokenizers.json.{TokenizerSpec}
 import seen_tokenizers.unicode.{tokenizerCodepointLength, tokenizerByteIndex,

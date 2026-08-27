@@ -1,6 +1,7 @@
 /// Bounded Hugging Face byte-BPE tokenizer JSON ingestion.
 
 import core.result.{Result, Ok, Err}
+import str.string.{indexOf}
 import json.strict.{StrictJsonLimits, parseStrictJson}
 import json.parser.{JsonParseResult, destroyJsonParseResult}
 import json.value.{JsonValue}
