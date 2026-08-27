@@ -157,6 +157,9 @@ tests/misc_root_tests/seen_low_task_helper_serialization.sh
 git diff --check
 
 scripts/certify_gate0_clean_checkout.sh
+tests/misc_root_tests/seen_unimported_extension_contract.sh
+tests/misc_root_tests/seen_time_contract.sh
+tests/misc_root_tests/seen_lines_linear_contract.sh
 tests/misc_root_tests/seen_fs_contract.sh
 tests/misc_root_tests/seen_tokenizers_a.sh
 

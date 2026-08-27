@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-08-27
+
+### Added
+
+- Added checked nanosecond `Duration`, monotonic `Instant`, wall-clock
+  `SystemTime`, injectable manual `Clock`, stable time errors, and a minimal
+  ledgered native clock/sleep adapter.
+- Added bounded one-shot and interval timer queues with cancellation,
+  deadline-aware waits, explicit missed-tick policy, and no per-operation
+  worker threads.
+- Added strict RFC 3339 parsing and canonical UTC formatting plus seeded,
+  caller-owned deterministic backoff with bounded attempts and jitter.
+
+### Fixed
+
+- Made unimported extension-style calls fail consistently during both checking
+  and compilation instead of lowering to a latent runtime trap.
+- Made `str.string.lines` a single byte-indexed pass, preserving mixed UTF-8,
+  LF, CR, CRLF, trailing-empty, and `dropEmpty` behavior for the full Qwen
+  merges corpus.
+- Retained the v0.15 large-object JSON, tokenizer, installed-payload, bounded
+  Array mutation, and portable executable repairs as required release
+  regressions so Seen Qwen can proceed against the v0.16 toolchain in parallel.
+- Kept serial builds serial through LLD and ThinLTO, cached every native TEE
+  runtime component as an atomic signed object, and replaced POSIX command
+  capture's fork path with `posix_spawn`, allowing cold-cache builds to remain
+  below the verified 24-task containment ceiling.
+
+### Changed
+
+- Added fast and release/ThinLTO time, extension-resolution, and production
+  line-splitting contracts to required CI after the clean-checkout compiler
+  rebuild.
+
 ## [0.15.0] - 2026-08-26
 
 ### Added

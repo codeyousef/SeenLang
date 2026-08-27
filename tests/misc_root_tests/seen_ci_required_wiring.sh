@@ -134,6 +134,24 @@ grep -Fq 'seen_executable_baseline_contract.sh' "$REQUIRED" ||
 grep -Fq 'seen_release_install_payload.sh' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits installed release payload regression"
+grep -Fq '247587' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_lines_linear_contract.sh" ||
+    fail "lines regression does not preserve the Qwen merges corpus size"
+grep -Fq '3353259' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_lines_linear_contract.sh" ||
+    fail "lines regression does not preserve the Qwen merges byte size"
+grep -Fq 'ulimit -S -s 8192' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_lines_linear_contract.sh" ||
+    fail "lines regression does not enforce the hosted 8 MiB stack"
+grep -Fq -- '--release --lto thin --no-fork' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_lines_linear_contract.sh" ||
+    fail "lines regression omits release ThinLTO execution"
+grep -Fq -- '--release --lto thin --no-fork' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_time_contract.sh" ||
+    fail "time contract omits release ThinLTO execution"
+grep -Fq 'compile "$INVALID"' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_unimported_extension_contract.sh" ||
+    fail "unimported extension regression omits compile/check parity"
 grep -Fq '248044' \
     "$ROOT_DIR/tests/misc_root_tests/seen_json_large_object_release.sh" ||
     fail "large-object regression does not preserve the production vocabulary size"
@@ -225,6 +243,9 @@ for required_command in \
     'tests/misc_root_tests/seen_ci_containment_contract.sh' \
     'tests/misc_root_tests/seen_gate0_certification_contract.sh' \
     'scripts/certify_gate0_clean_checkout.sh' \
+    'tests/misc_root_tests/seen_unimported_extension_contract.sh' \
+    'tests/misc_root_tests/seen_time_contract.sh' \
+    'tests/misc_root_tests/seen_lines_linear_contract.sh' \
     'git diff --check'; do
 
     grep -Fq "$required_command" "$REQUIRED" ||
@@ -233,15 +254,23 @@ done
 
 gate0_line=$(grep -nF 'scripts/certify_gate0_clean_checkout.sh' "$REQUIRED" |
     cut -d: -f1)
+extension_line=$(grep -nF 'tests/misc_root_tests/seen_unimported_extension_contract.sh' "$REQUIRED" |
+    cut -d: -f1)
+time_line=$(grep -nF 'tests/misc_root_tests/seen_time_contract.sh' "$REQUIRED" |
+    cut -d: -f1)
+lines_line=$(grep -nF 'tests/misc_root_tests/seen_lines_linear_contract.sh' "$REQUIRED" |
+    cut -d: -f1)
 fs_line=$(grep -nF 'tests/misc_root_tests/seen_fs_contract.sh' "$REQUIRED" |
     cut -d: -f1)
 tokenizers_line=$(grep -nF 'tests/misc_root_tests/seen_tokenizers_a.sh' "$REQUIRED" |
     cut -d: -f1)
-case "$gate0_line:$fs_line:$tokenizers_line" in
+case "$gate0_line:$extension_line:$time_line:$lines_line:$fs_line:$tokenizers_line" in
     *[!0-9:]*|:*|*::*) fail "build-dependent gate ordering is ambiguous" ;;
 esac
-[ "$fs_line" -gt "$gate0_line" ] && [ "$tokenizers_line" -gt "$gate0_line" ] ||
-    fail "filesystem and tokenizer gates must follow the clean-checkout rebuild"
+[ "$extension_line" -gt "$gate0_line" ] && [ "$time_line" -gt "$gate0_line" ] &&
+    [ "$lines_line" -gt "$gate0_line" ] && [ "$fs_line" -gt "$gate0_line" ] &&
+    [ "$tokenizers_line" -gt "$gate0_line" ] ||
+    fail "compiler, time, string, filesystem, and tokenizer gates must follow the clean-checkout rebuild"
 grep -Fq 'PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT_DIR/compiler_seen/target/seen-pkg}"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_tokenizers_a.sh" ||
     fail "tokenizer gate does not consume the verified rebuild package client"

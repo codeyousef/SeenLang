@@ -18,8 +18,8 @@ func (function backendFunc) Run(ctx context.Context, command string, arguments [
 func TestVersionHandshake(t *testing.T) {
 	t.Parallel()
 	var out, errOut bytes.Buffer
-	code := Run(context.Background(), []string{"--expect-version", "0.15.0", "version", "--machine"}, &out, &errOut)
-	if code != 0 || out.String() != "protocol=SEENPKG1\nversion=0.15.0\n" {
+	code := Run(context.Background(), []string{"--expect-version", "0.16.0", "version", "--machine"}, &out, &errOut)
+	if code != 0 || out.String() != "protocol=SEENPKG1\nversion=0.16.0\n" {
 		t.Fatalf("code=%d out=%q err=%q", code, out.String(), errOut.String())
 	}
 	out.Reset()
@@ -69,10 +69,10 @@ func TestGlobalCLIParsing(t *testing.T) {
 		{"long help", []string{"--help"}, 0, "Usage: seen-pkg", ""},
 		{"short help", []string{"-h"}, 0, "Usage: seen-pkg", ""},
 		{"delimiter", []string{"--", "version", "--machine"}, 0, "protocol=", ""},
-		{"identical repeat", []string{"--expect-version=0.15.0", "--expect-version", "0.15.0", "version"}, 0, "seen-pkg", ""},
+		{"identical repeat", []string{"--expect-version=0.16.0", "--expect-version", "0.16.0", "version"}, 0, "seen-pkg", ""},
 		{"unknown", []string{"--unknown"}, 64, "", "unknown global option"},
 		{"missing value", []string{"--expect-version"}, 64, "", "requires a value"},
-		{"conflicting repeat", []string{"--expect-version", "0.15.0", "--expect-version", "0.10.2", "version"}, 64, "", "conflicting values"},
+		{"conflicting repeat", []string{"--expect-version", "0.16.0", "--expect-version", "0.10.2", "version"}, 64, "", "conflicting values"},
 		{"protocol arity", []string{"--protocol-version", "extra"}, 64, "", "does not accept operands"},
 		{"help arity", []string{"--help", "extra"}, 64, "", "does not accept operands"},
 	}

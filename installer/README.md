@@ -1,7 +1,7 @@
 # Seen installer tooling
 
 This directory contains release-packaging scripts and templates for Seen
-0.15.0. It is maintainer tooling, not proof that every package is already
+0.16.0. It is maintainer tooling, not proof that every package is already
 published to a public package-manager repository.
 
 ## Layout
@@ -15,7 +15,7 @@ published to a public package-manager repository.
 - `assets/` — icons and release assets
 
 The checked-in Homebrew and Scoop files are templates. Replace placeholder
-checksums with hashes from the exact 0.15.0 release assets before publishing.
+checksums with hashes from the exact 0.16.0 release assets before publishing.
 
 ## Installed command surface
 
@@ -30,7 +30,7 @@ seen compile src/main.seen my-program
 ./my-program
 ```
 
-Create `Seen.toml` and `src/main.seen` yourself; 0.15.0 does not ship `init`,
+Create `Seen.toml` and `src/main.seen` yourself; 0.16.0 does not ship `init`,
 `build`, `test`, `fmt`, or `clean` commands. New manifests begin with:
 
 ```toml
@@ -54,15 +54,15 @@ helper; binary releases include that helper.
 Examples for the current release version:
 
 ```bash
-installer/linux/build-deb.sh 0.15.0 amd64
-installer/linux/build-rpm.sh 0.15.0 x86_64
-installer/linux/build-appimage.sh 0.15.0 x86_64
-installer/homebrew/generate-formula.sh --version 0.15.0
+installer/linux/build-deb.sh 0.16.0 amd64
+installer/linux/build-rpm.sh 0.16.0 x86_64
+installer/linux/build-appimage.sh 0.16.0 x86_64
+installer/homebrew/generate-formula.sh --version 0.16.0
 ```
 
 ```powershell
-installer\windows\build.bat 0.15.0 x64
-installer\scoop\generate-manifest.ps1 -Version 0.15.0
+installer\windows\build.bat 0.16.0 x64
+installer\scoop\generate-manifest.ps1 -Version 0.16.0
 ```
 
 Each builder has its own host-tool prerequisites. Build release artifacts from
