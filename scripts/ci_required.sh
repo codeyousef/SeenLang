@@ -151,6 +151,7 @@ tests/misc_root_tests/seen_native_inventory_gate.sh
 tests/misc_root_tests/seen_ci_workflow_contract.sh
 tests/misc_root_tests/seen_ci_containment_contract.sh
 tests/misc_root_tests/seen_ci_required_wiring.sh
+tests/misc_root_tests/seen_executable_baseline_contract.sh
 tests/misc_root_tests/seen_memory_guard_fail_closed.sh
 tests/misc_root_tests/seen_low_task_helper_serialization.sh
 git diff --check

@@ -3,6 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+RELEASE_TARGET_CPU="${SEEN_RELEASE_CPU_BASELINE:-x86-64}"
+case "$RELEASE_TARGET_CPU" in
+    x86-64|x86-64-v3) ;;
+    *)
+        echo "FAIL: unsupported tokenizer contract CPU baseline: $RELEASE_TARGET_CPU" >&2
+        exit 2
+        ;;
+esac
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 HARD_SCOPE="$ROOT_DIR/scripts/run_in_hard_memory_scope.sh"
 SCOPE=seen-utf8-string-indexing
@@ -48,11 +56,14 @@ cd "$ROOT_DIR/packages/seen_tokenizers"
 timeout --foreground --kill-after=10s 600s \
     "${COMPILER_PREFIX[@]}" "$COMPILER" compile tests/tokenizers_contract.seen \
     "$TMP_DIR/tokenizers-contract" --release --lto thin --no-cache \
-    --no-fork --jobs 1 --opt-jobs 1 >"$TMP_DIR/compile.log" 2>&1 || {
+    --no-fork --target-cpu "$RELEASE_TARGET_CPU" --jobs 1 --opt-jobs 1 \
+    >"$TMP_DIR/compile.log" 2>&1 || {
     tail -c 32768 "$TMP_DIR/compile.log" >&2
     exit 1
 }
 cd "$ROOT_DIR"
+bash "$ROOT_DIR/scripts/check_x86_executable_baseline.sh" \
+    "$RELEASE_TARGET_CPU" "$TMP_DIR/tokenizers-contract"
 timeout --foreground --kill-after=5s 60s "$TMP_DIR/tokenizers-contract"
 
 awk 'BEGIN {
@@ -70,12 +81,15 @@ cd "$ROOT_DIR/packages/seen_tokenizers"
 timeout --foreground --kill-after=10s 900s \
     "${COMPILER_PREFIX[@]}" "$COMPILER" compile \
     tests/production_vocab_contract.seen "$TMP_DIR/production-vocab-contract" \
-    --release --lto thin --no-cache --no-fork --target-cpu x86-64 \
+    --release --lto thin --no-cache --no-fork \
+    --target-cpu "$RELEASE_TARGET_CPU" \
     --jobs 1 --opt-jobs 1 >"$TMP_DIR/production-compile.log" 2>&1 || {
     tail -c 32768 "$TMP_DIR/production-compile.log" >&2
     exit 1
 }
 cd "$ROOT_DIR"
+bash "$ROOT_DIR/scripts/check_x86_executable_baseline.sh" \
+    "$RELEASE_TARGET_CPU" "$TMP_DIR/production-vocab-contract"
 timeout --foreground --kill-after=10s 900s \
     bash -c 'ulimit -S -s 8192; exec "$1" "$2"' _ \
     "$TMP_DIR/production-vocab-contract" \

@@ -3,6 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
+RELEASE_TARGET_CPU="${SEEN_RELEASE_CPU_BASELINE:-x86-64}"
+case "$RELEASE_TARGET_CPU" in
+    x86-64|x86-64-v3) ;;
+    *)
+        echo "FAIL: unsupported filesystem contract CPU baseline: $RELEASE_TARGET_CPU" >&2
+        exit 2
+        ;;
+esac
 if [ ! -x "$COMPILER" ]; then
     COMPILER="$ROOT_DIR/bootstrap/stage1_frozen"
 fi
@@ -26,7 +34,9 @@ timeout --foreground --kill-after=10s 600s \
     SEEN_DATA_PATH="$ROOT_DIR/languages" \
     "$COMPILER" compile "$ROOT_DIR/seen_std/tests/fs/fs_001_contract.seen" \
     "$BUILD_DIR/test" --release --lto thin --no-cache --no-fork \
-    --jobs 1 --opt-jobs 1
+    --target-cpu "$RELEASE_TARGET_CPU" --jobs 1 --opt-jobs 1
+bash "$ROOT_DIR/scripts/check_x86_executable_baseline.sh" \
+    "$RELEASE_TARGET_CPU" "$BUILD_DIR/test"
 timeout --foreground --kill-after=5s 60s "$BUILD_DIR/test"
 bash "$ROOT_DIR/tests/misc_root_tests/seen_fs_runtime_contract.sh"
 python3 "$ROOT_DIR/scripts/check_native_boundaries.py" \

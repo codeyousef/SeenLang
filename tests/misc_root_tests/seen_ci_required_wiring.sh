@@ -113,6 +113,24 @@ grep -Fq 'ulimit -S -s 8192' "$REQUIRED" ||
 grep -Fq -- '--target-cpu "$RELEASE_TARGET_CPU"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_json_large_object_release.sh" ||
     fail "large-object JSON release regression does not pin the release CPU baseline"
+grep -Fq -- '--target-cpu "$RELEASE_TARGET_CPU"' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_fs_contract.sh" ||
+    fail "filesystem release regression does not pin the release CPU baseline"
+if [ "$(grep -Fc -- '--target-cpu "$RELEASE_TARGET_CPU"' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_utf8_string_indexing.sh")" -lt 2 ]; then
+
+    fail "tokenizer release regressions do not both pin the release CPU baseline"
+fi
+grep -Fq 'scripts/check_x86_executable_baseline.sh' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_fs_contract.sh" ||
+    fail "filesystem release regression lacks executable ISA auditing"
+if [ "$(grep -Fc 'scripts/check_x86_executable_baseline.sh' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_utf8_string_indexing.sh")" -lt 2 ]; then
+
+    fail "tokenizer release regressions lack executable ISA auditing"
+fi
+grep -Fq 'seen_executable_baseline_contract.sh' "$REQUIRED" ||
+    fail "required CI omits executable CPU baseline positive and negative tests"
 grep -Fq 'seen_release_install_payload.sh' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits installed release payload regression"

@@ -70,6 +70,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made installer and signed runtime-component payloads source-only and
   recursive, including CUDA sources, while explicitly removing legacy runtime
   object cache files during upgrades.
+- Pinned post-bootstrap filesystem and tokenizer release contracts to the
+  declared portable CPU baseline and added direct VEX/EVEX executable audits
+  with positive AVX and negative AVX-512 fixtures.
 
 ## [0.14.0] - 2026-08-26
 
