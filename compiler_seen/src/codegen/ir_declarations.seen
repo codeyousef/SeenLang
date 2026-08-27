@@ -266,8 +266,10 @@ fun emitExternDeclImpl(output: StringBuilder,
         externSignature = externSignature + "..."
     }
     externSignature = externSignature + ")"
-    let externDecl = externSignature +
-        " nounwind memory(inaccessiblemem: readwrite)\n"
+    // Foreign functions may read or write through Seen pointer values even
+    // though the current ABI represents those pointers as i64.  Attaching
+    // inaccessiblemem-only here lets LTO delete required out-parameter writes.
+    let externDecl = externSignature + " nounwind\n"
 
     // Skip declaration for LLVM intrinsics (already in ir_declarations.seen)
     if externSymbol.startsWith("llvm.") {

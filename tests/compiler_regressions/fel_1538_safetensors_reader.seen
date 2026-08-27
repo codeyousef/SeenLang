@@ -1,0 +1,100 @@
+import env.env.{get}
+import formats.safetensors.{SafeTensorFile, SafeTensorPolicy}
+
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun requireOpenError(path: String, policy: SafeTensorPolicy,
+    expected: String) r: Void {
+    let opened = SafeTensorFile.open(path, policy)
+    require(opened.isErr(), "expected Safetensors rejection: " + expected)
+    require(opened.unwrapErr().code == expected,
+        "unexpected Safetensors error code for " + expected)
+}
+
+fun main() r: Int {
+    let root = get("SEEN_FEL1538_ROOT")
+    require(root.length() > 0, "FEL-1538 fixture root is required")
+
+    let policy = SafeTensorPolicy.modelWeights()
+    policy.maxHeaderBytes = 1048576 as UInt64
+    policy.maxTensors = 124 as UInt64
+
+    var repetition = 0
+    while repetition < 128 {
+        let opened = SafeTensorFile.open(root + "/minimal.safetensors", policy)
+        if opened.isErr() {
+            abort("open valid one-tensor Safetensors file: " +
+                opened.unwrapErr().code)
+        }
+        require(opened.isOkay(), "open valid one-tensor Safetensors file")
+        let file = opened.unwrap()
+        require(file.metadata.names.length() == 1,
+            "read one-tensor metadata")
+        let tensor = file.metadata.tensor("x")
+        require(tensor.isOkay() and tensor.unwrap().dtype == "F32" and
+            tensor.unwrap().dataLength == (4 as UInt64) and
+            tensor.unwrap().shape.length() == 1 and
+            tensor.unwrap().shape[0] == (1 as UInt64),
+            "validate one-tensor geometry")
+        require(file.close().isOkay(), "close one-tensor file exactly once")
+        repetition = repetition + 1
+    }
+
+    repetition = 0
+    while repetition < 4 {
+        let opened = SafeTensorFile.open(root + "/qwn-023b.safetensors", policy)
+        if opened.isErr() {
+            abort("open locked 124-tensor Qwen fixture: " +
+                opened.unwrapErr().code)
+        }
+        require(opened.isOkay(), "open locked 124-tensor Qwen fixture")
+        let file = opened.unwrap()
+        require(file.metadata.names.length() == 124,
+            "read exactly 124 Qwen tensors")
+        let first = file.metadata.tensor("lm_head.weight")
+        let middle = file.metadata.tensor(
+            "model.language_model.layers.7.self_attn.o_proj.weight")
+        let last = file.metadata.tensor("mtp.norm.weight")
+        require(first.isOkay() and first.unwrap().dataLength ==
+            (49152 as UInt64), "validate first Qwen tensor")
+        require(middle.isOkay() and middle.unwrap().shape.length() == 2 and
+            middle.unwrap().shape[0] == (48 as UInt64) and
+            middle.unwrap().shape[1] == (144 as UInt64),
+            "validate middle Qwen tensor")
+        require(last.isOkay() and last.unwrap().shape.length() == 1 and
+            last.unwrap().shape[0] == (48 as UInt64),
+            "validate final Qwen tensor")
+        require(file.close().isOkay(), "close Qwen fixture exactly once")
+        repetition = repetition + 1
+    }
+
+    requireOpenError(root + "/duplicate.safetensors", policy,
+        "safetensors.json")
+    requireOpenError(root + "/unknown.safetensors", policy,
+        "safetensors.unknown_field")
+    requireOpenError(root + "/dtype.safetensors", policy,
+        "safetensors.dtype")
+    requireOpenError(root + "/overlap.safetensors", policy,
+        "safetensors.overlap")
+    requireOpenError(root + "/range.safetensors", policy,
+        "safetensors.range")
+    requireOpenError(root + "/truncated.safetensors", policy,
+        "safetensors.truncated")
+
+    let countPolicy = SafeTensorPolicy.modelWeights()
+    countPolicy.maxHeaderBytes = 1048576 as UInt64
+    countPolicy.maxTensors = 123 as UInt64
+    requireOpenError(root + "/qwn-023b.safetensors", countPolicy,
+        "safetensors.policy")
+
+    policy.allowPrefixes.free()
+    policy.denyPrefixes.free()
+    countPolicy.allowPrefixes.free()
+    countPolicy.denyPrefixes.free()
+    println("PASS: FEL-1538 bounded Safetensors reader ownership")
+    return 0
+}
+
+main()

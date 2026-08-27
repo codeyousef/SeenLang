@@ -330,9 +330,8 @@ fun buildDeclareStringImpl(quotedSymbolName: String, declRetLlvm: String,
     declParams: String, useExternMemoryAttrs: Bool) r: String {
 
     var declStr = "declare " + declRetLlvm + " @" + quotedSymbolName + "(" + declParams + ") nounwind"
-    if useExternMemoryAttrs {
-        declStr = declStr + " memory(inaccessiblemem: readwrite)"
-    }
+    // Keep foreign declarations conservative. Pointer parameters are lowered
+    // as i64 handles, so argmem attributes cannot describe their side effects.
     return declStr + "\n"
 }
 

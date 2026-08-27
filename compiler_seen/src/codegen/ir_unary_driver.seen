@@ -3,13 +3,45 @@
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
-import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl}
 import codegen.ir_codegen_type_state.{isClassTypeState}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_unary_expr.{planOverloadedUnaryState, negatedComparisonPredicateImpl, shouldEmitNegatedComparisonForTypesImpl, emitOverloadedUnaryCallImpl, emitUnaryNegationImpl, emitNegatedComparisonImpl, emitUnaryLogicalNotImpl, emitUnaryAddressOfClassValueImpl, emitUnaryAddressOfVariablePtrImpl, emitUnaryDereferenceImpl, isUnaryBitwiseNotOperatorImpl, emitUnaryBitwiseNotImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.ir_field_layout.{emitResolvedFieldAccessPtrImpl}
+
+fun tryEmitUnaryAddressOfMemberFieldState(output: StringBuilder,
+    addrOperand: ParserExpressionNode, varNames: Array<String>,
+    varRegs: Array<String>, varTypes: Array<String>) r: String {
+
+    if addrOperand.kind != "MemberAccess" or
+        addrOperand.literalValue == "" or addrOperand.variableName == "" {
+
+        return ""
+    }
+    let receiverIdx = findActiveVariableIndexImpl(varNames,
+        getBoundedActiveVarCountWithGlobalStateImpl(varNames),
+        addrOperand.literalValue)
+    if receiverIdx < 0 or not isClassTypeState(varTypes[receiverIdx]) {
+        return ""
+    }
+    let receiverValueReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + receiverValueReg + " = load i64, ptr " +
+        varRegs[receiverIdx] + " ; address-of member receiver\n")
+    let receiverPtrReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + receiverPtrReg + " = inttoptr i64 " +
+        receiverValueReg + " to ptr\n")
+    let fieldPtrReg = emitResolvedFieldAccessPtrImpl(output,
+        getFeatureRegBoxImpl(), receiverPtrReg, varTypes[receiverIdx],
+        addrOperand.variableName, getGlobalStructNamesImpl(),
+        getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl())
+    let resultReg = getNextRegFn(getFeatureRegBoxImpl())
+    output.append("  " + resultReg + " = ptrtoint ptr " + fieldPtrReg +
+        " to i64 ; &member — address of field storage\n")
+    return resultReg
+}
 
 fun tryEmitOverloadedUnaryState(ctx: CodegenLoweringContext,
     output: StringBuilder, expr: ParserExpressionNode) r: String {
@@ -85,6 +117,11 @@ fun emitUnaryAddressOfState(ctx: CodegenLoweringContext,
     }
     let addrOperand = expr.operands[0]
     let addrType = inferLoweredExpressionType(ctx, addrOperand)
+    let memberFieldReg = tryEmitUnaryAddressOfMemberFieldState(output,
+        addrOperand, varNames, varRegs, varTypes)
+    if memberFieldReg != "" {
+        return memberFieldReg
+    }
     if addrOperand.kind == "Variable" or addrOperand.kind == "VarExpr" {
         var addrVarName = addrOperand.variableName
         if addrVarName == "" { addrVarName = addrOperand.literalValue }

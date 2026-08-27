@@ -249,17 +249,27 @@ fun parseSafeTensorShardIndex(indexText: String, maxBytes: UInt64 =
         return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
             "safetensors.index_root", "", "weight_map object is required"))
     }
-    let keys = weightMap.unwrap().keys()
-    if (keys.length() as UInt64) > maxTensors {
+    let weightMapValue = weightMap.unwrap()
+    let weightCount = weightMapValue.length()
+    if (weightCount as UInt64) > maxTensors {
         destroySafeTensorShardParts(names, shards)
         destroyJsonParseResult(parsed, true)
         return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
             "safetensors.index_limit", "", "weight_map exceeds tensor limit"))
     }
     var keyIndex = 0
-    while keyIndex < keys.length() {
-        let name = keys[keyIndex]
-        let shardValue = weightMap.unwrap().get(name).unwrap()
+    while keyIndex < weightCount {
+        let nameOption = weightMapValue.keyAt(keyIndex)
+        let shardOption = weightMapValue.valueAt(keyIndex)
+        if nameOption.isNone() or shardOption.isNone() {
+            destroySafeTensorShardParts(names, shards)
+            destroyJsonParseResult(parsed, true)
+            return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
+                "safetensors.index_json", "",
+                "weight_map indexed traversal is inconsistent"))
+        }
+        let name = nameOption.unwrap()
+        let shardValue = shardOption.unwrap()
         if not shardValue.isString() or
             not safeTensorShardNameAllowed(shardValue.getString()) {
             destroySafeTensorShardParts(names, shards)
@@ -572,10 +582,19 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
         return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
             "safetensors.truncated", "", "header exceeds file length"))
     }
-    let rootKeys = root.keys()
+    let rootEntryCount = root.length()
     var keyIndex = 0
-    while keyIndex < rootKeys.length() {
-        let name = rootKeys[keyIndex]
+    while keyIndex < rootEntryCount {
+        let nameOption = root.keyAt(keyIndex)
+        let entryOption = root.valueAt(keyIndex)
+        if nameOption.isNone() or entryOption.isNone() {
+            destroySafeTensorParts(names, tensors)
+            destroyJsonParseResult(result, true)
+            return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
+                "safetensors.json", "",
+                "metadata indexed traversal is inconsistent"))
+        }
+        let name = nameOption.unwrap()
         if name != "__metadata__" {
             if (names.length() as UInt64) >= policy.maxTensors or
                 not safeTensorNameAllowed(name, policy) {
@@ -585,7 +604,7 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
                     "safetensors.policy", name,
                     "tensor count or name policy rejected metadata"))
             }
-            let entry = root.get(name).unwrap()
+            let entry = entryOption.unwrap()
             if not entry.isObject() {
                 destroySafeTensorParts(names, tensors)
                 destroyJsonParseResult(result, true)
