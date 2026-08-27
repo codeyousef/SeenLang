@@ -129,8 +129,12 @@ compile_log_bytes=$(stat -c %s -- "$canonical_compile_log" 2>/dev/null || true)
 is_positive_integer "$compile_log_bytes" &&
     [ "$compile_log_bytes" -le "$MAX_COMPILE_LOG_BYTES" ] ||
     fail "the address-sanitizer compile log is empty or exceeds the bounded size"
-grep -Fq '  Sanitizer: address' "$canonical_compile_log" ||
+if ! grep -Fq '  Sanitizer: address' "$canonical_compile_log" &&
+    ! grep -Eq '^\+ ([^[:space:]]*/)?clang([[:space:]]|$).*[[:space:]]-fsanitize=address([[:space:]]|$)' \
+        "$canonical_compile_log"; then
+
     fail "the compiler log does not attest address-sanitizer instrumentation"
+fi
 timeout 10 readelf -Ws -- "$canonical_binary" 2>/dev/null |
     awk '$NF ~ /^__asan_init(@[^[:space:]]+)?$/ { found = 1 }
         END { exit(found ? 0 : 1) }' ||

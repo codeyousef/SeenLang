@@ -122,6 +122,8 @@ for required in \
     '"$HARD_SCOPE_WRAPPER"' '--verify-only' \
     '"$CAPPED_ENTRY" --verify-active "$SEEN_CAPPED_REGRESSION_SCOPE"' \
     'grep -Fq '\''  Sanitizer: address'\''' \
+    '! grep -Eq' 'clang([[:space:]]|$)' \
+    '-fsanitize=address' \
     'readelf -Ws -- "$canonical_binary"' \
     'hard_vmem_kb=$(ulimit -H -v' \
     'ulimit -H -v "$ASAN_VMEM_LIMIT_KB"' \
