@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seen_std"
-version = "0.4.0"
+version = "0.5.0"
 language = "en"
 visibility = "explicit"
 description = "Core Seen standard library modules used by the self-hosted compiler"
@@ -54,7 +54,11 @@ modules = [
     "src/process/process.seen",
 
     # Time and async
+    "src/time/backoff.seen",
+    "src/time/format.seen",
+    "src/time/mod.seen",
     "src/time/time.seen",
+    "src/time/timer.seen",
     "src/async/runtime.seen",
 
     # FFI and strings

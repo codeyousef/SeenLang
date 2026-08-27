@@ -1,61 +1,130 @@
-///
-seen_std.time.time
-Deterministic timestamp + duration helpers atop __GetTimestamp.
-///
+/// Checked time geometry, monotonic/system clocks, and injectable manual time.
 
-// External runtime intrinsics
-extern fun __GetTimestamp() r: String
+import core.result.{Result, Ok, Err}
 
-fun nowSeconds() r: Int {
-    return parseTimestamp(__GetTimestamp())
+extern fun seen_time_monotonic_nanos() r: Int64
+extern fun seen_time_system_nanos() r: Int64
+extern fun seen_time_sleep_nanos(nanoseconds: Int64) r: Int32
+
+let TIME_NANOS_PER_MICROSECOND: Int64 = 1000 as Int64
+let TIME_NANOS_PER_MILLISECOND: Int64 = 1000000 as Int64
+let TIME_NANOS_PER_SECOND: Int64 = 1000000000 as Int64
+let TIME_MAX_NANOS: Int64 = 9223372036854775807 as Int64
+let TIME_MIN_NANOS: Int64 = (-9223372036854775807 - 1) as Int64
+
+class TimeError { var code: String; var operation: String; var message: String }
+class TimeoutError {
+    var code: String; var operation: String
+    var deadlineNanoseconds: Int64; var observedNanoseconds: Int64
 }
 
-fun nowMillis() r: Int {
-    return nowSeconds() * 1000
+fun timeError(code: String, operation: String, message: String) r: TimeError {
+    return TimeError{code: code, operation: operation, message: message}
 }
 
-fun nowNanos() r: Int {
-    return nowSeconds() * 1000000000
+fun timeoutError(code: String, operation: String, deadline: Int64,
+    observed: Int64) r: TimeoutError {
+    return TimeoutError{code: code, operation: operation,
+        deadlineNanoseconds: deadline, observedNanoseconds: observed}
 }
+
+fun timeSaturatingAdd(left: Int64, right: Int64) r: Int64 {
+    if right > (0 as Int64) and left > TIME_MAX_NANOS - right { return TIME_MAX_NANOS }
+    if right < (0 as Int64) and left < TIME_MIN_NANOS - right { return TIME_MIN_NANOS }
+    return left + right
+}
+
+fun timeSaturatingSub(left: Int64, right: Int64) r: Int64 {
+    if right == TIME_MIN_NANOS {
+        if left >= (0 as Int64) { return TIME_MAX_NANOS }
+        return left - right
+    }
+    return timeSaturatingAdd(left, -right)
+}
+
+fun timeSaturatingMul(value: Int64, factor: Int64) r: Int64 {
+    if value == (0 as Int64) or factor == (0 as Int64) { return 0 as Int64 }
+    if value == TIME_MIN_NANOS and factor == (-1 as Int64) { return TIME_MAX_NANOS }
+    if factor == TIME_MIN_NANOS and value == (-1 as Int64) { return TIME_MAX_NANOS }
+    if value > (0 as Int64) and factor > (0 as Int64) and value > TIME_MAX_NANOS / factor { return TIME_MAX_NANOS }
+    if value < (0 as Int64) and factor < (0 as Int64) and value < TIME_MAX_NANOS / factor { return TIME_MAX_NANOS }
+    if value > (0 as Int64) and factor < (0 as Int64) and factor < TIME_MIN_NANOS / value { return TIME_MIN_NANOS }
+    if value < (0 as Int64) and factor > (0 as Int64) and value < TIME_MIN_NANOS / factor { return TIME_MIN_NANOS }
+    return value * factor
+}
+
+class Duration {
+    var nanoseconds: Int64
+    static fun zero() r: Duration { return Duration{nanoseconds: 0 as Int64} }
+    static fun fromNanoseconds(value: Int64) r: Duration { return Duration{nanoseconds: value} }
+    static fun fromMicroseconds(value: Int64) r: Duration { return Duration{nanoseconds: timeSaturatingMul(value, TIME_NANOS_PER_MICROSECOND)} }
+    static fun fromMilliseconds(value: Int64) r: Duration { return Duration{nanoseconds: timeSaturatingMul(value, TIME_NANOS_PER_MILLISECOND)} }
+    static fun fromSeconds(value: Int64) r: Duration { return Duration{nanoseconds: timeSaturatingMul(value, TIME_NANOS_PER_SECOND)} }
+    fun totalNanoseconds() r: Int64 { return this.nanoseconds }
+    fun totalMicroseconds() r: Int64 { return this.nanoseconds / TIME_NANOS_PER_MICROSECOND }
+    fun totalMilliseconds() r: Int64 { return this.nanoseconds / TIME_NANOS_PER_MILLISECOND }
+    fun totalSeconds() r: Int64 { return this.nanoseconds / TIME_NANOS_PER_SECOND }
+    fun add(other: Duration) r: Duration { return Duration.fromNanoseconds(timeSaturatingAdd(this.nanoseconds, other.nanoseconds)) }
+    fun subtract(other: Duration) r: Duration { return Duration.fromNanoseconds(timeSaturatingSub(this.nanoseconds, other.nanoseconds)) }
+}
+
+class Instant {
+    var nanoseconds: Int64
+    static fun now() r: Instant { return Instant{nanoseconds: seen_time_monotonic_nanos()} }
+    fun add(duration: Duration) r: Instant { return Instant{nanoseconds: timeSaturatingAdd(this.nanoseconds, duration.nanoseconds)} }
+    fun durationSince(earlier: Instant) r: Duration { return Duration.fromNanoseconds(timeSaturatingSub(this.nanoseconds, earlier.nanoseconds)) }
+}
+
+class SystemTime {
+    var unixNanoseconds: Int64
+    static fun now() r: SystemTime { return SystemTime{unixNanoseconds: seen_time_system_nanos()} }
+    fun durationSince(earlier: SystemTime) r: Duration { return Duration.fromNanoseconds(timeSaturatingSub(this.unixNanoseconds, earlier.unixNanoseconds)) }
+}
+
+class Clock {
+    var manual: Bool; var monotonicNanoseconds: Int64; var systemNanoseconds: Int64
+    static fun system() r: Clock { return Clock{manual: false, monotonicNanoseconds: 0 as Int64, systemNanoseconds: 0 as Int64} }
+    static fun manualAt(monotonic: Instant, system: SystemTime) r: Clock { return Clock{manual: true, monotonicNanoseconds: monotonic.nanoseconds, systemNanoseconds: system.unixNanoseconds} }
+    fun nowInstant() r: Instant {
+        if this.manual { return Instant{nanoseconds: this.monotonicNanoseconds} }
+        return Instant.now()
+    }
+    fun nowSystemTime() r: SystemTime {
+        if this.manual { return SystemTime{unixNanoseconds: this.systemNanoseconds} }
+        return SystemTime.now()
+    }
+    fun advance(duration: Duration) r: Result<Instant, TimeError> {
+        if not this.manual { return Err<Instant, TimeError>(timeError("time.unavailable", "clock.advance", "system clocks cannot be advanced")) }
+        if duration.nanoseconds < (0 as Int64) { return Err<Instant, TimeError>(timeError("time.invalid", "clock.advance", "manual clock advance must be non-negative")) }
+        this.monotonicNanoseconds = timeSaturatingAdd(this.monotonicNanoseconds, duration.nanoseconds)
+        this.systemNanoseconds = timeSaturatingAdd(this.systemNanoseconds, duration.nanoseconds)
+        return Ok<Instant, TimeError>(this.nowInstant())
+    }
+}
+
+fun sleep(duration: Duration) r: Result<Unit, TimeError> {
+    if duration.nanoseconds < (0 as Int64) { return Err<Unit, TimeError>(timeError("time.invalid", "sleep", "sleep duration must be non-negative")) }
+    if seen_time_sleep_nanos(duration.nanoseconds) != (0 as Int32) { return Err<Unit, TimeError>(timeError("time.unavailable", "sleep", "the platform sleep operation failed")) }
+    return Ok<Unit, TimeError>(Unit{})
+}
+
+fun nowNanos() r: Int { return SystemTime.now().unixNanoseconds as Int }
+fun nowMillis() r: Int { return nowNanos() / 1000000 }
+fun nowSeconds() r: Int { return nowNanos() / 1000000000 }
 
 fun parseTimestamp(value: String) r: Int {
-    if value.length() == 0 {
-        return 0
-    }
-    var index = 0
-    var sign = 1
-    if value.charAt(0) == '-' {
-        sign = -1
-        index = 1
-    }
+    if value.length() == 0 { return 0 }
+    var index = 0; var sign = 1
+    if value.charAt(0) == '-' { sign = -1; index = 1 }
     var result = 0
     while index < value.length() {
         let ch = value.charAt(index)
-        if ch < '0' or ch > '9' {
-            break
-        }
-        result = result * 10 + (ch - '0')
-        index = index + 1
+        if ch < '0' or ch > '9' { return 0 }
+        result = result * 10 + (ch - '0'); index = index + 1
     }
     return result * sign
 }
 
-class Duration {
-    var seconds: Int
-
-    fun fromSeconds(value: Int) r: Duration {
-        return Duration{ seconds: value }
-    }
-
-    fun totalSeconds() r: Int {
-        return seconds
-    }
-
-    fun totalMillis() r: Int {
-        return seconds * 1000
-    }
-}
-
 fun since(startSeconds: Int) r: Duration {
-    return Duration.fromSeconds(nowSeconds() - startSeconds)
+    return Duration.fromSeconds((nowSeconds() - startSeconds) as Int64)
 }

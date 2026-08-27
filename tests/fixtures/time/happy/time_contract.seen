@@ -1,0 +1,87 @@
+import time.time.{Duration, Instant, SystemTime, Clock, timeSaturatingAdd}
+import time.timer.{MissedTickPolicy, TimerQueue, Timer}
+import time.format.{parseRfc3339, formatRfc3339}
+import time.backoff.{BackoffPolicy}
+import core.operation_context.{OperationLimits, OperationContext}
+import core.error.{AsciiString}
+
+fun context(cancelled: Bool, deadline: Int64) r: OperationContext {
+    return OperationContext{cancellation: cancelled, monotonicDeadline: deadline,
+        limits: OperationLimits{maxTargets: 1, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 1024, maxPathBytes: 256,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "time-test"}}
+}
+
+fun main() r: Int {
+    let saturated = Duration.fromSeconds(9223372036854775807 as Int64)
+    if saturated.nanoseconds != (9223372036854775807 as Int64) {
+        abort("duration multiplication must saturate")
+    }
+    if timeSaturatingAdd(9223372036854775800 as Int64,
+        100 as Int64) != (9223372036854775807 as Int64) {
+        abort("deadline addition must saturate")
+    }
+
+    let epoch = parseRfc3339("1970-01-01T00:00:00Z")
+    if not epoch.isOk { abort("epoch must parse") }
+    if epoch.unwrap().unixNanoseconds != (0 as Int64) { abort("epoch mismatch") }
+    let leap = parseRfc3339("2024-02-29T12:34:56.123456789+02:30")
+    if not leap.isOk { abort("leap timestamp must parse") }
+    let rendered = formatRfc3339(leap.unwrap())
+    if not rendered.isOk { abort("timestamp must format") }
+    if rendered.unwrap() != "2024-02-29T10:04:56.123456789Z" {
+        abort("offset normalization mismatch")
+    }
+    if parseRfc3339("2023-02-29T00:00:00Z").isOk {
+        abort("invalid leap date must fail")
+    }
+    if parseRfc3339("2024-01-01t00:00:00z").isOk {
+        abort("lowercase separators must fail strict parsing")
+    }
+
+    let clock = Clock.manualAt(Instant{nanoseconds: 100 as Int64},
+        SystemTime{unixNanoseconds: 1000 as Int64})
+    let queueResult = TimerQueue.withCapacity(2)
+    if not queueResult.isOk { abort("timer queue must construct") }
+    let queue = queueResult.unwrap()
+    let once = queue.scheduleOnce(Instant{nanoseconds: 110 as Int64})
+    if not once.isOk { abort("one-shot timer must schedule") }
+    let interval = queue.scheduleInterval(Instant{nanoseconds: 105 as Int64},
+        Duration.fromNanoseconds(5 as Int64), MissedTickPolicy.Skip)
+    if not interval.isOk { abort("interval timer must schedule") }
+    if queue.scheduleOnce(Instant{nanoseconds: 120 as Int64}).isOk {
+        abort("bounded queue must reject overflow")
+    }
+    if queue.poll(clock, 2).unwrap().length() != 0 {
+        abort("timers must not fire early")
+    }
+    if not clock.advance(Duration.fromNanoseconds(12 as Int64)).isOk {
+        abort("manual clock must advance")
+    }
+    let ready = queue.poll(clock, 2).unwrap()
+    if ready.length() != 2 { abort("due timers must co-exist in one batch") }
+    if ready[0].missedTicks != 0 and ready[1].missedTicks != 1 {
+        abort("missed-tick evidence must be explicit")
+    }
+
+    let timer = Timer.at(clock, Instant{nanoseconds: 112 as Int64})
+    if not timer.wait(context(false, 112 as Int64)).isOk {
+        abort("elapsed timer must complete")
+    }
+    if timer.wait(context(true, 112 as Int64)).isOk {
+        abort("cancelled timer must fail")
+    }
+
+    let policyResult = BackoffPolicy.create(Duration.fromMilliseconds(10 as Int64),
+        Duration.fromMilliseconds(100 as Int64), 2 as Int64, 1 as Int64,
+        100, 1101 as Int64, 5)
+    if not policyResult.isOk { abort("backoff policy must construct") }
+    let policy = policyResult.unwrap()
+    let first = policy.step(0).unwrap().delay.nanoseconds
+    if first != policy.step(0).unwrap().delay.nanoseconds {
+        abort("backoff must be reproducible")
+    }
+    if policy.step(5).isOk { abort("backoff attempt bound must fail") }
+    return 0
+}

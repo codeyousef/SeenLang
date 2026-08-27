@@ -1,0 +1,202 @@
+/// Strict RFC3339 parsing and canonical UTC formatting.
+
+import core.result.{Result, Ok, Err}
+import str.string.{StringBuilder}
+import time.time.{SystemTime, TimeError, timeError, TIME_NANOS_PER_SECOND,
+    TIME_MAX_NANOS, TIME_MIN_NANOS}
+
+fun timeParseDigits(text: String, start: Int, count: Int) r: Int {
+    if start < 0 or count <= 0 or start + count > text.length() { return -1 }
+    var value = 0; var index = 0
+    while index < count {
+        let byte = text.byteAt(start + index)
+        if byte < 48 or byte > 57 { return -1 }
+        value = value * 10 + byte - 48; index = index + 1
+    }
+    return value
+}
+
+fun timeLeapYear(year: Int) r: Bool {
+    return (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
+}
+
+fun timeDaysInMonth(year: Int, month: Int) r: Int {
+    if month == 2 { if timeLeapYear(year) { return 29 }; return 28 }
+    if month == 4 or month == 6 or month == 9 or month == 11 { return 30 }
+    return 31
+}
+
+fun timeDaysFromCivil(year: Int, month: Int, day: Int) r: Int64 {
+    var adjustedYear = year
+    if month <= 2 { adjustedYear = adjustedYear - 1 }
+    let era = adjustedYear / 400
+    let yearOfEra = adjustedYear - era * 400
+    let shiftedMonth = if month > 2 { month - 3 } else { month + 9 }
+    let dayOfYear = (153 * shiftedMonth + 2) / 5 + day - 1
+    let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+    return (era * 146097 + dayOfEra - 719468) as Int64
+}
+
+fun parseRfc3339(text: String) r: Result<SystemTime, TimeError> {
+    if text.length() < 20 or text.length() > 35 {
+        return Err<SystemTime, TimeError>(timeError("time.invalid",
+            "rfc3339.parse", "timestamp length is invalid"))
+    }
+    if text.byteAt(4) != 45 or text.byteAt(7) != 45 or
+        text.byteAt(10) != 84 or text.byteAt(13) != 58 or
+        text.byteAt(16) != 58 {
+        return Err<SystemTime, TimeError>(timeError("time.invalid",
+            "rfc3339.parse", "timestamp separators are invalid"))
+    }
+    let year = timeParseDigits(text, 0, 4)
+    let month = timeParseDigits(text, 5, 2)
+    let day = timeParseDigits(text, 8, 2)
+    let hour = timeParseDigits(text, 11, 2)
+    let minute = timeParseDigits(text, 14, 2)
+    let second = timeParseDigits(text, 17, 2)
+    if year < 0 or month < 1 or month > 12 or day < 1 or
+        day > timeDaysInMonth(year, month) or hour < 0 or hour > 23 or
+        minute < 0 or minute > 59 or second < 0 or second > 59 {
+        return Err<SystemTime, TimeError>(timeError("time.invalid",
+            "rfc3339.parse", "timestamp component is invalid"))
+    }
+
+    var index = 19
+    var fraction = 0 as Int64
+    var fractionDigits = 0
+    if index < text.length() and text.byteAt(index) == 46 {
+        index = index + 1
+        let fractionStart = index
+        while index < text.length() and text.byteAt(index) >= 48 and
+            text.byteAt(index) <= 57 {
+            if fractionDigits >= 9 {
+                return Err<SystemTime, TimeError>(timeError("time.invalid",
+                    "rfc3339.parse", "fraction exceeds nanosecond precision"))
+            }
+            fraction = fraction * (10 as Int64) +
+                ((text.byteAt(index) - 48) as Int64)
+            fractionDigits = fractionDigits + 1; index = index + 1
+        }
+        if index == fractionStart {
+            return Err<SystemTime, TimeError>(timeError("time.invalid",
+                "rfc3339.parse", "fraction is empty"))
+        }
+        while fractionDigits < 9 {
+            fraction = fraction * (10 as Int64); fractionDigits = fractionDigits + 1
+        }
+    }
+
+    var offsetSeconds = 0 as Int64
+    if index < text.length() and text.byteAt(index) == 90 {
+        index = index + 1
+    } else {
+        if index + 6 != text.length() or
+            (text.byteAt(index) != 43 and text.byteAt(index) != 45) or
+            text.byteAt(index + 3) != 58 {
+            return Err<SystemTime, TimeError>(timeError("time.invalid",
+                "rfc3339.parse", "timezone offset is invalid"))
+        }
+        let sign = if text.byteAt(index) == 45 { -1 } else { 1 }
+        let offsetHour = timeParseDigits(text, index + 1, 2)
+        let offsetMinute = timeParseDigits(text, index + 4, 2)
+        if offsetHour < 0 or offsetHour > 14 or offsetMinute < 0 or
+            offsetMinute > 59 or (offsetHour == 14 and offsetMinute != 0) {
+            return Err<SystemTime, TimeError>(timeError("time.invalid",
+                "rfc3339.parse", "timezone offset is outside RFC3339 bounds"))
+        }
+        offsetSeconds = (sign * (offsetHour * 3600 + offsetMinute * 60)) as Int64
+        index = index + 6
+    }
+    if index != text.length() {
+        return Err<SystemTime, TimeError>(timeError("time.invalid",
+            "rfc3339.parse", "timestamp has trailing input"))
+    }
+    let days = timeDaysFromCivil(year, month, day)
+    let seconds = days * (86400 as Int64) + (hour as Int64) * (3600 as Int64) +
+        (minute as Int64) * (60 as Int64) + (second as Int64) - offsetSeconds
+    if seconds > TIME_MAX_NANOS / TIME_NANOS_PER_SECOND or
+        seconds < TIME_MIN_NANOS / TIME_NANOS_PER_SECOND {
+        return Err<SystemTime, TimeError>(timeError("time.limit",
+            "rfc3339.parse", "timestamp is outside nanosecond range"))
+    }
+    let nanos = seconds * TIME_NANOS_PER_SECOND + fraction
+    if nanos < TIME_MIN_NANOS or nanos > TIME_MAX_NANOS {
+        return Err<SystemTime, TimeError>(timeError("time.limit",
+            "rfc3339.parse", "timestamp is outside nanosecond range"))
+    }
+    return Ok<SystemTime, TimeError>(SystemTime{unixNanoseconds: nanos})
+}
+
+class TimeCivil { var year: Int; var month: Int; var day: Int }
+
+fun timeCivilFromDays(days: Int64) r: TimeCivil {
+    let shifted = days + (719468 as Int64)
+    let era = if shifted >= (0 as Int64) { shifted / (146097 as Int64) }
+        else { (shifted - (146096 as Int64)) / (146097 as Int64) }
+    let dayOfEra = shifted - era * (146097 as Int64)
+    let yearOfEra = (dayOfEra - dayOfEra / (1460 as Int64) +
+        dayOfEra / (36524 as Int64) - dayOfEra / (146096 as Int64)) /
+        (365 as Int64)
+    var year = (yearOfEra + era * (400 as Int64)) as Int
+    let dayOfYear = dayOfEra - ((365 as Int64) * yearOfEra +
+        yearOfEra / (4 as Int64) - yearOfEra / (100 as Int64))
+    let monthPrime = (5 * (dayOfYear as Int) + 2) / 153
+    let day = (dayOfYear as Int) - (153 * monthPrime + 2) / 5 + 1
+    let month = if monthPrime < 10 { monthPrime + 3 } else { monthPrime - 9 }
+    if month <= 2 { year = year + 1 }
+    return TimeCivil{year: year, month: month, day: day}
+}
+
+fun timePad2(value: Int) r: String {
+    if value < 10 { return "0" + value.toString() }
+    return value.toString()
+}
+
+fun timePad4(value: Int) r: String {
+    if value < 10 { return "000" + value.toString() }
+    if value < 100 { return "00" + value.toString() }
+    if value < 1000 { return "0" + value.toString() }
+    return value.toString()
+}
+
+fun timePad9(value: Int64) r: String {
+    var result = value.toString()
+    while result.length() < 9 { result = "0" + result }
+    return result
+}
+
+fun formatRfc3339(value: SystemTime) r: Result<String, TimeError> {
+    var seconds = value.unixNanoseconds / TIME_NANOS_PER_SECOND
+    var fraction = value.unixNanoseconds % TIME_NANOS_PER_SECOND
+    if fraction < (0 as Int64) {
+        seconds = seconds - (1 as Int64)
+        fraction = fraction + TIME_NANOS_PER_SECOND
+    }
+    var days = seconds / (86400 as Int64)
+    var secondOfDay = seconds % (86400 as Int64)
+    if secondOfDay < (0 as Int64) {
+        days = days - (1 as Int64); secondOfDay = secondOfDay + (86400 as Int64)
+    }
+    let civil = timeCivilFromDays(days)
+    if civil.year < 0 or civil.year > 9999 {
+        return Err<String, TimeError>(timeError("time.limit",
+            "rfc3339.format", "year is outside four-digit RFC3339 range"))
+    }
+    let hour = (secondOfDay / (3600 as Int64)) as Int
+    let minute = ((secondOfDay % (3600 as Int64)) / (60 as Int64)) as Int
+    let second = (secondOfDay % (60 as Int64)) as Int
+    let builder = StringBuilder.new()
+    builder.append(timePad4(civil.year)); builder.append("-")
+    builder.append(timePad2(civil.month)); builder.append("-")
+    builder.append(timePad2(civil.day)); builder.append("T")
+    builder.append(timePad2(hour)); builder.append(":")
+    builder.append(timePad2(minute)); builder.append(":")
+    builder.append(timePad2(second))
+    if fraction != (0 as Int64) {
+        var digits = timePad9(fraction)
+        while digits.endsWith("0") { digits = digits.substring(0, digits.length() - 1) }
+        builder.append("."); builder.append(digits)
+    }
+    builder.append("Z")
+    return Ok<String, TimeError>(builder.toString())
+}

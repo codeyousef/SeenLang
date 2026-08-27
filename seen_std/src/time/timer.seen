@@ -1,0 +1,174 @@
+/// Bounded timer readiness source. Scheduling and missed-tick policy stay in Seen.
+
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import time.time.{Clock, Duration, Instant, TimeError, TimeoutError, timeError,
+    timeoutError, timeSaturatingAdd, sleep}
+
+enum MissedTickPolicy { Burst; Skip }
+
+class TimerEvent {
+    var token: Int
+    var scheduledNanoseconds: Int64
+    var observedNanoseconds: Int64
+    var missedTicks: Int
+}
+
+class TimerRegistration {
+    var token: Int
+    var deadlineNanoseconds: Int64
+    var intervalNanoseconds: Int64
+    var policy: MissedTickPolicy
+    var active: Bool
+}
+
+class TimerQueue {
+    var capacity: Int
+    var nextToken: Int
+    var registrations: Array<TimerRegistration>
+
+    static fun withCapacity(capacity: Int) r: Result<TimerQueue, TimeError> {
+        if capacity <= 0 or capacity > 1048576 {
+            return Err<TimerQueue, TimeError>(timeError("time.limit",
+                "timer-queue.create", "timer capacity is outside its bound"))
+        }
+        return Ok<TimerQueue, TimeError>(TimerQueue{capacity: capacity,
+            nextToken: 1, registrations: Array<TimerRegistration>()})
+    }
+
+    fun scheduleOnce(deadline: Instant) r: Result<Int, TimeError> {
+        return this.schedule(deadline, Duration.zero(), MissedTickPolicy.Skip)
+    }
+
+    fun scheduleInterval(deadline: Instant, interval: Duration,
+        policy: MissedTickPolicy) r: Result<Int, TimeError> {
+        if interval.nanoseconds <= (0 as Int64) {
+            return Err<Int, TimeError>(timeError("time.invalid",
+                "timer-queue.interval", "interval must be positive"))
+        }
+        return this.schedule(deadline, interval, policy)
+    }
+
+    fun schedule(deadline: Instant, interval: Duration,
+        policy: MissedTickPolicy) r: Result<Int, TimeError> {
+        var activeCount = 0
+        var reusableIndex = -1
+        var scanIndex = 0
+        while scanIndex < this.registrations.length() {
+            if this.registrations[scanIndex].active {
+                activeCount = activeCount + 1
+            } else if reusableIndex < 0 {
+                reusableIndex = scanIndex
+            }
+            scanIndex = scanIndex + 1
+        }
+        if activeCount >= this.capacity {
+            return Err<Int, TimeError>(timeError("time.limit",
+                "timer-queue.schedule", "timer queue is full"))
+        }
+        let token = this.nextToken
+        if this.nextToken == 9223372036854775807 { this.nextToken = 1 }
+        else { this.nextToken = this.nextToken + 1 }
+        if reusableIndex >= 0 {
+            let reusable = this.registrations[reusableIndex]
+            reusable.token = token
+            reusable.deadlineNanoseconds = deadline.nanoseconds
+            reusable.intervalNanoseconds = interval.nanoseconds
+            reusable.policy = policy
+            reusable.active = true
+        } else {
+            this.registrations.push(TimerRegistration{token: token,
+                deadlineNanoseconds: deadline.nanoseconds,
+                intervalNanoseconds: interval.nanoseconds, policy: policy,
+                active: true})
+        }
+        return Ok<Int, TimeError>(token)
+    }
+
+    fun cancel(token: Int) r: Bool {
+        var index = 0
+        while index < this.registrations.length() {
+            if this.registrations[index].active and
+                this.registrations[index].token == token {
+                this.registrations[index].active = false
+                return true
+            }
+            index = index + 1
+        }
+        return false
+    }
+
+    /// Reactor adapters call poll when their monotonic readiness source fires.
+    fun poll(clock: Clock, maxEvents: Int) r: Result<Array<TimerEvent>, TimeError> {
+        if maxEvents <= 0 or maxEvents > this.capacity {
+            return Err<Array<TimerEvent>, TimeError>(timeError("time.limit",
+                "timer-queue.poll", "event batch bound is invalid"))
+        }
+        let events = Array<TimerEvent>()
+        let observed = clock.nowInstant().nanoseconds
+        var index = 0
+        while index < this.registrations.length() and events.length() < maxEvents {
+            let registration = this.registrations[index]
+            if registration.active and
+                registration.deadlineNanoseconds <= observed {
+                var missed = 0
+                if registration.intervalNanoseconds > (0 as Int64) and
+                    observed > registration.deadlineNanoseconds {
+                    missed = ((observed - registration.deadlineNanoseconds) /
+                        registration.intervalNanoseconds) as Int
+                }
+                events.push(TimerEvent{token: registration.token,
+                    scheduledNanoseconds: registration.deadlineNanoseconds,
+                    observedNanoseconds: observed, missedTicks: missed})
+                if registration.intervalNanoseconds <= (0 as Int64) {
+                    registration.active = false
+                } else if registration.policy == MissedTickPolicy.Skip {
+                    registration.deadlineNanoseconds = timeSaturatingAdd(observed,
+                        registration.intervalNanoseconds)
+                } else {
+                    registration.deadlineNanoseconds = timeSaturatingAdd(
+                        registration.deadlineNanoseconds,
+                        registration.intervalNanoseconds)
+                }
+            }
+            index = index + 1
+        }
+        return Ok<Array<TimerEvent>, TimeError>(events)
+    }
+}
+
+class Timer {
+    var clock: Clock
+    var deadline: Instant
+
+    static fun at(clock: Clock, deadline: Instant) r: Timer {
+        return Timer{clock: clock, deadline: deadline}
+    }
+
+    fun wait(context: OperationContext) r: Result<Unit, TimeoutError> {
+        let observed = this.clock.nowInstant().nanoseconds
+        if context.cancellation {
+            return Err<Unit, TimeoutError>(timeoutError("time.cancelled",
+                "timer.wait", this.deadline.nanoseconds, observed))
+        }
+        if context.monotonicDeadline >= (0 as Int64) and
+            context.monotonicDeadline < this.deadline.nanoseconds {
+            return Err<Unit, TimeoutError>(timeoutError("time.timeout",
+                "timer.wait", this.deadline.nanoseconds, observed))
+        }
+        if observed >= this.deadline.nanoseconds {
+            return Ok<Unit, TimeoutError>(Unit{})
+        }
+        if this.clock.manual {
+            return Err<Unit, TimeoutError>(timeoutError("time.timeout",
+                "timer.wait", this.deadline.nanoseconds, observed))
+        }
+        let sleepResult = sleep(Duration.fromNanoseconds(
+            this.deadline.nanoseconds - observed))
+        if sleepResult.isErr() {
+            return Err<Unit, TimeoutError>(timeoutError("time.unavailable",
+                "timer.wait", this.deadline.nanoseconds, observed))
+        }
+        return Ok<Unit, TimeoutError>(Unit{})
+    }
+}

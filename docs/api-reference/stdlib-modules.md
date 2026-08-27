@@ -310,8 +310,11 @@ responsibility of backend implementations. See
 
 ### `time`
 
+- `time/backoff`
+- `time/format`
 - `time/mod`
 - `time/time`
+- `time/timer`
 
 ### `uww`
 

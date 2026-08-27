@@ -2325,12 +2325,56 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
 
     char* ccmd = seen_runtime_cstring(cmd, "__ExecuteCommand command");
 
+#ifdef _WIN32
     FILE* pipe = popen(ccmd, "r");
     free(ccmd);
-
-    if (!pipe) {
+    if (!pipe) return result;
+#else
+    // popen() is normally implemented with fork(). Forking a compiler whose
+    // address space contains the complete module graph creates a large
+    // copy-on-write accounting spike and can be killed inside an otherwise
+    // adequately sized hard memory scope. Spawn the shell directly and retain
+    // popen's stdout-capture behavior without cloning the compiler process.
+    extern char **environ;
+    int output_pipe[2];
+    if (pipe(output_pipe) != 0) {
+        free(ccmd);
         return result;
     }
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) {
+        close(output_pipe[0]);
+        close(output_pipe[1]);
+        free(ccmd);
+        return result;
+    }
+    int actions_ok =
+        posix_spawn_file_actions_addclose(&actions, output_pipe[0]) == 0 &&
+        posix_spawn_file_actions_adddup2(&actions, output_pipe[1],
+            STDOUT_FILENO) == 0 &&
+        posix_spawn_file_actions_addclose(&actions, output_pipe[1]) == 0;
+    pid_t command_pid = -1;
+    char* command_argv[] = {"/bin/sh", "-c", ccmd, NULL};
+    int spawn_status = actions_ok
+        ? posix_spawn(&command_pid, "/bin/sh", &actions, NULL,
+            command_argv, environ)
+        : EINVAL;
+    posix_spawn_file_actions_destroy(&actions);
+    close(output_pipe[1]);
+    free(ccmd);
+    if (spawn_status != 0) {
+        close(output_pipe[0]);
+        return result;
+    }
+    FILE* pipe = fdopen(output_pipe[0], "r");
+    if (!pipe) {
+        close(output_pipe[0]);
+        int ignored_status = 0;
+        while (waitpid(command_pid, &ignored_status, 0) < 0 &&
+            errno == EINTR) {}
+        return result;
+    }
+#endif
 
     size_t capacity = 4096;
     char* output = (char*)seen_try_malloc((int64_t)capacity);
@@ -2358,11 +2402,18 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
     }
     output[length] = 0;
 
-    int status = pclose(pipe);
+    int status;
 #ifdef _WIN32
+    status = pclose(pipe);
     // On Windows, pclose/_pclose returns the exit code directly
     result->success = (status == 0);
 #else
+    fclose(pipe);
+    pid_t waited;
+    do {
+        waited = waitpid(command_pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited < 0) status = -1;
     result->success = (status != -1 && WIFEXITED(status) && WEXITSTATUS(status) == 0);
 #endif
     result->output.len = length;
@@ -5708,6 +5759,81 @@ void __seen_component_destroy_tree(int64_t id) {
 
     // Mark as destroyed
     info->state = SEEN_COMPONENT_DESTROYED;
+}
+
+int64_t seen_time_monotonic_nanos(void) {
+#ifdef _WIN32
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    if (!QueryPerformanceFrequency(&frequency) ||
+        !QueryPerformanceCounter(&counter) || frequency.QuadPart <= 0) {
+        return -1;
+    }
+    int64_t seconds = counter.QuadPart / frequency.QuadPart;
+    int64_t remainder = counter.QuadPart % frequency.QuadPart;
+    return seconds * INT64_C(1000000000) +
+        (remainder * INT64_C(1000000000)) / frequency.QuadPart;
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return -1;
+    return (int64_t)ts.tv_sec * INT64_C(1000000000) + (int64_t)ts.tv_nsec;
+#endif
+}
+
+int64_t seen_time_system_nanos(void) {
+    const char *deterministic = getenv("SEEN_DETERMINISTIC");
+    const char *epoch = getenv("SOURCE_DATE_EPOCH");
+    if (deterministic && strcmp(deterministic, "1") == 0 && epoch && *epoch) {
+        char *end = NULL;
+        errno = 0;
+        long long seconds = strtoll(epoch, &end, 10);
+        if (errno == 0 && end && *end == '\0' &&
+            seconds <= INT64_MAX / INT64_C(1000000000) &&
+            seconds >= INT64_MIN / INT64_C(1000000000)) {
+            return (int64_t)seconds * INT64_C(1000000000);
+        }
+        return -1;
+    }
+#ifdef _WIN32
+    FILETIME file_time;
+    ULARGE_INTEGER ticks;
+    GetSystemTimeAsFileTime(&file_time);
+    ticks.LowPart = file_time.dwLowDateTime;
+    ticks.HighPart = file_time.dwHighDateTime;
+    const uint64_t unix_epoch_ticks = UINT64_C(116444736000000000);
+    if (ticks.QuadPart < unix_epoch_ticks) return -1;
+    uint64_t unix_ticks = ticks.QuadPart - unix_epoch_ticks;
+    if (unix_ticks > (uint64_t)INT64_MAX / UINT64_C(100)) return -1;
+    return (int64_t)(unix_ticks * UINT64_C(100));
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return -1;
+    if ((int64_t)ts.tv_sec > INT64_MAX / INT64_C(1000000000)) return -1;
+    return (int64_t)ts.tv_sec * INT64_C(1000000000) + (int64_t)ts.tv_nsec;
+#endif
+}
+
+int32_t seen_time_sleep_nanos(int64_t nanoseconds) {
+    if (nanoseconds < 0) return 1;
+#ifdef _WIN32
+    uint64_t milliseconds = ((uint64_t)nanoseconds + UINT64_C(999999)) /
+        UINT64_C(1000000);
+    while (milliseconds > UINT32_MAX) {
+        Sleep(UINT32_MAX);
+        milliseconds -= UINT32_MAX;
+    }
+    Sleep((DWORD)milliseconds);
+    return 0;
+#else
+    struct timespec request = {
+        .tv_sec = (time_t)(nanoseconds / INT64_C(1000000000)),
+        .tv_nsec = (long)(nanoseconds % INT64_C(1000000000))
+    };
+    while (nanosleep(&request, &request) != 0) {
+        if (errno != EINTR) return 1;
+    }
+    return 0;
+#endif
 }
 
 typedef struct {

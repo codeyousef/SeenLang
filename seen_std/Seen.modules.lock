@@ -69,8 +69,24 @@ path = "src/process/process.seen"
 hash = "b55c02fa3878c1df326323611d72ee6481e6a4624c3db38a67393b7a507b7bb3"
 
 [[modules]]
+path = "src/time/backoff.seen"
+hash = "529139a77b1e0741943b1d4fd8ca9300fab6b48a5589022572171fbda86a8d6c"
+
+[[modules]]
+path = "src/time/format.seen"
+hash = "b4aa67c261fccd1c5c51ece30c73d5a591d13e266ab3aa61d74a9cc3480749c0"
+
+[[modules]]
+path = "src/time/mod.seen"
+hash = "db6df5b0f6845317cf84624fe69791a75732d3d24f1b3137fa12653cb25853a5"
+
+[[modules]]
 path = "src/time/time.seen"
-hash = "317499bce21965ba3b020ef694e83ea54a8f8f948dabf6a809795aab310cccb3"
+hash = "ebb57641c70ef230a0478b3faa2afd49baba2517b7fde5b6acd60e5dff05c490"
+
+[[modules]]
+path = "src/time/timer.seen"
+hash = "a8a1da1850bead5835929ddab499032f4409c906d7a50102e3c435a9ba069c1c"
 
 [[modules]]
 path = "src/async/runtime.seen"
@@ -82,7 +98,7 @@ hash = "a487cadd0256cfbcb9604cec2ec15632e360798b614f5bd646547d944e40cc7f"
 
 [[modules]]
 path = "src/str/string.seen"
-hash = "21e0ae8ef748e3a406e9d47dc8ca1bb303461bb7a14803f3b3f10201af60b658"
+hash = "77712139801522651f7d863852bdddf2c9654c313f57e0c11949b5b4258a7df2"
 
 [[modules]]
 path = "src/math/math.seen"

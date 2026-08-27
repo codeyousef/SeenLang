@@ -1,0 +1,58 @@
+/// Caller-owned deterministic backoff. This module never retries operations.
+
+import core.result.{Result, Ok, Err}
+import time.time.{Duration, TimeError, timeError, timeSaturatingMul}
+
+class BackoffStep { var attempt: Int; var delay: Duration }
+
+class BackoffPolicy {
+    var initial: Duration
+    var maximum: Duration
+    var multiplierNumerator: Int64
+    var multiplierDenominator: Int64
+    var jitterPermille: Int
+    var seed: Int64
+    var maxAttempts: Int
+
+    static fun create(initial: Duration, maximum: Duration,
+        numerator: Int64, denominator: Int64, jitterPermille: Int,
+        seed: Int64, maxAttempts: Int) r: Result<BackoffPolicy, TimeError> {
+        if initial.nanoseconds < (0 as Int64) or maximum.nanoseconds < initial.nanoseconds or
+            numerator <= (0 as Int64) or denominator <= (0 as Int64) or
+            jitterPermille < 0 or jitterPermille > 1000 or maxAttempts <= 0 or
+            maxAttempts > 1000000 {
+            return Err<BackoffPolicy, TimeError>(timeError("time.invalid",
+                "backoff.create", "backoff policy is invalid"))
+        }
+        return Ok<BackoffPolicy, TimeError>(BackoffPolicy{initial: initial,
+            maximum: maximum, multiplierNumerator: numerator,
+            multiplierDenominator: denominator, jitterPermille: jitterPermille,
+            seed: seed, maxAttempts: maxAttempts})
+    }
+
+    fun step(attempt: Int) r: Result<BackoffStep, TimeError> {
+        if attempt < 0 or attempt >= this.maxAttempts {
+            return Err<BackoffStep, TimeError>(timeError("time.limit",
+                "backoff.step", "attempt is outside the caller-owned bound"))
+        }
+        var nanos = this.initial.nanoseconds
+        var index = 0
+        while index < attempt and nanos < this.maximum.nanoseconds {
+            nanos = timeSaturatingMul(nanos, this.multiplierNumerator) /
+                this.multiplierDenominator
+            if nanos > this.maximum.nanoseconds { nanos = this.maximum.nanoseconds }
+            index = index + 1
+        }
+        if this.jitterPermille > 0 and nanos > (0 as Int64) {
+            let mixed = (this.seed + ((attempt + 1) as Int64) * (1103515245 as Int64)) & (2147483647 as Int64)
+            let span = (this.jitterPermille * 2 + 1) as Int64
+            let offset = (mixed % span) - (this.jitterPermille as Int64)
+            let delta = timeSaturatingMul(nanos, offset) / (1000 as Int64)
+            nanos = nanos + delta
+            if nanos < (0 as Int64) { nanos = 0 as Int64 }
+            if nanos > this.maximum.nanoseconds { nanos = this.maximum.nanoseconds }
+        }
+        return Ok<BackoffStep, TimeError>(BackoffStep{attempt: attempt,
+            delay: Duration.fromNanoseconds(nanos)})
+    }
+}

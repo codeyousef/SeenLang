@@ -1058,6 +1058,13 @@ int64_t seen_barrier_wait(int64_t handle);
 void    seen_barrier_destroy(int64_t handle);
 
 // ============================================================================
+// Time — narrow OS normalization ABI; scheduling policy remains in Seen
+// ============================================================================
+int64_t seen_time_monotonic_nanos(void);
+int64_t seen_time_system_nanos(void);
+int32_t seen_time_sleep_nanos(int64_t nanoseconds);
+
+// ============================================================================
 // Thread-Local Storage
 // ============================================================================
 int64_t seen_tls_new(void);
