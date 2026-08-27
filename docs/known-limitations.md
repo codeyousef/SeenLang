@@ -93,7 +93,7 @@ the nondeterministic usage where allowed.
   explicit `@move` and `@c_resource` bindings. Ownership transfer through
   closure environments and task captures remains unsupported rather than
   implicitly copied.
-- `parallel_for` is capture-free in 0.16.0. Its pthread worker callback has no
+- `parallel_for` is capture-free in 0.17.0. Its pthread worker callback has no
   outer-local environment, so examples must not read or mutate enclosing
   locals. Explicit value/reference/move captures and compiler-proven disjoint
   mutation are future work.

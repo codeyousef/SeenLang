@@ -115,7 +115,7 @@ grep -Fq 'compiler_seen/tests/compatibility_manifest.seen' \
 
 for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
     seen-prebuilt-package-v2 seen-package-interface-v2 \
-    seen-package-object-manifest-v2 runtime-v2 SEENPKG1; do
+    seen-package-object-manifest-v2 runtime-v3 SEENPKG1; do
 
     grep -Fq "$identity" "$PRODUCTION" ||
         fail "production manifest omitted current identity $identity"

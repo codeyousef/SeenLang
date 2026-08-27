@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-08-27
+
+### Added
+
+- Added the backend-neutral bounded `reactor` standard-library surface with
+  move-only native handles, generation-safe registrations, finite readiness
+  and completion batches, cross-thread wakeups, monotonic timers, fair event
+  budgeting, stable diagnostics, and deterministic cleanup.
+- Added real Linux epoll readiness, macOS kqueue readiness, and Windows IOCP
+  completion adapters with explicit capability reporting and no silent backend
+  substitution.
+- Added a fixed-worker bounded blocking pool for operations without native
+  completion support, including queued cancellation, joined shutdown, and
+  worker/queue limit evidence.
+
+### Fixed
+
+- Fixed FEL-1538 by keeping production Safetensors traversal indexed and
+  bounded, preserving the parsed document through metadata cloning, and
+  certifying the exact 124-tensor Qwen header plus repeated ownership cleanup.
+- Corrected compiler lowering for addresses of class fields so foreign
+  close/out-parameter calls receive field storage rather than the field value.
+- Removed an invalid LLVM `inaccessiblemem` claim from general foreign
+  declarations so ThinLTO cannot discard writes through pointer-valued ABI
+  arguments.
+- Made Windows and Unix release payloads recursively source-only for the
+  runtime, including the reactor adapter, while excluding generated objects,
+  signatures, and archives.
+
+### Changed
+
+- Bumped the runtime compatibility identity to `runtime-v3` and added the
+  reactor source set to project-local runtime cache signatures.
+- Added named REACTOR-001A-H fixtures plus native, undefined-behavior,
+  address-sanitizer, cleanup, and 30-sample wakeup contracts to required CI.
+
 ## [0.16.0] - 2026-08-27
 
 ### Added

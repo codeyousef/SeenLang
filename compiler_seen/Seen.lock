@@ -3,5 +3,5 @@ manifest_sha256 = "9fde62e9327476d53b0c6596584ea72c0b7bbcddc31fbdbca806661233304
 
 [root]
 name = "seen_compiler"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = []

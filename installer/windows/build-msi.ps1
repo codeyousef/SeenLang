@@ -2,8 +2,8 @@
 # Requires WiX Toolset v3.11+ (or WiX v4 via dotnet tool)
 #
 # Usage:
-#   .\build-msi.ps1 -Version 0.16.0 -Platform x64
-#   .\build-msi.ps1 -Version 0.16.0 -Platform x64 -SourceDir C:\path\to\staged
+#   .\build-msi.ps1 -Version 0.17.0 -Platform x64
+#   .\build-msi.ps1 -Version 0.17.0 -Platform x64 -SourceDir C:\path\to\staged
 
 param(
     [Parameter(Mandatory=$true)]

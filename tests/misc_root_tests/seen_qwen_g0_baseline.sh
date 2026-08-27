@@ -65,7 +65,7 @@ compiler = Path(os.environ.get("SEEN_BIN", root / "compiler_seen/target/seen"))
 document = {
     "schema": "seen-qwen-baseline-evidence-v1",
     "seen_commit": os.popen(f"git -C '{root}' rev-parse HEAD").read().strip(),
-    "seen_version": "0.16.0",
+    "seen_version": "0.17.0",
     "compiler_sha256": hashlib.sha256(compiler.read_bytes()).hexdigest(),
     "environment_sha256": hashlib.sha256(environment.read_bytes()).hexdigest(),
     "tests": [
