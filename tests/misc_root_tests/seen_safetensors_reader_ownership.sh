@@ -30,7 +30,7 @@ ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
     echo "FAIL: FEL-1538 compiler is unavailable or unsafe" >&2
     exit 1
 }
-PACKAGE_CLIENT="$ROOT_DIR/compiler_seen/target/seen-pkg"
+PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT_DIR/compiler_seen/target/seen-pkg}"
 [ -x "$PACKAGE_CLIENT" ] && [ ! -L "$PACKAGE_CLIENT" ] || {
     echo "FAIL: FEL-1538 matching package client is unavailable or unsafe" >&2
     exit 1
