@@ -14841,6 +14841,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println("    Error: instrumented TEE runtime compilation failed")
                 return 1
             }
+            let useSanitizedTee: CommandResult = runCommand("test -f " +
+                mainCompilerShellQuote(sanitizedTeeRuntimeObj))
+            if not commandWasSuccessful(useSanitizedTee) {
+                println("    Error: required instrumented TEE cache object is unavailable")
+                return 1
+            }
             // The link selection below is shared with non-sanitized builds.
             // Point it at the freshly instrumented object so a stale cached
             // ThinLTO object from another LLVM toolchain is never mixed into
