@@ -1,0 +1,9 @@
+import str.string.{lines}
+
+fun splitMergeLines(text: String) r: Array<String> {
+    return text.lines()
+}
+
+fun main() r: Int {
+    return 0
+}

@@ -540,7 +540,8 @@ fun runtimeSourceSignatureForCache() r: String {
 
 fun runtimeObjectBuildSignature(name: String, sourcePath: String,
     clangMarch: String, picFlag: String, sanitizerFlags: String,
-    pgoFlags: String, effectiveTarget: String, extraFlags: String) r: String {
+    pgoFlags: String, effectiveTarget: String, extraFlags: String,
+    runtimeSourcesSignature: String) r: String {
 
     return hashString("runtime-object-v3|object-cache-abi=" +
         compilerObjectCacheAbiIdentity() + "|" + name + "|src=" +
@@ -548,7 +549,7 @@ fun runtimeObjectBuildSignature(name: String, sourcePath: String,
         hashString(buildToolVersionForCache("clang")) + "|march=" +
         clangMarch + "|pic=" + picFlag + "|sanitize=" + sanitizerFlags +
         "|pgo=" + pgoFlags + "|target=" + effectiveTarget + "|extra=" +
-        extraFlags + "|runtime=" + runtimeSourceSignatureForCache())
+        extraFlags + "|runtime=" + runtimeSourcesSignature)
 }
 
 fun runtimeObjectIsFresh(objectPath: String, signature: String) r: Bool {
@@ -1527,7 +1528,7 @@ fun removePathIfExists(path: String) r: Void {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.15.0"
+    return "0.16.0"
 }
 
 fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
@@ -1591,7 +1592,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
             runtimeAbi: "runtime-v2",
-            standardLibraryVersion: "0.4.0",
+            standardLibraryVersion: "0.5.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
             packageClientProtocol: "SEENPKG1",
@@ -10071,6 +10072,48 @@ fun addUnresolvedFreeCallDiagnostic(result: FrontendResult,
         message))
 }
 
+fun shouldDiagnoseUnimportedExtensionMethod(modulePath: String,
+    moduleProgram: ProgramNode, expr: ParserExpressionNode,
+    boundNames: Array<String>, boundTypes: Array<String>,
+    ownerClassName: String) r: Bool {
+
+    let methodName = stripCallGenericArguments(expr.callee)
+    if methodName == "" { return false }
+    let discovered = findFunctionInAnyParsedModule(g_validationModulePaths,
+        g_validationFrontends, methodName)
+    if discovered.name == "" { return false }
+    if findProgramFunction(moduleProgram, methodName).name != "" {
+        return false
+    }
+    if findImportedFunctionInModules(modulePath, moduleProgram,
+        g_validationModulePaths, g_validationFrontends,
+        methodName).name != "" {
+        return false
+    }
+
+    var receiverType = ""
+    if expr.operands.length() > 0 {
+        receiverType = inferExpressionTypeNameInModules(modulePath,
+            moduleProgram, g_validationModulePaths, g_validationFrontends,
+            expr.operands[0], boundNames, boundTypes, ownerClassName)
+    }
+    if receiverType == "" and expr.literalValue != "" {
+        receiverType = lookupBoundType(boundNames, boundTypes,
+            expr.literalValue)
+    }
+    if receiverType == "" { return false }
+    if findReferencedClassMethodReturnTypeInModules(modulePath, moduleProgram,
+        g_validationModulePaths, g_validationFrontends, receiverType,
+        methodName) != "" {
+        return false
+    }
+    if tryInferBuiltinReceiverMethodCallTypeState(methodName, receiverType,
+        0) != "" {
+        return false
+    }
+    return inferMethodCallTypeTableImpl(methodName) == ""
+}
+
 fun isStringEqualityOperator(operatorName: String) r: Bool {
     return operatorName == "==" or operatorName == "!="
 }
@@ -10582,6 +10625,11 @@ fun checkUnresolvedFreeCallExpression(result: FrontendResult,
     }
 
     if expr.kind == "MethodCall" {
+        if shouldDiagnoseUnimportedExtensionMethod(modulePath, moduleProgram,
+            expr, boundNames, boundTypes, ownerClassName) {
+            addUnresolvedFreeCallDiagnostic(result, modulePath, funcLine,
+                expr.callee)
+        }
         var methodArgIdx = 0
         while methodArgIdx < expr.arguments.length() {
             checkUnresolvedFreeCallExpression(result, modulePath, moduleProgram,
@@ -14691,6 +14739,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var runtimeObj = ""
     let runtimeSrc = rtPrefix + "/seen_runtime.c"
     var teeRuntimeObj = ""
+    var teeSgxRuntimeObj = ""
+    var teeSevRuntimeObj = ""
     let teeRuntimeSrc = rtPrefix + "/seen_tee_common.c"
     let teeSgxRuntimeSrc = rtPrefix + "/seen_tee_sgx.c"
     let teeSevRuntimeSrc = rtPrefix + "/seen_tee_sev.c"
@@ -14700,6 +14750,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let hasTeeSgxRuntime = commandWasSuccessful(teeSgxRuntimeExists)
     let teeSevRuntimeExists: CommandResult = runCommand("test -f " + teeSevRuntimeSrc)
     let hasTeeSevRuntime = commandWasSuccessful(teeSevRuntimeExists)
+    // Hash the complete immutable runtime source set once per build. Repeating
+    // this for every component retained large temporary strings long enough to
+    // exhaust the aggregate build scope on cold caches.
+    let runtimeSourcesSignature = runtimeSourceSignatureForCache()
     var sanitizerClangFlags = buildInstrumentationClangFlags(sanitizePolicy)
     if sanitizePolicy != "" {
         println("  Sanitizer: " + sanitizePolicy)
@@ -14735,7 +14789,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if normalizedCrossTarget == "" and sanitizePolicy == "" {
         let runtimeSig = runtimeObjectBuildSignature("seen_runtime",
             runtimeSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
-            pgoRuntimeSignatureFlags, effectiveTarget, teeRuntimeCompileFlags)
+            pgoRuntimeSignatureFlags, effectiveTarget, teeRuntimeCompileFlags,
+            runtimeSourcesSignature)
         let runtimeObjForSig = runtimeObjectCachePath("seen_runtime",
             runtimeSig)
         if runtimeObjForSig == "" {
@@ -14766,7 +14821,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let teeSig = runtimeObjectBuildSignature("seen_tee_common",
                 teeRuntimeSrc, clangMarch, picCompileFlag,
                 sanitizerClangFlags, pgoRuntimeSignatureFlags, effectiveTarget,
-                teeRuntimeCompileFlags)
+                teeRuntimeCompileFlags, runtimeSourcesSignature)
             let teeRuntimeObjForSig = runtimeObjectCachePath(
                 "seen_tee_common", teeSig)
             if teeRuntimeObjForSig == "" {
@@ -14798,7 +14853,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  [3a] Compiling runtime with sanitizer...")
         let runtimeSig = runtimeObjectBuildSignature("seen_runtime",
             runtimeSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
-            pgoRuntimeSignatureFlags, effectiveTarget, teeRuntimeCompileFlags)
+            pgoRuntimeSignatureFlags, effectiveTarget, teeRuntimeCompileFlags,
+            runtimeSourcesSignature)
         let sanitizedRuntimeObj = runtimeObjectCachePath("seen_runtime",
             runtimeSig)
         if sanitizedRuntimeObj == "" {
@@ -14822,7 +14878,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let teeSig = runtimeObjectBuildSignature("seen_tee_common",
                 teeRuntimeSrc, clangMarch, picCompileFlag,
                 sanitizerClangFlags, pgoRuntimeSignatureFlags,
-                effectiveTarget, teeRuntimeCompileFlags)
+                effectiveTarget, teeRuntimeCompileFlags,
+                runtimeSourcesSignature)
             let sanitizedTeeRuntimeObj = runtimeObjectCachePath(
                 "seen_tee_common", teeSig)
             if sanitizedTeeRuntimeObj == "" {
@@ -14855,6 +14912,61 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
+    // Native links must receive only precompiled TEE objects. Passing SGX or
+    // SEV C sources into the final ThinLTO command makes clang create extra
+    // frontend children at the linker's task peak and can exceed the verified
+    // aggregate pids ceiling even with serial compiler workers.
+    if normalizedCrossTarget == "" and hasTeeSgxRuntime {
+        let teeSgxSig = runtimeObjectBuildSignature("seen_tee_sgx",
+            teeSgxRuntimeSrc, clangMarch, picCompileFlag,
+            sanitizerClangFlags, pgoRuntimeSignatureFlags, effectiveTarget,
+            teeRuntimeCompileFlags, runtimeSourcesSignature)
+        teeSgxRuntimeObj = runtimeObjectCachePath("seen_tee_sgx", teeSgxSig)
+        if teeSgxRuntimeObj == "" {
+            println("    Error: could not create project-local SGX TEE object cache")
+            return 1
+        }
+        if not runtimeObjectIsFresh(teeSgxRuntimeObj, teeSgxSig) {
+            let teeSgxCompileCommand = "clang -O3 -flto=thin " +
+                clangMarch + " -ffunction-sections -fdata-sections -pthread" +
+                sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+                teeRuntimeCompileFlags + " -c -I " +
+                mainCompilerShellQuote(rtPrefix) + " " +
+                mainCompilerShellQuote(teeSgxRuntimeSrc)
+            if not compileRuntimeObjectAtomically(teeSgxRuntimeObj,
+                teeSgxSig, teeSgxCompileCommand) {
+
+                println("    Error: SGX TEE runtime object cache compilation failed")
+                return 1
+            }
+        }
+    }
+    if normalizedCrossTarget == "" and hasTeeSevRuntime {
+        let teeSevSig = runtimeObjectBuildSignature("seen_tee_sev",
+            teeSevRuntimeSrc, clangMarch, picCompileFlag,
+            sanitizerClangFlags, pgoRuntimeSignatureFlags, effectiveTarget,
+            teeRuntimeCompileFlags, runtimeSourcesSignature)
+        teeSevRuntimeObj = runtimeObjectCachePath("seen_tee_sev", teeSevSig)
+        if teeSevRuntimeObj == "" {
+            println("    Error: could not create project-local SEV TEE object cache")
+            return 1
+        }
+        if not runtimeObjectIsFresh(teeSevRuntimeObj, teeSevSig) {
+            let teeSevCompileCommand = "clang -O3 -flto=thin " +
+                clangMarch + " -ffunction-sections -fdata-sections -pthread" +
+                sanitizerClangFlags + pgoClangFlags + picCompileFlag +
+                teeRuntimeCompileFlags + " -c -I " +
+                mainCompilerShellQuote(rtPrefix) + " " +
+                mainCompilerShellQuote(teeSevRuntimeSrc)
+            if not compileRuntimeObjectAtomically(teeSevRuntimeObj,
+                teeSevSig, teeSevCompileCommand) {
+
+                println("    Error: SEV TEE runtime object cache compilation failed")
+                return 1
+            }
+        }
+    }
+
     // Check if pre-compiled runtime exists
     var runtimeArg = ""
     var teeRuntimeSourceArg = ""
@@ -14870,12 +14982,22 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
     if hasTeeSgxRuntime {
-        teeRuntimeSourceArg = teeRuntimeSourceArg + " " +
-            mainCompilerShellQuote(teeSgxRuntimeSrc)
+        if normalizedCrossTarget == "" {
+            teeRuntimeSourceArg = teeRuntimeSourceArg + " " +
+                mainCompilerShellQuote(teeSgxRuntimeObj)
+        } else {
+            teeRuntimeSourceArg = teeRuntimeSourceArg + " " +
+                mainCompilerShellQuote(teeSgxRuntimeSrc)
+        }
     }
     if hasTeeSevRuntime {
-        teeRuntimeSourceArg = teeRuntimeSourceArg + " " +
-            mainCompilerShellQuote(teeSevRuntimeSrc)
+        if normalizedCrossTarget == "" {
+            teeRuntimeSourceArg = teeRuntimeSourceArg + " " +
+                mainCompilerShellQuote(teeSevRuntimeObj)
+        } else {
+            teeRuntimeSourceArg = teeRuntimeSourceArg + " " +
+                mainCompilerShellQuote(teeSevRuntimeSrc)
+        }
     }
     var teeInlineArg = ""
     if teeRuntimeSourceArg != "" {
@@ -14922,7 +15044,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let targetRuntimeSig = runtimeObjectBuildSignature(
                 "seen_runtime_" + effectiveTarget, runtimeSrc, "", "", "",
                 "", effectiveTarget, targetClangDriver + " " +
-                targetClangArgs + targetRuntimeFlags)
+                targetClangArgs + targetRuntimeFlags,
+                runtimeSourcesSignature)
             let rtTargetOut = runtimeObjectCachePath("seen_runtime_" +
                 effectiveTarget, targetRuntimeSig)
             if rtTargetOut == "" {
@@ -14944,7 +15067,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         "seen_tee_common_" + effectiveTarget, teeRuntimeSrc,
                         "", "", "", "", effectiveTarget,
                         targetClangDriver + " " + targetClangArgs +
-                        targetRuntimeFlags)
+                        targetRuntimeFlags, runtimeSourcesSignature)
                     let teeTargetOut = runtimeObjectCachePath(
                         "seen_tee_common_" + effectiveTarget, teeTargetSig)
                     if teeTargetOut == "" {
@@ -15074,14 +15197,18 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         // source-presence link detection from becoming a runtime dependency.
         linkCmd = linkCmd + " -Wl,--as-needed "
     }
-    if g_noFork == 1 and (effectiveTarget == "linux-x86_64" or
+    let serialLinkerRequired = g_noFork == 1 or
+        (g_largeProjectWorkerLimit == 1 and
+        g_largeProjectOptWorkerLimit == 1)
+    if serialLinkerRequired and (effectiveTarget == "linux-x86_64" or
         effectiveTarget == "linux-arm64" or
         effectiveTarget == "linux-riscv64" or
         effectiveTarget == "android-arm64") {
 
-        // A no-fork build is a process-topology contract, not just a module
-        // scheduler hint. Bound LLD and its ThinLTO backend as well so a
-        // pids-limited test scope cannot fail while creating linker workers.
+        // A serial build is a process-topology contract, not just a module
+        // scheduler hint. Bound LLD and its ThinLTO backend as well so an
+        // explicitly jobs=1 build cannot exceed its pids-limited scope while
+        // creating linker workers.
         linkCmd = linkCmd + " -Wl,--threads=1,--thinlto-jobs=1 "
     }
     if g_releaseMode and llFiles.length() > 1 and normalizedCrossTarget != "" {
@@ -15110,7 +15237,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let targetRegionSig = runtimeObjectBuildSignature(
                 "seen_region_" + effectiveTarget, regionSrc, "", "", "",
                 "", effectiveTarget, targetClangDriver + " " +
-                targetClangArgs + targetRuntimeFlags)
+                targetClangArgs + targetRuntimeFlags,
+                runtimeSourcesSignature)
             let targetRegionOut = runtimeObjectCachePath("seen_region_" +
                 effectiveTarget, targetRegionSig)
             if targetRegionOut == "" {
@@ -15145,7 +15273,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     } else {
         let regionSig = runtimeObjectBuildSignature("seen_region",
             regionSrc, clangMarch, picCompileFlag, sanitizerClangFlags,
-            pgoRuntimeSignatureFlags, effectiveTarget, "")
+            pgoRuntimeSignatureFlags, effectiveTarget, "",
+            runtimeSourcesSignature)
         regionObj = runtimeObjectCachePath("seen_region", regionSig)
         if regionObj == "" {
             println("    Error: could not create project-local region object cache")
@@ -15180,7 +15309,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let hostVulkanCflags = getHostVulkanCflags()
             let gpuSig = runtimeObjectBuildSignature("seen_gpu", gpuSrc,
                 clangMarch, picCompileFlag, sanitizerClangFlags,
-                pgoRuntimeSignatureFlags, effectiveTarget, hostVulkanCflags)
+                pgoRuntimeSignatureFlags, effectiveTarget, hostVulkanCflags,
+                runtimeSourcesSignature)
             let hostGpuObj = runtimeObjectCachePath("seen_gpu", gpuSig)
             if hostGpuObj == "" {
                 println("    Error: could not create project-local GPU object cache")
@@ -15221,7 +15351,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 }
                 let targetGpuSig = runtimeObjectBuildSignature(
                     "seen_gpu_" + effectiveTarget, gpuSrc, "", "", "", "",
-                    effectiveTarget, targetGpuExtraFlags)
+                    effectiveTarget, targetGpuExtraFlags,
+                    runtimeSourcesSignature)
                 let targetGpuOut = runtimeObjectCachePath("seen_gpu_" +
                     effectiveTarget, targetGpuSig)
                 if targetGpuOut == "" {
@@ -15273,7 +15404,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let targetHotReloadSig = runtimeObjectBuildSignature(
                 "seen_hotreload_" + effectiveTarget, hotReloadSrc, "", "",
                 "", "", effectiveTarget, targetClangDriver + " " +
-                targetClangArgs + targetRuntimeFlags)
+                targetClangArgs + targetRuntimeFlags,
+                runtimeSourcesSignature)
             let targetHotReloadOut = runtimeObjectCachePath(
                 "seen_hotreload_" + effectiveTarget, targetHotReloadSig)
             if targetHotReloadOut == "" {
@@ -15300,7 +15432,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let hotReloadSig = runtimeObjectBuildSignature("seen_hotreload",
                 hotReloadSrc, clangMarch, picCompileFlag,
                 sanitizerClangFlags, pgoRuntimeSignatureFlags,
-                effectiveTarget, "")
+                effectiveTarget, "", runtimeSourcesSignature)
             let hotReloadObj = runtimeObjectCachePath("seen_hotreload",
                 hotReloadSig)
             if hotReloadObj == "" {
@@ -16042,7 +16174,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.15.0"
+    return "0.16.0"
 }
 
 fun printVersion() r: Void {
