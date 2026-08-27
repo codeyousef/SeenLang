@@ -4,8 +4,8 @@ import core.result.{Result, Ok, Err}
 
 let MMAP_OK: Int32 = 0 as Int32
 
-extern "C" fun seen_mapped_file_open_readonly(pathLength: Int64,
-    path: *const Char, outHandle: *UInt64, outLength: *UInt64) r: Int32
+extern "C" fun seen_mapped_file_open_readonly_string(path: String,
+    outHandle: *UInt64, outLength: *UInt64) r: Int32
 extern "C" fun seen_mapped_file_length(handle: UInt64,
     outLength: *UInt64) r: Int32
 extern "C" fun seen_mapped_file_window(handle: UInt64, offset: UInt64,
@@ -111,8 +111,8 @@ class MappedFile {
     static fun openReadonly(path: String) r: Result<MappedFile, MmapError> {
         var handle: UInt64 = 0 as UInt64
         var length: UInt64 = 0 as UInt64
-        let status = seen_mapped_file_open_readonly(path.length() as Int64,
-            path.toCString(), &handle, &length)
+        let status = seen_mapped_file_open_readonly_string(path,
+            &handle, &length)
         if status != MMAP_OK {
             return Err<MappedFile, MmapError>(mmapFailure(status, "open"))
         }

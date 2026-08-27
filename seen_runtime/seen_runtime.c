@@ -11871,6 +11871,13 @@ int32_t seen_mapped_file_open_readonly(int64_t path_len, const char *path_data,
     return SEEN_MMAP_OK;
 }
 
+int32_t seen_mapped_file_open_readonly_string(SeenString path,
+                                              uint64_t *out_handle,
+                                              uint64_t *out_length) {
+    return seen_mapped_file_open_readonly(path.len, path.data, out_handle,
+                                          out_length);
+}
+
 int32_t seen_mapped_file_length(uint64_t handle, uint64_t *out_length) {
     SeenMappedFileV2 *file = (SeenMappedFileV2 *)(uintptr_t)handle;
     if (!file || !out_length) return SEEN_MMAP_INVALID;

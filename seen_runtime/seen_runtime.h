@@ -1029,6 +1029,9 @@ enum {
 int32_t seen_mapped_file_open_readonly(int64_t path_len, const char *path_data,
                                        uint64_t *out_handle,
                                        uint64_t *out_length);
+int32_t seen_mapped_file_open_readonly_string(SeenString path,
+                                              uint64_t *out_handle,
+                                              uint64_t *out_length);
 int32_t seen_mapped_file_length(uint64_t handle, uint64_t *out_length);
 int32_t seen_mapped_file_window(uint64_t file_handle, uint64_t offset,
                                 uint64_t length, uint64_t *out_window,

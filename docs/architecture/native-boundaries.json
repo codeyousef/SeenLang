@@ -62,7 +62,7 @@
       "purpose": "Large-file-safe file and mapped-window ownership adapter with stable status codes, checked offsets, truncation validation, advisory paging, page locking, and optional NUMA binding. Seen owns bounds, retry, placement, and cleanup policy. Exercised with sparse files above 60 GiB, truncation, busy-close, lock, advice, and cleanup cases.",
       "abi": "OS memory mapping C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
-      "symbols": ["seen_mapped_file_close", "seen_mapped_file_length", "seen_mapped_file_open_readonly", "seen_mapped_file_window", "seen_mapped_window_advise", "seen_mapped_window_bind_numa", "seen_mapped_window_close", "seen_mapped_window_lock", "seen_mapped_window_unlock", "seen_mapped_window_validate", "seen_string_view_bytes"],
+      "symbols": ["seen_mapped_file_close", "seen_mapped_file_length", "seen_mapped_file_open_readonly", "seen_mapped_file_open_readonly_string", "seen_mapped_file_window", "seen_mapped_window_advise", "seen_mapped_window_bind_numa", "seen_mapped_window_close", "seen_mapped_window_lock", "seen_mapped_window_unlock", "seen_mapped_window_validate", "seen_string_view_bytes"],
       "production": true
     },
     {

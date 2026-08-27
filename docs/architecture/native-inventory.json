@@ -5233,7 +5233,7 @@
       ]
     },
     {
-      "name": "seen_mapped_file_open_readonly",
+      "name": "seen_mapped_file_open_readonly_string",
       "abi": "C",
       "sources": [
         "seen_std/src/memory/mapped_file.seen"

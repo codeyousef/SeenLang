@@ -1,6 +1,8 @@
 import env.env.{get}
 import formats.safetensors.{SafeTensorFile, SafeTensorPolicy}
 
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
 fun require(condition: Bool, message: String) r: Void {
     if not condition { abort(message) }
 }
@@ -21,9 +23,18 @@ fun main() r: Int {
     policy.maxHeaderBytes = 1048576 as UInt64
     policy.maxTensors = 124 as UInt64
 
+    let minimalPath = root + "/minimal.safetensors"
+    let qwenPath = root + "/qwn-023b.safetensors"
+    let duplicatePath = root + "/duplicate.safetensors"
+    let unknownPath = root + "/unknown.safetensors"
+    let dtypePath = root + "/dtype.safetensors"
+    let overlapPath = root + "/overlap.safetensors"
+    let rangePath = root + "/range.safetensors"
+    let truncatedPath = root + "/truncated.safetensors"
+
     var repetition = 0
     while repetition < 128 {
-        let opened = SafeTensorFile.open(root + "/minimal.safetensors", policy)
+        let opened = SafeTensorFile.open(minimalPath, policy)
         if opened.isErr() {
             abort("open valid one-tensor Safetensors file: " +
                 opened.unwrapErr().code)
@@ -44,7 +55,7 @@ fun main() r: Int {
 
     repetition = 0
     while repetition < 4 {
-        let opened = SafeTensorFile.open(root + "/qwn-023b.safetensors", policy)
+        let opened = SafeTensorFile.open(qwenPath, policy)
         if opened.isErr() {
             abort("open locked 124-tensor Qwen fixture: " +
                 opened.unwrapErr().code)
@@ -70,29 +81,38 @@ fun main() r: Int {
         repetition = repetition + 1
     }
 
-    requireOpenError(root + "/duplicate.safetensors", policy,
+    requireOpenError(duplicatePath, policy,
         "safetensors.json")
-    requireOpenError(root + "/unknown.safetensors", policy,
+    requireOpenError(unknownPath, policy,
         "safetensors.unknown_field")
-    requireOpenError(root + "/dtype.safetensors", policy,
+    requireOpenError(dtypePath, policy,
         "safetensors.dtype")
-    requireOpenError(root + "/overlap.safetensors", policy,
+    requireOpenError(overlapPath, policy,
         "safetensors.overlap")
-    requireOpenError(root + "/range.safetensors", policy,
+    requireOpenError(rangePath, policy,
         "safetensors.range")
-    requireOpenError(root + "/truncated.safetensors", policy,
+    requireOpenError(truncatedPath, policy,
         "safetensors.truncated")
 
     let countPolicy = SafeTensorPolicy.modelWeights()
     countPolicy.maxHeaderBytes = 1048576 as UInt64
     countPolicy.maxTensors = 123 as UInt64
-    requireOpenError(root + "/qwn-023b.safetensors", countPolicy,
+    requireOpenError(qwenPath, countPolicy,
         "safetensors.policy")
 
     policy.allowPrefixes.free()
     policy.denyPrefixes.free()
     countPolicy.allowPrefixes.free()
     countPolicy.denyPrefixes.free()
+    seen_string_release_owned(minimalPath)
+    seen_string_release_owned(qwenPath)
+    seen_string_release_owned(duplicatePath)
+    seen_string_release_owned(unknownPath)
+    seen_string_release_owned(dtypePath)
+    seen_string_release_owned(overlapPath)
+    seen_string_release_owned(rangePath)
+    seen_string_release_owned(truncatedPath)
+    seen_string_release_owned(root)
     println("PASS: FEL-1538 bounded Safetensors reader ownership")
     return 0
 }
