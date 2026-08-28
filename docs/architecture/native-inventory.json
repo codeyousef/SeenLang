@@ -2047,34 +2047,6 @@
       ]
     },
     {
-      "name": "__MutexCreate",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/mpsc_queue.seen"
-      ]
-    },
-    {
-      "name": "__MutexDestroy",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/mpsc_queue.seen"
-      ]
-    },
-    {
-      "name": "__MutexLock",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/mpsc_queue.seen"
-      ]
-    },
-    {
-      "name": "__MutexUnlock",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/mpsc_queue.seen"
-      ]
-    },
-    {
       "name": "__OpenFile",
       "abi": "Seen",
       "sources": [
@@ -3488,62 +3460,6 @@
       ]
     },
     {
-      "name": "seen_atomic_queue_destroy",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/atomic_queue.seen"
-      ]
-    },
-    {
-      "name": "seen_atomic_queue_new",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/atomic_queue.seen"
-      ]
-    },
-    {
-      "name": "seen_atomic_queue_pop",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/atomic_queue.seen"
-      ]
-    },
-    {
-      "name": "seen_atomic_queue_push",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/atomic_queue.seen"
-      ]
-    },
-    {
-      "name": "seen_atomic_stack_destroy",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/atomic_stack.seen"
-      ]
-    },
-    {
-      "name": "seen_atomic_stack_new",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/atomic_stack.seen"
-      ]
-    },
-    {
-      "name": "seen_atomic_stack_pop",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/atomic_stack.seen"
-      ]
-    },
-    {
-      "name": "seen_atomic_stack_push",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/atomic_stack.seen"
-      ]
-    },
-    {
       "name": "seen_audio_create_output",
       "abi": "Seen",
       "sources": [
@@ -3597,27 +3513,6 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/platform/darwin/coreaudio.seen"
-      ]
-    },
-    {
-      "name": "seen_barrier_destroy",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/barrier.seen"
-      ]
-    },
-    {
-      "name": "seen_barrier_new",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/barrier.seen"
-      ]
-    },
-    {
-      "name": "seen_barrier_wait",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/barrier.seen"
       ]
     },
     {
@@ -4192,6 +4087,13 @@
       "abi": "C",
       "sources": [
         "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_deterministic_path_beneath",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/determinism/context.seen"
       ]
     },
     {
@@ -5954,52 +5856,17 @@
       ]
     },
     {
+      "name": "seen_reexec_current_process",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/main_compiler.seen"
+      ]
+    },
+    {
       "name": "seen_replace_file",
       "abi": "Seen",
       "sources": [
         "seen_std/src/io/file.seen"
-      ]
-    },
-    {
-      "name": "seen_rwlock_destroy",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/rwlock.seen"
-      ]
-    },
-    {
-      "name": "seen_rwlock_new",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/rwlock.seen"
-      ]
-    },
-    {
-      "name": "seen_rwlock_read_lock",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/rwlock.seen"
-      ]
-    },
-    {
-      "name": "seen_rwlock_read_unlock",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/rwlock.seen"
-      ]
-    },
-    {
-      "name": "seen_rwlock_write_lock",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/rwlock.seen"
-      ]
-    },
-    {
-      "name": "seen_rwlock_write_unlock",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/rwlock.seen"
       ]
     },
     {
@@ -6128,6 +5995,225 @@
       ]
     },
     {
+      "name": "seen_sync_atomic_compare_exchange",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_atomic_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_atomic_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_atomic_exchange",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_atomic_fetch_add",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_atomic_fetch_sub",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_atomic_load",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_atomic_store",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_condition_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/channel.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_condition_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/channel.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_condition_notify_all",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/channel.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_condition_notify_one",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/channel.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_condition_wait_until",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/channel.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_live_atomics",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_live_conditions",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/channel.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_live_mutexes",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_live_rwlocks",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_mutex_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen",
+        "seen_std/src/sync/channel.seen",
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_mutex_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen",
+        "seen_std/src/sync/channel.seen",
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_mutex_lock_until",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen",
+        "seen_std/src/sync/channel.seen",
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_mutex_try_lock",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_mutex_unlock",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/atomic.seen",
+        "seen_std/src/sync/channel.seen",
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_rwlock_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_rwlock_destroy",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_rwlock_read_lock_until",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_rwlock_try_read",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_rwlock_try_write",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_rwlock_unlock",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_sync_rwlock_write_lock_until",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/sync/mutex.seen"
+      ]
+    },
+    {
+      "name": "seen_time_monotonic_nanos",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/determinism/policy.seen",
+        "seen_std/src/sync/contracts.seen"
+      ]
+    },
+    {
       "name": "seen_time_monotonic_nanos",
       "abi": "Seen",
       "sources": [
@@ -6146,34 +6232,6 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/time/time.seen"
-      ]
-    },
-    {
-      "name": "seen_tls_destroy",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/thread_local.seen"
-      ]
-    },
-    {
-      "name": "seen_tls_get",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/thread_local.seen"
-      ]
-    },
-    {
-      "name": "seen_tls_new",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/thread_local.seen"
-      ]
-    },
-    {
-      "name": "seen_tls_set",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/sync/thread_local.seen"
       ]
     },
     {
