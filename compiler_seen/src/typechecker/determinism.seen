@@ -4,6 +4,151 @@
 import parser.real_parser.{ProgramNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, ClassNode}
 import typechecker.type_ref.{TypeRef, parseTypeRef}
 
+// Known nondeterministic types from stdlib require annotation in
+// deterministic profile mode.
+let NONDETERMINISTIC_TYPES: Array<String> = [
+    "HashMap",
+    "HashSet",
+    // Floating-point types vary across platforms. Prefer fixed-point
+    // numerics for deterministic profiles.
+    "Float",
+    "f32",
+    "f64"
+]
+
+// Valid UWW syscall names - these are the only syscalls allowed with @syscall decorator
+let VALID_UWW_SYSCALLS: Array<String> = [
+    "uww::timestamp",      // Get current frame timestamp
+    "uww::random_seed",    // Get deterministic random seed
+    "uww::input_state",    // Get input state hash
+    "uww::host_log",       // Log to host console (debug only)
+    "uww::network_hash",   // Get network state hash
+    "uww::rollback_check"  // Check if in rollback
+]
+
+// Known nondeterministic functions from stdlib and runtime
+let NONDETERMINISTIC_FUNCTIONS: Array<String> = [
+    // Time functions
+    "time", "now", "timestamp", "getTime", "currentTimeMillis",
+    // Random functions
+    "random", "rand", "randomInt", "randomFloat", "shuffle",
+    // I/O functions
+    "read", "write", "readLine", "writeLine", "print", "println",
+    "readFile", "writeFile", "appendFile", "deleteFile",
+    "stdin", "stdout", "stderr",
+    // Network functions
+    "fetch", "httpGet", "httpPost", "socket", "connect", "listen",
+    // Environment functions
+    "getEnv", "setEnv", "getArgs", "exit",
+    // Process functions
+    "spawn", "exec", "fork", "wait",
+    // UWW nondeterministic (if not in UWW mode)
+    "uww_timestamp", "uww_deterministic_rand"
+]
+
+// Result of determinism checking
+class DeterminismCheckResult {
+    var success: Bool
+    var errors: Array<DeterminismError>
+    var warnings: Array<String>
+
+    static fun new() r: DeterminismCheckResult {
+        return DeterminismCheckResult{
+            success: true,
+            errors: Array<DeterminismError>(),
+            warnings: Array<String>()
+        }
+    }
+
+    fun addError(error: DeterminismError) r: Void {
+        this.errors.push(error)
+        this.success = false
+    }
+
+    fun addWarning(warning: String) r: Void {
+        this.warnings.push(warning)
+    }
+
+    fun hasErrors() r: Bool {
+        return this.errors.length() > 0
+    }
+}
+
+// Determinism-specific error
+class DeterminismError {
+    var code: String
+    var message: String
+    var functionName: String
+    var calledFunction: String
+    var file: String
+    var line: Int
+    var column: Int
+    var effectPath: String
+    var suggestion: String
+
+    static fun new(message: String, functionName: String, calledFunction: String) r: DeterminismError {
+        return DeterminismError{
+            code: "",
+            message: message,
+            functionName: functionName,
+            calledFunction: calledFunction,
+            file: "",
+            line: 0,
+            column: 0,
+            effectPath: "",
+            suggestion: ""
+        }
+    }
+
+    static fun detailed(code: String, message: String, functionName: String,
+        calledFunction: String, file: String, line: Int, column: Int,
+        effectPath: String, suggestion: String) r: DeterminismError {
+
+        return DeterminismError{
+            code: code,
+            message: message,
+            functionName: functionName,
+            calledFunction: calledFunction,
+            file: file,
+            line: line,
+            column: column,
+            effectPath: effectPath,
+            suggestion: suggestion
+        }
+    }
+
+    fun toString() r: String {
+        var result = "Determinism Error: " + this.message
+        if this.functionName != "" {
+            result = result + " in function '" + this.functionName + "'"
+        }
+        if this.calledFunction != "" {
+            result = result + " when calling '" + this.calledFunction + "'"
+        }
+        return result
+    }
+
+    fun getMessage() r: String {
+        return this.message
+    }
+
+    fun getFunctionName() r: String {
+        return this.functionName
+    }
+
+    fun getCalledFunction() r: String {
+        return this.calledFunction
+    }
+
+    fun getCode() r: String { return this.code }
+    fun getFile() r: String { return this.file }
+    fun getLine() r: Int { return this.line }
+    fun getColumn() r: Int { return this.column }
+    fun getEffectPath() r: String { return this.effectPath }
+    fun getSuggestion() r: String { return this.suggestion }
+}
+
+// Determinism Checker
 ///
 /// CORE-004D resolved whole-program determinism graph.
 ///
@@ -1326,316 +1471,6 @@ class DeterminismEffectGraph {
 /// provenance metadata, so imported bodies do not have to remain live while
 /// effects are propagated.
 ///
-fun determinismGraphMaxDeclarations() r: Int { return 16384 }
-fun determinismGraphMaxEdges() r: Int { return 65536 }
-fun determinismGraphMaxEffects() r: Int { return 65536 }
-fun determinismGraphMaxDiagnostics() r: Int { return 32 }
-fun determinismGraphMaxPropagationRounds() r: Int { return 128 }
-fun determinismGraphMaxPathLength() r: Int { return 768 }
-
-fun determinismStripCallGenericArguments(name: String) r: String {
-    var i = 0
-    while i < name.length() {
-        if name.byteAt(i) == 60 {
-            return name.substring(0, i)
-        }
-        i = i + 1
-    }
-    return name
-}
-
-fun determinismGlobalEncodedType(encoded: String) r: String {
-    var start = 0
-    if encoded.length() > 0 {
-        let first = encoded.byteAt(0)
-        if first == 76 or first == 86 { start = 1 }
-    }
-    var i = start
-    while i < encoded.length() {
-        if encoded.byteAt(i) == 58 {
-            return encoded.substring(start, i)
-        }
-        i = i + 1
-    }
-    return encoded.substring(start, encoded.length())
-}
-
-fun determinismFunctionBoundaryIsValid(func: FunctionNode) r: Bool {
-    if not func.isNondeterministic or func.isDeterministic { return false }
-    var count = 0
-    var i = 0
-    while i < func.decorators.length() {
-        let decorator = func.decorators[i]
-        if decorator.name == "nondeterministic" {
-            count = count + 1
-            if decorator.arguments.length() != 0 { return false }
-        }
-        i = i + 1
-    }
-    return count == 1
-}
-
-fun determinismClassBoundaryIsValid(cls: ClassNode) r: Bool {
-    if not cls.isNondeterministic { return false }
-    var count = 0
-    var i = 0
-    while i < cls.decorators.length() {
-        let decorator = cls.decorators[i]
-        if decorator.name == "nondeterministic" {
-            count = count + 1
-            if decorator.arguments.length() != 0 { return false }
-        }
-        i = i + 1
-    }
-    return count == 1
-}
-
-fun determinismCopyStrings(values: Array<String>) r: Array<String> {
-    let result = Array<String>()
-    var i = 0
-    while i < values.length() {
-        result.push(values[i])
-        i = i + 1
-    }
-    return result
-}
-
-fun determinismPathAppend(prefix: String, suffix: String) r: String {
-    var result = prefix
-    if result != "" and suffix != "" { result = result + " -> " }
-    result = result + suffix
-    let limit = determinismGraphMaxPathLength()
-    if result.length() > limit {
-        return result.substring(0, limit) + " -> ..."
-    }
-    return result
-}
-
-fun determinismCanonicalDeclaration(moduleName: String, name: String)
-    r: String {
-
-    if moduleName == "" { return name }
-    return moduleName + "::" + name
-}
-
-fun determinismCapabilityEffect(token: String) r: String {
-    if token == "FileToken" { return "io" }
-    if token == "NetToken" { return "network" }
-    if token == "ProcessToken" { return "process" }
-    if token == "EnvToken" { return "environment" }
-    if token == "DynLoadToken" { return "unsafe-ffi" }
-    if token == "AllToken" { return "unbounded-capability" }
-    return ""
-}
-
-fun determinismFreeBuiltinEffect(name: String) r: String {
-    if name == "time" or name == "now" or name == "timestamp" or
-        name == "getTime" or name == "currentTimeMillis" or
-        name == "clock_gettime" {
-        return "time"
-    }
-    if name == "random" or name == "rand" or name == "randomInt" or
-        name == "randomFloat" or name == "shuffle" or
-        name == "uww_timestamp" or name == "uww_deterministic_rand" {
-        return "random"
-    }
-    if name == "read" or name == "write" or name == "readLine" or
-        name == "writeLine" or name == "print" or name == "println" or
-        name == "readFile" or name == "writeFile" or
-        name == "appendFile" or name == "deleteFile" or
-        name == "stdin" or name == "stdout" or name == "stderr" {
-        return "io"
-    }
-    if name == "fetch" or name == "httpGet" or name == "httpPost" or
-        name == "socket" or name == "connect" or name == "listen" {
-        return "network"
-    }
-    if name == "getEnv" or name == "setEnv" or name == "getArgs" {
-        return "environment"
-    }
-    if name == "spawn" or name == "exec" or name == "fork" or
-        name == "wait" or name == "exit" {
-        return "process"
-    }
-    if name.startsWith("transmute") or name == "str_to_cstr" or
-        name == "cstr_to_str" or name == "dlopen" or name == "dlsym" {
-        return "unsafe-ffi"
-    }
-    return ""
-}
-
-fun determinismKnownDeterministicBuiltin(name: String) r: Bool {
-    if name == "sizeof" or name == "alignof" or name == "offsetof" or
-        name == "includeStr" or name == "includeBytes" or
-        name == "debug_assert" or name == "abort" or
-        name == "__default" or name.startsWith("__default<") or
-        name == "split" or name == "startsWith" or name == "endsWith" or
-        name == "contains" or name == "indexOf" or
-        name == "lastIndexOf" or name == "async_yield" or
-        name == "barrier" {
-        return true
-    }
-    if name == "Array" or name.startsWith("Array<") or
-        name == "Option" or name.startsWith("Option<") or
-        name == "Result" or name.startsWith("Result<") or
-        name == "BTreeMap" or name.startsWith("BTreeMap<") or
-        name == "SmallVec" or name.startsWith("SmallVec<") or
-        name == "Fixed64" or name == "Fixed128" {
-        return true
-    }
-    if name.startsWith("simd_") or name.startsWith("Simd") or
-        name.startsWith("stackAlloc") or name == "constructAt" {
-        return true
-    }
-    return false
-}
-
-
-// Known nondeterministic types from stdlib require annotation in
-// deterministic profile mode.
-let NONDETERMINISTIC_TYPES: Array<String> = [
-    "HashMap",
-    "HashSet",
-    // Floating-point types vary across platforms. Prefer fixed-point
-    // numerics for deterministic profiles.
-    "Float",
-    "f32",
-    "f64"
-]
-
-// Valid UWW syscall names - these are the only syscalls allowed with @syscall decorator
-let VALID_UWW_SYSCALLS: Array<String> = [
-    "uww::timestamp",      // Get current frame timestamp
-    "uww::random_seed",    // Get deterministic random seed
-    "uww::input_state",    // Get input state hash
-    "uww::host_log",       // Log to host console (debug only)
-    "uww::network_hash",   // Get network state hash
-    "uww::rollback_check"  // Check if in rollback
-]
-
-// Known nondeterministic functions from stdlib and runtime
-let NONDETERMINISTIC_FUNCTIONS: Array<String> = [
-    // Time functions
-    "time", "now", "timestamp", "getTime", "currentTimeMillis",
-    // Random functions
-    "random", "rand", "randomInt", "randomFloat", "shuffle",
-    // I/O functions
-    "read", "write", "readLine", "writeLine", "print", "println",
-    "readFile", "writeFile", "appendFile", "deleteFile",
-    "stdin", "stdout", "stderr",
-    // Network functions
-    "fetch", "httpGet", "httpPost", "socket", "connect", "listen",
-    // Environment functions
-    "getEnv", "setEnv", "getArgs", "exit",
-    // Process functions
-    "spawn", "exec", "fork", "wait",
-    // UWW nondeterministic (if not in UWW mode)
-    "uww_timestamp", "uww_deterministic_rand"
-]
-
-// Result of determinism checking
-class DeterminismCheckResult {
-    var success: Bool
-    var errors: Array<DeterminismError>
-    var warnings: Array<String>
-
-    static fun new() r: DeterminismCheckResult {
-        return DeterminismCheckResult{
-            success: true,
-            errors: Array<DeterminismError>(),
-            warnings: Array<String>()
-        }
-    }
-
-    fun addError(error: DeterminismError) r: Void {
-        this.errors.push(error)
-        this.success = false
-    }
-
-    fun addWarning(warning: String) r: Void {
-        this.warnings.push(warning)
-    }
-
-    fun hasErrors() r: Bool {
-        return this.errors.length() > 0
-    }
-}
-
-// Determinism-specific error
-class DeterminismError {
-    var code: String
-    var message: String
-    var functionName: String
-    var calledFunction: String
-    var file: String
-    var line: Int
-    var column: Int
-    var effectPath: String
-    var suggestion: String
-
-    static fun new(message: String, functionName: String, calledFunction: String) r: DeterminismError {
-        return DeterminismError{
-            code: "",
-            message: message,
-            functionName: functionName,
-            calledFunction: calledFunction,
-            file: "",
-            line: 0,
-            column: 0,
-            effectPath: "",
-            suggestion: ""
-        }
-    }
-
-    static fun detailed(code: String, message: String, functionName: String,
-        calledFunction: String, file: String, line: Int, column: Int,
-        effectPath: String, suggestion: String) r: DeterminismError {
-
-        return DeterminismError{
-            code: code,
-            message: message,
-            functionName: functionName,
-            calledFunction: calledFunction,
-            file: file,
-            line: line,
-            column: column,
-            effectPath: effectPath,
-            suggestion: suggestion
-        }
-    }
-
-    fun toString() r: String {
-        var result = "Determinism Error: " + this.message
-        if this.functionName != "" {
-            result = result + " in function '" + this.functionName + "'"
-        }
-        if this.calledFunction != "" {
-            result = result + " when calling '" + this.calledFunction + "'"
-        }
-        return result
-    }
-
-    fun getMessage() r: String {
-        return this.message
-    }
-
-    fun getFunctionName() r: String {
-        return this.functionName
-    }
-
-    fun getCalledFunction() r: String {
-        return this.calledFunction
-    }
-
-    fun getCode() r: String { return this.code }
-    fun getFile() r: String { return this.file }
-    fun getLine() r: Int { return this.line }
-    fun getColumn() r: Int { return this.column }
-    fun getEffectPath() r: String { return this.effectPath }
-    fun getSuggestion() r: String { return this.suggestion }
-}
-
-// Determinism Checker
 class DeterminismChecker {
     // Map from function name to its determinism status
     var functionDeterminism: Map<String, Bool>
@@ -2159,6 +1994,171 @@ class DeterminismChecker {
         return false
     }
 }
+
+fun determinismGraphMaxDeclarations() r: Int { return 16384 }
+fun determinismGraphMaxEdges() r: Int { return 65536 }
+fun determinismGraphMaxEffects() r: Int { return 65536 }
+fun determinismGraphMaxDiagnostics() r: Int { return 32 }
+fun determinismGraphMaxPropagationRounds() r: Int { return 128 }
+fun determinismGraphMaxPathLength() r: Int { return 768 }
+
+fun determinismStripCallGenericArguments(name: String) r: String {
+    var i = 0
+    while i < name.length() {
+        if name.byteAt(i) == 60 {
+            return name.substring(0, i)
+        }
+        i = i + 1
+    }
+    return name
+}
+
+fun determinismGlobalEncodedType(encoded: String) r: String {
+    var start = 0
+    if encoded.length() > 0 {
+        let first = encoded.byteAt(0)
+        if first == 76 or first == 86 { start = 1 }
+    }
+    var i = start
+    while i < encoded.length() {
+        if encoded.byteAt(i) == 58 {
+            return encoded.substring(start, i)
+        }
+        i = i + 1
+    }
+    return encoded.substring(start, encoded.length())
+}
+
+fun determinismFunctionBoundaryIsValid(func: FunctionNode) r: Bool {
+    if not func.isNondeterministic or func.isDeterministic { return false }
+    var count = 0
+    var i = 0
+    while i < func.decorators.length() {
+        let decorator = func.decorators[i]
+        if decorator.name == "nondeterministic" {
+            count = count + 1
+            if decorator.arguments.length() != 0 { return false }
+        }
+        i = i + 1
+    }
+    return count == 1
+}
+
+fun determinismClassBoundaryIsValid(cls: ClassNode) r: Bool {
+    if not cls.isNondeterministic { return false }
+    var count = 0
+    var i = 0
+    while i < cls.decorators.length() {
+        let decorator = cls.decorators[i]
+        if decorator.name == "nondeterministic" {
+            count = count + 1
+            if decorator.arguments.length() != 0 { return false }
+        }
+        i = i + 1
+    }
+    return count == 1
+}
+
+fun determinismCopyStrings(values: Array<String>) r: Array<String> {
+    let result = Array<String>()
+    var i = 0
+    while i < values.length() {
+        result.push(values[i])
+        i = i + 1
+    }
+    return result
+}
+
+fun determinismPathAppend(prefix: String, suffix: String) r: String {
+    var result = prefix
+    if result != "" and suffix != "" { result = result + " -> " }
+    result = result + suffix
+    let limit = determinismGraphMaxPathLength()
+    if result.length() > limit {
+        return result.substring(0, limit) + " -> ..."
+    }
+    return result
+}
+
+fun determinismCanonicalDeclaration(moduleName: String, name: String)
+    r: String {
+
+    if moduleName == "" { return name }
+    return moduleName + "::" + name
+}
+
+fun determinismCapabilityEffect(token: String) r: String {
+    if token == "FileToken" { return "io" }
+    if token == "NetToken" { return "network" }
+    if token == "ProcessToken" { return "process" }
+    if token == "EnvToken" { return "environment" }
+    if token == "DynLoadToken" { return "unsafe-ffi" }
+    if token == "AllToken" { return "unbounded-capability" }
+    return ""
+}
+
+fun determinismFreeBuiltinEffect(name: String) r: String {
+    if name == "time" or name == "now" or name == "timestamp" or
+        name == "getTime" or name == "currentTimeMillis" or
+        name == "clock_gettime" {
+        return "time"
+    }
+    if name == "random" or name == "rand" or name == "randomInt" or
+        name == "randomFloat" or name == "shuffle" or
+        name == "uww_timestamp" or name == "uww_deterministic_rand" {
+        return "random"
+    }
+    if name == "read" or name == "write" or name == "readLine" or
+        name == "writeLine" or name == "print" or name == "println" or
+        name == "readFile" or name == "writeFile" or
+        name == "appendFile" or name == "deleteFile" or
+        name == "stdin" or name == "stdout" or name == "stderr" {
+        return "io"
+    }
+    if name == "fetch" or name == "httpGet" or name == "httpPost" or
+        name == "socket" or name == "connect" or name == "listen" {
+        return "network"
+    }
+    if name == "getEnv" or name == "setEnv" or name == "getArgs" {
+        return "environment"
+    }
+    if name == "spawn" or name == "exec" or name == "fork" or
+        name == "wait" or name == "exit" {
+        return "process"
+    }
+    if name.startsWith("transmute") or name == "str_to_cstr" or
+        name == "cstr_to_str" or name == "dlopen" or name == "dlsym" {
+        return "unsafe-ffi"
+    }
+    return ""
+}
+
+fun determinismKnownDeterministicBuiltin(name: String) r: Bool {
+    if name == "sizeof" or name == "alignof" or name == "offsetof" or
+        name == "includeStr" or name == "includeBytes" or
+        name == "debug_assert" or name == "abort" or
+        name == "__default" or name.startsWith("__default<") or
+        name == "split" or name == "startsWith" or name == "endsWith" or
+        name == "contains" or name == "indexOf" or
+        name == "lastIndexOf" or name == "async_yield" or
+        name == "barrier" {
+        return true
+    }
+    if name == "Array" or name.startsWith("Array<") or
+        name == "Option" or name.startsWith("Option<") or
+        name == "Result" or name.startsWith("Result<") or
+        name == "BTreeMap" or name.startsWith("BTreeMap<") or
+        name == "SmallVec" or name.startsWith("SmallVec<") or
+        name == "Fixed64" or name == "Fixed128" {
+        return true
+    }
+    if name.startsWith("simd_") or name.startsWith("Simd") or
+        name.startsWith("stackAlloc") or name == "constructAt" {
+        return true
+    }
+    return false
+}
+
 
 // Convenience function to check a program for determinism
 fun checkDeterminism(program: ProgramNode, uwwMode: Bool = false) r: DeterminismCheckResult {
