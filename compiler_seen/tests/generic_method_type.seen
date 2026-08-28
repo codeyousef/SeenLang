@@ -1,4 +1,4 @@
-import codegen.ir_generic_method_type.{genericTypeArgumentsImpl,
+import codegen.ir_field_lookup_state.{genericTypeArgumentsImpl,
     replaceGenericTypeIdentifierImpl, specializeGenericMethodReturnTypeImpl}
 
 fun main() r: Int {
