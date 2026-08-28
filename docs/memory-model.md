@@ -52,6 +52,36 @@ let arr = [1, 2, 3] // array data on heap, handle on stack
 
 ## Ownership
 
+### Cross-thread ownership
+
+`Send` permits ownership transfer to another task. `Share` permits concurrent
+immutable access. These are compiler-proven structural contracts rather than
+unchecked marker implementations:
+
+```seen
+@share
+class SharedId {
+    let value: Int
+}
+
+@share
+class SharedPair<T: Share> {
+    let first: T
+    let second: T
+}
+```
+
+A mutable array is neither made safe by nesting it in an annotated class nor by
+passing it through a generic without the matching bound. Mutable shared state
+must live behind `Atomic<T>`, `Mutex<T>`, `RwLock<T>`, or another declared
+synchronization type. `Arc<T>` requires `T: Share`; `BoundedChannel<T>` requires
+`T: Send`. These constraints are enforced across imports and parallel captures.
+
+The synchronization API uses move-only owners and guards. Closing one copied
+integer handle cannot transfer authority: native handles are typed,
+generation-checked registry identities, while the Seen owner is the only public
+resource lifetime. Stale or reused handles fail with `sync.invalid`.
+
 ### `own` -- exclusive ownership
 
 ```seen

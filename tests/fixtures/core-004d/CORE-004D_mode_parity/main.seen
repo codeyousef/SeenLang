@@ -1,0 +1,5 @@
+import parity_dep.{parityValue}
+
+fun main() r: Int {
+    return parityValue()
+}

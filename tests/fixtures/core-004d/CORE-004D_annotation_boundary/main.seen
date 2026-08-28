@@ -1,0 +1,5 @@
+import boundary.{loggingBoundary}
+
+fun main() r: Int {
+    return loggingBoundary()
+}

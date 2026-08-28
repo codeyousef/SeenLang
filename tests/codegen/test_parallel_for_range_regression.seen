@@ -1,5 +1,6 @@
 fun main() {
+    let offset: Int = 7
     parallel_for i in 2..5 {
-        println(i)
+        println(i + offset)
     }
 }

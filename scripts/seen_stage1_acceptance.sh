@@ -449,6 +449,8 @@ fi
 # corpus so a known compiler/runtime regression fails locally within minutes.
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_allocator_oom_exit.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_project_qualified_test_import_regression.sh"
+COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_project_transitive_memory_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_imported_function_method_collision.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_nested_array_batch_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_safetensors_slot_return_regression.sh"
@@ -585,6 +587,35 @@ run_fixture asynchronous-byte-streams-example \
     "$REPO_ROOT/seen_std/examples/async_byte_streams.seen"
 run_fixture qwen-prerequisites \
     "$REPO_ROOT/seen_std/tests/qwen_prerequisites.seen"
+run_fixture send-share-compiler-contract \
+    "$REPO_ROOT/compiler_seen/tests/send_share_contract.seen"
+run_fixture parallel-capture-codegen \
+    "$REPO_ROOT/compiler_seen/tests/parallel_for_capture_codegen.seen"
+run_fixture generic-method-return-specialization \
+    "$REPO_ROOT/compiler_seen/tests/generic_method_type.seen"
+run_fixture sync-001a-contract \
+    "$REPO_ROOT/seen_std/tests/sync/sync-001a.seen"
+run_fixture sync-001b-compiler-enforcement \
+    "$REPO_ROOT/seen_std/tests/sync/sync-001b.seen"
+run_fixture sync-001c-shared-ownership \
+    "$REPO_ROOT/seen_std/tests/sync/sync-001c.seen"
+run_fixture sync-001d-typed-atomics \
+    "$REPO_ROOT/seen_std/tests/sync/sync-001d.seen"
+run_fixture sync-001e-bounded-channel \
+    "$REPO_ROOT/seen_std/tests/sync/sync-001e.seen"
+run_fixture sync-001f-scoped-locks \
+    "$REPO_ROOT/seen_std/tests/sync/sync-001f.seen"
+run_fixture sync-001g-lock-order \
+    "$REPO_ROOT/seen_std/tests/sync/sync-001g.seen"
+run_fixture sync-001h-native-migration \
+    "$REPO_ROOT/seen_std/tests/sync/sync-001h.seen"
+run_fixture synchronization-example \
+    "$REPO_ROOT/seen_std/examples/synchronization.seen"
+COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_parallel_for_codegen_regression.sh"
+"$REPO_ROOT/tests/misc_root_tests/seen_parallel_for_runtime_v2.sh"
+COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_core_004e_deterministic_context.sh"
 "$REPO_ROOT/tests/misc_root_tests/seen_json_large_object_release.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_safetensors_reader_ownership.sh"

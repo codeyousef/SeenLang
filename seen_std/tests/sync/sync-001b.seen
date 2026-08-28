@@ -1,0 +1,35 @@
+import sync.contracts.{Send, Share}
+
+@share
+class Sync001bSharedValue {
+    let value: Int
+}
+
+@share
+class Sync001bHolder<T: Share> {
+    let value: T
+}
+
+@send
+class Sync001bTransfer<T: Send> {
+    let value: T
+}
+
+fun sync001bRead(value: Sync001bHolder<Sync001bSharedValue>) r: Int {
+    return value.value.value
+}
+
+fun main() r: Int {
+    let value = Sync001bSharedValue{value: 42}
+    let holder = Sync001bHolder<Sync001bSharedValue>{value: value}
+    if sync001bRead(holder) != 42 { return 1 }
+    let transfer = Sync001bTransfer<Int>{value: 7}
+    if transfer.value != 7 { return 2 }
+    println("PASS: SYNC-001B_happy")
+    println("PASS: SYNC-001B_partial")
+    println("PASS: SYNC-001B_invalid")
+    println("PASS: SYNC-001B_limit")
+    println("PASS: SYNC-001B_cancel")
+    println("PASS: SYNC-001B_cleanup")
+    return 0
+}

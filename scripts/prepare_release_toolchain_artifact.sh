@@ -17,6 +17,13 @@ fail() {
 [ -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all)" ] ||
     fail "release toolchain preparation requires a clean checkout"
 
+# Keep the release-preparation path fail closed on the public CORE-004F/G
+# evidence formats. The expensive compiler/package build below remains the one
+# authoritative release-prep build; these validators do not rebuild it.
+"$ROOT_DIR/tests/misc_root_tests/seen_program_artifacts_contract.sh"
+SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
+    "$ROOT_DIR/tests/misc_root_tests/seen_program_reproducibility_contract.sh"
+
 commit=$(git -C "$ROOT_DIR" rev-parse HEAD) || fail "could not resolve HEAD"
 tree=$(git -C "$ROOT_DIR" rev-parse 'HEAD^{tree}') || fail "could not resolve source tree"
 version=$(python3 -c \

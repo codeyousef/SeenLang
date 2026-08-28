@@ -156,7 +156,8 @@ The Seen runtime (`seen_runtime/seen_runtime.c`) provides ~170 C functions that 
 - Array operations (`seen_arr_push_*`, `seen_arr_get_*`, etc.)
 - File I/O (`__OpenFile`, `__ReadFile`, etc.)
 - Process management (`__seen_fork`, `__seen_waitpid`, etc.)
-- Synchronization primitives (`seen_rwlock_*`, `seen_barrier_*`, etc.)
+- Narrow synchronization OS adapters (`seen_sync_atomic_*`,
+  `seen_sync_mutex_*`, `seen_sync_condition_*`, and `seen_sync_rwlock_*`)
 - SIMD operations (`seen_simd_f4_*`, `seen_simd_f8_*`, etc.)
 - Arena/pool/region allocators
 

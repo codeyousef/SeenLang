@@ -1,0 +1,51 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import sync.mod.{Arc, AtomicInt, BoundedChannel, LockOrderTracker,
+    MemoryOrder, Mutex}
+
+fun exampleContext() r: OperationContext {
+    return OperationContext{cancellation: false,
+        monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4095, maxGraphModules: 8,
+            maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "sync-example"}}
+}
+
+fun main() r: Int {
+    let owner = Arc<Int>.create(41)
+    if owner.isErr() { return 1 }
+    let first = owner.unwrap()
+    let clone = first.cloneShared()
+    if clone.isErr() { return 2 }
+    let second = clone.unwrap()
+    let lease = second.borrow().unwrap()
+    if lease.get().unwrap() != 41 { return 3 }
+    lease.close()
+    first.close()
+    second.close()
+
+    let counter = AtomicInt.create(0 as Int64).unwrap()
+    counter.store(42 as Int64, MemoryOrder.Release)
+    if counter.load(MemoryOrder.Acquire).unwrap() != (42 as Int64) {
+        return 4
+    }
+    counter.close()
+
+    let channel = BoundedChannel<Int>.create(4).unwrap()
+    channel.send(exampleContext(), 7)
+    if channel.receive(exampleContext()).unwrap() != 7 { return 5 }
+    channel.close()
+    channel.destroy()
+
+    let tracker = LockOrderTracker.create(8, 16, true).unwrap()
+    let cell = Mutex<Int>.create(0, 10).unwrap()
+    let guard = cell.lock(exampleContext(), tracker).unwrap()
+    guard.set(9)
+    guard.release()
+    if cell.close().isErr() { return 6 }
+
+    println("bounded synchronization example passed")
+    return 0
+}

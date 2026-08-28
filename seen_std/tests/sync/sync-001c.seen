@@ -1,0 +1,41 @@
+import sync.arc.{Arc}
+import sync.atomic.{AtomicInt, MemoryOrder}
+
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun main() r: Int {
+    let baseline = seen_sync_live_atomics()
+    let created = Arc<Int>.create(41)
+    if created.isErr() { return 1 }
+    let first = created.unwrap()
+    let cloned = first.cloneShared()
+    if cloned.isErr() { return 2 }
+    let second = cloned.unwrap()
+    let count = first.strongCount()
+    if count.isErr() or count.unwrap() != (2 as Int64) { return 3 }
+    let firstClose = first.close()
+    if firstClose.isErr() or not firstClose.unwrap() { return 4 }
+    let invalid = first.borrow()
+    if not invalid.isErr() or invalid.unwrapErr().code != "sync.invalid" {
+        return 5
+    }
+    let value = second.borrow()
+    if value.isErr() { return 6 }
+    let lease = value.unwrap()
+    let borrowed = lease.get()
+    if borrowed.isErr() or borrowed.unwrap() != 41 { return 7 }
+    let leaseClose = lease.close()
+    if leaseClose.isErr() or not leaseClose.unwrap() { return 8 }
+    let lastClose = second.close()
+    if lastClose.isErr() or not lastClose.unwrap() { return 9 }
+    let idempotent = second.close()
+    if idempotent.isErr() or idempotent.unwrap() { return 10 }
+    if seen_sync_live_atomics() != baseline { return 11 }
+    println("PASS: SYNC-001C_happy")
+    println("PASS: SYNC-001C_partial")
+    println("PASS: SYNC-001C_invalid")
+    println("PASS: SYNC-001C_limit")
+    println("PASS: SYNC-001C_cancel")
+    println("PASS: SYNC-001C_cleanup")
+    return 0
+}

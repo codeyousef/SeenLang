@@ -1,0 +1,559 @@
+/// Native reproducible user-program artifact policy for CORE-004F.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
+import core.operation_context.{OperationContext}
+import crypto.sha256.{sha256}
+
+let PROGRAM_ARTIFACT_SCHEMA: String = "seen-program-artifacts-v1"
+let PROGRAM_ARTIFACT_MAX_BYTES: Int64 = 2147483648
+
+class ProgramArtifactEnvironmentPin {
+    var name: String
+    var valueSha256: String
+}
+
+class ProgramArtifactBuildInput {
+    var compilerSha256: String
+    var coverage: Bool
+    var cpu: String
+    var debug: Bool
+    var environment: Array<ProgramArtifactEnvironmentPin>
+    var features: Array<String>
+    var inputDigest: String
+    var lockSha256: String
+    var lto: String
+    var objectCacheAbi: String
+    var packageClientSha256: String
+    var pathMap: String
+    var pic: Bool
+    var profile: String
+    var runtimeSha256: String
+    var sanitizer: String
+    var simd: String
+    var sourceDateEpoch: Int64
+    var sourceTreeSha256: String
+    var stdlibSha256: String
+    var target: String
+    var toolchain: String
+    var triple: String
+}
+
+class ProgramArtifactPin {
+    var bytes: Int64
+    var executable: Bool
+    var name: String
+    var role: String
+    var sha256: String
+}
+
+class ProgramArtifactCacheRecord {
+    var artifactSetSha256: String
+    var inputDigest: String
+    var key: String
+    var state: String
+}
+
+class ProgramArtifactResult {
+    var artifacts: Array<ProgramArtifactPin>
+    var buildInputDigest: String
+    var cache: ProgramArtifactCacheRecord
+    var cacheIdentity: String
+    var cacheMode: String
+    var compilerOrigin: String
+    var exitCode: Int
+    var id: String
+    var pathMap: String
+    var publishedAtomically: Bool
+    var rootIdentity: String
+    var stderrSha256: String
+    var stdoutSha256: String
+}
+
+class ProgramArtifactEvidence {
+    var buildInput: ProgramArtifactBuildInput
+    var cancelled: Bool
+    var caseName: String
+    var results: Array<ProgramArtifactResult>
+    var schema: String
+}
+
+fun core004fError(code: String, message: String) r: SeenError {
+    return SeenError{code: AsciiString{value: code},
+        subsystem: AsciiString{value: "release.program-artifacts"},
+        operation: AsciiString{value: "validate-program-artifacts"},
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public}
+}
+
+fun programArtifactDigest(value: String) r: Bool {
+    if value.length() != 64 { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let digit = byte >= 48 and byte <= 57
+        let lowerHex = byte >= 97 and byte <= 102
+        if not digit and not lowerHex { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun programArtifactText(value: String, maximum: Int) r: Bool {
+    if value == "" or value.length() > maximum { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 32 or byte > 126 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun programArtifactName(value: String) r: Bool {
+    if not programArtifactText(value, 255) or value.startsWith("-") or
+        value == "." or value == ".." { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 97 and byte <= 122
+        if byte >= 65 and byte <= 90 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 46 or byte == 95 or byte == 43 or byte == 45 {
+            valid = true
+        }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun programArtifactCase(value: String) r: Bool {
+    return value == "two-root-default" or
+        value == "cold-warm-no-cache" or value == "release-full-lto" or
+        value == "release-thin-lto" or value == "object-manifest" or
+        value == "package-graph" or value == "installed-compiler" or
+        value == "path-remap"
+}
+
+fun programArtifactResultId(index: Int) r: String {
+    if index == 0 { return "root-a-cold" }
+    if index == 1 { return "root-a-warm" }
+    if index == 2 { return "root-a-disabled" }
+    if index == 3 { return "root-b-cold" }
+    if index == 4 { return "root-b-warm" }
+    return "root-b-disabled"
+}
+
+fun programArtifactCacheMode(index: Int) r: String {
+    if index == 0 or index == 3 { return "cold" }
+    if index == 1 or index == 4 { return "warm" }
+    return "disabled"
+}
+
+fun programArtifactCacheState(index: Int) r: String {
+    if index == 0 or index == 3 { return "miss" }
+    if index == 1 or index == 4 { return "hit" }
+    return "disabled"
+}
+
+fun programArtifactCompilerOrigin(index: Int) r: String {
+    if index < 3 { return "checkout" }
+    return "installed"
+}
+
+fun programArtifactEnvironmentName(value: String) r: Bool {
+    return value == "LANG" or value == "LC_ALL" or value == "TZ" or
+        value == "SEEN_DETERMINISTIC_SEED" or value == "SEEN_HASH_SEED" or
+        value == "SOURCE_DATE_EPOCH"
+}
+
+fun programArtifactEnvironmentNameAt(index: Int) r: String {
+    if index == 0 { return "LANG" }
+    if index == 1 { return "LC_ALL" }
+    if index == 2 { return "SEEN_DETERMINISTIC_SEED" }
+    if index == 3 { return "SEEN_HASH_SEED" }
+    if index == 4 { return "SOURCE_DATE_EPOCH" }
+    return "TZ"
+}
+
+fun programArtifactAsciiCompare(left: String, right: String) r: Int {
+    var index = 0
+    var limit = left.length()
+    if right.length() < limit { limit = right.length() }
+    while index < limit {
+        let leftByte = left.byteAt(index)
+        let rightByte = right.byteAt(index)
+        if leftByte < rightByte { return -1 }
+        if leftByte > rightByte { return 1 }
+        index = index + 1
+    }
+    if left.length() < right.length() { return -1 }
+    if left.length() > right.length() { return 1 }
+    return 0
+}
+
+fun programArtifactHexDigit(value: Int) r: String {
+    if value < 10 { return String.fromCharCode(48 + value) }
+    return String.fromCharCode(97 + value - 10)
+}
+
+fun programArtifactJsonString(value: String) r: String {
+    var output = "\""
+    var index = 0
+    var segmentStart = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var escaped = ""
+        if byte == 34 { escaped = "\\\"" }
+        if byte == 92 { escaped = "\\\\" }
+        if byte == 8 { escaped = "\\b" }
+        if byte == 9 { escaped = "\\t" }
+        if byte == 10 { escaped = "\\n" }
+        if byte == 12 { escaped = "\\f" }
+        if byte == 13 { escaped = "\\r" }
+        if escaped == "" and byte < 32 {
+            escaped = "\\u00" + programArtifactHexDigit(byte / 16) +
+                programArtifactHexDigit(byte % 16)
+        }
+        if escaped != "" {
+            if segmentStart < index {
+                output = output + value.substring(segmentStart, index)
+            }
+            output = output + escaped
+            segmentStart = index + 1
+        }
+        index = index + 1
+    }
+    if segmentStart < value.length() {
+        output = output + value.substring(segmentStart, value.length())
+    }
+    return output + "\""
+}
+
+fun programArtifactJsonBool(value: Bool) r: String {
+    if value { return "true" }
+    return "false"
+}
+
+fun programArtifactEnvironmentCanonicalJson(
+    value: Array<ProgramArtifactEnvironmentPin>) r: String {
+    var output = "["
+    var index = 0
+    while index < value.length() {
+        if index > 0 { output = output + "," }
+        let pin = value[index]
+        output = output + "{\"name\":" +
+            programArtifactJsonString(pin.name) + ",\"value_sha256\":" +
+            programArtifactJsonString(pin.valueSha256) + "}"
+        index = index + 1
+    }
+    return output + "]"
+}
+
+fun programArtifactFeaturesCanonicalJson(value: Array<String>) r: String {
+    var output = "["
+    var index = 0
+    while index < value.length() {
+        if index > 0 { output = output + "," }
+        output = output + programArtifactJsonString(value[index])
+        index = index + 1
+    }
+    return output + "]"
+}
+
+/// Canonical JSON bytes matched by check_program_artifacts.py. The trailing
+/// newline is part of the digest contract.
+fun programArtifactBuildInputCanonicalJson(
+    value: ProgramArtifactBuildInput) r: String {
+    return "{\"compiler_sha256\":" +
+        programArtifactJsonString(value.compilerSha256) + ",\"coverage\":" +
+        programArtifactJsonBool(value.coverage) + ",\"cpu\":" +
+        programArtifactJsonString(value.cpu) + ",\"debug\":" +
+        programArtifactJsonBool(value.debug) + ",\"environment\":" +
+        programArtifactEnvironmentCanonicalJson(value.environment) +
+        ",\"features\":" + programArtifactFeaturesCanonicalJson(
+            value.features) + ",\"lock_sha256\":" +
+        programArtifactJsonString(value.lockSha256) + ",\"lto\":" +
+        programArtifactJsonString(value.lto) + ",\"object_cache_abi\":" +
+        programArtifactJsonString(value.objectCacheAbi) +
+        ",\"package_client_sha256\":" +
+        programArtifactJsonString(value.packageClientSha256) +
+        ",\"path_map\":" + programArtifactJsonString(value.pathMap) +
+        ",\"pic\":" + programArtifactJsonBool(value.pic) +
+        ",\"profile\":" + programArtifactJsonString(value.profile) +
+        ",\"runtime_sha256\":" +
+        programArtifactJsonString(value.runtimeSha256) +
+        ",\"sanitizer\":" + programArtifactJsonString(value.sanitizer) +
+        ",\"simd\":" + programArtifactJsonString(value.simd) +
+        ",\"source_date_epoch\":" + value.sourceDateEpoch.toString() +
+        ",\"source_tree_sha256\":" +
+        programArtifactJsonString(value.sourceTreeSha256) +
+        ",\"stdlib_sha256\":" +
+        programArtifactJsonString(value.stdlibSha256) + ",\"target\":" +
+        programArtifactJsonString(value.target) + ",\"toolchain\":" +
+        programArtifactJsonString(value.toolchain) + ",\"triple\":" +
+        programArtifactJsonString(value.triple) + "}\n"
+}
+
+fun programArtifactBuildInputDigest(
+    value: ProgramArtifactBuildInput) r: String {
+    let digest = sha256(programArtifactBuildInputCanonicalJson(value))
+    if digest.isErr() { return "" }
+    return digest.unwrap()
+}
+
+fun programArtifactArtifactsCanonicalJson(
+    value: Array<ProgramArtifactPin>) r: String {
+    var output = "["
+    var index = 0
+    while index < value.length() {
+        if index > 0 { output = output + "," }
+        let pin = value[index]
+        output = output + "{\"bytes\":" + pin.bytes.toString() +
+            ",\"executable\":" + programArtifactJsonBool(pin.executable) +
+            ",\"name\":" + programArtifactJsonString(pin.name) +
+            ",\"role\":" + programArtifactJsonString(pin.role) +
+            ",\"sha256\":" + programArtifactJsonString(pin.sha256) + "}"
+        index = index + 1
+    }
+    return output + "]\n"
+}
+
+fun programArtifactArtifactSetDigest(
+    value: Array<ProgramArtifactPin>) r: String {
+    let digest = sha256(programArtifactArtifactsCanonicalJson(value))
+    if digest.isErr() { return "" }
+    return digest.unwrap()
+}
+
+fun programArtifactCacheKey(caseName: String, inputDigest: String) r: String {
+    let separator = String.fromCharCode(0)
+    let frame = "seen-program-cache-v1" + separator + caseName + separator +
+        inputDigest
+    let digest = sha256(frame)
+    if digest.isErr() { return "" }
+    return digest.unwrap()
+}
+
+fun programArtifactRoleRank(value: String) r: Int {
+    if value == "executable" { return 0 }
+    if value == "object" { return 1 }
+    if value == "object-manifest" { return 2 }
+    if value == "package-archive" { return 3 }
+    if value == "package-manifest" { return 4 }
+    return -1
+}
+
+fun programArtifactBuildInputCode(value: ProgramArtifactBuildInput,
+    caseName: String) r: String {
+    if not programArtifactDigest(value.compilerSha256) or
+        not programArtifactDigest(value.inputDigest) or
+        not programArtifactDigest(value.lockSha256) or
+        not programArtifactDigest(value.packageClientSha256) or
+        not programArtifactDigest(value.runtimeSha256) or
+        not programArtifactDigest(value.sourceTreeSha256) or
+        not programArtifactDigest(value.stdlibSha256) or
+        not programArtifactText(value.cpu, 64) or
+        not programArtifactText(value.toolchain, 256) or
+        not value.objectCacheAbi.startsWith("seen-object-cache-abi-v") or
+        value.profile != "deterministic" or value.target != "linux-x86_64" or
+        value.triple != "x86_64-unknown-linux-gnu" or
+        value.pathMap != "/seen/src" or value.sourceDateEpoch < 0 {
+        return "invalid"
+    }
+    if value.cpu == "native" or value.debug or value.coverage or
+        value.sanitizer != "none" { return "unsupported_combination" }
+    if value.simd != "none" and value.simd != "sse4.2" and
+        value.simd != "avx2" and value.simd != "avx512" { return "invalid" }
+    var expectedLto = "none"
+    if caseName == "release-full-lto" { expectedLto = "full" }
+    if caseName == "release-thin-lto" { expectedLto = "thin" }
+    if value.lto != expectedLto or
+        (caseName == "object-manifest" and not value.pic) { return "invalid" }
+    if value.features.length() > 64 or value.environment.length() > 6 {
+        return "limit"
+    }
+    var index = 0
+    while index < value.features.length() {
+        if not programArtifactText(value.features[index], 128) {
+            return "invalid"
+        }
+        if index > 0 and programArtifactAsciiCompare(
+            value.features[index - 1], value.features[index]) >= 0 {
+            return "invalid"
+        }
+        index = index + 1
+    }
+    if value.environment.length() != 6 { return "invalid" }
+    index = 0
+    while index < value.environment.length() {
+        let pin = value.environment[index]
+        if pin.name != programArtifactEnvironmentNameAt(index) or
+            not programArtifactEnvironmentName(pin.name) or
+            not programArtifactDigest(pin.valueSha256) { return "invalid" }
+        index = index + 1
+    }
+    if programArtifactBuildInputDigest(value) != value.inputDigest {
+        return "input_change"
+    }
+    return ""
+}
+
+fun programArtifactPinsCode(value: Array<ProgramArtifactPin>,
+    objectManifest: Bool) r: String {
+    if value.length() < 1 or value.length() > 64 { return "limit" }
+    var executableCount = 0
+    var objectCount = 0
+    var manifestCount = 0
+    var priorRank = -1
+    var index = 0
+    while index < value.length() {
+        let pin = value[index]
+        let rank = programArtifactRoleRank(pin.role)
+        if rank < 0 or rank < priorRank or not programArtifactName(pin.name) or
+            not programArtifactDigest(pin.sha256) { return "invalid" }
+        if pin.bytes < 1 or pin.bytes > PROGRAM_ARTIFACT_MAX_BYTES {
+            return "limit"
+        }
+        if pin.role == "executable" {
+            executableCount = executableCount + 1
+            if not pin.executable { return "invalid" }
+        } else {
+            if pin.executable { return "invalid" }
+        }
+        if pin.role == "object" { objectCount = objectCount + 1 }
+        if pin.role == "object-manifest" {
+            manifestCount = manifestCount + 1
+        }
+        var prior = 0
+        while prior < index {
+            if value[prior].name == pin.name { return "invalid" }
+            prior = prior + 1
+        }
+        priorRank = rank
+        index = index + 1
+    }
+    if objectManifest {
+        if executableCount != 0 or objectCount < 1 or manifestCount < 1 {
+            return "invalid"
+        }
+    } else {
+        if executableCount != 1 { return "invalid" }
+    }
+    return ""
+}
+
+fun programArtifactPinsEqual(first: Array<ProgramArtifactPin>,
+    second: Array<ProgramArtifactPin>) r: Bool {
+    if first.length() != second.length() { return false }
+    var index = 0
+    while index < first.length() {
+        let a = first[index]
+        let b = second[index]
+        if a.bytes != b.bytes or a.executable != b.executable or
+            a.name != b.name or a.role != b.role or a.sha256 != b.sha256 {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun programArtifactResultCode(value: ProgramArtifactResult, index: Int,
+    input: ProgramArtifactBuildInput, caseName: String) r: String {
+    if value.id != programArtifactResultId(index) or
+        value.cacheMode != programArtifactCacheMode(index) or
+        value.compilerOrigin != programArtifactCompilerOrigin(index) or
+        value.pathMap != input.pathMap or not value.publishedAtomically or
+        not programArtifactDigest(value.rootIdentity) or
+        not programArtifactDigest(value.cacheIdentity) or
+        not programArtifactDigest(value.stdoutSha256) or
+        not programArtifactDigest(value.stderrSha256) { return "invalid" }
+    if value.exitCode < 0 or value.exitCode > 255 { return "limit" }
+    if value.exitCode != 0 { return "mismatch" }
+    if value.buildInputDigest != input.inputDigest { return "input_change" }
+    let pinCode = programArtifactPinsCode(value.artifacts,
+        caseName == "object-manifest")
+    if pinCode != "" { return pinCode }
+    if value.cache.state != programArtifactCacheState(index) or
+        value.cache.inputDigest != input.inputDigest or
+        value.cache.key != programArtifactCacheKey(caseName,
+            input.inputDigest) or
+        value.cache.artifactSetSha256 !=
+            programArtifactArtifactSetDigest(value.artifacts) {
+        return "stale_cache"
+    }
+    return ""
+}
+
+fun validateProgramArtifactEvidence(evidence: ProgramArtifactEvidence,
+    context: OperationContext) r: Result<ProgramArtifactEvidence, SeenError> {
+    if context.cancellation or context.monotonicDeadline < 0 or
+        evidence.cancelled {
+        return Err<ProgramArtifactEvidence, SeenError>(core004fError(
+            "core.004f.cancelled", "program artifact validation was cancelled"))
+    }
+    if evidence.schema != PROGRAM_ARTIFACT_SCHEMA or
+        not programArtifactCase(evidence.caseName) {
+        return Err<ProgramArtifactEvidence, SeenError>(core004fError(
+            "core.004f.invalid", "program artifact envelope is invalid"))
+    }
+    let inputCode = programArtifactBuildInputCode(evidence.buildInput,
+        evidence.caseName)
+    if inputCode != "" {
+        return Err<ProgramArtifactEvidence, SeenError>(core004fError(
+            "core.004f." + inputCode, "program build input is invalid"))
+    }
+    if evidence.results.length() != 6 or
+        evidence.results.length() > context.limits.maxTargets {
+        return Err<ProgramArtifactEvidence, SeenError>(core004fError(
+            "core.004f.limit", "six bounded build results are required"))
+    }
+    var index = 0
+    while index < evidence.results.length() {
+        let code = programArtifactResultCode(evidence.results[index], index,
+            evidence.buildInput, evidence.caseName)
+        if code != "" {
+            return Err<ProgramArtifactEvidence, SeenError>(core004fError(
+                "core.004f." + code, "program build result is invalid"))
+        }
+        index = index + 1
+    }
+    let first = evidence.results[0]
+    if first.rootIdentity != evidence.results[1].rootIdentity or
+        first.rootIdentity != evidence.results[2].rootIdentity or
+        evidence.results[3].rootIdentity != evidence.results[4].rootIdentity or
+        evidence.results[3].rootIdentity != evidence.results[5].rootIdentity or
+        first.cacheIdentity != evidence.results[1].cacheIdentity or
+        first.cacheIdentity != evidence.results[2].cacheIdentity or
+        evidence.results[3].cacheIdentity != evidence.results[4].cacheIdentity or
+        evidence.results[3].cacheIdentity != evidence.results[5].cacheIdentity or
+        first.rootIdentity == evidence.results[3].rootIdentity or
+        first.rootIdentity == first.cacheIdentity or
+        first.rootIdentity == evidence.results[3].cacheIdentity or
+        first.cacheIdentity == evidence.results[3].rootIdentity or
+        first.cacheIdentity == evidence.results[3].cacheIdentity or
+        evidence.results[3].rootIdentity == evidence.results[3].cacheIdentity {
+        return Err<ProgramArtifactEvidence, SeenError>(core004fError(
+            "core.004f.root_identity", "build and cache roots are not independent"))
+    }
+    index = 1
+    while index < evidence.results.length() {
+        let result = evidence.results[index]
+        if not programArtifactPinsEqual(first.artifacts, result.artifacts) or
+            first.stdoutSha256 != result.stdoutSha256 or
+            first.stderrSha256 != result.stderrSha256 or
+            first.exitCode != result.exitCode or
+            first.cache.key != result.cache.key or
+            first.cache.artifactSetSha256 != result.cache.artifactSetSha256 {
+            return Err<ProgramArtifactEvidence, SeenError>(core004fError(
+                "core.004f.mismatch", "raw program artifacts differ"))
+        }
+        index = index + 1
+    }
+    return Ok<ProgramArtifactEvidence, SeenError>(evidence)
+}

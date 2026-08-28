@@ -1,243 +1,173 @@
 # Synchronization
 
-## Mutex
-
-Mutual exclusion lock using pthread mutex.
-
-```seen
-import sync.mutex
-```
-
-### Constructor
+Seen's public synchronization surface is native Seen policy over a small,
+ledgered operating-system wait/wakeup ABI. Resource-owning values are
+move-only, blocking operations take an `OperationContext`, and all failures use
+stable `sync.*` codes.
 
 ```seen
-let mutex = Mutex.new()  // creates real pthread mutex
+import sync.mod.{Arc, AtomicInt, BoundedChannel, LockOrderTracker,
+    MemoryOrder, Mutex, RwLock}
 ```
 
-**Important:** `Mutex.new()` must be used (not `Mutex()` which zero-inits the handle).
+## Send and Share
 
-### Methods
-
-| Method | Return | Description |
-|--------|--------|-------------|
-| `lock()` | `Void` | Acquire lock (blocking) |
-| `unlock()` | `Void` | Release lock |
-| `tryLock()` | `Bool` | Non-blocking lock attempt |
-
-### Example
+`Send` means a value may be transferred to another task. `Share` means a value
+may be referenced concurrently without permitting an undeclared mutable alias.
+The compiler proves both properties structurally; declaring an outer type does
+not make an unsafe field legal.
 
 ```seen
-let mutex = Mutex.new()
-mutex.lock()
-// critical section
-sharedCounter = sharedCounter + 1
-mutex.unlock()
+@share
+class SharedId {
+    let value: Int
+}
+
+@share
+class SharedPair<T: Share> {
+    let first: T
+    let second: T
+}
 ```
 
-## RwLock
+Mutable arrays and other unprotected mutable aggregates are not `Share`.
+Generic `T: Send` and `T: Share` bounds are checked at every use, including
+imports and parallel-loop captures. The former `@sync` spelling is rejected.
 
-Read-write lock allowing multiple concurrent readers or one exclusive writer.
+## Errors and operation context
+
+Fallible methods return `Result<T, SyncError>`. `SyncError` carries `code`,
+`operation`, `message`, `retryable`, and item `progress`. Public error codes
+are:
+
+| Code | Meaning |
+|---|---|
+| `sync.invalid` | Invalid state, handle, order, ownership, or lock use |
+| `sync.limit` | A checked capacity or diagnostic bound was exceeded |
+| `sync.cancelled` | The supplied operation context was cancelled |
+| `sync.timeout` | The monotonic deadline expired |
+| `sync.unavailable` | A transient operating-system resource was unavailable |
+| `sync.unsupported_platform` | No supported adapter exists on this platform |
+
+Cancellation and expired deadlines are rejected before a blocking side effect.
+A caller supplies an immutable `OperationContext`; deadlines are absolute
+monotonic nanoseconds. Only `sync.unavailable` can be retryable.
+
+## Arc<T>
+
+`Arc<T: Share>` is bounded explicit shared ownership. Cloning increments a
+checked strong count; `close()` releases one owner and is idempotent for that
+owner. Access through a released owner fails.
 
 ```seen
-import sync.rwlock
+let created = Arc<Int>.create(41)
+let first = created.unwrap()
+let second = first.cloneShared().unwrap()
+
+let lease = second.borrow().unwrap()
+let value = lease.get().unwrap()
+let owners = first.strongCount().unwrap()
+
+lease.close()
+first.close()
+second.close()
 ```
 
-### Methods
+`borrow()` returns a move-only lease that owns an additional strong reference;
+the shared value cannot outlive that lease's owner. The lease must be closed
+on every exit. The last owner close releases the native atomic count. There is
+no implicit global owner, garbage collector, or fallback implementation.
 
-| Method | Return | Description |
-|--------|--------|-------------|
-| `readLock()` | `Void` | Acquire read lock |
-| `readUnlock()` | `Void` | Release read lock |
-| `writeLock()` | `Void` | Acquire write lock |
-| `writeUnlock()` | `Void` | Release write lock |
-| `destroy()` | `Void` | Free resources |
+## Atomics and memory order
 
-### Example
+`AtomicInt`, `AtomicBool`, and `Atomic<T: Share>` expose typed memory ordering:
 
 ```seen
-let rw = RwLock.new()
-
-// Multiple readers
-rw.readLock()
-let value = sharedData
-rw.readUnlock()
-
-// Exclusive writer
-rw.writeLock()
-sharedData = newValue
-rw.writeUnlock()
+enum MemoryOrder { Relaxed; Acquire; Release; AcqRel; SeqCst }
 ```
-
-## Barrier
-
-Thread barrier -- blocks until N threads arrive.
 
 ```seen
-import sync.barrier
+let counter = AtomicInt.create(0 as Int64).unwrap()
+counter.store(42 as Int64, MemoryOrder.Release)
+let observed = counter.load(MemoryOrder.Acquire).unwrap()
+let update = counter.compareExchange(42 as Int64, 43 as Int64,
+    MemoryOrder.AcqRel, MemoryOrder.Acquire).unwrap()
+counter.close()
 ```
 
-### Constructor
+Release/AcqRel loads and Acquire/AcqRel stores fail with `sync.invalid`.
+Compare-exchange validates its failure order separately and returns both the
+observed value and whether the exchange occurred. Integer operations also
+include `exchange`, `fetchAdd`, and `fetchSub`. Generic atomics use the same
+typed API with a narrow mutex adapter; they do not silently claim lock-free
+operation.
+
+## BoundedChannel<T>
+
+Every channel has a positive capacity no greater than 1,048,576. Sending and
+receiving are typed, FIFO, deadline-aware, cancellable, and never create an
+unbounded queue.
 
 ```seen
-let barrier = Barrier.new(4)  // 4 threads
+let channel = BoundedChannel<Int>.create(16).unwrap()
+channel.send(context, 42)?
+let value = channel.receive(context)?
+
+channel.close()       // wakes blocked senders and receivers
+channel.destroy()     // only after close, drain, and waiter shutdown
 ```
 
-### Methods
+`close()` is idempotent and prevents new sends. Buffered values remain
+receivable. `destroy()` fails until the channel is closed, drained, and has no
+registered waiters, then releases both condition variables and the mutex.
 
-| Method | Return | Description |
-|--------|--------|-------------|
-| `wait()` | `Int` | Wait at barrier (returns 0 for serial thread) |
-| `destroy()` | `Void` | Free resources |
+## Mutex<T> and RwLock<T>
 
-## AtomicInt
-
-Lock-free atomic integer operations.
+Locks own the protected `Share` value. A positive rank is required and a
+`LockOrderTracker` accompanies acquisition. The returned guard is move-only;
+all access and mutation occur through that guard, and `release()` unlocks and
+removes the rank from the tracker.
 
 ```seen
-import sync.atomic
+let tracker = LockOrderTracker.create(16, 64, true).unwrap()
+let cell = Mutex<Int>.create(0, 10).unwrap()
+let guard = cell.lock(context, tracker).unwrap()
+guard.set(1)?
+guard.release()?
+cell.close()?
 ```
 
-### Constructor
+`RwLock<T>` provides `read(context, tracker)` and
+`write(context, tracker)`. Read guards expose `get`; write guards expose
+`get`, `set`, and `poison`.
 
-```seen
-let counter = AtomicInt.new(0)
-```
+If a protected operation cannot preserve its invariant, mark its guard
+poisoned before releasing it. Subsequent acquisition fails until the owner
+calls `recover()` explicitly. Closing a held resource fails; cleanup never
+guesses that a live guard is safe to discard.
 
-Uses heap-allocated storage via `__AtomicAlloc(initial)`.
+## Lock-order diagnostics
 
-### Methods
+`LockOrderTracker.create(maxDepth, maxEdges, diagnostics)` bounds both the held
+stack and dependency graph. In diagnostic mode ranks must strictly increase on
+acquisition and release in reverse order. A repeated edge is ignored; an edge
+that creates a cycle fails with `sync.invalid`; a full graph fails with
+`sync.limit`.
 
-| Method | Return | Description |
-|--------|--------|-------------|
-| `load()` | `Int` | Load value |
-| `load_relaxed()` | `Int` | Load with relaxed ordering |
-| `load_acquire()` | `Int` | Load with acquire ordering |
-| `store(value: Int)` | `Void` | Store value |
-| `store_release(value: Int)` | `Void` | Store with release ordering |
-| `add(value: Int)` / `sub(value: Int)` | `Int` | Atomic arithmetic |
-| `compare_exchange(expected: Int, new_value: Int)` | `Bool` | CAS operation |
+Diagnostics are deterministic and native Seen. They do not start a monitor
+thread or retain an unbounded global graph.
 
-### Example
+## Platform mapping
 
-```seen
-let counter = AtomicInt.new(0)
+Linux and macOS use generation-checked slots over pthread atomics, mutexes,
+condition variables, and reader/writer locks. Windows uses Interlocked,
+SRWLOCK, CONDITION_VARIABLE, and critical-section primitives. The adapter owns
+no queue, ownership, poisoning, lock-order, retry, or shutdown policy.
 
-// In thread 1:
-counter.store_release(42)
+Stale, reused, mistyped, and closing handles are rejected. The adapter has a
+finite resource registry, numerically tracked live-resource counts, explicit
+deadline results, and idempotent destruction through zeroed handles.
 
-// In thread 2:
-let val = counter.load_acquire()
-```
-
-## Channel
-
-Message passing between threads using Unix pipes (MPSC).
-
-```seen
-import sync.channel
-```
-
-### Constructor
-
-```seen
-let ch = Channel.new()  // creates pipe pair
-```
-
-Internally uses `__ChannelCreate` which packs `read_fd << 32 | write_fd` into an `i64` handle.
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `send(value)` | Send a value |
-| `receive()` | Receive a value (blocking) |
-| `close()` | Close the channel |
-
-`Channel` currently transports `Int` values; it is not a generic typed channel.
-
-## ThreadLocal
-
-Per-thread storage.
-
-```seen
-import sync.thread_local
-```
-
-### Methods
-
-| Method | Return | Description |
-|--------|--------|-------------|
-| `set(value: Int)` | `Void` | Set thread-local value |
-| `get()` | `Int` | Get thread-local value |
-| `destroy()` | `Void` | Free TLS key |
-
-## MPSCQueue
-
-Multi-producer single-consumer queue (mutex-protected).
-
-```seen
-import sync.mpsc_queue
-```
-
-| Function | Description |
-|----------|-------------|
-| `new_mpsc_queue()` | Create queue |
-| `mpsc_push(queue, value)` | Push value |
-| `mpsc_drain(queue)` | Drain all values |
-| `mpsc_len(queue)` | Get length |
-| `mpsc_destroy(queue)` | Free resources |
-
-## SPSCQueue\<T\>
-
-Single-producer single-consumer lock-free queue.
-
-```seen
-import sync.spsc_queue
-```
-
-## AtomicQueue / AtomicStack
-
-Lock-free concurrent data structures.
-
-```seen
-import sync.atomic_queue
-import sync.atomic_stack
-```
-
-### AtomicQueue
-
-| Function | Description |
-|----------|-------------|
-| `seen_atomic_queue_new()` | Create queue |
-| `seen_atomic_queue_push(q, val)` | Enqueue |
-| `seen_atomic_queue_pop(q)` | Dequeue |
-| `seen_atomic_queue_destroy(q)` | Free |
-
-### AtomicStack
-
-| Function | Description |
-|----------|-------------|
-| `seen_atomic_stack_new()` | Create stack |
-| `seen_atomic_stack_push(s, val)` | Push |
-| `seen_atomic_stack_pop(s)` | Pop |
-| `seen_atomic_stack_destroy(s)` | Free |
-
-## Work-Stealing Thread Pool
-
-```seen
-import thread.pool
-```
-
-| Function | Description |
-|----------|-------------|
-| `seen_ws_pool_new(nworkers)` | Create pool with N workers |
-| `seen_ws_pool_submit(pool, fn_ptr, arg)` | Submit task |
-| `seen_ws_pool_shutdown(pool)` | Shutdown pool |
-
-## Memory Ordering
-
-The `ordering` module provides constants:
-
-```seen
-import sync.ordering
-```
+The former raw `__Mutex*`, `__Atomic*`, pipe channel, runtime RwLock/barrier/TLS,
+atomic queue, and atomic stack surfaces were removed as a clean pre-1.0
+replacement. There is no compatibility bridge.

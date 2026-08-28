@@ -1,0 +1,209 @@
+import core.error.{AsciiString, RetryClass, RedactionClass}
+import core.operation_context.{OperationLimits, OperationContext}
+import determinism.policy.{DeterministicPlatformStatus,
+    DeterministicLocaleIdentity, DeterministicPlatformPolicy,
+    DeterministicCapabilityPolicy}
+import determinism.context.{DeterministicArgumentValue,
+    DeterministicEnvironmentValue, DeterministicContextInputs,
+    DeterministicContextRequest, createDeterministicExecutionContext,
+    deterministicContextFromProcess, deterministicEpochSeconds,
+    deterministicRandomAt, deterministicEnvironment,
+    authorizeDeterministicFilesystemObservation,
+    authorizeDeterministicProcessState, authorizeDeterministicNetworkState,
+    authorizeDeterministicHostCapability, deterministicContextIdentity}
+
+fun core004eOperation(cancelled: Bool) r: OperationContext {
+    return OperationContext{cancellation: cancelled,
+        monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 16, maxIdentityBytes: 256,
+            maxVersionBytes: 256, maxManifestBytes: 65536,
+            maxPathBytes: 4096, maxGraphModules: 64,
+            maxGraphEdges: 256, maxGraphDepth: 32},
+        traceId: AsciiString{value: "core-004e"}}
+}
+
+fun core004eLocale() r: DeterministicLocaleIdentity {
+    return DeterministicLocaleIdentity{locale: "C.UTF-8", encoding: "UTF-8"}
+}
+
+fun core004ePlatform() r: DeterministicPlatformPolicy {
+    return DeterministicPlatformPolicy{target: "linux-x86_64",
+        status: DeterministicPlatformStatus.Verified,
+        toolchainIdentity: "seen-0.18-llvm-22-x86-64"}
+}
+
+fun core004ePolicy() r: DeterministicCapabilityPolicy {
+    let environmentNames = Array<String>()
+    environmentNames.push("CORE_004E_VISIBLE")
+    let filesystemRoots = Array<String>()
+    filesystemRoots.push("/tmp")
+    let processStates = Array<String>()
+    processStates.push("exit-status")
+    let networkStates = Array<String>()
+    networkStates.push("https://example.invalid/state")
+    let hostCapabilities = Array<String>()
+    hostCapabilities.push("cpu-baseline.x86-64")
+    return DeterministicCapabilityPolicy{argumentIndexes: Array<Int>(),
+        environmentNames: environmentNames,
+        filesystemRoots: filesystemRoots, processStates: processStates,
+        networkStates: networkStates, hostCapabilities: hostCapabilities}
+}
+
+fun core004eInputs(epoch: String, seed: String, environmentValue: String)
+    r: DeterministicContextInputs {
+
+    let environment = Array<DeterministicEnvironmentValue>()
+    environment.push(DeterministicEnvironmentValue{
+        name: "CORE_004E_VISIBLE", present: true, value: environmentValue})
+    return DeterministicContextInputs{deterministic: true,
+        sourceDateEpoch: epoch, seed: seed, locale: core004eLocale(),
+        platform: core004ePlatform(), policy: core004ePolicy(),
+        arguments: Array<DeterministicArgumentValue>(),
+        environment: environment}
+}
+
+fun core004eFail(name: String, detail: String) r: Int {
+    println("FAIL: " + name + " " + detail)
+    return 1
+}
+
+fun main() r: Int {
+    let operation = core004eOperation(false)
+    let created = createDeterministicExecutionContext(
+        core004eInputs("1700000000", "1101", "granted-value"), operation)
+    if created.isErr() {
+        return core004eFail("CORE-004E_epoch_happy",
+            created.unwrapErr().code.value)
+    }
+    let context = created.unwrap()
+    let epoch = deterministicEpochSeconds(context, operation)
+    if epoch.isErr() or epoch.unwrap() != (1700000000 as Int64) {
+        return core004eFail("CORE-004E_epoch_happy", "epoch mismatch")
+    }
+    println("PASS: CORE-004E_epoch_happy")
+
+    let randomA = deterministicRandomAt(context, 7 as UInt64, operation)
+    let randomB = deterministicRandomAt(context, 7 as UInt64, operation)
+    let randomC = deterministicRandomAt(context, 8 as UInt64, operation)
+    if randomA.isErr() or randomB.isErr() or randomC.isErr() or
+        randomA.unwrap() != randomB.unwrap() or
+        randomA.unwrap() == randomC.unwrap() {
+
+        return core004eFail("CORE-004E_seed_happy", "PRNG mismatch")
+    }
+    println("PASS: CORE-004E_seed_happy")
+
+    let missingEpoch = createDeterministicExecutionContext(
+        core004eInputs("", "1101", "granted-value"), operation)
+    if not missingEpoch.isErr() or
+        missingEpoch.unwrapErr().code.value != "core.004e.missing_epoch" or
+        missingEpoch.unwrapErr().retry != RetryClass.Never {
+
+        return core004eFail("CORE-004E_missing_epoch", "wrong diagnostic")
+    }
+    println("PASS: CORE-004E_missing_epoch")
+
+    let invalidSeed = createDeterministicExecutionContext(
+        core004eInputs("1700000000", "not-a-seed", "granted-value"),
+        operation)
+    if not invalidSeed.isErr() or
+        invalidSeed.unwrapErr().code.value != "core.004e.invalid_seed" or
+        invalidSeed.unwrapErr().retry != RetryClass.Never {
+
+        return core004eFail("CORE-004E_invalid_seed", "wrong diagnostic")
+    }
+    println("PASS: CORE-004E_invalid_seed")
+
+    let deniedEnvironment = deterministicEnvironment(context,
+        "CORE_004E_SECRET", operation)
+    if not deniedEnvironment.isErr() or
+        deniedEnvironment.unwrapErr().code.value != "core.004e.env_denied" or
+        deniedEnvironment.unwrapErr().redaction != RedactionClass.Sensitive {
+
+        return core004eFail("CORE-004E_env_denied", "wrong policy result")
+    }
+    let grantedEnvironment = deterministicEnvironment(context,
+        "CORE_004E_VISIBLE", operation)
+    if grantedEnvironment.isErr() or
+        not grantedEnvironment.unwrap().present or
+        grantedEnvironment.unwrap().value != "granted-value" {
+
+        return core004eFail("CORE-004E_env_denied", "grant mismatch")
+    }
+    println("PASS: CORE-004E_env_denied")
+
+    if context.locale.locale != "C.UTF-8" or
+        context.locale.encoding != "UTF-8" {
+        return core004eFail("CORE-004E_locale_pinned", "locale mismatch")
+    }
+    println("PASS: CORE-004E_locale_pinned")
+
+    let allowedPath = authorizeDeterministicFilesystemObservation(context,
+        "/tmp", operation)
+    let deniedPath = authorizeDeterministicFilesystemObservation(context,
+        "/etc", operation)
+    let allowedProcess = authorizeDeterministicProcessState(context,
+        "exit-status", operation)
+    let deniedProcess = authorizeDeterministicProcessState(context,
+        "pid", operation)
+    let allowedNetwork = authorizeDeterministicNetworkState(context,
+        "https://example.invalid/state", operation)
+    let deniedNetwork = authorizeDeterministicNetworkState(context,
+        "https://ambient.invalid/state", operation)
+    let allowedHost = authorizeDeterministicHostCapability(context,
+        "cpu-baseline.x86-64", operation)
+    let deniedHost = authorizeDeterministicHostCapability(context,
+        "host-cpu-native", operation)
+    if allowedPath.isErr() or not deniedPath.isErr() or
+        deniedPath.unwrapErr().code.value !=
+            "core.004e.external_input_denied" or
+        allowedProcess.isErr() or not deniedProcess.isErr() or
+        allowedNetwork.isErr() or not deniedNetwork.isErr() or
+        allowedHost.isErr() or not deniedHost.isErr() {
+
+        return core004eFail("CORE-004E_external_input_denied",
+            "capability mismatch")
+    }
+    println("PASS: CORE-004E_external_input_denied")
+
+    let processContext = deterministicContextFromProcess(
+        DeterministicContextRequest{locale: core004eLocale(),
+            platform: core004ePlatform(), policy: core004ePolicy()}, operation)
+    if processContext.isErr() {
+        return core004eFail("CORE-004E_run_parity",
+            processContext.unwrapErr().code.value)
+    }
+    let processEnvironment = deterministicEnvironment(processContext.unwrap(),
+        "CORE_004E_VISIBLE", operation)
+    if processEnvironment.isErr() or
+        processEnvironment.unwrap().value != "granted-value" or
+        deterministicContextIdentity(processContext.unwrap()) !=
+            deterministicContextIdentity(context) {
+
+        return core004eFail("CORE-004E_run_parity", "context mismatch")
+    }
+    println("PASS: CORE-004E_run_parity")
+
+    let cancelled = createDeterministicExecutionContext(
+        core004eInputs("1700000000", "1101", "granted-value"),
+        core004eOperation(true))
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code.value != "core.004e.cancelled" {
+
+        return core004eFail("CORE-004E_cancel", "wrong diagnostic")
+    }
+    println("PASS: CORE-004E_cancel")
+
+    let expiredOperation = OperationContext{cancellation: false,
+        monotonicDeadline: -1 as Int64, limits: operation.limits,
+        traceId: operation.traceId}
+    let expired = createDeterministicExecutionContext(
+        core004eInputs("1700000000", "1101", "granted-value"),
+        expiredOperation)
+    if not expired.isErr() or
+        expired.unwrapErr().code.value != "core.004e.timeout" {
+
+        return core004eFail("CORE-004E_cancel", "deadline was not enforced")
+    }
+    return 0
+}

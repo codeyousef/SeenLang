@@ -1,0 +1,12 @@
+manifest-version = 1
+
+[project]
+name = "core_004f_multi_module"
+version = "0.1.0"
+language = "en"
+modules = ["src/main.seen", "src/value.seen"]
+
+[dependencies]
+
+[features]
+stable = true

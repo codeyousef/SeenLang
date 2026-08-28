@@ -1,0 +1,5 @@
+import middle.{middleValue}
+
+fun main() r: Int {
+    return middleValue()
+}

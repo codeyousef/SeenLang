@@ -1,0 +1,16 @@
+manifest-version = 1
+
+[project]
+name = "core_004f_locked_package"
+version = "0.1.0"
+language = "en"
+modules = ["src/mod.seen"]
+
+[package]
+identity = "seen/core-004f-locked-package"
+visibility = "public"
+include = ["src/**/*.seen"]
+assets = []
+capabilities = []
+
+[dependencies]

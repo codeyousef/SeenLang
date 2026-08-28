@@ -1,6 +1,7 @@
 import seen_compiler.release.compatibility.{CompatibilityCompiler,
     CompatibilityComponents, CompatibilityTarget,
-    CompatibilityPlatforms, CompatibilityManifest,
+    CompatibilityPlatforms, CompatibilityDeterminismCertification,
+    CompatibilityDeterminism, CompatibilityManifest,
     validateCompatibilityManifest, compatibilityInputsFromManifest,
     generateCompatibilityManifestBytes, parseCompatibilityManifest,
     consumeCompatibilityManifest, writeCompatibilityManifest,
@@ -8,6 +9,43 @@ import seen_compiler.release.compatibility.{CompatibilityCompiler,
 import core.error.{AsciiString, RetryClass, RedactionClass}
 import core.operation_context.{OperationLimits, OperationContext}
 import io.file.{exists, deleteFile}
+
+fun compatibilityTestDeterminism() r: CompatibilityDeterminism {
+    let provenance = Array<String>()
+    provenance.push("artifact-hash")
+    provenance.push("artifact-size")
+    provenance.push("build-input-digest")
+    provenance.push("builder-identity")
+    provenance.push("cancellation-state")
+    provenance.push("command")
+    provenance.push("compiler-identity")
+    provenance.push("containment-readback")
+    provenance.push("epoch")
+    provenance.push("lock-digest")
+    provenance.push("mode")
+    provenance.push("root-identity")
+    provenance.push("source-digest")
+    provenance.push("target-identity")
+    provenance.push("toolchain-identity")
+    return CompatibilityDeterminism{
+        certification: CompatibilityDeterminismCertification{
+            artifactComparison: "raw-bytes",
+            builderCount: 2,
+            completeCorpusRequired: true,
+            distinctBuilderIdentities: true,
+            distinctRootIdentities: true,
+            installedArchiveRequired: true,
+            signedEvidenceRequired: true
+        },
+        contextSchema: "seen-deterministic-context-v1",
+        objectCacheRecordSchema: "seen-object-cache-record-v1",
+        programArtifactsSchema: "seen-program-artifacts-v1",
+        programBuildInputSchema: "seen-program-build-input-v1",
+        programReproducibilitySchema: "seen-program-reproducibility-v1",
+        releaseLtoCacheRecordSchema: "seen-release-lto-cache-record-v1",
+        requiredProvenance: provenance
+    }
+}
 
 fun compatibilityTestManifest() r: CompatibilityManifest {
     let targets = Array<CompatibilityTarget>()
@@ -36,6 +74,7 @@ fun compatibilityTestManifest() r: CompatibilityManifest {
             packageClientProtocol: "SEENPKG1",
             llvmMinimumMajor: 18
         },
+        determinism: compatibilityTestDeterminism(),
         platforms: CompatibilityPlatforms{
             linuxArm64: "declared-toolchain-dependent",
             linuxX8664: "required",
@@ -118,7 +157,11 @@ fun main() r: Int {
     }
     let parsed = parseCompatibilityManifest(
         generated.unwrap(), compatibilityTestContext(false, 32))
-    if parsed.isErr() or parsed.unwrap().releaseVersion != "0.10.1" {
+    if parsed.isErr() or parsed.unwrap().releaseVersion != "0.10.1" or
+        parsed.unwrap().determinism.programReproducibilitySchema !=
+            "seen-program-reproducibility-v1" or
+        parsed.unwrap().determinism.requiredProvenance.length() != 15 {
+
         return 8
     }
     let consumed = consumeCompatibilityManifest(
@@ -133,6 +176,47 @@ fun main() r: Int {
         return 19
     }
     println("PASS: CORE-002B_happy")
+
+    let weakened = compatibilityTestManifest()
+    weakened.determinism.certification.artifactComparison = "normalized"
+    let weakenedResult = validateCompatibilityManifest(
+        weakened, compatibilityTestContext(false, 32))
+    if not weakenedResult.isErr() or
+        weakenedResult.unwrapErr().code.value != "core.002a.invalid" {
+
+        return 21
+    }
+    let incomplete = compatibilityTestManifest()
+    incomplete.determinism.requiredProvenance.pop()
+    let incompleteResult = validateCompatibilityManifest(
+        incomplete, compatibilityTestContext(false, 32))
+    if not incompleteResult.isErr() or
+        incompleteResult.unwrapErr().code.value != "core.002a.invalid" {
+
+        return 22
+    }
+    let unsignedBytes = generated.unwrap().replace(
+        "\"signed_evidence_required\": true",
+        "\"signed_evidence_required\": false")
+    let unsignedResult = parseCompatibilityManifest(
+        unsignedBytes, compatibilityTestContext(false, 32))
+    if not unsignedResult.isErr() or
+        unsignedResult.unwrapErr().code.value != "core.002b.invalid" {
+
+        return 23
+    }
+    let unknownDeterminismBytes = generated.unwrap().replace(
+        "\"context_schema\": \"seen-deterministic-context-v1\",",
+        "\"context_schema\": \"seen-deterministic-context-v1\",\n" +
+        "    \"unknown\": true,")
+    let unknownDeterminismResult = parseCompatibilityManifest(
+        unknownDeterminismBytes, compatibilityTestContext(false, 32))
+    if not unknownDeterminismResult.isErr() or
+        unknownDeterminismResult.unwrapErr().code.value != "core.002b.invalid" {
+
+        return 24
+    }
+    println("PASS: CORE-004G_compatibility_determinism")
 
     let mismatchedManifest = compatibilityTestManifest()
     mismatchedManifest.components.runtimeAbi = "runtime-v3"

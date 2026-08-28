@@ -1,0 +1,5 @@
+import leaf.{leafValue}
+
+pub fun middleValue() r: Int {
+    return leafValue()
+}

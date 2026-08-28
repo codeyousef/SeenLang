@@ -1,0 +1,428 @@
+/// Native end-user two-builder reproducibility policy for CORE-004G.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass}
+import core.operation_context.{OperationContext}
+
+let PROGRAM_REPRODUCIBILITY_SCHEMA: String =
+    "seen-program-reproducibility-v1"
+let PROGRAM_REPRODUCIBILITY_MAX_ARTIFACT_BYTES: Int64 = 2147483648
+let PROGRAM_REPRODUCIBILITY_MAX_CAPTURE_BYTES: Int64 = 16777216
+let PROGRAM_REPRODUCIBILITY_MAX_MEMORY_BYTES: Int64 = 68719476736
+
+class ProgramReproducibilityContainment {
+    var memoryAvailableBytes: Int64
+    var memoryMaxBytes: Int64
+    var memoryMaxReadbackBytes: Int64
+    var memorySwapMaxBytes: Int64
+    var memorySwapMaxReadbackBytes: Int64
+    var pidsMax: Int
+    var pidsMaxReadback: Int
+    var tasksCurrent: Int
+    var jobs: Int
+    var optJobs: Int
+}
+
+class ProgramReproducibilityAttestation {
+    var mode: String
+    var identity: String
+    var issuer: String
+    var inventorySha256: String
+    var signatureSha256: String
+}
+
+class ProgramReproducibilityRun {
+    var cacheMode: String
+    var artifact: String
+    var artifactSha256: String
+    var artifactBytes: Int64
+    var manifest: String
+    var manifestSha256: String
+    var manifestBytes: Int64
+    var stdout: String
+    var stdoutSha256: String
+    var stdoutBytes: Int64
+    var stderr: String
+    var stderrSha256: String
+    var stderrBytes: Int64
+    var exitCode: Int
+}
+
+class ProgramReproducibilityDescriptor {
+    var id: String
+    var mode: String
+    var sourceDigest: String
+    var lockDigest: String
+    var buildInputDigest: String
+    var command: String
+    var expectedStdoutSha256: String
+    var expectedStderrSha256: String
+    var expectedExitCode: Int
+}
+
+class ProgramReproducibilityResult {
+    var id: String
+    var buildInputDigest: String
+    var runs: Array<ProgramReproducibilityRun>
+}
+
+class ProgramReproducibilityBuilder {
+    var id: String
+    var builderIdentity: String
+    var buildRootDigest: String
+    var cacheRootDigest: String
+    var compiler: String
+    var compilerIdentity: String
+    var compilerSha256: String
+    var installedArchive: String
+    var installedArchiveSha256: String
+    var toolchain: String
+    var containment: ProgramReproducibilityContainment
+    var attestation: ProgramReproducibilityAttestation
+    var programs: Array<ProgramReproducibilityResult>
+}
+
+class ProgramReproducibilityEvidence {
+    var schema: String
+    var target: String
+    var sourceCommit: String
+    var sourceDigest: String
+    var lockDigest: String
+    var buildInputDigest: String
+    var sourceDateEpoch: Int64
+    var cancelled: Bool
+    var programs: Array<ProgramReproducibilityDescriptor>
+    var builders: Array<ProgramReproducibilityBuilder>
+}
+
+fun core004gError(code: String, message: String) r: SeenError {
+    return SeenError{code: AsciiString{value: code},
+        subsystem: AsciiString{value: "release.program-reproducibility"},
+        operation: AsciiString{value: "certify-two-builder-programs"},
+        message: message, causes: Vec<SeenError>.new(),
+        nativeCode: None<Int64>(), retry: RetryClass.Never,
+        redaction: RedactionClass.Public}
+}
+
+fun programReproducibilityDigest(value: String, size: Int) r: Bool {
+    if value.length() != size { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let digit = byte >= 48 and byte <= 57
+        let lowerHex = byte >= 97 and byte <= 102
+        if not digit and not lowerHex { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun programReproducibilityText(value: String, maximum: Int) r: Bool {
+    if value == "" or value.length() > maximum { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 32 or byte > 126 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun programReproducibilityName(value: String) r: Bool {
+    if not programReproducibilityText(value, 255) or value.startsWith("-") or
+        value == "." or value == ".." { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        var valid = byte >= 97 and byte <= 122
+        if byte >= 65 and byte <= 90 { valid = true }
+        if byte >= 48 and byte <= 57 { valid = true }
+        if byte == 46 or byte == 95 or byte == 43 or byte == 45 { valid = true }
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun programReproducibilityId(index: Int) r: String {
+    if index == 0 { return "single-file" }
+    if index == 1 { return "multi-module" }
+    if index == 2 { return "locked-package" }
+    if index == 3 { return "deterministic-runtime-context" }
+    if index == 4 { return "default" }
+    if index == 5 { return "release-full-lto" }
+    return "release-thin-lto"
+}
+
+fun programReproducibilityMode(index: Int) r: String {
+    if index == 5 { return "release-full-lto" }
+    if index == 6 { return "release-thin-lto" }
+    return "default"
+}
+
+fun programReproducibilityCacheMode(index: Int) r: String {
+    if index == 0 { return "cold" }
+    if index == 1 { return "warm" }
+    return "disabled"
+}
+
+fun programReproducibilityContainmentCode(
+    value: ProgramReproducibilityContainment) r: String {
+    if value.memoryMaxBytes < 1 or
+        value.memoryMaxBytes > PROGRAM_REPRODUCIBILITY_MAX_MEMORY_BYTES or
+        value.memoryMaxBytes > value.memoryAvailableBytes or
+        value.memoryMaxReadbackBytes != value.memoryMaxBytes or
+        value.memorySwapMaxBytes != 0 or
+        value.memorySwapMaxReadbackBytes != 0 or
+        value.pidsMax < 1 or value.pidsMax > 24 or
+        value.pidsMaxReadback != value.pidsMax or
+        value.tasksCurrent < 1 or value.tasksCurrent > value.pidsMaxReadback or
+        value.jobs != 1 or value.optJobs != 1 {
+        return "limit"
+    }
+    return ""
+}
+
+fun programReproducibilityAttestationCode(
+    value: ProgramReproducibilityAttestation) r: String {
+    if (value.mode != "keyless" and value.mode != "key" and
+        value.mode != "kms") or
+        not programReproducibilityText(value.identity, 512) or
+        not programReproducibilityText(value.issuer, 512) or
+        not programReproducibilityDigest(value.inventorySha256, 64) or
+        not programReproducibilityDigest(value.signatureSha256, 64) {
+        return "unsigned"
+    }
+    return ""
+}
+
+fun programReproducibilityRunCode(run: ProgramReproducibilityRun,
+    cacheMode: String, descriptor: ProgramReproducibilityDescriptor) r: String {
+    if run.cacheMode != cacheMode or
+        not programReproducibilityName(run.artifact) or
+        not programReproducibilityName(run.manifest) or
+        not programReproducibilityName(run.stdout) or
+        not programReproducibilityName(run.stderr) or
+        run.artifact == run.manifest or run.artifact == run.stdout or
+        run.artifact == run.stderr or run.manifest == run.stdout or
+        run.manifest == run.stderr or run.stdout == run.stderr or
+        not programReproducibilityDigest(run.artifactSha256, 64) or
+        not programReproducibilityDigest(run.manifestSha256, 64) or
+        not programReproducibilityDigest(run.stdoutSha256, 64) or
+        not programReproducibilityDigest(run.stderrSha256, 64) {
+        return "invalid"
+    }
+    if run.artifactBytes < 1 or
+        run.artifactBytes > PROGRAM_REPRODUCIBILITY_MAX_ARTIFACT_BYTES or
+        run.manifestBytes < 1 or
+        run.manifestBytes > PROGRAM_REPRODUCIBILITY_MAX_CAPTURE_BYTES or
+        run.stdoutBytes < 0 or
+        run.stdoutBytes > PROGRAM_REPRODUCIBILITY_MAX_CAPTURE_BYTES or
+        run.stderrBytes < 0 or
+        run.stderrBytes > PROGRAM_REPRODUCIBILITY_MAX_CAPTURE_BYTES or
+        run.exitCode < 0 or run.exitCode > 255 {
+        return "limit"
+    }
+    if run.exitCode != descriptor.expectedExitCode or
+        run.stdoutSha256 != descriptor.expectedStdoutSha256 or
+        run.stderrSha256 != descriptor.expectedStderrSha256 {
+        return "raw_mismatch"
+    }
+    return ""
+}
+
+fun programReproducibilityRunNamesUsed(builder: ProgramReproducibilityBuilder,
+    programIndex: Int, runIndex: Int, run: ProgramReproducibilityRun) r: Bool {
+    var earlierProgram = 0
+    while earlierProgram <= programIndex {
+        var earlierRun = 0
+        var runLimit = builder.programs[earlierProgram].runs.length()
+        if earlierProgram == programIndex { runLimit = runIndex }
+        while earlierRun < runLimit {
+            let prior = builder.programs[earlierProgram].runs[earlierRun]
+            if run.artifact == prior.artifact or run.artifact == prior.manifest or
+                run.artifact == prior.stdout or run.artifact == prior.stderr or
+                run.manifest == prior.artifact or run.manifest == prior.manifest or
+                run.manifest == prior.stdout or run.manifest == prior.stderr or
+                run.stdout == prior.artifact or run.stdout == prior.manifest or
+                run.stdout == prior.stdout or run.stdout == prior.stderr or
+                run.stderr == prior.artifact or run.stderr == prior.manifest or
+                run.stderr == prior.stdout or run.stderr == prior.stderr {
+                return true
+            }
+            earlierRun = earlierRun + 1
+        }
+        earlierProgram = earlierProgram + 1
+    }
+    return false
+}
+
+fun programReproducibilityBuilderCode(builder: ProgramReproducibilityBuilder,
+    expectedId: String, descriptors: Array<ProgramReproducibilityDescriptor>)
+    r: String {
+    if builder.id != expectedId { return "builder_identity" }
+    if not programReproducibilityDigest(builder.builderIdentity, 64) or
+        not programReproducibilityDigest(builder.buildRootDigest, 64) or
+        not programReproducibilityDigest(builder.cacheRootDigest, 64) or
+        not programReproducibilityDigest(builder.compilerSha256, 64) or
+        not programReproducibilityDigest(builder.installedArchiveSha256, 64) or
+        not programReproducibilityName(builder.compiler) or
+        not programReproducibilityName(builder.installedArchive) or
+        not programReproducibilityText(builder.compilerIdentity, 256) or
+        not programReproducibilityText(builder.toolchain, 256) {
+        return "invalid"
+    }
+    let containmentCode = programReproducibilityContainmentCode(
+        builder.containment)
+    if containmentCode != "" { return containmentCode }
+    let attestationCode = programReproducibilityAttestationCode(
+        builder.attestation)
+    if attestationCode != "" { return attestationCode }
+    if builder.programs.length() != 7 { return "limit" }
+    var programIndex = 0
+    while programIndex < builder.programs.length() {
+        let result = builder.programs[programIndex]
+        let descriptor = descriptors[programIndex]
+        if result.id != descriptor.id { return "invalid" }
+        if result.buildInputDigest != descriptor.buildInputDigest {
+            return "input_drift"
+        }
+        if result.runs.length() != 3 { return "limit" }
+        var runIndex = 0
+        while runIndex < result.runs.length() {
+            let run = result.runs[runIndex]
+            let runCode = programReproducibilityRunCode(run,
+                programReproducibilityCacheMode(runIndex), descriptor)
+            if runCode != "" { return runCode }
+            if programReproducibilityRunNamesUsed(builder, programIndex,
+                runIndex, run) { return "invalid" }
+            runIndex = runIndex + 1
+        }
+        programIndex = programIndex + 1
+    }
+    return ""
+}
+
+fun programReproducibilityRunsEqual(first: ProgramReproducibilityRun,
+    second: ProgramReproducibilityRun) r: Bool {
+    return first.artifactSha256 == second.artifactSha256 and
+        first.artifactBytes == second.artifactBytes and
+        first.manifestSha256 == second.manifestSha256 and
+        first.manifestBytes == second.manifestBytes and
+        first.stdoutSha256 == second.stdoutSha256 and
+        first.stdoutBytes == second.stdoutBytes and
+        first.stderrSha256 == second.stderrSha256 and
+        first.stderrBytes == second.stderrBytes and
+        first.exitCode == second.exitCode
+}
+
+fun validateProgramReproducibilityEvidence(
+    evidence: ProgramReproducibilityEvidence, context: OperationContext)
+    r: Result<ProgramReproducibilityEvidence, SeenError> {
+    if context.cancellation or context.monotonicDeadline < 0 or
+        evidence.cancelled {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g.cancelled", "program certification was cancelled"))
+    }
+    if evidence.target != "linux-x86_64" {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g.platform", "program certification target is unsupported"))
+    }
+    if evidence.schema != PROGRAM_REPRODUCIBILITY_SCHEMA or
+        not programReproducibilityDigest(evidence.sourceCommit, 40) or
+        not programReproducibilityDigest(evidence.sourceDigest, 64) or
+        not programReproducibilityDigest(evidence.lockDigest, 64) or
+        not programReproducibilityDigest(evidence.buildInputDigest, 64) or
+        evidence.sourceDateEpoch < 0 {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g.invalid", "program certification identity is invalid"))
+    }
+    if evidence.programs.length() != 7 or evidence.builders.length() != 2 or
+        evidence.programs.length() > context.limits.maxGraphModules or
+        evidence.builders.length() > context.limits.maxTargets {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g.limit", "program corpus or builder count is invalid"))
+    }
+    var programIndex = 0
+    while programIndex < evidence.programs.length() {
+        let descriptor = evidence.programs[programIndex]
+        if descriptor.id != programReproducibilityId(programIndex) or
+            descriptor.mode != programReproducibilityMode(programIndex) or
+            not programReproducibilityDigest(descriptor.sourceDigest, 64) or
+            not programReproducibilityDigest(descriptor.lockDigest, 64) or
+            not programReproducibilityDigest(descriptor.buildInputDigest, 64) or
+            not programReproducibilityDigest(
+                descriptor.expectedStdoutSha256, 64) or
+            not programReproducibilityDigest(
+                descriptor.expectedStderrSha256, 64) or
+            not programReproducibilityText(descriptor.command, 4096) {
+            return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+                "core.004g.invalid", "program corpus descriptor is invalid"))
+        }
+        if descriptor.expectedExitCode < 0 or
+            descriptor.expectedExitCode > 255 {
+            return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+                "core.004g.limit", "program exit-code bound is invalid"))
+        }
+        programIndex = programIndex + 1
+    }
+    let first = evidence.builders[0]
+    let second = evidence.builders[1]
+    let firstCode = programReproducibilityBuilderCode(first, "builder-a",
+        evidence.programs)
+    if firstCode != "" {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g." + firstCode, "builder-a evidence is invalid"))
+    }
+    let secondCode = programReproducibilityBuilderCode(second, "builder-b",
+        evidence.programs)
+    if secondCode != "" {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g." + secondCode, "builder-b evidence is invalid"))
+    }
+    if first.builderIdentity == second.builderIdentity {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g.builder_identity", "two builder identities are required"))
+    }
+    if first.buildRootDigest == first.cacheRootDigest or
+        first.buildRootDigest == second.buildRootDigest or
+        first.buildRootDigest == second.cacheRootDigest or
+        first.cacheRootDigest == second.buildRootDigest or
+        first.cacheRootDigest == second.cacheRootDigest or
+        second.buildRootDigest == second.cacheRootDigest {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g.root_identity", "builder roots must be independent"))
+    }
+    if first.compiler != second.compiler or
+        first.compilerIdentity != second.compilerIdentity or
+        first.compilerSha256 != second.compilerSha256 or
+        first.toolchain != second.toolchain {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g.toolchain_drift", "builder toolchains differ"))
+    }
+    if first.installedArchive != second.installedArchive or
+        first.installedArchiveSha256 != second.installedArchiveSha256 {
+        return Err<ProgramReproducibilityEvidence, SeenError>(core004gError(
+            "core.004g.installed_archive", "installed release archives differ"))
+    }
+    programIndex = 0
+    while programIndex < evidence.programs.length() {
+        let baseline = first.programs[programIndex].runs[0]
+        var runIndex = 0
+        while runIndex < 3 {
+            if not programReproducibilityRunsEqual(baseline,
+                first.programs[programIndex].runs[runIndex]) or
+                not programReproducibilityRunsEqual(baseline,
+                    second.programs[programIndex].runs[runIndex]) {
+                return Err<ProgramReproducibilityEvidence, SeenError>(
+                    core004gError("core.004g.raw_mismatch",
+                        "two builders produced different raw artifacts"))
+            }
+            runIndex = runIndex + 1
+        }
+        programIndex = programIndex + 1
+    }
+    return Ok<ProgramReproducibilityEvidence, SeenError>(evidence)
+}

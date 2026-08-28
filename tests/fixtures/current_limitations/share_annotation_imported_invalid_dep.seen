@@ -1,0 +1,3 @@
+class Worker {
+    let value: Int
+}

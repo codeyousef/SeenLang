@@ -1,27 +1,364 @@
-///
-Channel for thread communication - simplified
-Note: Full channel support requires more advanced features
-///
+/// Bounded move-safe channel with explicit cancellation and shutdown.
 
-class Channel {
-    var id: Int
-    
-    fun new() -> Channel {
-        let id = __ChannelCreate()
-        return Channel {
-            id: id
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import sync.contracts.{Send, SyncError, SYNC_NATIVE_OK, syncFailure,
+    syncNativeFailure, syncValidateCapacity, syncValidateContext}
+
+extern "C" fun seen_sync_mutex_create(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_mutex_lock_until(handle: UInt64,
+    deadlineNanoseconds: Int64) r: Int32
+extern "C" fun seen_sync_mutex_unlock(handle: UInt64) r: Int32
+extern "C" fun seen_sync_mutex_destroy(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_condition_create(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_condition_wait_until(condition: UInt64,
+    mutex: UInt64, deadlineNanoseconds: Int64) r: Int32
+extern "C" fun seen_sync_condition_notify_one(handle: UInt64) r: Int32
+extern "C" fun seen_sync_condition_notify_all(handle: UInt64) r: Int32
+extern "C" fun seen_sync_condition_destroy(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_live_conditions() r: UInt64
+
+@move
+class BoundedChannel<T: Send> {
+    var mutex: UInt64
+    var notEmpty: UInt64
+    var notFull: UInt64
+    var values: Array<Option<T>>
+    var head: Int
+    var tail: Int
+    var count: Int
+    var capacity: Int
+    var waiters: Int
+    var closed: Bool
+    var destroying: Bool
+    var active: Bool
+
+    static fun create(capacity: Int)
+        r: Result<BoundedChannel<T>, SyncError> {
+
+        let checked = syncValidateCapacity(capacity, "channel.create")
+        if checked.isErr() {
+            return Err<BoundedChannel<T>, SyncError>(checked.unwrapErr())
         }
-    }
-    
-    fun send(value: Int) -> Bool {
-        return __ChannelSend(this.id, value)
-    }
-    
-    fun receive() -> Int {
-        return __ChannelReceive(this.id)
+        // Materialize the complete bounded ring before acquiring any native
+        // resource. Allocation failure therefore cannot strand mutex or
+        // condition handles after a partially constructed channel.
+        let storage = Array<Option<T>>()
+        var i = 0
+        while i < capacity {
+            storage.push(None<T>())
+            i = i + 1
+        }
+        var mutex: UInt64 = 0 as UInt64
+        var notEmpty: UInt64 = 0 as UInt64
+        var notFull: UInt64 = 0 as UInt64
+        var status = seen_sync_mutex_create(&mutex)
+        if status != SYNC_NATIVE_OK {
+            return Err<BoundedChannel<T>, SyncError>(syncNativeFailure(status,
+                "channel.create", 0 as UInt64))
+        }
+        status = seen_sync_condition_create(&notEmpty)
+        if status != SYNC_NATIVE_OK {
+            let _ = seen_sync_mutex_destroy(&mutex)
+            return Err<BoundedChannel<T>, SyncError>(syncNativeFailure(status,
+                "channel.create", 0 as UInt64))
+        }
+        status = seen_sync_condition_create(&notFull)
+        if status != SYNC_NATIVE_OK {
+            let _ = seen_sync_condition_destroy(&notEmpty)
+            let _ = seen_sync_mutex_destroy(&mutex)
+            return Err<BoundedChannel<T>, SyncError>(syncNativeFailure(status,
+                "channel.create", 0 as UInt64))
+        }
+        return Ok<BoundedChannel<T>, SyncError>(BoundedChannel<T>{
+            mutex: mutex, notEmpty: notEmpty, notFull: notFull,
+            values: storage, head: 0, tail: 0, count: 0,
+            capacity: capacity, waiters: 0, closed: false,
+            destroying: false, active: true})
     }
 
-    fun close() {
-        __ChannelClose(this.id)
+    fun unlockFailure(operation: String, progress: UInt64)
+        r: Result<Bool, SyncError> {
+        let status = seen_sync_mutex_unlock(this.mutex)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status, operation,
+                progress))
+        }
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun send(context: OperationContext, value: T)
+        r: Result<Bool, SyncError> {
+        let checked = syncValidateContext(context, "channel.send",
+            0 as UInt64)
+        if checked.isErr() { return Err<Bool, SyncError>(checked.unwrapErr()) }
+        if not this.active or this.destroying {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "channel.send", "channel is destroyed or being destroyed",
+                false, 0 as UInt64))
+        }
+        var status = seen_sync_mutex_lock_until(this.mutex,
+            context.monotonicDeadline)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "channel.send", 0 as UInt64))
+        }
+        while this.count >= this.capacity and not this.closed and
+            this.active and not this.destroying {
+            let valid = syncValidateContext(context, "channel.send",
+                0 as UInt64)
+            if valid.isErr() {
+                let _ = this.unlockFailure("channel.send", 0 as UInt64)
+                return Err<Bool, SyncError>(valid.unwrapErr())
+            }
+            this.waiters = this.waiters + 1
+            status = seen_sync_condition_wait_until(this.notFull, this.mutex,
+                context.monotonicDeadline)
+            this.waiters = this.waiters - 1
+            if status != SYNC_NATIVE_OK {
+                let unlocked = this.unlockFailure("channel.send", 0 as UInt64)
+                if unlocked.isErr() { return unlocked }
+                return Err<Bool, SyncError>(syncNativeFailure(status,
+                    "channel.send", 0 as UInt64))
+            }
+        }
+        if not this.active or this.destroying {
+            let unlocked = this.unlockFailure("channel.send", 0 as UInt64)
+            if unlocked.isErr() { return unlocked }
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "channel.send", "channel is destroyed or being destroyed",
+                false, 0 as UInt64))
+        }
+        let valid = syncValidateContext(context, "channel.send",
+            0 as UInt64)
+        if valid.isErr() {
+            let _ = this.unlockFailure("channel.send", 0 as UInt64)
+            return Err<Bool, SyncError>(valid.unwrapErr())
+        }
+        if this.closed {
+            let unlocked = this.unlockFailure("channel.send", 0 as UInt64)
+            if unlocked.isErr() { return unlocked }
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "channel.send", "channel is closed", false, 0 as UInt64))
+        }
+
+        // Signal under the predicate mutex so a waiter cannot recheck until
+        // the value and count publication below is visible.
+        status = seen_sync_condition_notify_one(this.notEmpty)
+        if status != SYNC_NATIVE_OK {
+            let _ = this.unlockFailure("channel.send", 0 as UInt64)
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "channel.send", 0 as UInt64))
+        }
+        this.values[this.tail] = Some<T>(value)
+        this.tail = (this.tail + 1) % this.capacity
+        this.count = this.count + 1
+        return this.unlockFailure("channel.send", 1 as UInt64)
+    }
+
+    fun receive(context: OperationContext) r: Result<T, SyncError> {
+        let checked = syncValidateContext(context, "channel.receive",
+            0 as UInt64)
+        if checked.isErr() { return Err<T, SyncError>(checked.unwrapErr()) }
+        if not this.active or this.destroying {
+            return Err<T, SyncError>(syncFailure("sync.invalid",
+                "channel.receive", "channel is destroyed or being destroyed",
+                false, 0 as UInt64))
+        }
+        var status = seen_sync_mutex_lock_until(this.mutex,
+            context.monotonicDeadline)
+        if status != SYNC_NATIVE_OK {
+            return Err<T, SyncError>(syncNativeFailure(status,
+                "channel.receive", 0 as UInt64))
+        }
+        while this.count == 0 and not this.closed and this.active and
+            not this.destroying {
+            let valid = syncValidateContext(context, "channel.receive",
+                0 as UInt64)
+            if valid.isErr() {
+                let _ = this.unlockFailure("channel.receive", 0 as UInt64)
+                return Err<T, SyncError>(valid.unwrapErr())
+            }
+            this.waiters = this.waiters + 1
+            status = seen_sync_condition_wait_until(this.notEmpty, this.mutex,
+                context.monotonicDeadline)
+            this.waiters = this.waiters - 1
+            if status != SYNC_NATIVE_OK {
+                let unlocked = this.unlockFailure("channel.receive",
+                    0 as UInt64)
+                if unlocked.isErr() {
+                    return Err<T, SyncError>(unlocked.unwrapErr())
+                }
+                return Err<T, SyncError>(syncNativeFailure(status,
+                    "channel.receive", 0 as UInt64))
+            }
+        }
+        if not this.active or this.destroying {
+            let unlocked = this.unlockFailure("channel.receive", 0 as UInt64)
+            if unlocked.isErr() {
+                return Err<T, SyncError>(unlocked.unwrapErr())
+            }
+            return Err<T, SyncError>(syncFailure("sync.invalid",
+                "channel.receive", "channel is destroyed or being destroyed",
+                false, 0 as UInt64))
+        }
+        let valid = syncValidateContext(context, "channel.receive",
+            0 as UInt64)
+        if valid.isErr() {
+            let _ = this.unlockFailure("channel.receive", 0 as UInt64)
+            return Err<T, SyncError>(valid.unwrapErr())
+        }
+        if this.count == 0 {
+            let unlocked = this.unlockFailure("channel.receive", 0 as UInt64)
+            if unlocked.isErr() {
+                return Err<T, SyncError>(unlocked.unwrapErr())
+            }
+            return Err<T, SyncError>(syncFailure("sync.invalid",
+                "channel.receive", "channel is closed and empty", false,
+                0 as UInt64))
+        }
+        let slot = this.values[this.head]
+        if slot.isNone() {
+            let _ = this.unlockFailure("channel.receive", 0 as UInt64)
+            return Err<T, SyncError>(syncFailure("sync.invalid",
+                "channel.receive", "channel storage invariant failed", false,
+                0 as UInt64))
+        }
+        status = seen_sync_condition_notify_one(this.notFull)
+        if status != SYNC_NATIVE_OK {
+            let _ = this.unlockFailure("channel.receive", 0 as UInt64)
+            return Err<T, SyncError>(syncNativeFailure(status,
+                "channel.receive", 0 as UInt64))
+        }
+        this.values[this.head] = None<T>()
+        this.head = (this.head + 1) % this.capacity
+        this.count = this.count - 1
+        let value = slot.unwrap()
+        let unlocked = this.unlockFailure("channel.receive", 1 as UInt64)
+        if unlocked.isErr() {
+            return Err<T, SyncError>(unlocked.unwrapErr())
+        }
+        return Ok<T, SyncError>(value)
+    }
+
+    fun close() r: Result<Bool, SyncError> {
+        if not this.active or this.destroying {
+            return Ok<Bool, SyncError>(false)
+        }
+        let status = seen_sync_mutex_lock_until(this.mutex,
+            9223372036854775807 as Int64)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "channel.close", 0 as UInt64))
+        }
+        if not this.active or this.destroying {
+            return this.unlockFailure("channel.close", 0 as UInt64)
+        }
+        if this.closed {
+            let unlocked = this.unlockFailure("channel.close", 0 as UInt64)
+            if unlocked.isErr() { return unlocked }
+            return Ok<Bool, SyncError>(false)
+        }
+        let wakeReceivers = seen_sync_condition_notify_all(this.notEmpty)
+        let wakeSenders = seen_sync_condition_notify_all(this.notFull)
+        if wakeReceivers != SYNC_NATIVE_OK or wakeSenders != SYNC_NATIVE_OK {
+            let _ = this.unlockFailure("channel.close", 0 as UInt64)
+            return Err<Bool, SyncError>(syncFailure("sync.unavailable",
+                "channel.close", "failed to wake channel waiters", true,
+                0 as UInt64))
+        }
+        this.closed = true
+        let unlocked = this.unlockFailure("channel.close", 0 as UInt64)
+        if unlocked.isErr() { return unlocked }
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun destroy() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        if this.destroying {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "channel.destroy", "channel destruction is already active",
+                false, 0 as UInt64))
+        }
+        var status = seen_sync_mutex_lock_until(this.mutex,
+            9223372036854775807 as Int64)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "channel.destroy", 0 as UInt64))
+        }
+        let remaining = this.count
+        let safe = this.closed and this.waiters == 0 and remaining == 0
+        if not safe {
+            let unlocked = this.unlockFailure("channel.destroy",
+                remaining as UInt64)
+            if unlocked.isErr() { return unlocked }
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "channel.destroy",
+                "channel must be closed, drained, and have no waiters",
+                false, remaining as UInt64))
+        }
+        this.destroying = true
+        let unlocked = this.unlockFailure("channel.destroy", 0 as UInt64)
+        if unlocked.isErr() {
+            this.destroying = false
+            return unlocked
+        }
+
+        // Zero handles are idempotent, so partial teardown remains retryable.
+        if this.notEmpty != (0 as UInt64) {
+            status = seen_sync_condition_destroy(&this.notEmpty)
+            if status != SYNC_NATIVE_OK {
+                this.destroying = false
+                return Err<Bool, SyncError>(syncNativeFailure(status,
+                    "channel.destroy", 0 as UInt64))
+            }
+        }
+        if this.notFull != (0 as UInt64) {
+            status = seen_sync_condition_destroy(&this.notFull)
+            if status != SYNC_NATIVE_OK {
+                this.destroying = false
+                return Err<Bool, SyncError>(syncNativeFailure(status,
+                    "channel.destroy", 0 as UInt64))
+            }
+        }
+        if this.mutex != (0 as UInt64) {
+            status = seen_sync_mutex_destroy(&this.mutex)
+            if status != SYNC_NATIVE_OK {
+                this.destroying = false
+                return Err<Bool, SyncError>(syncNativeFailure(status,
+                    "channel.destroy", 0 as UInt64))
+            }
+        }
+        this.active = false
+        this.destroying = false
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun length() r: Result<Int, SyncError> {
+        if not this.active or this.destroying {
+            return Err<Int, SyncError>(syncFailure("sync.invalid",
+                "channel.length", "channel is destroyed or being destroyed",
+                false, 0 as UInt64))
+        }
+        let status = seen_sync_mutex_lock_until(this.mutex,
+            9223372036854775807 as Int64)
+        if status != SYNC_NATIVE_OK {
+            return Err<Int, SyncError>(syncNativeFailure(status,
+                "channel.length", 0 as UInt64))
+        }
+        if not this.active or this.destroying {
+            let _ = this.unlockFailure("channel.length", 0 as UInt64)
+            return Err<Int, SyncError>(syncFailure("sync.invalid",
+                "channel.length", "channel is destroyed or being destroyed",
+                false, 0 as UInt64))
+        }
+        let result = this.count
+        let unlocked = seen_sync_mutex_unlock(this.mutex)
+        if unlocked != SYNC_NATIVE_OK {
+            return Err<Int, SyncError>(syncNativeFailure(unlocked,
+                "channel.length", result as UInt64))
+        }
+        return Ok<Int, SyncError>(result)
     }
 }

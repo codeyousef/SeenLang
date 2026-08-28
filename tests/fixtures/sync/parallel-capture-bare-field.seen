@@ -1,0 +1,13 @@
+@share
+class SharedOwner {
+    let offset: Int
+
+    fun visit() r: Int {
+        parallel_for index in 0..4 {
+            println(index + offset)
+        }
+        return 0
+    }
+}
+
+fun main() r: Int { return 0 }

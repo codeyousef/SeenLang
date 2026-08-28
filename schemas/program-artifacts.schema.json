@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seenlang.dev/schemas/program-artifacts.schema.json",
+  "title": "Seen reproducible user-program artifact evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["build_input", "cancelled", "case", "results", "schema"],
+  "properties": {
+    "build_input": {"$ref": "#/$defs/build_input"},
+    "cancelled": {"const": false},
+    "case": {
+      "enum": [
+        "two-root-default",
+        "cold-warm-no-cache",
+        "release-full-lto",
+        "release-thin-lto",
+        "object-manifest",
+        "package-graph",
+        "installed-compiler",
+        "path-remap"
+      ]
+    },
+    "results": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/result"}
+    },
+    "schema": {"const": "seen-program-artifacts-v1"}
+  },
+  "$defs": {
+    "ascii": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[ -~]+$"},
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "safe_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9._+][A-Za-z0-9._+-]*$"
+    },
+    "environment_pin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value_sha256"],
+      "properties": {
+        "name": {"enum": ["LANG", "LC_ALL", "SEEN_DETERMINISTIC_SEED", "SEEN_HASH_SEED", "SOURCE_DATE_EPOCH", "TZ"]},
+        "value_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "build_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compiler_sha256",
+        "coverage",
+        "cpu",
+        "debug",
+        "environment",
+        "features",
+        "input_digest",
+        "lock_sha256",
+        "lto",
+        "object_cache_abi",
+        "package_client_sha256",
+        "path_map",
+        "pic",
+        "profile",
+        "runtime_sha256",
+        "sanitizer",
+        "simd",
+        "source_date_epoch",
+        "source_tree_sha256",
+        "stdlib_sha256",
+        "target",
+        "toolchain",
+        "triple"
+      ],
+      "properties": {
+        "compiler_sha256": {"$ref": "#/$defs/digest"},
+        "coverage": {"type": "boolean"},
+        "cpu": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9._+-]+$"},
+        "debug": {"type": "boolean"},
+        "environment": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"$ref": "#/$defs/environment_pin"}},
+        "features": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._+-]+$"}
+        },
+        "input_digest": {"$ref": "#/$defs/digest"},
+        "lock_sha256": {"$ref": "#/$defs/digest"},
+        "lto": {"enum": ["none", "full", "thin"]},
+        "object_cache_abi": {"type": "string", "pattern": "^seen-object-cache-abi-v[0-9]+$"},
+        "package_client_sha256": {"$ref": "#/$defs/digest"},
+        "path_map": {"const": "/seen/src"},
+        "pic": {"type": "boolean"},
+        "profile": {"enum": ["deterministic"]},
+        "runtime_sha256": {"$ref": "#/$defs/digest"},
+        "sanitizer": {"enum": ["none", "address", "undefined", "thread", "memory"]},
+        "simd": {"enum": ["none", "sse4.2", "avx2", "avx512"]},
+        "source_date_epoch": {"type": "integer", "minimum": 0},
+        "source_tree_sha256": {"$ref": "#/$defs/digest"},
+        "stdlib_sha256": {"$ref": "#/$defs/digest"},
+        "target": {"enum": ["linux-x86_64"]},
+        "toolchain": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[ -~]+$"},
+        "triple": {"const": "x86_64-unknown-linux-gnu"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bytes", "executable", "name", "role", "sha256"],
+      "properties": {
+        "bytes": {"type": "integer", "minimum": 1, "maximum": 2147483648},
+        "executable": {"type": "boolean"},
+        "name": {"$ref": "#/$defs/safe_name"},
+        "role": {"enum": ["executable", "object", "object-manifest", "package-archive", "package-manifest"]},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "cache_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_set_sha256", "input_digest", "key", "state"],
+      "properties": {
+        "artifact_set_sha256": {"$ref": "#/$defs/digest"},
+        "input_digest": {"$ref": "#/$defs/digest"},
+        "key": {"$ref": "#/$defs/digest"},
+        "state": {"enum": ["miss", "hit", "disabled"]}
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifacts",
+        "build_input_digest",
+        "cache",
+        "cache_identity",
+        "cache_mode",
+        "compiler_origin",
+        "exit_code",
+        "id",
+        "path_map",
+        "published_atomically",
+        "root_identity",
+        "stderr_sha256",
+        "stdout_sha256"
+      ],
+      "properties": {
+        "artifacts": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/artifact"}},
+        "build_input_digest": {"$ref": "#/$defs/digest"},
+        "cache": {"$ref": "#/$defs/cache_record"},
+        "cache_identity": {"$ref": "#/$defs/digest"},
+        "cache_mode": {"enum": ["cold", "warm", "disabled"]},
+        "compiler_origin": {"enum": ["checkout", "installed"]},
+        "exit_code": {"type": "integer", "minimum": 0, "maximum": 255},
+        "id": {"type": "string"},
+        "path_map": {"const": "/seen/src"},
+        "published_atomically": {"const": true},
+        "root_identity": {"$ref": "#/$defs/digest"},
+        "stderr_sha256": {"$ref": "#/$defs/digest"},
+        "stdout_sha256": {"$ref": "#/$defs/digest"}
+      }
+    }
+  }
+}

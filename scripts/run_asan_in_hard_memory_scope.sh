@@ -53,12 +53,22 @@ done
 [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] ||
     fail "the finite ASan virtual-address allowance is certified only on Linux x86-64"
 
-[ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" = "1" ] &&
+REGRESSION_MODE=""
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" = "1" ] &&
     [ -n "${SEEN_CAPPED_REGRESSION_SCOPE:-}" ] &&
     [ -n "${SEEN_CAPPED_REGRESSION_COMPILER:-}" ] &&
     [ -n "${SEEN_CAPPED_REGRESSION_TOOLCHAIN:-}" ] &&
-    [ -n "${SEEN_ATTESTED_COMPILER_RUNNER:-}" ] ||
-    fail "active capped-regression bindings are missing"
+    [ -n "${SEEN_ATTESTED_COMPILER_RUNNER:-}" ]; then
+
+    REGRESSION_MODE=compiler
+elif [ "${SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE:-0}" = "1" ] &&
+    [ -n "${SEEN_CAPPED_PLATFORM_REGRESSION_SCOPE:-}" ] &&
+    [ -n "${SEEN_CAPPED_PLATFORM_REGRESSION_TOOLCHAIN:-}" ]; then
+
+    REGRESSION_MODE=platform
+else
+    fail "active capped compiler or platform regression bindings are missing"
+fi
 [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" = "1" ] &&
     [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" = "1" ] &&
     [ -n "${SEEN_MEMORY_GUARD_SCOPE_UNIT:-}" ] ||
@@ -150,9 +160,15 @@ is_positive_integer "$current_soft_vmem_kb" ||
 
 # Revalidate the exact compiler, scope, bounded-toolchain, and serializer
 # bindings rather than trusting their inherited marker strings.
-bash "$CAPPED_ENTRY" --verify-active "$SEEN_CAPPED_REGRESSION_SCOPE" \
-    --compiler "$SEEN_CAPPED_REGRESSION_COMPILER" >/dev/null ||
-    fail "active capped-regression binding read-back failed"
+if [ "$REGRESSION_MODE" = compiler ]; then
+    bash "$CAPPED_ENTRY" --verify-active "$SEEN_CAPPED_REGRESSION_SCOPE" \
+        --compiler "$SEEN_CAPPED_REGRESSION_COMPILER" >/dev/null ||
+        fail "active capped-regression binding read-back failed"
+else
+    bash "$CAPPED_ENTRY" --verify-platform-active \
+        "$SEEN_CAPPED_PLATFORM_REGRESSION_SCOPE" >/dev/null ||
+        fail "active capped-platform binding read-back failed"
+fi
 # Re-read the cgroup and all serial/low-memory bindings immediately before the
 # narrow virtual-address relaxation. This child cannot weaken the parent scope.
 bash "$HARD_SCOPE_WRAPPER" \

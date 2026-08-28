@@ -29,6 +29,18 @@ let COMPATIBILITY_RUNTIME_CANCELLED: String = "core.002b.cancelled"
 let COMPATIBILITY_RUNTIME_PLATFORM: String = "core.002b.platform"
 let COMPATIBILITY_RUNTIME_MISMATCH: String = "core.002b.mismatch"
 let COMPATIBILITY_RUNTIME_IO: String = "core.002b.io"
+let COMPATIBILITY_DETERMINISTIC_CONTEXT_SCHEMA: String =
+    "seen-deterministic-context-v1"
+let COMPATIBILITY_OBJECT_CACHE_RECORD_SCHEMA: String =
+    "seen-object-cache-record-v1"
+let COMPATIBILITY_PROGRAM_ARTIFACTS_SCHEMA: String =
+    "seen-program-artifacts-v1"
+let COMPATIBILITY_PROGRAM_BUILD_INPUT_SCHEMA: String =
+    "seen-program-build-input-v1"
+let COMPATIBILITY_PROGRAM_REPRODUCIBILITY_SCHEMA: String =
+    "seen-program-reproducibility-v1"
+let COMPATIBILITY_RELEASE_LTO_CACHE_RECORD_SCHEMA: String =
+    "seen-release-lto-cache-record-v1"
 
 class CompatibilityCompiler {
     var version: String
@@ -62,18 +74,41 @@ class CompatibilityPlatforms {
     var windows: String
 }
 
+class CompatibilityDeterminismCertification {
+    var artifactComparison: String
+    var builderCount: Int
+    var completeCorpusRequired: Bool
+    var distinctBuilderIdentities: Bool
+    var distinctRootIdentities: Bool
+    var installedArchiveRequired: Bool
+    var signedEvidenceRequired: Bool
+}
+
+class CompatibilityDeterminism {
+    var certification: CompatibilityDeterminismCertification
+    var contextSchema: String
+    var objectCacheRecordSchema: String
+    var programArtifactsSchema: String
+    var programBuildInputSchema: String
+    var programReproducibilitySchema: String
+    var releaseLtoCacheRecordSchema: String
+    var requiredProvenance: Array<String>
+}
+
 class CompatibilityManifest {
     var schema: String
     var schemaVersion: Int
     var releaseVersion: String
     var components: CompatibilityComponents
+    var determinism: CompatibilityDeterminism
     var platforms: CompatibilityPlatforms
     var targets: Array<CompatibilityTarget>
 }
 
-/// Every compatibility value is caller supplied. The generator adds only the
-/// versioned schema envelope and therefore cannot silently infer an ABI,
-/// package protocol, target, or platform claim.
+/// Release-specific compatibility values are caller supplied. The generator
+/// adds the versioned schema envelope and the immutable deterministic
+/// certification policy owned by this schema; it never infers an ABI, package
+/// protocol, target, platform, or weaker certification claim.
 class CompatibilityReleaseInputs {
     var releaseVersion: String
     var components: CompatibilityComponents
@@ -273,6 +308,79 @@ fun compatibilityTargetRank(name: String) r: Int {
     return -1
 }
 
+fun compatibilityRequiredDeterministicProvenance() r: Array<String> {
+    let values = Array<String>()
+    values.push("artifact-hash")
+    values.push("artifact-size")
+    values.push("build-input-digest")
+    values.push("builder-identity")
+    values.push("cancellation-state")
+    values.push("command")
+    values.push("compiler-identity")
+    values.push("containment-readback")
+    values.push("epoch")
+    values.push("lock-digest")
+    values.push("mode")
+    values.push("root-identity")
+    values.push("source-digest")
+    values.push("target-identity")
+    values.push("toolchain-identity")
+    return values
+}
+
+fun compatibilityDeterminismIsExact(value: CompatibilityDeterminism,
+    maximumIdentityBytes: Int) r: Bool {
+
+    if value.contextSchema != COMPATIBILITY_DETERMINISTIC_CONTEXT_SCHEMA or
+        value.objectCacheRecordSchema !=
+            COMPATIBILITY_OBJECT_CACHE_RECORD_SCHEMA or
+        value.programArtifactsSchema != COMPATIBILITY_PROGRAM_ARTIFACTS_SCHEMA or
+        value.programBuildInputSchema !=
+            COMPATIBILITY_PROGRAM_BUILD_INPUT_SCHEMA or
+        value.programReproducibilitySchema !=
+            COMPATIBILITY_PROGRAM_REPRODUCIBILITY_SCHEMA or
+        value.releaseLtoCacheRecordSchema !=
+            COMPATIBILITY_RELEASE_LTO_CACHE_RECORD_SCHEMA {
+
+        return false
+    }
+    if not compatibilityAsciiIdentity(value.contextSchema, maximumIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            value.objectCacheRecordSchema, maximumIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            value.programArtifactsSchema, maximumIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            value.programBuildInputSchema, maximumIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            value.programReproducibilitySchema, maximumIdentityBytes) or
+        not compatibilityAsciiIdentity(
+            value.releaseLtoCacheRecordSchema, maximumIdentityBytes) {
+
+        return false
+    }
+    let certification = value.certification
+    if certification.artifactComparison != "raw-bytes" or
+        certification.builderCount != 2 or
+        not certification.completeCorpusRequired or
+        not certification.distinctBuilderIdentities or
+        not certification.distinctRootIdentities or
+        not certification.installedArchiveRequired or
+        not certification.signedEvidenceRequired {
+
+        return false
+    }
+    let required = compatibilityRequiredDeterministicProvenance()
+    if value.requiredProvenance.length() != required.length() { return false }
+    var index = 0
+    while index < required.length() {
+        if value.requiredProvenance[index] != required[index] {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
 fun compatibilityValidateChecked(manifest: CompatibilityManifest,
     context: OperationContext) r: CompatibilityManifestOutcome {
 
@@ -346,6 +454,13 @@ fun compatibilityValidateChecked(manifest: CompatibilityManifest,
 
         return compatibilityManifestFailure(compatibilityError(
             "core.002a.invalid", "validate", "component identity is invalid"))
+    }
+    if not compatibilityDeterminismIsExact(
+        manifest.determinism, context.limits.maxIdentityBytes) {
+
+        return compatibilityManifestFailure(compatibilityError(
+            "core.002a.invalid", "validate",
+            "deterministic provenance or certification policy is invalid"))
     }
     if manifest.platforms.linuxArm64 != "declared-toolchain-dependent" or
         manifest.platforms.linuxX8664 != "required" or
@@ -489,6 +604,67 @@ fun compatibilityCopyPlatforms(value: CompatibilityPlatforms)
     }
 }
 
+fun compatibilityCopyStrings(values: Array<String>) r: Array<String> {
+    let copied = Array<String>()
+    var index = 0
+    while index < values.length() {
+        copied.push(values[index])
+        index = index + 1
+    }
+    return copied
+}
+
+fun compatibilityCopyDeterminism(value: CompatibilityDeterminism)
+    r: CompatibilityDeterminism {
+
+    return CompatibilityDeterminism{
+        certification: CompatibilityDeterminismCertification{
+            artifactComparison: value.certification.artifactComparison,
+            builderCount: value.certification.builderCount,
+            completeCorpusRequired:
+                value.certification.completeCorpusRequired,
+            distinctBuilderIdentities:
+                value.certification.distinctBuilderIdentities,
+            distinctRootIdentities:
+                value.certification.distinctRootIdentities,
+            installedArchiveRequired:
+                value.certification.installedArchiveRequired,
+            signedEvidenceRequired: value.certification.signedEvidenceRequired
+        },
+        contextSchema: value.contextSchema,
+        objectCacheRecordSchema: value.objectCacheRecordSchema,
+        programArtifactsSchema: value.programArtifactsSchema,
+        programBuildInputSchema: value.programBuildInputSchema,
+        programReproducibilitySchema: value.programReproducibilitySchema,
+        releaseLtoCacheRecordSchema: value.releaseLtoCacheRecordSchema,
+        requiredProvenance:
+            compatibilityCopyStrings(value.requiredProvenance)
+    }
+}
+
+fun compatibilityExpectedDeterminism() r: CompatibilityDeterminism {
+    return CompatibilityDeterminism{
+        certification: CompatibilityDeterminismCertification{
+            artifactComparison: "raw-bytes",
+            builderCount: 2,
+            completeCorpusRequired: true,
+            distinctBuilderIdentities: true,
+            distinctRootIdentities: true,
+            installedArchiveRequired: true,
+            signedEvidenceRequired: true
+        },
+        contextSchema: COMPATIBILITY_DETERMINISTIC_CONTEXT_SCHEMA,
+        objectCacheRecordSchema: COMPATIBILITY_OBJECT_CACHE_RECORD_SCHEMA,
+        programArtifactsSchema: COMPATIBILITY_PROGRAM_ARTIFACTS_SCHEMA,
+        programBuildInputSchema: COMPATIBILITY_PROGRAM_BUILD_INPUT_SCHEMA,
+        programReproducibilitySchema:
+            COMPATIBILITY_PROGRAM_REPRODUCIBILITY_SCHEMA,
+        releaseLtoCacheRecordSchema:
+            COMPATIBILITY_RELEASE_LTO_CACHE_RECORD_SCHEMA,
+        requiredProvenance: compatibilityRequiredDeterministicProvenance()
+    }
+}
+
 fun compatibilityCopyTargets(values: Array<CompatibilityTarget>)
     r: Array<CompatibilityTarget> {
 
@@ -529,6 +705,7 @@ fun compatibilityGenerateChecked(inputs: CompatibilityReleaseInputs,
         schemaVersion: 1,
         releaseVersion: inputs.releaseVersion,
         components: compatibilityCopyComponents(inputs.components),
+        determinism: compatibilityExpectedDeterminism(),
         platforms: compatibilityCopyPlatforms(inputs.platforms),
         targets: compatibilityCopyTargets(inputs.targets)
     }
@@ -601,6 +778,46 @@ fun compatibilityRenderChecked(manifest: CompatibilityManifest,
     output.append("      \"version\": \"" +
         value.components.standardLibraryVersion + "\"\n")
     output.append("    }\n")
+    output.append("  },\n")
+    output.append("  \"determinism\": {\n")
+    output.append("    \"certification\": {\n")
+    output.append("      \"artifact_comparison\": \"" +
+        value.determinism.certification.artifactComparison + "\",\n")
+    output.append("      \"builder_count\": " +
+        value.determinism.certification.builderCount.toString() + ",\n")
+    output.append("      \"complete_corpus_required\": true,\n")
+    output.append("      \"distinct_builder_identities\": true,\n")
+    output.append("      \"distinct_root_identities\": true,\n")
+    output.append("      \"installed_archive_required\": true,\n")
+    output.append("      \"signed_evidence_required\": true\n")
+    output.append("    },\n")
+    output.append("    \"context_schema\": \"" +
+        value.determinism.contextSchema + "\",\n")
+    output.append("    \"object_cache_record_schema\": \"" +
+        value.determinism.objectCacheRecordSchema + "\",\n")
+    output.append("    \"program_artifacts_schema\": \"" +
+        value.determinism.programArtifactsSchema + "\",\n")
+    output.append("    \"program_build_input_schema\": \"" +
+        value.determinism.programBuildInputSchema + "\",\n")
+    output.append("    \"program_reproducibility_schema\": \"" +
+        value.determinism.programReproducibilitySchema + "\",\n")
+    output.append("    \"release_lto_cache_record_schema\": \"" +
+        value.determinism.releaseLtoCacheRecordSchema + "\",\n")
+    output.append("    \"required_provenance\": [\n")
+    var provenanceIndex = 0
+    while provenanceIndex < value.determinism.requiredProvenance.length() {
+        output.append("      \"" +
+            value.determinism.requiredProvenance[provenanceIndex] + "\"")
+        if provenanceIndex + 1 <
+            value.determinism.requiredProvenance.length() {
+
+            output.append(",\n")
+        } else {
+            output.append("\n")
+        }
+        provenanceIndex = provenanceIndex + 1
+    }
+    output.append("    ]\n")
     output.append("  },\n")
     output.append("  \"platforms\": {\n")
     output.append("    \"linux-arm64\": \"" +
@@ -715,6 +932,14 @@ fun compatibilityJsonInteger(value: JsonValue, key: String) r: Int {
     return integer
 }
 
+fun compatibilityJsonBool(value: JsonValue, key: String) r: Bool {
+    let candidate = value.get(key)
+    if candidate == null { return false }
+    let unwrapped = candidate.unwrap()
+    if not unwrapped.isBool() { return false }
+    return unwrapped.getBool()
+}
+
 fun compatibilityDecodeCompiler(value: JsonValue)
     r: CompatibilityCompiler? {
 
@@ -805,6 +1030,80 @@ fun compatibilityDecodeComponents(value: JsonValue)
     }
 }
 
+fun compatibilityDecodeDeterminism(value: JsonValue)
+    r: CompatibilityDeterminism? {
+
+    let fields = compatibilityExpectedFields("certification")
+    fields.push("context_schema")
+    fields.push("object_cache_record_schema")
+    fields.push("program_artifacts_schema")
+    fields.push("program_build_input_schema")
+    fields.push("program_reproducibility_schema")
+    fields.push("release_lto_cache_record_schema")
+    fields.push("required_provenance")
+    if not compatibilityJsonExactFields(value, fields) { return null }
+
+    let certificationJson = value.get("certification")
+    let provenanceJson = value.get("required_provenance")
+    if certificationJson == null or provenanceJson == null or
+        not provenanceJson.unwrap().isArray() {
+
+        return null
+    }
+    let certificationFields = compatibilityExpectedFields("artifact_comparison")
+    certificationFields.push("builder_count")
+    certificationFields.push("complete_corpus_required")
+    certificationFields.push("distinct_builder_identities")
+    certificationFields.push("distinct_root_identities")
+    certificationFields.push("installed_archive_required")
+    certificationFields.push("signed_evidence_required")
+    if not compatibilityJsonExactFields(
+        certificationJson.unwrap(), certificationFields) {
+
+        return null
+    }
+
+    let requiredProvenance = Array<String>()
+    var index = 0
+    while index < provenanceJson.unwrap().length() {
+        let item = provenanceJson.unwrap().getAt(index)
+        if item == null or not item.unwrap().isString() { return null }
+        requiredProvenance.push(item.unwrap().getString())
+        index = index + 1
+    }
+    let certification = CompatibilityDeterminismCertification{
+        artifactComparison: compatibilityJsonString(
+            certificationJson.unwrap(), "artifact_comparison"),
+        builderCount: compatibilityJsonInteger(
+            certificationJson.unwrap(), "builder_count"),
+        completeCorpusRequired: compatibilityJsonBool(
+            certificationJson.unwrap(), "complete_corpus_required"),
+        distinctBuilderIdentities: compatibilityJsonBool(
+            certificationJson.unwrap(), "distinct_builder_identities"),
+        distinctRootIdentities: compatibilityJsonBool(
+            certificationJson.unwrap(), "distinct_root_identities"),
+        installedArchiveRequired: compatibilityJsonBool(
+            certificationJson.unwrap(), "installed_archive_required"),
+        signedEvidenceRequired: compatibilityJsonBool(
+            certificationJson.unwrap(), "signed_evidence_required")
+    }
+    return CompatibilityDeterminism{
+        certification: certification,
+        contextSchema: compatibilityJsonString(value, "context_schema"),
+        objectCacheRecordSchema:
+            compatibilityJsonString(value, "object_cache_record_schema"),
+        programArtifactsSchema:
+            compatibilityJsonString(value, "program_artifacts_schema"),
+        programBuildInputSchema:
+            compatibilityJsonString(value, "program_build_input_schema"),
+        programReproducibilitySchema:
+            compatibilityJsonString(value, "program_reproducibility_schema"),
+        releaseLtoCacheRecordSchema:
+            compatibilityJsonString(value, "release_lto_cache_record_schema"),
+        requiredProvenance: requiredProvenance
+    }
+}
+
 fun compatibilityDecodePlatforms(value: JsonValue)
     r: CompatibilityPlatforms? {
 
@@ -870,6 +1169,7 @@ fun compatibilityParseChecked(content: String, context: OperationContext)
     }
     let root = parsed.value.unwrap()
     let fields = compatibilityExpectedFields("components")
+    fields.push("determinism")
     fields.push("platforms")
     fields.push("release_version")
     fields.push("schema")
@@ -880,9 +1180,11 @@ fun compatibilityParseChecked(content: String, context: OperationContext)
             "invalid", "parse", "manifest has missing or unknown fields"))
     }
     let componentsJson = root.get("components")
+    let determinismJson = root.get("determinism")
     let platformsJson = root.get("platforms")
     let targetsJson = root.get("targets")
-    if componentsJson == null or platformsJson == null or targetsJson == null or
+    if componentsJson == null or determinismJson == null or
+        platformsJson == null or targetsJson == null or
         not targetsJson.unwrap().isArray() {
 
         return compatibilityManifestFailure(compatibilityRuntimeError(
@@ -895,8 +1197,9 @@ fun compatibilityParseChecked(content: String, context: OperationContext)
             "limit", "parse", "target limit exceeded"))
     }
     let components = compatibilityDecodeComponents(componentsJson.unwrap())
+    let determinism = compatibilityDecodeDeterminism(determinismJson.unwrap())
     let platforms = compatibilityDecodePlatforms(platformsJson.unwrap())
-    if components == null or platforms == null {
+    if components == null or determinism == null or platforms == null {
         return compatibilityManifestFailure(compatibilityRuntimeError(
             "invalid", "parse", "manifest component shape is invalid"))
     }
@@ -921,6 +1224,7 @@ fun compatibilityParseChecked(content: String, context: OperationContext)
         schemaVersion: compatibilityJsonInteger(root, "schema_version"),
         releaseVersion: compatibilityJsonString(root, "release_version"),
         components: components.unwrap(),
+        determinism: determinism.unwrap(),
         platforms: platforms.unwrap(),
         targets: targets
     }

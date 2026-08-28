@@ -1,0 +1,10 @@
+class Arc {
+    let values: Array<Int>
+}
+
+@share
+class SpoofedOwner {
+    let owner: Arc
+}
+
+fun main() r: Int { return 0 }

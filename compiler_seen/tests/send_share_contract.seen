@@ -1,0 +1,62 @@
+import types.send_share.{sendShareFoundationContract}
+import types.send_share.{sendShareCaptureError}
+
+fun sendShareExpect(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let scalar = sendShareFoundationContract("Int")
+    sendShareExpect(scalar.send == 1 and scalar.share == 1 and
+        not scalar.requiresMove,
+        "immutable scalar values prove Send and Share")
+
+    let arc = sendShareFoundationContract(
+        "seen_std.src.sync.arc::Arc<Int>")
+    sendShareExpect(arc.send == 1 and arc.share == 1 and arc.requiresOwner,
+        "canonical Arc proves synchronized shared ownership")
+
+    let mutex = sendShareFoundationContract(
+        "seen_std.src.sync.mutex::Mutex<Int>")
+    sendShareExpect(mutex.send == 1 and mutex.share == 1 and
+        mutex.requiresOwner,
+        "canonical Mutex proves synchronized shared ownership")
+
+    let owned = sendShareFoundationContract(
+        "seen_std.src.memory.aligned_buffer::OwnedBuffer<Int>")
+    sendShareExpect(owned.send == 1 and owned.share == 0 and
+        owned.requiresMove,
+        "owned buffers are Send-by-move and not Share")
+
+    let blocking = sendShareFoundationContract(
+        "seen_std.src.reactor.reactor::BlockingCompletion")
+    let gather = sendShareFoundationContract(
+        "seen_std.src.io.direct::GatherCompletion")
+    sendShareExpect(blocking.send == 1 and blocking.share == 0 and
+        blocking.requiresMove and gather.send == 1 and gather.share == 0 and
+        gather.requiresMove,
+        "mutable completion records are Send-by-move and not Share")
+
+    let spoofedArc = sendShareFoundationContract("Arc<Int>")
+    let namespacedSpoof = sendShareFoundationContract(
+        "application.sync::Arc<Int>")
+    sendShareExpect(spoofedArc.send == -1 and spoofedArc.share == -1 and
+        namespacedSpoof.send == -1 and namespacedSpoof.share == -1,
+        "unresolved or application-owned names cannot spoof trusted types")
+
+    let builder = sendShareFoundationContract("StringBuilder")
+    sendShareExpect(builder.send == 0 and builder.share == 0,
+        "mutable builder storage is rejected")
+
+    let userType = sendShareFoundationContract("ApplicationValue")
+    sendShareExpect(userType.send == -1 and userType.share == -1,
+        "user types remain unproven until semantic declaration resolution")
+
+    sendShareExpect(sendShareCaptureError(
+        "seen_std.src.memory.aligned_buffer::OwnedBuffer<Int>", false,
+        false, 1) == "sync.capture.move",
+        "capture policy requires owned values to move")
+    return 0
+}
+
+main()

@@ -319,6 +319,12 @@ bash -n "$SCRIPT_DIR/artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_ir_call_shape_preflight.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_cli_surface.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_core_004d_determinism_graph.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_parallel_for_codegen_regression.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_parallel_for_runtime_v2.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_core_004e_deterministic_context.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_program_artifacts_contract.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_program_reproducibility_contract.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_cli_array_bool_bootstrap.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_lexer_interface_token_type.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_pkg_prebuild_operand_resolution.sh" \
@@ -373,9 +379,11 @@ grep -Fq 'projects/seen_ml/qwen38/tests/prerequisites.seen' \
     "$SCRIPT_DIR/seen_stage1_acceptance.sh"
 grep -Fq 'SEEN_PROJECT_ARTIFACT_WRAPPER' \
     "$REPO_ROOT/tests/e2e_multilang/run_all_e2e.sh"
+grep -Fq 'seen_core_004e_deterministic_context.sh' \
+    "$SCRIPT_DIR/seen_stage1_acceptance.sh"
 cli_expected_separator_count=$(grep -Fc -- 'grep -Fq -- "$expected"' \
     "$REPO_ROOT/tests/misc_root_tests/seen_cli_surface.sh")
-if [ "$cli_expected_separator_count" -ne 3 ]; then
+if [ "$cli_expected_separator_count" -ne 5 ]; then
     echo "ERROR: CLI surface assertions must protect dash-prefixed expected text with grep --" >&2
     exit 1
 fi
@@ -384,6 +392,11 @@ if rg -n 'binary="/tmp/|rm -rf /tmp/|rm -f /tmp/' \
     echo "ERROR: multilingual E2E still writes or removes host temporary paths" >&2
     exit 1
 fi
+
+echo "Prebuild gates: deterministic artifact and certification contracts..."
+bash "$REPO_ROOT/tests/misc_root_tests/seen_program_artifacts_contract.sh"
+SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
+    bash "$REPO_ROOT/tests/misc_root_tests/seen_program_reproducibility_contract.sh"
 
 echo "Prebuild gates: CLI bootstrap array-width contract..."
 bash "$REPO_ROOT/tests/misc_root_tests/seen_cli_array_bool_bootstrap.sh"

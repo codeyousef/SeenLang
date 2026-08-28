@@ -38,6 +38,41 @@ seen_command() {
     bash "$ATTESTED_SEEN" "$COMPILER" "$@"
 }
 
+deterministic_seen_command() {
+    SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
+        SEEN_DETERMINISTIC_SEED=1101 SEEN_HASH_SEED=1101 \
+        LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
+        bash "$ATTESTED_SEEN" "$COMPILER" "$@"
+}
+
+flag_only_deterministic_seen_command() {
+    env -u SEEN_DETERMINISTIC -u SEEN_HASH_SEED \
+        SOURCE_DATE_EPOCH=1700000000 SEEN_DETERMINISTIC_SEED=1101 \
+        LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
+        bash "$ATTESTED_SEEN" "$COMPILER" "$@"
+}
+
+missing_epoch_seen_command() {
+    env -u SOURCE_DATE_EPOCH -u SEEN_HASH_SEED \
+        SEEN_DETERMINISTIC=1 SEEN_DETERMINISTIC_SEED=1101 \
+        LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
+        bash "$ATTESTED_SEEN" "$COMPILER" "$@"
+}
+
+invalid_seed_seen_command() {
+    SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
+        SEEN_DETERMINISTIC_SEED=not-a-seed \
+        LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
+        bash "$ATTESTED_SEEN" "$COMPILER" "$@"
+}
+
+semantic_profile_seen_command() {
+    env -u SEEN_DETERMINISTIC -u SOURCE_DATE_EPOCH \
+        -u SEEN_DETERMINISTIC_SEED -u SEEN_HASH_SEED \
+        LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
+        bash "$ATTESTED_SEEN" "$COMPILER" "$@"
+}
+
 invalid_worker_usage() {
     bash "$ATTESTED_SEEN" --usage-only-invalid-worker "$COMPILER" "$@"
 }
@@ -55,6 +90,17 @@ expect_success_contains() {
     if ! grep -Fq -- "$expected" <<<"$output"; then
         echo "$output" >&2
         fail "$label: expected output to contain '$expected'"
+    fi
+}
+
+expect_success() {
+    local label="$1"
+    shift
+
+    local output
+    if ! output="$("$@" 2>&1)"; then
+        echo "$output" >&2
+        fail "$label: expected success"
     fi
 }
 
@@ -100,6 +146,56 @@ expect_usage_failure_contains() {
     fi
 }
 
+expect_exit_one_contains() {
+    local label="$1"
+    local expected="$2"
+    shift 2
+
+    local output
+    set +e
+    output="$("$@" 2>&1)"
+    local status=$?
+    set -e
+
+    if [[ "$status" -ne 1 ]]; then
+        echo "$output" >&2
+        fail "$label: expected exit code 1, got $status"
+    fi
+    if ! grep -Fq -- "$expected" <<<"$output"; then
+        echo "$output" >&2
+        fail "$label: expected output to contain '$expected'"
+    fi
+}
+
+expect_stable_usage_failure_contains() {
+    local label="$1"
+    local expected="$2"
+    shift 2
+
+    local first second first_status second_status
+    set +e
+    first="$("$@" 2>&1)"
+    first_status=$?
+    second="$("$@" 2>&1)"
+    second_status=$?
+    set -e
+
+    if [[ "$first_status" -ne 1 || "$second_status" -ne 1 ]]; then
+        echo "$first" >&2
+        echo "$second" >&2
+        fail "$label: expected repeatable compiler usage exit code 1"
+    fi
+    if [[ "$first" != "$second" ]]; then
+        echo "$first" >&2
+        echo "$second" >&2
+        fail "$label: diagnostic output changed between identical invocations"
+    fi
+    if ! grep -Fq -- "$expected" <<<"$first"; then
+        echo "$first" >&2
+        fail "$label: expected output to contain '$expected'"
+    fi
+}
+
 # Keep deliberately unsupported CLI probes inside the disposable tree in case
 # an older binary recognizes one of those commands.
 cd -- "$TMP_DIR"
@@ -128,9 +224,28 @@ for command in compile check run test bundle sign notarize lipo ipa translate im
     expect_success_contains "$command -h" "Usage: seen $command" seen_command "$command" -h
 done
 
+expect_success_contains "CORE-004C_installed_help compile" "--deterministic" \
+    seen_command compile --help
+expect_success_contains "CORE-004C_installed_help check" "--deterministic" \
+    seen_command check --help
+expect_success_contains "CORE-004C_installed_help run" "--deterministic" \
+    seen_command run --help
+
 expect_usage_failure_contains "unknown global option" "unknown global option '--wat'" seen_command --wat
 expect_usage_failure_contains "unknown compile option" "unknown option '--wat'" seen_command compile file.seen --wat
 expect_usage_failure_contains "missing option value" "option '--profile' requires a value" seen_command compile file.seen --profile
+expect_usage_failure_contains "CORE-004C_missing_value" "core.004c.invalid" \
+    seen_command check file.seen --profile
+expect_stable_usage_failure_contains "CORE-004C_unknown_profile" "core.004c.invalid" \
+    seen_command check file.seen --profile unknown
+expect_stable_usage_failure_contains "CORE-004C_profile_conflict" "core.004c.conflict" \
+    seen_command compile file.seen --deterministic --profile default
+expect_usage_failure_contains "CORE-004C_check_profile_conflict" "core.004c.conflict" \
+    seen_command check file.seen --deterministic --profile default
+expect_stable_usage_failure_contains "CORE-004C_simd_conflict" "core.004c.conflict" \
+    seen_command compile file.seen --deterministic --simd avx2
+expect_usage_failure_contains "CORE-004C_deterministic_value_rejected" "core.004c.invalid" \
+    seen_command run file.seen --deterministic=true
 expect_usage_failure_contains "conflicting repeated option" "conflicting values for option '--backend'" seen_command compile file.seen --backend llvm --backend c
 expect_usage_failure_contains "conflicting PGO modes" "conflicting options '--pgo-generate' and '--pgo-use'" seen_command compile file.seen --pgo-generate --pgo-use profile.profdata
 expect_usage_failure_contains "invalid target CPU" "invalid value 'not-a-cpu' for --target-cpu" seen_command compile file.seen --target-cpu not-a-cpu
@@ -148,6 +263,49 @@ expect_success_contains "pkg prebuild -h" "Usage: seen pkg prebuild" seen_comman
 expect_usage_failure_contains "pkg prebuild unknown option" "unknown option '--wat'" seen_command pkg prebuild --wat
 expect_usage_failure_contains "pkg prebuild help with extra operand" "unknown option '--help'" seen_command pkg prebuild --help extra
 expect_usage_failure_contains "pkg prebuild extra operand" "unexpected extra operand 'third'" seen_command pkg prebuild first second third
+expect_usage_failure_contains "CORE-004C_stale_path_rejected" "core.004c.invalid" \
+    seen_command determinism file.seen
+
+CORE_004C_FIXTURES="$ROOT_DIR/tests/fixtures/core-004c"
+CORE_004C_OK="$CORE_004C_FIXTURES/deterministic_ok.seen"
+CORE_004C_REJECT="$CORE_004C_FIXTURES/nondeterministic_hashmap.seen"
+
+expect_success_contains "CORE-004C_profile_happy" "[OK] Check passed" \
+    seen_command check "$CORE_004C_OK" --profile deterministic
+expect_success_contains "CORE-004C_alias_happy" "[OK] Check passed" \
+    deterministic_seen_command check "$CORE_004C_OK" --deterministic
+expect_success_contains "CORE-004E_flag_only_reexec" "[OK] Check passed" \
+    flag_only_deterministic_seen_command check "$CORE_004C_OK" --deterministic
+expect_success_contains "CORE-004C_alias_explicit_profile_happy" "[OK] Check passed" \
+    deterministic_seen_command check "$CORE_004C_OK" --deterministic \
+    --profile deterministic
+
+expect_exit_one_contains "CORE-004E_missing_epoch" "core.004e.missing_epoch" \
+    missing_epoch_seen_command compile "$CORE_004C_OK" \
+    "$TMP_DIR/core-004e-missing-epoch" --deterministic
+expect_exit_one_contains "CORE-004E_invalid_seed" "core.004e.invalid_seed" \
+    invalid_seed_seen_command compile "$CORE_004C_OK" \
+    "$TMP_DIR/core-004e-invalid-seed" --deterministic
+expect_exit_one_contains "CORE-004C_semantic_profile_only" "Determinism Error:" \
+    semantic_profile_seen_command compile "$CORE_004C_REJECT" \
+    "$TMP_DIR/core-004c-semantic-profile" --profile deterministic
+
+expect_exit_one_contains "CORE-004C_compile_check_run_parity compile" \
+    "Determinism Error:" deterministic_seen_command compile "$CORE_004C_REJECT" \
+    "$TMP_DIR/core-004c-rejected" --deterministic
+expect_exit_one_contains "CORE-004C_compile_check_run_parity check" \
+    "Determinism Error:" deterministic_seen_command check "$CORE_004C_REJECT" \
+    --deterministic
+expect_exit_one_contains "CORE-004C_compile_check_run_parity run" \
+    "Determinism Error:" deterministic_seen_command run "$CORE_004C_REJECT" \
+    --deterministic
+
+expect_success_contains "CORE-004C_alias_happy compile" \
+    "Architecture: target-cpu=x86-64" deterministic_seen_command compile "$CORE_004C_OK" \
+    "$TMP_DIR/core-004c-compiled" --deterministic --profile deterministic \
+    --simd none --no-cache --no-fork --jobs 1 --opt-jobs 1
+expect_success "CORE-004C_alias_happy run" \
+    deterministic_seen_command run "$CORE_004C_OK" --deterministic --no-cache
 
 mkdir -p "$TMP_DIR/work"
 printf 'manifest-version = 1\n\n[project]\nname = "cli_fixture"\nversion = "0.1.0"\nlanguage = "en"\n\n[dependencies]\n' > \

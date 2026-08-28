@@ -1,0 +1,15 @@
+/// Bounded cross-thread ownership and synchronization contracts.
+
+pub import sync.contracts.{Send, Share, SyncError, SYNC_MAX_CAPACITY,
+    SYNC_MAX_SHARED_OWNERS, SYNC_MAX_ATOMIC_RETRIES, SYNC_MAX_LOCK_RANK,
+    SYNC_MAX_DIAGNOSTIC_DEPTH, syncFailure,
+    syncValidateContext, syncValidateCapacity, syncUnsupported,
+    syncNativeFailure}
+pub import sync.atomic.{MemoryOrder, AtomicCompareExchange, Atomic,
+    AtomicInt, AtomicBool, atomicValidateLoadOrder, atomicValidateStoreOrder,
+    atomicValidateCompareExchangeOrders}
+pub import sync.arc.{Arc}
+pub import sync.lock_order.{LockOrderReport, LockOrderTracker}
+pub import sync.mutex.{Mutex, MutexGuard, RwLock, RwLockReadGuard,
+    RwLockWriteGuard}
+pub import sync.channel.{BoundedChannel}

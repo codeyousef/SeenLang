@@ -15,6 +15,11 @@ RELEASE_CI_CHECKER="$ROOT_DIR/scripts/check_release_ci_run.py"
 RELEASE_TOOLCHAIN="$ROOT_DIR/scripts/release_toolchain_artifact.py"
 PREPARE_RELEASE_TOOLCHAIN="$ROOT_DIR/scripts/prepare_release_toolchain_artifact.sh"
 RELEASE_TAG_POLICY="$ROOT_DIR/scripts/release_tag_policy.sh"
+PREBUILD="$ROOT_DIR/scripts/seen_prebuild_gates.sh"
+STAGE1="$ROOT_DIR/scripts/seen_stage1_acceptance.sh"
+CORE_004E="$ROOT_DIR/tests/misc_root_tests/seen_core_004e_deterministic_context.sh"
+CORE_004F="$ROOT_DIR/tests/misc_root_tests/seen_program_artifacts_contract.sh"
+CORE_004G="$ROOT_DIR/tests/misc_root_tests/seen_program_reproducibility_contract.sh"
 
 fail() {
     echo "FAIL: required CI wiring: $*" >&2
@@ -40,6 +45,10 @@ bash -n "$RELEASE_CONTAINED" || fail "contained release entrypoint shell syntax"
 bash -n "$RELEASE_CI" || fail "release CI verifier shell syntax"
 bash -n "$PREPARE_RELEASE_TOOLCHAIN" || fail "release toolchain preparer shell syntax"
 bash -n "$RELEASE_TAG_POLICY" || fail "release tag policy shell syntax"
+bash -n "$PREBUILD" || fail "prebuild gate shell syntax"
+bash -n "$STAGE1" || fail "Stage-1 acceptance shell syntax"
+bash -n "$CORE_004E" "$CORE_004F" "$CORE_004G" ||
+    fail "deterministic contract shell syntax"
 
 set +e
 outside_error=$(env -u SEEN_CI_CONTAINMENT_IN_SCOPE "$REQUIRED" 2>&1 >/dev/null)
@@ -114,6 +123,19 @@ grep -Fq 'seen_safetensors_reader_ownership.sh' \
 grep -Fq 'seen_reactor_contract.sh' \
     "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
     fail "fresh-compiler acceptance omits reactor contract"
+grep -Fq 'seen_std/tests/sync/sync-001h.seen' \
+    "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
+    fail "fresh-compiler acceptance omits synchronization contracts"
+grep -Fq 'seen_std/examples/synchronization.seen' \
+    "$ROOT_DIR/scripts/seen_stage1_acceptance.sh" ||
+    fail "fresh-compiler acceptance omits synchronization example"
+grep -Fq 'seen_parallel_for_codegen_regression.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits parallel_for execution/codegen"
+grep -Fq 'seen_parallel_for_runtime_v2.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits parallel_for failure injection"
+grep -Fq 'seen_parallel_for_fail_closed' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_parallel_for_codegen_regression.sh" ||
+    fail "parallel_for regression omits fail-closed lowering"
 grep -Fq 'ulimit -S -s 8192' "$REQUIRED" ||
     fail "required CI does not pin the hosted-runner stack limit"
 grep -Fq -- '--target-cpu "$RELEASE_TARGET_CPU"' \
@@ -171,6 +193,27 @@ grep -Fq -- '--release --lto thin --no-fork' \
 grep -Fq 'compile "$INVALID"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_unimported_extension_contract.sh" ||
     fail "unimported extension regression omits compile/check parity"
+grep -Fq 'seen_core_004d_determinism_graph.sh' "$REQUIRED" ||
+    fail "required CI omits CORE-004D resolved determinism graph coverage"
+grep -Fq 'CORE-004D_mode_parity' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_core_004d_determinism_graph.sh" ||
+    fail "CORE-004D regression omits check/compile/run parity"
+grep -Fq 'seen_program_artifacts_contract.sh' "$REQUIRED" ||
+    fail "required CI omits CORE-004F artifact evidence validation"
+grep -Fq 'seen_program_reproducibility_contract.sh' "$REQUIRED" ||
+    fail "required CI omits CORE-004G two-builder evidence validation"
+grep -Fq 'seen_project_transitive_memory_regression.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1547/1548 coverage"
+grep -Fq 'seen_core_004e_deterministic_context.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits CORE-004E runtime coverage"
+grep -Fq 'COMPILER="$REAL_COMPILER"' "$STAGE1" ||
+    fail "CORE-004E acceptance does not select the fresh compiler explicitly"
+grep -Fq 'seen_program_artifacts_contract.sh' "$PREPARE_RELEASE_TOOLCHAIN" ||
+    fail "release preparation omits CORE-004F evidence validation"
+grep -Fq 'seen_program_reproducibility_contract.sh' "$PREPARE_RELEASE_TOOLCHAIN" ||
+    fail "release preparation omits CORE-004G evidence validation"
+[ "$(grep -Fc 'seen_core_004e_deterministic_context.sh' "$REQUIRED")" -eq 1 ] ||
+    fail "required CI must syntax-check CORE-004E once and execute it only through Stage-1 acceptance"
 grep -Fq '248044' \
     "$ROOT_DIR/tests/misc_root_tests/seen_json_large_object_release.sh" ||
     fail "large-object regression does not preserve the production vocabulary size"
@@ -255,6 +298,8 @@ for required_command in \
     'tests/misc_root_tests/seen_compatibility_manifest_contract.sh' \
     'tests/misc_root_tests/seen_native_boundaries_ledger.sh' \
     'tests/misc_root_tests/seen_native_inventory_gate.sh' \
+    'tests/misc_root_tests/seen_sync_contract.sh' \
+    'tests/misc_root_tests/seen_sync_native_abi.sh' \
     'tests/misc_root_tests/seen_fs_contract.sh' \
     'tests/misc_root_tests/seen_tokenizers_a.sh' \
     'tests/misc_root_tests/seen_cpu_benchmark_clock_contract.sh' \
@@ -263,6 +308,9 @@ for required_command in \
     'tests/misc_root_tests/seen_gate0_certification_contract.sh' \
     'scripts/certify_gate0_clean_checkout.sh' \
     'tests/misc_root_tests/seen_unimported_extension_contract.sh' \
+    'tests/misc_root_tests/seen_core_004d_determinism_graph.sh' \
+    'tests/misc_root_tests/seen_program_artifacts_contract.sh' \
+    'tests/misc_root_tests/seen_program_reproducibility_contract.sh' \
     'tests/misc_root_tests/seen_time_contract.sh' \
     'tests/misc_root_tests/seen_lines_linear_contract.sh' \
     'git diff --check'; do

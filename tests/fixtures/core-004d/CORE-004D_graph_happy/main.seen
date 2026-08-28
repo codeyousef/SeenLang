@@ -1,0 +1,5 @@
+import pure_dep.{pureValue}
+
+fun main() r: Int {
+    return pureValue()
+}

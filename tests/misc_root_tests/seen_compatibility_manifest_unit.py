@@ -109,6 +109,48 @@ class CompatibilityManifestTests(unittest.TestCase):
                 "invalid",
             )
 
+    def test_determinism_contract(self) -> None:
+        self.assert_code(self.changed("determinism", value={}), "invalid")
+        self.assert_code(
+            self.changed(
+                "determinism", "program_reproducibility_schema", value="other-v1"
+            ),
+            "invalid",
+        )
+        missing_provenance = copy.deepcopy(HAPPY)
+        missing_provenance["determinism"]["required_provenance"].pop()
+        self.assert_code(missing_provenance, "invalid")
+        reordered_provenance = copy.deepcopy(HAPPY)
+        reordered_provenance["determinism"]["required_provenance"].reverse()
+        self.assert_code(reordered_provenance, "invalid")
+        self.assert_code(
+            self.changed(
+                "determinism", "certification", "artifact_comparison",
+                value="normalized",
+            ),
+            "invalid",
+        )
+        for value in (True, 1, 3):
+            self.assert_code(
+                self.changed(
+                    "determinism", "certification", "builder_count", value=value
+                ),
+                "invalid",
+            )
+        for field in (
+            "complete_corpus_required",
+            "distinct_builder_identities",
+            "distinct_root_identities",
+            "installed_archive_required",
+            "signed_evidence_required",
+        ):
+            self.assert_code(
+                self.changed(
+                    "determinism", "certification", field, value=False
+                ),
+                "invalid",
+            )
+
     def test_platform_contract(self) -> None:
         self.assert_code(self.changed("platforms", value={}), "invalid")
         self.assert_code(

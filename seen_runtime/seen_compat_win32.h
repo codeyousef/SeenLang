@@ -371,7 +371,6 @@ static inline int sched_yield(void) {
 // Pipe / fd I/O
 // ============================================================================
 
-// pipe: __ChannelCreate in seen_runtime.c uses _pipe directly via #ifdef _WIN32.
 // Do NOT define a pipe wrapper to avoid shadowing issues with 'pipe' variable names.
 
 // POSIX fd I/O: do NOT define read/write/close as macros since "read" is used

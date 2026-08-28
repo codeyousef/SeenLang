@@ -1,0 +1,108 @@
+/// Native-Seen synchronization contracts shared by every sync primitive.
+
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+let SYNC_MAX_CAPACITY: Int = 1048576
+let SYNC_MAX_SHARED_OWNERS: Int64 = 1048576 as Int64
+let SYNC_MAX_ATOMIC_RETRIES: Int = 1024
+let SYNC_MAX_LOCK_RANK: Int = 1048576
+let SYNC_MAX_DIAGNOSTIC_DEPTH: Int = 1024
+let SYNC_NATIVE_OK: Int32 = 0 as Int32
+let SYNC_NATIVE_INVALID: Int32 = 1 as Int32
+let SYNC_NATIVE_LIMIT: Int32 = 2 as Int32
+let SYNC_NATIVE_UNAVAILABLE: Int32 = 3 as Int32
+let SYNC_NATIVE_UNSUPPORTED: Int32 = 4 as Int32
+let SYNC_NATIVE_INTERRUPTED: Int32 = 5 as Int32
+let SYNC_NATIVE_BUSY: Int32 = 6 as Int32
+let SYNC_NATIVE_TIMEOUT: Int32 = 7 as Int32
+let SYNC_NATIVE_CLOSED: Int32 = 8 as Int32
+
+/// Marker traits. The compiler proves these structurally through @send and
+/// @share declarations; users cannot make an unsafe field legal by spelling a
+/// marker on its enclosing type.
+trait Send {}
+trait Share {}
+
+class SyncError {
+    var code: String
+    var operation: String
+    var message: String
+    var retryable: Bool
+    var progress: UInt64
+}
+
+fun syncFailure(code: String, operation: String, message: String,
+    retryable: Bool, progress: UInt64) r: SyncError {
+
+    return SyncError{code: code, operation: operation, message: message,
+        retryable: retryable, progress: progress}
+}
+
+fun syncValidateContext(context: OperationContext, operation: String,
+    progress: UInt64) r: Result<Bool, SyncError> {
+
+    if context.cancellation {
+        return Err<Bool, SyncError>(syncFailure("sync.cancelled", operation,
+            "synchronization operation is cancelled", false, progress))
+    }
+    if context.monotonicDeadline < (0 as Int64) {
+        return Err<Bool, SyncError>(syncFailure("sync.timeout", operation,
+            "synchronization deadline has expired", false, progress))
+    }
+    if context.monotonicDeadline != (9223372036854775807 as Int64) {
+        let now = seen_time_monotonic_nanos()
+        if now < (0 as Int64) {
+            return Err<Bool, SyncError>(syncFailure("sync.unavailable",
+                operation, "monotonic clock is unavailable", true, progress))
+        }
+        if now >= context.monotonicDeadline {
+            return Err<Bool, SyncError>(syncFailure("sync.timeout", operation,
+                "synchronization deadline has expired", false, progress))
+        }
+    }
+    return Ok<Bool, SyncError>(true)
+}
+
+fun syncValidateCapacity(capacity: Int, operation: String)
+    r: Result<Int, SyncError> {
+
+    if capacity <= 0 or capacity > SYNC_MAX_CAPACITY {
+        return Err<Int, SyncError>(syncFailure("sync.limit", operation,
+            "synchronization capacity is outside the supported bound",
+            false, 0 as UInt64))
+    }
+    return Ok<Int, SyncError>(capacity)
+}
+
+fun syncUnsupported(operation: String) r: SyncError {
+    return syncFailure("sync.unsupported_platform", operation,
+        "synchronization operation is unsupported on this platform",
+        false, 0 as UInt64)
+}
+
+fun syncNativeFailure(status: Int32, operation: String, progress: UInt64)
+    r: SyncError {
+
+    if status == SYNC_NATIVE_LIMIT {
+        return syncFailure("sync.limit", operation,
+            "synchronization resource limit was reached", false, progress)
+    }
+    if status == SYNC_NATIVE_TIMEOUT {
+        return syncFailure("sync.timeout", operation,
+            "synchronization deadline expired", false, progress)
+    }
+    if status == SYNC_NATIVE_UNSUPPORTED {
+        return syncUnsupported(operation)
+    }
+    if status == SYNC_NATIVE_UNAVAILABLE or
+        status == SYNC_NATIVE_INTERRUPTED or status == SYNC_NATIVE_BUSY {
+        return syncFailure("sync.unavailable", operation,
+            "synchronization resource is temporarily unavailable", true,
+            progress)
+    }
+    return syncFailure("sync.invalid", operation,
+        "synchronization handle or operation is invalid", false, progress)
+}

@@ -1,0 +1,6 @@
+@sync
+class LegacySharedValue {
+    let value: Int
+}
+
+fun main() r: Int { return 0 }

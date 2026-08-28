@@ -1,0 +1,418 @@
+/// Bounded capability policy for deterministic Seen execution.
+
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import collections.vec.{Vec}
+import core.error.{AsciiString, SeenError, RetryClass, RedactionClass,
+    errorIdentityValid}
+import core.operation_context.{OperationContext}
+
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+let CORE_004E_MAX_ARGUMENTS: Int = 256
+let CORE_004E_MAX_ARGUMENT_BYTES: Int = 4096
+let CORE_004E_MAX_ENVIRONMENT: Int = 128
+let CORE_004E_MAX_ENVIRONMENT_VALUE_BYTES: Int = 4096
+let CORE_004E_MAX_FILESYSTEM_ROOTS: Int = 64
+let CORE_004E_MAX_PATH_BYTES: Int = 4095
+let CORE_004E_MAX_PROCESS_STATES: Int = 32
+let CORE_004E_MAX_NETWORK_STATES: Int = 64
+let CORE_004E_MAX_HOST_CAPABILITIES: Int = 64
+let CORE_004E_MAX_IDENTITY_BYTES: Int = 256
+let CORE_004E_MAX_TOTAL_CAPTURE_BYTES: Int = 65536
+let CORE_004E_MAX_EPOCH_SECONDS: Int64 = 9223372036 as Int64
+
+enum DeterministicPlatformStatus {
+    Verified
+    ToolchainDependent
+    Unsupported
+}
+
+class DeterministicLocaleIdentity {
+    var locale: String
+    var encoding: String
+}
+
+class DeterministicPlatformPolicy {
+    var target: String
+    var status: DeterministicPlatformStatus
+    var toolchainIdentity: String
+}
+
+class DeterministicCapabilityPolicy {
+    /// Application argument indexes. Index zero is argv[1], not argv[0].
+    var argumentIndexes: Array<Int>
+    var environmentNames: Array<String>
+    var filesystemRoots: Array<String>
+    var processStates: Array<String>
+    var networkStates: Array<String>
+    var hostCapabilities: Array<String>
+}
+
+fun core004eError(code: String, operation: String, message: String,
+    sensitive: Bool) r: SeenError {
+
+    var redaction = RedactionClass.Public
+    if sensitive { redaction = RedactionClass.Sensitive }
+    return SeenError{code: AsciiString{value: code},
+        subsystem: AsciiString{value: "deterministic-context"},
+        operation: AsciiString{value: operation}, message: message,
+        causes: Vec<SeenError>.new(), nativeCode: None<Int64>(),
+        retry: RetryClass.Never, redaction: redaction}
+}
+
+fun core004eFailure<T>(code: String, operation: String, message: String,
+    sensitive: Bool) r: Result<T, SeenError> {
+
+    return Err<T, SeenError>(core004eError(code, operation, message,
+        sensitive))
+}
+
+fun validateDeterministicOperation(context: OperationContext,
+    operation: String) r: Result<Bool, SeenError> {
+
+    if context.cancellation {
+        return core004eFailure<Bool>("core.004e.cancelled", operation,
+            "deterministic operation was cancelled", false)
+    }
+    if context.monotonicDeadline < (0 as Int64) {
+        return core004eFailure<Bool>("core.004e.timeout", operation,
+            "deterministic operation deadline has elapsed", false)
+    }
+    if context.monotonicDeadline != (9223372036854775807 as Int64) {
+        let now = seen_time_monotonic_nanos()
+        if now < (0 as Int64) {
+            return core004eFailure<Bool>("core.004e.unavailable", operation,
+                "monotonic clock is unavailable", false)
+        }
+        if now >= context.monotonicDeadline {
+            return core004eFailure<Bool>("core.004e.timeout", operation,
+                "deterministic operation deadline has elapsed", false)
+        }
+    }
+    if not errorIdentityValid(context.traceId.value) {
+        return core004eFailure<Bool>("core.004e.invalid", operation,
+            "operation trace identity is invalid", false)
+    }
+    if context.limits.maxTargets <= 0 or
+        context.limits.maxIdentityBytes <= 0 or
+        context.limits.maxIdentityBytes > 4096 or
+        context.limits.maxPathBytes <= 0 or
+        context.limits.maxPathBytes > 4096 or
+        context.limits.maxGraphModules <= 0 or
+        context.limits.maxGraphEdges <= 0 or
+        context.limits.maxGraphDepth <= 0 {
+
+        return core004eFailure<Bool>("core.004e.limit", operation,
+            "operation context limit is invalid", false)
+    }
+    return Ok<Bool, SeenError>(true)
+}
+
+fun deterministicPrintableAscii(value: String, maximum: Int,
+    allowEmpty: Bool) r: Bool {
+
+    if value.length() > maximum or (not allowEmpty and value.length() == 0) {
+        return false
+    }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 32 or byte > 126 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun deterministicIdentity(value: String, maximum: Int) r: Bool {
+    if value.length() == 0 or value.length() > maximum { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let lower = byte >= 97 and byte <= 122
+        let upper = byte >= 65 and byte <= 90
+        let digit = byte >= 48 and byte <= 57
+        if not lower and not upper and not digit and byte != 45 and
+            byte != 46 and byte != 95 and byte != 58 and byte != 47 {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun deterministicEnvironmentName(value: String) r: Bool {
+    if value.length() == 0 or value.length() > 128 { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let lower = byte >= 97 and byte <= 122
+        let upper = byte >= 65 and byte <= 90
+        let digit = byte >= 48 and byte <= 57
+        if not lower and not upper and not digit and byte != 95 {
+            return false
+        }
+        if index == 0 and digit { return false }
+        index = index + 1
+    }
+    return value != "SEEN_DETERMINISTIC" and
+        value != "SOURCE_DATE_EPOCH" and
+        value != "SEEN_DETERMINISTIC_SEED"
+}
+
+fun deterministicLocalePart(value: String) r: Bool {
+    if value.length() == 0 or value.length() > 64 { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        let lower = byte >= 97 and byte <= 122
+        let upper = byte >= 65 and byte <= 90
+        let digit = byte >= 48 and byte <= 57
+        if not lower and not upper and not digit and byte != 45 and
+            byte != 46 and byte != 95 and byte != 64 {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
+
+fun validateDeterministicLocale(value: DeterministicLocaleIdentity,
+    operation: String) r: Result<DeterministicLocaleIdentity, SeenError> {
+
+    if not deterministicLocalePart(value.locale) or
+        not deterministicLocalePart(value.encoding) {
+
+        return core004eFailure<DeterministicLocaleIdentity>(
+            "core.004e.invalid_locale", operation,
+            "locale or encoding identity is invalid", false)
+    }
+    if value.encoding != "UTF-8" and value.encoding != "ASCII" {
+        return core004eFailure<DeterministicLocaleIdentity>(
+            "core.004e.unsupported_locale", operation,
+            "locale encoding is not supported for deterministic execution",
+            false)
+    }
+    return Ok<DeterministicLocaleIdentity, SeenError>(
+        DeterministicLocaleIdentity{locale: value.locale,
+            encoding: value.encoding})
+}
+
+fun deterministicPlatformStatusName(value: DeterministicPlatformStatus)
+    r: String {
+
+    if value == DeterministicPlatformStatus.Verified { return "verified" }
+    if value == DeterministicPlatformStatus.ToolchainDependent {
+        return "toolchain-dependent"
+    }
+    return "unsupported"
+}
+
+fun deterministicKnownTarget(value: String) r: Bool {
+    return value == "linux-x86_64" or value == "linux-aarch64" or
+        value == "linux-riscv64" or value == "macos-x86_64" or
+        value == "macos-aarch64" or value == "windows-x86_64"
+}
+
+fun validateDeterministicPlatform(value: DeterministicPlatformPolicy,
+    operation: String) r: Result<DeterministicPlatformPolicy, SeenError> {
+
+    if not deterministicKnownTarget(value.target) or
+        not deterministicPrintableAscii(value.toolchainIdentity, 256, false) {
+
+        return core004eFailure<DeterministicPlatformPolicy>(
+            "core.004e.invalid_platform", operation,
+            "target or toolchain identity is invalid", false)
+    }
+    if value.target == "linux-x86_64" and
+        value.status != DeterministicPlatformStatus.Verified {
+
+        return core004eFailure<DeterministicPlatformPolicy>(
+            "core.004e.policy_conflict", operation,
+            "linux-x86_64 must use verified deterministic platform status",
+            false)
+    }
+    if value.target != "linux-x86_64" and
+        value.status == DeterministicPlatformStatus.Verified {
+
+        return core004eFailure<DeterministicPlatformPolicy>(
+            "core.004e.policy_conflict", operation,
+            "this target has no verified deterministic runtime status",
+            false)
+    }
+    return Ok<DeterministicPlatformPolicy, SeenError>(
+        DeterministicPlatformPolicy{target: value.target,
+            status: value.status,
+            toolchainIdentity: value.toolchainIdentity})
+}
+
+fun deterministicPath(value: String) r: Bool {
+    if value.length() == 0 or value.length() > CORE_004E_MAX_PATH_BYTES or
+        not value.startsWith("/") { return false }
+    if value.length() > 1 and value.endsWith("/") { return false }
+    if value.contains("//") or value == "/.." or value.startsWith("/../") or
+        value.endsWith("/..") or value.contains("/../") or
+        value.contains("/./") or value.endsWith("/.") { return false }
+    var index = 0
+    while index < value.length() {
+        if value.byteAt(index) == 0 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun deterministicStringDuplicate(values: Array<String>, index: Int) r: Bool {
+    var prior = 0
+    while prior < index {
+        if values[prior] == values[index] { return true }
+        prior = prior + 1
+    }
+    return false
+}
+
+fun deterministicArgumentDuplicate(values: Array<Int>, index: Int) r: Bool {
+    var prior = 0
+    while prior < index {
+        if values[prior] == values[index] { return true }
+        prior = prior + 1
+    }
+    return false
+}
+
+fun validateDeterministicCapabilityPolicy(
+    value: DeterministicCapabilityPolicy, operationContext: OperationContext,
+    operation: String) r: Result<DeterministicCapabilityPolicy, SeenError> {
+
+    let operationCheck = validateDeterministicOperation(operationContext,
+        operation)
+    if operationCheck.isErr() {
+        return Err<DeterministicCapabilityPolicy, SeenError>(
+            operationCheck.unwrapErr())
+    }
+    if value.argumentIndexes.length() > CORE_004E_MAX_ARGUMENTS or
+        value.environmentNames.length() > CORE_004E_MAX_ENVIRONMENT or
+        value.filesystemRoots.length() > CORE_004E_MAX_FILESYSTEM_ROOTS or
+        value.processStates.length() > CORE_004E_MAX_PROCESS_STATES or
+        value.networkStates.length() > CORE_004E_MAX_NETWORK_STATES or
+        value.hostCapabilities.length() > CORE_004E_MAX_HOST_CAPABILITIES {
+
+        return core004eFailure<DeterministicCapabilityPolicy>(
+            "core.004e.limit", operation,
+            "deterministic capability collection exceeds its bound", false)
+    }
+
+    var index = 0
+    while index < value.argumentIndexes.length() {
+        if value.argumentIndexes[index] < 0 or
+            deterministicArgumentDuplicate(value.argumentIndexes, index) {
+
+            return core004eFailure<DeterministicCapabilityPolicy>(
+                "core.004e.invalid", operation,
+                "argument allowlist contains an invalid or duplicate index",
+                false)
+        }
+        index = index + 1
+    }
+    index = 0
+    while index < value.environmentNames.length() {
+        if not deterministicEnvironmentName(value.environmentNames[index]) or
+            deterministicStringDuplicate(value.environmentNames, index) {
+
+            return core004eFailure<DeterministicCapabilityPolicy>(
+                "core.004e.invalid", operation,
+                "environment allowlist contains an invalid or duplicate name",
+                true)
+        }
+        index = index + 1
+    }
+    index = 0
+    while index < value.filesystemRoots.length() {
+        if not deterministicPath(value.filesystemRoots[index]) or
+            deterministicStringDuplicate(value.filesystemRoots, index) {
+
+            return core004eFailure<DeterministicCapabilityPolicy>(
+                "core.004e.invalid", operation,
+                "filesystem allowlist contains an invalid or duplicate root",
+                true)
+        }
+        index = index + 1
+    }
+    index = 0
+    while index < value.processStates.length() {
+        if not deterministicIdentity(value.processStates[index],
+            CORE_004E_MAX_IDENTITY_BYTES) or
+            deterministicStringDuplicate(value.processStates, index) {
+
+            return core004eFailure<DeterministicCapabilityPolicy>(
+                "core.004e.invalid", operation,
+                "process-state allowlist contains an invalid identity", false)
+        }
+        index = index + 1
+    }
+    index = 0
+    while index < value.networkStates.length() {
+        if not deterministicPrintableAscii(value.networkStates[index], 512,
+            false) or deterministicStringDuplicate(value.networkStates,
+            index) {
+
+            return core004eFailure<DeterministicCapabilityPolicy>(
+                "core.004e.invalid", operation,
+                "network-state allowlist contains an invalid identity", true)
+        }
+        index = index + 1
+    }
+    index = 0
+    while index < value.hostCapabilities.length() {
+        if not deterministicIdentity(value.hostCapabilities[index],
+            CORE_004E_MAX_IDENTITY_BYTES) or
+            deterministicStringDuplicate(value.hostCapabilities, index) {
+
+            return core004eFailure<DeterministicCapabilityPolicy>(
+                "core.004e.invalid", operation,
+                "host-capability allowlist contains an invalid identity", false)
+        }
+        index = index + 1
+    }
+    return Ok<DeterministicCapabilityPolicy, SeenError>(
+        deterministicCapabilityPolicyCopy(value))
+}
+
+fun deterministicIntArrayCopy(values: Array<Int>) r: Array<Int> {
+    let result = Array<Int>()
+    var index = 0
+    while index < values.length() {
+        result.push(values[index])
+        index = index + 1
+    }
+    return result
+}
+
+fun deterministicStringArrayCopy(values: Array<String>) r: Array<String> {
+    let result = Array<String>()
+    var index = 0
+    while index < values.length() {
+        result.push(values[index])
+        index = index + 1
+    }
+    return result
+}
+
+fun deterministicCapabilityPolicyCopy(value: DeterministicCapabilityPolicy)
+    r: DeterministicCapabilityPolicy {
+
+    return DeterministicCapabilityPolicy{
+        argumentIndexes: deterministicIntArrayCopy(value.argumentIndexes),
+        environmentNames: deterministicStringArrayCopy(
+            value.environmentNames),
+        filesystemRoots: deterministicStringArrayCopy(value.filesystemRoots),
+        processStates: deterministicStringArrayCopy(value.processStates),
+        networkStates: deterministicStringArrayCopy(value.networkStates),
+        hostCapabilities: deterministicStringArrayCopy(value.hostCapabilities)}
+}
+
+fun deterministicEmptyCapabilityPolicy() r: DeterministicCapabilityPolicy {
+    return DeterministicCapabilityPolicy{argumentIndexes: Array<Int>(),
+        environmentNames: Array<String>(), filesystemRoots: Array<String>(),
+        processStates: Array<String>(), networkStates: Array<String>(),
+        hostCapabilities: Array<String>()}
+}

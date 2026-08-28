@@ -220,17 +220,9 @@ fun run_frontend(source: String, fileLabel: String, language: String = "en") r: 
         }
     }
 
-    if programUsesClassDecorator(result.program, "send") {
-        validateDecoratorClosedClasses(result, fileLabel, result.program, "send")
-    }
-
-    if programUsesClassDecorator(result.program, "sync") {
-        validateDecoratorClosedClasses(result, fileLabel, result.program, "sync")
-    }
-
-    if result.hasErrors() {
-        return result
-    }
+    // Send/Share closure is validated once, after every module declaration is
+    // registered, by typechecker.lexical_semantic. A per-file token scan here
+    // cannot prove imported types, generic bounds, or parallel captures.
 
     result.success = true
     return result

@@ -21,7 +21,7 @@ The standard library is written in Seen and provides high-level abstractions.
 | [Environment](env.md) | Environment helpers |
 | [FFI](ffi.md) | C type metadata and C string interop |
 | [Process](process.md) | Command execution, fork, environment variables |
-| [Synchronization](sync.md) | Mutex, RwLock, Barrier, AtomicInt, Channel |
+| [Synchronization](sync.md) | Send/Share, Arc, typed atomics, bounded channels, Mutex/RwLock, lock-order diagnostics |
 | [Threads](thread.md) | Thread, affinity, and worker-pool helpers |
 | [Time](time.md) | Time and duration helpers |
 | [Random](random.md) | LCG, PCG, Xorshift generators |

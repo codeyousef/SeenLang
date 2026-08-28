@@ -1,0 +1,4 @@
+pub fun importedNoise() r: Int {
+    println("imported nondeterministic effect")
+    return 1
+}

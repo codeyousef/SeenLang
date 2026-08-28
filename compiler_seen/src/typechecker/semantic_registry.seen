@@ -106,7 +106,7 @@ fun semanticLifecyclePropertyIndex(propertyName: String) r: Int {
     if propertyName == "Equatable" { return 1 }
     if propertyName == "Drop" { return 2 }
     if propertyName == "Send" { return 3 }
-    if propertyName == "Sync" { return 4 }
+    if propertyName == "Share" { return 4 }
     return -1
 }
 
@@ -115,13 +115,106 @@ fun semanticLifecyclePropertyName(propertyIndex: Int) r: String {
     if propertyIndex == 1 { return "Equatable" }
     if propertyIndex == 2 { return "Drop" }
     if propertyIndex == 3 { return "Send" }
-    if propertyIndex == 4 { return "Sync" }
+    if propertyIndex == 4 { return "Share" }
     return "Unknown"
 }
 
 fun semanticIsSimdBuiltinType(name: String) r: Bool {
     return name == "f32x4" or name == "f32x8" or name == "f64x2" or
         name == "f64x4" or name == "i32x4" or name == "i32x8"
+}
+
+///
+/// Bootstrap mirror of types.send_share.sendShareFoundationContract.
+/// A frozen compiler discovers compiler modules from its own curated list, so
+/// the first self-hosting stage cannot link a newly introduced module. Keep
+/// the public contract in types.send_share and return only its numeric property
+/// state here until that module is present in the frozen bootstrap set.
+///
+fun semanticFoundationCanonicalType(base: String, moduleName: String,
+    typeName: String) r: Bool {
+
+    return base == moduleName + "::" + typeName
+}
+
+fun semanticFoundationTypeBase(name: String) r: String {
+    let genericStart = name.indexOf("<", 0)
+    if genericStart > 0 { return name.substring(0, genericStart) }
+    return name
+}
+
+fun semanticFoundationThreadProperty(name: String, propertyName: String)
+    r: Int {
+
+    let base = semanticFoundationTypeBase(name)
+
+    if base == "Bool" or base == "Char" or base == "Int" or
+        base == "UInt" or base == "Int8" or base == "Int16" or
+        base == "Int32" or base == "Int64" or base == "UInt8" or
+        base == "UInt16" or base == "UInt32" or base == "UInt64" or
+        base == "Float" or base == "Float32" or base == "Float64" or
+        base == "Byte" or base == "String" or base == "Unit" {
+        return 1
+    }
+    if semanticFoundationCanonicalType(base,
+        "seen_std.src.inference.span", "Span") {
+
+        return -1
+    }
+    if semanticFoundationCanonicalType(base,
+        "seen_std.src.inference.span", "MutableSpan") {
+
+        return 0
+    }
+    if semanticFoundationCanonicalType(base,
+            "seen_std.src.memory.aligned_buffer", "OwnedBuffer") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.reactor.reactor", "OwnedHandle") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.accelerator.cuda.mod", "CudaAllocation") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.accelerator.cuda.mod", "CudaStream") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.accelerator.cuda.mod", "CudaEvent") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.graphics.gpu", "GpuBuffer") {
+
+        if propertyName == "Send" { return 1 }
+        return 0
+    }
+    if semanticFoundationCanonicalType(base,
+            "seen_std.src.sync.arc", "Arc") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.sync.atomic", "Atomic") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.sync.atomic", "AtomicInt") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.sync.atomic", "AtomicBool") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.sync.channel", "BoundedChannel") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.sync.mutex", "Mutex") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.sync.mutex", "RwLock") {
+
+        return 1
+    }
+    if semanticFoundationCanonicalType(base,
+            "seen_std.src.reactor.reactor", "BlockingCompletion") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.io.direct", "GatherCompletion") {
+
+        if propertyName == "Send" { return 1 }
+        return 0
+    }
+    if base == "Array" or base == "StringBuilder" or
+        base == "ptr" or base == "Any" or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.io.bytes", "MutableByteSlice") {
+
+        return 0
+    }
+    return -1
 }
 
 ///
@@ -133,11 +226,17 @@ fun semanticBuiltinLifecycleProperty(name: String, propertyName: String)
     r: Int {
 
     if semanticLifecyclePropertyIndex(propertyName) < 0 { return -3 }
+    if propertyName == "Send" or propertyName == "Share" {
+        let state = semanticFoundationThreadProperty(name, propertyName)
+        if state == 1 { return 1 }
+        if state == 0 { return 0 }
+        if state != -1 { return -3 }
+    }
     if not semanticIsBuiltinType(name) { return -3 }
 
     if name == "String" {
         if propertyName == "Equatable" or propertyName == "Drop" or
-            propertyName == "Send" or propertyName == "Sync" { return 1 }
+            propertyName == "Send" or propertyName == "Share" { return 1 }
         return 0
     }
     if name == "Any" {
@@ -152,7 +251,7 @@ fun semanticBuiltinLifecycleProperty(name: String, propertyName: String)
     }
     if semanticIsSimdBuiltinType(name) {
         if propertyName == "Copy" or propertyName == "Send" or
-            propertyName == "Sync" { return 1 }
+            propertyName == "Share" { return 1 }
         return 0
     }
     if propertyName == "Drop" { return 0 }
@@ -518,6 +617,43 @@ class SemanticDeclarationRegistry {
         return ""
     }
 
+    fun genericModifierHasLifecycleBound(modifier: String,
+        propertyName: String) r: Bool {
+
+        if not modifier.startsWith("bound:") or propertyName == "" {
+            return false
+        }
+        let bounds = modifier.substring(6, modifier.length())
+        var start = 0
+        var index = 0
+        while index <= bounds.length() {
+            if index == bounds.length() or bounds.byteAt(index) == 43 {
+                if index > start and
+                    bounds.substring(start, index) == propertyName {
+                    return true
+                }
+                start = index + 1
+            }
+            index = index + 1
+        }
+        return false
+    }
+
+    fun genericParameterHasLifecycleBound(ownerCanonical: String,
+        name: String, propertyName: String) r: Bool {
+
+        return this.genericModifierHasLifecycleBound(
+            this.genericParameterModifier(ownerCanonical, name), propertyName)
+    }
+
+    fun genericParameterHasLifecycleBoundAtForOwner(ownerCanonical: String,
+        parameterIndex: Int, propertyName: String) r: Bool {
+
+        return this.genericModifierHasLifecycleBound(
+            this.genericParameterModifierAtForOwner(ownerCanonical,
+                parameterIndex), propertyName)
+    }
+
     ///
     Count every declared generic parameter for one canonical declaration.
     Type, const, and comptime parameters all occupy one source argument slot.
@@ -764,8 +900,8 @@ class SemanticDeclarationRegistry {
         if propertyName == "Send" {
             return this.hasDecorator(ownerCanonical, "send")
         }
-        if propertyName == "Sync" {
-            return this.hasDecorator(ownerCanonical, "sync")
+        if propertyName == "Share" {
+            return this.hasDecorator(ownerCanonical, "share")
         }
         return false
     }
@@ -862,9 +998,9 @@ class SemanticDeclarationRegistry {
                 return 0
             }
             if propertyName == "Drop" { return 1 }
-            // Mutable owning handles are not Sync, and Send requires the later
+            // Mutable owning handles are not Share, and Send requires the later
             // uniqueness/move proof rather than only element properties.
-            if propertyName == "Sync" { return 0 }
+            if propertyName == "Share" { return 0 }
             if propertyName == "Send" { return -3 }
             return -3
         }
@@ -896,7 +1032,7 @@ class SemanticDeclarationRegistry {
         if typeRef.kind == "dynamic" { return -3 }
         if typeRef.kind == "function" {
             if propertyName == "Copy" or propertyName == "Send" or
-                propertyName == "Sync" { return 1 }
+                propertyName == "Share" { return 1 }
             return 0
         }
         if typeRef.kind == "fixed_array" {
@@ -916,6 +1052,8 @@ class SemanticDeclarationRegistry {
 
         let ownerCanonical = this.canonicalNames[ownerIndex]
         if this.isGenericParameter(ownerCanonical, typeRef.base) {
+            if this.genericParameterHasLifecycleBound(ownerCanonical,
+                typeRef.base, propertyName) { return 1 }
             return -3
         }
         if semanticIsBuiltinType(typeRef.base) {
@@ -931,6 +1069,13 @@ class SemanticDeclarationRegistry {
             typeRef.base)
         if declarationIndex < 0 { return -3 }
         let kind = this.kinds[declarationIndex]
+        if (kind == "Class" or kind == "Struct") and
+            (propertyName == "Send" or propertyName == "Share") {
+
+            let foundationState = semanticFoundationThreadProperty(
+                this.canonicalNames[declarationIndex], propertyName)
+            if foundationState != -1 { return foundationState }
+        }
         if kind == "Class" or kind == "Struct" or kind == "Enum" {
             return this.deriveLifecycleDeclarationProperty(declarationIndex,
                 propertyName)
@@ -1055,6 +1200,55 @@ class SemanticDeclarationRegistry {
         r: Bool {
 
         return this.lifecyclePropertyState(ownerCanonical, propertyName) == 1
+    }
+
+    fun lifecycleIdentityPropertyState(ownerCanonical: String,
+        typeIdentity: String, propertyName: String) r: Int {
+
+        if typeIdentity == "" or typeIdentity == "Unknown" { return -3 }
+        if propertyName == "Send" or propertyName == "Share" {
+            let foundationState = semanticFoundationThreadProperty(
+                typeIdentity, propertyName)
+            if foundationState != -1 {
+                let foundationBase = semanticFoundationTypeBase(typeIdentity)
+                let foundationIndex = this.findCanonical(foundationBase)
+                if semanticIsBuiltinType(foundationBase) or
+                    semanticBuiltinGenericArity(foundationBase) >= 0 {
+
+                    return foundationState
+                }
+                if foundationIndex >= 0 and
+                    (this.kinds[foundationIndex] == "Class" or
+                        this.kinds[foundationIndex] == "Struct") {
+
+                    return foundationState
+                }
+                return -3
+            }
+        }
+        if semanticIsBuiltinType(typeIdentity) {
+            return semanticBuiltinLifecycleProperty(typeIdentity,
+                propertyName)
+        }
+        let directIndex = this.findCanonical(typeIdentity)
+        if directIndex >= 0 {
+            return this.deriveLifecycleDeclarationProperty(directIndex,
+                propertyName)
+        }
+        if typeIdentity.startsWith("generic:") {
+            if typeIdentity.contains("bound:" + propertyName + ":") or
+                typeIdentity.contains("bound:" + propertyName + "+") or
+                typeIdentity.contains("+" + propertyName + ":") or
+                typeIdentity.contains("+" + propertyName + "+") {
+                return 1
+            }
+            return -3
+        }
+        let ownerIndex = this.findCanonical(ownerCanonical)
+        if ownerIndex < 0 { return -3 }
+        let typeRef = parseTypeRef(typeIdentity, 0, 0, "")
+        return this.lifecycleTypePropertyState(ownerIndex, typeRef,
+            propertyName)
     }
 
     fun firstLifecycleFailingFieldIndex(ownerCanonical: String,

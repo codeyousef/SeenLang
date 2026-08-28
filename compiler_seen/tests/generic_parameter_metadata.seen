@@ -11,12 +11,13 @@ fun main() r: Int {
     let source =
         "class Box<T, const N: Int> { var value: T " +
         "fun map<U>(next: U) r: U { return next } } " +
+        "class SharedBox<T: Send + Share> { let value: T } " +
         "fun collect<...Items>(value: Int) r: Int { return value }"
     let lexer = newSeenLexerCompat(source, 1, "en")
     let parser = newRealParserCompat(lexer.tokenize())
     let program = parser.parse()
 
-    genericMetadataExpect(program.items.length() == 2,
+    genericMetadataExpect(program.items.length() == 3,
         "generic declarations parse")
     let klass = program.items[0].classNode
     genericMetadataExpect(genericParameterCount(klass.decorators) == 2,
@@ -27,19 +28,49 @@ fun main() r: Int {
         "class const parameter name")
     genericMetadataExpect(genericParameterModifierAt(klass.decorators, 1) ==
         "const", "class const parameter modifier")
+    genericMetadataExpect(klass.fields.length() == 1 and
+        klass.fields[0].isMutable,
+        "full parser retains mutable class fields")
 
     genericMetadataExpect(klass.methods.length() == 1,
         "generic method parses")
     genericMetadataExpect(genericParameterNameAt(
         klass.methods[0].decorators, 0) == "U", "method generic metadata")
 
-    let variadic = program.items[1].function
+    let shared = program.items[1].classNode
+    genericMetadataExpect(genericParameterCount(shared.decorators) == 1 and
+        genericParameterNameAt(shared.decorators, 0) == "T" and
+        genericParameterModifierAt(shared.decorators, 0) ==
+            "bound:Send+Share",
+        "lifecycle bounds remain attached to their type parameter")
+    genericMetadataExpect(shared.fields.length() == 1 and
+        not shared.fields[0].isMutable,
+        "full parser retains immutable class fields")
+
+    let variadic = program.items[2].function
     genericMetadataExpect(genericParameterNameAt(variadic.decorators, 0) ==
         "Items", "variadic parameter name")
     genericMetadataExpect(genericParameterModifierAt(variadic.decorators, 0) ==
         "variadic", "variadic parameter modifier")
     genericMetadataExpect(variadic.hasDecorator("variadic_generic"),
         "variadic compatibility decorator remains")
+
+    let declarationLexer = newSeenLexerCompat(source, 1, "en")
+    let declarationParser = newRealParserCompat(declarationLexer.tokenize())
+    let declarations = declarationParser.parseDeclarationsOnly()
+    genericMetadataExpect(declarations.items.length() == 3,
+        "declaration-only generic declarations parse")
+    let declarationBox = declarations.items[0].classNode
+    genericMetadataExpect(genericParameterModifierAt(
+        declarationBox.decorators, 1) == "const" and
+        genericParameterNameAt(declarationBox.methods[0].decorators, 0) ==
+            "U" and declarationBox.fields[0].isMutable,
+        "declaration-only parser retains const, method, and field metadata")
+    let declarationShared = declarations.items[1].classNode
+    genericMetadataExpect(genericParameterModifierAt(
+        declarationShared.decorators, 0) == "bound:Send+Share" and
+        not declarationShared.fields[0].isMutable,
+        "declaration-only parser retains bounds and immutable fields")
     return 0
 }
 

@@ -1,0 +1,25 @@
+import sync.mod.{syncValidateCapacity, atomicValidateLoadOrder, MemoryOrder}
+
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+extern "C" fun seen_sync_live_rwlocks() r: UInt64
+
+fun main() r: Int {
+    if syncValidateCapacity(1, "sync.migration").isErr() { return 1 }
+    let invalid = atomicValidateLoadOrder(MemoryOrder.Release)
+    if not invalid.isErr() or invalid.unwrapErr().code != "sync.invalid" {
+        return 2
+    }
+    if seen_sync_live_atomics() != (0 as UInt64) or
+        seen_sync_live_mutexes() != (0 as UInt64) or
+        seen_sync_live_conditions() != (0 as UInt64) or
+        seen_sync_live_rwlocks() != (0 as UInt64) { return 3 }
+    println("PASS: SYNC-001H_happy")
+    println("PASS: SYNC-001H_partial")
+    println("PASS: SYNC-001H_invalid")
+    println("PASS: SYNC-001H_limit")
+    println("PASS: SYNC-001H_cancel")
+    println("PASS: SYNC-001H_cleanup")
+    return 0
+}

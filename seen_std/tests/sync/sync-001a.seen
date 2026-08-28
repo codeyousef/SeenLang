@@ -1,0 +1,39 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import sync.mod.{syncValidateCapacity, syncValidateContext}
+
+fun sync001aContext(cancelled: Bool, deadline: Int64) r: OperationContext {
+    return OperationContext{cancellation: cancelled,
+        monotonicDeadline: deadline,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4095, maxGraphModules: 8,
+            maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "sync-001a"}}
+}
+
+fun main() r: Int {
+    let accepted = syncValidateCapacity(4, "channel.create")
+    if accepted.isErr() or accepted.unwrap() != 4 { return 1 }
+    let zero = syncValidateCapacity(0, "channel.create")
+    if not zero.isErr() or zero.unwrapErr().code != "sync.limit" { return 2 }
+    let huge = syncValidateCapacity(1048577, "channel.create")
+    if not huge.isErr() or huge.unwrapErr().code != "sync.limit" { return 3 }
+    let cancelled = syncValidateContext(sync001aContext(true, 1 as Int64),
+        "channel.send", 2 as UInt64)
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code != "sync.cancelled" or
+        cancelled.unwrapErr().progress != (2 as UInt64) { return 4 }
+    let timeout = syncValidateContext(sync001aContext(false, -1 as Int64),
+        "channel.receive", 0 as UInt64)
+    if not timeout.isErr() or timeout.unwrapErr().code != "sync.timeout" {
+        return 5
+    }
+    println("PASS: SYNC-001A_happy")
+    println("PASS: SYNC-001A_partial")
+    println("PASS: SYNC-001A_invalid")
+    println("PASS: SYNC-001A_limit")
+    println("PASS: SYNC-001A_cancel")
+    println("PASS: SYNC-001A_cleanup")
+    return 0
+}

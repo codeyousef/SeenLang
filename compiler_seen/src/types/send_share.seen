@@ -1,0 +1,140 @@
+///
+/// Canonical compiler policy for cross-thread value movement and sharing.
+///
+/// This module is intentionally independent of LLVM lowering.  The lexical
+/// and resolved-program passes consume the same bounded classification so a
+/// type cannot be accepted by one frontend path and rejected by another.
+///
+
+let SEND_SHARE_PROVED: Int = 1
+let SEND_SHARE_REJECTED: Int = 0
+let SEND_SHARE_UNPROVEN: Int = -1
+
+class SendShareContract {
+    var send: Int
+    var share: Int
+    var requiresMove: Bool
+    var requiresOwner: Bool
+    var reason: String
+}
+
+fun sendShareContract(send: Int, share: Int, requiresMove: Bool,
+    requiresOwner: Bool, reason: String) r: SendShareContract {
+
+    return SendShareContract{send: send, share: share,
+        requiresMove: requiresMove, requiresOwner: requiresOwner,
+        reason: reason}
+}
+
+fun sendShareStripGeneric(typeName: String) r: String {
+    let generic = typeName.indexOf("<", 0)
+    if generic > 0 { return typeName.substring(0, generic) }
+    return typeName
+}
+
+fun sendShareBuiltinScalar(typeName: String) r: Bool {
+    return typeName == "Bool" or typeName == "Char" or
+        typeName == "Int" or typeName == "UInt" or
+        typeName == "Int8" or typeName == "Int16" or
+        typeName == "Int32" or typeName == "Int64" or
+        typeName == "UInt8" or typeName == "UInt16" or
+        typeName == "UInt32" or typeName == "UInt64" or
+        typeName == "Float" or typeName == "Float32" or
+        typeName == "Float64" or typeName == "Byte"
+}
+
+fun sendShareCanonicalType(base: String, moduleName: String,
+    typeName: String) r: Bool {
+
+    return base == moduleName + "::" + typeName
+}
+
+///
+/// Classify public foundation types. User declarations are resolved through
+/// SemanticDeclarationRegistry and therefore deliberately remain unproven
+/// here rather than being guessed from spelling.
+///
+fun sendShareFoundationContract(typeName: String) r: SendShareContract {
+    let base = sendShareStripGeneric(typeName)
+    if sendShareBuiltinScalar(base) or base == "String" or base == "Unit" {
+        return sendShareContract(SEND_SHARE_PROVED, SEND_SHARE_PROVED,
+            false, false, "immutable foundation value")
+    }
+    if sendShareCanonicalType(base, "seen_std.src.inference.span", "Span") {
+        return sendShareContract(SEND_SHARE_UNPROVEN, SEND_SHARE_UNPROVEN,
+            false, true, "a Span requires a proved shared owner")
+    }
+    if sendShareCanonicalType(base, "seen_std.src.inference.span",
+        "MutableSpan") {
+
+        return sendShareContract(SEND_SHARE_REJECTED, SEND_SHARE_REJECTED,
+            false, true, "MutableSpan cannot cross a thread boundary")
+    }
+    if sendShareCanonicalType(base, "seen_std.src.memory.aligned_buffer",
+            "OwnedBuffer") or
+        sendShareCanonicalType(base, "seen_std.src.reactor.reactor",
+            "OwnedHandle") or
+        sendShareCanonicalType(base, "seen_std.src.accelerator.cuda.mod",
+            "CudaAllocation") or
+        sendShareCanonicalType(base, "seen_std.src.accelerator.cuda.mod",
+            "CudaStream") or
+        sendShareCanonicalType(base, "seen_std.src.accelerator.cuda.mod",
+            "CudaEvent") or
+        sendShareCanonicalType(base, "seen_std.src.graphics.gpu",
+            "GpuBuffer") {
+
+        return sendShareContract(SEND_SHARE_PROVED, SEND_SHARE_REJECTED,
+            true, true, "owned resource must be moved to one destination")
+    }
+    if sendShareCanonicalType(base, "seen_std.src.sync.arc", "Arc") or
+        sendShareCanonicalType(base, "seen_std.src.sync.atomic", "Atomic") or
+        sendShareCanonicalType(base, "seen_std.src.sync.atomic",
+            "AtomicInt") or
+        sendShareCanonicalType(base, "seen_std.src.sync.atomic",
+            "AtomicBool") or
+        sendShareCanonicalType(base, "seen_std.src.sync.channel",
+            "BoundedChannel") or
+        sendShareCanonicalType(base, "seen_std.src.sync.mutex", "Mutex") or
+        sendShareCanonicalType(base, "seen_std.src.sync.mutex", "RwLock") {
+
+        return sendShareContract(SEND_SHARE_PROVED, SEND_SHARE_PROVED,
+            false, true, "synchronized shared foundation value")
+    }
+    if sendShareCanonicalType(base, "seen_std.src.reactor.reactor",
+            "BlockingCompletion") or
+        sendShareCanonicalType(base, "seen_std.src.io.direct",
+            "GatherCompletion") {
+
+        return sendShareContract(SEND_SHARE_PROVED, SEND_SHARE_REJECTED,
+            true, true, "mutable completion value must have one owner")
+    }
+    if base == "Array" or base == "StringBuilder" or
+        base == "ptr" or base == "Any" or
+        sendShareCanonicalType(base, "seen_std.src.io.bytes",
+            "MutableByteSlice") {
+
+        return sendShareContract(SEND_SHARE_REJECTED, SEND_SHARE_REJECTED,
+            false, true, "mutable or untyped storage is not thread safe")
+    }
+    return sendShareContract(SEND_SHARE_UNPROVEN, SEND_SHARE_UNPROVEN,
+        false, false, "user type requires a resolved Send/Share proof")
+}
+
+fun sendShareCaptureError(typeName: String, mutableCapture: Bool,
+    movedCapture: Bool, propertyState: Int) r: String {
+
+    let contract = sendShareFoundationContract(typeName)
+    if mutableCapture and contract.share != SEND_SHARE_PROVED {
+        return "sync.capture.share"
+    }
+    if contract.requiresMove and not movedCapture {
+        return "sync.capture.move"
+    }
+    if contract.send == SEND_SHARE_REJECTED {
+        return "sync.capture.send"
+    }
+    if contract.send == SEND_SHARE_UNPROVEN and propertyState != 1 {
+        return "sync.capture.unproven"
+    }
+    return ""
+}

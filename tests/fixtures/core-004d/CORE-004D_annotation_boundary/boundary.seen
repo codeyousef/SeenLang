@@ -1,0 +1,5 @@
+@nondeterministic
+pub fun loggingBoundary() r: Int {
+    println("explicit boundary")
+    return 9
+}

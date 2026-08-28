@@ -4,7 +4,7 @@ Extracted from llvm_ir_gen.seen statement generation functions
 Each impl function emits IR scaffolding (labels, branches, phi nodes)
 ///
 
-import parser.real_parser.{ParserExpressionNode, StatementNode}
+import parser.real_parser.{BlockNode, ParserExpressionNode, StatementNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
@@ -297,6 +297,143 @@ fun classifyParallelForRangeExprImpl(rangeExpr: ParserExpressionNode) r: Int {
     return 0
 }
 
+fun parallelCaptureLocalContainsImpl(localNames: Array<String>, name: String)
+    r: Bool {
+
+    var i = localNames.length() - 1
+    while i >= 0 {
+        if localNames[i] == name { return true }
+        i = i - 1
+    }
+    return false
+}
+
+fun parallelCaptureVisibleIndexImpl(visibleNames: Array<String>,
+    visibleCount: Int, name: String) r: Int {
+
+    var i = visibleCount - 1
+    while i >= 0 {
+        if visibleNames[i] == name { return i }
+        i = i - 1
+    }
+    return -1
+}
+
+fun recordParallelCaptureImpl(name: String, visibleNames: Array<String>,
+    visibleCount: Int, localNames: Array<String>,
+    captureNames: Array<String>) r: Void {
+
+    if name == "" or parallelCaptureLocalContainsImpl(localNames, name) or
+        parallelCaptureVisibleIndexImpl(visibleNames, visibleCount, name) < 0 {
+        return
+    }
+    var i = 0
+    while i < captureNames.length() {
+        if captureNames[i] == name { return }
+        i = i + 1
+    }
+    captureNames.push(name)
+}
+
+fun collectParallelCapturesFromExpressionImpl(
+    expression: ParserExpressionNode, visibleNames: Array<String>,
+    visibleCount: Int, localNames: Array<String>,
+    captureNames: Array<String>) r: Void {
+
+    if expression.kind == "Variable" or expression.kind == "VarExpr" {
+        var name = expression.variableName
+        if name == "" { name = expression.literalValue }
+        recordParallelCaptureImpl(name, visibleNames, visibleCount,
+            localNames, captureNames)
+    }
+    if (expression.kind == "MemberAccess" or
+        expression.kind == "MethodCall" or
+        expression.kind == "IndexAccess") and
+        expression.literalValue != "" {
+
+        recordParallelCaptureImpl(expression.literalValue, visibleNames,
+            visibleCount, localNames, captureNames)
+    }
+    if expression.kind == "Assignment" and
+        expression.variableName != "" {
+
+        recordParallelCaptureImpl(expression.variableName, visibleNames,
+            visibleCount, localNames, captureNames)
+    }
+    var i = 0
+    while i < expression.operands.length() {
+        collectParallelCapturesFromExpressionImpl(expression.operands[i],
+            visibleNames, visibleCount, localNames, captureNames)
+        i = i + 1
+    }
+    i = 0
+    while i < expression.arguments.length() {
+        collectParallelCapturesFromExpressionImpl(expression.arguments[i],
+            visibleNames, visibleCount, localNames, captureNames)
+        i = i + 1
+    }
+}
+
+fun collectParallelCapturesFromBlockImpl(block: BlockNode,
+    visibleNames: Array<String>, visibleCount: Int,
+    localNames: Array<String>, captureNames: Array<String>) r: Void {
+
+    let scopeStart = localNames.length()
+    var i = 0
+    while i < block.statements.length() {
+        let statement = block.statements[i]
+        collectParallelCapturesFromExpressionImpl(statement.initializer,
+            visibleNames, visibleCount, localNames, captureNames)
+        collectParallelCapturesFromExpressionImpl(statement.returnValue,
+            visibleNames, visibleCount, localNames, captureNames)
+        collectParallelCapturesFromExpressionImpl(statement.expression,
+            visibleNames, visibleCount, localNames, captureNames)
+        collectParallelCapturesFromExpressionImpl(statement.condition,
+            visibleNames, visibleCount, localNames, captureNames)
+        collectParallelCapturesFromExpressionImpl(statement.loopCondition,
+            visibleNames, visibleCount, localNames, captureNames)
+
+        if statement.kind == "Let" or statement.kind == "Var" or
+            statement.kind == "UiState" or
+            statement.kind == "UiComputed" {
+
+            if statement.variableName != "" and
+                statement.variableName != "_" {
+                localNames.push(statement.variableName)
+            }
+        }
+        if statement.kind == "ForIn" or statement.kind == "ParallelFor" {
+            let loopScopeStart = localNames.length()
+            if statement.variableName != "" {
+                localNames.push(statement.variableName)
+            }
+            collectParallelCapturesFromBlockImpl(statement.loopBody,
+                visibleNames, visibleCount, localNames, captureNames)
+            while localNames.length() > loopScopeStart { localNames.pop() }
+        } else {
+            collectParallelCapturesFromBlockImpl(statement.thenBranch,
+                visibleNames, visibleCount, localNames, captureNames)
+            collectParallelCapturesFromBlockImpl(statement.elseBranch,
+                visibleNames, visibleCount, localNames, captureNames)
+            collectParallelCapturesFromBlockImpl(statement.loopBody,
+                visibleNames, visibleCount, localNames, captureNames)
+        }
+        i = i + 1
+    }
+    while localNames.length() > scopeStart { localNames.pop() }
+}
+
+fun collectParallelCaptureNamesImpl(block: BlockNode, loopVariable: String,
+    visibleNames: Array<String>, visibleCount: Int) r: Array<String> {
+
+    let localNames = Array<String>()
+    localNames.push(loopVariable)
+    let captureNames = Array<String>()
+    collectParallelCapturesFromBlockImpl(block, visibleNames, visibleCount,
+        localNames, captureNames)
+    return captureNames
+}
+
 fun buildParallelForBodyFunctionNameImpl(pforIdx: Int) r: String {
     return "@__seen_pfor_body_" + pforIdx.toString()
 }
@@ -304,7 +441,8 @@ fun buildParallelForBodyFunctionNameImpl(pforIdx: Int) r: String {
 fun emitParallelForBodyHeaderImpl(output: StringBuilder, bodyFuncName: String)
     r: Void {
 
-    output.append("define internal i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
+    output.append("define internal i64 " + bodyFuncName +
+        "(i64 %0, ptr %__seen_pfor_env) nounwind {\n")
     output.append("entry:\n")
 }
 

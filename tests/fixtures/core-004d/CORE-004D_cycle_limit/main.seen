@@ -1,0 +1,14 @@
+fun cycleA(value: Int) r: Int {
+    if value <= 0 { return 0 }
+    return cycleB(value - 1)
+}
+
+fun cycleB(value: Int) r: Int {
+    println("cycle nondeterministic effect")
+    if value <= 0 { return 0 }
+    return cycleA(value - 1)
+}
+
+fun main() r: Int {
+    return cycleA(2)
+}

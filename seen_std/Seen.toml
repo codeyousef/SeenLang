@@ -61,6 +61,19 @@ modules = [
     "src/time/timer.seen",
     "src/async/runtime.seen",
 
+    # Synchronization and shared ownership
+    "src/sync/contracts.seen",
+    "src/sync/atomic.seen",
+    "src/sync/arc.seen",
+    "src/sync/lock_order.seen",
+    "src/sync/mutex.seen",
+    "src/sync/channel.seen",
+    "src/sync/mod.seen",
+
+    # Explicit deterministic execution inputs and capabilities
+    "src/determinism/policy.seen",
+    "src/determinism/context.seen",
+
     # FFI and strings
     "src/ffi/cinterop.seen",
     "src/str/string.seen",

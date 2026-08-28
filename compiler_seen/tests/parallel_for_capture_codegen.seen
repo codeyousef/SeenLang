@@ -1,0 +1,65 @@
+import parser.real_parser.{BlockNode, ParserExpressionNode, StatementNode}
+import codegen.ir_stmt_gen.{collectParallelCaptureNamesImpl}
+import codegen.ir_stmt_gen.{emitParallelForBodyHeaderImpl}
+import codegen.ir_function_scratch.{emitParallelForCallImpl}
+import str.string.{StringBuilder}
+
+fun parallelCaptureExpect(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun parallelCaptureVariable(name: String) r: ParserExpressionNode {
+    let expression = ParserExpressionNode.new()
+    expression.kind = "VarExpr"
+    expression.variableName = name
+    return expression
+}
+
+fun parallelCaptureExpression(name: String) r: StatementNode {
+    let statement = StatementNode.new()
+    statement.kind = "Expression"
+    statement.expression = parallelCaptureVariable(name)
+    return statement
+}
+
+fun main() r: Int {
+    let visibleNames = Array<String>()
+    visibleNames.push("offset")
+    visibleNames.push("outside")
+    visibleNames.push("shadowed")
+
+    let body = BlockNode.new()
+    body.statements.push(parallelCaptureExpression("outside"))
+    let local = StatementNode.new()
+    local.kind = "Let"
+    local.variableName = "shadowed"
+    local.initializer = parallelCaptureVariable("offset")
+    body.statements.push(local)
+    body.statements.push(parallelCaptureExpression("shadowed"))
+    body.statements.push(parallelCaptureExpression("index"))
+
+    let captures = collectParallelCaptureNamesImpl(body, "index",
+        visibleNames, visibleNames.length())
+    parallelCaptureExpect(captures.length() == 2 and
+        captures[0] == "outside" and captures[1] == "offset",
+        "parallel capture collection preserves order and lexical shadowing")
+
+    let output = StringBuilder.new()
+    emitParallelForBodyHeaderImpl(output, "@__seen_test_body")
+    emitParallelForCallImpl(output, "index", "2", "5",
+        "@__seen_test_body", "%environment")
+    let ir = output.toString()
+    parallelCaptureExpect(ir.contains(
+        "define internal i64 @__seen_test_body(i64 %0, ptr %__seen_pfor_env)"),
+        "parallel callback uses the typed environment ABI")
+    parallelCaptureExpect(ir.contains(
+        "call i64 @seen_parallel_for_v2(i64 2, i64 5, ptr " +
+        "@__seen_test_body, ptr %environment, ptr null, i64 4)"),
+        "parallel dispatch forwards the capture environment")
+    parallelCaptureExpect(ir.contains(
+        "call void @seen_parallel_for_fail_closed"),
+        "parallel dispatch fails closed on worker errors")
+    return 0
+}
+
+main()

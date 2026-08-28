@@ -1,0 +1,6 @@
+@share
+class InvalidSharedBuffer {
+    var values: Array<Int>
+}
+
+fun main() r: Int { return 0 }

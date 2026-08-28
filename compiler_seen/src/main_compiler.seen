@@ -26,7 +26,7 @@ limitation where boolean variables generate invalid IR.
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, runFrontendCompat, runFrontendDeclarationsCompat, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, readTextChecked, writeText, writeTextAtomically, appendText, exists, deleteFile}
 import process.process.{runCommand, runProgram, runProgramRequest, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
-import env.env.{args, getOrDefault}
+import env.env.{args, getOrDefault, set}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, newLLVMIRGenerator, overrideTargetTriple}
 import parser.real_parser.{ProgramNode, ItemNode, ImportSymbolNode, ClassNode, FunctionNode, ParamNode, TypeNode, AnnotationNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode, getUiSlotCount, getUiSlotBlock}
 import lexer.language_pack.{resolveLanguagesRoot}
@@ -38,7 +38,7 @@ already contains the corresponding modules in its curated module list.
 import lsp.formatter.{formatSeenDocumentEditsWithLanguageOptions}
 import typechecker.type_ref.{parseTypeRef as _seedParseTypeRef}
 import lsp.server.{runLspServer}
-import typechecker.determinism.{DeterminismChecker, checkDeterminismWithProfile, printDeterminismErrors}
+import typechecker.determinism.{DeterminismEffectGraph, printDeterminismErrors}
 import typechecker.semantic_registry.{SemanticDeclarationRegistry, semanticNormalizeModuleIdentity}
 import typechecker.lexical_semantic.{LexicalSemanticResult, collectLexicalSemanticModule, checkLexicalSemanticModule}
 import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest,
@@ -390,6 +390,14 @@ var g_compilerArtifactRoot: String = ""
 var g_packageLockedCli: Int = 0
 var g_packageOfflineCli: Int = 0
 var g_packageFrozenCli: Int = 0
+var g_deterministicArtifactCli: Int = 0
+var g_deterministicInputsParsed: Int = 0
+var g_deterministicEpoch: String = ""
+var g_deterministicSeed: String = ""
+var g_deterministicHashSeed: String = ""
+var g_deterministicLang: String = ""
+var g_deterministicLcAll: String = ""
+var g_deterministicTimezone: String = ""
 
 fun clearValidationModuleCache() r: Void {
     g_validationModulePaths = Array<String>()
@@ -528,6 +536,8 @@ fun runtimeSourceSignatureForCache() r: String {
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_runtime.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/reactor_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/reactor_abi.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/sync_abi.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/sync_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_gpu.c"))
@@ -562,15 +572,25 @@ fun runtimeObjectIsFresh(objectPath: String, signature: String) r: Bool {
     if not exists(sigPath) {
         return false
     }
-    return loadFileContent(sigPath) == signature
+    let objectDigest = computeFileSha256(objectPath)
+    if objectDigest == "" {
+        return false
+    }
+    return loadFileContent(sigPath) == signature + "\nsha256=" +
+        objectDigest
 }
 
 fun writeRuntimeObjectSignature(objectPath: String, signature: String) r: Bool {
     if objectPath == "" or signature == "" {
         return false
     }
+    let objectDigest = computeFileSha256(objectPath)
+    if objectDigest == "" {
+        return false
+    }
     let signatureTemp = objectPath + ".sig.tmp"
-    if not writeText(signatureTemp, signature) {
+    if not writeText(signatureTemp, signature + "\nsha256=" +
+        objectDigest) {
         return false
     }
     let publish = runCommand("mv -f -- " +
@@ -3448,6 +3468,58 @@ fun prebuiltArtifactMemberIsContained(artifactRoot: String,
     return artifactPathIsStrictlyInside(realMember, realRoot)
 }
 
+fun prebuiltObjectRowsArePinned(artifactRoot: String,
+    content: String) r: Bool {
+
+    let tab = String.fromCharCode(9)
+    var rowIndex = 0
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        let atEnd = pos == content.length()
+        var atNewline = false
+        if not atEnd and content.byteAt(pos) == 10 { atNewline = true }
+        if atEnd or atNewline {
+            let line = content.substring(lineStart, pos).trim()
+            if line != "" and not line.startsWith("#") and
+                not prebuiltTableLineIsMetadata(line) {
+
+                let firstTab = line.indexOf(tab, 0)
+                if firstTab <= 0 { return false }
+                let remainder = line.substring(firstTab + 1, line.length())
+                let secondTab = remainder.indexOf(tab, 0)
+                if secondTab <= 0 { return false }
+                let objectRelative = line.substring(0, firstTab).trim()
+                let sourceRelative = remainder.substring(0, secondTab).trim()
+                let objectDigest = remainder.substring(secondTab + 1,
+                    remainder.length()).trim()
+                if objectRelative != "objects/module_" +
+                    rowIndex.toString() + ".o" or sourceRelative == "" or
+                    isAbsolutePath(sourceRelative) or
+                    sourceRelative.startsWith("../") or
+                    sourceRelative.contains("/../") or
+                    sourceRelative.contains("\\") or
+                    not isSha256Digest(objectDigest) {
+
+                    return false
+                }
+                let objectPath = resolveProjectPath(artifactRoot,
+                    objectRelative)
+                if not prebuiltArtifactMemberIsContained(artifactRoot,
+                    objectPath) or computeFileSha256(objectPath) !=
+                    objectDigest {
+
+                    return false
+                }
+                rowIndex = rowIndex + 1
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    return rowIndex > 0
+}
+
 ///
 /// Validate the package boundary independently of seen-pkg. Compiler commands
 /// can be embedded or invoked with a separately installed sidecar, so neither
@@ -3497,6 +3569,8 @@ fun validatePrebuiltPackageArtifactV2(projectRoot: String,
         "interface_index")
     let objectManifestName = extractTomlSimpleField(manifestContent,
         "object_manifest")
+    let objectManifestDigest = extractTomlSimpleField(manifestContent,
+        "object_manifest_sha256")
     let declarationDigest = extractTomlSimpleField(manifestContent,
         "declaration_digest")
     let interfaceLanguage = extractTomlSimpleField(manifestContent,
@@ -3506,6 +3580,7 @@ fun validatePrebuiltPackageArtifactV2(projectRoot: String,
     if interfacePath == "" or interfaceIndexName == "" or
         objectManifestName == "" or interfaceLanguage == "" or
         not isSha256Digest(declarationDigest) or
+        not isSha256Digest(objectManifestDigest) or
         not buildSignature.contains("layout=" +
             compilerLayoutAbiIdentity()) or
         not buildSignature.contains("object-cache=" +
@@ -3542,6 +3617,12 @@ fun validatePrebuiltPackageArtifactV2(projectRoot: String,
 
         return rejectPrebuiltPackageArtifactV2(dep, artifactRoot,
             "has an incompatible v2 table header")
+    }
+    if computeFileSha256(objectManifest) != objectManifestDigest or
+        not prebuiltObjectRowsArePinned(artifactRoot, objectContent) {
+
+        return rejectPrebuiltPackageArtifactV2(dep, artifactRoot,
+            "has an unpinned or stale object manifest")
     }
     let actualDigest = computeFileSha256(interfaceIndex)
     if actualDigest == "" or actualDigest != declarationDigest {
@@ -3770,13 +3851,24 @@ fun appendPrebuiltObjectManifest(artifactRoot: String, manifestPath: String,
                 let tabPos = line.indexOf(tab, 0)
                 if tabPos > 0 {
                     var objectPath = line.substring(0, tabPos).trim()
-                    let sourcePath = line.substring(tabPos + 1,
-                        line.length()).trim()
+                    let remainder = line.substring(tabPos + 1,
+                        line.length())
+                    let digestTab = remainder.indexOf(tab, 0)
+                    var sourcePath = remainder.trim()
+                    var expectedDigest = ""
+                    if digestTab > 0 {
+                        sourcePath = remainder.substring(0, digestTab).trim()
+                        expectedDigest = remainder.substring(digestTab + 1,
+                            remainder.length()).trim()
+                    }
                     if not isAbsolutePath(objectPath) {
                         objectPath = resolveProjectPath(artifactRoot,
                             objectPath)
                     }
-                    if exists(objectPath) {
+                    if exists(objectPath) and
+                        isSha256Digest(expectedDigest) and
+                        computeFileSha256(objectPath) == expectedDigest {
+
                         objectFiles.push(objectPath)
                         objectSourcePaths.push(sourcePath)
                         count = count + 1
@@ -3845,9 +3937,9 @@ fun prebuiltPackageGraphSignatureForInput(inputFile: String) r: String {
                 let interfaceIndex =
                     prebuiltPackageInterfaceIndexPath(artifactRoot)
                 signature = signature + dep.alias + ":" +
-                    hashString(loadFileContent(pkgManifest)) + ":" +
-                    hashString(loadFileContent(objManifest)) + ":" +
-                    hashString(loadFileContent(interfaceIndex)) + "\n"
+                    computeFileSha256(pkgManifest) + ":" +
+                    computeFileSha256(objManifest) + ":" +
+                    computeFileSha256(interfaceIndex) + "\n"
             }
         }
         idx = idx + 1
@@ -4075,6 +4167,19 @@ fun computeFileSha256(path: String) r: String {
     if commandWasSuccessful(result) {
         return result.output.trim()
     }
+    return ""
+}
+
+fun computeDirectoryTreeSha256(path: String) r: String {
+    if path == "" or not directoryExists(path) { return "" }
+    let script = "cd " + mainCompilerShellQuote(path) +
+        " && if command -v sha256sum >/dev/null 2>&1; then" +
+        " find . -type f -exec sha256sum {} + | LC_ALL=C sort |" +
+        " sha256sum | cut -d' ' -f1; else" +
+        " find . -type f -exec shasum -a 256 {} + | LC_ALL=C sort |" +
+        " shasum -a 256 | cut -d' ' -f1; fi"
+    let result = runCommand("sh -c " + mainCompilerShellQuote(script))
+    if commandWasSuccessful(result) { return result.output.trim() }
     return ""
 }
 
@@ -4819,6 +4924,18 @@ fun resolveProjectSelfImportPath(importPath: Array<String>, sourceDir: String) r
     return ""
 }
 
+fun canonicalPackageArchiveEpoch() r: String {
+    let value = getOrDefault("SOURCE_DATE_EPOCH", "0")
+    if value == "" { return "" }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 48 or byte > 57 { return "" }
+        index = index + 1
+    }
+    return value
+}
+
 fun createPackageArchive(manifestPath: String, outputPath: String) r: Bool {
     let projectRoot = getSourceDir(manifestPath)
     if not configureCompilerArtifactRoot(manifestPath) {
@@ -4831,13 +4948,22 @@ fun createPackageArchive(manifestPath: String, outputPath: String) r: Bool {
     let tempArchive = compilerArtifactPath("seen_package_" +
         hashString(projectRoot + "|" + outputPath) + ".seenpkg.tgz")
     let _ = deleteFile(tempArchive)
-    let packCmd = "cd " + mainCompilerShellQuote(projectRoot) + " && tar -czf " + mainCompilerShellQuote(tempArchive) + " --exclude=.git --exclude=.seen --exclude=.seen_cache --exclude=target ."
+    let sourceDateEpoch = canonicalPackageArchiveEpoch()
+    if sourceDateEpoch == "" { return false }
+    let packCmd = "cd " + mainCompilerShellQuote(projectRoot) +
+        " && tar --sort=name --mtime=@" + sourceDateEpoch +
+        " --owner=0 --group=0 --numeric-owner --format=ustar" +
+        " --exclude=.git --exclude=.seen --exclude=.seen_cache" +
+        " --exclude=target -cf - . | gzip -n -9 > " +
+        mainCompilerShellQuote(tempArchive)
     let result = runCommand(packCmd)
     if not commandWasSuccessful(result) {
         let _ = deleteFile(tempArchive)
         return false
     }
-    let moveResult = runCommand("mv " + mainCompilerShellQuote(tempArchive) + " " + mainCompilerShellQuote(outputPath))
+    let moveResult = runCommand("mv -f -- " +
+        mainCompilerShellQuote(tempArchive) + " " +
+        mainCompilerShellQuote(outputPath))
     if not commandWasSuccessful(moveResult) {
         let _ = deleteFile(tempArchive)
         return false
@@ -5101,12 +5227,13 @@ fun rewritePrebuiltObjectManifest(rawManifestPath: String,
                     let relObjectPath = "objects/module_" +
                         count.toString() + ".o"
                     let dstObjectPath = artifactRoot + "/" + relObjectPath
-                    let copyResult = runCommand("cp " +
-                        mainCompilerShellQuote(objectPath) + " " +
-                        mainCompilerShellQuote(dstObjectPath))
-                    if not commandWasSuccessful(copyResult) {
+                    if not copyProgramArtifactAtomically(objectPath,
+                        dstObjectPath) {
+
                         return false
                     }
+                    let objectDigest = computeFileSha256(dstObjectPath)
+                    if not isSha256Digest(objectDigest) { return false }
                     var portableSourcePath = sourcePath
                     let projectRootReal = resolveRealInputPath(projectRoot)
                     let sourcePathReal = resolveRealInputPath(sourcePath)
@@ -5116,7 +5243,7 @@ fun rewritePrebuiltObjectManifest(rawManifestPath: String,
                         portableSourcePath = sourceRel
                     }
                     rewritten = rewritten + relObjectPath + tab +
-                        portableSourcePath + "\n"
+                        portableSourcePath + tab + objectDigest + "\n"
                     count = count + 1
                 }
             }
@@ -5237,6 +5364,8 @@ fun writePrebuiltPackageManifest(outputRoot: String, projectName: String,
     version: String, language: String, declarationDigest: String) r: Bool {
 
     let manifestPath = outputRoot + "/Seen.pkg.toml"
+    let objectManifestDigest = computeFileSha256(outputRoot + "/objects.tsv")
+    if not isSha256Digest(objectManifestDigest) { return false }
     var content = "schema = " + packageLockTomlString(
         prebuiltPackageSchemaIdentity()) + "\n"
     content = content + "version = 2\n"
@@ -5261,6 +5390,8 @@ fun writePrebuiltPackageManifest(outputRoot: String, projectName: String,
     content = content + "interface_path = \"src\"\n"
     content = content + "interface_index = \"interface.index.tsv\"\n"
     content = content + "object_manifest = \"objects.tsv\"\n"
+    content = content + "object_manifest_sha256 = " +
+        packageLockTomlString(objectManifestDigest) + "\n"
     content = content + "declaration_digest = " +
         packageLockTomlString(declarationDigest) + "\n"
     content = content + "build_signature = " + packageLockTomlString(
@@ -5688,6 +5819,7 @@ fun isStdlibImportRoot(segment: String) r: Bool {
     if segment == "collections" { return true }
     if segment == "core" { return true }
     if segment == "crypto" { return true }
+    if segment == "determinism" { return true }
     if segment == "env" { return true }
     if segment == "ffi" { return true }
     if segment == "formats" { return true }
@@ -6748,6 +6880,25 @@ fun discoverImportsFromModule(paths: Array<String>, processedPaths: Array<String
     return
 }
 
+///
+/// Process one module-discovery frontier entry and return the authoritative
+/// worklist length observed after every append. Array handles are intentionally
+/// passed through this single frame: older shipped compilers could retain the
+/// caller's pre-call Array length while the shared backing store already held
+/// newly pushed paths. A loop that re-read `paths.length()` in the caller then
+/// stopped after the direct imports and never visited their imports.
+///
+fun discoverModuleClosureStep(paths: Array<String>,
+    processedPaths: Array<String>, inputFile: String, currentPath: String,
+    isBootstrap: Bool) r: Int {
+
+    appendManifestCompanionModulesForPath(paths, processedPaths,
+        currentPath)
+    discoverImportsFromModule(paths, processedPaths, inputFile, currentPath,
+        isBootstrap)
+    return paths.length()
+}
+
 fun moduleDeclaresMain(path: String) r: Bool {
     let frontend = parseModule(path, "en")
     if not frontend.success {
@@ -7334,7 +7485,36 @@ fun stableModuleCacheIdentity(modulePath: String) r: String {
     if normalizedPath == "" {
         return modulePath
     }
-    return generatedTestStableModuleIdentity(normalizedPath)
+    let generatedIdentity = generatedTestStableModuleIdentity(normalizedPath)
+    if not isAbsolutePath(generatedIdentity) {
+        return generatedIdentity
+    }
+    let manifestIdentity = compilerManifestModuleIdentity(normalizedPath)
+    if manifestIdentity != "" {
+        return manifestIdentity
+    }
+    if g_programBuildIdentityRoot != "" {
+        let relativeIdentity = pathRelativeToProjectRoot(normalizedPath,
+            g_programBuildIdentityRoot)
+        if relativeIdentity != normalizedPath and
+            not isAbsolutePath(relativeIdentity) {
+
+            return "project/" + relativeIdentity
+        }
+    }
+    return generatedIdentity
+}
+
+fun configureProgramBuildIdentityRoot(inputFile: String) r: Void {
+    g_programBuildIdentityRoot = ""
+    let manifestPath = findNearestSeenTomlForInput(inputFile)
+    if manifestPath != "" {
+        g_programBuildIdentityRoot = canonicalFilesystemPath(
+            getSourceDir(manifestPath))
+    } else {
+        g_programBuildIdentityRoot = canonicalFilesystemPath(
+            getSourceDir(inputFile))
+    }
 }
 
 ///
@@ -7539,6 +7719,48 @@ fun validateIsolatedLexicalSemanticGraph(modulePaths: Array<String>,
         showCompileProgress)
 }
 
+///
+/// CORE-004D gate shared by `check`, `compile`, and deterministic `run`.
+/// Declaration and import identities come from the same package-aware registry
+/// used by lexical semantics. Module ASTs are streamed into bounded effect
+/// metadata, then released before propagation and diagnostics.
+///
+fun validateDeterministicSemanticGraph(modulePaths: Array<String>,
+    language: String, registry: SemanticDeclarationRegistry,
+    showCompileProgress: Int) r: Int {
+
+    let graph = DeterminismEffectGraph.new()
+    graph.setResolvedRegistry(registry.modules, registry.names,
+        registry.canonicalNames, registry.kinds, registry.typeIdentities,
+        registry.importOwners, registry.importAliases,
+        registry.importTargetModules, registry.importTargetNames,
+        registry.aggregateModules, registry.aggregateDomains)
+    var moduleIndex = 0
+    while moduleIndex < modulePaths.length() {
+        let modulePath = modulePaths[moduleIndex]
+        if showCompileProgress != 0 and g_generatedTestMainMode == 0 {
+            printCompileProgress("Pass 1d", "checking deterministic effects",
+                moduleIndex + 1, modulePaths.length(), modulePath)
+        }
+        let frontend = parseModule(modulePath, language)
+        if not frontend.success {
+            printFrontendDiagnostics(frontend)
+            println("    Error: Failed to parse " + modulePath)
+            return 1
+        }
+        graph.collectModule(frontend.program,
+            lexicalSemanticModuleIdentity(modulePath), modulePath)
+        moduleIndex = moduleIndex + 1
+    }
+
+    let determinismResult = graph.validate()
+    if determinismResult.hasErrors() {
+        printDeterminismErrors(determinismResult)
+        return 1
+    }
+    return 0
+}
+
 fun moduleDeclarationFingerprint(modulePath: String,
     language: String) r: String {
 
@@ -7558,6 +7780,62 @@ fun sourceObjectCacheKey(cacheSignature: String, registryHash: String,
 
     return hashString("source-object-v5|" + cacheSignature + "|" +
         registryHash + "|" + stableModuleCacheIdentity(modulePath))
+}
+
+fun sourceObjectCacheIdentity(cacheSignature: String, registryHash: String,
+    modulePath: String) r: String {
+
+    return "seen-object-cache-record-v1\n" + cacheSignature +
+        "\nregistry=" + registryHash + "\nmodule=" +
+        stableModuleCacheIdentity(modulePath) + "\nsource_sha256=" +
+        computeFileSha256(modulePath)
+}
+
+fun cachedObjectIsFresh(objectPath: String, inputIdentity: String) r: Bool {
+    if objectPath == "" or inputIdentity == "" or not exists(objectPath) or
+        not exists(objectPath + ".identity") {
+
+        return false
+    }
+    let objectDigest = computeFileSha256(objectPath)
+    if objectDigest == "" { return false }
+    return loadFileContent(objectPath + ".identity") == inputIdentity +
+        "\nobject_sha256=" + objectDigest
+}
+
+fun storeCachedObjectAtomically(sourcePath: String, objectPath: String,
+    inputIdentity: String) r: Bool {
+
+    if sourcePath == "" or objectPath == "" or inputIdentity == "" or
+        not exists(sourcePath) {
+
+        return false
+    }
+    let temporaryResult = runCommand("mktemp " +
+        mainCompilerShellQuote(objectPath + ".tmp.XXXXXX"))
+    if not commandWasSuccessful(temporaryResult) { return false }
+    let temporaryPath = temporaryResult.output.trim()
+    let copyResult = runCommand("cp -- " + mainCompilerShellQuote(sourcePath) +
+        " " + mainCompilerShellQuote(temporaryPath))
+    if not commandWasSuccessful(copyResult) {
+        let _ = deleteFile(temporaryPath)
+        return false
+    }
+    let objectDigest = computeFileSha256(temporaryPath)
+    if objectDigest == "" {
+        let _ = deleteFile(temporaryPath)
+        return false
+    }
+    let publishResult = runCommand("mv -f -- " +
+        mainCompilerShellQuote(temporaryPath) + " " +
+        mainCompilerShellQuote(objectPath))
+    if not commandWasSuccessful(publishResult) { return false }
+    if not writeTextAtomically(objectPath + ".identity", inputIdentity +
+        "\nobject_sha256=" + objectDigest) {
+
+        return false
+    }
+    return cachedObjectIsFresh(objectPath, inputIdentity)
 }
 
 fun generatedTestObjectCacheKeyForModule(modulePath: String, cacheSignature: String) r: String {
@@ -7910,7 +8188,12 @@ fun shouldRunWholeProjectPreflight(modulePaths: Array<String>) r: Bool {
     if g_generatedTestMainMode == 1 {
         return false
     }
-    if modulePaths.length() > 24 {
+    // The whole-project preflight retains every full AST concurrently. Real
+    // inference graphs with 24 medium modules exceeded a 7 GiB compiler budget
+    // before declaration scanning began. Cross-module enforcement remains in
+    // the streaming declaration/semantic passes below; retain this convenience
+    // preflight only for genuinely small graphs.
+    if modulePaths.length() > 16 {
         return false
     }
     if moduleGraphContainsCompilerSources(modulePaths) {
@@ -7985,6 +8268,199 @@ fun compilerManifestModuleIdentity(normalizedPath: String) r: String {
         return relativePath
     }
     return packageIdentity + "/" + relativePath
+}
+
+fun programBuildIdentityField(name: String, value: String) r: String {
+    return name.length().toString() + ":" + name + "=" +
+        value.length().toString() + ":" + value + "\n"
+}
+
+fun programBuildIdentityTextLess(first: String, second: String) r: Bool {
+    var index = 0
+    var limit = first.length()
+    if second.length() < limit { limit = second.length() }
+    while index < limit {
+        let firstByte = first.byteAt(index)
+        let secondByte = second.byteAt(index)
+        if firstByte < secondByte { return true }
+        if firstByte > secondByte { return false }
+        index = index + 1
+    }
+    return first.length() < second.length()
+}
+
+fun canonicalProgramFeatureIdentity(encoded: String) r: String {
+    let features = Array<String>()
+    var start = 0
+    var pos = 0
+    while pos <= encoded.length() {
+        let atEnd = pos == encoded.length()
+        var atSeparator = false
+        if not atEnd and encoded.byteAt(pos) == 124 { atSeparator = true }
+        if atEnd or atSeparator {
+            let feature = encoded.substring(start, pos)
+            if feature != "" {
+                var duplicate = false
+                var existing = 0
+                while existing < features.length() {
+                    if features[existing] == feature { duplicate = true }
+                    existing = existing + 1
+                }
+                if not duplicate { features.push(feature) }
+            }
+            start = pos + 1
+        }
+        pos = pos + 1
+    }
+    var index = 1
+    while index < features.length() {
+        var cursor = index
+        while cursor > 0 and programBuildIdentityTextLess(
+            features[cursor], features[cursor - 1]) {
+
+            let swap = features[cursor - 1]
+            features[cursor - 1] = features[cursor]
+            features[cursor] = swap
+            cursor = cursor - 1
+        }
+        index = index + 1
+    }
+    var result = ""
+    index = 0
+    while index < features.length() {
+        result = result + programBuildIdentityField("feature",
+            features[index])
+        index = index + 1
+    }
+    return result
+}
+
+fun programRuntimeInputIdentity() r: String {
+    let runtimeRoot = compilerRuntimeBasePath()
+    let names = Array<String>()
+    names.push("seen_runtime.c")
+    names.push("seen_runtime.h")
+    names.push("reactor_abi.c")
+    names.push("reactor_abi.h")
+    names.push("sync_abi.c")
+    names.push("sync_abi.h")
+    names.push("seen_region.c")
+    names.push("seen_region.h")
+    names.push("seen_gpu.c")
+    names.push("seen_gpu.h")
+    names.push("seen_hotreload.c")
+    names.push("seen_hotreload.h")
+    names.push("seen_identity.c")
+    names.push("seen_identity.h")
+    names.push("seen_inference.h")
+    names.push("seen_numa.c")
+    names.push("seen_numa.h")
+    names.push("seen_pinning.c")
+    names.push("seen_pinning.h")
+    names.push("seen_tee_common.c")
+    names.push("seen_tee.h")
+    names.push("seen_tee_sev.c")
+    names.push("seen_tee_sgx.c")
+    names.push("seen_compat_win32.h")
+    var identity = ""
+    var index = 0
+    while index < names.length() {
+        let path = runtimeRoot + names[index]
+        var fileDigest = "absent"
+        if exists(path) { fileDigest = computeFileSha256(path) }
+        identity = identity + programBuildIdentityField(
+            "runtime/" + names[index], fileDigest)
+        index = index + 1
+    }
+    return identity
+}
+
+fun canonicalProgramBuildInputIdentity(inputFile: String,
+    modulePaths: Array<String>) r: String {
+
+    var identity = programBuildIdentityField("schema",
+        "seen-program-build-input-v1")
+    identity = identity + programBuildIdentityField("path_map", "/seen/src")
+    identity = identity + programBuildIdentityField("compiler_sha256",
+        compilerBinarySignatureForCache())
+    let packageClient = packageClientHelperPath()
+    var packageClientDigest = "absent"
+    if packageClient != "" and exists(packageClient) {
+        packageClientDigest = computeFileSha256(packageClient)
+    }
+    identity = identity + programBuildIdentityField("package_client_sha256",
+        packageClientDigest)
+    let manifestPath = findNearestSeenTomlForInput(inputFile)
+    var manifestDigest = "absent"
+    var lockDigest = "absent"
+    if manifestPath != "" {
+        manifestDigest = computeFileSha256(manifestPath)
+        let lockPath = getSourceDir(manifestPath) + "/Seen.lock"
+        if exists(lockPath) { lockDigest = computeFileSha256(lockPath) }
+    }
+    identity = identity + programBuildIdentityField("manifest_sha256",
+        manifestDigest)
+    identity = identity + programBuildIdentityField("lock_sha256", lockDigest)
+    identity = identity + programBuildIdentityField("package_graph",
+        prebuiltPackageGraphSignatureForInput(inputFile))
+    var sourceDateEpoch = getOrDefault("SOURCE_DATE_EPOCH", "0")
+    var deterministicSeed = getOrDefault("SEEN_DETERMINISTIC_SEED", "")
+    var hashSeed = getOrDefault("SEEN_HASH_SEED", "")
+    var lang = getOrDefault("LANG", "")
+    var lcAll = getOrDefault("LC_ALL", "")
+    var timezone = getOrDefault("TZ", "")
+    var deterministicEnabled = getOrDefault("SEEN_DETERMINISTIC", "")
+    if g_deterministicArtifactCli == 1 and
+        g_deterministicInputsParsed == 1 {
+
+        sourceDateEpoch = g_deterministicEpoch
+        deterministicSeed = g_deterministicSeed
+        hashSeed = g_deterministicHashSeed
+        lang = g_deterministicLang
+        lcAll = g_deterministicLcAll
+        timezone = g_deterministicTimezone
+        deterministicEnabled = "1"
+    }
+    identity = identity + programBuildIdentityField("source_date_epoch",
+        sourceDateEpoch)
+    identity = identity + canonicalProgramFeatureIdentity(g_enabledFeaturesCli)
+    identity = identity + programBuildIdentityField("env.LANG",
+        lang)
+    identity = identity + programBuildIdentityField("env.LC_ALL",
+        lcAll)
+    identity = identity + programBuildIdentityField("env.TZ",
+        timezone)
+    identity = identity + programBuildIdentityField(
+        "env.SEEN_DETERMINISTIC", deterministicEnabled)
+    identity = identity + programBuildIdentityField(
+        "env.SEEN_DETERMINISTIC_SEED", deterministicSeed)
+    identity = identity + programBuildIdentityField("env.SEEN_HASH_SEED",
+        hashSeed)
+    identity = identity + programBuildIdentityField("stdlib_tree_sha256",
+        computeDirectoryTreeSha256(compilerStdlibBasePath()))
+    identity = identity + programRuntimeInputIdentity()
+    var moduleIndex = 0
+    while moduleIndex < modulePaths.length() {
+        let modulePath = modulePaths[moduleIndex]
+        let moduleIdentity = stableModuleCacheIdentity(modulePath)
+        identity = identity + programBuildIdentityField("module",
+            moduleIdentity + "=" +
+            computeFileSha256(modulePath))
+        let moduleManifest = findNearestSeenTomlForInput(modulePath)
+        if moduleManifest != "" {
+            identity = identity + programBuildIdentityField(
+                "module_manifest", moduleIdentity + "=" +
+                computeFileSha256(moduleManifest))
+            let moduleLock = getSourceDir(moduleManifest) + "/Seen.lock"
+            if exists(moduleLock) {
+                identity = identity + programBuildIdentityField(
+                    "module_lock", moduleIdentity + "=" +
+                    computeFileSha256(moduleLock))
+            }
+        }
+        moduleIndex = moduleIndex + 1
+    }
+    return identity
 }
 
 fun compilerImportGraphIdentities(modulePaths: Array<String>)
@@ -8165,15 +8641,21 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         println("    Discovering imports from main file...")
     }
     var discoverIdx = 0
-    while discoverIdx < paths.length() {
+    var discoveredPathCount = paths.length()
+    while discoverIdx < discoveredPathCount {
         if isBootstrap and discoverIdx > 0 {
             break
         }
 
         let currentPath = paths[discoverIdx]
-        appendManifestCompanionModulesForPath(paths, processedPaths,
-            currentPath)
-        discoverImportsFromModule(paths, processedPaths, inputFile, currentPath, isBootstrap)
+        discoveredPathCount = discoverModuleClosureStep(paths,
+            processedPaths, inputFile, currentPath, isBootstrap)
+        if discoveredPathCount < discoverIdx + 1 {
+            // A shrinking or stale worklist is compiler corruption. Stop
+            // discovery here; the graph resolver will issue a stable source
+            // failure instead of allowing invalid LLVM to reach the backend.
+            return Array<String>()
+        }
         discoverIdx = discoverIdx + 1
     }
 
@@ -8220,6 +8702,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         // lexer.real_lexer removed: 2-line re-export shim, no compiler module imports it
         modules.push("parser.real_parser")
         modules.push("typechecker.type_ref")
+        modules.push("types.send_share")
         modules.push("typechecker.semantic_registry")
         modules.push("typechecker.lexical_semantic")
         modules.push("typechecker.interfaces")
@@ -11154,45 +11637,6 @@ fun validateSealedModules(modulePaths: Array<String>, language: String) r: Front
                             0, 0, "error", message))
                     }
                 }
-                if cls.hasDecorator("send") {
-                    var sendFieldIdx = 0
-                    while sendFieldIdx < cls.fields.length() {
-                        let field = cls.fields[sendFieldIdx]
-                        let badType = findUndecoratedReferencedClassInModules(modulePath, program, modulePaths, frontends, cls.name, field.paramType.typeName, "send")
-                        if badType != "" {
-                            let message = encodeDiagMessage(
-                                "@send class '" + cls.name + "' cannot contain field '" + field.name + "' of type '" + badType + "' without @send",
-                                "E006",
-                                "Mark '" + badType + "' with @send or change field '" + field.name + "' to a compatible type.",
-                                "",
-                                0
-                            )
-                            result.addDiagnostic(mainCompilerDiagnostic(
-                                modulePath, 0, 0, "error", message))
-                        }
-                        sendFieldIdx = sendFieldIdx + 1
-                    }
-                }
-                if cls.hasDecorator("sync") {
-                    var syncFieldIdx = 0
-                    while syncFieldIdx < cls.fields.length() {
-                        let field = cls.fields[syncFieldIdx]
-                        let badType = findUndecoratedReferencedClassInModules(modulePath, program, modulePaths, frontends, cls.name, field.paramType.typeName, "sync")
-                        if badType != "" {
-                            let message = encodeDiagMessage(
-                                "@sync class '" + cls.name + "' cannot contain field '" + field.name + "' of type '" + badType + "' without @sync",
-                                "E006",
-                                "Mark '" + badType + "' with @sync or change field '" + field.name + "' to a compatible type.",
-                                "",
-                                0
-                            )
-                            result.addDiagnostic(mainCompilerDiagnostic(
-                                modulePath, 0, 0, "error", message))
-                        }
-                        syncFieldIdx = syncFieldIdx + 1
-                    }
-                }
-
                 var methodIdx = 0
                 while methodIdx < cls.methods.length() {
                     let method = cls.methods[methodIdx]
@@ -12029,8 +12473,54 @@ fun buildTargetLinkLibraries(target: String, hasGpuRuntime: Bool) r: String {
     return libs
 }
 
+fun sortObjectInputsByStableSource(objectFiles: Array<String>,
+    sourcePaths: Array<String>) r: Void {
+
+    if objectFiles.length() != sourcePaths.length() { return }
+    var index = 1
+    while index < sourcePaths.length() {
+        var cursor = index
+        while cursor > 0 and programBuildIdentityTextLess(
+            stableModuleCacheIdentity(sourcePaths[cursor]),
+            stableModuleCacheIdentity(sourcePaths[cursor - 1])) {
+
+            let sourceSwap = sourcePaths[cursor - 1]
+            sourcePaths[cursor - 1] = sourcePaths[cursor]
+            sourcePaths[cursor] = sourceSwap
+            let objectSwap = objectFiles[cursor - 1]
+            objectFiles[cursor - 1] = objectFiles[cursor]
+            objectFiles[cursor] = objectSwap
+            cursor = cursor - 1
+        }
+        index = index + 1
+    }
+}
+
+fun copyProgramArtifactAtomically(sourcePath: String,
+    destinationPath: String) r: Bool {
+
+    let temporaryResult = runCommand("mktemp " +
+        mainCompilerShellQuote(destinationPath + ".tmp.XXXXXX"))
+    if not commandWasSuccessful(temporaryResult) { return false }
+    let temporaryPath = temporaryResult.output.trim()
+    let copyResult = runCommand("cp -- " + mainCompilerShellQuote(sourcePath) +
+        " " + mainCompilerShellQuote(temporaryPath))
+    if not commandWasSuccessful(copyResult) {
+        let _ = deleteFile(temporaryPath)
+        return false
+    }
+    let publishResult = runCommand("mv -f -- " +
+        mainCompilerShellQuote(temporaryPath) + " " +
+        mainCompilerShellQuote(destinationPath))
+    if not commandWasSuccessful(publishResult) {
+        let _ = deleteFile(temporaryPath)
+        return false
+    }
+    return true
+}
+
 fun writeObjectManifest(manifestPath: String, objectFiles: Array<String>,
-    sourcePaths: Array<String>) r: Bool {
+    sourcePaths: Array<String>, deterministic: Bool) r: Bool {
 
     if manifestPath == "" {
         return true
@@ -12053,17 +12543,36 @@ fun writeObjectManifest(manifestPath: String, objectFiles: Array<String>,
     var i = 0
     while i < objectFiles.length() {
         var objectPath = objectFiles[i]
-        if not isAbsolutePath(objectPath) and cwd != "" {
-            objectPath = resolveProjectPath(cwd, objectPath)
-        }
         var sourcePath = sourcePaths[i]
-        if not isAbsolutePath(sourcePath) and cwd != "" {
-            sourcePath = resolveProjectPath(cwd, sourcePath)
+        if deterministic {
+            let objectDigest = computeFileSha256(objectPath)
+            if objectDigest == "" { return false }
+            let objectName = "seen_module_" + i.toString() + "_" +
+                objectDigest + ".o"
+            var publishedObject = objectName
+            if manifestDir != "" {
+                publishedObject = manifestDir + "/" + objectName
+            }
+            if not copyProgramArtifactAtomically(objectPath,
+                publishedObject) {
+
+                return false
+            }
+            objectPath = objectName
+            sourcePath = stableModuleCacheIdentity(sourcePath)
+            if isAbsolutePath(sourcePath) { return false }
+        } else {
+            if not isAbsolutePath(objectPath) and cwd != "" {
+                objectPath = resolveProjectPath(cwd, objectPath)
+            }
+            if not isAbsolutePath(sourcePath) and cwd != "" {
+                sourcePath = resolveProjectPath(cwd, sourcePath)
+            }
         }
         content = content + objectPath + "\t" + sourcePath + "\n"
         i = i + 1
     }
-    return writeText(manifestPath, content)
+    return writeTextAtomically(manifestPath, content)
 }
 
 fun buildTargetClangArgs(target: String) r: String {
@@ -12279,6 +12788,8 @@ var g_emitCompileDb = 0
 var g_picMode = 0
 // Optional TSV manifest: object path<TAB>Seen module path.
 var g_objectManifestPath: String = ""
+// Logical root used to keep cache keys and manifests independent of checkout paths.
+var g_programBuildIdentityRoot: String = ""
 // Disable fork-parallel IR generation (use sequential in-process generation)
 var g_noFork = 0
 // Show per-module compile details and full warning diagnostics.
@@ -13004,6 +13515,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("error: core.003d.invalid: production source input is unavailable")
         return 1
     }
+    configureProgramBuildIdentityRoot(resolvedInput)
     if not configureCompilerArtifactRoot(resolvedInput) {
         return 1
     }
@@ -13012,8 +13524,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     println("Stage1 compiling (Two-Pass Memory Optimized)")
     let isDeterministicProfile = profile == "deterministic"
-    if isDeterministicProfile {
+    let isDeterministicArtifactMode = g_deterministicArtifactCli == 1
+    if isDeterministicArtifactMode {
         println("  Profile: deterministic")
+        if targetCpu == "native" or simdPolicy != "none" or
+            g_deterministicInputsParsed != 1 or g_debugInfoCli == 1 or
+            g_coverageCli == 1 or sanitizePolicy != "" or pgoMode != "" {
+
+            println("Error: [core.004f.unsupported_combination] deterministic raw artifacts require scalar SIMD, a numeric SOURCE_DATE_EPOCH, and no native CPU, instrumentation, sanitizers, or PGO")
+            return 1
+        }
     }
     if panicOnOverflow {
         println("  Panic on overflow: enabled")
@@ -13157,7 +13677,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if g_largeProjectOptWorkerLimit < 1 {
         g_largeProjectOptWorkerLimit = 1
     }
-    let cacheSignature = buildCacheSignature(profile, language, targetCpu,
+    var cacheSignature = buildCacheSignature(profile, language, targetCpu,
         simdPolicy, sanitizePolicy, pgoMode, pgoPath, effectiveTarget,
         panicOnOverflow)
     let targetClangArgs = buildTargetClangArgs(effectiveTarget)
@@ -13441,6 +13961,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
     }
+    if isDeterministicArtifactMode {
+        cacheSignature = cacheSignature + "|" +
+            canonicalProgramBuildInputIdentity(resolvedInput, modulePaths)
+    }
     println("    Found " + modulePaths.length().toString() + " modules")
     buildTraceFinish("module discovery", pass0Start, "ok",
         "modules=" + modulePaths.length().toString())
@@ -13468,8 +13992,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             compileTempDir)
         return 1
     }
-    if moduleCacheEnabled and tryUseCompleteGeneratedTestObjectCache(modulePaths,
-        cacheSignature, normalizedCrossTarget, compileTempDir) {
+    if moduleCacheEnabled and not isDeterministicProfile and
+        tryUseCompleteGeneratedTestObjectCache(modulePaths, cacheSignature,
+            normalizedCrossTarget, compileTempDir) {
         storeGeneratedTestObjectSetCache(resolvedInput, modulePaths, cacheSignature, normalizedCrossTarget)
         return 0
     }
@@ -13479,7 +14004,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             printFrontendDiagnostics(sealedValidation)
             return 1
         }
-    } else if modulePaths.length() > 48 {
+    } else if modulePaths.length() > 16 and
+        not moduleGraphContainsCompilerSources(modulePaths) {
         println("  [Pass 0] Large module graph: deferring whole-project validation to streaming passes")
     } else {
         println("  [Pass 0] Compiler-internal module graph: deferring whole-project validation to streaming passes")
@@ -13504,7 +14030,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     registerLexicalSemanticAggregateDomains(resolvedInput, modulePaths,
         semanticRegistry)
     let isolateCompileSemanticGate = modulePaths.length() > 48 and
-        g_noFork == 0
+        g_noFork == 0 and not isDeterministicProfile
     var passIdx = 0
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
@@ -13512,10 +14038,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             printCompileProgress("Pass 1", "scanning declarations",
                 passIdx + 1, modulePaths.length(), path)
         }
-        var frontend = parseModuleDeclarations(path, language)
-        if isDeterministicProfile {
-            frontend = parseModule(path, language)
-        }
+        let frontend = parseModuleDeclarations(path, language)
         if frontend.success {
             generator.registerDeclarations(frontend.program)
             if not isolateCompileSemanticGate {
@@ -13529,14 +14052,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 }
             }
 
-            if isDeterministicProfile {
-                let deterResult = checkDeterminismWithProfile(frontend.program, true)
-                if deterResult.hasErrors() {
-                    println("  Determinism check failed for: " + path)
-                    printDeterminismErrors(deterResult)
-                    return 1
-                }
-            }
         } else {
             printFrontendDiagnostics(frontend)
             println("    Error: Failed to parse " + path)
@@ -13581,6 +14096,15 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     println("  [Pass 1b] Complete - lexical semantics validated")
     buildTraceFinish("lexical semantic check", semanticCheckStart, "ok",
         "modules=" + modulePaths.length().toString())
+
+    if isDeterministicProfile {
+        println("  [Pass 1d] Checking resolved deterministic effects...")
+        let deterministicSemanticStatus =
+            validateDeterministicSemanticGraph(modulePaths, language,
+                semanticRegistry, 1)
+        if deterministicSemanticStatus != 0 { return 1 }
+        println("  [Pass 1d] Complete - deterministic effect graph validated")
+    }
 
     let shaderEmitStatus = emitGlslShadersForModules(modulePaths, language,
         outputFile)
@@ -13742,12 +14266,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         if moduleCacheEnabled and cacheValid {
             let pathHash = sourceObjectCacheKey(cacheSignature, registryHash,
                 path)
-            let sourceContent = readText(path)
-            let sourceHash = hashString(sourceContent)
-            let cachedHashFile = ".seen_cache/" + pathHash + ".hash"
             let cachedObjFile = ".seen_cache/" + pathHash + ".o"
-            let storedHash = loadFileContent(cachedHashFile)
-            if storedHash == sourceHash and exists(cachedObjFile) {
+            let sourceCacheIdentity = sourceObjectCacheIdentity(
+                cacheSignature, registryHash, path)
+            if cachedObjectIsFresh(cachedObjFile, sourceCacheIdentity) {
                 printCompileProgress("Pass 2", "source cache hit",
                     moduleIndex + 1, modulePaths.length(), path)
                 objectFiles.push(cachedObjFile)
@@ -13776,9 +14298,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             ensureIrCacheDir()
             let irCacheFile = compilerArtifactPath("seen_ir_cache/" +
                 irCacheKey + ".o")
-            let checkIrCache: CommandResult = runCommand("test -f " +
-                mainCompilerShellQuote(irCacheFile))
-            if commandWasSuccessful(checkIrCache) {
+            let irCacheIdentity = "seen-ir-cache-record-v1\nkey=" +
+                irCacheKey + "\n" + cacheSignature
+            if cachedObjectIsFresh(irCacheFile, irCacheIdentity) {
                 irCacheHit = 1
             }
         }
@@ -13790,6 +14312,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let irCopy: CommandResult = runCommand("cp " +
                 mainCompilerShellQuote(irCacheFile) + " " +
                 mainCompilerShellQuote(irCacheObj))
+            if not commandWasSuccessful(irCopy) {
+                println("    Error: failed to materialize validated IR cache object")
+                return 1
+            }
             objectFiles.push(irCacheObj)
             objectSourcePaths.push(path)
             printCompileProgress("Pass 2", "IR cache hit",
@@ -13799,12 +14325,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 ensureCacheDir()
                 let srcPathHash = sourceObjectCacheKey(cacheSignature,
                     registryHash, path)
-                let srcContent = readText(path)
-                let cpSrcObj: CommandResult = runCommand("cp " +
-                    mainCompilerShellQuote(irCacheObj) + " " +
-                    mainCompilerShellQuote(".seen_cache/" + srcPathHash +
-                        ".o"))
-                writeText(".seen_cache/" + srcPathHash + ".hash", hashString(srcContent))
+                let sourceCacheObject = ".seen_cache/" + srcPathHash + ".o"
+                let _ = storeCachedObjectAtomically(irCacheObj,
+                    sourceCacheObject, sourceObjectCacheIdentity(
+                        cacheSignature, registryHash, path))
             }
             moduleIndex = moduleIndex + 1
             continue
@@ -14418,11 +14942,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 let sourcePath = uncachedSrcPaths[ci]
                 let pathHash = sourceObjectCacheKey(cacheSignature,
                     registryHash, sourcePath)
-                let cpCacheResult: CommandResult = runCommand("cp " +
-                    mainCompilerShellQuote(objFile) + " " +
-                    mainCompilerShellQuote(".seen_cache/" + pathHash +
-                        ".o"))
-                writeText(".seen_cache/" + pathHash + ".hash", hashString(readText(sourcePath)))
+                let sourceCacheObject = ".seen_cache/" + pathHash + ".o"
+                let _ = storeCachedObjectAtomically(objFile,
+                    sourceCacheObject, sourceObjectCacheIdentity(
+                        cacheSignature, registryHash, sourcePath))
             }
 
             // IR cache: store post-opt .o for cross-stage reuse
@@ -14431,9 +14954,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 ensureIrCacheDir()
                 let irCacheDest = compilerArtifactPath("seen_ir_cache/" +
                     irKey + ".o")
-                let irCacheCopy: CommandResult = runCommand("cp " +
-                    mainCompilerShellQuote(objFile) + " " +
-                    mainCompilerShellQuote(irCacheDest))
+                let irCacheIdentity = "seen-ir-cache-record-v1\nkey=" +
+                    irKey + "\n" + cacheSignature
+                let _ = storeCachedObjectAtomically(objFile, irCacheDest,
+                    irCacheIdentity)
             }
 
             ci = ci + 1
@@ -14601,7 +15125,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 let releaseCacheKey = releaseLtoCacheKey(cacheSignature,
                     registryHash, llFiles, llvmLlcCpu)
                 let releaseCacheObj = releaseLtoCacheObjectPath(releaseCacheKey)
-                if releaseCacheObj != "" and exists(releaseCacheObj) {
+                let releaseCacheIdentity =
+                    "seen-release-lto-cache-record-v1\nkey=" +
+                    releaseCacheKey + "\n" + cacheSignature
+                if releaseCacheObj != "" and cachedObjectIsFresh(
+                    releaseCacheObj, releaseCacheIdentity) {
+
                     let cachedObj = compileTempDir + "/seen_merged_release.cached.o"
                     let cacheCopy: CommandResult = runCommand("cp " +
                         mainCompilerShellQuote(releaseCacheObj) + " " +
@@ -14671,9 +15200,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                                 objectFiles.push(mergedObj)
                                 expectedLinkObjects = 1
                                 if releaseCacheObj != "" {
-                                    let _storeReleaseCache = runCommand("cp " +
-                                        mainCompilerShellQuote(mergedObj) + " " +
-                                        mainCompilerShellQuote(releaseCacheObj))
+                                    let _ = storeCachedObjectAtomically(
+                                        mergedObj, releaseCacheObj,
+                                        releaseCacheIdentity)
                                 }
                                 println("    Cross-module LTO: merged " + llFiles.length().toString() + " modules into 1")
                                 buildTraceEmit("release lto mode", "merged", 0,
@@ -14718,13 +15247,18 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     objects and lower peak memory. Non-release and opt-out release builds link
     the bounded object set produced above.
     ///
+    if isDeterministicArtifactMode and
+        objectFiles.length() == objectSourcePaths.length() {
+
+        sortObjectInputsByStableSource(objectFiles, objectSourcePaths)
+    }
     if objectFiles.length() != expectedLinkObjects {
         println("    Error: refusing to link partial module set (" + objectFiles.length().toString() + "/" + expectedLinkObjects.toString() + " link objects)")
         return 1
     }
     if g_objectManifestPath != "" {
         if not writeObjectManifest(g_objectManifestPath, objectFiles,
-            objectSourcePaths) {
+            objectSourcePaths, isDeterministicArtifactMode) {
 
             println("    Error: failed to write object manifest: " +
                 g_objectManifestPath)
@@ -15233,6 +15767,28 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         // creating linker workers.
         linkCmd = linkCmd + " -Wl,--threads=1,--thinlto-jobs=1 "
     }
+    if isDeterministicArtifactMode {
+        if effectiveTarget == "linux-x86_64" or
+            effectiveTarget == "linux-arm64" or
+            effectiveTarget == "linux-riscv64" or
+            effectiveTarget == "android-arm64" {
+
+            linkCmd = linkCmd +
+                " -Wl,--build-id=sha1,--threads=1,--thinlto-jobs=1 "
+        } else {
+            if effectiveTarget == "macos-arm64" or
+                effectiveTarget == "macos-x86_64" or
+                effectiveTarget == "ios-arm64" or
+                effectiveTarget == "ios-sim-arm64" {
+
+                linkCmd = linkCmd + " -Wl,-no_uuid "
+            } else {
+                if effectiveTarget == "windows-x86_64" {
+                    linkCmd = linkCmd + " -Wl,--no-insert-timestamp "
+                }
+            }
+        }
+    }
     if g_releaseMode and llFiles.length() > 1 and normalizedCrossTarget != "" {
         println("  [2.5] Skipping merged llc release path for cross-target build: " + effectiveTarget)
     }
@@ -15618,21 +16174,40 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 "-lSDL3")
         }
     }
+    let outputTemporaryResult = runCommand("mktemp " +
+        mainCompilerShellQuote(outputFile + ".tmp.XXXXXX"))
+    if not commandWasSuccessful(outputTemporaryResult) {
+        println("    Error: could not create atomic output beside " + outputFile)
+        return 1
+    }
+    let outputTemporaryPath = outputTemporaryResult.output.trim()
     linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + hotReloadArg +
-        platformShimArg + " -o " + outputFile + linkLibs +
+        platformShimArg + " -o " +
+        mainCompilerShellQuote(outputTemporaryPath) + linkLibs +
         teeRuntimeLinkFlags + platformShimLinkFlags + tomlExtraLinkFlags +
         " 2>&1"
 
     let linkStart = getTraceTimeSeconds()
     let linkResult: CommandResult = runCommand(linkCmd)
     if commandWasSuccessful(linkResult) {
-        let outputCheck: CommandResult = runCommand("test -f " + outputFile)
+        let outputCheck: CommandResult = runCommand("test -f " +
+            mainCompilerShellQuote(outputTemporaryPath))
         if not commandWasSuccessful(outputCheck) {
+            let _ = deleteFile(outputTemporaryPath)
             println("Link command reported success but output file was not created: " + outputFile)
             println("Link command: " + linkCmd)
             if linkResult.output != "" {
                 println(linkResult.output)
             }
+            return 1
+        }
+        let outputPublish = runCommand("mv -f -- " +
+            mainCompilerShellQuote(outputTemporaryPath) + " " +
+            mainCompilerShellQuote(outputFile))
+        if not commandWasSuccessful(outputPublish) {
+            let _ = deleteFile(outputTemporaryPath)
+            println("    Error: failed to publish linked output atomically: " +
+                outputFile)
             return 1
         }
         if g_instrumentationReportPath != "" {
@@ -15685,6 +16260,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
 
     println("Linking failed")
     println(linkResult.output)
+    let _ = deleteFile(outputTemporaryPath)
     buildTraceFinish("link", linkStart, "failed",
         "objects=" + objectFiles.length().toString())
     return 1
@@ -15804,18 +16380,11 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
         return checkSemanticStatus
     }
 
-    ///
-    Deterministic-profile checking remains root-only in this bounded lexical
-    semantic slice. Extending determinism across imported modules is a separate
-    parity change and must not be conflated with this no-codegen gate.
-    ///
     if profile == "deterministic" {
-        let deterResult = checkDeterminismWithProfile(frontend.program, true)
-        if deterResult.hasErrors() {
-            println("[ERROR] Determinism check failed")
-            printDeterminismErrors(deterResult)
-            return 1
-        }
+        let deterministicSemanticStatus =
+            validateDeterministicSemanticGraph(checkModulePaths, language,
+                checkSemanticRegistry, 0)
+        if deterministicSemanticStatus != 0 { return 1 }
     }
 
     println("[OK] Check passed")
@@ -16058,6 +16627,12 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
         }
     }
 
+    // JIT, AOT compile, and `seen check` must accept and reject the same
+    // Send/Share declarations, retained bounds, and parallel captures.
+    let jitSemanticStatus = validateIsolatedLexicalSemanticGraph(modulePaths,
+        jitInput, language, true, 0)
+    if jitSemanticStatus != 0 { return jitSemanticStatus }
+
     var passIdx = 0
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
@@ -16153,8 +16728,8 @@ AOT execution path: compiles the source to a project-local artifact using the
 full compile pipeline, then executes it. This is the fallback when JIT is
 unavailable and the explicit path for --aot.
 ///
-fun aotRunCommand(inputFile: String, verbose: Bool, language: String,
-    useCache: Bool) r: Int {
+fun aotRunCommandWithPolicy(inputFile: String, verbose: Bool, language: String,
+    useCache: Bool, profile: String, simdPolicy: String) r: Int {
     if verbose {
         g_compilerVerbose = 1
         println("[run] Compiling " + inputFile + "...")
@@ -16168,7 +16743,7 @@ fun aotRunCommand(inputFile: String, verbose: Bool, language: String,
     let tempOutput = compilerArtifactPath("seen_run_script_" +
         getPid().toString())
     let compileResult = compileCommandWithFullTargeting(inputFile, tempOutput,
-        "default", useCache, language, "", "auto", false, "", "", "", "", "")
+        profile, useCache, language, "", simdPolicy, false, "", "", "", "", "")
     if compileResult != 0 {
         println("[run] Compilation failed")
         return compileResult
@@ -16186,11 +16761,23 @@ fun aotRunCommand(inputFile: String, verbose: Bool, language: String,
     return 0
 }
 
+fun aotRunCommand(inputFile: String, verbose: Bool, language: String,
+    useCache: Bool) r: Int {
+
+    return aotRunCommandWithPolicy(inputFile, verbose, language, useCache,
+        "default", "auto")
+}
+
 // Dispatch run command: JIT by default, AOT with --aot flag
 fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
-    language: String, useCache: Bool) r: Int {
-    if useAot {
-        return aotRunCommand(inputFile, verbose, language, useCache)
+    language: String, useCache: Bool, policy: DeterministicCliPolicy) r: Int {
+
+    // The current JIT path has no scalar-SIMD policy input. Deterministic mode
+    // therefore uses the canonical AOT pipeline, which applies both the
+    // semantic profile and --simd=none before executing user code.
+    if useAot or policy.deterministicMode {
+        return aotRunCommandWithPolicy(inputFile, verbose, language, useCache,
+            policy.profile, policy.simdPolicy)
     }
     return jitRunCommand(inputFile, verbose, language, useCache)
 }
@@ -16209,9 +16796,9 @@ fun printVersion() r: Void {
 fun printUsage() r: Void {
     println("Seen " + seenCompilerVersion() + " - Self-hosted Compiler")
     println("")
-    println("Usage: seen compile <input.seen> [output] [--profile deterministic] [--no-cache] [--verbose] [--locked|--offline|--frozen]")
-    println("       seen check <input.seen> [--profile deterministic] [--locked|--offline|--frozen]")
-    println("       seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>] [--locked|--offline|--frozen]")
+    println("Usage: seen compile <input.seen> [output] [--profile deterministic|--deterministic] [--no-cache] [--verbose] [--locked|--offline|--frozen]")
+    println("       seen check <input.seen> [--profile deterministic|--deterministic] [--locked|--offline|--frozen]")
+    println("       seen run <input.seen> [--deterministic] [--aot] [--no-cache] [--verbose] [--language <lang>] [--locked|--offline|--frozen]")
     println("       seen test <project> [--filter <text>] [--profile ci] [--jobs 1] [--timeout 10m] [--report <format:path>]")
     println("       seen bundle <executable> <AppName> [--icon=<icon.icns>] [--version=<1.0>]")
     println("       seen sign <path> [--identity=<identity>]")
@@ -16228,7 +16815,7 @@ fun printUsage() r: Void {
     println("       seen --version | -v")
     println("")
     println("Options:")
-    println("  --profile deterministic  Reject HashMap/HashSet without @nondeterministic")
+    println("  --profile deterministic  Enable semantic determinism checks")
     println("  --no-cache               Disable incremental compilation caching")
     println("  --locked                 Require the existing Seen.lock without changing it")
     println("  --offline                Prohibit network access and use verified local state")
@@ -16241,7 +16828,7 @@ fun printUsage() r: Void {
     println("  --simd-report=full       Show detailed per-loop vectorization report")
     println("  --backend=<name>         Backend selection (llvm only in this binary)")
     println("  --backend <name>         Same as above")
-    println("  --deterministic          Deterministic mode (scalar SIMD, no HashMap)")
+    println("  --deterministic          Enable semantic checks and scalar SIMD for compile/run")
     println("  -g, --debug              Emit debug information for modules, runtime, and ABI shims")
     println("  --coverage               Emit LLVM coverage instrumentation")
     println("  --sanitize=<policy>      Sanitizer (address, undefined, thread, memory)")
@@ -16279,7 +16866,8 @@ fun printUsage() r: Void {
 
 fun printCompileUsage() r: Void {
     println("Usage: seen compile <input.seen> [output] [options]")
-    println("Options: --profile <profile>, --language <lang>, --backend <name>,")
+    println("Options: --profile <profile>, --deterministic, --language <lang>,")
+    println("         --backend <name>, --simd <policy>,")
     println("         --target <platform>, --no-cache, --verbose, --locked, --offline,")
     println("         --frozen, -g, --debug, --coverage, --sanitize <policy>,")
     println("         --instrumentation-report <path>, -h, --help")
@@ -16287,12 +16875,12 @@ fun printCompileUsage() r: Void {
 }
 
 fun printCheckUsage() r: Void {
-    println("Usage: seen check <input.seen> [--profile deterministic] [--language <lang>] [--locked|--offline|--frozen]")
+    println("Usage: seen check <input.seen> [--profile deterministic|--deterministic] [--language <lang>] [--locked|--offline|--frozen]")
     return
 }
 
 fun printRunUsage() r: Void {
-    println("Usage: seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>] [--locked|--offline|--frozen]")
+    println("Usage: seen run <input.seen> [--deterministic] [--aot] [--no-cache] [--verbose] [--language <lang>] [--locked|--offline|--frozen]")
     return
 }
 
@@ -16369,6 +16957,235 @@ fun addCliOptionAlias(aliases: Array<String>, canonical: Array<String>,
     aliases.push(alias)
     canonical.push(name)
     return
+}
+
+///
+/// Canonical CORE-004C policy shared by compile, check, and run. The semantic
+/// profile and code-generation SIMD policy are resolved once, before any
+/// frontend, cache, or execution work begins.
+///
+class DeterministicCliPolicy {
+    var ok: Bool
+    var code: String
+    var message: String
+    var deterministicMode: Bool
+    var profile: String
+    var simdPolicy: String
+}
+
+fun deterministicCliAscii(value: String, maximum: Int) r: Bool {
+    if value.length() == 0 or value.length() > maximum { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 32 or byte > 126 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun deterministicCliDecimalWithin(value: String, maximum: String) r: Bool {
+    if value.length() == 0 { return false }
+    var firstSignificant = 0
+    while firstSignificant + 1 < value.length() and
+        value.byteAt(firstSignificant) == 48 {
+
+        firstSignificant = firstSignificant + 1
+    }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 48 or byte > 57 { return false }
+        index = index + 1
+    }
+    let significantLength = value.length() - firstSignificant
+    if significantLength < maximum.length() { return true }
+    if significantLength > maximum.length() { return false }
+    index = 0
+    while index < maximum.length() {
+        let actual = value.byteAt(firstSignificant + index)
+        let allowed = maximum.byteAt(index)
+        if actual < allowed { return true }
+        if actual > allowed { return false }
+        index = index + 1
+    }
+    return true
+}
+
+fun deterministicCliLocaleSupported(value: String) r: Bool {
+    if not deterministicCliAscii(value, 64) { return false }
+    return value == "C" or value == "POSIX" or value == "C.UTF-8" or
+        value == "C.utf8"
+}
+
+fun deterministicCliInputFailure(code: String, message: String) r: Bool {
+    println("Error: [" + code + "] " + message)
+    return false
+}
+
+extern "C" fun seen_reexec_current_process() r: Int32
+
+/// Capture and validate process-controlled reproducibility inputs once. The
+/// captured values, rather than subsequent ambient reads, feed cache/build
+/// identities. A deterministic run also publishes the validated mode/hash
+/// seed to the child process before user code starts.
+fun captureDeterministicCliInputs() r: Bool {
+    if g_deterministicInputsParsed == 1 { return true }
+
+    let enabled = getOrDefault("SEEN_DETERMINISTIC", "")
+    if enabled != "" and enabled != "1" {
+        return deterministicCliInputFailure("core.004e.policy_conflict",
+            "SEEN_DETERMINISTIC conflicts with --deterministic")
+    }
+    let epoch = getOrDefault("SOURCE_DATE_EPOCH", "")
+    if epoch == "" {
+        return deterministicCliInputFailure("core.004e.missing_epoch",
+            "SOURCE_DATE_EPOCH is required for deterministic compilation")
+    }
+    if not deterministicCliDecimalWithin(epoch, "9223372036") {
+        return deterministicCliInputFailure("core.004e.invalid_epoch",
+            "SOURCE_DATE_EPOCH must be bounded unsigned decimal seconds")
+    }
+    let seed = getOrDefault("SEEN_DETERMINISTIC_SEED", "")
+    if not deterministicCliDecimalWithin(seed, "18446744073709551615") {
+        return deterministicCliInputFailure("core.004e.invalid_seed",
+            "SEEN_DETERMINISTIC_SEED must be a UInt64 decimal value")
+    }
+    let lang = getOrDefault("LANG", "")
+    let lcAll = getOrDefault("LC_ALL", "")
+    var locale = lcAll
+    if locale == "" { locale = lang }
+    if not deterministicCliLocaleSupported(locale) {
+        return deterministicCliInputFailure("core.004e.invalid_locale",
+            "deterministic compilation requires C, POSIX, or C.UTF-8 locale")
+    }
+    let timezone = getOrDefault("TZ", "")
+    if timezone != "UTC" {
+        return deterministicCliInputFailure("core.004e.invalid_locale",
+            "deterministic compilation requires TZ=UTC")
+    }
+    var hashSeed = getOrDefault("SEEN_HASH_SEED", "")
+    if hashSeed != "" and hashSeed != seed {
+        return deterministicCliInputFailure("core.004e.policy_conflict",
+            "SEEN_HASH_SEED conflicts with SEEN_DETERMINISTIC_SEED")
+    }
+    if hashSeed == "" { hashSeed = seed }
+
+    // A compiler process launched with SEEN_DETERMINISTIC=1 is already using
+    // the runtime's immutable process-start snapshot. Do not attempt to mutate
+    // that snapshot: only publish values which were genuinely absent at
+    // process start, for inheritance by the deterministic run child.
+    if enabled == "" {
+        if not set("SEEN_DETERMINISTIC", "1") {
+            return deterministicCliInputFailure("core.004e.unavailable",
+                "validated deterministic mode could not be published")
+        }
+        if getOrDefault("SEEN_HASH_SEED", "") == "" and
+            not set("SEEN_HASH_SEED", hashSeed) {
+
+            return deterministicCliInputFailure("core.004e.unavailable",
+                "validated deterministic hash seed could not be published")
+        }
+        // The runtime captured process inputs before CLI parsing. Re-exec is
+        // therefore required when the flag enabled deterministic mode: only
+        // the replacement process can have an authoritative immutable launch
+        // snapshot. A successful call never returns.
+        let _ = seen_reexec_current_process()
+        return deterministicCliInputFailure("core.004e.unavailable",
+            "deterministic compiler process re-exec is unavailable")
+    }
+    if getOrDefault("SEEN_HASH_SEED", "") == "" and
+        not set("SEEN_HASH_SEED", hashSeed) {
+
+        return deterministicCliInputFailure("core.004e.unavailable",
+            "validated deterministic hash seed could not be published")
+    }
+
+    g_deterministicEpoch = epoch
+    g_deterministicSeed = seed
+    g_deterministicHashSeed = hashSeed
+    g_deterministicLang = lang
+    g_deterministicLcAll = lcAll
+    g_deterministicTimezone = timezone
+    g_deterministicInputsParsed = 1
+    return true
+}
+
+fun resolveDeterministicCliPolicy(parsed: CliArguments,
+    acceptsSimd: Bool) r: DeterministicCliPolicy {
+
+    let deterministicMode = parsed.hasOption("--deterministic")
+    let requestedProfile = parsed.valueOr("--profile", "default")
+    if requestedProfile != "default" and requestedProfile != "deterministic" {
+        return DeterministicCliPolicy{
+            ok: false,
+            code: "core.004c.invalid",
+            message: "invalid value '" + requestedProfile +
+                "' for --profile; expected default or deterministic",
+            deterministicMode: deterministicMode,
+            profile: "default",
+            simdPolicy: "auto"
+        }
+    }
+    if deterministicMode and parsed.hasOption("--profile") and
+        requestedProfile != "deterministic" {
+
+        return DeterministicCliPolicy{
+            ok: false,
+            code: "core.004c.conflict",
+            message: "--deterministic conflicts with --profile " +
+                requestedProfile + "; use --profile deterministic or omit it",
+            deterministicMode: true,
+            profile: "default",
+            simdPolicy: "auto"
+        }
+    }
+
+    var simdPolicy = "auto"
+    if acceptsSimd and parsed.hasOption("--simd") {
+        simdPolicy = parsed.valueOr("--simd", "auto")
+    }
+    if acceptsSimd and not isSupportedSimdPolicy(simdPolicy) {
+        return DeterministicCliPolicy{
+            ok: false,
+            code: "core.004c.invalid",
+            message: "invalid value '" + simdPolicy +
+                "' for --simd; expected auto, none, sse4.2, avx2, or avx512",
+            deterministicMode: deterministicMode,
+            profile: requestedProfile,
+            simdPolicy: "auto"
+        }
+    }
+    if deterministicMode and acceptsSimd and parsed.hasOption("--simd") and
+        simdPolicy != "none" {
+
+        return DeterministicCliPolicy{
+            ok: false,
+            code: "core.004c.conflict",
+            message: "--deterministic conflicts with --simd=" + simdPolicy +
+                "; deterministic mode requires --simd=none",
+            deterministicMode: true,
+            profile: "deterministic",
+            simdPolicy: "none"
+        }
+    }
+
+    var effectiveProfile = requestedProfile
+    if deterministicMode { effectiveProfile = "deterministic" }
+    if deterministicMode { simdPolicy = "none" }
+    return DeterministicCliPolicy{
+        ok: true,
+        code: "",
+        message: "",
+        deterministicMode: deterministicMode,
+        profile: effectiveProfile,
+        simdPolicy: simdPolicy
+    }
+}
+
+fun reportDeterministicCliPolicyError(policy: DeterministicCliPolicy) r: Int {
+    println("Error: [" + policy.code + "] " + policy.message)
+    return 1
 }
 
 fun normalizeCompileOptionalValues(argv: Array<String>) r: Array<String> {
@@ -16460,6 +17277,7 @@ fun parseCheckCli(argv: Array<String>) r: CliArguments {
     addCliOptionAlias(flags, flagNames, "--locked", "--locked")
     addCliOptionAlias(flags, flagNames, "--offline", "--offline")
     addCliOptionAlias(flags, flagNames, "--frozen", "--frozen")
+    addCliOptionAlias(flags, flagNames, "--deterministic", "--deterministic")
     let values = Array<String>()
     let valueNames = Array<String>()
     addCliOptionAlias(values, valueNames, "--profile", "--profile")
@@ -16478,6 +17296,7 @@ fun parseRunCli(argv: Array<String>) r: CliArguments {
     addCliOptionAlias(flags, flagNames, "--locked", "--locked")
     addCliOptionAlias(flags, flagNames, "--offline", "--offline")
     addCliOptionAlias(flags, flagNames, "--frozen", "--frozen")
+    addCliOptionAlias(flags, flagNames, "--deterministic", "--deterministic")
     let values = Array<String>()
     let valueNames = Array<String>()
     addCliOptionAlias(values, valueNames, "--language", "--language")
@@ -16554,6 +17373,20 @@ fun parseNoOptionCli(argv: Array<String>) r: CliArguments {
 }
 
 fun reportCliParseError(command: String, parsed: CliArguments) r: Int {
+    if (command == "compile" or command == "check" or command == "run") and
+        (parsed.error.contains("--profile") or
+         parsed.error.contains("--deterministic") or
+         (parsed.hasOption("--deterministic") and
+          parsed.error.contains("--simd"))) {
+
+        var code = "core.004c.invalid"
+        if parsed.error.startsWith("conflicting") {
+            code = "core.004c.conflict"
+        }
+        println("Error: [" + code + "] " + parsed.error)
+        printCommandUsage(command)
+        return 1
+    }
     println("Error: " + parsed.error)
     printCommandUsage(command)
     return 1
@@ -16698,10 +17531,16 @@ fun normalizedCliArgv(argv: Array<String>, parsed: CliArguments,
 
 fun isUnsupportedSourceWrapperCommand(command: String) r: Bool {
     return command == "build" or command == "init" or command == "fmt" or
-        command == "format" or command == "clean"
+        command == "format" or command == "clean" or command == "determinism"
 }
 
 fun unsupportedSourceWrapperCommand(command: String) r: Int {
+    if command == "determinism" {
+        println("Error: [core.004c.invalid] 'seen determinism' is a removed legacy command.")
+        println("Use: seen check <input.seen> --deterministic")
+        println("  or seen compile <input.seen> [output] --deterministic")
+        return 1
+    }
     if command == "build" {
         println("Error: 'seen build' is not supported by the shipped compiler.")
         println("Use: seen compile <input.seen> [output]")
@@ -16732,32 +17571,6 @@ Uses .substring() method instead of free function to avoid stage1 codegen issue
 ///
 fun extractFlagValue(flag: String, prefixLen: Int) r: String {
     return flag.substring(prefixLen, flag.length())
-}
-
-// Parse --profile flag from arguments starting at given index
-fun parseProfile(argv: Array<String>, startIndex: Int) r: String {
-    var i = startIndex
-    while i < argv.length() {
-        if argv[i] == "--profile" {
-            if i + 1 < argv.length() {
-                return argv[i + 1]
-            }
-        }
-        i = i + 1
-    }
-    return "default"
-}
-
-// Check if --language or -l flag is present in argv starting at startIndex.
-fun hasLanguageFlag(argv: Array<String>, startIndex: Int) r: Bool {
-    var i = startIndex
-    while i < argv.length() {
-        if argv[i] == "--language" or argv[i] == "-l" {
-            return true
-        }
-        i = i + 1
-    }
-    return false
 }
 
 // Extract language from Seen.toml [project] section. Returns "" if not found.
@@ -16817,19 +17630,6 @@ fun extractTomlProjectLanguage(content: String) r: String {
     return ""
 }
 
-fun parseLanguage(argv: Array<String>, startIndex: Int) r: String {
-    var i = startIndex
-    while i < argv.length() {
-        if argv[i] == "--language" or argv[i] == "-l" {
-            if i + 1 < argv.length() {
-                return argv[i + 1]
-            }
-        }
-        i = i + 1
-    }
-    return "en"
-}
-
 ///
 CLI entry point. Dispatches to subcommands: compile, check, run, lsp,
 bundle, sign, notarize, lipo, ipa, translate, import-c. The compile subcommand does its own
@@ -16870,14 +17670,18 @@ fun main() r: Int {
         if parsed.help { printCompileUsage(); return 0 }
         if not parsed.ok { return reportCliParseError(command, parsed) }
         if requireCliArity(command, parsed, 1, 2) != 0 { return 1 }
+        let deterministicPolicy = resolveDeterministicCliPolicy(parsed, true)
+        if not deterministicPolicy.ok {
+            return reportDeterministicCliPolicyError(deterministicPolicy)
+        }
+        if deterministicPolicy.deterministicMode {
+            g_deterministicArtifactCli = 1
+            if not captureDeterministicCliInputs() { return 1 }
+        }
         applyPackageModeCli(parsed)
 
         let useCache = not parsed.hasOption("--no-cache")
-        let profile = parsed.valueOr("--profile", "default")
-        if profile != "default" and profile != "deterministic" {
-            println("Error: invalid value '" + profile + "' for --profile; expected deterministic")
-            return 1
-        }
+        let profile = deterministicPolicy.profile
         var language = "en"
         let languageFromCli = parsed.hasOption("--language")
         if languageFromCli {
@@ -16889,22 +17693,7 @@ fun main() r: Int {
                 "' for --target-cpu; expected native, x86-64, x86-64-v3, x86-64-v4, or rv64gc")
             return 1
         }
-        var simdPolicy = "auto"
-        if parsed.hasOption("--simd") {
-            simdPolicy = parsed.valueOr("--simd", "auto")
-        }
-        if not isSupportedSimdPolicy(simdPolicy) {
-            println("Error: invalid value '" + simdPolicy +
-                "' for --simd; expected auto, none, sse4.2, avx2, or avx512")
-            return 1
-        }
-        if parsed.hasOption("--deterministic") {
-            if parsed.hasOption("--simd") and simdPolicy != "none" {
-                println("Error: conflicting options '--deterministic' and '--simd=" + simdPolicy + "'")
-                return 1
-            }
-            simdPolicy = "none"
-        }
+        let simdPolicy = deterministicPolicy.simdPolicy
         var simdReport = parsed.hasOption("--simd-report") or
             parsed.hasOption("--simd-report-level")
         if parsed.hasOption("--simd-report-level") {
@@ -17090,13 +17879,13 @@ fun main() r: Int {
         if parsed.help { printCheckUsage(); return 0 }
         if not parsed.ok { return reportCliParseError(command, parsed) }
         if requireCliArity(command, parsed, 1, 1) != 0 { return 1 }
+        let deterministicPolicy = resolveDeterministicCliPolicy(parsed, false)
+        if not deterministicPolicy.ok {
+            return reportDeterministicCliPolicyError(deterministicPolicy)
+        }
         applyPackageModeCli(parsed)
         let inputFile = parsed.positionals[0]
-        let profile = parsed.valueOr("--profile", "default")
-        if profile != "default" and profile != "deterministic" {
-            println("Error: invalid value '" + profile + "' for --profile; expected deterministic")
-            return 1
-        }
+        let profile = deterministicPolicy.profile
         var language = parsed.valueOr("--language", "en")
         if not parsed.hasOption("--language") {
             let tc = readNearestSeenTomlForInput(inputFile)
@@ -17119,6 +17908,14 @@ fun main() r: Int {
         if parsed.help { printRunUsage(); return 0 }
         if not parsed.ok { return reportCliParseError(command, parsed) }
         if requireCliArity(command, parsed, 1, 1) != 0 { return 1 }
+        let deterministicPolicy = resolveDeterministicCliPolicy(parsed, false)
+        if not deterministicPolicy.ok {
+            return reportDeterministicCliPolicyError(deterministicPolicy)
+        }
+        if deterministicPolicy.deterministicMode {
+            g_deterministicArtifactCli = 1
+            if not captureDeterministicCliInputs() { return 1 }
+        }
         applyPackageModeCli(parsed)
         let runInputFile = parsed.positionals[0]
         let useAot = parsed.hasOption("--aot")
@@ -17139,7 +17936,7 @@ fun main() r: Int {
             return 1
         }
         return runScriptCommand(runInputFile, useAot, verbose, runLanguage,
-            runUseCache)
+            runUseCache, deterministicPolicy)
     }
 
     if command == "lsp" {

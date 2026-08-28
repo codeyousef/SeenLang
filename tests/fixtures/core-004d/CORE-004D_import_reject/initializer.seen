@@ -1,0 +1,10 @@
+fun initializeSeed() r: Int {
+    println("initializer nondeterministic effect")
+    return 13
+}
+
+let initializedSeed: Int = initializeSeed()
+
+fun main() r: Int {
+    return initializedSeed
+}

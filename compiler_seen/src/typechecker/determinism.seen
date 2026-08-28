@@ -1,7 +1,8 @@
 // Determinism checker for Seen Language.
 // Validates deterministic annotations and nondeterministic usage.
 
-import parser.real_parser.{ProgramNode, FunctionNode, ItemNode, StatementNode, ParserExpressionNode, BlockNode, ClassNode}
+import parser.real_parser.{ProgramNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, ClassNode}
+import typechecker.type_ref.{TypeRef, parseTypeRef}
 
 // Known nondeterministic types from stdlib require annotation in
 // deterministic profile mode.
@@ -75,19 +76,44 @@ class DeterminismCheckResult {
 
 // Determinism-specific error
 class DeterminismError {
+    var code: String
     var message: String
     var functionName: String
     var calledFunction: String
+    var file: String
     var line: Int
     var column: Int
+    var effectPath: String
+    var suggestion: String
 
     static fun new(message: String, functionName: String, calledFunction: String) r: DeterminismError {
         return DeterminismError{
+            code: "",
             message: message,
             functionName: functionName,
             calledFunction: calledFunction,
+            file: "",
             line: 0,
-            column: 0
+            column: 0,
+            effectPath: "",
+            suggestion: ""
+        }
+    }
+
+    static fun detailed(code: String, message: String, functionName: String,
+        calledFunction: String, file: String, line: Int, column: Int,
+        effectPath: String, suggestion: String) r: DeterminismError {
+
+        return DeterminismError{
+            code: code,
+            message: message,
+            functionName: functionName,
+            calledFunction: calledFunction,
+            file: file,
+            line: line,
+            column: column,
+            effectPath: effectPath,
+            suggestion: suggestion
         }
     }
 
@@ -113,6 +139,13 @@ class DeterminismError {
     fun getCalledFunction() r: String {
         return this.calledFunction
     }
+
+    fun getCode() r: String { return this.code }
+    fun getFile() r: String { return this.file }
+    fun getLine() r: Int { return this.line }
+    fun getColumn() r: Int { return this.column }
+    fun getEffectPath() r: String { return this.effectPath }
+    fun getSuggestion() r: String { return this.suggestion }
 }
 
 // Determinism Checker
@@ -640,6 +673,1490 @@ class DeterminismChecker {
     }
 }
 
+///
+/// CORE-004D resolved whole-program determinism graph.
+///
+/// The legacy checker above remains as a source-level compatibility API. The
+/// release CLI uses this graph checker after the package-aware semantic
+/// registry is complete. It stores only bounded declaration, call-edge, and
+/// provenance metadata, so imported bodies do not have to remain live while
+/// effects are propagated.
+///
+fun determinismGraphMaxDeclarations() r: Int { return 16384 }
+fun determinismGraphMaxEdges() r: Int { return 65536 }
+fun determinismGraphMaxEffects() r: Int { return 65536 }
+fun determinismGraphMaxDiagnostics() r: Int { return 32 }
+fun determinismGraphMaxPropagationRounds() r: Int { return 128 }
+fun determinismGraphMaxPathLength() r: Int { return 768 }
+
+fun determinismStripCallGenericArguments(name: String) r: String {
+    var i = 0
+    while i < name.length() {
+        if name.byteAt(i) == 60 {
+            return name.substring(0, i)
+        }
+        i = i + 1
+    }
+    return name
+}
+
+fun determinismGlobalEncodedType(encoded: String) r: String {
+    var start = 0
+    if encoded.length() > 0 {
+        let first = encoded.byteAt(0)
+        if first == 76 or first == 86 { start = 1 }
+    }
+    var i = start
+    while i < encoded.length() {
+        if encoded.byteAt(i) == 58 {
+            return encoded.substring(start, i)
+        }
+        i = i + 1
+    }
+    return encoded.substring(start, encoded.length())
+}
+
+fun determinismFunctionBoundaryIsValid(func: FunctionNode) r: Bool {
+    if not func.isNondeterministic or func.isDeterministic { return false }
+    var count = 0
+    var i = 0
+    while i < func.decorators.length() {
+        let decorator = func.decorators[i]
+        if decorator.name == "nondeterministic" {
+            count = count + 1
+            if decorator.arguments.length() != 0 { return false }
+        }
+        i = i + 1
+    }
+    return count == 1
+}
+
+fun determinismClassBoundaryIsValid(cls: ClassNode) r: Bool {
+    if not cls.isNondeterministic { return false }
+    var count = 0
+    var i = 0
+    while i < cls.decorators.length() {
+        let decorator = cls.decorators[i]
+        if decorator.name == "nondeterministic" {
+            count = count + 1
+            if decorator.arguments.length() != 0 { return false }
+        }
+        i = i + 1
+    }
+    return count == 1
+}
+
+fun determinismCopyStrings(values: Array<String>) r: Array<String> {
+    let result = Array<String>()
+    var i = 0
+    while i < values.length() {
+        result.push(values[i])
+        i = i + 1
+    }
+    return result
+}
+
+fun determinismPathAppend(prefix: String, suffix: String) r: String {
+    var result = prefix
+    if result != "" and suffix != "" { result = result + " -> " }
+    result = result + suffix
+    let limit = determinismGraphMaxPathLength()
+    if result.length() > limit {
+        return result.substring(0, limit) + " -> ..."
+    }
+    return result
+}
+
+fun determinismCanonicalDeclaration(moduleName: String, name: String)
+    r: String {
+
+    if moduleName == "" { return name }
+    return moduleName + "::" + name
+}
+
+fun determinismCapabilityEffect(token: String) r: String {
+    if token == "FileToken" { return "io" }
+    if token == "NetToken" { return "network" }
+    if token == "ProcessToken" { return "process" }
+    if token == "EnvToken" { return "environment" }
+    if token == "DynLoadToken" { return "unsafe-ffi" }
+    if token == "AllToken" { return "unbounded-capability" }
+    return ""
+}
+
+fun determinismFreeBuiltinEffect(name: String) r: String {
+    if name == "time" or name == "now" or name == "timestamp" or
+        name == "getTime" or name == "currentTimeMillis" or
+        name == "clock_gettime" {
+        return "time"
+    }
+    if name == "random" or name == "rand" or name == "randomInt" or
+        name == "randomFloat" or name == "shuffle" or
+        name == "uww_timestamp" or name == "uww_deterministic_rand" {
+        return "random"
+    }
+    if name == "read" or name == "write" or name == "readLine" or
+        name == "writeLine" or name == "print" or name == "println" or
+        name == "readFile" or name == "writeFile" or
+        name == "appendFile" or name == "deleteFile" or
+        name == "stdin" or name == "stdout" or name == "stderr" {
+        return "io"
+    }
+    if name == "fetch" or name == "httpGet" or name == "httpPost" or
+        name == "socket" or name == "connect" or name == "listen" {
+        return "network"
+    }
+    if name == "getEnv" or name == "setEnv" or name == "getArgs" {
+        return "environment"
+    }
+    if name == "spawn" or name == "exec" or name == "fork" or
+        name == "wait" or name == "exit" {
+        return "process"
+    }
+    if name.startsWith("transmute") or name == "str_to_cstr" or
+        name == "cstr_to_str" or name == "dlopen" or name == "dlsym" {
+        return "unsafe-ffi"
+    }
+    return ""
+}
+
+fun determinismKnownDeterministicBuiltin(name: String) r: Bool {
+    if name == "sizeof" or name == "alignof" or name == "offsetof" or
+        name == "includeStr" or name == "includeBytes" or
+        name == "debug_assert" or name == "abort" or
+        name == "__default" or name.startsWith("__default<") or
+        name == "split" or name == "startsWith" or name == "endsWith" or
+        name == "contains" or name == "indexOf" or
+        name == "lastIndexOf" or name == "async_yield" or
+        name == "barrier" {
+        return true
+    }
+    if name == "Array" or name.startsWith("Array<") or
+        name == "Option" or name.startsWith("Option<") or
+        name == "Result" or name.startsWith("Result<") or
+        name == "BTreeMap" or name.startsWith("BTreeMap<") or
+        name == "SmallVec" or name.startsWith("SmallVec<") or
+        name == "Fixed64" or name == "Fixed128" {
+        return true
+    }
+    if name.startsWith("simd_") or name.startsWith("Simd") or
+        name.startsWith("stackAlloc") or name == "constructAt" {
+        return true
+    }
+    return false
+}
+
+class DeterminismEffectGraph {
+    var result: DeterminismCheckResult
+
+    // Immutable snapshot of the already-resolved semantic registry. Keeping
+    // parallel arrays here avoids a bootstrap import diamond between the CLI,
+    // determinism, and semantic-registry modules.
+    var registryModules: Array<String>
+    var registryNames: Array<String>
+    var registryCanonicalNames: Array<String>
+    var registryKinds: Array<String>
+    var registryTypeIdentities: Array<String>
+    var registryImportOwners: Array<String>
+    var registryImportAliases: Array<String>
+    var registryImportTargetModules: Array<String>
+    var registryImportTargetNames: Array<String>
+    var registryAggregateModules: Array<String>
+    var registryAggregateDomains: Array<String>
+
+    var declarationIdentities: Array<String>
+    var declarationModules: Array<String>
+    var declarationNames: Array<String>
+    var declarationSourceNames: Array<String>
+    var declarationKinds: Array<String>
+    var declarationReceiverTypes: Array<String>
+    var declarationImplTraits: Array<String>
+    var declarationReturnTypes: Array<String>
+    var declarationFiles: Array<String>
+    var declarationLines: Array<Int>
+    var declarationColumns: Array<Int>
+    var declarationBoundaries: Array<Int>
+    var declarationExplicitDeterministic: Array<Int>
+
+    var directOwners: Array<Int>
+    var directKinds: Array<String>
+    var directIdentities: Array<String>
+    var directFiles: Array<String>
+    var directLines: Array<Int>
+    var directColumns: Array<Int>
+
+    var pendingOwners: Array<Int>
+    var pendingModules: Array<String>
+    var pendingNames: Array<String>
+    var pendingReceiverTypes: Array<String>
+    var pendingOwnerTypes: Array<String>
+    var pendingFiles: Array<String>
+    var pendingLines: Array<Int>
+    var pendingColumns: Array<Int>
+
+    var edgeCallers: Array<Int>
+    var edgeCallees: Array<Int>
+    var edgeFiles: Array<String>
+    var edgeLines: Array<Int>
+    var edgeColumns: Array<Int>
+
+    var limitReported: Int
+
+    static fun new() r: DeterminismEffectGraph {
+
+        return DeterminismEffectGraph{
+            result: DeterminismCheckResult.new(),
+            registryModules: Array<String>(),
+            registryNames: Array<String>(),
+            registryCanonicalNames: Array<String>(),
+            registryKinds: Array<String>(),
+            registryTypeIdentities: Array<String>(),
+            registryImportOwners: Array<String>(),
+            registryImportAliases: Array<String>(),
+            registryImportTargetModules: Array<String>(),
+            registryImportTargetNames: Array<String>(),
+            registryAggregateModules: Array<String>(),
+            registryAggregateDomains: Array<String>(),
+            declarationIdentities: Array<String>(),
+            declarationModules: Array<String>(),
+            declarationNames: Array<String>(),
+            declarationSourceNames: Array<String>(),
+            declarationKinds: Array<String>(),
+            declarationReceiverTypes: Array<String>(),
+            declarationImplTraits: Array<String>(),
+            declarationReturnTypes: Array<String>(),
+            declarationFiles: Array<String>(),
+            declarationLines: Array<Int>(),
+            declarationColumns: Array<Int>(),
+            declarationBoundaries: Array<Int>(),
+            declarationExplicitDeterministic: Array<Int>(),
+            directOwners: Array<Int>(),
+            directKinds: Array<String>(),
+            directIdentities: Array<String>(),
+            directFiles: Array<String>(),
+            directLines: Array<Int>(),
+            directColumns: Array<Int>(),
+            pendingOwners: Array<Int>(),
+            pendingModules: Array<String>(),
+            pendingNames: Array<String>(),
+            pendingReceiverTypes: Array<String>(),
+            pendingOwnerTypes: Array<String>(),
+            pendingFiles: Array<String>(),
+            pendingLines: Array<Int>(),
+            pendingColumns: Array<Int>(),
+            edgeCallers: Array<Int>(),
+            edgeCallees: Array<Int>(),
+            edgeFiles: Array<String>(),
+            edgeLines: Array<Int>(),
+            edgeColumns: Array<Int>(),
+            limitReported: 0
+        }
+    }
+
+    fun setResolvedRegistry(modules: Array<String>, names: Array<String>,
+        canonicalNames: Array<String>, kinds: Array<String>,
+        typeIdentities: Array<String>, importOwners: Array<String>,
+        importAliases: Array<String>, importTargetModules: Array<String>,
+        importTargetNames: Array<String>, aggregateModules: Array<String>,
+        aggregateDomains: Array<String>) r: Void {
+
+        this.registryModules = modules
+        this.registryNames = names
+        this.registryCanonicalNames = canonicalNames
+        this.registryKinds = kinds
+        this.registryTypeIdentities = typeIdentities
+        this.registryImportOwners = importOwners
+        this.registryImportAliases = importAliases
+        this.registryImportTargetModules = importTargetModules
+        this.registryImportTargetNames = importTargetNames
+        this.registryAggregateModules = aggregateModules
+        this.registryAggregateDomains = aggregateDomains
+    }
+
+    fun registryFindCanonical(canonicalName: String) r: Int {
+        var i = 0
+        while i < this.registryCanonicalNames.length() {
+            if this.registryCanonicalNames[i] == canonicalName { return i }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fun registryAggregateDomain(moduleName: String) r: String {
+        var i = 0
+        while i < this.registryAggregateModules.length() and
+            i < this.registryAggregateDomains.length() {
+
+            if this.registryAggregateModules[i] == moduleName {
+                return this.registryAggregateDomains[i]
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fun registryLookupIndex(moduleName: String, name: String) r: Int {
+        let local = this.registryFindCanonical(
+            determinismCanonicalDeclaration(moduleName, name))
+        if local >= 0 { return local }
+
+        var importedMatch = -1
+        var i = 0
+        while i < this.registryImportOwners.length() {
+            if this.registryImportOwners[i] == moduleName and
+                this.registryImportAliases[i] == name and
+                this.registryImportTargetNames[i] != "*" {
+
+                let imported = this.registryFindCanonical(
+                    determinismCanonicalDeclaration(
+                        this.registryImportTargetModules[i],
+                        this.registryImportTargetNames[i]))
+                if imported >= 0 {
+                    if importedMatch >= 0 and importedMatch != imported {
+                        return -2
+                    }
+                    importedMatch = imported
+                }
+            }
+            i = i + 1
+        }
+        if importedMatch >= 0 { return importedMatch }
+
+        var dot = -1
+        i = 0
+        while i < name.length() {
+            if name.byteAt(i) == 46 { dot = i }
+            i = i + 1
+        }
+        if dot > 0 and dot + 1 < name.length() {
+            let prefix = name.substring(0, dot)
+            let leaf = name.substring(dot + 1, name.length())
+            i = 0
+            while i < this.registryImportOwners.length() {
+                if this.registryImportOwners[i] == moduleName and
+                    this.registryImportAliases[i] == prefix and
+                    this.registryImportTargetNames[i] == "*" {
+
+                    let qualified = this.registryFindCanonical(
+                        determinismCanonicalDeclaration(
+                            this.registryImportTargetModules[i], leaf))
+                    if qualified >= 0 {
+                        if importedMatch >= 0 and
+                            importedMatch != qualified { return -2 }
+                        importedMatch = qualified
+                    }
+                }
+                i = i + 1
+            }
+            if importedMatch >= 0 { return importedMatch }
+        }
+
+        let ownerDomain = this.registryAggregateDomain(moduleName)
+        if ownerDomain == "" { return -1 }
+        var aggregateMatch = -1
+        i = 0
+        while i < this.registryNames.length() and
+            i < this.registryModules.length() {
+
+            if this.registryNames[i] == name and
+                this.registryAggregateDomain(this.registryModules[i]) ==
+                ownerDomain {
+
+                if aggregateMatch >= 0 and aggregateMatch != i { return -2 }
+                aggregateMatch = i
+            }
+            i = i + 1
+        }
+        return aggregateMatch
+    }
+
+    fun addDetailedError(code: String, message: String,
+        declarationIdentity: String, effectIdentity: String, file: String,
+        line: Int, column: Int, effectPath: String,
+        suggestion: String) r: Void {
+
+        if this.result.errors.length() >= determinismGraphMaxDiagnostics() {
+            return
+        }
+        this.result.addError(DeterminismError.detailed(code, message,
+            declarationIdentity, effectIdentity, file, line, column,
+            effectPath, suggestion))
+    }
+
+    fun reportLimit(file: String, line: Int, column: Int) r: Void {
+        if this.limitReported != 0 { return }
+        this.limitReported = 1
+        if this.result.errors.length() >= determinismGraphMaxDiagnostics() {
+            this.result.errors.pop()
+        }
+        this.addDetailedError("core.004d.limit",
+            "determinism effect graph exceeded its bounded analysis limit",
+            "<program-graph>", "analysis-limit", file, line, column,
+            "<program-graph> -> analysis-limit",
+            "Reduce the declaration/call graph or split the package; deterministic analysis fails closed.")
+    }
+
+    fun findDeclaration(identity: String) r: Int {
+        var i = 0
+        while i < this.declarationIdentities.length() {
+            if this.declarationIdentities[i] == identity { return i }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fun findSourceDeclaration(moduleName: String, sourceName: String) r: Int {
+        var i = 0
+        while i < this.declarationIdentities.length() {
+            if this.declarationModules[i] == moduleName and
+                this.declarationSourceNames[i] == sourceName {
+
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fun findRegistryDeclaration(registryIndex: Int) r: Int {
+        if registryIndex < 0 or
+            registryIndex >= this.registryCanonicalNames.length() {
+
+            return -1
+        }
+        let direct = this.findDeclaration(
+            this.registryCanonicalNames[registryIndex])
+        if direct >= 0 { return direct }
+        return this.findSourceDeclaration(this.registryModules[registryIndex],
+            this.registryNames[registryIndex])
+    }
+
+    fun addDeclaration(identity: String, moduleName: String, name: String,
+        sourceName: String, kind: String, receiverType: String,
+        returnType: String, file: String, line: Int, column: Int, boundary: Bool,
+        explicitDeterministic: Bool, implTrait: String = "") r: Int {
+
+        let existing = this.findDeclaration(identity)
+        if existing >= 0 { return existing }
+        if this.declarationIdentities.length() >=
+            determinismGraphMaxDeclarations() {
+
+            this.reportLimit(file, line, column)
+            return -1
+        }
+        this.declarationIdentities.push(identity)
+        this.declarationModules.push(moduleName)
+        this.declarationNames.push(name)
+        this.declarationSourceNames.push(sourceName)
+        this.declarationKinds.push(kind)
+        this.declarationReceiverTypes.push(receiverType)
+        this.declarationImplTraits.push(implTrait)
+        this.declarationReturnTypes.push(returnType)
+        this.declarationFiles.push(file)
+        this.declarationLines.push(line)
+        this.declarationColumns.push(column)
+        this.declarationBoundaries.push(if boundary { 1 } else { 0 })
+        this.declarationExplicitDeterministic.push(
+            if explicitDeterministic { 1 } else { 0 })
+        return this.declarationIdentities.length() - 1
+    }
+
+    fun addDirectEffect(owner: Int, kind: String, identity: String,
+        file: String, line: Int, column: Int) r: Void {
+
+        if owner < 0 or kind == "" { return }
+        var i = 0
+        while i < this.directOwners.length() {
+            if this.directOwners[i] == owner and
+                this.directKinds[i] == kind and
+                this.directIdentities[i] == identity and
+                this.directFiles[i] == file and this.directLines[i] == line {
+                return
+            }
+            i = i + 1
+        }
+        if this.directOwners.length() >= determinismGraphMaxEffects() {
+            this.reportLimit(file, line, column)
+            return
+        }
+        this.directOwners.push(owner)
+        this.directKinds.push(kind)
+        this.directIdentities.push(identity)
+        this.directFiles.push(file)
+        this.directLines.push(line)
+        this.directColumns.push(column)
+    }
+
+    fun resolveTypeBaseIndex(moduleName: String, typeName: String) r: Int {
+        let canonicalBase = determinismStripCallGenericArguments(typeName)
+        let canonicalIndex = this.registryFindCanonical(canonicalBase)
+        if canonicalIndex >= 0 { return canonicalIndex }
+
+        let parsed = parseTypeRef(typeName, 0, 0, "")
+        if not parsed.valid { return -1 }
+        var base = parsed.base
+        if (parsed.kind == "pointer" or parsed.kind == "const_pointer" or
+            parsed.kind == "dynamic" or parsed.kind == "fixed_array") and
+            parsed.arguments.length() > 0 {
+
+            base = parsed.arguments[0].base
+        }
+        return this.registryLookupIndex(moduleName, base)
+    }
+
+    fun resolvedTypeIdentity(moduleName: String, typeName: String) r: String {
+        let canonicalBase = determinismStripCallGenericArguments(typeName)
+        let canonicalIndex = this.registryFindCanonical(canonicalBase)
+        if canonicalIndex >= 0 {
+            return this.registryCanonicalNames[canonicalIndex]
+        }
+        if canonicalBase.startsWith("builtin::type::") {
+            return canonicalBase
+        }
+
+        let parsed = parseTypeRef(typeName, 0, 0, "")
+        if not parsed.valid { return "" }
+        var base = parsed.base
+        if (parsed.kind == "pointer" or parsed.kind == "const_pointer" or
+            parsed.kind == "dynamic" or parsed.kind == "fixed_array") and
+            parsed.arguments.length() > 0 {
+
+            base = parsed.arguments[0].base
+        }
+        let index = this.registryLookupIndex(moduleName, base)
+        if index >= 0 { return this.registryCanonicalNames[index] }
+        if base == "Int" or base == "UInt" or base == "Bool" or
+            base == "Char" or base == "String" or base == "Float" or
+            base == "Float32" or base == "Float64" or base == "f32" or
+            base == "f64" or base == "Array" or base == "Option" or
+            base == "Result" or base == "HashMap" or base == "HashSet" or
+            base == "BTreeMap" or base == "BTreeSet" or
+            base == "SmallVec" {
+            return "builtin::type::" + base
+        }
+        return ""
+    }
+
+    fun extensionReceiverIdentity(moduleName: String, functionName: String)
+        r: String {
+
+        let separator = functionName.indexOf("_")
+        if separator <= 0 { return "" }
+        let receiverName = functionName.substring(0, separator)
+        let receiverIndex = this.registryLookupIndex(moduleName, receiverName)
+        if receiverIndex < 0 { return "" }
+        let kind = this.registryKinds[receiverIndex]
+        if kind != "Class" and kind != "Struct" and kind != "Enum" and
+            kind != "Trait" and kind != "TypeAlias" and kind != "Union" {
+
+            return ""
+        }
+        return this.registryCanonicalNames[receiverIndex]
+    }
+
+    fun extensionMethodName(functionName: String,
+        receiverIdentity: String) r: String {
+
+        if receiverIdentity == "" { return functionName }
+        let separator = functionName.indexOf("_")
+        if separator <= 0 or separator + 1 >= functionName.length() {
+            return functionName
+        }
+        return functionName.substring(separator + 1, functionName.length())
+    }
+
+    fun functionReceiverIdentity(moduleName: String, func: FunctionNode)
+        r: String {
+
+        if func.params.length() > 0 and func.params[0].name == "this" {
+            return this.resolvedTypeIdentity(moduleName,
+                func.params[0].paramType.typeName)
+        }
+        return this.extensionReceiverIdentity(moduleName, func.name)
+    }
+
+    fun functionImplTraitIdentity(moduleName: String, func: FunctionNode)
+        r: String {
+
+        var i = 0
+        while i < func.decorators.length() {
+            let decorator = func.decorators[i]
+            if decorator.name == "impl_trait" and
+                decorator.arguments.length() == 1 {
+
+                return this.resolvedTypeIdentity(moduleName,
+                    decorator.arguments[0])
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fun functionDeclarationName(moduleName: String, func: FunctionNode)
+        r: String {
+
+        let receiverIdentity = this.functionReceiverIdentity(moduleName, func)
+        if receiverIdentity == "" { return func.name }
+        if func.params.length() > 0 and func.params[0].name == "this" {
+            return func.name
+        }
+        return this.extensionMethodName(func.name, receiverIdentity)
+    }
+
+    fun functionDeclarationIdentity(moduleName: String, func: FunctionNode)
+        r: String {
+
+        let receiverIdentity = this.functionReceiverIdentity(moduleName, func)
+        let declarationName = this.functionDeclarationName(moduleName, func)
+        if receiverIdentity == "" {
+            return determinismCanonicalDeclaration(moduleName, func.name)
+        }
+        if receiverIdentity.startsWith(moduleName + "::") {
+            return receiverIdentity + "." + declarationName
+        }
+        return determinismCanonicalDeclaration(moduleName,
+            receiverIdentity + "." + declarationName)
+    }
+
+    fun checkTypeRef(owner: Int, moduleName: String, typeRef: TypeRef,
+        file: String, line: Int, column: Int, depth: Int) r: Void {
+
+        if owner < 0 or not typeRef.valid { return }
+        if depth >= 16 {
+            this.addDirectEffect(owner, "unresolved-type",
+                "type-resolution-limit", file, line, column)
+            return
+        }
+
+        let declarationIndex = this.registryLookupIndex(moduleName,
+            typeRef.base)
+        if declarationIndex >= 0 {
+            if this.registryKinds[declarationIndex] == "TypeAlias" {
+                let target = this.registryTypeIdentities[declarationIndex]
+                if target != "" and
+                    target != this.registryCanonicalNames[declarationIndex] {
+
+                    let targetRef = parseTypeRef(target, line, column, file)
+                    this.checkTypeRef(owner, moduleName, targetRef, file, line,
+                        column, depth + 1)
+                }
+            } else {
+                let resolvedName = this.registryNames[declarationIndex]
+                let resolvedModule = this.registryModules[declarationIndex]
+                if (resolvedName == "HashMap" or
+                    resolvedName == "HashSet") and
+                    (resolvedModule.contains("seen_std") or
+                    resolvedModule.contains("collections.hash")) {
+
+                    this.addDirectEffect(owner, "unordered-collection",
+                        this.registryCanonicalNames[declarationIndex], file,
+                        line, column)
+                }
+            }
+        } else {
+            if typeRef.base == "HashMap" or typeRef.base == "HashSet" {
+                this.addDirectEffect(owner, "unordered-collection",
+                    "builtin::type::" + typeRef.base, file, line, column)
+            }
+            if typeRef.base == "Float" or typeRef.base == "Float32" or
+                typeRef.base == "Float64" or typeRef.base == "f32" or
+                typeRef.base == "f64" {
+
+                this.addDirectEffect(owner, "floating-point",
+                    "builtin::type::" + typeRef.base, file, line, column)
+            }
+        }
+
+        var argumentIndex = 0
+        while argumentIndex < typeRef.arguments.length() {
+            this.checkTypeRef(owner, moduleName,
+                typeRef.arguments[argumentIndex], file, line, column,
+                depth + 1)
+            argumentIndex = argumentIndex + 1
+        }
+    }
+
+    fun checkTypeName(owner: Int, moduleName: String, typeName: String,
+        file: String, line: Int, column: Int) r: Void {
+
+        if typeName == "" or typeName == "Unknown" { return }
+        let parsed = parseTypeRef(typeName, line, column, file)
+        this.checkTypeRef(owner, moduleName, parsed, file, line, column, 0)
+    }
+
+    fun recordDecoratedEffects(owner: Int, func: FunctionNode,
+        file: String) r: Void {
+
+        var decoratorIndex = 0
+        while decoratorIndex < func.decorators.length() {
+            let decorator = func.decorators[decoratorIndex]
+            if decorator.name == "effect" or decorator.name == "using" {
+                if decorator.arguments.length() == 0 {
+                    this.addDirectEffect(owner, "unresolved-effect",
+                        "effect::<missing>", file, func.line, func.column)
+                }
+                var argumentIndex = 0
+                while argumentIndex < decorator.arguments.length() {
+                    let token = decorator.arguments[argumentIndex]
+                    let effectKind = determinismCapabilityEffect(token)
+                    if effectKind == "" {
+                        this.addDirectEffect(owner, "unresolved-effect",
+                            "effect::" + token, file, func.line, func.column)
+                    } else {
+                        this.addDirectEffect(owner, effectKind,
+                            "effect::" + token, file, func.line, func.column)
+                    }
+                    argumentIndex = argumentIndex + 1
+                }
+            }
+            if decorator.name == "syscall" {
+                var syscallIdentity = "syscall::<missing>"
+                if decorator.arguments.length() > 0 {
+                    syscallIdentity = "syscall::" + decorator.arguments[0]
+                }
+                this.addDirectEffect(owner, "host-syscall", syscallIdentity,
+                    file, func.line, func.column)
+            }
+            decoratorIndex = decoratorIndex + 1
+        }
+    }
+
+    fun addPendingCall(owner: Int, moduleName: String, name: String,
+        receiverType: String, ownerType: String, file: String, line: Int,
+        column: Int) r: Void {
+
+        if owner < 0 or name == "" { return }
+        if this.pendingOwners.length() >= determinismGraphMaxEdges() {
+            this.reportLimit(file, line, column)
+            return
+        }
+        this.pendingOwners.push(owner)
+        this.pendingModules.push(moduleName)
+        this.pendingNames.push(name)
+        this.pendingReceiverTypes.push(receiverType)
+        this.pendingOwnerTypes.push(ownerType)
+        this.pendingFiles.push(file)
+        this.pendingLines.push(line)
+        this.pendingColumns.push(column)
+    }
+
+    fun lookupBindingType(names: Array<String>, types: Array<String>,
+        name: String) r: String {
+
+        var i = names.length() - 1
+        while i >= 0 {
+            if names[i] == name { return types[i] }
+            i = i - 1
+        }
+        return ""
+    }
+
+    fun inferExpressionType(moduleName: String, expr: ParserExpressionNode,
+        bindingNames: Array<String>, bindingTypes: Array<String>,
+        ownerType: String) r: String {
+
+        if expr.kind == "Literal" { return expr.literalType }
+        if expr.kind == "StructLiteral" { return expr.literalType }
+        if expr.kind == "Variable" or expr.kind == "VarExpr" {
+            var variable = expr.variableName
+            if variable == "" { variable = expr.literalValue }
+            if variable == "this" and ownerType != "" { return ownerType }
+            return this.lookupBindingType(bindingNames, bindingTypes, variable)
+        }
+        if expr.kind == "Call" {
+            let callName = determinismStripCallGenericArguments(expr.callee)
+            let registryIndex = this.registryLookupIndex(moduleName, callName)
+            if registryIndex >= 0 {
+                let declarationIndex = this.findRegistryDeclaration(
+                    registryIndex)
+                if declarationIndex >= 0 {
+                    return this.declarationReturnTypes[declarationIndex]
+                }
+                let kind = this.registryKinds[registryIndex]
+                if kind == "Class" or kind == "Struct" or
+                    kind == "TypeAlias" {
+                    return this.registryCanonicalNames[registryIndex]
+                }
+            }
+            if callName.length() > 0 {
+                let first = callName.substring(0, 1)
+                if first >= "A" and first <= "Z" { return callName }
+            }
+        }
+        if expr.kind == "MethodCall" {
+            var receiverType = ""
+            if expr.literalValue != "" {
+                if expr.literalValue == "this" and ownerType != "" {
+                    receiverType = ownerType
+                } else {
+                    receiverType = this.lookupBindingType(bindingNames,
+                        bindingTypes, expr.literalValue)
+                    if receiverType == "" {
+                        receiverType = expr.literalValue
+                    }
+                }
+            }
+            if receiverType == "" and expr.operands.length() > 0 {
+                receiverType = this.inferExpressionType(moduleName,
+                    expr.operands[0], bindingNames, bindingTypes, ownerType)
+            }
+            let methodName = determinismStripCallGenericArguments(expr.callee)
+            let methodIndex = this.resolvedMethodDeclaration(moduleName,
+                receiverType, methodName)
+            if methodIndex >= 0 {
+                let returnType = this.declarationReturnTypes[methodIndex]
+                if returnType != "" and returnType != "Unknown" {
+                    return returnType
+                }
+            }
+            if methodName == "new" { return receiverType }
+        }
+        if expr.kind == "MemberAccess" and expr.operands.length() > 0 {
+            return this.inferExpressionType(moduleName, expr.operands[0],
+                bindingNames, bindingTypes, ownerType)
+        }
+        return ""
+    }
+
+    fun scanExpression(owner: Int, moduleName: String, ownerType: String,
+        expr: ParserExpressionNode, bindingNames: Array<String>,
+        bindingTypes: Array<String>, file: String, line: Int,
+        column: Int) r: Void {
+
+        if expr.kind == "" or expr.kind == "None" { return }
+        if expr.kind == "Literal" and expr.literalType != "" {
+            this.checkTypeName(owner, moduleName, expr.literalType, file, line,
+                column)
+        }
+        if expr.kind == "StructLiteral" and expr.literalType != "" {
+            this.checkTypeName(owner, moduleName, expr.literalType, file, line,
+                column)
+        }
+        if expr.kind == "Call" {
+            this.checkTypeName(owner, moduleName, expr.callee, file, line,
+                column)
+            let callName = determinismStripCallGenericArguments(expr.callee)
+            let boundType = this.lookupBindingType(bindingNames, bindingTypes,
+                callName)
+            if boundType != "Closure" {
+                this.addPendingCall(owner, moduleName, callName, "",
+                    ownerType, file, line, column)
+            }
+        }
+        if expr.kind == "MethodCall" {
+            var receiverType = ""
+            if expr.literalValue != "" {
+                if expr.literalValue == "this" and ownerType != "" {
+                    receiverType = ownerType
+                } else {
+                    receiverType = this.lookupBindingType(bindingNames,
+                        bindingTypes, expr.literalValue)
+                    if receiverType == "" {
+                        receiverType = expr.literalValue
+                    }
+                }
+            }
+            if receiverType == "" and expr.operands.length() > 0 {
+                receiverType = this.inferExpressionType(moduleName,
+                    expr.operands[0], bindingNames, bindingTypes, ownerType)
+            }
+            this.checkTypeName(owner, moduleName, receiverType, file, line,
+                column)
+            this.addPendingCall(owner, moduleName,
+                determinismStripCallGenericArguments(expr.callee),
+                receiverType, ownerType, file, line, column)
+        }
+
+        var operandIndex = 0
+        while operandIndex < expr.operands.length() {
+            this.scanExpression(owner, moduleName, ownerType,
+                expr.operands[operandIndex], bindingNames, bindingTypes, file,
+                line, column)
+            operandIndex = operandIndex + 1
+        }
+        var argumentIndex = 0
+        while argumentIndex < expr.arguments.length() {
+            this.scanExpression(owner, moduleName, ownerType,
+                expr.arguments[argumentIndex], bindingNames, bindingTypes,
+                file, line, column)
+            argumentIndex = argumentIndex + 1
+        }
+    }
+
+    fun scanBlock(owner: Int, moduleName: String, ownerType: String,
+        block: BlockNode, bindingNames: Array<String>,
+        bindingTypes: Array<String>, file: String,
+        fallbackLine: Int, fallbackColumn: Int) r: Void {
+
+        var statementIndex = 0
+        while statementIndex < block.statements.length() {
+            let statement = block.statements[statementIndex]
+            var line = statement.line
+            var column = statement.column
+            if line <= 0 { line = fallbackLine }
+            if column <= 0 { column = fallbackColumn }
+
+            this.scanExpression(owner, moduleName, ownerType,
+                statement.initializer, bindingNames, bindingTypes, file, line,
+                column)
+            this.scanExpression(owner, moduleName, ownerType,
+                statement.returnValue, bindingNames, bindingTypes, file, line,
+                column)
+            this.scanExpression(owner, moduleName, ownerType,
+                statement.expression, bindingNames, bindingTypes, file, line,
+                column)
+            this.scanExpression(owner, moduleName, ownerType,
+                statement.condition, bindingNames, bindingTypes, file, line,
+                column)
+            this.scanExpression(owner, moduleName, ownerType,
+                statement.loopCondition, bindingNames, bindingTypes, file,
+                line, column)
+
+            if statement.kind == "Let" or statement.kind == "Var" {
+                var bindingType = statement.variableType.typeName
+                if bindingType == "" or bindingType == "Unknown" {
+                    if statement.initializer.kind == "Closure" {
+                        bindingType = "Closure"
+                    } else {
+                        bindingType = this.inferExpressionType(moduleName,
+                            statement.initializer, bindingNames, bindingTypes,
+                            ownerType)
+                    }
+                }
+                this.checkTypeName(owner, moduleName, bindingType, file, line,
+                    column)
+                bindingNames.push(statement.variableName)
+                bindingTypes.push(bindingType)
+            }
+
+            let thenNames = determinismCopyStrings(bindingNames)
+            let thenTypes = determinismCopyStrings(bindingTypes)
+            this.scanBlock(owner, moduleName, ownerType,
+                statement.thenBranch, thenNames, thenTypes, file, line, column)
+            let elseNames = determinismCopyStrings(bindingNames)
+            let elseTypes = determinismCopyStrings(bindingTypes)
+            this.scanBlock(owner, moduleName, ownerType,
+                statement.elseBranch, elseNames, elseTypes, file, line, column)
+            let loopNames = determinismCopyStrings(bindingNames)
+            let loopTypes = determinismCopyStrings(bindingTypes)
+            this.scanBlock(owner, moduleName, ownerType,
+                statement.loopBody, loopNames, loopTypes, file, line, column)
+            statementIndex = statementIndex + 1
+        }
+    }
+
+    fun scanFunction(owner: Int, moduleName: String, ownerType: String,
+        func: FunctionNode, file: String) r: Void {
+
+        if owner < 0 { return }
+        if func.isDeterministic and func.isNondeterministic {
+            this.addDetailedError("core.004d.annotation-conflict",
+                "declaration cannot be both @deterministic and @nondeterministic",
+                this.declarationIdentities[owner], "annotation-conflict", file,
+                func.line, func.column,
+                this.declarationIdentities[owner] + " -> annotation-conflict",
+                "Keep exactly one determinism annotation on this declaration.")
+        } else if func.isNondeterministic and
+            not determinismFunctionBoundaryIsValid(func) {
+
+            this.addDetailedError("core.004d.annotation-invalid",
+                "@nondeterministic must appear exactly once without arguments",
+                this.declarationIdentities[owner], "annotation-invalid", file,
+                func.line, func.column,
+                this.declarationIdentities[owner] + " -> annotation-invalid",
+                "Use one argument-free @nondeterministic annotation on the exact boundary declaration.")
+        }
+        if func.isExtern {
+            this.addDirectEffect(owner, "unsafe-ffi",
+                this.declarationIdentities[owner] + "#extern", file,
+                func.line, func.column)
+        }
+        this.recordDecoratedEffects(owner, func, file)
+        let bindingNames = Array<String>()
+        let bindingTypes = Array<String>()
+        var parameterIndex = 0
+        while parameterIndex < func.params.length() {
+            let parameter = func.params[parameterIndex]
+            bindingNames.push(parameter.name)
+            bindingTypes.push(parameter.paramType.typeName)
+            this.checkTypeName(owner, moduleName,
+                parameter.paramType.typeName, file, parameter.line,
+                parameter.column)
+            parameterIndex = parameterIndex + 1
+        }
+        this.checkTypeName(owner, moduleName, func.returnType.typeName, file,
+            func.line, func.column)
+        this.scanBlock(owner, moduleName, ownerType, func.body, bindingNames,
+            bindingTypes, file, func.line, func.column)
+    }
+
+    fun checkTypeAliasTarget(owner: Int, moduleName: String, cls: ClassNode,
+        file: String, line: Int, column: Int) r: Void {
+
+        var decoratorIndex = 0
+        while decoratorIndex < cls.decorators.length() {
+            let decorator = cls.decorators[decoratorIndex]
+            if decorator.name == "type_alias" {
+                if decorator.arguments.length() == 0 {
+                    this.addDirectEffect(owner, "unresolved-type",
+                        "type-alias::<missing>", file, line, column)
+                } else {
+                    this.checkTypeName(owner, moduleName,
+                        decorator.arguments[0], file, line, column)
+                }
+            }
+            decoratorIndex = decoratorIndex + 1
+        }
+    }
+
+    fun collectModule(program: ProgramNode, moduleName: String,
+        file: String) r: Void {
+
+        var itemIndex = 0
+        while itemIndex < program.items.length() {
+            let item = program.items[itemIndex]
+            if item.itemType == "Function" {
+                let func = item.function
+                let receiverType = this.functionReceiverIdentity(moduleName,
+                    func)
+                let declarationName = this.functionDeclarationName(moduleName,
+                    func)
+                let declarationIdentity = this.functionDeclarationIdentity(
+                    moduleName, func)
+                this.addDeclaration(declarationIdentity, moduleName,
+                    declarationName, func.name, "Function", receiverType,
+                    func.returnType.typeName, file, func.line, func.column,
+                    determinismFunctionBoundaryIsValid(func),
+                    func.isDeterministic,
+                    this.functionImplTraitIdentity(moduleName, func))
+            } else if item.itemType == "Class" {
+                let cls = item.classNode
+                let classIdentity = determinismCanonicalDeclaration(moduleName,
+                    cls.name)
+                this.addDeclaration(classIdentity, moduleName, cls.name,
+                    cls.name, "Type", classIdentity, classIdentity, file,
+                    item.line, item.column,
+                    determinismClassBoundaryIsValid(cls), false)
+                var methodIndex = 0
+                while methodIndex < cls.methods.length() {
+                    let method = cls.methods[methodIndex]
+                    this.addDeclaration(determinismCanonicalDeclaration(
+                        moduleName, cls.name + "." + method.name), moduleName,
+                        method.name, cls.name + "." + method.name, "Method",
+                        classIdentity,
+                        method.returnType.typeName, file, method.line,
+                        method.column,
+                        determinismClassBoundaryIsValid(cls) or
+                            determinismFunctionBoundaryIsValid(method),
+                        method.isDeterministic)
+                    methodIndex = methodIndex + 1
+                }
+            } else if item.itemType == "GlobalVar" {
+                let globalType = determinismGlobalEncodedType(item.visibility)
+                this.addDeclaration(determinismCanonicalDeclaration(moduleName,
+                    item.name), moduleName, item.name, item.name, "Global", "",
+                    globalType, file, item.line, item.column, false, false)
+            }
+            itemIndex = itemIndex + 1
+        }
+
+        itemIndex = 0
+        while itemIndex < program.items.length() {
+            let item = program.items[itemIndex]
+            if item.itemType == "Function" {
+                let func = item.function
+                let owner = this.findDeclaration(
+                    this.functionDeclarationIdentity(moduleName, func))
+                var ownerType = ""
+                if owner >= 0 { ownerType = this.declarationReceiverTypes[owner] }
+                this.scanFunction(owner, moduleName, ownerType, func, file)
+            } else if item.itemType == "Class" {
+                let cls = item.classNode
+                let classIdentity = determinismCanonicalDeclaration(moduleName,
+                    cls.name)
+                let classOwner = this.findDeclaration(classIdentity)
+                if cls.isNondeterministic and
+                    not determinismClassBoundaryIsValid(cls) {
+
+                    this.addDetailedError("core.004d.annotation-invalid",
+                        "@nondeterministic must appear exactly once without arguments",
+                        classIdentity, "annotation-invalid", file, item.line,
+                        item.column, classIdentity + " -> annotation-invalid",
+                        "Use one argument-free @nondeterministic annotation on the exact boundary declaration.")
+                }
+                this.checkTypeAliasTarget(classOwner, moduleName, cls, file,
+                    item.line, item.column)
+                var fieldIndex = 0
+                while fieldIndex < cls.fields.length() {
+                    let field = cls.fields[fieldIndex]
+                    this.checkTypeName(classOwner, moduleName,
+                        field.paramType.typeName, file, field.line,
+                        field.column)
+                    fieldIndex = fieldIndex + 1
+                }
+                var methodIndex = 0
+                while methodIndex < cls.methods.length() {
+                    let method = cls.methods[methodIndex]
+                    let owner = this.findDeclaration(
+                        determinismCanonicalDeclaration(moduleName,
+                            cls.name + "." + method.name))
+                    this.scanFunction(owner, moduleName, classIdentity, method,
+                        file)
+                    methodIndex = methodIndex + 1
+                }
+            } else if item.itemType == "GlobalVar" {
+                let globalOwner = this.findDeclaration(
+                    determinismCanonicalDeclaration(moduleName, item.name))
+                this.checkTypeName(globalOwner, moduleName,
+                    determinismGlobalEncodedType(item.visibility), file,
+                    item.line, item.column)
+            }
+            itemIndex = itemIndex + 1
+        }
+    }
+
+    fun addEdge(caller: Int, callee: Int, file: String, line: Int,
+        column: Int) r: Void {
+
+        if caller < 0 or callee < 0 { return }
+        var existing = 0
+        while existing < this.edgeCallers.length() {
+            if this.edgeCallers[existing] == caller and
+                this.edgeCallees[existing] == callee {
+
+                return
+            }
+            existing = existing + 1
+        }
+        if this.edgeCallers.length() >= determinismGraphMaxEdges() {
+            this.reportLimit(file, line, column)
+            return
+        }
+        this.edgeCallers.push(caller)
+        this.edgeCallees.push(callee)
+        this.edgeFiles.push(file)
+        this.edgeLines.push(line)
+        this.edgeColumns.push(column)
+    }
+
+    fun resolvedMethodDeclaration(moduleName: String, receiverType: String,
+        methodName: String) r: Int {
+
+        let typeIndex = this.resolveTypeBaseIndex(moduleName, receiverType)
+        var receiverIdentity = this.resolvedTypeIdentity(moduleName,
+            receiverType)
+        if typeIndex >= 0 {
+            receiverIdentity = this.registryCanonicalNames[typeIndex]
+            let methodIdentity = determinismCanonicalDeclaration(
+                this.registryModules[typeIndex],
+                this.registryNames[typeIndex] + "." + methodName)
+            let direct = this.findDeclaration(methodIdentity)
+            if direct >= 0 { return direct }
+        }
+
+        if receiverIdentity == "" { return -1 }
+        var exact = -1
+        var i = 0
+        while i < this.declarationIdentities.length() {
+            if this.declarationNames[i] == methodName and
+                this.declarationReceiverTypes[i] == receiverIdentity {
+
+                if exact >= 0 { return -2 }
+                exact = i
+            }
+            i = i + 1
+        }
+        return exact
+    }
+
+    fun addTraitDispatchEdges(traitMethod: Int, methodName: String) r: Void {
+        if traitMethod < 0 or
+            this.declarationKinds[traitMethod] != "Method" {
+
+            return
+        }
+        let traitIdentity = this.declarationReceiverTypes[traitMethod]
+        let traitIndex = this.registryFindCanonical(traitIdentity)
+        if traitIndex < 0 or this.registryKinds[traitIndex] != "Trait" {
+            return
+        }
+
+        // Parser-preserved impl metadata binds only implementations of this
+        // exact trait. Same-named methods on unrelated types are never joined
+        // into the dispatch set.
+        var candidate = 0
+        while candidate < this.declarationIdentities.length() {
+            if candidate != traitMethod and
+                this.declarationKinds[candidate] == "Function" and
+                this.declarationNames[candidate] == methodName and
+                this.declarationImplTraits[candidate] == traitIdentity and
+                this.declarationReceiverTypes[candidate] != "" and
+                this.declarationReceiverTypes[candidate] != traitIdentity {
+
+                this.addEdge(traitMethod, candidate,
+                    this.declarationFiles[candidate],
+                    this.declarationLines[candidate],
+                    this.declarationColumns[candidate])
+            }
+            candidate = candidate + 1
+        }
+    }
+
+    fun builtinReceiverIdentity(moduleName: String, receiverType: String)
+        r: String {
+
+        let resolved = this.resolvedTypeIdentity(moduleName, receiverType)
+        if resolved.startsWith("builtin::type::") { return resolved }
+        return ""
+    }
+
+    fun resolvePendingCalls() r: Void {
+        var i = 0
+        while i < this.pendingOwners.length() {
+            let owner = this.pendingOwners[i]
+            let moduleName = this.pendingModules[i]
+            let name = this.pendingNames[i]
+            let receiverType = this.pendingReceiverTypes[i]
+            let file = this.pendingFiles[i]
+            let line = this.pendingLines[i]
+            let column = this.pendingColumns[i]
+            var resolved = -1
+
+            if receiverType == "" {
+                let registryIndex = this.registryLookupIndex(moduleName, name)
+                if registryIndex >= 0 {
+                    resolved = this.findRegistryDeclaration(registryIndex)
+                    if resolved < 0 {
+                        let kind = this.registryKinds[registryIndex]
+                        if kind == "Class" or kind == "Struct" or
+                            kind == "TypeAlias" or kind == "Enum" {
+
+                            resolved = -3
+                        }
+                    }
+                } else if registryIndex == -2 {
+                    this.addDirectEffect(owner, "unresolved-call",
+                        "ambiguous::" + name, file, line, column)
+                    resolved = -3
+                }
+                if resolved < 0 and resolved != -3 and
+                    this.pendingOwnerTypes[i] != "" {
+
+                    resolved = this.resolvedMethodDeclaration(moduleName,
+                        this.pendingOwnerTypes[i], name)
+                }
+            } else {
+                resolved = this.resolvedMethodDeclaration(moduleName,
+                    receiverType, name)
+            }
+
+            if resolved >= 0 {
+                this.addEdge(owner, resolved, file, line, column)
+                this.addTraitDispatchEdges(resolved, name)
+            } else if resolved != -3 {
+                let builtinEffect = determinismFreeBuiltinEffect(name)
+                if builtinEffect != "" {
+                    var builtinIdentity = "builtin::" + builtinEffect +
+                        "::" + name
+                    if receiverType != "" {
+                        let receiverIdentity = this.builtinReceiverIdentity(
+                            moduleName, receiverType)
+                        if receiverIdentity != "" {
+                            builtinIdentity = receiverIdentity + "." + name
+                        }
+                    }
+                    this.addDirectEffect(owner, builtinEffect,
+                        builtinIdentity, file, line, column)
+                } else if not determinismKnownDeterministicBuiltin(name) {
+                    this.addDirectEffect(owner, "unresolved-call",
+                        "unresolved::" + name, file, line, column)
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    fun diagnosticCodeForEffect(kind: String) r: String {
+        if kind == "unresolved-call" { return "core.004d.unresolved-call" }
+        if kind == "unresolved-effect" or kind == "unresolved-type" {
+            return "core.004d.unresolved-effect"
+        }
+        if kind == "floating-point" { return "core.004d.floating-point" }
+        if kind == "unordered-collection" {
+            return "core.004d.unordered-collection"
+        }
+        if kind == "unsafe-ffi" { return "core.004d.unsafe-ffi" }
+        return "core.004d.nondeterministic-effect"
+    }
+
+    fun suggestionForEffect(kind: String) r: String {
+        if kind == "floating-point" {
+            return "Use Fixed64/Fixed128, or put the exact declaration behind a valid @nondeterministic boundary."
+        }
+        if kind == "unordered-collection" {
+            return "Use BTreeMap/BTreeSet, or put the exact declaration behind a valid @nondeterministic boundary."
+        }
+        if kind == "unresolved-call" or kind == "unresolved-effect" or
+            kind == "unresolved-type" {
+            return "Resolve the declaration/effect to a canonical identity before deterministic compilation."
+        }
+        return "Remove the nondeterministic facility or annotate the exact owning declaration @nondeterministic."
+    }
+
+    fun validate() r: DeterminismCheckResult {
+        this.resolvePendingCalls()
+
+        let count = this.declarationIdentities.length()
+        let effectKinds = Array<String>()
+        let effectIdentities = Array<String>()
+        let effectFiles = Array<String>()
+        let effectLines = Array<Int>()
+        let effectColumns = Array<Int>()
+        let effectPaths = Array<String>()
+        let effectOrigins = Array<String>()
+        let incoming = Array<Int>()
+        var i = 0
+        while i < count {
+            effectKinds.push("")
+            effectIdentities.push("")
+            effectFiles.push("")
+            effectLines.push(0)
+            effectColumns.push(0)
+            effectPaths.push("")
+            effectOrigins.push("")
+            incoming.push(0)
+            i = i + 1
+        }
+
+        i = 0
+        while i < this.directOwners.length() {
+            let owner = this.directOwners[i]
+            if owner >= 0 and owner < count and
+                this.declarationBoundaries[owner] == 0 and
+                effectKinds[owner] == "" {
+
+                effectKinds[owner] = this.directKinds[i]
+                effectIdentities[owner] = this.directIdentities[i]
+                effectFiles[owner] = this.directFiles[i]
+                effectLines[owner] = this.directLines[i]
+                effectColumns[owner] = this.directColumns[i]
+                effectPaths[owner] = determinismPathAppend(
+                    this.declarationIdentities[owner],
+                    this.directIdentities[i])
+                effectOrigins[owner] = this.declarationIdentities[owner] +
+                    "|" + this.directIdentities[i] + "|" +
+                    this.directFiles[i] + ":" +
+                    this.directLines[i].toString()
+            }
+            i = i + 1
+        }
+
+        i = 0
+        while i < this.edgeCallers.length() {
+            let callee = this.edgeCallees[i]
+            if callee >= 0 and callee < count and
+                this.declarationBoundaries[callee] == 0 {
+
+                incoming[callee] = incoming[callee] + 1
+            }
+            i = i + 1
+        }
+
+        var round = 0
+        var changed = true
+        while changed and round < determinismGraphMaxPropagationRounds() {
+            changed = false
+            i = 0
+            while i < this.edgeCallers.length() {
+                let caller = this.edgeCallers[i]
+                let callee = this.edgeCallees[i]
+                if caller >= 0 and caller < count and callee >= 0 and
+                    callee < count and this.declarationBoundaries[caller] == 0 and
+                    this.declarationBoundaries[callee] == 0 and
+                    effectKinds[caller] == "" and effectKinds[callee] != "" {
+
+                    effectKinds[caller] = effectKinds[callee]
+                    effectIdentities[caller] = effectIdentities[callee]
+                    effectFiles[caller] = effectFiles[callee]
+                    effectLines[caller] = effectLines[callee]
+                    effectColumns[caller] = effectColumns[callee]
+                    effectPaths[caller] = determinismPathAppend(
+                        this.declarationIdentities[caller],
+                        effectPaths[callee])
+                    effectOrigins[caller] = effectOrigins[callee]
+                    changed = true
+                }
+                i = i + 1
+            }
+            round = round + 1
+        }
+        if changed {
+            this.reportLimit("<program-graph>", 0, 0)
+        }
+
+        let reportedOrigins = Array<String>()
+        i = 0
+        while i < count {
+            let isRoot = incoming[i] == 0 or
+                this.declarationNames[i] == "main" or
+                this.declarationExplicitDeterministic[i] != 0
+            if effectKinds[i] != "" and isRoot {
+                var seenOrigin = false
+                var originIndex = 0
+                while originIndex < reportedOrigins.length() {
+                    if reportedOrigins[originIndex] == effectOrigins[i] {
+                        seenOrigin = true
+                    }
+                    originIndex = originIndex + 1
+                }
+                if not seenOrigin {
+                    reportedOrigins.push(effectOrigins[i])
+                    this.addDetailedError(
+                        this.diagnosticCodeForEffect(effectKinds[i]),
+                        "deterministic declaration reaches " +
+                            effectKinds[i] + " facility '" +
+                            effectIdentities[i] + "'",
+                        this.declarationIdentities[i], effectIdentities[i],
+                        effectFiles[i], effectLines[i], effectColumns[i],
+                        effectPaths[i],
+                        this.suggestionForEffect(effectKinds[i]))
+                }
+            }
+            i = i + 1
+        }
+
+        // A closed recursive component has no zero-incoming node. Report its
+        // first stable declaration once so cycles cannot hide an effect.
+        i = 0
+        while i < count {
+            if effectKinds[i] != "" {
+                var seenOrigin = false
+                var originIndex = 0
+                while originIndex < reportedOrigins.length() {
+                    if reportedOrigins[originIndex] == effectOrigins[i] {
+                        seenOrigin = true
+                    }
+                    originIndex = originIndex + 1
+                }
+                if not seenOrigin {
+                    reportedOrigins.push(effectOrigins[i])
+                    this.addDetailedError(
+                        this.diagnosticCodeForEffect(effectKinds[i]),
+                        "deterministic declaration reaches " +
+                            effectKinds[i] + " facility '" +
+                            effectIdentities[i] + "'",
+                        this.declarationIdentities[i], effectIdentities[i],
+                        effectFiles[i], effectLines[i], effectColumns[i],
+                        effectPaths[i],
+                        this.suggestionForEffect(effectKinds[i]))
+                }
+            }
+            i = i + 1
+        }
+        return this.result
+    }
+}
+
 // Convenience function to check a program for determinism
 fun checkDeterminism(program: ProgramNode, uwwMode: Bool = false) r: DeterminismCheckResult {
     let checker = DeterminismChecker.new()
@@ -657,22 +2174,41 @@ fun checkDeterminismWithProfile(program: ProgramNode, deterministicProfile: Bool
 // Print determinism errors
 fun printDeterminismErrors(result: DeterminismCheckResult) r: Void {
     if result.hasErrors() {
-        println("=== Determinism Check Errors ===")
         var i = 0
         while i < result.errors.length() {
             let err: DeterminismError = result.errors[i]
-            // Use getter methods with explicit type annotations
+            let code: String = err.getCode()
             let msg: String = err.getMessage()
             let funcName: String = err.getFunctionName()
             let called: String = err.getCalledFunction()
-            var errStr: String = "Determinism Error: " + msg
-            if funcName.length() > 0 {
-                errStr = errStr + " in function '" + funcName + "'"
+            if code != "" {
+                var file = err.getFile()
+                if file == "" { file = "<unknown>" }
+                println("error[" + code + "]: " + msg)
+                println("  --> " + file + ":" + err.getLine().toString() +
+                    ":" + err.getColumn().toString())
+                if funcName != "" {
+                    println("  = declaration: " + funcName)
+                }
+                if err.getEffectPath() != "" {
+                    println("  = effect path: " + err.getEffectPath())
+                }
+                if called != "" {
+                    println("  = facility: " + called)
+                }
+                if err.getSuggestion() != "" {
+                    println("  = help: " + err.getSuggestion())
+                }
+            } else {
+                var errStr: String = "Determinism Error: " + msg
+                if funcName.length() > 0 {
+                    errStr = errStr + " in function '" + funcName + "'"
+                }
+                if called.length() > 0 {
+                    errStr = errStr + " when calling '" + called + "'"
+                }
+                println(errStr)
             }
-            if called.length() > 0 {
-                errStr = errStr + " when calling '" + called + "'"
-            }
-            println(errStr)
             i = i + 1
         }
     }

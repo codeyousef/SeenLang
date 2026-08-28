@@ -12,7 +12,7 @@ class ClassTypeDecoratorState {
     var reprCClassNames: String
     var cacheLineClasses: String
     var sendTypes: String
-    var syncTypes: String
+    var shareTypes: String
     var soaClassNames: String
     var soaClassCount: Int
     var triviallyCopyableClasses: String
@@ -37,7 +37,7 @@ class ClassTypeDecoratorState {
     var enumTypeNames: String
 
     static fun new(reprCClassNames: String, cacheLineClasses: String,
-        sendTypes: String, syncTypes: String, soaClassNames: String,
+        sendTypes: String, shareTypes: String, soaClassNames: String,
         soaClassCount: Int, triviallyCopyableClasses: String,
         moveOnlyClasses: String, cResourceClasses: String,
         cResourceDestructors: String, reflectClassNames: String,
@@ -54,7 +54,7 @@ class ClassTypeDecoratorState {
             reprCClassNames: reprCClassNames,
             cacheLineClasses: cacheLineClasses,
             sendTypes: sendTypes,
-            syncTypes: syncTypes,
+            shareTypes: shareTypes,
             soaClassNames: soaClassNames,
             soaClassCount: soaClassCount,
             triviallyCopyableClasses: triviallyCopyableClasses,
@@ -123,9 +123,9 @@ fun registerClassTypeDecoratorMetadataImpl(output: StringBuilder,
         state.sendTypes = state.sendTypes + className + "|"
         output.append("; @send type: " + className + "\n")
     }
-    if decorator.name == "sync" {
-        state.syncTypes = state.syncTypes + className + "|"
-        output.append("; @sync type: " + className + "\n")
+    if decorator.name == "share" {
+        state.shareTypes = state.shareTypes + className + "|"
+        output.append("; @share type: " + className + "\n")
     }
     if decorator.name == "layout" {
         if decorator.arguments.length() > 0 {
@@ -231,7 +231,7 @@ fun scanClassTypeDecoratorsImpl(output: StringBuilder, classNode: ClassNode,
 
 fun prepareClassTypeDecoratorScanSnapshotImpl(output: StringBuilder,
     classNode: ClassNode, reprCClassNames: String,
-    cacheLineClasses: String, sendTypes: String, syncTypes: String,
+    cacheLineClasses: String, sendTypes: String, shareTypes: String,
     soaClassNames: String, soaClassCount: Int,
     triviallyCopyableClasses: String, moveOnlyClasses: String,
     cResourceClasses: String, cResourceDestructors: String,
@@ -246,7 +246,7 @@ fun prepareClassTypeDecoratorScanSnapshotImpl(output: StringBuilder,
     structSizes: Array<Int>) r: ClassTypeDecoratorScanSnapshot {
 
     let decoratorState = ClassTypeDecoratorState.new(reprCClassNames,
-        cacheLineClasses, sendTypes, syncTypes, soaClassNames,
+        cacheLineClasses, sendTypes, shareTypes, soaClassNames,
         soaClassCount, triviallyCopyableClasses, moveOnlyClasses,
         cResourceClasses, cResourceDestructors, reflectClassNames,
         reflectClassCount, binaryClassNames, binaryEndianness,

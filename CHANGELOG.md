@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added the `seen-sync-v1` synchronization contract: compiler-proven `Send`
+  and `Share`, checked `Arc<T>`, typed atomics and memory orders, bounded typed
+  channels, scoped mutex/RW-lock guards with poisoning, and bounded lock-order
+  diagnostics over a generation-checked OS adapter.
+- Added the `seen-deterministic-context-v1` runtime-input contract and the
+  `seen-program-artifacts-v1` / `seen-program-reproducibility-v1` evidence
+  formats, with fail-closed required-CI, fresh-compiler, and release-preparation
+  wiring.
+
+### Changed
+
+- Unified deterministic CLI handling across `compile`, `check`, and `run`.
+  `--deterministic` now implies the semantic deterministic profile and
+  `--simd=none`, contradictory options fail with stable `core.004c.*`
+  diagnostics, deterministic run uses the policy-aware AOT path, and the
+  legacy `seen determinism` command is rejected.
+- Removed the pre-1.0 raw mutex, atomic, pipe-channel, barrier/TLS, atomic queue,
+  and atomic stack compatibility surfaces; synchronization policy now lives in
+  native Seen with no silent fallback.
+
 ## [0.17.0] - 2026-08-27
 
 ### Added

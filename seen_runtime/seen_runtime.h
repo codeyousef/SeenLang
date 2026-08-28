@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "reactor_abi.h"
+#include "sync_abi.h"
 #include <inttypes.h>
 
 // ============================================================================
@@ -553,7 +554,9 @@ bool commandWasSuccessful(CommandResult result);
 // Get command line arguments
 SeenArray args(void);
 
-// Initialize runtime with argc/argv (call from main)
+// Initialize runtime with argc/argv (call from main).  When deterministic
+// execution is enabled, invalid or over-bound launch inputs fail closed with
+// exit status 70 before this function returns.
 void seen_runtime_init(int argc, char** argv);
 
 // ============================================================================
@@ -1045,36 +1048,22 @@ int32_t seen_mapped_window_close(uint64_t *window_handle);
 int32_t seen_mapped_file_close(uint64_t *file_handle);
 
 // ============================================================================
-// RwLock (Reader-Writer Lock)
-// ============================================================================
-int64_t seen_rwlock_new(void);
-void    seen_rwlock_read_lock(int64_t handle);
-void    seen_rwlock_read_unlock(int64_t handle);
-void    seen_rwlock_write_lock(int64_t handle);
-void    seen_rwlock_write_unlock(int64_t handle);
-void    seen_rwlock_destroy(int64_t handle);
-
-// ============================================================================
-// Barrier
-// ============================================================================
-int64_t seen_barrier_new(int64_t count);
-int64_t seen_barrier_wait(int64_t handle);
-void    seen_barrier_destroy(int64_t handle);
-
-// ============================================================================
 // Time — narrow OS normalization ABI; scheduling policy remains in Seen
 // ============================================================================
 int64_t seen_time_monotonic_nanos(void);
 int64_t seen_time_system_nanos(void);
 int32_t seen_time_sleep_nanos(int64_t nanoseconds);
-
-// ============================================================================
-// Thread-Local Storage
-// ============================================================================
-int64_t seen_tls_new(void);
-void    seen_tls_set(int64_t key, int64_t value);
-int64_t seen_tls_get(int64_t key);
-void    seen_tls_destroy(int64_t key);
+// 0 means deterministic launch capture is disabled; 1 means enabled and
+// valid. Invalid enabled input terminates from seen_runtime_init before user
+// code. POSIX path containment returns 1 for equal/beneath, 0 for outside,
+// and -1 when either existing path cannot be canonicalized. Windows returns
+// -2 until native Seen defines deterministic drive and UNC root policy.
+int32_t seen_deterministic_runtime_status(void);
+// Re-exec the current compiler process after deterministic launch variables
+// have been validated and published. Success never returns. A negative result
+// is a stable unsupported/failure status and callers must fail closed.
+int32_t seen_reexec_current_process(void);
+int32_t seen_deterministic_path_beneath(SeenString root, SeenString path);
 
 // ============================================================================
 // Work-Stealing Thread Pool
@@ -1092,6 +1081,7 @@ typedef void (*SeenPForDropErrorV2)(int64_t owned_error);
 int64_t seen_parallel_for_v2(int64_t start, int64_t end,
     SeenPForBodyV2 body, void *environment,
     SeenPForDropErrorV2 drop_error, int64_t nthreads);
+void seen_parallel_for_fail_closed(int64_t status);
 
 // 0.10 callback ABI retained while old objects are rebuilt.
 void seen_parallel_for(int64_t start, int64_t end, int64_t function_pointer,

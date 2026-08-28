@@ -1,0 +1,7 @@
+@share
+class Holder<T: Share> {
+    let value: T
+}
+
+fun reject(value: Holder<Array<Int>>) r: Int { return 0 }
+fun main() r: Int { return 0 }

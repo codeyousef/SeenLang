@@ -2,7 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions}
-import codegen.ir_codegen_feature_state.{g_closureCount, g_closureDefs, g_comptimeCount, g_comptimeNames, g_comptimeValues, g_intrinsicCount, g_intrinsicFuncNames, g_intrinsicLlvmNames, g_pforCount, g_sendTypes, g_syncTypes}
+import codegen.ir_codegen_feature_state.{g_closureCount, g_closureDefs, g_comptimeCount, g_comptimeNames, g_comptimeValues, g_intrinsicCount, g_intrinsicFuncNames, g_intrinsicLlvmNames, g_pforCount, g_sendTypes, g_shareTypes}
 import codegen.ir_string_collect.{resetStringConstCache}
 import codegen.ir_type_info.{resetTypeInfoLookupCaches}
 import codegen.ir_infer_type.{resetMethodBoolSuffixCache}
@@ -98,7 +98,7 @@ class SharedModuleGenerationScratchState {
     var intrinsicLlvmNames: String
     var intrinsicCount: Int
     var sendTypes: String
-    var syncTypes: String
+    var shareTypes: String
 
     static fun new() r: SharedModuleGenerationScratchState {
         return SharedModuleGenerationScratchState{
@@ -114,7 +114,7 @@ class SharedModuleGenerationScratchState {
             intrinsicLlvmNames: "",
             intrinsicCount: 0,
             sendTypes: "",
-            syncTypes: ""
+            shareTypes: ""
         }
     }
 }
@@ -142,7 +142,7 @@ fun resetSharedModuleGenerationScratchAndGlobalsImpl()
     g_intrinsicLlvmNames = scratchState.intrinsicLlvmNames
     g_intrinsicCount = scratchState.intrinsicCount
     g_sendTypes = scratchState.sendTypes
-    g_syncTypes = scratchState.syncTypes
+    g_shareTypes = scratchState.shareTypes
     return scratchState
 }
 

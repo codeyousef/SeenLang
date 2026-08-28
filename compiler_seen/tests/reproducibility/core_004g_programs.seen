@@ -1,0 +1,201 @@
+import release.program_reproducibility.{ProgramReproducibilityContainment,
+    ProgramReproducibilityAttestation, ProgramReproducibilityRun,
+    ProgramReproducibilityDescriptor, ProgramReproducibilityResult,
+    ProgramReproducibilityBuilder, ProgramReproducibilityEvidence,
+    validateProgramReproducibilityEvidence}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+let CORE004G_EMPTY_SHA: String =
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+fun core004gContext(cancelled: Bool, modules: Int) r: OperationContext {
+    return OperationContext{cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 512,
+            maxVersionBytes: 256, maxManifestBytes: 8388608,
+            maxPathBytes: 4096, maxGraphModules: modules,
+            maxGraphEdges: 256, maxGraphDepth: 32},
+        traceId: AsciiString{value: "core-004g"}}
+}
+
+fun core004gDescriptor(id: String, mode: String, input: String)
+    r: ProgramReproducibilityDescriptor {
+    return ProgramReproducibilityDescriptor{id: id, mode: mode,
+        sourceDigest: "4444444444444444444444444444444444444444444444444444444444444444",
+        lockDigest: "2222222222222222222222222222222222222222222222222222222222222222",
+        buildInputDigest: input,
+        command: "seen compile --deterministic corpus/" + id + ".seen",
+        expectedStdoutSha256: CORE004G_EMPTY_SHA,
+        expectedStderrSha256: CORE004G_EMPTY_SHA, expectedExitCode: 0}
+}
+
+fun core004gRun(id: String, cacheMode: String)
+    r: ProgramReproducibilityRun {
+    let prefix = id + "-" + cacheMode
+    return ProgramReproducibilityRun{cacheMode: cacheMode,
+        artifact: prefix + ".bin",
+        artifactSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        artifactBytes: 4096, manifest: prefix + ".json",
+        manifestSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        manifestBytes: 128, stdout: prefix + ".out",
+        stdoutSha256: CORE004G_EMPTY_SHA, stdoutBytes: 0,
+        stderr: prefix + ".err", stderrSha256: CORE004G_EMPTY_SHA,
+        stderrBytes: 0, exitCode: 0}
+}
+
+fun core004gResult(descriptor: ProgramReproducibilityDescriptor)
+    r: ProgramReproducibilityResult {
+    let runs = Array<ProgramReproducibilityRun>()
+    runs.push(core004gRun(descriptor.id, "cold"))
+    runs.push(core004gRun(descriptor.id, "warm"))
+    runs.push(core004gRun(descriptor.id, "disabled"))
+    return ProgramReproducibilityResult{id: descriptor.id,
+        buildInputDigest: descriptor.buildInputDigest, runs: runs}
+}
+
+fun core004gBuilder(id: String, identity: String, root: String,
+    cache: String, descriptors: Array<ProgramReproducibilityDescriptor>)
+    r: ProgramReproducibilityBuilder {
+    let results = Array<ProgramReproducibilityResult>()
+    var index = 0
+    while index < descriptors.length() {
+        results.push(core004gResult(descriptors[index]))
+        index = index + 1
+    }
+    return ProgramReproducibilityBuilder{id: id,
+        builderIdentity: identity, buildRootDigest: root,
+        cacheRootDigest: cache, compiler: "seen",
+        compilerIdentity: "Seen 0.18.0",
+        compilerSha256: "1111111111111111111111111111111111111111111111111111111111111111",
+        installedArchive: "seen-0.18.0-linux-x86_64.tar.gz",
+        installedArchiveSha256: "2222222222222222222222222222222222222222222222222222222222222222",
+        toolchain: "seen-0.18.0 llvm-22 linux-x86_64",
+        containment: ProgramReproducibilityContainment{
+            memoryAvailableBytes: 34359738368, memoryMaxBytes: 17179869184,
+            memoryMaxReadbackBytes: 17179869184, memorySwapMaxBytes: 0,
+            memorySwapMaxReadbackBytes: 0, pidsMax: 24,
+            pidsMaxReadback: 24, tasksCurrent: 1, jobs: 1, optJobs: 1},
+        attestation: ProgramReproducibilityAttestation{mode: "keyless",
+            identity: "https://github.com/codeyousef/SeenLang/.github/workflows/ci.yml@refs/heads/main",
+            issuer: "https://token.actions.githubusercontent.com",
+            inventorySha256: "3333333333333333333333333333333333333333333333333333333333333333",
+            signatureSha256: "5555555555555555555555555555555555555555555555555555555555555555"},
+        programs: results}
+}
+
+fun core004gEvidence() r: ProgramReproducibilityEvidence {
+    let programs = Array<ProgramReproducibilityDescriptor>()
+    programs.push(core004gDescriptor("single-file", "default",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"))
+    programs.push(core004gDescriptor("multi-module", "default",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"))
+    programs.push(core004gDescriptor("locked-package", "default",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"))
+    programs.push(core004gDescriptor("deterministic-runtime-context", "default",
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"))
+    programs.push(core004gDescriptor("default", "default",
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
+    programs.push(core004gDescriptor("release-full-lto", "release-full-lto",
+        "0000000000000000000000000000000000000000000000000000000000000000"))
+    programs.push(core004gDescriptor("release-thin-lto", "release-thin-lto",
+        "1111111111111111111111111111111111111111111111111111111111111111"))
+    let builders = Array<ProgramReproducibilityBuilder>()
+    builders.push(core004gBuilder("builder-a",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        programs))
+    builders.push(core004gBuilder("builder-b",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        programs))
+    return ProgramReproducibilityEvidence{
+        schema: "seen-program-reproducibility-v1", target: "linux-x86_64",
+        sourceCommit: "1111111111111111111111111111111111111111",
+        sourceDigest: "1111111111111111111111111111111111111111111111111111111111111111",
+        lockDigest: "2222222222222222222222222222222222222222222222222222222222222222",
+        buildInputDigest: "3333333333333333333333333333333333333333333333333333333333333333",
+        sourceDateEpoch: 0, cancelled: false, programs: programs,
+        builders: builders}
+}
+
+fun core004gExpect(code: String, evidence: ProgramReproducibilityEvidence)
+    r: Bool {
+    let result = validateProgramReproducibilityEvidence(evidence,
+        core004gContext(false, 64))
+    return result.isErr() and result.unwrapErr().code.value == code
+}
+
+fun main() r: Int {
+    let happy = validateProgramReproducibilityEvidence(core004gEvidence(),
+        core004gContext(false, 64))
+    if happy.isErr() { println("FAIL: CORE-004G_two_builder_happy"); return 1 }
+    println("PASS: CORE-004G_two_builder_happy")
+
+    let rawMismatch = core004gEvidence()
+    rawMismatch.builders[1].programs[0].runs[0].artifactSha256 =
+        "7777777777777777777777777777777777777777777777777777777777777777"
+    if not core004gExpect("core.004g.raw_mismatch", rawMismatch) {
+        println("FAIL: CORE-004G_raw_mismatch"); return 1
+    }
+    println("PASS: CORE-004G_raw_mismatch")
+
+    let builderIdentity = core004gEvidence()
+    builderIdentity.builders[1].builderIdentity =
+        builderIdentity.builders[0].builderIdentity
+    if not core004gExpect("core.004g.builder_identity", builderIdentity) {
+        println("FAIL: CORE-004G_builder_identity"); return 1
+    }
+    println("PASS: CORE-004G_builder_identity")
+
+    let rootIdentity = core004gEvidence()
+    rootIdentity.builders[1].buildRootDigest =
+        rootIdentity.builders[0].buildRootDigest
+    if not core004gExpect("core.004g.root_identity", rootIdentity) {
+        println("FAIL: CORE-004G_root_identity"); return 1
+    }
+    println("PASS: CORE-004G_root_identity")
+
+    let inputDrift = core004gEvidence()
+    inputDrift.builders[0].programs[0].buildInputDigest =
+        "6666666666666666666666666666666666666666666666666666666666666666"
+    if not core004gExpect("core.004g.input_drift", inputDrift) {
+        println("FAIL: CORE-004G_input_drift"); return 1
+    }
+    println("PASS: CORE-004G_input_drift")
+
+    let toolchainDrift = core004gEvidence()
+    toolchainDrift.builders[1].toolchain = "seen-0.18.0 llvm-23 linux-x86_64"
+    if not core004gExpect("core.004g.toolchain_drift", toolchainDrift) {
+        println("FAIL: CORE-004G_toolchain_drift"); return 1
+    }
+    println("PASS: CORE-004G_toolchain_drift")
+
+    let limited = core004gEvidence()
+    limited.builders[0].containment.pidsMax = 25
+    if not core004gExpect("core.004g.limit", limited) {
+        println("FAIL: CORE-004G_limit"); return 1
+    }
+    println("PASS: CORE-004G_limit")
+
+    let cancelled = validateProgramReproducibilityEvidence(core004gEvidence(),
+        core004gContext(true, 64))
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value !=
+        "core.004g.cancelled" {
+        println("FAIL: CORE-004G_cancel"); return 1
+    }
+    println("PASS: CORE-004G_cancel")
+
+    let installed = core004gEvidence()
+    installed.builders[1].installedArchiveSha256 =
+        "7777777777777777777777777777777777777777777777777777777777777777"
+    if not core004gExpect("core.004g.installed_archive", installed) {
+        println("FAIL: CORE-004G_installed_archive"); return 1
+    }
+    println("PASS: CORE-004G_installed_archive")
+
+    return 0
+}
+
+main()

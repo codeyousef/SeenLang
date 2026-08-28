@@ -1,0 +1,8 @@
+fun visit(values: Array<Int>) r: Int {
+    parallel_for index in 0..4 {
+        println(values[index])
+    }
+    return 0
+}
+
+fun main() r: Int { return 0 }

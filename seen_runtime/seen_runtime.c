@@ -87,6 +87,7 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 #include <ctype.h>
 
 #include "reactor_abi.c"
+#include "sync_abi.c"
 
 static inline size_t seen_align_up(size_t n, size_t align);
 
@@ -167,6 +168,200 @@ void seen_pool_free(void *ptr, int64_t size) {
 static int g_argc = 0;
 static char** g_argv = NULL;
 
+// CORE-004E: deterministic inputs are captured exactly once, before Seen user
+// code starts. Runtime APIs consult this bounded immutable snapshot instead of
+// rereading ambient process state after initialization.
+// Native policy grants at most 256 application arguments; argv[0] is captured
+// as well so args() remains a faithful process-start snapshot.
+#define SEEN_DETERMINISTIC_MAX_ARGS 257
+#define SEEN_DETERMINISTIC_MAX_ARG_BYTES 4096
+#define SEEN_DETERMINISTIC_MAX_ENV 128
+#define SEEN_DETERMINISTIC_MAX_ENV_NAME_BYTES 128
+#define SEEN_DETERMINISTIC_MAX_ENV_VALUE_BYTES 4096
+#define SEEN_DETERMINISTIC_MAX_CAPTURE_BYTES 65536
+
+typedef struct {
+    int initialized;
+    int enabled;
+    int valid;
+    int argc;
+    char args[SEEN_DETERMINISTIC_MAX_ARGS][SEEN_DETERMINISTIC_MAX_ARG_BYTES + 1];
+    int env_count;
+    char env_names[SEEN_DETERMINISTIC_MAX_ENV][SEEN_DETERMINISTIC_MAX_ENV_NAME_BYTES + 1];
+    char env_values[SEEN_DETERMINISTIC_MAX_ENV][SEEN_DETERMINISTIC_MAX_ENV_VALUE_BYTES + 1];
+    int64_t epoch_seconds;
+    uint64_t seed;
+} SeenDeterministicRuntimeInputs;
+
+static SeenDeterministicRuntimeInputs g_seen_deterministic_inputs = {0};
+
+static int seen_deterministic_bounded_length(const char *text,
+                                             size_t maximum,
+                                             size_t *out_length) {
+    if (!text || !out_length) return 0;
+    for (size_t length = 0; length <= maximum; length++) {
+        if (text[length] == '\0') {
+            *out_length = length;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int seen_deterministic_parse_u64(const char *text, uint64_t maximum,
+                                        uint64_t *out_value) {
+    if (!text || !*text || !out_value) return 0;
+    uint64_t value = 0;
+    for (const unsigned char *cursor = (const unsigned char *)text;
+         *cursor; cursor++) {
+        if (*cursor < '0' || *cursor > '9') return 0;
+        uint64_t digit = (uint64_t)(*cursor - '0');
+        if (value > (maximum - digit) / UINT64_C(10)) return 0;
+        value = value * UINT64_C(10) + digit;
+    }
+    *out_value = value;
+    return 1;
+}
+
+static int seen_deterministic_env_name_valid(const char *name, size_t length) {
+    if (!name || length == 0 ||
+        length > SEEN_DETERMINISTIC_MAX_ENV_NAME_BYTES) return 0;
+    for (size_t index = 0; index < length; index++) {
+        unsigned char byte = (unsigned char)name[index];
+        int alpha = (byte >= 'a' && byte <= 'z') ||
+                    (byte >= 'A' && byte <= 'Z');
+        int digit = byte >= '0' && byte <= '9';
+        if (!alpha && !digit && byte != '_') return 0;
+        if (index == 0 && digit) return 0;
+    }
+    return 1;
+}
+
+static const char *seen_deterministic_snapshot_env(const char *name) {
+    if (!name || !g_seen_deterministic_inputs.enabled ||
+        !g_seen_deterministic_inputs.valid) return NULL;
+    for (int index = 0; index < g_seen_deterministic_inputs.env_count;
+         index++) {
+        if (strcmp(g_seen_deterministic_inputs.env_names[index], name) == 0) {
+            return g_seen_deterministic_inputs.env_values[index];
+        }
+    }
+    return NULL;
+}
+
+static void seen_deterministic_capture_inputs_once(int argc, char **argv) {
+    SeenDeterministicRuntimeInputs *inputs = &g_seen_deterministic_inputs;
+    if (inputs->initialized) return;
+    inputs->initialized = 1;
+    inputs->valid = 1;
+    const char *enabled = getenv("SEEN_DETERMINISTIC");
+    if (!enabled || strcmp(enabled, "1") != 0) return;
+    inputs->enabled = 1;
+
+    if (argc < 0 || argc > SEEN_DETERMINISTIC_MAX_ARGS) {
+        inputs->valid = 0;
+        return;
+    }
+    size_t total = 0;
+    inputs->argc = argc;
+    for (int index = 0; index < argc; index++) {
+        if (!argv || !argv[index]) {
+            inputs->valid = 0;
+            return;
+        }
+        size_t length = 0;
+        if (!seen_deterministic_bounded_length(argv[index],
+                SEEN_DETERMINISTIC_MAX_ARG_BYTES, &length) ||
+            total > SEEN_DETERMINISTIC_MAX_CAPTURE_BYTES - length) {
+            inputs->valid = 0;
+            return;
+        }
+        memcpy(inputs->args[index], argv[index], length + 1);
+        total += length;
+    }
+
+#ifdef _WIN32
+    char **environment = _environ;
+#else
+    extern char **environ;
+    char **environment = environ;
+#endif
+    for (char **entry = environment; entry && *entry; entry++) {
+        size_t name_length = 0;
+        while (name_length <= SEEN_DETERMINISTIC_MAX_ENV_NAME_BYTES &&
+               (*entry)[name_length] != '=' &&
+               (*entry)[name_length] != '\0') {
+            name_length++;
+        }
+        if (name_length > SEEN_DETERMINISTIC_MAX_ENV_NAME_BYTES) {
+            inputs->valid = 0;
+            return;
+        }
+        if ((*entry)[name_length] == '\0') continue;
+        const char *separator = *entry + name_length;
+        size_t value_length = 0;
+        if (!seen_deterministic_env_name_valid(*entry, name_length) ||
+            !seen_deterministic_bounded_length(separator + 1,
+                SEEN_DETERMINISTIC_MAX_ENV_VALUE_BYTES, &value_length) ||
+            inputs->env_count >= SEEN_DETERMINISTIC_MAX_ENV ||
+            total > SEEN_DETERMINISTIC_MAX_CAPTURE_BYTES - name_length ||
+            total + name_length >
+                SEEN_DETERMINISTIC_MAX_CAPTURE_BYTES - value_length) {
+            inputs->valid = 0;
+            return;
+        }
+        int slot = inputs->env_count++;
+        memcpy(inputs->env_names[slot], *entry, name_length);
+        inputs->env_names[slot][name_length] = '\0';
+        memcpy(inputs->env_values[slot], separator + 1, value_length + 1);
+        total += name_length + value_length;
+    }
+
+    uint64_t epoch = 0;
+    uint64_t seed = 0;
+    const char *epoch_text = seen_deterministic_snapshot_env(
+        "SOURCE_DATE_EPOCH");
+    const char *seed_text = seen_deterministic_snapshot_env(
+        "SEEN_DETERMINISTIC_SEED");
+    const char *hash_seed = seen_deterministic_snapshot_env("SEEN_HASH_SEED");
+    const char *timezone = seen_deterministic_snapshot_env("TZ");
+    const char *lc_all = seen_deterministic_snapshot_env("LC_ALL");
+    const char *lang = seen_deterministic_snapshot_env("LANG");
+    const char *locale = lc_all && *lc_all ? lc_all : lang;
+    if (!seen_deterministic_parse_u64(epoch_text, UINT64_C(9223372036),
+                                      &epoch) ||
+        !seen_deterministic_parse_u64(seed_text, UINT64_MAX, &seed) ||
+        (hash_seed && strcmp(hash_seed, seed_text) != 0) ||
+        !timezone || strcmp(timezone, "UTC") != 0 || !locale ||
+        (strcmp(locale, "C") != 0 && strcmp(locale, "POSIX") != 0 &&
+         strcmp(locale, "C.UTF-8") != 0 && strcmp(locale, "C.utf8") != 0)) {
+        inputs->valid = 0;
+        return;
+    }
+    inputs->epoch_seconds = (int64_t)epoch;
+    inputs->seed = seed;
+}
+
+int32_t seen_deterministic_runtime_status(void) {
+    if (!g_seen_deterministic_inputs.enabled) return 0;
+    return g_seen_deterministic_inputs.valid ? 1 : -1;
+}
+
+int32_t seen_reexec_current_process(void) {
+    if (g_argc <= 0 || !g_argv || !g_argv[0]) return -1;
+#if defined(__linux__)
+    // /proc/self/exe avoids PATH lookup, symlink races, and ambiguity when the
+    // compiler was originally launched through a relative argv[0]. execv
+    // preserves the validated environment and original argument vector.
+    execv("/proc/self/exe", g_argv);
+    return -1;
+#else
+    // Native Seen does not yet define deterministic executable identity on
+    // Windows or macOS. Do not silently continue with a stale runtime snapshot.
+    return -2;
+#endif
+}
+
 static int64_t g_seen_error_code = 0;
 static int64_t g_seen_error_subsystem = 0;
 static char g_seen_error_message[256] = {0};
@@ -235,7 +430,9 @@ static void seen_memory_init_from_env_once(void) {
     if (g_seen_memory_initialized) return;
     g_seen_memory_initialized = 1;
 
-    const char* env_limit = getenv("SEEN_MEMORY_LIMIT_BYTES");
+    const char* env_limit = g_seen_deterministic_inputs.enabled
+        ? seen_deterministic_snapshot_env("SEEN_MEMORY_LIMIT_BYTES")
+        : getenv("SEEN_MEMORY_LIMIT_BYTES");
     if (!env_limit || env_limit[0] == '\0') return;
 
     char* end = NULL;
@@ -530,6 +727,19 @@ void seen_debug_print_counters(void) {}
 void seen_runtime_init(int argc, char** argv) {
     g_argc = argc;
     g_argv = argv;
+    seen_deterministic_capture_inputs_once(argc, argv);
+    // Generated C and LLVM entry points call seen_runtime_init directly; they
+    // do not use the optional SEEN_RUNTIME_MAIN wrapper below.  Enforce the
+    // bounded launch contract here so malformed deterministic inputs can
+    // never reach Seen user code through those normal entry points.
+    if (seen_deterministic_runtime_status() < 0) {
+        fprintf(stderr,
+            "error: core.004e.invalid: deterministic runtime inputs are invalid or exceed their bounds\n");
+        fflush(stderr);
+        exit(70);
+    }
+    // Memory policy is read only after a valid snapshot exists. Deterministic
+    // programs therefore never perform a second ambient-environment read.
     seen_memory_init_from_env_once();
 }
 
@@ -2482,8 +2692,15 @@ int64_t __seen_getpid(void) {
 // Get command line arguments - returns heap-allocated array (matches LLVM ABI expectation)
 SeenArray* __GetCommandLineArgs(void) {
     SeenArray* arr = seen_arr_new_str_ptr();
-    for (int i = 0; i < g_argc; i++) {
-        SeenString arg = seen_str_copy(g_argv[i]);
+    int count = g_argc;
+    if (g_seen_deterministic_inputs.enabled) {
+        if (!g_seen_deterministic_inputs.valid) return arr;
+        count = g_seen_deterministic_inputs.argc;
+    }
+    for (int i = 0; i < count; i++) {
+        const char *value = g_seen_deterministic_inputs.enabled
+            ? g_seen_deterministic_inputs.args[i] : g_argv[i];
+        SeenString arg = seen_str_copy(value);
         seen_arr_push_str(arr, arg);
     }
     return arr;
@@ -2492,8 +2709,8 @@ SeenArray* __GetCommandLineArgs(void) {
 // Check if environment variable exists
 bool __HasEnv(SeenString name) {
     char* cname = seen_runtime_cstring(name, "__HasEnv name");
-
-    char* val = getenv(cname);
+    const char* val = g_seen_deterministic_inputs.enabled
+        ? seen_deterministic_snapshot_env(cname) : getenv(cname);
     free(cname);
     return val != NULL;
 }
@@ -2501,8 +2718,8 @@ bool __HasEnv(SeenString name) {
 // Get environment variable value
 SeenString __GetEnv(SeenString name) {
     char* cname = seen_runtime_cstring(name, "__GetEnv name");
-
-    char* val = getenv(cname);
+    const char* val = g_seen_deterministic_inputs.enabled
+        ? seen_deterministic_snapshot_env(cname) : getenv(cname);
     free(cname);
 
     if (val) {
@@ -2514,6 +2731,7 @@ SeenString __GetEnv(SeenString name) {
 
 // Set environment variable
 bool __SetEnv(SeenString name, SeenString value) {
+    if (g_seen_deterministic_inputs.enabled) return false;
     char* cname = seen_runtime_cstring(name, "__SetEnv name");
     char* cvalue = seen_runtime_cstring(value, "__SetEnv value");
 
@@ -2529,6 +2747,7 @@ bool __SetEnv(SeenString name, SeenString value) {
 
 // Remove environment variable
 bool __RemoveEnv(SeenString name) {
+    if (g_seen_deterministic_inputs.enabled) return false;
     char* cname = seen_runtime_cstring(name, "__RemoveEnv name");
 
 #ifdef _WIN32
@@ -5783,18 +6002,10 @@ int64_t seen_time_monotonic_nanos(void) {
 }
 
 int64_t seen_time_system_nanos(void) {
-    const char *deterministic = getenv("SEEN_DETERMINISTIC");
-    const char *epoch = getenv("SOURCE_DATE_EPOCH");
-    if (deterministic && strcmp(deterministic, "1") == 0 && epoch && *epoch) {
-        char *end = NULL;
-        errno = 0;
-        long long seconds = strtoll(epoch, &end, 10);
-        if (errno == 0 && end && *end == '\0' &&
-            seconds <= INT64_MAX / INT64_C(1000000000) &&
-            seconds >= INT64_MIN / INT64_C(1000000000)) {
-            return (int64_t)seconds * INT64_C(1000000000);
-        }
-        return -1;
+    if (g_seen_deterministic_inputs.enabled) {
+        if (!g_seen_deterministic_inputs.valid) return -1;
+        return g_seen_deterministic_inputs.epoch_seconds *
+            INT64_C(1000000000);
     }
 #ifdef _WIN32
     FILETIME file_time;
@@ -5812,6 +6023,41 @@ int64_t seen_time_system_nanos(void) {
     if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return -1;
     if ((int64_t)ts.tv_sec > INT64_MAX / INT64_C(1000000000)) return -1;
     return (int64_t)ts.tv_sec * INT64_C(1000000000) + (int64_t)ts.tv_nsec;
+#endif
+}
+
+// Resolve both existing paths through the OS and compare component boundaries.
+// Policy and grants remain in native Seen; this adapter only supplies the
+// symlink-aware filesystem fact that cannot be derived lexically. Windows is
+// explicitly unsupported until native Seen defines drive and UNC root policy.
+int32_t seen_deterministic_path_beneath(SeenString root_value,
+                                        SeenString path_value) {
+#ifdef _WIN32
+    (void)root_value;
+    (void)path_value;
+    return -2;
+#else
+    char *root_input = seen_runtime_cstring(root_value,
+        "deterministic filesystem root");
+    char *path_input = seen_runtime_cstring(path_value,
+        "deterministic filesystem path");
+    char *root = realpath(root_input, NULL);
+    char *path = realpath(path_input, NULL);
+    free(root_input);
+    free(path_input);
+    if (!root || !path) {
+        free(root);
+        free(path);
+        return -1;
+    }
+    size_t root_length = strlen(root);
+    int allowed = strcmp(root, path) == 0 ||
+        (root_length == 1 && root[0] == '/') ||
+        (strncmp(root, path, root_length) == 0 &&
+         path[root_length] == '/');
+    free(root);
+    free(path);
+    return allowed ? 1 : 0;
 #endif
 }
 
@@ -10399,111 +10645,6 @@ void LinkedList_clear_str(void* llPtr) {
 }
 
 // ============================================================================
-// Mutex (pthread-based)
-// ============================================================================
-
-typedef struct { pthread_mutex_t m; } SeenMutex;
-
-// Allocate and initialize a new mutex. Returns opaque handle (cast to int64_t).
-int64_t __MutexCreate(void) {
-    SeenMutex* mtx = (SeenMutex*)seen_try_malloc(sizeof(SeenMutex));
-    if (!mtx) return 0;
-    pthread_mutex_init(&mtx->m, NULL);
-    return (int64_t)(uintptr_t)mtx;
-}
-
-// Destroy and free a mutex created by __MutexCreate.
-void __MutexDestroy(int64_t handle) {
-    SeenMutex* mtx = (SeenMutex*)(uintptr_t)handle;
-    pthread_mutex_destroy(&mtx->m);
-    seen_runtime_free_budgeted(mtx, sizeof(SeenMutex));
-}
-
-// Acquire the mutex, blocking until available.
-void __MutexLock(int64_t handle) {
-    SeenMutex* mtx = (SeenMutex*)(uintptr_t)handle;
-    pthread_mutex_lock(&mtx->m);
-}
-
-// Release the mutex.
-void __MutexUnlock(int64_t handle) {
-    SeenMutex* mtx = (SeenMutex*)(uintptr_t)handle;
-    pthread_mutex_unlock(&mtx->m);
-}
-
-// Try to acquire the mutex without blocking. Returns 1 if acquired, 0 otherwise.
-int64_t __MutexTryLock(int64_t handle) {
-    SeenMutex* mtx = (SeenMutex*)(uintptr_t)handle;
-    return pthread_mutex_trylock(&mtx->m) == 0 ? 1 : 0;
-}
-
-// ============================================================================
-// Atomic Operations (GCC __atomic builtins, no extra library needed)
-// ============================================================================
-//
-// Atomic operations — handle-based pattern.
-// AtomicInt/AtomicBool store a heap-allocated int64_t* disguised as int64_t handle.
-// All operations receive the handle (pointer-as-int) and dereference it.
-
-// Allocate a heap int64_t for AtomicInt/AtomicBool handle pattern.
-int64_t __AtomicAlloc(int64_t initial) {
-    int64_t* p = (int64_t*)seen_try_malloc(sizeof(int64_t));
-    if (!p) return 0;
-    __atomic_store_n(p, initial, __ATOMIC_SEQ_CST);
-    return (int64_t)(uintptr_t)p;
-}
-
-int64_t __AtomicLoad(int64_t handle) {
-    return __atomic_load_n((int64_t*)(uintptr_t)handle, __ATOMIC_SEQ_CST);
-}
-
-void __AtomicStore(int64_t handle, int64_t new_val) {
-    __atomic_store_n((int64_t*)(uintptr_t)handle, new_val, __ATOMIC_SEQ_CST);
-}
-
-int64_t __AtomicAdd(int64_t handle, int64_t delta) {
-    return __atomic_fetch_add((int64_t*)(uintptr_t)handle, delta, __ATOMIC_SEQ_CST);
-}
-
-int64_t __AtomicSub(int64_t handle, int64_t delta) {
-    return __atomic_fetch_sub((int64_t*)(uintptr_t)handle, delta, __ATOMIC_SEQ_CST);
-}
-
-int64_t __AtomicCompareExchange(int64_t handle, int64_t expected, int64_t desired) {
-    int64_t exp = expected;
-    return __atomic_compare_exchange_n((int64_t*)(uintptr_t)handle, &exp, desired,
-                                        0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST) ? 1 : 0;
-}
-
-// Ordering-specific variants (needed by SPSC queue)
-int64_t __AtomicLoadRelaxed(int64_t handle) {
-    return __atomic_load_n((int64_t*)(uintptr_t)handle, __ATOMIC_RELAXED);
-}
-
-int64_t __AtomicLoadAcquire(int64_t handle) {
-    return __atomic_load_n((int64_t*)(uintptr_t)handle, __ATOMIC_ACQUIRE);
-}
-
-void __AtomicStoreRelease(int64_t handle, int64_t val) {
-    __atomic_store_n((int64_t*)(uintptr_t)handle, val, __ATOMIC_RELEASE);
-}
-
-// AtomicBool variants (same pattern, bool stored as i64 0/1)
-int64_t __AtomicLoadBool(int64_t handle) {
-    return __atomic_load_n((int64_t*)(uintptr_t)handle, __ATOMIC_SEQ_CST);
-}
-
-void __AtomicStoreBool(int64_t handle, int64_t new_val) {
-    __atomic_store_n((int64_t*)(uintptr_t)handle, new_val, __ATOMIC_SEQ_CST);
-}
-
-int64_t __AtomicCompareExchangeBool(int64_t handle, int64_t expected, int64_t desired) {
-    int64_t exp = expected;
-    return __atomic_compare_exchange_n((int64_t*)(uintptr_t)handle, &exp, desired,
-                                        0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST) ? 1 : 0;
-}
-
-// ============================================================================
 // Thread Sleep / Yield
 // ============================================================================
 
@@ -10593,55 +10734,6 @@ int64_t __RawThreadJoin(int64_t handle) {
     pthread_join(*t, NULL);
     seen_runtime_free_budgeted(t, sizeof(pthread_t));
     return 0;
-}
-
-// ============================================================================
-// Channel — Unix pipe-backed message passing
-// ============================================================================
-// Pack read_fd<<32 | write_fd into a single int64_t handle.
-
-int64_t __ChannelCreate(void) {
-    int fds[2];
-#ifdef _WIN32
-    if (_pipe(fds, 8192, _O_BINARY) != 0) return -1;
-#else
-    if (pipe(fds) != 0) return -1;
-#endif
-    return ((int64_t)fds[0] << 32) | (int64_t)(uint32_t)fds[1];
-}
-
-int64_t __ChannelSend(int64_t handle, int64_t val) {
-    int write_fd = (int)(handle & 0xFFFFFFFF);
-#ifdef _WIN32
-    int n = _write(write_fd, &val, (unsigned int)sizeof(val));
-    return n == (int)sizeof(val) ? 1 : 0;
-#else
-    ssize_t n = write(write_fd, &val, sizeof(val));
-    return n == (ssize_t)sizeof(val) ? 1 : 0;
-#endif
-}
-
-int64_t __ChannelReceive(int64_t handle) {
-    int read_fd = (int)((uint64_t)handle >> 32);
-    int64_t val = 0;
-#ifdef _WIN32
-    int n = _read(read_fd, &val, (unsigned int)sizeof(val));
-    (void)n;
-#else
-    ssize_t n = read(read_fd, &val, sizeof(val));
-    (void)n;
-#endif
-    return val;
-}
-
-void __ChannelClose(int64_t handle) {
-#ifdef _WIN32
-    _close((int)((uint64_t)handle >> 32));
-    _close((int)(handle & 0xFFFFFFFF));
-#else
-    close((int)((uint64_t)handle >> 32));
-    close((int)(handle & 0xFFFFFFFF));
-#endif
 }
 
 // Abort the program with an error message.
@@ -10994,86 +11086,6 @@ int64_t seen_mapped_length(int64_t handle) {
     SeenMappedRegion *mr = (SeenMappedRegion *)(uintptr_t)handle;
     return (int64_t)mr->length;
 }
-
-// ============================================================================
-// RwLock (Reader-Writer Lock)
-// ============================================================================
-
-#ifdef _WIN32
-// On Windows, SRWLOCK requires separate shared/exclusive unlock calls
-typedef struct { SRWLOCK rw; } SeenRwLock;
-
-int64_t seen_rwlock_new(void) {
-    SeenRwLock *l = (SeenRwLock *)seen_try_malloc(sizeof(SeenRwLock));
-    if (!l) return 0;
-    InitializeSRWLock(&l->rw);
-    return (int64_t)(uintptr_t)l;
-}
-
-void seen_rwlock_read_lock(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    AcquireSRWLockShared(&l->rw);
-}
-
-void seen_rwlock_read_unlock(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    ReleaseSRWLockShared(&l->rw);
-}
-
-void seen_rwlock_write_lock(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    AcquireSRWLockExclusive(&l->rw);
-}
-
-void seen_rwlock_write_unlock(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    ReleaseSRWLockExclusive(&l->rw);
-}
-
-void seen_rwlock_destroy(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    // SRWLOCK has no destroy function
-    seen_runtime_free_budgeted(l, sizeof(SeenRwLock));
-}
-
-#else
-typedef struct { pthread_rwlock_t rw; } SeenRwLock;
-
-int64_t seen_rwlock_new(void) {
-    SeenRwLock *l = (SeenRwLock *)seen_try_malloc(sizeof(SeenRwLock));
-    if (!l) return 0;
-    pthread_rwlock_init(&l->rw, NULL);
-    return (int64_t)(uintptr_t)l;
-}
-
-void seen_rwlock_read_lock(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    pthread_rwlock_rdlock(&l->rw);
-}
-
-void seen_rwlock_read_unlock(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    pthread_rwlock_unlock(&l->rw);
-}
-
-void seen_rwlock_write_lock(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    pthread_rwlock_wrlock(&l->rw);
-}
-
-void seen_rwlock_write_unlock(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    pthread_rwlock_unlock(&l->rw);
-}
-
-void seen_rwlock_destroy(int64_t handle) {
-    SeenRwLock *l = (SeenRwLock *)(uintptr_t)handle;
-    if (l) {
-        pthread_rwlock_destroy(&l->rw);
-        seen_runtime_free_budgeted(l, sizeof(SeenRwLock));
-    }
-}
-#endif
 
 // ============================================================================
 // Filesystem and direct-I/O adapter
@@ -11536,6 +11548,10 @@ int32_t seen_fs_unlock(uint64_t handle) {
 
 int32_t seen_fs_random_u64(uint64_t *out_value) {
     if (!out_value) return SEEN_FS_INVALID;
+    // Deterministic code must use deterministicRandomAt(context, counter).
+    // Ambient entropy has no stable scheduling/order contract and therefore
+    // fails closed instead of silently deriving a mutable global stream.
+    if (g_seen_deterministic_inputs.enabled) return SEEN_FS_UNSUPPORTED;
 #if defined(__linux__)
     ssize_t result;
     do { result = getrandom(out_value, sizeof(*out_value), 0); }
@@ -12084,190 +12100,6 @@ int32_t seen_mapped_file_close(uint64_t *file_handle) {
 }
 
 // ============================================================================
-// Barrier
-// ============================================================================
-
-#ifdef _WIN32
-// Manual barrier using CRITICAL_SECTION + CONDITION_VARIABLE
-typedef struct {
-    CRITICAL_SECTION lock;
-    CONDITION_VARIABLE cond;
-    unsigned count;
-    unsigned waiting;
-    unsigned phase;
-} SeenBarrier;
-
-int64_t seen_barrier_new(int64_t count) {
-    SeenBarrier *b = (SeenBarrier *)seen_try_malloc(sizeof(SeenBarrier));
-    if (!b) return 0;
-    InitializeCriticalSection(&b->lock);
-    InitializeConditionVariable(&b->cond);
-    b->count = (unsigned)count;
-    b->waiting = 0;
-    b->phase = 0;
-    return (int64_t)(uintptr_t)b;
-}
-
-int64_t seen_barrier_wait(int64_t handle) {
-    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    EnterCriticalSection(&b->lock);
-    unsigned phase = b->phase;
-    b->waiting++;
-    if (b->waiting == b->count) {
-        b->waiting = 0;
-        b->phase++;
-        LeaveCriticalSection(&b->lock);
-        WakeAllConditionVariable(&b->cond);
-        return 1; // serial thread
-    }
-    while (b->phase == phase) {
-        SleepConditionVariableCS(&b->cond, &b->lock, INFINITE);
-    }
-    LeaveCriticalSection(&b->lock);
-    return 0;
-}
-
-void seen_barrier_destroy(int64_t handle) {
-    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    if (b) {
-        DeleteCriticalSection(&b->lock);
-        seen_runtime_free_budgeted(b, sizeof(SeenBarrier));
-    }
-}
-#else
-// macOS doesn't have pthread_barrier_t, so we provide a polyfill using mutex+cond
-#ifdef __APPLE__
-typedef struct {
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-    unsigned count;
-    unsigned waiting;
-    unsigned phase;
-} seen_pthread_barrier_t;
-
-static int seen_pthread_barrier_init(seen_pthread_barrier_t *b, unsigned count) {
-    pthread_mutex_init(&b->mutex, NULL);
-    pthread_cond_init(&b->cond, NULL);
-    b->count = count;
-    b->waiting = 0;
-    b->phase = 0;
-    return 0;
-}
-
-static int seen_pthread_barrier_wait(seen_pthread_barrier_t *b) {
-    pthread_mutex_lock(&b->mutex);
-    unsigned phase = b->phase;
-    b->waiting++;
-    if (b->waiting == b->count) {
-        b->waiting = 0;
-        b->phase++;
-        pthread_cond_broadcast(&b->cond);
-        pthread_mutex_unlock(&b->mutex);
-        return 1; // serial thread
-    }
-    while (phase == b->phase) {
-        pthread_cond_wait(&b->cond, &b->mutex);
-    }
-    pthread_mutex_unlock(&b->mutex);
-    return 0;
-}
-
-static void seen_pthread_barrier_destroy(seen_pthread_barrier_t *b) {
-    pthread_mutex_destroy(&b->mutex);
-    pthread_cond_destroy(&b->cond);
-}
-
-typedef struct { seen_pthread_barrier_t b; } SeenBarrier;
-
-int64_t seen_barrier_new(int64_t count) {
-    SeenBarrier *b = (SeenBarrier *)seen_try_malloc(sizeof(SeenBarrier));
-    if (!b) return 0;
-    seen_pthread_barrier_init(&b->b, (unsigned)count);
-    return (int64_t)(uintptr_t)b;
-}
-
-int64_t seen_barrier_wait(int64_t handle) {
-    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    int rc = seen_pthread_barrier_wait(&b->b);
-    return rc ? 1 : 0;
-}
-
-void seen_barrier_destroy(int64_t handle) {
-    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    if (b) {
-        seen_pthread_barrier_destroy(&b->b);
-        seen_runtime_free_budgeted(b, sizeof(SeenBarrier));
-    }
-}
-#else
-typedef struct { pthread_barrier_t b; } SeenBarrier;
-
-int64_t seen_barrier_new(int64_t count) {
-    SeenBarrier *b = (SeenBarrier *)seen_try_malloc(sizeof(SeenBarrier));
-    if (!b) return 0;
-    pthread_barrier_init(&b->b, NULL, (unsigned)count);
-    return (int64_t)(uintptr_t)b;
-}
-
-int64_t seen_barrier_wait(int64_t handle) {
-    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    int rc = pthread_barrier_wait(&b->b);
-    return (rc == PTHREAD_BARRIER_SERIAL_THREAD) ? 1 : 0;
-}
-
-void seen_barrier_destroy(int64_t handle) {
-    SeenBarrier *b = (SeenBarrier *)(uintptr_t)handle;
-    if (b) {
-        pthread_barrier_destroy(&b->b);
-        seen_runtime_free_budgeted(b, sizeof(SeenBarrier));
-    }
-}
-#endif
-#endif
-
-// ============================================================================
-// Thread-Local Storage
-// ============================================================================
-
-#ifdef _WIN32
-int64_t seen_tls_new(void) {
-    DWORD key = TlsAlloc();
-    if (key == TLS_OUT_OF_INDEXES) return -1;
-    return (int64_t)key;
-}
-
-void seen_tls_set(int64_t key, int64_t value) {
-    TlsSetValue((DWORD)key, (LPVOID)(uintptr_t)value);
-}
-
-int64_t seen_tls_get(int64_t key) {
-    return (int64_t)(uintptr_t)TlsGetValue((DWORD)key);
-}
-
-void seen_tls_destroy(int64_t key) {
-    TlsFree((DWORD)key);
-}
-#else
-int64_t seen_tls_new(void) {
-    pthread_key_t key;
-    if (pthread_key_create(&key, NULL) != 0) return -1;
-    return (int64_t)key;
-}
-
-void seen_tls_set(int64_t key, int64_t value) {
-    pthread_setspecific((pthread_key_t)key, (void *)(uintptr_t)value);
-}
-
-int64_t seen_tls_get(int64_t key) {
-    return (int64_t)(uintptr_t)pthread_getspecific((pthread_key_t)key);
-}
-
-void seen_tls_destroy(int64_t key) {
-    pthread_key_delete((pthread_key_t)key);
-}
-#endif
-
-// ============================================================================
 // Work-Stealing Thread Pool
 // ============================================================================
 // Fixed-size pool with per-worker deques and work stealing.
@@ -12489,6 +12321,10 @@ typedef struct {
     int64_t first_error;
 } SeenPForArgsV2;
 
+#define SEEN_PFOR_RESOURCE_ERROR INT64_C(-7101)
+#define SEEN_PFOR_THREAD_CREATE_ERROR INT64_C(-7102)
+#define SEEN_PFOR_THREAD_JOIN_ERROR INT64_C(-7103)
+
 #if defined(_WIN32)
 static __declspec(thread) int64_t seen_pfor_depth = 0;
 #else
@@ -12588,16 +12424,13 @@ int64_t seen_parallel_for_v2(int64_t start, int64_t end,
         if (started) {
             seen_runtime_free_budgeted(started, nt);
         }
-        SeenPForArgsV2 fallback = {
-            body, env, drop_error, start, end, -1, 0
-        };
-        seen_pfor_run_chunk_v2(&fallback);
-        return fallback.first_error;
+        return SEEN_PFOR_RESOURCE_ERROR;
     }
     int64_t chunk = range / nt;
     int64_t remainder = range % nt;
     int64_t cur = start;
 
+    int64_t create_failure = 0;
     for (int64_t t = 0; t < nt; t++) {
         args[t].body = body;
         args[t].env = env;
@@ -12620,16 +12453,24 @@ int64_t seen_parallel_for_v2(int64_t start, int64_t end,
         if (create_result == 0) {
             started[t] = 1;
         } else {
-            // Preserve exactly-once execution even when only some workers
-            // could be created.
-            seen_pfor_run_chunk_v2(&args[t]);
+            create_failure = 1;
+            break;
         }
     }
+    int64_t join_failure = 0;
     for (int64_t t = 0; t < nt; t++) {
         if (started[t] && pthread_join(threads[t], NULL) != 0) {
-            fprintf(stderr, "PANIC: parallel_for worker join failed\n");
-            abort();
+            join_failure = 1;
         }
+    }
+
+    if (create_failure || join_failure) {
+        seen_runtime_free_budgeted(threads, (int64_t)sizeof(pthread_t) * nt);
+        seen_runtime_free_budgeted(args,
+            (int64_t)sizeof(SeenPForArgsV2) * nt);
+        seen_runtime_free_budgeted(started, nt);
+        return join_failure ? SEEN_PFOR_THREAD_JOIN_ERROR :
+            SEEN_PFOR_THREAD_CREATE_ERROR;
     }
 
     int64_t winner_index = -1;
@@ -12650,6 +12491,13 @@ int64_t seen_parallel_for_v2(int64_t start, int64_t end,
     return winner;
 }
 
+void seen_parallel_for_fail_closed(int64_t status) {
+    fprintf(stderr,
+        "error: sync.parallel_for.worker: parallel worker execution failed (status=%lld)\n",
+        (long long)status);
+    abort();
+}
+
 typedef struct {
     int64_t (*body)(int64_t);
 } SeenPForCompatEnv;
@@ -12665,140 +12513,9 @@ void seen_parallel_for(int64_t start, int64_t end, int64_t fn_ptr,
     SeenPForCompatEnv env = {
         (int64_t (*)(int64_t))(uintptr_t)fn_ptr
     };
-    (void)seen_parallel_for_v2(start, end, seen_pfor_compat_body, &env,
-                               NULL, nthreads);
-}
-
-// ============================================================================
-// Lock-Free Data Structures
-// ============================================================================
-
-// MPMC AtomicQueue — CAS ring buffer (power-of-2 capacity)
-// Uses GCC __atomic builtins (matching existing atomic pattern in this file)
-typedef struct {
-    int64_t* slots;
-    volatile int64_t head;
-    volatile int64_t tail;
-    int64_t mask; // capacity - 1
-    int64_t capacity;
-} SeenAtomicQueue;
-
-int64_t seen_atomic_queue_new(int64_t capacity) {
-    // Round up to power of 2
-    int64_t cap = 1;
-    while (cap < capacity) cap <<= 1;
-    if (cap < 16) cap = 16;
-
-    if (cap > INT64_MAX / (int64_t)sizeof(int64_t)) return 0;
-    SeenAtomicQueue* q = (SeenAtomicQueue*)seen_try_calloc(
-        1, sizeof(SeenAtomicQueue));
-    if (!q) return 0;
-    q->slots = (int64_t*)seen_try_calloc(cap, sizeof(int64_t));
-    if (!q->slots) {
-        seen_runtime_free_budgeted(q, sizeof(SeenAtomicQueue));
-        return 0;
-    }
-    __atomic_store_n(&q->head, 0, __ATOMIC_RELAXED);
-    __atomic_store_n(&q->tail, 0, __ATOMIC_RELAXED);
-    q->mask = cap - 1;
-    q->capacity = cap;
-    return (int64_t)(uintptr_t)q;
-}
-
-int64_t seen_atomic_queue_push(int64_t handle, int64_t value) {
-    SeenAtomicQueue* q = (SeenAtomicQueue*)(uintptr_t)handle;
-    int64_t head = __atomic_load_n(&q->head, __ATOMIC_RELAXED);
-    for (;;) {
-        int64_t tail = __atomic_load_n(&q->tail, __ATOMIC_ACQUIRE);
-        if (head - tail >= q->capacity) return 0; // full
-        if (__atomic_compare_exchange_n(&q->head, &head, head + 1, 1,
-                __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
-            // Store value; use -1 as sentinel when user pushes 0
-            __atomic_store_n(&q->slots[head & q->mask], value != 0 ? value : -1, __ATOMIC_RELEASE);
-            return 1; // success
-        }
-    }
-}
-
-int64_t seen_atomic_queue_pop(int64_t handle) {
-    SeenAtomicQueue* q = (SeenAtomicQueue*)(uintptr_t)handle;
-    int64_t tail = __atomic_load_n(&q->tail, __ATOMIC_RELAXED);
-    for (;;) {
-        int64_t head = __atomic_load_n(&q->head, __ATOMIC_ACQUIRE);
-        if (tail >= head) return 0; // empty
-        int64_t val = __atomic_load_n(&q->slots[tail & q->mask], __ATOMIC_ACQUIRE);
-        if (val == 0) return 0; // slot not yet written
-        if (__atomic_compare_exchange_n(&q->tail, &tail, tail + 1, 1,
-                __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
-            __atomic_store_n(&q->slots[tail & q->mask], 0, __ATOMIC_RELEASE);
-            return val == -1 ? 0 : val;
-        }
-    }
-}
-
-void seen_atomic_queue_destroy(int64_t handle) {
-    SeenAtomicQueue* q = (SeenAtomicQueue*)(uintptr_t)handle;
-    if (!q) return;
-    seen_runtime_free_budgeted(q->slots,
-        q->capacity * (int64_t)sizeof(int64_t));
-    seen_runtime_free_budgeted(q, sizeof(SeenAtomicQueue));
-}
-
-// Treiber Stack — CAS linked list
-typedef struct SeenAStackNode {
-    int64_t value;
-    struct SeenAStackNode* next;
-} SeenAStackNode;
-
-typedef struct {
-    SeenAStackNode* volatile top;
-} SeenAtomicStack;
-
-int64_t seen_atomic_stack_new(void) {
-    SeenAtomicStack* s = (SeenAtomicStack*)seen_try_calloc(
-        1, sizeof(SeenAtomicStack));
-    if (!s) return 0;
-    __atomic_store_n(&s->top, NULL, __ATOMIC_RELAXED);
-    return (int64_t)(uintptr_t)s;
-}
-
-void seen_atomic_stack_push(int64_t handle, int64_t value) {
-    SeenAtomicStack* s = (SeenAtomicStack*)(uintptr_t)handle;
-    SeenAStackNode* node = (SeenAStackNode*)seen_try_malloc(
-        sizeof(SeenAStackNode));
-    if (!node) seen_oom_abort("atomic stack node", sizeof(SeenAStackNode));
-    node->value = value;
-    node->next = __atomic_load_n(&s->top, __ATOMIC_RELAXED);
-    while (!__atomic_compare_exchange_n(&s->top, &node->next, node, 1,
-            __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
-        // retry — node->next updated by CAS
-    }
-}
-
-int64_t seen_atomic_stack_pop(int64_t handle) {
-    SeenAtomicStack* s = (SeenAtomicStack*)(uintptr_t)handle;
-    SeenAStackNode* top = __atomic_load_n(&s->top, __ATOMIC_ACQUIRE);
-    while (top != NULL) {
-        if (__atomic_compare_exchange_n(&s->top, &top, top->next, 1,
-            __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
-            int64_t val = top->value;
-            seen_runtime_free_budgeted(top, sizeof(SeenAStackNode));
-            return val;
-        }
-        // retry — top updated by CAS
-    }
-    return 0; // empty
-}
-
-void seen_atomic_stack_destroy(int64_t handle) {
-    SeenAtomicStack* s = (SeenAtomicStack*)(uintptr_t)handle;
-    SeenAStackNode* node = __atomic_load_n(&s->top, __ATOMIC_RELAXED);
-    while (node) {
-        SeenAStackNode* next = node->next;
-        seen_runtime_free_budgeted(node, sizeof(SeenAStackNode));
-        node = next;
-    }
-    seen_runtime_free_budgeted(s, sizeof(SeenAtomicStack));
+    int64_t status = seen_parallel_for_v2(start, end, seen_pfor_compat_body,
+                                          &env, NULL, nthreads);
+    if (status != 0) seen_parallel_for_fail_closed(status);
 }
 
 // ============================================================================
@@ -14351,6 +14068,11 @@ extern int seen_main(void);
 
 int main(int argc, char** argv) {
     seen_runtime_init(argc, argv);
+    if (seen_deterministic_runtime_status() < 0) {
+        fprintf(stderr,
+            "error: core.004e.invalid: deterministic runtime inputs are invalid or exceed their bounds\n");
+        return 70;
+    }
     return seen_main();
 }
 #endif

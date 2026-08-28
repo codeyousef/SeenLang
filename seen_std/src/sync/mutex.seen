@@ -1,29 +1,403 @@
-///
-Mutex for thread synchronization backed by pthread_mutex_t
-The 'handle' field holds an opaque pointer (cast to Int) to the heap-allocated
-SeenMutex struct. Named 'handle' (not 'lock') to avoid shadowing the lock() method.
-///
+/// Scoped mutex and reader/writer lock guards with poisoning and lock ranks.
 
-class Mutex {
-    var handle: Int
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import sync.contracts.{Share, SyncError, SYNC_MAX_LOCK_RANK, SYNC_NATIVE_OK,
+    syncFailure, syncNativeFailure, syncValidateContext}
+import sync.lock_order.{LockOrderTracker}
 
-    fun new() r: Mutex {
-        let h = __MutexCreate()
-        return Mutex {
-            handle: h
+extern "C" fun seen_sync_mutex_create(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_mutex_lock_until(handle: UInt64,
+    deadlineNanoseconds: Int64) r: Int32
+extern "C" fun seen_sync_mutex_try_lock(handle: UInt64) r: Int32
+extern "C" fun seen_sync_mutex_unlock(handle: UInt64) r: Int32
+extern "C" fun seen_sync_mutex_destroy(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+
+extern "C" fun seen_sync_rwlock_create(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_rwlock_read_lock_until(handle: UInt64,
+    deadlineNanoseconds: Int64) r: Int32
+extern "C" fun seen_sync_rwlock_write_lock_until(handle: UInt64,
+    deadlineNanoseconds: Int64) r: Int32
+extern "C" fun seen_sync_rwlock_try_read(handle: UInt64) r: Int32
+extern "C" fun seen_sync_rwlock_try_write(handle: UInt64) r: Int32
+extern "C" fun seen_sync_rwlock_unlock(handle: UInt64) r: Int32
+extern "C" fun seen_sync_rwlock_destroy(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_live_rwlocks() r: UInt64
+
+@move
+class Mutex<T: Share> {
+    var handle: UInt64
+    var value: T
+    var rank: Int
+    var poisoned: Bool
+    var active: Bool
+
+    static fun create(value: T, rank: Int)
+        r: Result<Mutex<T>, SyncError> {
+        if rank <= 0 or rank > SYNC_MAX_LOCK_RANK {
+            return Err<Mutex<T>, SyncError>(syncFailure("sync.invalid",
+                "mutex.create", "mutex rank must be positive", false,
+                0 as UInt64))
         }
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_sync_mutex_create(&handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Mutex<T>, SyncError>(syncNativeFailure(status,
+                "mutex.create", 0 as UInt64))
+        }
+        return Ok<Mutex<T>, SyncError>(Mutex<T>{handle: handle, value: value,
+            rank: rank, poisoned: false, active: true})
     }
 
-    fun lock() r: Void {
-        __MutexLock(this.handle)
+    fun lock(context: OperationContext, tracker: LockOrderTracker)
+        r: Result<MutexGuard<T>, SyncError> {
+        let checked = syncValidateContext(context, "mutex.lock", 0 as UInt64)
+        if checked.isErr() {
+            return Err<MutexGuard<T>, SyncError>(checked.unwrapErr())
+        }
+        if not this.active {
+            return Err<MutexGuard<T>, SyncError>(syncFailure("sync.invalid",
+                "mutex.lock", "mutex is closed", false, 0 as UInt64))
+        }
+        let order = tracker.enter(this.rank)
+        if order.isErr() {
+            return Err<MutexGuard<T>, SyncError>(order.unwrapErr())
+        }
+        let status = seen_sync_mutex_lock_until(this.handle,
+            context.monotonicDeadline)
+        if status != SYNC_NATIVE_OK {
+            let _ = tracker.leave(this.rank)
+            return Err<MutexGuard<T>, SyncError>(syncNativeFailure(status,
+                "mutex.lock", 0 as UInt64))
+        }
+        if not this.active or this.poisoned {
+            let _ = seen_sync_mutex_unlock(this.handle)
+            let _ = tracker.leave(this.rank)
+            return Err<MutexGuard<T>, SyncError>(syncFailure("sync.invalid",
+                "mutex.lock",
+                "mutex is closed or poisoned; explicit recovery required",
+                false, 0 as UInt64))
+        }
+        return Ok<MutexGuard<T>, SyncError>(MutexGuard<T>{owner: this,
+            tracker: tracker, active: true})
     }
 
-    fun unlock() r: Void {
-        __MutexUnlock(this.handle)
+    fun recover(context: OperationContext, tracker: LockOrderTracker)
+        r: Result<Bool, SyncError> {
+        let checked = syncValidateContext(context, "mutex.recover",
+            0 as UInt64)
+        if checked.isErr() { return checked }
+        if not this.active {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "mutex.recover", "mutex is closed", false, 0 as UInt64))
+        }
+        let order = tracker.enter(this.rank)
+        if order.isErr() { return order }
+        let status = seen_sync_mutex_lock_until(this.handle,
+            context.monotonicDeadline)
+        if status != SYNC_NATIVE_OK {
+            let _ = tracker.leave(this.rank)
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "mutex.recover", 0 as UInt64))
+        }
+        this.poisoned = false
+        let releasable = tracker.canLeave(this.rank)
+        if releasable.isErr() {
+            return Err<Bool, SyncError>(releasable.unwrapErr())
+        }
+        let unlocked = seen_sync_mutex_unlock(this.handle)
+        if unlocked != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(unlocked,
+                "mutex.recover", 0 as UInt64))
+        }
+        let _ = tracker.leave(this.rank)
+        return Ok<Bool, SyncError>(true)
     }
 
-    fun tryLock() r: Bool {
-        let result = __MutexTryLock(this.handle)
-        return result == 1
+    fun close() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        let status = seen_sync_mutex_destroy(&this.handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "mutex.close", 0 as UInt64))
+        }
+        this.active = false
+        return Ok<Bool, SyncError>(true)
+    }
+}
+
+@move
+class MutexGuard<T: Share> {
+    var owner: Mutex<T>
+    var tracker: LockOrderTracker
+    var active: Bool
+
+    fun get() r: Result<T, SyncError> {
+        if not this.active {
+            return Err<T, SyncError>(syncFailure("sync.invalid",
+                "mutex_guard.get", "mutex guard is released", false,
+                0 as UInt64))
+        }
+        return Ok<T, SyncError>(this.owner.value)
+    }
+
+    fun set(value: T) r: Result<Bool, SyncError> {
+        if not this.active {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "mutex_guard.set", "mutex guard is released", false,
+                0 as UInt64))
+        }
+        this.owner.value = value
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun poison() r: Result<Bool, SyncError> {
+        if not this.active {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "mutex_guard.poison", "mutex guard is released", false,
+                0 as UInt64))
+        }
+        this.owner.poisoned = true
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun release() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        let releasable = this.tracker.canLeave(this.owner.rank)
+        if releasable.isErr() {
+            return Err<Bool, SyncError>(releasable.unwrapErr())
+        }
+        let status = seen_sync_mutex_unlock(this.owner.handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "mutex_guard.release", 0 as UInt64))
+        }
+        let left = this.tracker.leave(this.owner.rank)
+        if left.isErr() { return Err<Bool, SyncError>(left.unwrapErr()) }
+        this.active = false
+        return Ok<Bool, SyncError>(true)
+    }
+}
+
+@move
+class RwLock<T: Share> {
+    var handle: UInt64
+    var value: T
+    var rank: Int
+    var poisoned: Bool
+    var active: Bool
+
+    static fun create(value: T, rank: Int)
+        r: Result<RwLock<T>, SyncError> {
+        if rank <= 0 or rank > SYNC_MAX_LOCK_RANK {
+            return Err<RwLock<T>, SyncError>(syncFailure("sync.invalid",
+                "rwlock.create", "rwlock rank must be positive", false,
+                0 as UInt64))
+        }
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_sync_rwlock_create(&handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<RwLock<T>, SyncError>(syncNativeFailure(status,
+                "rwlock.create", 0 as UInt64))
+        }
+        return Ok<RwLock<T>, SyncError>(RwLock<T>{handle: handle, value: value,
+            rank: rank, poisoned: false, active: true})
+    }
+
+    fun read(context: OperationContext, tracker: LockOrderTracker)
+        r: Result<RwLockReadGuard<T>, SyncError> {
+        let checked = syncValidateContext(context, "rwlock.read", 0 as UInt64)
+        if checked.isErr() {
+            return Err<RwLockReadGuard<T>, SyncError>(checked.unwrapErr())
+        }
+        if not this.active or this.poisoned {
+            return Err<RwLockReadGuard<T>, SyncError>(syncFailure(
+                "sync.invalid", "rwlock.read", "rwlock is closed or poisoned",
+                false, 0 as UInt64))
+        }
+        let order = tracker.enter(this.rank)
+        if order.isErr() {
+            return Err<RwLockReadGuard<T>, SyncError>(order.unwrapErr())
+        }
+        let status = seen_sync_rwlock_read_lock_until(this.handle,
+            context.monotonicDeadline)
+        if status != SYNC_NATIVE_OK {
+            let _ = tracker.leave(this.rank)
+            return Err<RwLockReadGuard<T>, SyncError>(syncNativeFailure(status,
+                "rwlock.read", 0 as UInt64))
+        }
+        if not this.active or this.poisoned {
+            let _ = seen_sync_rwlock_unlock(this.handle)
+            let _ = tracker.leave(this.rank)
+            return Err<RwLockReadGuard<T>, SyncError>(syncFailure(
+                "sync.invalid", "rwlock.read",
+                "rwlock is closed or poisoned", false, 0 as UInt64))
+        }
+        return Ok<RwLockReadGuard<T>, SyncError>(RwLockReadGuard<T>{
+            owner: this, tracker: tracker, active: true})
+    }
+
+    fun write(context: OperationContext, tracker: LockOrderTracker)
+        r: Result<RwLockWriteGuard<T>, SyncError> {
+        let checked = syncValidateContext(context, "rwlock.write",
+            0 as UInt64)
+        if checked.isErr() {
+            return Err<RwLockWriteGuard<T>, SyncError>(checked.unwrapErr())
+        }
+        if not this.active or this.poisoned {
+            return Err<RwLockWriteGuard<T>, SyncError>(syncFailure(
+                "sync.invalid", "rwlock.write",
+                "rwlock is closed or poisoned", false, 0 as UInt64))
+        }
+        let order = tracker.enter(this.rank)
+        if order.isErr() {
+            return Err<RwLockWriteGuard<T>, SyncError>(order.unwrapErr())
+        }
+        let status = seen_sync_rwlock_write_lock_until(this.handle,
+            context.monotonicDeadline)
+        if status != SYNC_NATIVE_OK {
+            let _ = tracker.leave(this.rank)
+            return Err<RwLockWriteGuard<T>, SyncError>(syncNativeFailure(
+                status, "rwlock.write", 0 as UInt64))
+        }
+        if not this.active or this.poisoned {
+            let _ = seen_sync_rwlock_unlock(this.handle)
+            let _ = tracker.leave(this.rank)
+            return Err<RwLockWriteGuard<T>, SyncError>(syncFailure(
+                "sync.invalid", "rwlock.write",
+                "rwlock is closed or poisoned", false, 0 as UInt64))
+        }
+        return Ok<RwLockWriteGuard<T>, SyncError>(RwLockWriteGuard<T>{
+            owner: this, tracker: tracker, active: true})
+    }
+
+    fun recover(context: OperationContext, tracker: LockOrderTracker)
+        r: Result<Bool, SyncError> {
+        let checked = syncValidateContext(context, "rwlock.recover",
+            0 as UInt64)
+        if checked.isErr() { return checked }
+        if not this.active {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "rwlock.recover", "rwlock is closed", false, 0 as UInt64))
+        }
+        let order = tracker.enter(this.rank)
+        if order.isErr() { return order }
+        let status = seen_sync_rwlock_write_lock_until(this.handle,
+            context.monotonicDeadline)
+        if status != SYNC_NATIVE_OK {
+            let _ = tracker.leave(this.rank)
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "rwlock.recover", 0 as UInt64))
+        }
+        this.poisoned = false
+        let releasable = tracker.canLeave(this.rank)
+        if releasable.isErr() {
+            return Err<Bool, SyncError>(releasable.unwrapErr())
+        }
+        let unlocked = seen_sync_rwlock_unlock(this.handle)
+        if unlocked != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(unlocked,
+                "rwlock.recover", 0 as UInt64))
+        }
+        let _ = tracker.leave(this.rank)
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun close() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        let status = seen_sync_rwlock_destroy(&this.handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "rwlock.close", 0 as UInt64))
+        }
+        this.active = false
+        return Ok<Bool, SyncError>(true)
+    }
+}
+
+@move
+class RwLockReadGuard<T: Share> {
+    var owner: RwLock<T>
+    var tracker: LockOrderTracker
+    var active: Bool
+
+    fun get() r: Result<T, SyncError> {
+        if not this.active {
+            return Err<T, SyncError>(syncFailure("sync.invalid",
+                "rwlock_read.get", "read guard is released", false,
+                0 as UInt64))
+        }
+        return Ok<T, SyncError>(this.owner.value)
+    }
+
+    fun release() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        let releasable = this.tracker.canLeave(this.owner.rank)
+        if releasable.isErr() {
+            return Err<Bool, SyncError>(releasable.unwrapErr())
+        }
+        let status = seen_sync_rwlock_unlock(this.owner.handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "rwlock_read.release", 0 as UInt64))
+        }
+        let left = this.tracker.leave(this.owner.rank)
+        if left.isErr() { return Err<Bool, SyncError>(left.unwrapErr()) }
+        this.active = false
+        return Ok<Bool, SyncError>(true)
+    }
+}
+
+@move
+class RwLockWriteGuard<T: Share> {
+    var owner: RwLock<T>
+    var tracker: LockOrderTracker
+    var active: Bool
+
+    fun get() r: Result<T, SyncError> {
+        if not this.active {
+            return Err<T, SyncError>(syncFailure("sync.invalid",
+                "rwlock_write.get", "write guard is released", false,
+                0 as UInt64))
+        }
+        return Ok<T, SyncError>(this.owner.value)
+    }
+
+    fun set(value: T) r: Result<Bool, SyncError> {
+        if not this.active {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "rwlock_write.set", "write guard is released", false,
+                0 as UInt64))
+        }
+        this.owner.value = value
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun poison() r: Result<Bool, SyncError> {
+        if not this.active {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "rwlock_write.poison", "write guard is released", false,
+                0 as UInt64))
+        }
+        this.owner.poisoned = true
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun release() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        let releasable = this.tracker.canLeave(this.owner.rank)
+        if releasable.isErr() {
+            return Err<Bool, SyncError>(releasable.unwrapErr())
+        }
+        let status = seen_sync_rwlock_unlock(this.owner.handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "rwlock_write.release", 0 as UInt64))
+        }
+        let left = this.tracker.leave(this.owner.rank)
+        if left.isErr() { return Err<Bool, SyncError>(left.unwrapErr()) }
+        this.active = false
+        return Ok<Bool, SyncError>(true)
     }
 }

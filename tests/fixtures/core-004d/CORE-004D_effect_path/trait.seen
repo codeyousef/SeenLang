@@ -1,0 +1,21 @@
+trait ValueSource {
+    fun value(this: ValueSource) r: Int
+}
+
+class NoisySource {}
+
+impl ValueSource for NoisySource {
+    fun value(this: NoisySource) r: Int {
+        println("trait implementation nondeterministic effect")
+        return 17
+    }
+}
+
+fun readValue(source: dyn ValueSource) r: Int {
+    return source.value()
+}
+
+fun main() r: Int {
+    let source = NoisySource()
+    return readValue(source)
+}

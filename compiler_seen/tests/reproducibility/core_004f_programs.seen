@@ -1,0 +1,266 @@
+import release.program_artifacts.{ProgramArtifactEnvironmentPin,
+    ProgramArtifactBuildInput, ProgramArtifactPin, ProgramArtifactCacheRecord,
+    ProgramArtifactResult, ProgramArtifactEvidence,
+    programArtifactBuildInputDigest, programArtifactArtifactSetDigest,
+    programArtifactCacheKey, validateProgramArtifactEvidence}
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+
+let CORE004F_SHA0: String =
+    "0000000000000000000000000000000000000000000000000000000000000000"
+let CORE004F_SHA1: String =
+    "1111111111111111111111111111111111111111111111111111111111111111"
+let CORE004F_SHA2: String =
+    "2222222222222222222222222222222222222222222222222222222222222222"
+let CORE004F_SHA3: String =
+    "3333333333333333333333333333333333333333333333333333333333333333"
+let CORE004F_SHA4: String =
+    "4444444444444444444444444444444444444444444444444444444444444444"
+let CORE004F_SHA5: String =
+    "5555555555555555555555555555555555555555555555555555555555555555"
+let CORE004F_SHA6: String =
+    "6666666666666666666666666666666666666666666666666666666666666666"
+let CORE004F_SHA7: String =
+    "7777777777777777777777777777777777777777777777777777777777777777"
+let CORE004F_SHA8: String =
+    "8888888888888888888888888888888888888888888888888888888888888888"
+let CORE004F_SHA9: String =
+    "9999999999999999999999999999999999999999999999999999999999999999"
+let CORE004F_INPUT_VECTOR: String =
+    "c01a2240e0a55668a9408af9a6047f84151b2bebe70f570ace246dd9af99ac34"
+let CORE004F_ARTIFACT_VECTOR: String =
+    "bd0fecefdd6194cb766f4abb934ecca2f8f9822dae87501a6f1022067caa2ec3"
+let CORE004F_CACHE_VECTOR: String =
+    "bfb754c28028c4bb6fc783cce84ba6e9d639935655cac13674f9a1cabd69bd25"
+
+fun core004fContext(cancelled: Bool) r: OperationContext {
+    return OperationContext{cancellation: cancelled, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 512,
+            maxVersionBytes: 256, maxManifestBytes: 8388608,
+            maxPathBytes: 4096, maxGraphModules: 64,
+            maxGraphEdges: 256, maxGraphDepth: 32},
+        traceId: AsciiString{value: "core-004f"}}
+}
+
+fun core004fInput(lto: String, pic: Bool) r: ProgramArtifactBuildInput {
+    let environment = Array<ProgramArtifactEnvironmentPin>()
+    environment.push(ProgramArtifactEnvironmentPin{name: "LANG",
+        valueSha256: CORE004F_SHA1})
+    environment.push(ProgramArtifactEnvironmentPin{name: "LC_ALL",
+        valueSha256: CORE004F_SHA2})
+    environment.push(ProgramArtifactEnvironmentPin{
+        name: "SEEN_DETERMINISTIC_SEED", valueSha256: CORE004F_SHA3})
+    environment.push(ProgramArtifactEnvironmentPin{name: "SEEN_HASH_SEED",
+        valueSha256: CORE004F_SHA4})
+    environment.push(ProgramArtifactEnvironmentPin{name: "TZ",
+        valueSha256: CORE004F_SHA5})
+    let features = Array<String>()
+    features.push("stable")
+    let input = ProgramArtifactBuildInput{compilerSha256: CORE004F_SHA1,
+        coverage: false, cpu: "x86-64", debug: false,
+        environment: environment, features: features,
+        inputDigest: "", lockSha256: CORE004F_SHA2,
+        lto: lto, objectCacheAbi: "seen-object-cache-abi-v1",
+        packageClientSha256: CORE004F_SHA3, pathMap: "/seen/src", pic: pic,
+        profile: "deterministic", runtimeSha256: CORE004F_SHA4,
+        sanitizer: "none", simd: "none", sourceDateEpoch: 0,
+        sourceTreeSha256: CORE004F_SHA5, stdlibSha256: CORE004F_SHA6,
+        target: "linux-x86_64", toolchain: "seen-0.18 llvm-22",
+        triple: "x86_64-unknown-linux-gnu"}
+    input.inputDigest = programArtifactBuildInputDigest(input)
+    return input
+}
+
+fun core004fArtifacts(caseName: String) r: Array<ProgramArtifactPin> {
+    let artifacts = Array<ProgramArtifactPin>()
+    if caseName == "object-manifest" {
+        artifacts.push(ProgramArtifactPin{bytes: 32, executable: false,
+            name: "seen_module_0.o", role: "object", sha256: CORE004F_SHA4})
+        artifacts.push(ProgramArtifactPin{bytes: 24, executable: false,
+            name: "objects.tsv", role: "object-manifest", sha256: CORE004F_SHA5})
+    } else {
+        artifacts.push(ProgramArtifactPin{bytes: 4096, executable: true,
+            name: "program", role: "executable", sha256: CORE004F_SHA4})
+        if caseName == "package-graph" {
+            artifacts.push(ProgramArtifactPin{bytes: 128, executable: false,
+                name: "packages.a", role: "package-archive",
+                sha256: CORE004F_SHA5})
+            artifacts.push(ProgramArtifactPin{bytes: 64, executable: false,
+                name: "packages.json", role: "package-manifest",
+                sha256: CORE004F_SHA6})
+        }
+    }
+    return artifacts
+}
+
+fun core004fResult(index: Int, caseName: String,
+    inputDigest: String) r: ProgramArtifactResult {
+    var id = "root-b-disabled"
+    var cacheMode = "disabled"
+    var state = "disabled"
+    var origin = "installed"
+    var root = CORE004F_SHA2
+    var cacheRoot = CORE004F_SHA3
+    if index == 0 {
+        id = "root-a-cold"; cacheMode = "cold"; state = "miss"
+        origin = "checkout"; root = CORE004F_SHA0; cacheRoot = CORE004F_SHA1
+    }
+    if index == 1 {
+        id = "root-a-warm"; cacheMode = "warm"; state = "hit"
+        origin = "checkout"; root = CORE004F_SHA0; cacheRoot = CORE004F_SHA1
+    }
+    if index == 2 {
+        id = "root-a-disabled"; cacheMode = "disabled"; state = "disabled"
+        origin = "checkout"; root = CORE004F_SHA0; cacheRoot = CORE004F_SHA1
+    }
+    if index == 3 {
+        id = "root-b-cold"; cacheMode = "cold"; state = "miss"
+    }
+    if index == 4 {
+        id = "root-b-warm"; cacheMode = "warm"; state = "hit"
+    }
+    let artifacts = core004fArtifacts(caseName)
+    return ProgramArtifactResult{artifacts: artifacts,
+        buildInputDigest: inputDigest,
+        cache: ProgramArtifactCacheRecord{
+            artifactSetSha256: programArtifactArtifactSetDigest(artifacts),
+            inputDigest: inputDigest,
+            key: programArtifactCacheKey(caseName, inputDigest), state: state},
+        cacheIdentity: cacheRoot, cacheMode: cacheMode,
+        compilerOrigin: origin, exitCode: 0, id: id, pathMap: "/seen/src",
+        publishedAtomically: true, rootIdentity: root,
+        stderrSha256: CORE004F_SHA0, stdoutSha256: CORE004F_SHA0}
+}
+
+fun core004fEvidence(caseName: String) r: ProgramArtifactEvidence {
+    var lto = "none"
+    if caseName == "release-full-lto" { lto = "full" }
+    if caseName == "release-thin-lto" { lto = "thin" }
+    let input = core004fInput(lto, caseName == "object-manifest")
+    let results = Array<ProgramArtifactResult>()
+    var index = 0
+    while index < 6 {
+        results.push(core004fResult(index, caseName, input.inputDigest))
+        index = index + 1
+    }
+    return ProgramArtifactEvidence{buildInput: input, cancelled: false,
+        caseName: caseName, results: results,
+        schema: "seen-program-artifacts-v1"}
+}
+
+fun core004fPass(name: String, caseName: String) r: Bool {
+    let result = validateProgramArtifactEvidence(core004fEvidence(caseName),
+        core004fContext(false))
+    if result.isErr() {
+        println("FAIL: " + name + " " + result.unwrapErr().code.value)
+        return false
+    }
+    println("PASS: " + name)
+    return true
+}
+
+fun core004fReject(code: String, evidence: ProgramArtifactEvidence) r: Bool {
+    let result = validateProgramArtifactEvidence(evidence, core004fContext(false))
+    return result.isErr() and result.unwrapErr().code.value == code
+}
+
+fun main() r: Int {
+    let vectorInput = core004fInput("none", false)
+    let vectorArtifacts = core004fArtifacts("two-root-default")
+    if vectorInput.inputDigest != CORE004F_INPUT_VECTOR or
+        programArtifactArtifactSetDigest(vectorArtifacts) !=
+            CORE004F_ARTIFACT_VECTOR or
+        programArtifactCacheKey("two-root-default", vectorInput.inputDigest) !=
+            CORE004F_CACHE_VECTOR {
+        println("FAIL: CORE-004F_native_sha256_contract"); return 1
+    }
+    println("PASS: CORE-004F_native_sha256_contract")
+
+    if not core004fPass("CORE-004F_two_root_default", "two-root-default") {
+        return 1
+    }
+    if not core004fPass("CORE-004F_cold_warm_no_cache",
+        "cold-warm-no-cache") { return 1 }
+    if not core004fPass("CORE-004F_release_full_lto", "release-full-lto") {
+        return 1
+    }
+    if not core004fPass("CORE-004F_release_thin_lto", "release-thin-lto") {
+        return 1
+    }
+    if not core004fPass("CORE-004F_object_manifest", "object-manifest") {
+        return 1
+    }
+    if not core004fPass("CORE-004F_package_graph", "package-graph") {
+        return 1
+    }
+    if not core004fPass("CORE-004F_installed_compiler",
+        "installed-compiler") { return 1 }
+    if not core004fPass("CORE-004F_path_remap", "path-remap") { return 1 }
+
+    let stale = core004fEvidence("cold-warm-no-cache")
+    stale.results[1].cache.inputDigest = CORE004F_SHA8
+    if not core004fReject("core.004f.stale_cache", stale) {
+        println("FAIL: CORE-004F_stale_cache"); return 1
+    }
+    println("PASS: CORE-004F_stale_cache")
+
+    let changed = core004fEvidence("two-root-default")
+    changed.results[4].buildInputDigest = CORE004F_SHA8
+    if not core004fReject("core.004f.input_change", changed) {
+        println("FAIL: CORE-004F_input_change"); return 1
+    }
+    println("PASS: CORE-004F_input_change")
+
+    let changedField = core004fEvidence("two-root-default")
+    changedField.buildInput.toolchain = "seen-0.18 llvm-22.1"
+    if not core004fReject("core.004f.input_change", changedField) {
+        println("FAIL: CORE-004F_changed_field_stale_digest"); return 1
+    }
+    println("PASS: CORE-004F_changed_field_stale_digest")
+
+    let changedArtifacts = core004fEvidence("two-root-default")
+    changedArtifacts.results[2].artifacts[0].bytes = 4097
+    if not core004fReject("core.004f.stale_cache", changedArtifacts) {
+        println("FAIL: CORE-004F_changed_artifact_set_digest"); return 1
+    }
+    println("PASS: CORE-004F_changed_artifact_set_digest")
+
+    let changedKey = core004fEvidence("two-root-default")
+    changedKey.results[3].cache.key = CORE004F_SHA8
+    if not core004fReject("core.004f.stale_cache", changedKey) {
+        println("FAIL: CORE-004F_changed_cache_key"); return 1
+    }
+    println("PASS: CORE-004F_changed_cache_key")
+
+    let missingEnvironment = core004fEvidence("two-root-default")
+    missingEnvironment.buildInput.environment.pop()
+    if not core004fReject("core.004f.invalid", missingEnvironment) {
+        println("FAIL: CORE-004F_missing_environment_pin"); return 1
+    }
+    println("PASS: CORE-004F_missing_environment_pin")
+
+    let failedBuild = core004fEvidence("two-root-default")
+    failedBuild.results[0].exitCode = 1
+    if not core004fReject("core.004f.mismatch", failedBuild) {
+        println("FAIL: CORE-004F_nonzero_exit"); return 1
+    }
+    println("PASS: CORE-004F_nonzero_exit")
+
+    let unsupported = core004fEvidence("two-root-default")
+    unsupported.buildInput.cpu = "native"
+    if not core004fReject("core.004f.unsupported_combination", unsupported) {
+        println("FAIL: CORE-004F_unsupported_combination"); return 1
+    }
+    println("PASS: CORE-004F_unsupported_combination")
+
+    let cancelled = validateProgramArtifactEvidence(
+        core004fEvidence("two-root-default"), core004fContext(true))
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value !=
+        "core.004f.cancelled" {
+        println("FAIL: CORE-004F_cancel"); return 1
+    }
+    println("PASS: CORE-004F_cancel")
+    return 0
+}
+
+main()

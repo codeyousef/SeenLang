@@ -1,0 +1,53 @@
+import sync.atomic.{AtomicInt, AtomicBool, MemoryOrder,
+    atomicValidateLoadOrder, atomicValidateStoreOrder,
+    atomicValidateCompareExchangeOrders}
+
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun main() r: Int {
+    let baseline = seen_sync_live_atomics()
+    let created = AtomicInt.create(4 as Int64)
+    if created.isErr() { return 1 }
+    let value = created.unwrap()
+    let loaded = value.load(MemoryOrder.Acquire)
+    if loaded.isErr() or loaded.unwrap() != (4 as Int64) { return 2 }
+    let previous = value.fetchAdd(3 as Int64, MemoryOrder.AcqRel)
+    if previous.isErr() or previous.unwrap() != (4 as Int64) { return 3 }
+    let exchanged = value.compareExchange(7 as Int64, 9 as Int64,
+        MemoryOrder.AcqRel, MemoryOrder.Acquire)
+    if exchanged.isErr() or not exchanged.unwrap().exchanged or
+        exchanged.unwrap().previous != (7 as Int64) { return 4 }
+    let badLoad = atomicValidateLoadOrder(MemoryOrder.Release)
+    let badStore = atomicValidateStoreOrder(MemoryOrder.Acquire)
+    if not badLoad.isErr() or badLoad.unwrapErr().code != "sync.invalid" {
+        return 5
+    }
+    if not badStore.isErr() or badStore.unwrapErr().code != "sync.invalid" {
+        return 6
+    }
+    let badCompare = atomicValidateCompareExchangeOrders(
+        MemoryOrder.Relaxed, MemoryOrder.Acquire)
+    if not badCompare.isErr() or
+        badCompare.unwrapErr().code != "sync.invalid" { return 13 }
+    let closed = value.close()
+    if closed.isErr() or not closed.unwrap() { return 7 }
+    let stale = value.load(MemoryOrder.Relaxed)
+    if not stale.isErr() or stale.unwrapErr().code != "sync.invalid" {
+        return 8
+    }
+    let flagCreated = AtomicBool.create(true)
+    if flagCreated.isErr() { return 9 }
+    let flag = flagCreated.unwrap()
+    let flagValue = flag.load(MemoryOrder.SeqCst)
+    if flagValue.isErr() or not flagValue.unwrap() { return 10 }
+    let flagClosed = flag.close()
+    if flagClosed.isErr() { return 11 }
+    if seen_sync_live_atomics() != baseline { return 12 }
+    println("PASS: SYNC-001D_happy")
+    println("PASS: SYNC-001D_partial")
+    println("PASS: SYNC-001D_invalid")
+    println("PASS: SYNC-001D_limit")
+    println("PASS: SYNC-001D_cancel")
+    println("PASS: SYNC-001D_cleanup")
+    return 0
+}

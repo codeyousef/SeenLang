@@ -3,10 +3,10 @@
   "$id": "https://seenlang.dev/schemas/compatibility-manifest.schema.json",
   "title": "Seen release compatibility manifest",
   "description": "Exact canonical input consumed by the Seen compiler and version-coupled package client; omitted or mismatched values are never inferred or repaired.",
-  "$comment": "The components.compiler.package_interface_schema entry binds reusable source-package compatibility; seen-package-interface-v2 includes the independently versioned native seen-package-layout-v1 contract. The components.compiler.object_cache_abi identity seen-object-cache-abi-v3 binds seen-import-graph-v1 canonical module ordering, the seen-global-initialization-plan-v1 dependency-first constructor schedule, the seen-production-ir-policy-v1 unmodified optimizer handoff, the seen-production-source-policy-v1 unmodified compiler-input handoff, the seen-machine-diagnostic-v1 stable diagnostic envelope, seen-build-instrumentation-evidence-v1, seen-release-optimization-plan-v1, seen-test-discovery-v1, seen-test-run-v1, seen-test-assertion-v1, seen-test-snapshot-v1, seen-test-fixture-v1, seen-test-report-v1, seen-test-migration-v1, seen-error-v1, seen-typed-error-v1, seen-error-api-migration-v1, seen-error-policy-v1, seen-owned-resource-v1, seen-secret-marker-v1, seen-byte-slices-v1, seen-byte-storage-v1, seen-byte-streams-v1, seen-byte-adapters-v1, seen-byte-codecs-v1, seen-async-byte-streams-v1, seen-test-instrumentation-v1, seen-test-fuzz-corpus-v1, seen-benchmark-evidence-v1, seen-test-leak-soak-v1, seen-bootstrap-reproducibility-v1, seen-release-artifact-manifest-v1, and seen-gate0-certification-v1.",
+  "$comment": "The components.compiler.package_interface_schema entry binds reusable source-package compatibility; seen-package-interface-v2 includes the independently versioned native seen-package-layout-v1 contract. The components.compiler.object_cache_abi identity seen-object-cache-abi-v3 binds seen-import-graph-v1 canonical module ordering, the seen-global-initialization-plan-v1 dependency-first constructor schedule, the seen-production-ir-policy-v1 unmodified optimizer handoff, the seen-production-source-policy-v1 unmodified compiler-input handoff, the seen-machine-diagnostic-v1 stable diagnostic envelope, seen-build-instrumentation-evidence-v1, seen-release-optimization-plan-v1, seen-test-discovery-v1, seen-test-run-v1, seen-test-assertion-v1, seen-test-snapshot-v1, seen-test-fixture-v1, seen-test-report-v1, seen-test-migration-v1, seen-error-v1, seen-typed-error-v1, seen-error-api-migration-v1, seen-error-policy-v1, seen-owned-resource-v1, seen-secret-marker-v1, seen-byte-slices-v1, seen-byte-storage-v1, seen-byte-streams-v1, seen-byte-adapters-v1, seen-byte-codecs-v1, seen-async-byte-streams-v1, seen-test-instrumentation-v1, seen-test-fuzz-corpus-v1, seen-benchmark-evidence-v1, seen-test-leak-soak-v1, seen-sync-v1, seen-deterministic-context-v1, seen-program-build-input-v1, seen-object-cache-record-v1, seen-release-lto-cache-record-v1, seen-program-artifacts-v1, seen-program-reproducibility-v1, seen-bootstrap-reproducibility-v1, seen-release-artifact-manifest-v1, and seen-gate0-certification-v1.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["components", "platforms", "release_version", "schema", "schema_version", "targets"],
+  "required": ["components", "determinism", "platforms", "release_version", "schema", "schema_version", "targets"],
   "properties": {
     "components": {
       "type": "object",
@@ -61,6 +61,36 @@
             "module_manifest_version": {"type": "integer", "minimum": 1, "maximum": 255},
             "version": {"$ref": "#/$defs/semver"}
           }
+        }
+      }
+    },
+    "determinism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["certification", "context_schema", "object_cache_record_schema", "program_artifacts_schema", "program_build_input_schema", "program_reproducibility_schema", "release_lto_cache_record_schema", "required_provenance"],
+      "properties": {
+        "certification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact_comparison", "builder_count", "complete_corpus_required", "distinct_builder_identities", "distinct_root_identities", "installed_archive_required", "signed_evidence_required"],
+          "properties": {
+            "artifact_comparison": {"const": "raw-bytes"},
+            "builder_count": {"const": 2},
+            "complete_corpus_required": {"const": true},
+            "distinct_builder_identities": {"const": true},
+            "distinct_root_identities": {"const": true},
+            "installed_archive_required": {"const": true},
+            "signed_evidence_required": {"const": true}
+          }
+        },
+        "context_schema": {"const": "seen-deterministic-context-v1"},
+        "object_cache_record_schema": {"const": "seen-object-cache-record-v1"},
+        "program_artifacts_schema": {"const": "seen-program-artifacts-v1"},
+        "program_build_input_schema": {"const": "seen-program-build-input-v1"},
+        "program_reproducibility_schema": {"const": "seen-program-reproducibility-v1"},
+        "release_lto_cache_record_schema": {"const": "seen-release-lto-cache-record-v1"},
+        "required_provenance": {
+          "const": ["artifact-hash", "artifact-size", "build-input-digest", "builder-identity", "cancellation-state", "command", "compiler-identity", "containment-readback", "epoch", "lock-digest", "mode", "root-identity", "source-digest", "target-identity", "toolchain-identity"]
         }
       }
     },

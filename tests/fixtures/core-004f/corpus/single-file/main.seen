@@ -1,0 +1,6 @@
+fun main() r: Int {
+    println("core-004f-single")
+    return 0
+}
+
+main()

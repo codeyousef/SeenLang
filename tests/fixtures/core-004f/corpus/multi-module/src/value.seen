@@ -1,0 +1,7 @@
+pub class FixtureValue {
+    var value: Int
+}
+
+pub fun fixtureValue() r: FixtureValue {
+    return FixtureValue{value: 42}
+}

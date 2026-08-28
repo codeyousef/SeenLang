@@ -1,0 +1,7 @@
+import collections.hash_map.{HashMap}
+
+fun main() r: Int {
+    let values = HashMap<String, Int>.new()
+    values.insert("answer", 42)
+    return values.size()
+}

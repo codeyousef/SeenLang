@@ -1,0 +1,9 @@
+import value.{FixtureValue, fixtureValue}
+
+fun main() r: Int {
+    let value: FixtureValue = fixtureValue()
+    println(value.value)
+    return 0
+}
+
+main()

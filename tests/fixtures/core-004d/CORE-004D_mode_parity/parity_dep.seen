@@ -1,0 +1,4 @@
+pub fun parityValue() r: Int {
+    println("mode parity nondeterministic effect")
+    return 3
+}

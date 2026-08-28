@@ -1,0 +1,12 @@
+@share
+class SharedValue {
+    let value: Int
+}
+
+@share
+class Holder<T: Share> {
+    let value: T
+}
+
+fun accept(value: Holder<SharedValue>) r: Int { return 0 }
+fun main() r: Int { return 0 }

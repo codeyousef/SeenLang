@@ -1,0 +1,4 @@
+pub fun packageNoise() r: Int {
+    println("package nondeterministic effect")
+    return 5
+}

@@ -34,11 +34,56 @@ TARGET_NAMES = {
 SUPPORT = {"required", "declared-toolchain-dependent"}
 TOP_FIELDS = {
     "components",
+    "determinism",
     "platforms",
     "release_version",
     "schema",
     "schema_version",
     "targets",
+}
+DETERMINISM_FIELDS = {
+    "certification",
+    "context_schema",
+    "object_cache_record_schema",
+    "program_artifacts_schema",
+    "program_build_input_schema",
+    "program_reproducibility_schema",
+    "release_lto_cache_record_schema",
+    "required_provenance",
+}
+DETERMINISM_SCHEMAS = {
+    "context_schema": "seen-deterministic-context-v1",
+    "object_cache_record_schema": "seen-object-cache-record-v1",
+    "program_artifacts_schema": "seen-program-artifacts-v1",
+    "program_build_input_schema": "seen-program-build-input-v1",
+    "program_reproducibility_schema": "seen-program-reproducibility-v1",
+    "release_lto_cache_record_schema": "seen-release-lto-cache-record-v1",
+}
+REQUIRED_DETERMINISTIC_PROVENANCE = [
+    "artifact-hash",
+    "artifact-size",
+    "build-input-digest",
+    "builder-identity",
+    "cancellation-state",
+    "command",
+    "compiler-identity",
+    "containment-readback",
+    "epoch",
+    "lock-digest",
+    "mode",
+    "root-identity",
+    "source-digest",
+    "target-identity",
+    "toolchain-identity",
+]
+CERTIFICATION_FIELDS = {
+    "artifact_comparison",
+    "builder_count",
+    "complete_corpus_required",
+    "distinct_builder_identities",
+    "distinct_root_identities",
+    "installed_archive_required",
+    "signed_evidence_required",
 }
 
 
@@ -139,6 +184,35 @@ def validate(document: object) -> dict[str, object]:
     module_version = stdlib["module_manifest_version"]
     if isinstance(module_version, bool) or not isinstance(module_version, int) or not 1 <= module_version <= 255:
         fail("invalid", "standard-library module manifest version is invalid")
+
+    determinism = exact_object(
+        manifest["determinism"], DETERMINISM_FIELDS, "determinism"
+    )
+    for field, expected in DETERMINISM_SCHEMAS.items():
+        actual = bounded_string(determinism[field], f"determinism.{field}", 128, IDENTITY)
+        if actual != expected:
+            fail("invalid", f"determinism.{field} must be {expected}")
+    if determinism["required_provenance"] != REQUIRED_DETERMINISTIC_PROVENANCE:
+        fail("invalid", "determinism.required_provenance is incomplete or unordered")
+
+    certification = exact_object(
+        determinism["certification"], CERTIFICATION_FIELDS,
+        "determinism.certification",
+    )
+    if certification["artifact_comparison"] != "raw-bytes":
+        fail("invalid", "deterministic artifacts must be compared as raw bytes")
+    builder_count = certification["builder_count"]
+    if isinstance(builder_count, bool) or builder_count != 2:
+        fail("invalid", "deterministic certification requires exactly two builders")
+    for field in (
+        "complete_corpus_required",
+        "distinct_builder_identities",
+        "distinct_root_identities",
+        "installed_archive_required",
+        "signed_evidence_required",
+    ):
+        if certification[field] is not True:
+            fail("invalid", f"determinism.certification.{field} must be true")
 
     platforms = exact_object(
         manifest["platforms"],

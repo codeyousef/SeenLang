@@ -34,7 +34,7 @@ Common options:
 
 | Option | Description |
 |--------|-------------|
-| `--profile deterministic` | Reject nondeterministic collection usage unless explicitly annotated |
+| `--profile deterministic` | Enable semantic determinism checks without changing code-generation policy |
 | `--no-cache` | Disable incremental compilation caching |
 | `--verbose` | Show full per-module compiler progress and expanded warning diagnostics |
 | `--locked` | Require the existing `Seen.lock` to match `Seen.toml`; do not rewrite it |
@@ -46,7 +46,7 @@ Common options:
 | `--simd=<policy>` | SIMD policy: `auto`, `none`, `sse4.2`, `avx2`, `avx512` |
 | `--simd-report` / `--simd-report=full` | Show LLVM vectorization reports |
 | `--backend=<name>` / `--backend <name>` | Backend selector; the shipped binary supports LLVM |
-| `--deterministic` | Deterministic mode with scalar SIMD and no unchecked `HashMap` |
+| `--deterministic` | Enable the deterministic semantic profile and force `--simd=none` |
 | `--sanitize=<policy>` | Sanitizer policy: `address`, `undefined`, `thread`, `memory` |
 | `--pgo-generate` | Build with profile-generation instrumentation |
 | `--pgo-use=<path>` | Use a merged PGO profile |
@@ -82,10 +82,32 @@ By default, `seen compile` prints bounded progress at useful phase checkpoints
 instead of one line per internal action. Warning diagnostics remain visible, and
 `--verbose` expands progress and warnings when debugging a specific module.
 
+`--profile deterministic` and `--deterministic` are intentionally different
+contracts. The profile is semantic analysis only. `--deterministic` is the
+compile/run policy and resolves to the deterministic profile plus scalar SIMD
+before frontend or cache work. An explicit `--profile default` or any explicit
+SIMD policy other than `none` conflicts with `--deterministic` and fails with a
+`core.004c.conflict` diagnostic. Unknown profiles, missing values, and values
+attached to the flag fail with `core.004c.invalid`.
+
+This CLI policy does not make normalized bootstrap comparison equivalent to raw
+user-program artifact equality. Runtime-input validation and raw artifact
+reproducibility remain separate contracts even though `--deterministic` is the
+single public mode that selects them.
+
+Deterministic compile and run require an explicit execution context:
+`SOURCE_DATE_EPOCH` and `SEEN_DETERMINISTIC_SEED` must be valid integers,
+`TZ` must be `UTC`, and the effective locale must be `C`, `POSIX`, or
+`C.UTF-8`. If `SEEN_HASH_SEED` is supplied it must equal the deterministic
+seed. Missing, malformed, or conflicting inputs fail with stable
+`core.004e.*` diagnostics; ambient time, random, environment, and external
+input are not silently substituted.
+
 Examples:
 
 ```bash
 seen compile hello.seen hello
+seen compile deterministic.seen deterministic --deterministic
 seen compile app.seen app --target=linux-arm64 --target-cpu=x86-64
 seen compile app.seen app-rv64 --target=linux-riscv64
 seen compile plugin.seen plugin_host --pic --no-cache --no-fork \
@@ -109,22 +131,34 @@ or be verified as Git-ignored, and it must not traverse symbolic links.
 Run frontend/type checks without building an executable.
 
 ```bash
-seen check <input.seen> [--profile deterministic] [--locked|--offline|--frozen]
+seen check <input.seen> [--profile deterministic|--deterministic] [--locked|--offline|--frozen]
 ```
 
 Package resolution modes have the same meaning as for `seen compile`.
+For `check`, `--deterministic` is an alias for `--profile deterministic`; no
+artifact is produced and no code-generation claim is made.
+
+Deterministic semantic checking covers the complete resolved program graph,
+including imported project modules and verified path/package dependencies. A
+nondeterministic facility fails before code generation with a stable
+`core.004d.*` diagnostic containing its canonical declaration and bounded call
+path. Use ordered collections and fixed-point numerics where applicable, or put
+the exact escape declaration behind one argument-free, non-conflicting
+`@nondeterministic` boundary. Unresolved calls/effects fail closed in this mode.
 
 ### `seen run`
 
 Compile and execute a Seen source file.
 
 ```bash
-seen run <input.seen> [--aot] [--no-cache] [--verbose] [--language <lang>] [--locked|--offline|--frozen]
+seen run <input.seen> [--deterministic] [--aot] [--no-cache] [--verbose] [--language <lang>] [--locked|--offline|--frozen]
 ```
 
 By default `seen run` uses the JIT path. Pass `--aot` to compile an executable
 first, `--no-cache` to force a fresh compile, and `--verbose` to show compiler
 diagnostics during the run. Run flags may appear before or after the input path.
+`--deterministic` selects the deterministic semantic and scalar-SIMD policy and
+uses the AOT pipeline because the JIT path does not accept a SIMD policy.
 
 ### Packaging Commands
 

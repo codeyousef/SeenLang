@@ -1,8 +1,8 @@
 # Concurrency
 
-Seen 0.17.0 provides LLVM-coroutine async functions, a cooperative runtime,
-capture-free parallel loops, and low-level synchronization primitives. These
-features are usable, but their current boundaries matter.
+Seen provides LLVM-coroutine async functions, a cooperative runtime, typed
+parallel-loop captures, and bounded synchronization primitives. These features
+are usable, but their ownership and scheduling boundaries matter.
 
 ## Async and await
 
@@ -58,8 +58,8 @@ not forcibly interrupt coroutine frames.
 
 ## Parallel for
 
-The current `parallel_for` lowering uses pthread workers with statically divided
-index ranges:
+`parallel_for` uses bounded worker ranges and a compiler-generated typed capture
+environment:
 
 ```seen
 parallel_for i in 0..1000 {
@@ -67,53 +67,33 @@ parallel_for i in 0..1000 {
 }
 ```
 
-In the shipped 0.17.0 compiler, a parallel body has no capture environment.
-Keep it capture-free: do not read or mutate enclosing locals from the body.
-Explicit value/reference/move captures and compiler-proven disjoint mutation
-are planned language work, not part of this release. Worker count and scheduling
-are runtime implementation details and code must not depend on iteration order.
+`parallel_for` captures are immutable, parent-owned borrows and must satisfy
+`Share`. The generated environment remains alive until every worker has joined;
+workers neither move nor drop its fields. Mutable outer-local captures are
+rejected unless a future compiler contract proves synchronized or disjoint
+mutation. Values moved into independently owned task state must satisfy `Send`,
+but `parallel_for` does not expose a move-capture form. Worker errors are
+selected by the lowest failing iteration index and sibling work is joined.
+Worker count and scheduling remain implementation details; code must not depend
+on iteration order.
 
 ## Synchronization primitives
 
-Import the relevant module under `sync/` or `thread/` before using these types.
+Import `sync.mod` or the specific module. Public resource types are move-only
+and fallible:
 
-### Mutex and RwLock
+- `Arc<T: Share>` provides checked explicit shared ownership.
+- `AtomicInt`, `AtomicBool`, and `Atomic<T: Share>` use typed memory orders.
+- `BoundedChannel<T: Send>` requires capacity and an `OperationContext` for
+  blocking sends and receives.
+- `Mutex<T: Share>` and `RwLock<T: Share>` return scoped guards, implement
+  explicit poisoning/recovery, and require lock ranks.
+- `LockOrderTracker` detects bounded rank inversions and dependency cycles.
 
-```seen
-let mutex = Mutex.new()
-mutex.lock()
-// protected work
-mutex.unlock()
-
-let rwlock = RwLock.new()
-rwlock.readLock()
-// read
-rwlock.readUnlock()
-rwlock.writeLock()
-// write
-rwlock.writeUnlock()
-rwlock.destroy()
-```
-
-`Mutex.tryLock()` returns whether the lock was acquired.
-
-### AtomicInt and AtomicBool
-
-```seen
-let counter = AtomicInt.new(0)
-counter.store_release(42)
-let value = counter.load_acquire()
-let changed = counter.compare_exchange(42, 43)
-```
-
-`AtomicInt` also provides `load`, `load_relaxed`, `store`, `add`, and `sub`.
-The compare-and-exchange method is named `compare_exchange`.
-
-### Barrier, Channel, and ThreadLocal
-
-`Barrier` waits until its configured number of participants arrive. `Channel`
-is currently an `Int`-only blocking channel backed by the runtime, rather than a
-generic typed channel. `ThreadLocal` stores one `Int` value per thread.
+Synchronization state machines and policy are Seen. Only atomic, mutex,
+condition-variable, reader/writer-lock, and monotonic-clock normalization cross
+the ledgered native ABI. The raw mutex/atomic/channel and C-owned collection
+surfaces have no compatibility fallback.
 
 ### Work-stealing pool
 
@@ -128,9 +108,10 @@ passed as `Int` values. It is not yet a closure- or typed-task API.
 
 ## Thread-safety markers
 
-The parser recognizes `@send` and `@sync` type markers. They express thread
-safety intent, but 0.17.0 does not use them to make outer-local captures in
-`parallel_for` safe; such captures are not lowered at all.
+The compiler recognizes `@send` and `@share`. It proves their fields and generic
+bounds structurally across the resolved import graph and enforces those proofs
+at task transfer, shared ownership, channel, atomic, and parallel-capture
+boundaries. The former `@sync` annotation is rejected.
 
 Actor declaration syntax and a general actor runtime are not shipped in the
 active compiler path.

@@ -1,0 +1,5 @@
+import provider.noise.{packageNoise}
+
+fun main() r: Int {
+    return packageNoise()
+}

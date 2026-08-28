@@ -8,6 +8,7 @@ import codegen.ir_codegen_state.{getSharedCodegenState}
 import codegen.ir_codegen_feature_state.{applyStatementDriverFeatureStateImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, getFeatureClosureDefsImpl, getFeatureDeferCountImpl, getFeatureDeferExprsImpl, getFeatureDistinctTypeNamesImpl, getFeatureErrdeferCountImpl, getFeatureErrdeferExprsImpl, getFeatureErrdeferTempAllocaImpl, getFeatureInsideUnsafeImpl, getFeaturePforCountImpl, getFeatureTryCatchEndLabelImpl, getFeatureTryCatchLabelImpl, getFeatureWarnUnusedResultImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getCurrentFunctionReturnTypeWithGlobalStateImpl, getCurrentLoopCondLabelWithGlobalStateImpl, getCurrentLoopEndLabelWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
 import codegen.ir_codegen_metrics_state.{g_branchesEliminated, g_deadStoreSkipVars, g_inductionVarName, g_loopsOptimized, g_mlUnrollThreshold, g_mlVectorizeThreshold, g_reductionChainsDetected}
+import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_type_mapping.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_function_body.{bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl}
 import codegen.ir_function_scratch.{emitParallelForCallImpl}
@@ -22,9 +23,10 @@ import codegen.ir_return_statement_driver.{generateReturnStatementState}
 import codegen.ir_stmt_comptime.{classifyComptimeStatementKindImpl, shouldProcessComptimeLetImpl, shouldRegisterComptimeIntValueImpl, shouldRegisterComptimeStringValueImpl, shouldProcessComptimeAssignmentImpl, shouldApplyComptimeAssignmentUpdateImpl, shouldProcessComptimeWhileImpl, shouldContinueComptimeWhileImpl, shouldEmitRuntimeComptimeStatementImpl, resolveComptimeAssignmentTargetImpl, emitComptimeIntNoteImpl, emitComptimeStringNoteImpl, emitComptimeWhileUnrolledNoteImpl, resolveComptimeAssertMessageImpl, emitComptimeAssertFailureNoteImpl, emitComptimeAssertAbortImpl, emitComptimeAssertPassedNoteImpl, classifyComptimeAssertResultImpl, classifyComptimeIfBranchImpl, shouldGenerateComptimeIfThenImpl, shouldGenerateComptimeIfElseImpl, emitComptimeIfBranchNoteImpl, registerComptimeVarState, updateComptimeVarState, registerComptimeStrVarState, evaluateConstExprStrState, evaluateConstExprState}
 import codegen.ir_stmt_defer_driver.{generateDeferredStatement}
 import codegen.ir_stmt_dispatch_plan.{planStatementDispatchImpl}
-import codegen.ir_stmt_gen.{classifyParallelForRangeExprImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, emitUnusedResultCallWarningImpl}
+import codegen.ir_stmt_gen.{classifyParallelForRangeExprImpl, collectParallelCaptureNamesImpl, buildParallelForBodyFunctionNameImpl, emitParallelForBodyHeaderImpl, finalizeParallelForBodyImpl, emitRegionStatementPreambleImpl, emitRegionStatementCleanupImpl, emitUnusedResultCallWarningImpl}
 import codegen.ir_stmt_scope.{enterUnsafeStatementImpl, exitUnsafeStatementImpl, beginTryCatchStatementSnapshotImpl, finalizeTryCatchArmImpl, emitTryCatchCatchHeaderImpl, emitTryCatchFooterImpl}
-import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl,
+    storeActiveVariableBindingImpl}
 
 class StatementDriverState {
     var boundsCheckLabelCount: Int
@@ -184,11 +186,38 @@ fun generateParallelForStatementState(ctx: CodegenLoweringContext,
     let pforIdx = state.pforCount
     state.pforCount = state.pforCount + 1
     let bodyFuncName = buildParallelForBodyFunctionNameImpl(pforIdx)
+    let outerActiveCount = getBoundedActiveVarCountWithGlobalStateImpl(
+        varNames)
+    let captureNames = collectParallelCaptureNamesImpl(stmt.loopBody,
+        stmt.variableName, varNames, outerActiveCount)
+    let captureRegs = Array<String>()
+    let captureTypes = Array<String>()
+    let captureLlvmTypes = Array<String>()
+    var captureIndex = 0
+    while captureIndex < captureNames.length() {
+        let outerIndex = findActiveVariableIndexImpl(varNames,
+            outerActiveCount, captureNames[captureIndex])
+        if outerIndex >= 0 {
+            captureRegs.push(varRegs[outerIndex])
+            captureTypes.push(varTypes[outerIndex])
+            captureLlvmTypes.push(mapTypeState(varTypes[outerIndex]))
+        }
+        captureIndex = captureIndex + 1
+    }
+    var environmentType: String = "{"
+    captureIndex = 0
+    while captureIndex < captureLlvmTypes.length() {
+        if captureIndex > 0 { environmentType = environmentType + ", " }
+        environmentType = environmentType + captureLlvmTypes[captureIndex]
+        captureIndex = captureIndex + 1
+    }
+    environmentType = environmentType + "}"
     let pforReturnType = getCurrentFunctionReturnTypeWithGlobalStateImpl()
     let savedNestedState = beginLoweringNestedScratch(ctx, pforReturnType)
     let nestedOutput = getSharedCodegenState().output
 
-    nestedOutput.append("define internal i64 " + bodyFuncName + "(i64 %0) nounwind {\n")
+    nestedOutput.append("define internal i64 " + bodyFuncName +
+        "(i64 %0, ptr %__seen_pfor_env) nounwind {\n")
     nestedOutput.append("entry:\n")
     let inductionSlot = "%pfor.index.addr"
     nestedOutput.append("  " + inductionSlot + " = alloca i64\n")
@@ -198,6 +227,26 @@ fun generateParallelForStatementState(ctx: CodegenLoweringContext,
         nestedState.varNames, nestedState.varRegs, nestedState.varTypes,
         getBoundedActiveVarCountWithGlobalStateImpl(nestedState.varNames),
         stmt.variableName, inductionSlot, "Int"))
+
+    captureIndex = 0
+    while captureIndex < captureNames.length() and
+        captureIndex < captureRegs.length() {
+
+        let fieldPointer = getNextRegFn(getFeatureRegBoxImpl())
+        nestedOutput.append("  " + fieldPointer +
+            " = getelementptr inbounds " + environmentType +
+            ", ptr %__seen_pfor_env, i32 0, i32 " +
+            captureIndex.toString() + "\n")
+        // Bind directly to the parent-owned environment field. Loading into a
+        // worker-local alloca bitwise-duplicated move/drop values once per
+        // iteration; the environment is alive until every worker is joined.
+        setActiveVarCountWithGlobalStateImpl(storeActiveVariableBindingImpl(
+            nestedState.varNames, nestedState.varRegs, nestedState.varTypes,
+            getBoundedActiveVarCountWithGlobalStateImpl(nestedState.varNames),
+            captureNames[captureIndex], fieldPointer,
+            captureTypes[captureIndex]))
+        captureIndex = captureIndex + 1
+    }
     lowerBlock(ctx, stmt.loopBody)
 
     if not isLoweringBlockTerminated(ctx) {
@@ -207,8 +256,31 @@ fun generateParallelForStatementState(ctx: CodegenLoweringContext,
     state.closureDefs = state.closureDefs + nestedOutput.toString()
 
     restoreLoweringNestedScratch(ctx, savedNestedState)
+    var environmentReg: String = "null"
+    if captureNames.length() > 0 {
+        environmentReg = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + environmentReg + " = alloca " +
+            environmentType + "\n")
+        captureIndex = 0
+        while captureIndex < captureNames.length() and
+            captureIndex < captureRegs.length() {
+
+            let sourceValue = getNextRegFn(getFeatureRegBoxImpl())
+            output.append("  " + sourceValue + " = load " +
+                captureLlvmTypes[captureIndex] + ", ptr " +
+                captureRegs[captureIndex] + "\n")
+            let fieldPointer = getNextRegFn(getFeatureRegBoxImpl())
+            output.append("  " + fieldPointer +
+                " = getelementptr inbounds " + environmentType + ", ptr " +
+                environmentReg + ", i32 0, i32 " +
+                captureIndex.toString() + "\n")
+            output.append("  store " + captureLlvmTypes[captureIndex] +
+                " " + sourceValue + ", ptr " + fieldPointer + "\n")
+            captureIndex = captureIndex + 1
+        }
+    }
     emitParallelForCallImpl(output, stmt.variableName, startReg, endReg,
-        bodyFuncName)
+        bodyFuncName, environmentReg)
 }
 
 fun processComptimeStatementsState(ctx: CodegenLoweringContext,

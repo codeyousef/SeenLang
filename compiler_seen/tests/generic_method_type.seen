@@ -1,0 +1,25 @@
+import codegen.ir_generic_method_type.{genericTypeArgumentsImpl,
+    replaceGenericTypeIdentifierImpl, specializeGenericMethodReturnTypeImpl}
+
+fun main() r: Int {
+    let one = genericTypeArgumentsImpl("Arc<Int>")
+    if one.length() != 1 or one[0] != "Int" { return 1 }
+    let nested = genericTypeArgumentsImpl(
+        "Map<String, Result<Array<Int>, SyncError>>")
+    if nested.length() != 2 or nested[0] != "String" or
+        nested[1] != "Result<Array<Int>, SyncError>" { return 2 }
+    let arc = specializeGenericMethodReturnTypeImpl("Arc<Int>", "Arc",
+        "Result<Arc<T>, SyncError>")
+    if arc != "Result<Arc<Int>, SyncError>" { return 3 }
+    let borrow = specializeGenericMethodReturnTypeImpl("Arc<String>", "Arc",
+        "Result<T, SyncError>")
+    if borrow != "Result<String, SyncError>" { return 4 }
+    let map = specializeGenericMethodReturnTypeImpl("Map<String, Int>",
+        "Map", "Result<V, MapError<K>>")
+    if map != "Result<Int, MapError<String>>" { return 5 }
+    let untouched = replaceGenericTypeIdentifierImpl("SyncError", "T",
+        "Int")
+    if untouched != "SyncError" { return 6 }
+    println("PASS: generic receiver method return specialization")
+    return 0
+}

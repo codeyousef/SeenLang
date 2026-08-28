@@ -81,6 +81,70 @@ imports as well as from the embedded compiler-module list. That keeps older
 bootstrap compilers from treating new helper calls as external declarations with
 the wrong ABI during self-hosted rebuilds.
 
+### Deterministic CLI policy
+
+CORE-004C resolves deterministic command-line options once in the shipped
+`main_compiler.seen` entrypoint. The canonical policy records whether the
+reproducibility mode was selected plus its effective semantic profile and SIMD
+policy. `--deterministic` resolves to profile `deterministic` and SIMD `none`;
+explicit contradictory values fail with `core.004c.conflict` before package,
+frontend, cache, code-generation, or execution work. The checker consumes the
+effective profile directly. Deterministic execution uses the AOT compile path
+because the JIT path has no SIMD-policy input.
+
+The higher-level `compiler_seen/src/main.seen` wrapper is not a release CLI
+entrypoint and does not define this contract. The legacy `seen determinism`
+command and non-LLVM wrapper paths are rejected rather than treated as
+compatibility aliases.
+
+### Resolved deterministic effect graph
+
+CORE-004D runs after package-aware declaration collection and lexical semantic
+validation. Each parsed module is streamed into bounded declaration, call-edge,
+annotation, type, and source-provenance tables; effect propagation then follows
+canonical symbols across imports, packages, aliases, generic call spellings,
+closures, methods, traits, foreign declarations, and module initializers. The
+same gate is called by `check` and `compile`, while deterministic `run` reaches
+it through the policy-aware AOT path.
+
+The graph classifies unordered hash collections, floating point, time, random,
+I/O, process, environment, network, unsafe foreign calls, declared capability
+effects, and resolved user calls. One exact, argument-free, non-conflicting
+`@nondeterministic` annotation makes that declaration an explicit propagation
+boundary. Unknown or ambiguous calls and unresolved effect tokens fail closed.
+Diagnostics use stable `core.004d.*` codes and include the source location,
+canonical owning declaration, bounded effect path, facility identity, and remediation. Node,
+edge, direct-effect, propagation-round, path-length, and diagnostic limits are
+explicit; exhaustion produces `core.004d.limit` rather than partial approval.
+
+### Deterministic execution context
+
+CORE-004E defines `seen-deterministic-context-v1`. Deterministic compile and
+run capture a bounded, typed context from explicit epoch, seed, hash-seed,
+locale, timezone, and allowlisted external-input policy. Missing, malformed,
+or conflicting values fail closed with `core.004e.*` diagnostics. Native Seen
+policy owns validation; the process boundary is the narrow nondeterministic
+adapter. Required CI executes the context contract with the freshly accepted
+Stage-1 compiler, including deterministic output parity and installed-source
+payload identity.
+
+### Reproducible user-program artifacts
+
+CORE-004F keeps user-program reproducibility separate from normalized compiler
+bootstrap comparison. `seen-program-build-input-v1` identifies complete build
+inputs, `seen-object-cache-record-v1` and `seen-release-lto-cache-record-v1`
+bind cache entries, and `seen-program-artifacts-v1` records raw hashes for
+cold, warm, no-cache, release, LTO, package-graph, installed-compiler, and
+path-remapped builds. Stable source identity and object ordering exclude
+physical checkout roots, while temporary outputs are published atomically.
+
+CORE-004G defines `seen-program-reproducibility-v1` for independent-builder
+certification of that corpus. The canonical record binds source/toolchain
+inputs, builder identities, exact artifact bytes, cleanup, cancellation, and
+bounded diagnostics. Required CI validates these contracts before bootstrap;
+release-toolchain preparation revalidates them without starting a second full
+compiler/package build.
+
 ### Two-builder reproducibility
 
 CORE-004A defines `seen-bootstrap-reproducibility-v1` in

@@ -1,0 +1,16 @@
+manifest-version = 1
+
+[project]
+name = "core_004d_provider"
+version = "0.1.0"
+language = "en"
+modules = ["src/noise.seen"]
+
+[package]
+identity = "seen/core-004d-provider"
+visibility = "public"
+include = ["src/**/*.seen"]
+assets = []
+capabilities = []
+
+[dependencies]

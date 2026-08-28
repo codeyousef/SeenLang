@@ -6,7 +6,8 @@ Implicit locals may retain the explicit `Unknown` identity until a later
 inference pass; this module never invents an Int fallback for them.
 ///
 
-import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode}
+import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode,
+    StatementNode}
 import parser.real_parser.{ParserExpressionNode, TypeNode, AnnotationNode}
 import parser.real_parser.{genericParameterCount, genericParameterNameAt}
 import parser.real_parser.{genericParameterModifierAt}
@@ -17,6 +18,8 @@ import typechecker.semantic_registry.{ScopedBindings}
 import typechecker.semantic_registry.{semanticCanonicalDeclaration}
 import typechecker.semantic_registry.{semanticIsBuiltinType}
 import typechecker.semantic_registry.{semanticBuiltinGenericArity}
+import typechecker.semantic_registry.{semanticFoundationThreadProperty}
+import typechecker.semantic_registry.{semanticFoundationTypeBase}
 import typechecker.semantic_registry.{semanticNormalizeModuleIdentity}
 
 class LexicalSemanticResult {
@@ -202,6 +205,35 @@ fun resolveSemanticTypeRef(result: LexicalSemanticResult, typeRef: TypeRef,
         if not resolveSemanticTypeRef(result, typeRef.arguments[i], moduleName,
             genericOwner, genericNames, requireConcrete) { valid = false }
         i = i + 1
+    }
+    if valid and resolvedUserDeclarationIndex >= 0 {
+        i = 0
+        while i < typeRef.arguments.length() {
+            let argumentIdentity = typeRef.arguments[i].canonicalIdentity()
+            if result.registry.genericParameterHasLifecycleBoundAtForOwner(
+                resolvedBase, i, "Send") and
+                result.registry.lifecycleIdentityPropertyState(genericOwner,
+                    argumentIdentity, "Send") != 1 {
+
+                result.addError("E_TYPE_BOUND", "type argument '" +
+                    argumentIdentity + "' does not satisfy Send for '" +
+                    typeRef.base + "'", typeRef.arguments[i].file,
+                    typeRef.arguments[i].line, typeRef.arguments[i].column)
+                valid = false
+            }
+            if result.registry.genericParameterHasLifecycleBoundAtForOwner(
+                resolvedBase, i, "Share") and
+                result.registry.lifecycleIdentityPropertyState(genericOwner,
+                    argumentIdentity, "Share") != 1 {
+
+                result.addError("E_TYPE_BOUND", "type argument '" +
+                    argumentIdentity + "' does not satisfy Share for '" +
+                    typeRef.base + "'", typeRef.arguments[i].file,
+                    typeRef.arguments[i].line, typeRef.arguments[i].column)
+                valid = false
+            }
+            i = i + 1
+        }
     }
     return valid
 }
@@ -659,8 +691,20 @@ fun semanticBindingIsMoveOnly(result: LexicalSemanticResult,
 
     let identity = bindings.lookup(name)
     if identity == "" or identity == "Unknown" { return false }
-    return result.registry.hasDecorator(identity, "move") or
-        result.registry.hasDecorator(identity, "c_resource")
+    let declarationIdentity = semanticFoundationTypeBase(identity)
+    if result.registry.hasDecorator(declarationIdentity, "move") or
+        result.registry.hasDecorator(declarationIdentity, "c_resource") {
+
+        return true
+    }
+    let foundationIndex = result.registry.findCanonical(declarationIdentity)
+    if foundationIndex < 0 { return false }
+    let foundationKind = result.registry.kinds[foundationIndex]
+    if foundationKind != "Class" and foundationKind != "Struct" {
+        return false
+    }
+    return semanticFoundationThreadProperty(identity, "Send") == 1 and
+        semanticFoundationThreadProperty(identity, "Share") == 0
 }
 
 fun semanticCheckMovedBindingRead(result: LexicalSemanticResult,
@@ -801,6 +845,180 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
     }
 }
 
+fun semanticParallelLocalContains(localNames: Array<String>, name: String)
+    r: Bool {
+
+    var i = localNames.length() - 1
+    while i >= 0 {
+        if localNames[i] == name { return true }
+        i = i - 1
+    }
+    return false
+}
+
+fun semanticRecordParallelCapture(name: String, localNames: Array<String>,
+    captureNames: Array<String>) r: Void {
+
+    if name == "" or semanticParallelLocalContains(localNames, name) {
+        return
+    }
+    var i = 0
+    while i < captureNames.length() {
+        if captureNames[i] == name { return }
+        i = i + 1
+    }
+    captureNames.push(name)
+}
+
+fun semanticCollectParallelCapturesFromExpression(
+    expression: ParserExpressionNode, localNames: Array<String>,
+    captureNames: Array<String>) r: Void {
+
+    let simpleName = semanticSimpleVariableName(expression)
+    if simpleName != "" {
+        semanticRecordParallelCapture(simpleName, localNames, captureNames)
+    }
+    if (expression.kind == "MemberAccess" or
+        expression.kind == "MethodCall" or
+        expression.kind == "IndexAccess") and
+        expression.literalValue != "" {
+
+        semanticRecordParallelCapture(expression.literalValue, localNames,
+            captureNames)
+    }
+    if expression.kind == "Assignment" and
+        expression.variableName != "" {
+
+        semanticRecordParallelCapture(expression.variableName, localNames,
+            captureNames)
+    }
+    var i = 0
+    while i < expression.operands.length() {
+        semanticCollectParallelCapturesFromExpression(expression.operands[i],
+            localNames, captureNames)
+        i = i + 1
+    }
+    i = 0
+    while i < expression.arguments.length() {
+        semanticCollectParallelCapturesFromExpression(expression.arguments[i],
+            localNames, captureNames)
+        i = i + 1
+    }
+}
+
+fun semanticCollectParallelCapturesFromBlock(block: BlockNode,
+    localNames: Array<String>, captureNames: Array<String>) r: Void {
+
+    let scopeStart = localNames.length()
+    var i = 0
+    while i < block.statements.length() {
+        let statement = block.statements[i]
+        semanticCollectParallelCapturesFromExpression(statement.initializer,
+            localNames, captureNames)
+        semanticCollectParallelCapturesFromExpression(statement.returnValue,
+            localNames, captureNames)
+        semanticCollectParallelCapturesFromExpression(statement.expression,
+            localNames, captureNames)
+        semanticCollectParallelCapturesFromExpression(statement.condition,
+            localNames, captureNames)
+        semanticCollectParallelCapturesFromExpression(statement.loopCondition,
+            localNames, captureNames)
+
+        if statement.kind == "Let" or statement.kind == "Var" or
+            statement.kind == "UiState" or
+            statement.kind == "UiComputed" {
+
+            if statement.variableName != "" and
+                statement.variableName != "_" {
+                localNames.push(statement.variableName)
+            }
+        }
+        if statement.kind == "ForIn" or statement.kind == "ParallelFor" {
+            let loopScopeStart = localNames.length()
+            if statement.variableName != "" {
+                localNames.push(statement.variableName)
+            }
+            semanticCollectParallelCapturesFromBlock(statement.loopBody,
+                localNames, captureNames)
+            while localNames.length() > loopScopeStart { localNames.pop() }
+        } else {
+            semanticCollectParallelCapturesFromBlock(statement.thenBranch,
+                localNames, captureNames)
+            semanticCollectParallelCapturesFromBlock(statement.elseBranch,
+                localNames, captureNames)
+            semanticCollectParallelCapturesFromBlock(statement.loopBody,
+                localNames, captureNames)
+        }
+        i = i + 1
+    }
+    while localNames.length() > scopeStart { localNames.pop() }
+}
+
+fun semanticValidateParallelForCaptures(result: LexicalSemanticResult,
+    statement: StatementNode, bindings: ScopedBindings,
+    moduleName: String, ownerType: String, genericOwner: String,
+    file: String) r: Void {
+
+    let localNames = Array<String>()
+    localNames.push(statement.variableName)
+    let captureNames = Array<String>()
+    semanticCollectParallelCapturesFromBlock(statement.loopBody, localNames,
+        captureNames)
+    var i = 0
+    while i < captureNames.length() {
+        let name = captureNames[i]
+        let bindingIndex = bindings.lookupIndex(name)
+        if bindingIndex >= 0 {
+            let typeIdentity = bindings.typeIdentities[bindingIndex]
+            if bindings.mutableFlags[bindingIndex] != 0 {
+                result.addError("E_CAPTURE_MUTABLE", "parallel_for capture '" +
+                    name + "' is mutable; capture an immutable Share value",
+                    file, statement.line, statement.column)
+            } else if result.registry.lifecycleIdentityPropertyState(
+                genericOwner, typeIdentity, "Share") != 1 {
+
+                result.addError("E_CAPTURE_SHARE", "parallel_for capture '" +
+                    name + "' of type '" + typeIdentity +
+                    "' does not satisfy Share", file, statement.line,
+                    statement.column)
+            }
+        } else if result.registry.hasVisibleInstanceField(ownerType, name) {
+            result.addError("E_CAPTURE_FIELD", "parallel_for cannot capture " +
+                "bare instance field '" + name +
+                "'; capture an explicit Share owner", file, statement.line,
+                statement.column)
+        } else {
+            let declarationIndex = result.registry.lookupIndex(moduleName,
+                name)
+            if declarationIndex >= 0 and
+                declarationIndex < result.registry.kinds.length() and
+                result.registry.kinds[declarationIndex] == "Global" {
+
+                let detail = result.registry.declarationDetails[
+                    declarationIndex]
+                if detail.startsWith("V") {
+                    result.addError("E_CAPTURE_MUTABLE", "parallel_for " +
+                        "capture '" + name + "' is a mutable global; use an " +
+                        "immutable Share snapshot", file, statement.line,
+                        statement.column)
+                } else {
+                    let typeIdentity = result.registry.typeIdentities[
+                        declarationIndex]
+                    if result.registry.lifecycleIdentityPropertyState(
+                        genericOwner, typeIdentity, "Share") != 1 {
+
+                        result.addError("E_CAPTURE_SHARE", "parallel_for " +
+                            "global capture '" + name + "' of type '" +
+                            typeIdentity + "' does not satisfy Share", file,
+                            statement.line, statement.column)
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+}
+
 fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
     bindings: ScopedBindings, moduleName: String, file: String,
     ownerType: String, genericOwner: String,
@@ -881,6 +1099,10 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
 
             semanticCheckExpression(result, statement.expression, bindings,
                 moduleName, file, statement.line, statement.column, ownerType)
+            if statement.kind == "ParallelFor" {
+                semanticValidateParallelForCaptures(result, statement,
+                    bindings, moduleName, ownerType, genericOwner, file)
+            }
             bindings.beginScope()
             bindings.define(statement.variableName, "Unknown", false, file,
                 statement.line, statement.column)
@@ -1039,6 +1261,11 @@ fun semanticValidateDeclaredLifecycleProperty(result: LexicalSemanticResult,
 fun semanticValidateLifecycleDeclaration(result: LexicalSemanticResult,
     ownerCanonical: String, file: String, line: Int, column: Int) r: Void {
 
+    if result.registry.hasDecorator(ownerCanonical, "sync") {
+        result.addError("E_PROPERTY_LEGACY", "legacy lifecycle marker @sync " +
+            "is not supported; use @share", file, line, column)
+    }
+
     let copyDeclared = result.registry.lifecyclePropertyIsDeclared(
         ownerCanonical, "Copy")
     let moveDeclared = result.registry.hasDecorator(ownerCanonical, "move")
@@ -1060,7 +1287,7 @@ fun semanticValidateLifecycleDeclaration(result: LexicalSemanticResult,
     semanticValidateDeclaredLifecycleProperty(result, ownerCanonical,
         "Send", file, line, column)
     semanticValidateDeclaredLifecycleProperty(result, ownerCanonical,
-        "Sync", file, line, column)
+        "Share", file, line, column)
 
     // Populate the transitive cleanup requirement even when no marker asks for
     // it. Lowering does not consume this metadata yet.
@@ -1108,6 +1335,16 @@ fun checkSemanticDeclarations(result: LexicalSemanticResult,
                 let _ = resolveSemanticTypeNode(result, field.paramType, file,
                     field.line, field.column, moduleName, ownerType,
                     classGenericNames)
+                if field.isMutable and
+                    result.registry.lifecyclePropertyIsDeclared(ownerType,
+                        "Share") {
+
+                    result.addError("E_PROPERTY_MUTABLE_FIELD",
+                        "Share declaration '" + ownerType +
+                        "' cannot expose mutable field '" + field.name +
+                        "'; use an explicit synchronization type", file,
+                        field.line, field.column)
+                }
                 fi = fi + 1
             }
             semanticValidateLifecycleDeclaration(result, ownerType, file,

@@ -70,9 +70,25 @@ fun restoreNestedScratchStateImpl(state: CodegenState,
 }
 
 fun emitParallelForCallImpl(output: StringBuilder, loopVarName: String,
-    startReg: String, endReg: String, bodyFuncName: String) r: Void {
+    startReg: String, endReg: String, bodyFuncName: String,
+    environmentReg: String) r: Void {
 
+    var identity = bodyFuncName
+    if identity.startsWith("@") {
+        identity = identity.substring(1, identity.length())
+    }
     output.append("  ; parallel_for " + loopVarName + "\n")
-    output.append("  call void @seen_parallel_for(i64 " + startReg +
-        ", i64 " + endReg + ", ptr " + bodyFuncName + ", i64 0)\n")
+    output.append("  %" + identity + ".status = call i64 " +
+        "@seen_parallel_for_v2(i64 " + startReg +
+        ", i64 " + endReg + ", ptr " + bodyFuncName + ", ptr " +
+        environmentReg + ", ptr null, i64 4)\n")
+    output.append("  %" + identity + ".ok = icmp eq i64 %" + identity +
+        ".status, 0\n")
+    output.append("  br i1 %" + identity + ".ok, label %" + identity +
+        ".continue, label %" + identity + ".fail\n")
+    output.append(identity + ".fail:\n")
+    output.append("  call void @seen_parallel_for_fail_closed(i64 %" +
+        identity + ".status)\n")
+    output.append("  unreachable\n")
+    output.append(identity + ".continue:\n")
 }

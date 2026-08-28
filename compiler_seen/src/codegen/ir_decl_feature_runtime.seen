@@ -45,34 +45,6 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
         output.append("declare void @seen_ws_pool_shutdown(i64) nounwind\n")
     }
 
-    // Lock-free data structures
-    output.append("; Lock-free AtomicQueue\n")
-    if not isFuncDefinedInModule("seen_atomic_queue_new", definedFuncs) {
-        output.append("declare i64 @seen_atomic_queue_new(i64) nounwind\n")
-    }
-    if not isFuncDefinedInModule("seen_atomic_queue_push", definedFuncs) {
-        output.append("declare i64 @seen_atomic_queue_push(i64, i64) nounwind\n")
-    }
-    if not isFuncDefinedInModule("seen_atomic_queue_pop", definedFuncs) {
-        output.append("declare i64 @seen_atomic_queue_pop(i64) nounwind\n")
-    }
-    if not isFuncDefinedInModule("seen_atomic_queue_destroy", definedFuncs) {
-        output.append("declare void @seen_atomic_queue_destroy(i64) nounwind\n")
-    }
-    output.append("; Lock-free AtomicStack\n")
-    if not isFuncDefinedInModule("seen_atomic_stack_new", definedFuncs) {
-        output.append("declare i64 @seen_atomic_stack_new() nounwind\n")
-    }
-    if not isFuncDefinedInModule("seen_atomic_stack_push", definedFuncs) {
-        output.append("declare void @seen_atomic_stack_push(i64, i64) nounwind\n")
-    }
-    if not isFuncDefinedInModule("seen_atomic_stack_pop", definedFuncs) {
-        output.append("declare i64 @seen_atomic_stack_pop(i64) nounwind\n")
-    }
-    if not isFuncDefinedInModule("seen_atomic_stack_destroy", definedFuncs) {
-        output.append("declare void @seen_atomic_stack_destroy(i64) nounwind\n")
-    }
-
     // CPU Affinity
     output.append("; CPU affinity\n")
     if not isFuncDefinedInModule("seen_set_thread_affinity", definedFuncs) {
@@ -86,6 +58,14 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
     output.append("; Parallel for\n")
     if not isFuncDefinedInModule("seen_parallel_for", definedFuncs) {
         output.append("declare void @seen_parallel_for(i64, i64, ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_parallel_for_v2", definedFuncs) {
+        output.append("declare i64 @seen_parallel_for_v2(i64, i64, ptr, ptr, ptr, i64) nounwind\n")
+    }
+    if not isFuncDefinedInModule("seen_parallel_for_fail_closed",
+        definedFuncs) {
+
+        output.append("declare void @seen_parallel_for_fail_closed(i64) noreturn nounwind\n")
     }
 
     // Bounds checking and overflow checking

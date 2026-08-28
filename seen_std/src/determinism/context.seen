@@ -1,0 +1,578 @@
+/// Explicit deterministic execution inputs and policy-checked observations.
+
+import core.result.{Result, Ok, Err}
+import core.error.{SeenError}
+import core.operation_context.{OperationContext}
+import env.env.{args, tryGet}
+import determinism.policy.{CORE_004E_MAX_ARGUMENT_BYTES,
+    CORE_004E_MAX_ENVIRONMENT_VALUE_BYTES, CORE_004E_MAX_TOTAL_CAPTURE_BYTES,
+    CORE_004E_MAX_EPOCH_SECONDS, DeterministicLocaleIdentity,
+    DeterministicPlatformPolicy, DeterministicCapabilityPolicy,
+    deterministicPrintableAscii, deterministicEnvironmentName,
+    deterministicPath, deterministicIdentity, deterministicStringDuplicate,
+    deterministicArgumentDuplicate, deterministicCapabilityPolicyCopy,
+    validateDeterministicOperation, validateDeterministicLocale,
+    validateDeterministicPlatform, validateDeterministicCapabilityPolicy,
+    deterministicPlatformStatusName, core004eFailure}
+
+let DETERMINISTIC_CONTEXT_SCHEMA: String = "seen-deterministic-context-v1"
+let DETERMINISTIC_PRNG_ALGORITHM: String = "xorshift64-v1"
+
+extern "C" fun seen_deterministic_path_beneath(root: String, path: String)
+    r: Int32
+
+class DeterministicEpoch {
+    var sourceDateSeconds: Int64
+}
+
+class DeterministicPrngIdentity {
+    var algorithm: String
+    var seed: UInt64
+}
+
+class DeterministicArgumentValue {
+    var index: Int
+    var value: String
+}
+
+class DeterministicEnvironmentValue {
+    var name: String
+    var present: Bool
+    var value: String
+}
+
+class DeterministicEnvironmentRead {
+    var present: Bool
+    var value: String
+}
+
+class DeterministicContextInputs {
+    var deterministic: Bool
+    var sourceDateEpoch: String
+    var seed: String
+    var locale: DeterministicLocaleIdentity
+    var platform: DeterministicPlatformPolicy
+    var policy: DeterministicCapabilityPolicy
+    var arguments: Array<DeterministicArgumentValue>
+    var environment: Array<DeterministicEnvironmentValue>
+}
+
+class DeterministicContextRequest {
+    var locale: DeterministicLocaleIdentity
+    var platform: DeterministicPlatformPolicy
+    var policy: DeterministicCapabilityPolicy
+}
+
+/// Values are copied at construction. Callers must treat the returned context
+/// as frozen; accessors never consult ambient process state.
+class DeterministicExecutionContext {
+    var schema: String
+    var epoch: DeterministicEpoch
+    var prng: DeterministicPrngIdentity
+    var locale: DeterministicLocaleIdentity
+    var platform: DeterministicPlatformPolicy
+    var policy: DeterministicCapabilityPolicy
+    var arguments: Array<DeterministicArgumentValue>
+    var environment: Array<DeterministicEnvironmentValue>
+}
+
+fun parseDeterministicEpoch(value: String, operation: String)
+    r: Result<Int64, SeenError> {
+
+    if value.length() == 0 {
+        return core004eFailure<Int64>("core.004e.missing_epoch", operation,
+            "SOURCE_DATE_EPOCH is required for deterministic execution",
+            false)
+    }
+    var parsed: Int64 = 0 as Int64
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 48 or byte > 57 {
+            return core004eFailure<Int64>("core.004e.invalid_epoch",
+                operation, "SOURCE_DATE_EPOCH must be unsigned decimal",
+                false)
+        }
+        let digit = (byte - 48) as Int64
+        if parsed > (CORE_004E_MAX_EPOCH_SECONDS - digit) / (10 as Int64) {
+            return core004eFailure<Int64>("core.004e.invalid_epoch",
+                operation, "SOURCE_DATE_EPOCH exceeds the nanosecond range",
+                false)
+        }
+        parsed = parsed * (10 as Int64) + digit
+        index = index + 1
+    }
+    return Ok<Int64, SeenError>(parsed)
+}
+
+fun parseDeterministicSeed(value: String, operation: String)
+    r: Result<UInt64, SeenError> {
+
+    if value.length() == 0 {
+        return core004eFailure<UInt64>("core.004e.invalid_seed", operation,
+            "SEEN_DETERMINISTIC_SEED is required", false)
+    }
+    let maximum = 0xFFFFFFFFFFFFFFFF as UInt64
+    var parsed: UInt64 = 0 as UInt64
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 48 or byte > 57 {
+            return core004eFailure<UInt64>("core.004e.invalid_seed",
+                operation, "deterministic seed must be unsigned decimal",
+                false)
+        }
+        let digit = (byte - 48) as UInt64
+        if parsed > (maximum - digit) / (10 as UInt64) {
+            return core004eFailure<UInt64>("core.004e.invalid_seed",
+                operation, "deterministic seed exceeds UInt64", false)
+        }
+        parsed = parsed * (10 as UInt64) + digit
+        index = index + 1
+    }
+    return Ok<UInt64, SeenError>(parsed)
+}
+
+fun deterministicPolicyHasArgument(policy: DeterministicCapabilityPolicy,
+    argumentIndex: Int) r: Bool {
+
+    var index = 0
+    while index < policy.argumentIndexes.length() {
+        if policy.argumentIndexes[index] == argumentIndex { return true }
+        index = index + 1
+    }
+    return false
+}
+
+fun deterministicPolicyHasString(values: Array<String>, identity: String)
+    r: Bool {
+
+    var index = 0
+    while index < values.length() {
+        if values[index] == identity { return true }
+        index = index + 1
+    }
+    return false
+}
+
+fun validateDeterministicCapturedInputs(inputs: DeterministicContextInputs,
+    operation: String) r: Result<Bool, SeenError> {
+
+    if inputs.arguments.length() != inputs.policy.argumentIndexes.length() or
+        inputs.environment.length() != inputs.policy.environmentNames.length() {
+
+        return core004eFailure<Bool>("core.004e.policy_conflict", operation,
+            "captured inputs do not match the declared allowlists", true)
+    }
+    var totalBytes = 0
+    var index = 0
+    while index < inputs.arguments.length() {
+        let entry = inputs.arguments[index]
+        if entry.index < 0 or
+            not deterministicPolicyHasArgument(inputs.policy, entry.index) or
+            entry.value.length() > CORE_004E_MAX_ARGUMENT_BYTES {
+
+            return core004eFailure<Bool>("core.004e.invalid", operation,
+                "captured argument is invalid or outside its grant", true)
+        }
+        var prior = 0
+        while prior < index {
+            if inputs.arguments[prior].index == entry.index {
+                return core004eFailure<Bool>("core.004e.invalid", operation,
+                    "captured argument index is duplicated", true)
+            }
+            prior = prior + 1
+        }
+        totalBytes = totalBytes + entry.value.length()
+        if totalBytes > CORE_004E_MAX_TOTAL_CAPTURE_BYTES {
+            return core004eFailure<Bool>("core.004e.limit", operation,
+                "captured deterministic inputs exceed their byte bound", true)
+        }
+        index = index + 1
+    }
+    index = 0
+    while index < inputs.environment.length() {
+        let entry = inputs.environment[index]
+        if not deterministicEnvironmentName(entry.name) or
+            not deterministicPolicyHasString(inputs.policy.environmentNames,
+                entry.name) or
+            entry.value.length() > CORE_004E_MAX_ENVIRONMENT_VALUE_BYTES or
+            (not entry.present and entry.value != "") {
+
+            return core004eFailure<Bool>("core.004e.invalid", operation,
+                "captured environment value is invalid or outside its grant",
+                true)
+        }
+        var prior = 0
+        while prior < index {
+            if inputs.environment[prior].name == entry.name {
+                return core004eFailure<Bool>("core.004e.invalid", operation,
+                    "captured environment name is duplicated", true)
+            }
+            prior = prior + 1
+        }
+        totalBytes = totalBytes + entry.name.length() + entry.value.length()
+        if totalBytes > CORE_004E_MAX_TOTAL_CAPTURE_BYTES {
+            return core004eFailure<Bool>("core.004e.limit", operation,
+                "captured deterministic inputs exceed their byte bound", true)
+        }
+        index = index + 1
+    }
+    return Ok<Bool, SeenError>(true)
+}
+
+fun deterministicArgumentsCopy(values: Array<DeterministicArgumentValue>)
+    r: Array<DeterministicArgumentValue> {
+
+    let copied = Array<DeterministicArgumentValue>()
+    var index = 0
+    while index < values.length() {
+        copied.push(DeterministicArgumentValue{index: values[index].index,
+            value: values[index].value})
+        index = index + 1
+    }
+    return copied
+}
+
+fun deterministicEnvironmentCopy(
+    values: Array<DeterministicEnvironmentValue>)
+    r: Array<DeterministicEnvironmentValue> {
+
+    let copied = Array<DeterministicEnvironmentValue>()
+    var index = 0
+    while index < values.length() {
+        copied.push(DeterministicEnvironmentValue{name: values[index].name,
+            present: values[index].present, value: values[index].value})
+        index = index + 1
+    }
+    return copied
+}
+
+fun createDeterministicExecutionContext(inputs: DeterministicContextInputs,
+    operationContext: OperationContext)
+    r: Result<DeterministicExecutionContext, SeenError> {
+
+    let operation = "create-context"
+    let checkedOperation = validateDeterministicOperation(operationContext,
+        operation)
+    if checkedOperation.isErr() {
+        return Err<DeterministicExecutionContext, SeenError>(
+            checkedOperation.unwrapErr())
+    }
+    if not inputs.deterministic {
+        return core004eFailure<DeterministicExecutionContext>(
+            "core.004e.invalid", operation,
+            "deterministic execution was not explicitly enabled", false)
+    }
+    let checkedLocale = validateDeterministicLocale(inputs.locale, operation)
+    if checkedLocale.isErr() {
+        return Err<DeterministicExecutionContext, SeenError>(
+            checkedLocale.unwrapErr())
+    }
+    let checkedPlatform = validateDeterministicPlatform(inputs.platform,
+        operation)
+    if checkedPlatform.isErr() {
+        return Err<DeterministicExecutionContext, SeenError>(
+            checkedPlatform.unwrapErr())
+    }
+    let checkedPolicy = validateDeterministicCapabilityPolicy(inputs.policy,
+        operationContext, operation)
+    if checkedPolicy.isErr() {
+        return Err<DeterministicExecutionContext, SeenError>(
+            checkedPolicy.unwrapErr())
+    }
+    let epoch = parseDeterministicEpoch(inputs.sourceDateEpoch, operation)
+    if epoch.isErr() {
+        return Err<DeterministicExecutionContext, SeenError>(epoch.unwrapErr())
+    }
+    let seed = parseDeterministicSeed(inputs.seed, operation)
+    if seed.isErr() {
+        return Err<DeterministicExecutionContext, SeenError>(seed.unwrapErr())
+    }
+    let captured = validateDeterministicCapturedInputs(inputs, operation)
+    if captured.isErr() {
+        return Err<DeterministicExecutionContext, SeenError>(
+            captured.unwrapErr())
+    }
+    return Ok<DeterministicExecutionContext, SeenError>(
+        DeterministicExecutionContext{schema: DETERMINISTIC_CONTEXT_SCHEMA,
+            epoch: DeterministicEpoch{sourceDateSeconds: epoch.unwrap()},
+            prng: DeterministicPrngIdentity{
+                algorithm: DETERMINISTIC_PRNG_ALGORITHM, seed: seed.unwrap()},
+            locale: checkedLocale.unwrap(), platform: checkedPlatform.unwrap(),
+            policy: checkedPolicy.unwrap(),
+            arguments: deterministicArgumentsCopy(inputs.arguments),
+            environment: deterministicEnvironmentCopy(inputs.environment)})
+}
+
+/// Process launch adapter. It is the only ambient constructor: control inputs,
+/// argv, and granted environment names are captured before user code starts.
+@nondeterministic
+fun deterministicContextFromProcess(request: DeterministicContextRequest,
+    operationContext: OperationContext)
+    r: Result<DeterministicExecutionContext, SeenError> {
+
+    let operation = "process-snapshot"
+    let checkedOperation = validateDeterministicOperation(operationContext,
+        operation)
+    if checkedOperation.isErr() {
+        return Err<DeterministicExecutionContext, SeenError>(
+            checkedOperation.unwrapErr())
+    }
+    let checkedPolicy = validateDeterministicCapabilityPolicy(request.policy,
+        operationContext, operation)
+    if checkedPolicy.isErr() {
+        return Err<DeterministicExecutionContext, SeenError>(
+            checkedPolicy.unwrapErr())
+    }
+    let enabledValue = tryGet("SEEN_DETERMINISTIC")
+    var enabled = false
+    if enabledValue.isSome() { enabled = enabledValue.unwrap() == "1" }
+    var epoch = ""
+    let epochValue = tryGet("SOURCE_DATE_EPOCH")
+    if epochValue.isSome() { epoch = epochValue.unwrap() }
+    var seed = ""
+    let seedValue = tryGet("SEEN_DETERMINISTIC_SEED")
+    if seedValue.isSome() { seed = seedValue.unwrap() }
+
+    let capturedArguments = Array<DeterministicArgumentValue>()
+    if request.policy.argumentIndexes.length() > 0 {
+        let processArguments = args()
+        var index = 0
+        while index < request.policy.argumentIndexes.length() {
+            let requested = request.policy.argumentIndexes[index]
+            let rawIndex = requested + 1
+            if rawIndex < 1 or rawIndex >= processArguments.length() {
+                return core004eFailure<DeterministicExecutionContext>(
+                    "core.004e.invalid", operation,
+                    "granted application argument is missing", true)
+            }
+            capturedArguments.push(DeterministicArgumentValue{
+                index: requested, value: processArguments[rawIndex]})
+            index = index + 1
+        }
+    }
+
+    let capturedEnvironment = Array<DeterministicEnvironmentValue>()
+    var index = 0
+    while index < request.policy.environmentNames.length() {
+        let name = request.policy.environmentNames[index]
+        let ambient = tryGet(name)
+        if ambient.isSome() {
+            capturedEnvironment.push(DeterministicEnvironmentValue{name: name,
+                present: true, value: ambient.unwrap()})
+        } else {
+            capturedEnvironment.push(DeterministicEnvironmentValue{name: name,
+                present: false, value: ""})
+        }
+        index = index + 1
+    }
+    return createDeterministicExecutionContext(DeterministicContextInputs{
+        deterministic: enabled, sourceDateEpoch: epoch, seed: seed,
+        locale: request.locale, platform: request.platform,
+        policy: request.policy, arguments: capturedArguments,
+        environment: capturedEnvironment}, operationContext)
+}
+
+fun deterministicEpochSeconds(context: DeterministicExecutionContext,
+    operationContext: OperationContext) r: Result<Int64, SeenError> {
+
+    let checked = validateDeterministicOperation(operationContext,
+        "read-epoch")
+    if checked.isErr() { return Err<Int64, SeenError>(checked.unwrapErr()) }
+    return Ok<Int64, SeenError>(context.epoch.sourceDateSeconds)
+}
+
+fun deterministicEpochNanoseconds(context: DeterministicExecutionContext,
+    operationContext: OperationContext) r: Result<Int64, SeenError> {
+
+    let seconds = deterministicEpochSeconds(context, operationContext)
+    if seconds.isErr() { return Err<Int64, SeenError>(seconds.unwrapErr()) }
+    return Ok<Int64, SeenError>(seconds.unwrap() * (1000000000 as Int64))
+}
+
+fun deterministicRandomAt(context: DeterministicExecutionContext,
+    counter: UInt64, operationContext: OperationContext)
+    r: Result<UInt64, SeenError> {
+
+    let checked = validateDeterministicOperation(operationContext,
+        "read-random")
+    if checked.isErr() { return Err<UInt64, SeenError>(checked.unwrapErr()) }
+    var value = context.prng.seed ^ counter
+    if value == (0 as UInt64) {
+        value = 0x9E3779B97F4A7C15 as UInt64
+    }
+    value = value ^ (value << 13)
+    value = value ^ (value >> 7)
+    value = value ^ (value << 17)
+    return Ok<UInt64, SeenError>(value)
+}
+
+fun deterministicArgument(context: DeterministicExecutionContext,
+    argumentIndex: Int, operationContext: OperationContext)
+    r: Result<String, SeenError> {
+
+    let checked = validateDeterministicOperation(operationContext,
+        "read-argument")
+    if checked.isErr() { return Err<String, SeenError>(checked.unwrapErr()) }
+    var index = 0
+    while index < context.arguments.length() {
+        if context.arguments[index].index == argumentIndex {
+            return Ok<String, SeenError>(context.arguments[index].value)
+        }
+        index = index + 1
+    }
+    return core004eFailure<String>("core.004e.external_input_denied",
+        "read-argument", "argument read is outside the explicit grant", true)
+}
+
+fun deterministicEnvironment(context: DeterministicExecutionContext,
+    name: String, operationContext: OperationContext)
+    r: Result<DeterministicEnvironmentRead, SeenError> {
+
+    let checked = validateDeterministicOperation(operationContext,
+        "read-environment")
+    if checked.isErr() {
+        return Err<DeterministicEnvironmentRead, SeenError>(
+            checked.unwrapErr())
+    }
+    var index = 0
+    while index < context.environment.length() {
+        if context.environment[index].name == name {
+            return Ok<DeterministicEnvironmentRead, SeenError>(
+                DeterministicEnvironmentRead{
+                    present: context.environment[index].present,
+                    value: context.environment[index].value})
+        }
+        index = index + 1
+    }
+    return core004eFailure<DeterministicEnvironmentRead>(
+        "core.004e.env_denied", "read-environment",
+        "environment read is outside the explicit grant", true)
+}
+
+fun deterministicPathWithinRoot(path: String, root: String) r: Bool {
+    return seen_deterministic_path_beneath(root, path) == (1 as Int32)
+}
+
+fun authorizeDeterministicFilesystemObservation(
+    context: DeterministicExecutionContext, path: String,
+    operationContext: OperationContext) r: Result<Bool, SeenError> {
+
+    let checked = validateDeterministicOperation(operationContext,
+        "observe-filesystem")
+    if checked.isErr() { return Err<Bool, SeenError>(checked.unwrapErr()) }
+    if deterministicPath(path) {
+        var index = 0
+        while index < context.policy.filesystemRoots.length() {
+            if deterministicPathWithinRoot(path,
+                context.policy.filesystemRoots[index]) {
+                return Ok<Bool, SeenError>(true)
+            }
+            index = index + 1
+        }
+    }
+    return core004eFailure<Bool>("core.004e.external_input_denied",
+        "observe-filesystem",
+        "filesystem observation is outside the explicit grant", true)
+}
+
+fun authorizeDeterministicExternalIdentity(values: Array<String>,
+    identity: String, operation: String, sensitive: Bool,
+    operationContext: OperationContext) r: Result<Bool, SeenError> {
+
+    let checked = validateDeterministicOperation(operationContext, operation)
+    if checked.isErr() { return Err<Bool, SeenError>(checked.unwrapErr()) }
+    if deterministicPolicyHasString(values, identity) {
+        return Ok<Bool, SeenError>(true)
+    }
+    return core004eFailure<Bool>("core.004e.external_input_denied",
+        operation, "external observation is outside the explicit grant",
+        sensitive)
+}
+
+fun authorizeDeterministicProcessState(context: DeterministicExecutionContext,
+    identity: String, operationContext: OperationContext)
+    r: Result<Bool, SeenError> {
+
+    return authorizeDeterministicExternalIdentity(context.policy.processStates,
+        identity, "observe-process", false, operationContext)
+}
+
+fun authorizeDeterministicNetworkState(context: DeterministicExecutionContext,
+    identity: String, operationContext: OperationContext)
+    r: Result<Bool, SeenError> {
+
+    return authorizeDeterministicExternalIdentity(context.policy.networkStates,
+        identity, "observe-network", true, operationContext)
+}
+
+fun authorizeDeterministicHostCapability(
+    context: DeterministicExecutionContext, identity: String,
+    operationContext: OperationContext) r: Result<Bool, SeenError> {
+
+    return authorizeDeterministicExternalIdentity(
+        context.policy.hostCapabilities, identity, "observe-host-capability",
+        false, operationContext)
+}
+
+fun deterministicContextIdentity(context: DeterministicExecutionContext)
+    r: String {
+
+    var identity = deterministicIdentityFrame("schema", context.schema) +
+        deterministicIdentityFrame("epoch",
+            context.epoch.sourceDateSeconds.toString()) +
+        deterministicIdentityFrame("prng", context.prng.algorithm) +
+        deterministicIdentityFrame("seed",
+        context.prng.seed.toString()) + deterministicIdentityFrame("locale",
+        context.locale.locale) + deterministicIdentityFrame("encoding",
+        context.locale.encoding) + deterministicIdentityFrame("target",
+        context.platform.target) + deterministicIdentityFrame(
+        "platform_status", deterministicPlatformStatusName(
+            context.platform.status)) + deterministicIdentityFrame(
+        "toolchain", context.platform.toolchainIdentity)
+    var index = 0
+    while index < context.arguments.length() {
+        identity = identity + deterministicIdentityFrame("argument.index",
+            context.arguments[index].index.toString()) +
+            deterministicIdentityFrame("argument.value",
+                context.arguments[index].value)
+        index = index + 1
+    }
+    index = 0
+    while index < context.environment.length() {
+        identity = identity + deterministicIdentityFrame("environment.name",
+            context.environment[index].name) +
+            deterministicIdentityFrame("environment.present",
+                if context.environment[index].present { "1" } else { "0" }) +
+            deterministicIdentityFrame("environment.value",
+                context.environment[index].value)
+        index = index + 1
+    }
+    identity = identity + deterministicStringListIdentity("filesystem",
+        context.policy.filesystemRoots) + deterministicStringListIdentity(
+        "process", context.policy.processStates) +
+        deterministicStringListIdentity("network",
+            context.policy.networkStates) + deterministicStringListIdentity(
+        "host", context.policy.hostCapabilities)
+    return identity
+}
+
+fun deterministicIdentityFrame(name: String, value: String) r: String {
+    return name.length().toString() + ":" + name + ":" +
+        value.length().toString() + ":" + value + ";"
+}
+
+fun deterministicStringListIdentity(name: String, values: Array<String>)
+    r: String {
+
+    var identity = deterministicIdentityFrame(name + ".count",
+        values.length().toString())
+    var index = 0
+    while index < values.length() {
+        identity = identity + deterministicIdentityFrame(name + ".value",
+            values[index])
+        index = index + 1
+    }
+    return identity
+}

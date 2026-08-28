@@ -1,0 +1,8 @@
+fun passThrough<T>(value: T) r: T {
+    println("generic nondeterministic effect")
+    return value
+}
+
+fun main() r: Int {
+    return passThrough<Int>(1)
+}

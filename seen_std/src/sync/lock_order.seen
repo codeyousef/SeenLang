@@ -1,0 +1,162 @@
+/// Bounded deterministic lock-rank and cycle diagnostics.
+
+import core.result.{Result, Ok, Err}
+import sync.contracts.{SyncError, SYNC_MAX_DIAGNOSTIC_DEPTH,
+    SYNC_MAX_LOCK_RANK, syncFailure}
+
+class LockOrderReport {
+    var code: String
+    var heldRank: Int
+    var requestedRank: Int
+    var path: Array<Int>
+}
+
+class LockOrderTracker {
+    var held: Array<Int>
+    var edgeFrom: Array<Int>
+    var edgeTo: Array<Int>
+    var maxDepth: Int
+    var maxEdges: Int
+    var diagnostics: Bool
+
+    static fun create(maxDepth: Int, maxEdges: Int, diagnostics: Bool)
+        r: Result<LockOrderTracker, SyncError> {
+
+        if maxDepth <= 0 or maxDepth > SYNC_MAX_DIAGNOSTIC_DEPTH or
+            maxEdges <= 0 or maxEdges > SYNC_MAX_DIAGNOSTIC_DEPTH * 8 {
+            return Err<LockOrderTracker, SyncError>(syncFailure("sync.limit",
+                "lock_order.create", "lock diagnostic bound is invalid",
+                false, 0 as UInt64))
+        }
+        return Ok<LockOrderTracker, SyncError>(LockOrderTracker{
+            held: Array<Int>(), edgeFrom: Array<Int>(), edgeTo: Array<Int>(),
+            maxDepth: maxDepth, maxEdges: maxEdges,
+            diagnostics: diagnostics})
+    }
+
+    fun hasEdge(from: Int, to: Int) r: Bool {
+        var i = 0
+        while i < this.edgeFrom.length() {
+            if this.edgeFrom[i] == from and this.edgeTo[i] == to {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    fun hasPath(from: Int, to: Int) r: Result<Bool, SyncError> {
+        if from == to { return Ok<Bool, SyncError>(true) }
+        let queue = Array<Int>()
+        let visited = Array<Int>()
+        queue.push(from)
+        var cursor = 0
+        while cursor < queue.length() {
+            if visited.length() >= this.maxDepth {
+                return Err<Bool, SyncError>(syncFailure("sync.limit",
+                    "lock_order.path",
+                    "lock diagnostic path exceeded its depth bound", false,
+                    visited.length() as UInt64))
+            }
+            let current = queue[cursor]
+            cursor = cursor + 1
+            var already = false
+            var vi = 0
+            while vi < visited.length() {
+                if visited[vi] == current { already = true }
+                vi = vi + 1
+            }
+            if not already {
+                visited.push(current)
+                var i = 0
+                while i < this.edgeFrom.length() {
+                    if this.edgeFrom[i] == current {
+                        if this.edgeTo[i] == to {
+                            return Ok<Bool, SyncError>(true)
+                        }
+                        if queue.length() >= this.maxDepth {
+                            return Err<Bool, SyncError>(syncFailure(
+                                "sync.limit", "lock_order.path",
+                                "lock diagnostic search queue is full", false,
+                                queue.length() as UInt64))
+                        }
+                        queue.push(this.edgeTo[i])
+                    }
+                    i = i + 1
+                }
+            }
+        }
+        return Ok<Bool, SyncError>(false)
+    }
+
+    fun recordEdge(from: Int, to: Int) r: Result<Bool, SyncError> {
+        if this.hasEdge(from, to) { return Ok<Bool, SyncError>(false) }
+        if this.edgeFrom.length() >= this.maxEdges {
+            return Err<Bool, SyncError>(syncFailure("sync.limit",
+                "lock_order.edge", "lock diagnostic graph is full", false,
+                this.edgeFrom.length() as UInt64))
+        }
+        let reversePath = this.hasPath(to, from)
+        if reversePath.isErr() {
+            return Err<Bool, SyncError>(reversePath.unwrapErr())
+        }
+        if reversePath.unwrap() {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "lock_order.cycle", "lock acquisition would create a cycle",
+                false, this.held.length() as UInt64))
+        }
+        this.edgeFrom.push(from)
+        this.edgeTo.push(to)
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun enter(rank: Int) r: Result<Bool, SyncError> {
+        if rank <= 0 or rank > SYNC_MAX_LOCK_RANK {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "lock_order.enter", "lock rank is invalid", false,
+                this.held.length() as UInt64))
+        }
+        if this.held.length() >= this.maxDepth {
+            return Err<Bool, SyncError>(syncFailure("sync.limit",
+                "lock_order.enter", "held-lock stack is full", false,
+                this.held.length() as UInt64))
+        }
+        if this.diagnostics and this.held.length() > 0 {
+            let prior = this.held[this.held.length() - 1]
+            if rank <= prior {
+                return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                    "lock_order.rank",
+                    "lock ranks must increase in acquisition order", false,
+                    this.held.length() as UInt64))
+            }
+            let recorded = this.recordEdge(prior, rank)
+            if recorded.isErr() {
+                return Err<Bool, SyncError>(recorded.unwrapErr())
+            }
+        }
+        this.held.push(rank)
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun leave(rank: Int) r: Result<Bool, SyncError> {
+        let valid = this.canLeave(rank)
+        if valid.isErr() { return valid }
+        this.held.pop()
+        return Ok<Bool, SyncError>(true)
+    }
+
+    /// Validate release order without mutating the held stack. Guards use
+    /// this before native unlock so a diagnostic failure cannot leave an
+    /// active guard pointing at an already-unlocked primitive.
+    fun canLeave(rank: Int) r: Result<Bool, SyncError> {
+        if this.held.length() == 0 or
+            this.held[this.held.length() - 1] != rank {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "lock_order.leave", "locks must release in reverse order",
+                false, this.held.length() as UInt64))
+        }
+        return Ok<Bool, SyncError>(true)
+    }
+
+    fun depth() r: Int { return this.held.length() }
+}

@@ -1,0 +1,10 @@
+manifest-version = 1
+
+[project]
+name = "core_004d_consumer"
+version = "0.1.0"
+language = "en"
+modules = ["src/main.seen"]
+
+[dependencies]
+provider = { path = "../provider" }

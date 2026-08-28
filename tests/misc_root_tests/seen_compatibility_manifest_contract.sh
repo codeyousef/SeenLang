@@ -90,7 +90,9 @@ cmp -s "$TEST_ROOT/fuzz.json" "$FIXTURES/happy/expected.json" ||
     fail "fuzz changed canonical output"
 
 for symbol in AsciiString RetryClass RedactionClass SeenError OperationContext \
-    CompatibilityManifest validateCompatibilityManifest; do
+    CompatibilityManifest CompatibilityDeterminism \
+    CompatibilityDeterminismCertification compatibilityExpectedDeterminism \
+    compatibilityDeterminismIsExact validateCompatibilityManifest; do
 
     grep -Fq "$symbol" "$SOURCE" || fail "native Seen model omitted $symbol"
 done
@@ -109,17 +111,38 @@ grep -Fq '"src/release"' "$COMPILER_MANIFEST" ||
     fail "compiler package manifest omits release modules"
 grep -Fq 'validateCompatibilityManifest' "$NATIVE_TEST" ||
     fail "native compiling regression is missing"
+grep -Fq 'CORE-004G_compatibility_determinism' "$NATIVE_TEST" ||
+    fail "native deterministic compatibility drift regression is missing"
 grep -Fq 'compiler_seen/tests/compatibility_manifest.seen' \
     "$STAGE1_ACCEPTANCE" ||
     fail "native compiling regression is not in Stage-1 acceptance"
 
 for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
     seen-prebuilt-package-v2 seen-package-interface-v2 \
-    seen-package-object-manifest-v2 runtime-v3 SEENPKG1; do
+    seen-package-object-manifest-v2 runtime-v3 SEENPKG1 \
+    seen-deterministic-context-v1 seen-program-build-input-v1 \
+    seen-object-cache-record-v1 seen-release-lto-cache-record-v1 \
+    seen-program-artifacts-v1 seen-program-reproducibility-v1; do
 
     grep -Fq "$identity" "$PRODUCTION" ||
         fail "production manifest omitted current identity $identity"
 done
+python3 - "$PRODUCTION" <<'PY' || fail "deterministic certification policy"
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+certification = manifest["determinism"]["certification"]
+assert certification == {
+    "artifact_comparison": "raw-bytes",
+    "builder_count": 2,
+    "complete_corpus_required": True,
+    "distinct_builder_identities": True,
+    "distinct_root_identities": True,
+    "installed_archive_required": True,
+    "signed_evidence_required": True,
+}
+PY
 
 [ -z "$(jobs -pr)" ] || fail "CORE-002A_cleanup leaked a child process"
 if find "$FIXTURES" -type f \( -name '*.tmp' -o -name '.*.tmp' \) \

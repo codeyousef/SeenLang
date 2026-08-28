@@ -81,6 +81,16 @@ static void require_exactly_once(TestEnv *env, int start, int end,
     }
 }
 
+static void require_at_most_once(TestEnv *env, const char *label) {
+    for (int i = 0; i < 64; ++i) {
+        if (env->counts[i] < 0 || env->counts[i] > 1) {
+            fprintf(stderr, "%s: index %d ran %d times\n", label, i,
+                    env->counts[i]);
+            exit(1);
+        }
+    }
+}
+
 int main(void) {
     TestEnv env;
     active_env = &env;
@@ -99,15 +109,15 @@ int main(void) {
     seen_test_parallel_for_fail_create_after(2);
     winner = seen_parallel_for_v2(5, 29, success_body, &env, drop_error, 8);
     seen_test_parallel_for_fail_create_after(-1);
-    require_exactly_once(&env, 5, 29, "partial-create");
-    if (winner != 0) return 1;
+    require_at_most_once(&env, "partial-create");
+    if (winner != -7102) return 1;
 
     clear_env(&env);
     seen_test_parallel_for_fail_allocations(1);
     winner = seen_parallel_for_v2(7, 33, success_body, &env, drop_error, 8);
     seen_test_parallel_for_fail_allocations(0);
-    require_exactly_once(&env, 7, 33, "allocation-fallback");
-    if (winner != 0) return 1;
+    require_at_most_once(&env, "allocation-failure");
+    if (winner != -7101) return 1;
 
     clear_env(&env);
     seen_parallel_for(4, 19, (int64_t)(uintptr_t)compat_body, 4);

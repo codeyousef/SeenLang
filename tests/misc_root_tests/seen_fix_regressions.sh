@@ -33,9 +33,9 @@ IMPORTED_CAPABILITY_MISSING_SRC="$ROOT_DIR/tests/fixtures/current_limitations/ca
 IMPORTED_CAPABILITY_ALIAS_SRC="$ROOT_DIR/tests/fixtures/current_limitations/capability_imported_effect_alias_entry.seen"
 IMPORTED_CAPABILITY_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/capability_imported_effect_ok_entry.seen"
 SEND_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/send_annotation_invalid_field.seen"
-SYNC_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sync_annotation_invalid_field.seen"
+SHARE_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/share_annotation_invalid_field.seen"
 SEND_IMPORTED_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/send_annotation_imported_invalid_entry.seen"
-SYNC_IMPORTED_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sync_annotation_imported_invalid_entry.seen"
+SHARE_IMPORTED_INVALID_SRC="$ROOT_DIR/tests/fixtures/current_limitations/share_annotation_imported_invalid_entry.seen"
 SEALED_CROSS_MODULE_ENTRY_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_cross_module_entry.seen"
 SEALED_ALIAS_ENTRY_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_alias_entry.seen"
 SEALED_SAME_MODULE_OK_SRC="$ROOT_DIR/tests/fixtures/current_limitations/sealed_same_module_ok.seen"
@@ -2306,10 +2306,10 @@ run_check_failure_case "method effect(NetToken) rejects file capability use" "$M
 run_check_failure_case "imported effect(FileToken) propagates to caller" "$IMPORTED_CAPABILITY_MISSING_SRC" "$TMP_ROOT/imported_capability_missing.log" 'Calling imported function that requires capability token|requires @using\(FileToken\)'
 run_check_failure_case "aliased imported effect(FileToken) propagates to caller" "$IMPORTED_CAPABILITY_ALIAS_SRC" "$TMP_ROOT/imported_capability_alias.log" 'Calling imported function that requires capability token|requires @using\(FileToken\)'
 run_check_success_case "imported effect(FileToken) stays allowed with caller capability" "$IMPORTED_CAPABILITY_OK_SRC" "$TMP_ROOT/imported_capability_ok.log"
-run_check_failure_case "@send rejects non-send field" "$SEND_INVALID_SRC" "$TMP_ROOT/send_invalid.log" '@send class .* cannot contain field .* without @send'
-run_check_failure_case "@sync rejects non-sync field" "$SYNC_INVALID_SRC" "$TMP_ROOT/sync_invalid.log" '@sync class .* cannot contain field .* without @sync'
-run_check_failure_case "@send rejects imported non-send field" "$SEND_IMPORTED_INVALID_SRC" "$TMP_ROOT/send_imported_invalid.log" '@send class .* cannot contain field .* without @send'
-run_check_failure_case "@sync rejects imported non-sync field" "$SYNC_IMPORTED_INVALID_SRC" "$TMP_ROOT/sync_imported_invalid.log" '@sync class .* cannot contain field .* without @sync'
+run_check_failure_case "@send rejects non-send field" "$SEND_INVALID_SRC" "$TMP_ROOT/send_invalid.log" 'E_PROPERTY_FIELD'
+run_check_failure_case "@share rejects non-Share field" "$SHARE_INVALID_SRC" "$TMP_ROOT/share_invalid.log" 'E_PROPERTY_FIELD'
+run_check_failure_case "@send rejects imported non-send field" "$SEND_IMPORTED_INVALID_SRC" "$TMP_ROOT/send_imported_invalid.log" 'E_PROPERTY_FIELD'
+run_check_failure_case "@share rejects imported non-Share field" "$SHARE_IMPORTED_INVALID_SRC" "$TMP_ROOT/share_imported_invalid.log" 'E_PROPERTY_FIELD'
 run_check_failure_case "sealed cross-module inheritance is rejected" "$SEALED_CROSS_MODULE_ENTRY_SRC" "$TMP_ROOT/sealed_cross_module.log" 'sealed class .* cannot be extended outside'
 run_check_failure_case "sealed alias-import inheritance is rejected" "$SEALED_ALIAS_ENTRY_SRC" "$TMP_ROOT/sealed_alias.log" 'sealed class .* cannot be extended outside'
 run_success_case "sealed same-module inheritance stays allowed" "$SEALED_SAME_MODULE_OK_SRC" "$TMP_ROOT/sealed_same_module_ok" "$TMP_ROOT/sealed_same_module_ok.log"

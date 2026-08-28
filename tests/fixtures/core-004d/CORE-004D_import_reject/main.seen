@@ -1,0 +1,5 @@
+import imported_noise.{importedNoise}
+
+fun main() r: Int {
+    return importedNoise()
+}

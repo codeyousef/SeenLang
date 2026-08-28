@@ -1,0 +1,6 @@
+type Real = Float
+
+fun main() r: Int {
+    let value: Real = 1.0
+    return 0
+}

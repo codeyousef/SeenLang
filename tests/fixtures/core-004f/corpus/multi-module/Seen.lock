@@ -1,0 +1,7 @@
+version = 2
+manifest_sha256 = "125dc6e1fc2159ad86cfd17d6a242dc914308d744bc817468e97c5e27dc9bac4"
+
+[root]
+name = "core_004f_multi_module"
+version = "0.1.0"
+dependencies = []

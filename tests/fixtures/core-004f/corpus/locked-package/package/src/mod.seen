@@ -1,0 +1,7 @@
+pub class PackageValue {
+    var value: Int
+}
+
+pub fun packageValue() r: PackageValue {
+    return PackageValue{value: 73}
+}

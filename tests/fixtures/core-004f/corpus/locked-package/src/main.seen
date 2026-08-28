@@ -1,0 +1,9 @@
+import fixture.{PackageValue, packageValue}
+
+fun main() r: Int {
+    let value: PackageValue = packageValue()
+    println(value.value)
+    return 0
+}
+
+main()

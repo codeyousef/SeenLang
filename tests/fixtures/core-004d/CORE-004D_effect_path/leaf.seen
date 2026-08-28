@@ -1,0 +1,4 @@
+pub fun leafValue() r: Int {
+    println("leaf nondeterministic effect")
+    return 7
+}

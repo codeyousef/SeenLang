@@ -1,0 +1,60 @@
+{
+  "schema": "seen-core-004e-fixtures-v1",
+  "cases": [
+    {
+      "name": "CORE-004E_epoch_happy",
+      "kind": "native-runtime",
+      "expected": "1700000000"
+    },
+    {
+      "name": "CORE-004E_seed_happy",
+      "kind": "native-runtime",
+      "expected": "xorshift64-v1"
+    },
+    {
+      "name": "CORE-004E_missing_epoch",
+      "kind": "native-error",
+      "expected": "core.004e.missing_epoch"
+    },
+    {
+      "name": "CORE-004E_invalid_seed",
+      "kind": "native-error",
+      "expected": "core.004e.invalid_seed"
+    },
+    {
+      "name": "CORE-004E_env_denied",
+      "kind": "native-error",
+      "expected": "core.004e.env_denied"
+    },
+    {
+      "name": "CORE-004E_locale_pinned",
+      "kind": "native-runtime",
+      "expected": "C.UTF-8/UTF-8"
+    },
+    {
+      "name": "CORE-004E_external_input_denied",
+      "kind": "native-error",
+      "expected": "core.004e.external_input_denied"
+    },
+    {
+      "name": "CORE-004E_ffi_bypass_rejected",
+      "kind": "compiler-rejection",
+      "expected": "core.004d.unsafe-ffi"
+    },
+    {
+      "name": "CORE-004E_run_parity",
+      "kind": "repeat-run",
+      "expected": "identical-output"
+    },
+    {
+      "name": "CORE-004E_cancel",
+      "kind": "native-error",
+      "expected": "core.004e.cancelled"
+    },
+    {
+      "name": "CORE-004E_installed_payload",
+      "kind": "installed-layout",
+      "expected": "lib/seen/std/determinism/context.seen"
+    }
+  ]
+}

@@ -123,7 +123,31 @@ Use deterministic mode when auditing reproducibility-sensitive code:
 
 ```bash
 seen check src/main.seen --profile deterministic
+seen check src/main.seen --deterministic
+seen compile src/main.seen app --deterministic
+seen run src/main.seen --deterministic
 ```
+
+Supply the deterministic runtime context explicitly when compiling or running:
+
+```bash
+SOURCE_DATE_EPOCH=1700000000 SEEN_DETERMINISTIC_SEED=1101 \
+  SEEN_HASH_SEED=1101 TZ=UTC LC_ALL=C.UTF-8 \
+  seen compile src/main.seen app --deterministic
+```
+
+The explicit profile performs semantic checks only. On `check`, the
+`--deterministic` spelling is an alias for that profile. On `compile` and
+`run`, it additionally fixes SIMD to `none`; contradictory profile or SIMD
+arguments fail with stable `core.004c.*` diagnostics rather than being
+silently repaired. Deterministic run uses the AOT pipeline so execution cannot
+bypass the selected semantic and SIMD policy.
+
+Required CI validates `seen-program-artifacts-v1` evidence before bootstrap,
+runs the `seen-deterministic-context-v1` executable contract with the freshly
+accepted compiler, and validates `seen-program-reproducibility-v1` again during
+release-toolchain preparation. These raw-byte evidence contracts are distinct
+from normalized self-hosting comparison.
 
 The checker and LSP surface warning diagnostics for conservative dead-code
 cases, including unreachable statements, unused locals or parameters, unused

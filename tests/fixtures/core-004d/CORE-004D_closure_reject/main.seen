@@ -1,0 +1,4 @@
+fun main() r: Int {
+    let callback = || println("closure nondeterministic effect")
+    return 0
+}

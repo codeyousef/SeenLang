@@ -1,70 +1,345 @@
-///
-Atomic operations — handle-based pattern.
-AtomicInt/AtomicBool allocate a heap int64_t via __AtomicAlloc and store
-the pointer-as-int as `handle`. All operations pass the handle to the C
-runtime which dereferences it, enabling true cross-thread atomic semantics.
-///
+/// Typed atomic values and memory-order validation.
 
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import sync.contracts.{Share, SyncError, SYNC_NATIVE_OK, syncFailure,
+    syncNativeFailure, syncValidateContext}
+
+extern "C" fun seen_sync_atomic_create(initial: Int64,
+    handle: *UInt64) r: Int32
+extern "C" fun seen_sync_atomic_load(handle: UInt64, order: Int32,
+    value: *Int64) r: Int32
+extern "C" fun seen_sync_atomic_store(handle: UInt64, value: Int64,
+    order: Int32) r: Int32
+extern "C" fun seen_sync_atomic_exchange(handle: UInt64, value: Int64,
+    order: Int32, previous: *Int64) r: Int32
+extern "C" fun seen_sync_atomic_fetch_add(handle: UInt64, value: Int64,
+    order: Int32, previous: *Int64) r: Int32
+extern "C" fun seen_sync_atomic_fetch_sub(handle: UInt64, value: Int64,
+    order: Int32, previous: *Int64) r: Int32
+extern "C" fun seen_sync_atomic_compare_exchange(handle: UInt64,
+    expected: *Int64, desired: Int64, successOrder: Int32,
+    failureOrder: Int32, exchanged: *Int32) r: Int32
+extern "C" fun seen_sync_atomic_destroy(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+extern "C" fun seen_sync_mutex_create(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_mutex_lock_until(handle: UInt64,
+    deadlineNanoseconds: Int64) r: Int32
+extern "C" fun seen_sync_mutex_unlock(handle: UInt64) r: Int32
+extern "C" fun seen_sync_mutex_destroy(handle: *UInt64) r: Int32
+
+enum MemoryOrder { Relaxed; Acquire; Release; AcqRel; SeqCst }
+
+fun atomicOrderNumber(order: MemoryOrder) r: Int32 {
+    if order == MemoryOrder.Acquire { return 1 as Int32 }
+    if order == MemoryOrder.Release { return 2 as Int32 }
+    if order == MemoryOrder.AcqRel { return 3 as Int32 }
+    if order == MemoryOrder.SeqCst { return 4 as Int32 }
+    return 0 as Int32
+}
+
+fun atomicValidateLoadOrder(order: MemoryOrder) r: Result<Bool, SyncError> {
+    if order == MemoryOrder.Release or order == MemoryOrder.AcqRel {
+        return Err<Bool, SyncError>(syncFailure("sync.invalid", "atomic.load",
+            "release ordering is invalid for an atomic load", false,
+            0 as UInt64))
+    }
+    return Ok<Bool, SyncError>(true)
+}
+
+fun atomicValidateStoreOrder(order: MemoryOrder) r: Result<Bool, SyncError> {
+    if order == MemoryOrder.Acquire or order == MemoryOrder.AcqRel {
+        return Err<Bool, SyncError>(syncFailure("sync.invalid", "atomic.store",
+            "acquire ordering is invalid for an atomic store", false,
+            0 as UInt64))
+    }
+    return Ok<Bool, SyncError>(true)
+}
+
+fun atomicValidateCompareExchangeOrders(successOrder: MemoryOrder,
+    failureOrder: MemoryOrder) r: Result<Bool, SyncError> {
+
+    let loadValid = atomicValidateLoadOrder(failureOrder)
+    if loadValid.isErr() { return loadValid }
+    if failureOrder == MemoryOrder.SeqCst and
+        successOrder != MemoryOrder.SeqCst {
+        return Err<Bool, SyncError>(syncFailure("sync.invalid",
+            "atomic.compare_exchange",
+            "failure ordering cannot be stronger than success ordering",
+            false, 0 as UInt64))
+    }
+    if failureOrder == MemoryOrder.Acquire and
+        successOrder != MemoryOrder.Acquire and
+        successOrder != MemoryOrder.AcqRel and
+        successOrder != MemoryOrder.SeqCst {
+        return Err<Bool, SyncError>(syncFailure("sync.invalid",
+            "atomic.compare_exchange",
+            "failure ordering cannot be stronger than success ordering",
+            false, 0 as UInt64))
+    }
+    return Ok<Bool, SyncError>(true)
+}
+
+class AtomicCompareExchange {
+    var exchanged: Bool
+    var previous: Int64
+}
+
+@move
 class AtomicInt {
-    var handle: Int
+    var handle: UInt64
+    var active: Bool
 
-    fun new(initial: Int) -> AtomicInt {
-        AtomicInt { handle: __AtomicAlloc(initial) }
+    static fun create(initial: Int64) r: Result<AtomicInt, SyncError> {
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_sync_atomic_create(initial, &handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<AtomicInt, SyncError>(syncNativeFailure(status,
+                "atomic.create", 0 as UInt64))
+        }
+        return Ok<AtomicInt, SyncError>(AtomicInt{handle: handle, active: true})
     }
 
-    fun load() -> Int {
-        __AtomicLoad(this.handle)
+    fun load(order: MemoryOrder) r: Result<Int64, SyncError> {
+        if not this.active {
+            return Err<Int64, SyncError>(syncFailure("sync.invalid",
+                "atomic.load", "atomic value is closed", false, 0 as UInt64))
+        }
+        let valid = atomicValidateLoadOrder(order)
+        if valid.isErr() { return Err<Int64, SyncError>(valid.unwrapErr()) }
+        var value: Int64 = 0 as Int64
+        let status = seen_sync_atomic_load(this.handle,
+            atomicOrderNumber(order), &value)
+        if status != SYNC_NATIVE_OK {
+            return Err<Int64, SyncError>(syncNativeFailure(status,
+                "atomic.load", 0 as UInt64))
+        }
+        return Ok<Int64, SyncError>(value)
     }
 
-    fun load_relaxed() -> Int {
-        __AtomicLoadRelaxed(this.handle)
+    fun store(value: Int64, order: MemoryOrder) r: Result<Bool, SyncError> {
+        if not this.active {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "atomic.store", "atomic value is closed", false, 0 as UInt64))
+        }
+        let valid = atomicValidateStoreOrder(order)
+        if valid.isErr() { return Err<Bool, SyncError>(valid.unwrapErr()) }
+        let status = seen_sync_atomic_store(this.handle, value,
+            atomicOrderNumber(order))
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "atomic.store", 0 as UInt64))
+        }
+        return Ok<Bool, SyncError>(true)
     }
 
-    fun load_acquire() -> Int {
-        __AtomicLoadAcquire(this.handle)
+    fun exchange(value: Int64, order: MemoryOrder)
+        r: Result<Int64, SyncError> {
+        if not this.active {
+            return Err<Int64, SyncError>(syncFailure("sync.invalid",
+                "atomic.exchange", "atomic value is closed", false,
+                0 as UInt64))
+        }
+        var previous: Int64 = 0 as Int64
+        let status = seen_sync_atomic_exchange(this.handle, value,
+            atomicOrderNumber(order), &previous)
+        if status != SYNC_NATIVE_OK {
+            return Err<Int64, SyncError>(syncNativeFailure(status,
+                "atomic.exchange", 0 as UInt64))
+        }
+        return Ok<Int64, SyncError>(previous)
     }
 
-    fun store(val: Int) {
-        __AtomicStore(this.handle, val)
+    fun fetchAdd(value: Int64, order: MemoryOrder)
+        r: Result<Int64, SyncError> {
+        var previous: Int64 = 0 as Int64
+        if not this.active {
+            return Err<Int64, SyncError>(syncFailure("sync.invalid",
+                "atomic.fetch_add", "atomic value is closed", false,
+                0 as UInt64))
+        }
+        let status = seen_sync_atomic_fetch_add(this.handle, value,
+            atomicOrderNumber(order), &previous)
+        if status != SYNC_NATIVE_OK {
+            return Err<Int64, SyncError>(syncNativeFailure(status,
+                "atomic.fetch_add", 0 as UInt64))
+        }
+        return Ok<Int64, SyncError>(previous)
     }
 
-    fun store_release(val: Int) {
-        __AtomicStoreRelease(this.handle, val)
+    fun fetchSub(value: Int64, order: MemoryOrder)
+        r: Result<Int64, SyncError> {
+        var previous: Int64 = 0 as Int64
+        if not this.active {
+            return Err<Int64, SyncError>(syncFailure("sync.invalid",
+                "atomic.fetch_sub", "atomic value is closed", false,
+                0 as UInt64))
+        }
+        let status = seen_sync_atomic_fetch_sub(this.handle, value,
+            atomicOrderNumber(order), &previous)
+        if status != SYNC_NATIVE_OK {
+            return Err<Int64, SyncError>(syncNativeFailure(status,
+                "atomic.fetch_sub", 0 as UInt64))
+        }
+        return Ok<Int64, SyncError>(previous)
     }
 
-    fun add(val: Int) -> Int {
-        __AtomicAdd(this.handle, val)
+    fun compareExchange(expected: Int64, desired: Int64,
+        successOrder: MemoryOrder, failureOrder: MemoryOrder)
+        r: Result<AtomicCompareExchange, SyncError> {
+
+        if not this.active {
+            return Err<AtomicCompareExchange, SyncError>(syncFailure(
+                "sync.invalid", "atomic.compare_exchange",
+                "atomic value is closed", false, 0 as UInt64))
+        }
+        let failureValid = atomicValidateCompareExchangeOrders(successOrder,
+            failureOrder)
+        if failureValid.isErr() {
+            return Err<AtomicCompareExchange, SyncError>(
+                failureValid.unwrapErr())
+        }
+        var observed = expected
+        var exchanged: Int32 = 0 as Int32
+        let status = seen_sync_atomic_compare_exchange(this.handle,
+            &observed, desired, atomicOrderNumber(successOrder),
+            atomicOrderNumber(failureOrder), &exchanged)
+        if status != SYNC_NATIVE_OK {
+            return Err<AtomicCompareExchange, SyncError>(syncNativeFailure(
+                status, "atomic.compare_exchange", 0 as UInt64))
+        }
+        return Ok<AtomicCompareExchange, SyncError>(AtomicCompareExchange{
+            exchanged: exchanged == (1 as Int32), previous: observed})
     }
 
-    fun sub(val: Int) -> Int {
-        __AtomicSub(this.handle, val)
-    }
-
-    fun compare_exchange(expected: Int, new_val: Int) -> Bool {
-        __AtomicCompareExchange(this.handle, expected, new_val)
+    fun close() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        let status = seen_sync_atomic_destroy(&this.handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "atomic.close", 0 as UInt64))
+        }
+        this.active = false
+        return Ok<Bool, SyncError>(true)
     }
 }
 
-class AtomicBool {
-    var handle: Int
+/// Generic atomicity uses the same narrow platform mutex ABI. Specialized
+/// integers use AtomicInt and native target atomics.
+@move
+class Atomic<T: Share> {
+    var handle: UInt64
+    var value: T
+    var active: Bool
 
-    fun new(initial: Bool) -> AtomicBool {
-        var init = 0
-        if initial {
-            init = 1
+    static fun create(value: T) r: Result<Atomic<T>, SyncError> {
+        var handle: UInt64 = 0 as UInt64
+        let status = seen_sync_mutex_create(&handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Atomic<T>, SyncError>(syncNativeFailure(status,
+                "atomic.create", 0 as UInt64))
         }
-        AtomicBool { handle: __AtomicAlloc(init) }
+        return Ok<Atomic<T>, SyncError>(Atomic<T>{handle: handle,
+            value: value, active: true})
     }
 
-    fun load() -> Bool {
-        __AtomicLoadBool(this.handle)
+    fun load(context: OperationContext, order: MemoryOrder)
+        r: Result<T, SyncError> {
+        let checked = syncValidateContext(context, "atomic.load", 0 as UInt64)
+        if checked.isErr() { return Err<T, SyncError>(checked.unwrapErr()) }
+        let valid = atomicValidateLoadOrder(order)
+        if valid.isErr() { return Err<T, SyncError>(valid.unwrapErr()) }
+        if not this.active {
+            return Err<T, SyncError>(syncFailure("sync.invalid", "atomic.load",
+                "atomic value is closed", false, 0 as UInt64))
+        }
+        let locked = seen_sync_mutex_lock_until(this.handle,
+            context.monotonicDeadline)
+        if locked != SYNC_NATIVE_OK {
+            return Err<T, SyncError>(syncNativeFailure(locked, "atomic.load",
+                0 as UInt64))
+        }
+        let result = this.value
+        let unlocked = seen_sync_mutex_unlock(this.handle)
+        if unlocked != SYNC_NATIVE_OK {
+            return Err<T, SyncError>(syncNativeFailure(unlocked,
+                "atomic.load", 0 as UInt64))
+        }
+        return Ok<T, SyncError>(result)
     }
 
-    fun store(val: Bool) {
-        __AtomicStoreBool(this.handle, val)
+    fun store(context: OperationContext, value: T, order: MemoryOrder)
+        r: Result<Bool, SyncError> {
+        let checked = syncValidateContext(context, "atomic.store", 0 as UInt64)
+        if checked.isErr() { return Err<Bool, SyncError>(checked.unwrapErr()) }
+        let valid = atomicValidateStoreOrder(order)
+        if valid.isErr() { return Err<Bool, SyncError>(valid.unwrapErr()) }
+        if not this.active {
+            return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                "atomic.store", "atomic value is closed", false,
+                0 as UInt64))
+        }
+        let locked = seen_sync_mutex_lock_until(this.handle,
+            context.monotonicDeadline)
+        if locked != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(locked,
+                "atomic.store", 0 as UInt64))
+        }
+        this.value = value
+        let unlocked = seen_sync_mutex_unlock(this.handle)
+        if unlocked != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(unlocked,
+                "atomic.store", 0 as UInt64))
+        }
+        return Ok<Bool, SyncError>(true)
     }
 
-    fun compare_exchange(expected: Bool, new_val: Bool) -> Bool {
-        __AtomicCompareExchangeBool(this.handle, expected, new_val)
+    fun close() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        let status = seen_sync_mutex_destroy(&this.handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "atomic.close", 0 as UInt64))
+        }
+        this.active = false
+        return Ok<Bool, SyncError>(true)
+    }
+}
+
+@move
+class AtomicBool {
+    var inner: AtomicInt
+    var active: Bool
+
+    static fun create(initial: Bool) r: Result<AtomicBool, SyncError> {
+        let created = AtomicInt.create(if initial { 1 as Int64 } else {
+            0 as Int64 })
+        if created.isErr() {
+            return Err<AtomicBool, SyncError>(created.unwrapErr())
+        }
+        return Ok<AtomicBool, SyncError>(AtomicBool{inner: created.unwrap(),
+            active: true})
+    }
+
+    fun load(order: MemoryOrder) r: Result<Bool, SyncError> {
+        let loaded = this.inner.load(order)
+        if loaded.isErr() {
+            return Err<Bool, SyncError>(loaded.unwrapErr())
+        }
+        return Ok<Bool, SyncError>(loaded.unwrap() != (0 as Int64))
+    }
+
+    fun store(value: Bool, order: MemoryOrder) r: Result<Bool, SyncError> {
+        return this.inner.store(if value { 1 as Int64 } else { 0 as Int64 },
+            order)
+    }
+
+    fun close() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        let closed = this.inner.close()
+        if closed.isErr() { return closed }
+        this.active = false
+        return Ok<Bool, SyncError>(true)
     }
 }

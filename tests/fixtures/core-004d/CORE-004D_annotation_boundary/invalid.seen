@@ -1,0 +1,9 @@
+@nondeterministic("not-a-valid-boundary")
+fun invalidBoundary() r: Int {
+    println("invalid annotation boundary")
+    return 11
+}
+
+fun main() r: Int {
+    return invalidBoundary()
+}

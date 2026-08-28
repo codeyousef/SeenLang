@@ -1113,20 +1113,10 @@ class RealParser {
                 // Parse braced body containing method definitions
                 if matchTokenStr(SeenTokenType.LeftBrace) {
                     while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
-                        // Skip decorators
+                        // Preserve method decorators instead of discarding
+                        // their effect/lifecycle metadata.
                         if matchTokenStr(SeenTokenType.AtSymbol) {
-                            if checkToken(SeenTokenType.Identifier) {
-                                advance()
-                            }
-                            // Skip decorator args
-                            if matchTokenStr(SeenTokenType.LeftParen) {
-                                var implDecDepth = 1
-                                while implDecDepth > 0 and not isAtEnd() {
-                                    if matchTokenStr(SeenTokenType.LeftParen) { implDecDepth = implDecDepth + 1 }
-                                    if matchTokenStr(SeenTokenType.RightParen) { implDecDepth = implDecDepth - 1 }
-                                    if implDecDepth > 0 { advance() }
-                                }
-                            }
+                            parseDecoratorInto()
                             continue
                         }
                         // Skip pub/static/override modifiers
@@ -1139,6 +1129,16 @@ class RealParser {
                         The codegen detects 'this: ClassName' param and generates ClassName_method
                         ///
                         if matchTokenStr(getKeywordFunType()) {
+                            let targetDecorator = AnnotationNode.new(
+                                "impl_target")
+                            targetDecorator.addArgument(implTargetName)
+                            this.pendingDecorators.push(targetDecorator)
+                            if implTraitName != "" {
+                                let traitDecorator = AnnotationNode.new(
+                                    "impl_trait")
+                                traitDecorator.addArgument(implTraitName)
+                                this.pendingDecorators.push(traitDecorator)
+                            }
                             parseFunctionItemInto()
                             continue
                         }
@@ -1499,8 +1499,31 @@ class RealParser {
                 }
                 if checkNameLikeToken() {
                     let genericName = advance().getValue()
+                    var genericModifier = modifier
+                    if depth == 1 and checkToken(SeenTokenType.Colon) {
+                        advance()
+                        var bounds = ""
+                        while depth == 1 and not isAtEnd() and
+                            not checkToken(SeenTokenType.Comma) and
+                            not checkToken(SeenTokenType.GreaterThan) {
+
+                            if checkNameLikeToken() {
+                                let boundName = advance().getValue()
+                                if bounds != "" { bounds = bounds + "+" }
+                                bounds = bounds + boundName
+                            } else {
+                                advance()
+                            }
+                        }
+                        // `const N: Int` and `comptime N: Int` use the colon
+                        // for the value parameter's declared type, not a
+                        // lifecycle bound. Preserve their existing modifier.
+                        if modifier == "" and bounds != "" {
+                            genericModifier = "bound:" + bounds
+                        }
+                    }
                     recordGenericParameterDecorator(decorators, genericName,
-                        modifier)
+                        genericModifier)
                     expectName = false
                     continue
                 }
@@ -1517,6 +1540,49 @@ class RealParser {
 
     fun skipGenericParametersIfPresent() r: Void {
         parseGenericParametersInto(this.pendingDecorators)
+    }
+
+    ///
+    Return true only when the generic argument list at the current cursor is
+    part of an extension receiver (`Type<T>.method`). A declaration generic
+    list (`name<T>(...)`) must remain for parseGenericParametersInto so its
+    parameter metadata is preserved.
+    ///
+    fun receiverTypeArgumentsFollowedByDot() r: Bool {
+        if not checkToken(SeenTokenType.LessThan) { return false }
+        var depth = 0
+        var offset = 0
+        while offset < 256 {
+            let token = peekAt(offset)
+            if token.getType().toString() ==
+                SeenTokenType.LessThan.toString() {
+
+                depth = depth + 1
+            } else if token.getType().toString() ==
+                SeenTokenType.GreaterThan.toString() {
+
+                depth = depth - 1
+                if depth == 0 {
+                    return peekAt(offset + 1).getType().toString() ==
+                        SeenTokenType.Dot.toString()
+                }
+            }
+            if token.getType().toString() ==
+                SeenTokenType.EndOfFile.toString() {
+
+                return false
+            }
+            offset = offset + 1
+        }
+        return false
+    }
+
+    fun skipReceiverTypeArgumentsIfPresent() r: Void {
+        if receiverTypeArgumentsFollowedByDot() {
+            advance()
+            skipBalancedDelimited(SeenTokenType.LessThan,
+                SeenTokenType.GreaterThan)
+        }
     }
 
     fun skipFunctionBodyAndMarkDeclaration() r: Bool {
@@ -2096,14 +2162,19 @@ class RealParser {
     }
 
     fun parseImplDeclarationsOnly() r: Void {
+        var implTraitName = ""
+        var implTargetName = ""
         if checkToken(SeenTokenType.Identifier) {
-            advance()
+            implTraitName = advance().getValue()
         }
         if checkToken(SeenTokenType.KeywordFor) {
             advance()
             if checkToken(SeenTokenType.Identifier) {
-                advance()
+                implTargetName = advance().getValue()
             }
+        } else {
+            implTargetName = implTraitName
+            implTraitName = ""
         }
         skipGenericParametersIfPresent()
 
@@ -2129,6 +2200,14 @@ class RealParser {
                     }
                 }
                 if matchTokenStr(getKeywordFunType()) {
+                    let targetDecorator = AnnotationNode.new("impl_target")
+                    targetDecorator.addArgument(implTargetName)
+                    this.pendingDecorators.push(targetDecorator)
+                    if implTraitName != "" {
+                        let traitDecorator = AnnotationNode.new("impl_trait")
+                        traitDecorator.addArgument(implTraitName)
+                        this.pendingDecorators.push(traitDecorator)
+                    }
                     parseFunctionDeclarationItemInto()
                     continue
                 }
@@ -2250,12 +2329,17 @@ class RealParser {
             return ItemNode.new()
         }
 
-        let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         let func = FunctionNode.new()
+        // Support the established extension form `fun <T> Type<T>.method` in
+        // addition to `fun name<T>`. Preserve both forms as the same generic
+        // parameter metadata before reading the receiver/name token.
+        parseGenericParametersInto(func.decorators)
+        let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         func.line = nameToken.getLine()
         func.column = nameToken.getColumn()
         // Handle data type method syntax: fun TypeName.methodName() -> TypeName_methodName
         var funcName = nameToken.getValue()
+        skipReceiverTypeArgumentsIfPresent()
         if matchTokenStr(SeenTokenType.Dot) {
             let methodToken = consume(SeenTokenType.Identifier, "Expected method name after dot")
             funcName = funcName + "_" + methodToken.getValue()
@@ -2341,15 +2425,17 @@ class RealParser {
             return
         }
 
-        let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         // Use class field to avoid local variable corruption
         this.lastFunction = FunctionNode.new()
         clearPendingFunctionReturnType()
         clearPendingFunctionParamTypes()
+        parseGenericParametersInto(this.lastFunction.decorators)
+        let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         this.lastFunction.line = nameToken.getLine()
         this.lastFunction.column = nameToken.getColumn()
         // Handle data type method syntax: fun TypeName.methodName() -> TypeName_methodName
         var funcName = nameToken.getValue()
+        skipReceiverTypeArgumentsIfPresent()
         if matchTokenStr(SeenTokenType.Dot) {
             let methodToken = consume(SeenTokenType.Identifier, "Expected method name after dot")
             funcName = funcName + "_" + methodToken.getValue()
@@ -2449,21 +2535,23 @@ class RealParser {
             return
         }
 
-        let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         this.lastFunction = FunctionNode.new()
         clearPendingFunctionReturnType()
         clearPendingFunctionParamTypes()
+        parseGenericParametersInto(this.lastFunction.decorators)
+        let nameToken = consume(SeenTokenType.Identifier, "Expected function name")
         this.lastFunction.line = nameToken.getLine()
         this.lastFunction.column = nameToken.getColumn()
 
         var funcName = nameToken.getValue()
+        skipReceiverTypeArgumentsIfPresent()
         if matchTokenStr(SeenTokenType.Dot) {
             let methodToken = consume(SeenTokenType.Identifier, "Expected method name after dot")
             funcName = funcName + "_" + methodToken.getValue()
         }
         this.lastFunction.name = funcName
 
-        skipGenericParametersIfPresent()
+        parseGenericParametersInto(this.lastFunction.decorators)
         applyDecoratorsToFunction()
         parseParameterListField()
 
@@ -2734,8 +2822,18 @@ class RealParser {
                     }
                 }
                 if not classTokenHandled {
-                    if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
-                        if matchTokenStr(SeenTokenType.KeywordMut) { }  // consume optional mut
+                    var mutableField = false
+                    var matchedField = false
+                    if matchTokenStr(SeenTokenType.KeywordVar) {
+                        mutableField = true
+                        matchedField = true
+                    } else if matchTokenStr(SeenTokenType.KeywordLet) {
+                        matchedField = true
+                    }
+                    if matchedField {
+                        if matchTokenStr(SeenTokenType.KeywordMut) {
+                            mutableField = true
+                        }
                         let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
                         consume(SeenTokenType.Colon, "Expected ':' after field name")
                         let fieldType = parseTypeNode()
@@ -2750,6 +2848,7 @@ class RealParser {
                         let field = ParamNode.new()
                         field.name = fieldName.getValue()
                         field.paramType = fieldType
+                        field.isMutable = mutableField
                         field.line = fieldName.getLine()
                         field.column = fieldName.getColumn()
                         classNode.fields.push(field)
@@ -2995,8 +3094,18 @@ class RealParser {
                     }
                 }
                 if not classIntoTokenHandled {
-                    if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
-                        if matchTokenStr(SeenTokenType.KeywordMut) { }  // consume optional mut
+                    var mutableFieldInto = false
+                    var matchedFieldInto = false
+                    if matchTokenStr(SeenTokenType.KeywordVar) {
+                        mutableFieldInto = true
+                        matchedFieldInto = true
+                    } else if matchTokenStr(SeenTokenType.KeywordLet) {
+                        matchedFieldInto = true
+                    }
+                    if matchedFieldInto {
+                        if matchTokenStr(SeenTokenType.KeywordMut) {
+                            mutableFieldInto = true
+                        }
                         let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
                         consume(SeenTokenType.Colon, "Expected ':' after field name")
                         let fieldType = parseTypeNode()
@@ -3011,6 +3120,7 @@ class RealParser {
                         let field = ParamNode.new()
                         field.name = fieldName.getValue()
                         field.paramType = fieldType
+                        field.isMutable = mutableFieldInto
                         field.line = fieldName.getLine()
                         field.column = fieldName.getColumn()
                         classNode.fields.push(field)
@@ -3221,7 +3331,8 @@ class RealParser {
         // trace
     }
 
-    fun parseClassFieldDeclarationInto(classNode: ClassNode) r: Void {
+    fun parseClassFieldDeclarationInto(classNode: ClassNode,
+        isMutableField: Bool) r: Void {
         let fieldName = consume(SeenTokenType.Identifier, "Expected field name")
         consume(SeenTokenType.Colon, "Expected ':' after field name")
         let fieldType = parseTypeNode()
@@ -3235,6 +3346,7 @@ class RealParser {
         let field = ParamNode.new()
         field.name = fieldName.getValue()
         field.paramType = fieldType
+        field.isMutable = isMutableField
         field.line = fieldName.getLine()
         field.column = fieldName.getColumn()
         classNode.fields.push(field)
@@ -3269,7 +3381,7 @@ class RealParser {
         this.lastFunction.line = methodLine
         this.lastFunction.column = methodColumn
 
-        skipGenericParametersIfPresent()
+        parseGenericParametersInto(this.lastFunction.decorators)
         applyDecoratorsToFunction()
         parseParameterListField()
 
@@ -3307,7 +3419,7 @@ class RealParser {
         let classNode = ClassNode.new()
         classNode.name = nameToken.getValue()
 
-        skipGenericParametersIfPresent()
+        parseGenericParametersInto(classNode.decorators)
 
         if checkToken(SeenTokenType.KeywordExtends) {
             advance()
@@ -3337,9 +3449,20 @@ class RealParser {
                 }
 
                 if not handled {
-                    if matchTokenStr(SeenTokenType.KeywordVar) or matchTokenStr(SeenTokenType.KeywordLet) {
-                        if matchTokenStr(SeenTokenType.KeywordMut) { }
-                        parseClassFieldDeclarationInto(classNode)
+                    var declarationMutableField = false
+                    var declarationMatchedField = false
+                    if matchTokenStr(SeenTokenType.KeywordVar) {
+                        declarationMutableField = true
+                        declarationMatchedField = true
+                    } else if matchTokenStr(SeenTokenType.KeywordLet) {
+                        declarationMatchedField = true
+                    }
+                    if declarationMatchedField {
+                        if matchTokenStr(SeenTokenType.KeywordMut) {
+                            declarationMutableField = true
+                        }
+                        parseClassFieldDeclarationInto(classNode,
+                            declarationMutableField)
                         handled = true
                     }
                 }
@@ -3398,7 +3521,8 @@ class RealParser {
                         if curTokVal != "r" and curTokVal != "seen_std.builtins.r" and curTokVal != "this" {
                             let nextTok = peekAt(1)
                             if nextTok.getType() == SeenTokenType.Colon {
-                                parseClassFieldDeclarationInto(classNode)
+                                parseClassFieldDeclarationInto(classNode,
+                                    false)
                                 handled = true
                             }
                         }

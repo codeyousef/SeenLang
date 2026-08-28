@@ -1,0 +1,49 @@
+import sync.lock_order.{LockOrderTracker}
+
+fun main() r: Int {
+    let bad = LockOrderTracker.create(0, 1, true)
+    if not bad.isErr() or bad.unwrapErr().code != "sync.limit" { return 1 }
+    let created = LockOrderTracker.create(4, 8, true)
+    if created.isErr() { return 2 }
+    let tracker = created.unwrap()
+    if tracker.enter(10).isErr() or tracker.enter(20).isErr() { return 3 }
+    let inversion = tracker.enter(15)
+    if not inversion.isErr() or inversion.unwrapErr().code != "sync.invalid" {
+        return 4
+    }
+    let wrongRelease = tracker.leave(10)
+    if not wrongRelease.isErr() or
+        wrongRelease.unwrapErr().code != "sync.invalid" { return 5 }
+    if tracker.leave(20).isErr() or tracker.leave(10).isErr() { return 6 }
+    if tracker.depth() != 0 { return 7 }
+
+    let graph = LockOrderTracker.create(4, 8, true).unwrap()
+    if graph.enter(10).isErr() or graph.enter(20).isErr() or
+        graph.leave(20).isErr() or graph.leave(10).isErr() { return 8 }
+    if graph.enter(20).isErr() { return 9 }
+    let cycle = graph.enter(10)
+    if not cycle.isErr() or cycle.unwrapErr().operation != "lock_order.rank" {
+        return 10
+    }
+    if graph.leave(20).isErr() { return 11 }
+
+    // The bounded graph search must fail closed instead of silently treating
+    // an incomplete traversal as proof that no cycle exists.
+    let bounded = LockOrderTracker.create(2, 8, true).unwrap()
+    if bounded.recordEdge(10, 20).isErr() or
+        bounded.recordEdge(10, 30).isErr() { return 12 }
+    let incomplete = bounded.recordEdge(40, 10)
+    if not incomplete.isErr() or
+        incomplete.unwrapErr().code != "sync.limit" or
+        incomplete.unwrapErr().operation != "lock_order.path" {
+
+        return 13
+    }
+    println("PASS: SYNC-001G_happy")
+    println("PASS: SYNC-001G_partial")
+    println("PASS: SYNC-001G_invalid")
+    println("PASS: SYNC-001G_limit")
+    println("PASS: SYNC-001G_cancel")
+    println("PASS: SYNC-001G_cleanup")
+    return 0
+}

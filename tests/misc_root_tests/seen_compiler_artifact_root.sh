@@ -45,7 +45,7 @@ rg -q 'compilerArtifactPath\("seen_ir_cache/' \
 rg -q 'compilerArtifactPath\("seen_thinlto_cache"\)' \
     "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
     fail "compiler ThinLTO cache is not routed through the artifact root"
-for quoted_name in irCacheFile irCacheObj irCacheDest \
+for quoted_name in irCacheFile irCacheObj \
     sanitizedRuntimeObj sanitizedTeeRuntimeObj rtTargetOut teeTargetOut \
     targetRegionOut targetGpuOut targetHotReloadOut platformShimOut jitObj \
     tmpX86 tmpArm tmpOut buildDir appDir; do
@@ -53,6 +53,9 @@ for quoted_name in irCacheFile irCacheObj irCacheDest \
         "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
         fail "compiler artifact operand is not shell-quoted: $quoted_name"
 done
+rg -Fq 'storeCachedObjectAtomically(objFile, irCacheDest' \
+    "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
+    fail "compiler IR cache destination bypasses the quoting atomic publisher"
 ! rg -q 'compilerArtifactPath\("seen_pgo\.profdata"\)' \
     "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
     fail "compiler still performs implicit raw-profile merging"

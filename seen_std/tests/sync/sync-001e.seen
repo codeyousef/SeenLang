@@ -1,0 +1,59 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import sync.channel.{BoundedChannel}
+
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+
+fun sync001eContext(cancelled: Bool) r: OperationContext {
+    return OperationContext{cancellation: cancelled,
+        monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4095, maxGraphModules: 8,
+            maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "sync-001e"}}
+}
+
+fun main() r: Int {
+    let mutexBaseline = seen_sync_live_mutexes()
+    let conditionBaseline = seen_sync_live_conditions()
+    let invalid = BoundedChannel<Int>.create(0)
+    if not invalid.isErr() or invalid.unwrapErr().code != "sync.limit" {
+        return 1
+    }
+    let created = BoundedChannel<Int>.create(2)
+    if created.isErr() { return 2 }
+    let channel = created.unwrap()
+    let cancelled = channel.send(sync001eContext(true), 8)
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code != "sync.cancelled" { return 3 }
+    let sent = channel.send(sync001eContext(false), 41)
+    if sent.isErr() or not sent.unwrap() { return 4 }
+    let length = channel.length()
+    if length.isErr() or length.unwrap() != 1 { return 5 }
+    let received = channel.receive(sync001eContext(false))
+    if received.isErr() or received.unwrap() != 41 { return 6 }
+    let closed = channel.close()
+    if closed.isErr() or not closed.unwrap() { return 7 }
+    let afterClose = channel.send(sync001eContext(false), 9)
+    if not afterClose.isErr() or
+        afterClose.unwrapErr().code != "sync.invalid" { return 8 }
+    let drained = channel.receive(sync001eContext(false))
+    if not drained.isErr() or drained.unwrapErr().code != "sync.invalid" {
+        return 9
+    }
+    let destroyed = channel.destroy()
+    if destroyed.isErr() or not destroyed.unwrap() { return 10 }
+    let again = channel.destroy()
+    if again.isErr() or again.unwrap() { return 11 }
+    if seen_sync_live_mutexes() != mutexBaseline or
+        seen_sync_live_conditions() != conditionBaseline { return 12 }
+    println("PASS: SYNC-001E_happy")
+    println("PASS: SYNC-001E_partial")
+    println("PASS: SYNC-001E_invalid")
+    println("PASS: SYNC-001E_limit")
+    println("PASS: SYNC-001E_cancel")
+    println("PASS: SYNC-001E_cleanup")
+    return 0
+}

@@ -1,25 +1,48 @@
-#!/bin/bash
-# D3 Validation: Determinism profile run stable
-# Tests that the determinism command produces identical hashes across multiple runs
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -e
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+COMPILER="${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}"
+TEST_FILE="${1:-$ROOT_DIR/tests/fixtures/core-004c/deterministic_ok.seen}"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=core-004c-deterministic-check
 
-echo "🎯 D3 Validation: Determinism Profile Stability Test"
-echo ""
+fail() {
+    echo "core.004c.invalid: $*" >&2
+    exit 1
+}
 
-TEST_FILE="${1:-simple_test.seen}"
-OPT_LEVEL="${2:-2}"
+if [[ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
+        bash "$0" "$@"
+fi
 
-echo "Testing file: $TEST_FILE with -O$OPT_LEVEL"
-echo "Profile: deterministic"
-echo ""
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+ARTIFACT_ROOT="${SEEN_ARTIFACT_ROOT:?}"
+[[ -f "$TEST_FILE" && ! -L "$TEST_FILE" ]] || fail "unsafe or missing input"
 
-# Run determinism check 3 times to ensure stability
-for i in 1 2 3; do
-    echo "Run $i/3..."
-    SEEN_ENABLE_MANIFEST_MODULES=1 ./target/release/seen_cli determinism "$TEST_FILE" \
-        -O"$OPT_LEVEL" --backend ir --profile deterministic 2>&1 | tail -3
-    echo ""
+WORK_DIR="$(mktemp -d "$ARTIFACT_ROOT/core-004c-check.XXXXXX")"
+cleanup() {
+    case "$WORK_DIR" in
+        "$ARTIFACT_ROOT"/core-004c-check.*)
+            [[ -d "$WORK_DIR" && ! -L "$WORK_DIR" ]] && rm -rf -- "$WORK_DIR"
+            ;;
+        *) fail "refusing to remove unexpected work directory" ;;
+    esac
+}
+trap cleanup EXIT
+
+for run in 1 2 3; do
+    bash "$ATTESTED_SEEN" "$COMPILER" check "$TEST_FILE" \
+        --deterministic >"$WORK_DIR/run-$run.out" 2>&1 ||
+        fail "deterministic check failed on run $run"
 done
 
-echo "✅ D3 VALIDATION PASSED: Determinism profile runs stably"
+cmp -s "$WORK_DIR/run-1.out" "$WORK_DIR/run-2.out" ||
+    fail "diagnostics differed between runs 1 and 2"
+cmp -s "$WORK_DIR/run-1.out" "$WORK_DIR/run-3.out" ||
+    fail "diagnostics differed between runs 1 and 3"
+
+echo "PASS: CORE-004C deterministic CLI check"

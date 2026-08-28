@@ -1,0 +1,7 @@
+version = 2
+manifest_sha256 = "18fa0e6203558c84178d23b63dbc7116bd36ad12f016f9cfbf3e1af6135edd8d"
+
+[root]
+name = "core_004f_locked_consumer"
+version = "0.1.0"
+dependencies = []

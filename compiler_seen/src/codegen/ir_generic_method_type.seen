@@ -1,0 +1,108 @@
+/// Generic receiver method return-type specialization.
+
+import codegen.ir_string_collect.{trimSpacesImpl}
+
+fun genericTypeIdentifierByteImpl(value: Int) r: Bool {
+    return (value >= 48 and value <= 57) or
+        (value >= 65 and value <= 90) or
+        (value >= 97 and value <= 122) or value == 95
+}
+
+fun genericTypeArgumentsImpl(receiverType: String) r: Array<String> {
+    let arguments = Array<String>()
+    var opening = -1
+    var i = 0
+    while i < receiverType.length() and opening < 0 {
+        if receiverType.byteAt(i) == 60 { opening = i }
+        i = i + 1
+    }
+    if opening < 0 { return arguments }
+
+    var depth = 1
+    var start = opening + 1
+    i = start
+    while i < receiverType.length() and depth > 0 {
+        let value = receiverType.byteAt(i)
+        if value == 60 {
+            depth = depth + 1
+        } else if value == 62 {
+            depth = depth - 1
+            if depth == 0 {
+                arguments.push(trimSpacesImpl(receiverType.substring(start,
+                    i)))
+            }
+        } else if value == 44 and depth == 1 {
+            arguments.push(trimSpacesImpl(receiverType.substring(start, i)))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if depth != 0 { return Array<String>() }
+    return arguments
+}
+
+fun replaceGenericTypeIdentifierImpl(source: String, identifier: String,
+    replacement: String) r: String {
+
+    if source == "" or identifier == "" or replacement == "" {
+        return source
+    }
+    var output = ""
+    var copied = 0
+    var i = 0
+    while i + identifier.length() <= source.length() {
+        var matched = source.substring(i, i + identifier.length()) ==
+            identifier
+        if matched and i > 0 {
+            matched = not genericTypeIdentifierByteImpl(source.byteAt(i - 1))
+        }
+        if matched and i + identifier.length() < source.length() {
+            matched = not genericTypeIdentifierByteImpl(
+                source.byteAt(i + identifier.length()))
+        }
+        if matched {
+            output = output + source.substring(copied, i) + replacement
+            i = i + identifier.length()
+            copied = i
+        } else {
+            i = i + 1
+        }
+    }
+    return output + source.substring(copied, source.length())
+}
+
+fun genericParameterNameImpl(baseType: String, index: Int,
+    count: Int) r: String {
+
+    if baseType == "Result" {
+        if index == 0 { return "T" }
+        if index == 1 { return "E" }
+    }
+    if baseType == "Map" or baseType == "HashMap" or
+        baseType == "BTreeMap" {
+        if index == 0 { return "K" }
+        if index == 1 { return "V" }
+    }
+    if baseType == "StringHashMap" { return "V" }
+    if index == 0 { return "T" }
+    if index == 1 { return "U" }
+    if index == 2 { return "V" }
+    if index == 3 { return "W" }
+    return "T" + index.toString()
+}
+
+fun specializeGenericMethodReturnTypeImpl(receiverType: String,
+    baseType: String, declaredReturnType: String) r: String {
+
+    let arguments = genericTypeArgumentsImpl(receiverType)
+    if arguments.length() == 0 { return declaredReturnType }
+    var result = declaredReturnType
+    var i = 0
+    while i < arguments.length() {
+        result = replaceGenericTypeIdentifierImpl(result,
+            genericParameterNameImpl(baseType, i, arguments.length()),
+            arguments[i])
+        i = i + 1
+    }
+    return result
+}

@@ -68,7 +68,7 @@ var g_intrinsicLlvmNames: String = ""
 var g_intrinsicCount: Int = 0
 
 var g_sendTypes: String = ""
-var g_syncTypes: String = ""
+var g_shareTypes: String = ""
 
 var g_boundsCheckEnabled: Int = 0
 var g_boundsCheckLabelCount: Int = 0
@@ -437,7 +437,7 @@ fun prepareClassTypeDecoratorScanWithFeatureStateImpl(output: StringBuilder,
 
     let decoratorSnapshot = prepareClassTypeDecoratorScanSnapshotImpl(
         output, classNode, g_reprCClassNames, g_cacheLineClasses,
-        g_sendTypes, g_syncTypes, g_soaClassNames, g_soaClassCount,
+        g_sendTypes, g_shareTypes, g_soaClassNames, g_soaClassCount,
         g_triviallyCopyableClasses, g_moveOnlyClasses, g_cResourceClasses,
         g_cResourceDestructors, g_reflectClassNames, g_reflectClassCount,
         g_binaryClassNames, g_binaryEndianness, g_binaryVersions,
@@ -449,7 +449,7 @@ fun prepareClassTypeDecoratorScanWithFeatureStateImpl(output: StringBuilder,
     g_reprCClassNames = decoratorState.reprCClassNames
     g_cacheLineClasses = decoratorState.cacheLineClasses
     g_sendTypes = decoratorState.sendTypes
-    g_syncTypes = decoratorState.syncTypes
+    g_shareTypes = decoratorState.shareTypes
     g_soaClassNames = decoratorState.soaClassNames
     g_soaClassCount = decoratorState.soaClassCount
     g_triviallyCopyableClasses = decoratorState.triviallyCopyableClasses

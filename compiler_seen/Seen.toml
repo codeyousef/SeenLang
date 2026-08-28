@@ -15,6 +15,7 @@ modules = [
     "src/parser",
     "src/imports",
     "src/release",
+    "src/types",
     "src/typechecker",
     "src/main.seen",
 ]

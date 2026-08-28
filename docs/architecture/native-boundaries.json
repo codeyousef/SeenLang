@@ -12,6 +12,15 @@
       "production": false
     },
     {
+      "id": "deterministic-process-input-adapter",
+      "subsystem": "stdlib.determinism",
+      "purpose": "Bounded process-start snapshots, Linux process replacement after validated deterministic CLI activation, and symlink-aware path containment. Native Seen owns grants, policy, context identity, diagnostics, and observable values. The runtime captures inputs before user code, re-execs without PATH lookup when the flag activates the mode, and canonicalizes existing paths through the OS. Unsupported process replacement and Windows path policy fail closed.",
+      "abi": "OS process and filesystem C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_deterministic_path_beneath", "seen_deterministic_runtime_status", "seen_reexec_current_process"],
+      "production": true
+    },
+    {
       "id": "filesystem-direct-io-adapter",
       "subsystem": "stdlib.fs",
       "purpose": "Narrow OS adapter for move-only file handles, metadata, positional and direct I/O, allocation, durability, locks, directory iteration, links, and filesystem identification. Native Seen owns raw-path validation, bounds, traversal, temporary naming, atomic replacement, recursive operations, gather sequencing, fallback policy, diagnostics, and cleanup. Exercised by sparse files above 4 GiB, aligned O_DIRECT, hostile paths, crash-safe replacement, and ext4/XFS certification.",
@@ -66,6 +75,15 @@
       "production": true
     },
     {
+      "id": "parallel-worker-os-adapter",
+      "subsystem": "compiler.parallel_for",
+      "purpose": "Compiler-lowered bounded worker dispatch adapter. Native Seen/compiler semantics prove captures, select the fixed worker bound, preserve the environment lifetime, and fail closed on every nonzero result; the runtime mechanically partitions the supplied finite range, creates and joins OS threads, and reports the lowest body error or a stable resource status without sequential fallback.",
+      "abi": "OS thread C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_parallel_for", "seen_parallel_for_fail_closed", "seen_parallel_for_v2"],
+      "production": true
+    },
+    {
       "id": "posix-process-control",
       "subsystem": "compiler.bootstrap",
       "purpose": "Contain compiler child-process creation during guarded rebuilds.",
@@ -81,6 +99,15 @@
       "abi": "OS event queue C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_blocking_pool_cancel", "seen_blocking_pool_close", "seen_blocking_pool_completion", "seen_blocking_pool_create", "seen_blocking_pool_live_workers", "seen_blocking_pool_submit", "seen_reactor_backend_capability", "seen_reactor_close", "seen_reactor_create", "seen_reactor_deregister", "seen_reactor_event", "seen_reactor_live_handles", "seen_reactor_native_handle_close", "seen_reactor_poll", "seen_reactor_register", "seen_reactor_wakeup"],
+      "production": true
+    },
+    {
+      "id": "synchronization-os-adapter",
+      "subsystem": "stdlib.sync",
+      "purpose": "Narrow generation-checked OS synchronization adapter for atomics, mutexes, conditions, reader/writer locks, and native thread identity. Native Seen owns Send and Share legality, ownership, capacity, cancellation, deadlines, channels, poisoning, lock ranks, deadlock diagnostics, scheduling, and cleanup. Exercised by native, UBSan, ASan, stale-handle, timeout, contention, cross-platform compile, and zero-live-resource contracts.",
+      "abi": "OS synchronization C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_sync_atomic_compare_exchange", "seen_sync_atomic_create", "seen_sync_atomic_destroy", "seen_sync_atomic_exchange", "seen_sync_atomic_fetch_add", "seen_sync_atomic_fetch_sub", "seen_sync_atomic_load", "seen_sync_atomic_store", "seen_sync_condition_create", "seen_sync_condition_destroy", "seen_sync_condition_notify_all", "seen_sync_condition_notify_one", "seen_sync_condition_wait_until", "seen_sync_current_thread_id", "seen_sync_live_atomics", "seen_sync_live_conditions", "seen_sync_live_mutexes", "seen_sync_live_rwlocks", "seen_sync_mutex_create", "seen_sync_mutex_destroy", "seen_sync_mutex_lock_until", "seen_sync_mutex_try_lock", "seen_sync_mutex_unlock", "seen_sync_rwlock_create", "seen_sync_rwlock_destroy", "seen_sync_rwlock_read_lock_until", "seen_sync_rwlock_try_read", "seen_sync_rwlock_try_write", "seen_sync_rwlock_unlock", "seen_sync_rwlock_write_lock_until"],
       "production": true
     },
     {

@@ -1,0 +1,7 @@
+fun main() r: Int {
+    var offset: Int = 7
+    parallel_for index in 0..4 {
+        println(index + offset)
+    }
+    return 0
+}

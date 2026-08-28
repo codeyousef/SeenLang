@@ -32,6 +32,17 @@ if ! scripts/run_in_hard_memory_scope.sh --verify-only >/dev/null; then
     containment_fail "live kernel scope read-back failed"
 fi
 
+# CORE-004E/F/G: reject malformed deterministic contracts before any bootstrap
+# or clean-checkout certification work. CORE-004E execution is deliberately
+# deferred to Stage-1 acceptance, where the verified fresh compiler is explicit.
+bash -n \
+    tests/misc_root_tests/seen_core_004e_deterministic_context.sh \
+    tests/misc_root_tests/seen_program_artifacts_contract.sh \
+    tests/misc_root_tests/seen_program_reproducibility_contract.sh
+tests/misc_root_tests/seen_program_artifacts_contract.sh
+SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
+    tests/misc_root_tests/seen_program_reproducibility_contract.sh
+
 python3 -m py_compile \
     scripts/cpu_benchmark_statistics.py \
     scripts/benchmark_compatibility_manifest.py \
@@ -148,6 +159,8 @@ python3 scripts/benchmark_package_layout.py \
     tests/fixtures/pkg-layout-001/happy/benchmark.json
 tests/misc_root_tests/seen_native_boundaries_ledger.sh
 tests/misc_root_tests/seen_native_inventory_gate.sh
+tests/misc_root_tests/seen_sync_contract.sh
+tests/misc_root_tests/seen_sync_native_abi.sh
 tests/misc_root_tests/seen_ci_workflow_contract.sh
 tests/misc_root_tests/seen_ci_containment_contract.sh
 tests/misc_root_tests/seen_ci_required_wiring.sh
@@ -158,6 +171,7 @@ git diff --check
 
 scripts/certify_gate0_clean_checkout.sh
 tests/misc_root_tests/seen_unimported_extension_contract.sh
+tests/misc_root_tests/seen_core_004d_determinism_graph.sh
 tests/misc_root_tests/seen_time_contract.sh
 tests/misc_root_tests/seen_lines_linear_contract.sh
 tests/misc_root_tests/seen_fs_contract.sh

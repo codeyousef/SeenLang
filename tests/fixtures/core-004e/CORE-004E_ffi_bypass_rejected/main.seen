@@ -1,0 +1,5 @@
+extern fun core004eAmbientHostRead() r: Int
+
+fun main() r: Int {
+    return core004eAmbientHostRead()
+}

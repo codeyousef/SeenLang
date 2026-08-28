@@ -1,0 +1,161 @@
+/// Bounded explicit shared ownership for Share values.
+
+import core.result.{Result, Ok, Err}
+import sync.contracts.{Share, SyncError, SYNC_MAX_ATOMIC_RETRIES,
+    SYNC_MAX_SHARED_OWNERS, syncFailure}
+import sync.atomic.{AtomicInt, MemoryOrder}
+
+class ArcState<T: Share> {
+    var value: T
+    var strong: AtomicInt
+}
+
+@move
+class Arc<T: Share> {
+    var state: ArcState<T>
+    var active: Bool
+    var finalizing: Bool
+
+    static fun create(value: T) r: Result<Arc<T>, SyncError> {
+        let count = AtomicInt.create(1 as Int64)
+        if count.isErr() {
+            return Err<Arc<T>, SyncError>(count.unwrapErr())
+        }
+        let state = ArcState<T>{value: value, strong: count.unwrap()}
+        return Ok<Arc<T>, SyncError>(Arc<T>{state: state, active: true,
+            finalizing: false})
+    }
+
+    fun cloneShared() r: Result<Arc<T>, SyncError> {
+        if not this.active or this.finalizing {
+            return Err<Arc<T>, SyncError>(syncFailure("sync.invalid",
+                "arc.clone", "shared owner is closed", false, 0 as UInt64))
+        }
+        var attempts = 0
+        while attempts < SYNC_MAX_ATOMIC_RETRIES {
+            let loaded = this.state.strong.load(MemoryOrder.Acquire)
+            if loaded.isErr() {
+                return Err<Arc<T>, SyncError>(loaded.unwrapErr())
+            }
+            let observed = loaded.unwrap()
+            if observed < (1 as Int64) {
+                return Err<Arc<T>, SyncError>(syncFailure("sync.invalid",
+                    "arc.clone", "shared owner count is invalid", false,
+                    0 as UInt64))
+            }
+            if observed >= SYNC_MAX_SHARED_OWNERS {
+                return Err<Arc<T>, SyncError>(syncFailure("sync.limit",
+                    "arc.clone", "shared owner limit was reached", false,
+                    observed as UInt64))
+            }
+            let exchanged = this.state.strong.compareExchange(observed,
+                observed + (1 as Int64), MemoryOrder.AcqRel,
+                MemoryOrder.Acquire)
+            if exchanged.isErr() {
+                return Err<Arc<T>, SyncError>(exchanged.unwrapErr())
+            }
+            if exchanged.unwrap().exchanged {
+                return Ok<Arc<T>, SyncError>(Arc<T>{state: this.state,
+                    active: true, finalizing: false})
+            }
+            attempts = attempts + 1
+        }
+        return Err<Arc<T>, SyncError>(syncFailure("sync.unavailable",
+            "arc.clone", "shared owner update remained contended", true,
+            attempts as UInt64))
+    }
+
+    fun borrow() r: Result<ArcBorrow<T>, SyncError> {
+        if not this.active or this.finalizing {
+            return Err<ArcBorrow<T>, SyncError>(syncFailure("sync.invalid",
+                "arc.borrow", "shared owner is closed", false,
+                0 as UInt64))
+        }
+        let retained = this.cloneShared()
+        if retained.isErr() {
+            return Err<ArcBorrow<T>, SyncError>(retained.unwrapErr())
+        }
+        return Ok<ArcBorrow<T>, SyncError>(ArcBorrow<T>{owner:
+            retained.unwrap(), active: true})
+    }
+
+    fun strongCount() r: Result<Int64, SyncError> {
+        if not this.active or this.finalizing {
+            return Err<Int64, SyncError>(syncFailure("sync.invalid",
+                "arc.strong_count", "shared owner is closed", false,
+                0 as UInt64))
+        }
+        return this.state.strong.load(MemoryOrder.Acquire)
+    }
+
+    fun close() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        if not this.finalizing {
+            var attempts = 0
+            while attempts < SYNC_MAX_ATOMIC_RETRIES {
+                let loaded = this.state.strong.load(MemoryOrder.Acquire)
+                if loaded.isErr() {
+                    return Err<Bool, SyncError>(loaded.unwrapErr())
+                }
+                let observed = loaded.unwrap()
+                if observed <= (0 as Int64) {
+                    return Err<Bool, SyncError>(syncFailure("sync.invalid",
+                        "arc.close", "shared owner count underflow", false,
+                        0 as UInt64))
+                }
+                let exchanged = this.state.strong.compareExchange(observed,
+                    observed - (1 as Int64), MemoryOrder.AcqRel,
+                    MemoryOrder.Acquire)
+                if exchanged.isErr() {
+                    return Err<Bool, SyncError>(exchanged.unwrapErr())
+                }
+                if exchanged.unwrap().exchanged {
+                    if observed == (1 as Int64) { this.finalizing = true }
+                    else {
+                        this.active = false
+                        return Ok<Bool, SyncError>(true)
+                    }
+                    attempts = SYNC_MAX_ATOMIC_RETRIES
+                } else { attempts = attempts + 1 }
+            }
+            if not this.finalizing {
+                return Err<Bool, SyncError>(syncFailure("sync.unavailable",
+                    "arc.close", "shared owner update remained contended",
+                    true, attempts as UInt64))
+            }
+        }
+        if this.finalizing {
+            let closed = this.state.strong.close()
+            if closed.isErr() { return closed }
+        }
+        this.active = false
+        this.finalizing = false
+        return Ok<Bool, SyncError>(true)
+    }
+}
+
+/// A borrow carries an additional strong owner, so the shared value cannot be
+/// destroyed while the lease is active. The lease itself is move-only and
+/// must be closed on every exit.
+@move
+class ArcBorrow<T: Share> {
+    var owner: Arc<T>
+    var active: Bool
+
+    fun get() r: Result<T, SyncError> {
+        if not this.active {
+            return Err<T, SyncError>(syncFailure("sync.invalid",
+                "arc_borrow.get", "shared borrow is closed", false,
+                0 as UInt64))
+        }
+        return Ok<T, SyncError>(this.owner.state.value)
+    }
+
+    fun close() r: Result<Bool, SyncError> {
+        if not this.active { return Ok<Bool, SyncError>(false) }
+        let closed = this.owner.close()
+        if closed.isErr() { return closed }
+        this.active = false
+        return Ok<Bool, SyncError>(true)
+    }
+}

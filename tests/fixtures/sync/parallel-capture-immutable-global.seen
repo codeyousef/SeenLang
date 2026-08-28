@@ -1,0 +1,8 @@
+let sharedOffset: Int = 7
+
+fun main() r: Int {
+    parallel_for index in 0..4 {
+        println(index + sharedOffset)
+    }
+    return 0
+}

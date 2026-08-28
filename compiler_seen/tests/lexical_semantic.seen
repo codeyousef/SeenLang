@@ -10,6 +10,7 @@ import typechecker.semantic_registry.{SemanticDeclarationRegistry}
 import typechecker.semantic_registry.{ScopedBindings}
 import typechecker.semantic_registry.{semanticNormalizeModuleIdentity}
 import typechecker.semantic_registry.{semanticBuiltinLifecycleProperty}
+import typechecker.semantic_registry.{semanticFoundationThreadProperty}
 
 fun semanticExpect(condition: Bool, message: String) r: Void {
     if not condition { abort(message) }
@@ -235,6 +236,56 @@ fun testMoveOnlyOwnedBindings() r: Void {
         inferredChecked.diagnostics[0].code ==
             "E_OWNERSHIP_USE_AFTER_MOVE",
         "constructor inference retains move-only identity")
+
+    let completionRegistry = SemanticDeclarationRegistry.new()
+    let completionCanonical =
+        "seen_std.src.reactor.reactor::BlockingCompletion"
+    semanticExpect(completionRegistry.registerDeclaration(
+        "seen_std.src.reactor.reactor", "BlockingCompletion", "Class",
+        completionCanonical, "seen_std/src/reactor/reactor.seen", 557, 1),
+        "register canonical blocking completion")
+    completionRegistry.registerResolvedImportModule("completion_owner",
+        "reactor.reactor", "seen_std.src.reactor.reactor")
+    let completion = semanticFunctionProgram("consumeCompletion",
+        "CompletionSnapshot", "Int")
+    completion.items.push(semanticImport("reactor.reactor",
+        "BlockingCompletion", "CompletionSnapshot"))
+    completion.items[0].function.body.statements.push(
+        semanticConsumeStatement("value"))
+    completion.items[0].function.body.statements.push(
+        semanticOwnedMemberReturn("value"))
+    let completionChecked = runLexicalSemanticPass(completion,
+        "completion_owner", "completion-owner.seen", completionRegistry)
+    semanticExpect(not completionChecked.success and
+        completionChecked.diagnostics.length() == 1 and
+        completionChecked.diagnostics[0].code ==
+            "E_OWNERSHIP_USE_AFTER_MOVE",
+        "canonical mutable completion is Send only through one-owner transfer")
+
+    let genericRegistry = SemanticDeclarationRegistry.new()
+    let genericProgram = ProgramNode.new()
+    let genericOwner = semanticClassProgram("GenericOwner", "payload", "T",
+        "")
+    let genericParameter = AnnotationNode.new("generic_parameter")
+    genericParameter.arguments.push("T")
+    genericParameter.arguments.push("")
+    genericOwner.items[0].classNode.decorators.push(genericParameter)
+    genericOwner.items[0].classNode.decorators.push(AnnotationNode.new("move"))
+    genericProgram.items.push(genericOwner.items[0])
+    let genericFunction = semanticFunctionProgram("consumeGeneric",
+        "GenericOwner<Int>", "Int")
+    genericFunction.items[0].function.body.statements.push(
+        semanticConsumeStatement("value"))
+    genericFunction.items[0].function.body.statements.push(
+        semanticOwnedMemberReturn("value"))
+    genericProgram.items.push(genericFunction.items[0])
+    let genericChecked = runLexicalSemanticPass(genericProgram,
+        "generic_owner", "generic-owner.seen", genericRegistry)
+    semanticExpect(not genericChecked.success and
+        genericChecked.diagnostics.length() == 1 and
+        genericChecked.diagnostics[0].code ==
+            "E_OWNERSHIP_USE_AFTER_MOVE",
+        "generic canonical identity retains its declaration move marker")
 }
 
 fun testCrossModulePass() r: Void {
@@ -988,6 +1039,30 @@ fun testLifecyclePropertyFoundation() r: Void {
         "owning String is non-Copy with explicit equality and cleanup metadata")
     semanticExpect(semanticBuiltinLifecycleProperty("ptr", "Send") == 0,
         "raw pointers do not gain thread-safety properties")
+    semanticExpect(semanticBuiltinLifecycleProperty("StringBuilder",
+        "Share") == 0,
+        "mutable StringBuilder storage is not Share")
+    semanticExpect(semanticFoundationThreadProperty(
+            "seen_std.src.sync.arc::Arc<Int>", "Share") == 1 and
+        semanticFoundationThreadProperty(
+            "seen_std.src.sync.mutex::Mutex<Int>", "Share") == 1 and
+        semanticFoundationThreadProperty(
+            "seen_std.src.sync.mutex::RwLock<Int>", "Send") == 1,
+        "canonical synchronization owners prove their thread properties")
+    semanticExpect(semanticFoundationThreadProperty("Arc<Int>",
+            "Share") == -1 and
+        semanticFoundationThreadProperty("application.sync::Arc<Int>",
+            "Share") == -1,
+        "unqualified and application-owned names cannot spoof Arc")
+    semanticExpect(semanticFoundationThreadProperty(
+            "seen_std.src.reactor.reactor::BlockingCompletion", "Send") == 1
+        and semanticFoundationThreadProperty(
+            "seen_std.src.reactor.reactor::BlockingCompletion", "Share") == 0
+        and semanticFoundationThreadProperty(
+            "seen_std.src.io.direct::GatherCompletion", "Send") == 1 and
+        semanticFoundationThreadProperty(
+            "seen_std.src.io.direct::GatherCompletion", "Share") == 0,
+        "canonical completion records are Send but not Share")
 
     let registry = SemanticDeclarationRegistry.new()
     let program = ProgramNode.new()
@@ -996,7 +1071,7 @@ fun testLifecyclePropertyFoundation() r: Void {
     leaf.items[0].classNode.decorators.push(
         AnnotationNode.new("trivially_copyable"))
     leaf.items[0].classNode.decorators.push(AnnotationNode.new("send"))
-    leaf.items[0].classNode.decorators.push(AnnotationNode.new("sync"))
+    leaf.items[0].classNode.decorators.push(AnnotationNode.new("share"))
     let equality = AnnotationNode.new("derive")
     equality.arguments.push("Eq")
     leaf.items[0].classNode.decorators.push(equality)
@@ -1023,7 +1098,7 @@ fun testLifecyclePropertyFoundation() r: Void {
     semanticExpect(registry.hasLifecycleProperty("lifecycle::Leaf", "Copy") and
         registry.hasLifecycleProperty("lifecycle::Leaf", "Equatable") and
         registry.hasLifecycleProperty("lifecycle::Leaf", "Send") and
-        registry.hasLifecycleProperty("lifecycle::Leaf", "Sync"),
+        registry.hasLifecycleProperty("lifecycle::Leaf", "Share"),
         "existing declaration markers produce queryable proved properties")
     semanticExpect(not registry.hasLifecycleProperty("lifecycle::Leaf", "Drop"),
         "scalar-only Copy declaration does not require Drop")
@@ -1046,6 +1121,47 @@ fun testLifecyclePropertyFoundation() r: Void {
         enumRegistry.hasLifecycleProperty("lifecycle::State", "Equatable") and
         not enumRegistry.hasLifecycleProperty("lifecycle::State", "Drop"),
         "unit enum properties are explicit and cleanup-free")
+}
+
+fun testCanonicalFoundationResolution() r: Void {
+    let trustedRegistry = SemanticDeclarationRegistry.new()
+    let canonicalArc = "seen_std.src.sync.arc::Arc"
+    semanticExpect(trustedRegistry.registerDeclaration(
+        "seen_std.src.sync.arc", "Arc", "Class", canonicalArc,
+        "seen_std/src/sync/arc.seen", 14, 1),
+        "register canonical standard-library Arc")
+    trustedRegistry.registerGenericParameter(canonicalArc, "T",
+        "bound:Share")
+    trustedRegistry.registerResolvedImportModule("foundation_user",
+        "sync.arc", "seen_std.src.sync.arc")
+
+    let trusted = semanticClassProgram("TrustedHolder", "owner",
+        "SharedArc<Int>", "")
+    trusted.items[0].classNode.decorators.push(AnnotationNode.new("share"))
+    trusted.items.push(semanticImport("sync.arc", "Arc", "SharedArc"))
+    let trustedChecked = runLexicalSemanticPass(trusted, "foundation_user",
+        "foundation-user.seen", trustedRegistry)
+    semanticExpect(trustedChecked.success and
+        trustedRegistry.hasLifecycleProperty(
+            "foundation_user::TrustedHolder", "Share"),
+        "resolved canonical foundation identity is trusted after import lookup")
+
+    let spoofRegistry = SemanticDeclarationRegistry.new()
+    let spoof = ProgramNode.new()
+    let applicationArc = semanticClassProgram("Arc", "values",
+        "Array<Int>", "")
+    spoof.items.push(applicationArc.items[0])
+    let spoofHolder = semanticClassProgram("SpoofHolder", "owner", "Arc", "")
+    spoofHolder.items[0].classNode.decorators.push(AnnotationNode.new("share"))
+    spoof.items.push(spoofHolder.items[0])
+    let spoofChecked = runLexicalSemanticPass(spoof, "application",
+        "application.seen", spoofRegistry)
+    semanticExpect(not spoofChecked.success and
+        spoofChecked.diagnostics.length() == 1 and
+        spoofChecked.diagnostics[0].code == "E_PROPERTY_FIELD" and
+        not spoofRegistry.hasLifecycleProperty(
+            "application::SpoofHolder", "Share"),
+        "application class named Arc cannot acquire foundation trust")
 }
 
 fun testLifecyclePropertyFailures() r: Void {
@@ -1078,15 +1194,16 @@ fun testLifecyclePropertyFailures() r: Void {
             "Copy"),
         "owning Array fields remain Drop and cannot be forced Copy")
 
-    let syncArrayRegistry = SemanticDeclarationRegistry.new()
-    let syncArray = semanticClassProgram("SyncArray", "values",
+    let shareArrayRegistry = SemanticDeclarationRegistry.new()
+    let shareArray = semanticClassProgram("ShareArray", "values",
         "Array<Int>", "")
-    syncArray.items[0].classNode.decorators.push(AnnotationNode.new("sync"))
-    let syncArrayChecked = runLexicalSemanticPass(syncArray,
-        "sync_array_property", "sync-array-property.seen", syncArrayRegistry)
-    semanticExpect(not syncArrayChecked.success and
-        syncArrayChecked.diagnostics[0].code == "E_PROPERTY_FIELD",
-        "mutable Array handles cannot smuggle Sync through element properties")
+    shareArray.items[0].classNode.decorators.push(AnnotationNode.new("share"))
+    let shareArrayChecked = runLexicalSemanticPass(shareArray,
+        "share_array_property", "share-array-property.seen",
+        shareArrayRegistry)
+    semanticExpect(not shareArrayChecked.success and
+        shareArrayChecked.diagnostics[0].code == "E_PROPERTY_FIELD",
+        "mutable Array handles cannot smuggle Share through element properties")
 
     let sendArrayRegistry = SemanticDeclarationRegistry.new()
     let sendArray = semanticClassProgram("SendArray", "values",
@@ -1179,6 +1296,226 @@ fun testLifecyclePropertyCyclesAndIndirection() r: Void {
         "explicit pointer indirection breaks direct Copy recursion")
 }
 
+fun semanticParallelForReading(name: String) r: StatementNode {
+    let statement = StatementNode.new()
+    statement.kind = "ParallelFor"
+    statement.variableName = "index"
+    statement.line = 4
+    statement.column = 5
+    statement.expression.kind = "Range"
+    let start = ParserExpressionNode.new()
+    start.kind = "Literal"
+    start.literalType = "Int"
+    start.literalValue = "0"
+    let end = ParserExpressionNode.new()
+    end.kind = "Literal"
+    end.literalType = "Int"
+    end.literalValue = "4"
+    statement.expression.operands.push(start)
+    statement.expression.operands.push(end)
+    let read = StatementNode.new()
+    read.kind = "Expression"
+    read.expression = semanticVariable(name)
+    statement.loopBody.statements.push(read)
+    return statement
+}
+
+fun semanticParallelForMemberReading(ownerName: String, fieldName: String)
+    r: StatementNode {
+
+    let statement = semanticParallelForReading(fieldName)
+    let read = statement.loopBody.statements[0].expression
+    read.kind = "MemberAccess"
+    read.literalValue = ownerName
+    read.variableName = fieldName
+    return statement
+}
+
+fun semanticGlobalItem(name: String, typeName: String, mutable: Bool)
+    r: ItemNode {
+
+    let item = ItemNode.new()
+    item.itemType = "GlobalVar"
+    item.name = name
+    var prefix = "L"
+    if mutable { prefix = "V" }
+    item.visibility = prefix + typeName + ":"
+    item.line = 1
+    item.column = 1
+    return item
+}
+
+fun testRetainedSendShareGenericBounds() r: Void {
+    let registry = SemanticDeclarationRegistry.new()
+    let program = ProgramNode.new()
+    let shared = semanticClassProgram("SharedValue", "value", "Int", "")
+    shared.items[0].classNode.decorators.push(AnnotationNode.new("share"))
+    program.items.push(shared.items[0])
+
+    let holder = semanticClassProgram("Holder", "value", "T", "")
+    let parameter = AnnotationNode.new("generic_parameter")
+    parameter.arguments.push("T")
+    parameter.arguments.push("bound:Share")
+    holder.items[0].classNode.decorators.push(parameter)
+    holder.items[0].classNode.decorators.push(AnnotationNode.new("share"))
+    program.items.push(holder.items[0])
+    let accepted = semanticFunctionProgram("accept",
+        "Holder<SharedValue>", "Int")
+    program.items.push(accepted.items[0])
+
+    let checked = runLexicalSemanticPass(program, "bounds",
+        "bounds.seen", registry)
+    semanticExpect(checked.success and
+        registry.genericParameterModifier("bounds::Holder", "T") ==
+            "bound:Share" and
+        registry.hasLifecycleProperty("bounds::Holder", "Share"),
+        "retained Share bound proves the generic field and valid argument")
+
+    let rejectedRegistry = SemanticDeclarationRegistry.new()
+    let rejected = ProgramNode.new()
+    rejected.items.push(shared.items[0])
+    rejected.items.push(holder.items[0])
+    let bad = semanticFunctionProgram("reject", "Holder<Array<Int>>", "Int")
+    rejected.items.push(bad.items[0])
+    let badChecked = runLexicalSemanticPass(rejected, "bad_bounds",
+        "bad-bounds.seen", rejectedRegistry)
+    semanticExpect(not badChecked.success and
+        badChecked.diagnostics[0].code == "E_TYPE_BOUND",
+        "a concrete argument that lacks Share fails the retained bound")
+}
+
+fun testTypedImmutableParallelCaptures() r: Void {
+    let immutableRegistry = SemanticDeclarationRegistry.new()
+    let immutable = semanticFunctionProgram("immutable", "Int", "Int")
+    immutable.items[0].function.params[0].name = "offset"
+    immutable.items[0].function.body.statements.push(
+        semanticParallelForReading("offset"))
+    semanticExpect(runLexicalSemanticPass(immutable, "capture_ok",
+        "capture-ok.seen", immutableRegistry).success,
+        "immutable Share capture is accepted")
+
+    let mutableRegistry = SemanticDeclarationRegistry.new()
+    let mutableProgram = semanticFunctionProgram("mutable", "Int", "Int")
+    mutableProgram.items[0].function.params[0].name = "offset"
+    mutableProgram.items[0].function.params[0].isMutable = true
+    mutableProgram.items[0].function.body.statements.push(
+        semanticParallelForReading("offset"))
+    let mutableChecked = runLexicalSemanticPass(mutableProgram,
+        "capture_mutable", "capture-mutable.seen", mutableRegistry)
+    semanticExpect(not mutableChecked.success and
+        mutableChecked.diagnostics[0].code == "E_CAPTURE_MUTABLE",
+        "mutable parallel capture is rejected before lowering")
+
+    let arrayRegistry = SemanticDeclarationRegistry.new()
+    let arrayProgram = semanticFunctionProgram("arrayCapture", "Array<Int>",
+        "Int")
+    arrayProgram.items[0].function.params[0].name = "values"
+    arrayProgram.items[0].function.body.statements.push(
+        semanticParallelForReading("values"))
+    let arrayChecked = runLexicalSemanticPass(arrayProgram,
+        "capture_array", "capture-array.seen", arrayRegistry)
+    semanticExpect(not arrayChecked.success and
+        arrayChecked.diagnostics[0].code == "E_CAPTURE_SHARE",
+        "non-Share parallel capture is rejected before lowering")
+
+    let legacyRegistry = SemanticDeclarationRegistry.new()
+    let legacy = semanticClassProgram("Legacy", "value", "Int", "")
+    legacy.items[0].classNode.decorators.push(AnnotationNode.new("sync"))
+    let legacyChecked = runLexicalSemanticPass(legacy, "legacy_sync",
+        "legacy-sync.seen", legacyRegistry)
+    semanticExpect(not legacyChecked.success and
+        legacyChecked.diagnostics[0].code == "E_PROPERTY_LEGACY",
+        "legacy @sync is rejected rather than treated as a Share alias")
+}
+
+fun testAmbientParallelCaptures() r: Void {
+    let immutableRegistry = SemanticDeclarationRegistry.new()
+    let immutable = ProgramNode.new()
+    immutable.items.push(semanticGlobalItem("sharedOffset", "Int", false))
+    let immutableFunction = semanticFunctionProgram("readShared", "Int",
+        "Int")
+    immutableFunction.items[0].function.body.statements.push(
+        semanticParallelForReading("sharedOffset"))
+    immutable.items.push(immutableFunction.items[0])
+    semanticExpect(runLexicalSemanticPass(immutable, "immutable_global",
+        "immutable-global.seen", immutableRegistry).success,
+        "immutable Share global is accepted in parallel_for")
+
+    let mutableRegistry = SemanticDeclarationRegistry.new()
+    let mutableProgram = ProgramNode.new()
+    mutableProgram.items.push(semanticGlobalItem("sharedOffset", "Int", true))
+    let mutableFunction = semanticFunctionProgram("readMutable", "Int",
+        "Int")
+    mutableFunction.items[0].function.body.statements.push(
+        semanticParallelForReading("sharedOffset"))
+    mutableProgram.items.push(mutableFunction.items[0])
+    let mutableChecked = runLexicalSemanticPass(mutableProgram,
+        "mutable_global", "mutable-global.seen", mutableRegistry)
+    semanticExpect(not mutableChecked.success and
+        mutableChecked.diagnostics.length() == 1 and
+        mutableChecked.diagnostics[0].code == "E_CAPTURE_MUTABLE" and
+        mutableChecked.diagnostics[0].message.contains("mutable global"),
+        "mutable global capture is rejected with an exact diagnostic")
+
+    let shadowRegistry = SemanticDeclarationRegistry.new()
+    let shadowProgram = ProgramNode.new()
+    shadowProgram.items.push(semanticGlobalItem("sharedOffset", "Int", true))
+    let shadowFunction = semanticFunctionProgram("readSnapshot", "Int",
+        "Int")
+    shadowFunction.items[0].function.params[0].name = "sharedOffset"
+    shadowFunction.items[0].function.body.statements.push(
+        semanticParallelForReading("sharedOffset"))
+    shadowProgram.items.push(shadowFunction.items[0])
+    semanticExpect(runLexicalSemanticPass(shadowProgram, "shadow_global",
+        "shadow-global.seen", shadowRegistry).success,
+        "immutable local snapshot shadows a mutable global capture")
+
+    let arrayRegistry = SemanticDeclarationRegistry.new()
+    let arrayProgram = ProgramNode.new()
+    arrayProgram.items.push(semanticGlobalItem("sharedValues", "Array<Int>",
+        false))
+    let arrayFunction = semanticFunctionProgram("readArray", "Int", "Int")
+    arrayFunction.items[0].function.body.statements.push(
+        semanticParallelForReading("sharedValues"))
+    arrayProgram.items.push(arrayFunction.items[0])
+    let arrayChecked = runLexicalSemanticPass(arrayProgram, "array_global",
+        "array-global.seen", arrayRegistry)
+    semanticExpect(not arrayChecked.success and
+        arrayChecked.diagnostics.length() == 1 and
+        arrayChecked.diagnostics[0].code == "E_CAPTURE_SHARE",
+        "immutable global still requires a Share type")
+
+    let bareRegistry = SemanticDeclarationRegistry.new()
+    let bareProgram = semanticClassProgram("SharedOwner", "offset", "Int", "")
+    bareProgram.items[0].classNode.decorators.push(AnnotationNode.new("share"))
+    let bareMethod = FunctionNode.new()
+    bareMethod.name = "runBare"
+    bareMethod.returnType = semanticType("Int")
+    bareMethod.body.statements.push(semanticParallelForReading("offset"))
+    bareProgram.items[0].classNode.methods.push(bareMethod)
+    let bareChecked = runLexicalSemanticPass(bareProgram, "bare_field",
+        "bare-field.seen", bareRegistry)
+    semanticExpect(not bareChecked.success and
+        bareChecked.diagnostics.length() == 1 and
+        bareChecked.diagnostics[0].code == "E_CAPTURE_FIELD",
+        "bare instance field capture is rejected before lowering")
+
+    let explicitRegistry = SemanticDeclarationRegistry.new()
+    let explicitProgram = semanticClassProgram("SharedOwner", "offset", "Int",
+        "")
+    explicitProgram.items[0].classNode.decorators.push(
+        AnnotationNode.new("share"))
+    let explicitMethod = FunctionNode.new()
+    explicitMethod.name = "runExplicit"
+    explicitMethod.returnType = semanticType("Int")
+    explicitMethod.body.statements.push(
+        semanticParallelForMemberReading("this", "offset"))
+    explicitProgram.items[0].classNode.methods.push(explicitMethod)
+    semanticExpect(runLexicalSemanticPass(explicitProgram, "explicit_field",
+        "explicit-field.seen", explicitRegistry).success,
+        "explicit this.field capture is checked through the Share owner")
+}
+
 fun main() r: Int {
     testRegistryAndScopes()
     testMoveOnlyOwnedBindings()
@@ -1203,9 +1540,13 @@ fun main() r: Int {
     testInheritedImplicitFieldBindings()
     testStaticMethodInstanceBindingsRejected()
     testLifecyclePropertyFoundation()
+    testCanonicalFoundationResolution()
     testLifecyclePropertyFailures()
     testCrossModuleLifecycleProperties()
     testLifecyclePropertyCyclesAndIndirection()
+    testRetainedSendShareGenericBounds()
+    testTypedImmutableParallelCaptures()
+    testAmbientParallelCaptures()
     return 0
 }
 

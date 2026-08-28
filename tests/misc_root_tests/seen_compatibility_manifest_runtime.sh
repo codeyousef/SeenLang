@@ -81,8 +81,11 @@ cmp -s "$TEST_ROOT/production.json" "$PRODUCTION" ||
     fail "production manifest is not canonical generator output"
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); assert value["components"]["llvm"]["minimum_major"] == 19' \
     "$PRODUCTION" || fail "production LLVM minimum is not 19"
+python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); d=value["determinism"]; assert d["program_reproducibility_schema"] == "seen-program-reproducibility-v1"; assert d["certification"]["artifact_comparison"] == "raw-bytes"; assert d["certification"]["builder_count"] == 2; assert d["certification"]["signed_evidence_required"] is True' \
+    "$PRODUCTION" || fail "production deterministic certification contract is incomplete"
 
-for symbol in CompatibilityReleaseInputs generateCompatibilityManifest \
+for symbol in CompatibilityReleaseInputs CompatibilityDeterminism \
+    compatibilityExpectedDeterminism generateCompatibilityManifest \
     renderCompatibilityManifest parseCompatibilityManifest \
     consumeCompatibilityManifest writeCompatibilityManifest \
     readAndConsumeCompatibilityManifest; do

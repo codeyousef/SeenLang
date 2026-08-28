@@ -1,0 +1,10 @@
+import share_annotation_imported_invalid_dep.{Worker}
+
+@share
+class Task {
+    let worker: Worker
+}
+
+fun main() r: Int {
+    return 0
+}
