@@ -1043,7 +1043,7 @@ class DeterminismEffectGraph {
                 this.addDeclaration(classIdentity, moduleName, cls.name,
                     cls.name, "Type", classIdentity, classIdentity, file,
                     item.line, item.column,
-                    determinismClassBoundaryIsValid(cls), false)
+                    determinismClassBoundaryIsValid(cls), false, "")
                 var methodIndex = 0
                 while methodIndex < cls.methods.length() {
                     let method = cls.methods[methodIndex]
@@ -1055,14 +1055,14 @@ class DeterminismEffectGraph {
                         method.column,
                         determinismClassBoundaryIsValid(cls) or
                             determinismFunctionBoundaryIsValid(method),
-                        method.isDeterministic)
+                        method.isDeterministic, "")
                     methodIndex = methodIndex + 1
                 }
             } else if item.itemType == "GlobalVar" {
                 let globalType = determinismGlobalEncodedType(item.visibility)
                 this.addDeclaration(determinismCanonicalDeclaration(moduleName,
                     item.name), moduleName, item.name, item.name, "Global", "",
-                    globalType, file, item.line, item.column, false, false)
+                    globalType, file, item.line, item.column, false, false, "")
             }
             itemIndex = itemIndex + 1
         }
