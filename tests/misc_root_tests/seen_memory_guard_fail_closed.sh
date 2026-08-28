@@ -482,6 +482,8 @@ esac
     fail "process token is not exported before trusted setsid"
 grep -Fq 'SEEN_MEMORY_GUARD_TEST_READY_DELAY_SECS' "$GUARD" ||
     fail "post-setsid ready-delay regression hook is missing"
+grep -Fq '[ "$empty_observations" -ge 3 ]' "$GUARD" ||
+    fail "detached token cleanup does not require stable empty observations"
 grep -Fq 'export SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR=0' "$GUARD" ||
     fail "guarded commands inherit supervisor TMPDIR cleanup ownership"
 grep -Fq 'SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR=0' "$SAFE_REBUILD" ||
@@ -1022,6 +1024,18 @@ printf '%s\n' '#!/usr/bin/env bash' \
 chmod +x "$TEST_ROOT/detached-worker" "$TEST_ROOT/detached-launcher"
 detached_pid_file="$TEST_ROOT/detached-child.pid"
 detached_metrics="$TEST_ROOT/detached.metrics"
+detached_forced_empty="$TEST_ROOT/seen_memory_guard_test_stop_token_empty_once.detached"
+ungated_detached_hook="$TEST_ROOT/seen_memory_guard_test_stop_token_empty_once.ungated"
+SEEN_MEMORY_GUARD_TEST_STOP_TOKEN_EMPTY_ONCE_FILE="$ungated_detached_hook" \
+"${OBSERVER_GUARD_ENV[@]}" "$GUARD" -- true \
+    >"$TEST_ROOT/detached-hook-ungated.out" \
+    2>"$TEST_ROOT/detached-hook-ungated.err"
+status=$?
+[ "$status" -eq 126 ] || fail "ungated detached-cleanup hook returned $status"
+[ ! -e "$ungated_detached_hook" ] ||
+    fail "ungated detached-cleanup hook mutated test state"
+SEEN_MEMORY_GUARD_TEST_HOOKS=1 \
+SEEN_MEMORY_GUARD_TEST_STOP_TOKEN_EMPTY_ONCE_FILE="$detached_forced_empty" \
 "${OBSERVER_GUARD_ENV[@]}" "$GUARD" \
         --rss-limit-kb 1048576 --kill-only \
         --metrics-file "$detached_metrics" -- \
@@ -1030,6 +1044,8 @@ detached_metrics="$TEST_ROOT/detached.metrics"
         >"$TEST_ROOT/detached.out" 2>"$TEST_ROOT/detached.err"
 status=$?
 [ "$status" -eq 125 ] || fail "detached process-group cleanup returned $status"
+[ -s "$detached_forced_empty" ] ||
+    fail "detached cleanup did not exercise the forced empty-snapshot race"
 grep -Fq 'state=detached_descendants' "$detached_metrics" ||
     fail "detached cleanup metrics missing"
 if [ -s "$detached_pid_file" ]; then

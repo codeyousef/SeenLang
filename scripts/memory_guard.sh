@@ -28,6 +28,7 @@ SUCCESS_METRICS_FILE="${SEEN_MEMORY_GUARD_SUCCESS_METRICS_FILE:-}"
 REMOVE_EMPTY_TMPDIR="${SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR:-0}"
 TEST_CGROUP_DIR="${SEEN_MEMORY_GUARD_TEST_CGROUP_DIR:-}"
 TEST_TREE_RSS_KB="${SEEN_MEMORY_GUARD_TEST_TREE_RSS_KB:-}"
+TEST_STOP_TOKEN_EMPTY_ONCE_FILE="${SEEN_MEMORY_GUARD_TEST_STOP_TOKEN_EMPTY_ONCE_FILE:-}"
 VERIFIED_CGROUP_DIR=""
 VERIFIED_MEMORY_MAX_BYTES=""
 VERIFIED_MEMORY_SWAP_MAX_BYTES=""
@@ -446,13 +447,36 @@ owner_scope_remaining_processes() {
 stop_token_processes() {
     local token=$1
     local attempt=0
+    local empty_observations=0
     local snapshot=""
     local pid=""
     local pgid=""
 
-    while [ "$attempt" -lt 20 ]; do
-        snapshot=$(token_process_snapshot "$token")
-        [ -n "$snapshot" ] || return 0
+    # A setsid helper may fork its final child between one cgroup.procs read and
+    # the next. One empty snapshot therefore cannot prove that the inherited
+    # token is drained. Require three stable empty observations, resetting the
+    # proof after every process found, so a fork/exec transition cannot escape
+    # cleanup merely because it crossed a snapshot boundary.
+    while [ "$attempt" -lt 100 ]; do
+        if [ -n "$TEST_STOP_TOKEN_EMPTY_ONCE_FILE" ] &&
+            [ ! -e "$TEST_STOP_TOKEN_EMPTY_ONCE_FILE" ]; then
+
+            printf 'forced-empty\n' > "$TEST_STOP_TOKEN_EMPTY_ONCE_FILE" ||
+                return 1
+            snapshot=""
+        else
+            snapshot=$(token_process_snapshot "$token")
+        fi
+        if [ -z "$snapshot" ]; then
+            empty_observations=$((empty_observations + 1))
+            if [ "$empty_observations" -ge 3 ]; then
+                return 0
+            fi
+            sleep 0.01
+            attempt=$((attempt + 1))
+            continue
+        fi
+        empty_observations=0
         while read -r pid pgid; do
             is_positive_integer "$pid" || continue
             if is_positive_integer "$pgid" && [ "$pgid" -gt 1 ]; then
@@ -802,10 +826,11 @@ if [ "$REMOVE_EMPTY_TMPDIR" != "0" ] && [ "$REMOVE_EMPTY_TMPDIR" != "1" ]; then
     echo "memory_guard: SEEN_MEMORY_GUARD_REMOVE_EMPTY_TMPDIR must be 0 or 1" >&2
     exit 2
 fi
-if { [ -n "$TEST_CGROUP_DIR" ] || [ -n "$TEST_TREE_RSS_KB" ]; } &&
+if { [ -n "$TEST_CGROUP_DIR" ] || [ -n "$TEST_TREE_RSS_KB" ] ||
+     [ -n "$TEST_STOP_TOKEN_EMPTY_ONCE_FILE" ]; } &&
     [ "${SEEN_MEMORY_GUARD_TEST_HOOKS:-0}" != "1" ]; then
 
-    echo "memory_guard[$LABEL]: refusing ungated cgroup accounting test hook" >&2
+    echo "memory_guard[$LABEL]: refusing ungated memory-guard test hook" >&2
     exit 126
 fi
 if [ -n "$TEST_TREE_RSS_KB" ] &&
@@ -1038,6 +1063,22 @@ guard_tmpdir_physical=$(cd -P -- "$guard_tmpdir" 2>/dev/null && pwd -P || true)
 if [ "$guard_tmpdir_physical" != "$guard_tmpdir" ]; then
     echo "memory_guard[$LABEL]: refusing to run; TMPDIR traverses a symbolic link or is not canonical" >&2
     exit 126
+fi
+if [ -n "$TEST_STOP_TOKEN_EMPTY_ONCE_FILE" ]; then
+    case "$TEST_STOP_TOKEN_EMPTY_ONCE_FILE" in
+        "$guard_tmpdir"/seen_memory_guard_test_stop_token_empty_once.*) ;;
+        *)
+            echo "memory_guard[$LABEL]: refusing unsafe test-only token-drain hook" >&2
+            exit 126
+            ;;
+    esac
+    if [ -e "$TEST_STOP_TOKEN_EMPTY_ONCE_FILE" ] ||
+        [ -L "$TEST_STOP_TOKEN_EMPTY_ONCE_FILE" ] ||
+        [ "$(dirname -- "$TEST_STOP_TOKEN_EMPTY_ONCE_FILE")" != "$guard_tmpdir" ]; then
+
+        echo "memory_guard[$LABEL]: refusing existing or escaped test-only token-drain hook" >&2
+        exit 126
+    fi
 fi
 
 prepare_metrics_parent() {

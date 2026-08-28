@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made the compiler resolve its version-coupled sibling `seen-pkg` before any
   stale checkout build-tools helper, and preserved the underlying per-test log
   when post-install Gate-0 certification fails.
+- Closed a detached-process cleanup race in the hard memory guard by requiring
+  repeated empty token scans across `setsid` fork/exec transitions before the
+  supervisor may report the guarded tree drained.
 
 ### Changed
 
