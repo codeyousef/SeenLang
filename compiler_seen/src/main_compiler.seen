@@ -1655,6 +1655,25 @@ fun packageClientHelperPath() r: String {
         return overridePath
     }
 
+    // The package client is a version-coupled compiler component. Prefer the
+    // sibling of the executable that is actually running before considering
+    // any checkout build-tools path, which may contain an older developer
+    // helper. This also matches installed layouts such as <prefix>/bin/seen.
+    let executable = currentCompilerExecutablePathForCache()
+    if executable != "" {
+        let executableDirectory = getSourceDir(executable)
+        if executableDirectory != "" {
+            let siblingHelper = executableDirectory + "/seen-pkg"
+            if exists(siblingHelper) {
+                return siblingHelper
+            }
+            let siblingHelperExe = siblingHelper + ".exe"
+            if exists(siblingHelperExe) {
+                return siblingHelperExe
+            }
+        }
+    }
+
     // Source-checkout fallback for developer builds. Release packages always
     // leave this empty so the runtime resolves the version-coupled sibling of
     // the running Seen executable without consulting PATH.
@@ -1668,14 +1687,6 @@ fun packageClientHelperPath() r: String {
         if exists(installedHelperExe) {
             return installedHelperExe
         }
-        let targetHelper = compilerRoot + "/tools/seen-pkg/bin/seen-pkg"
-        if exists(targetHelper) {
-            return targetHelper
-        }
-        let targetHelperExe = targetHelper + ".exe"
-        if exists(targetHelperExe) {
-            return targetHelperExe
-        }
         let checkoutHelper = compilerRoot + "/compiler_seen/target/seen-pkg"
         if exists(checkoutHelper) {
             return checkoutHelper
@@ -1683,6 +1694,14 @@ fun packageClientHelperPath() r: String {
         let checkoutHelperExe = checkoutHelper + ".exe"
         if exists(checkoutHelperExe) {
             return checkoutHelperExe
+        }
+        let targetHelper = compilerRoot + "/tools/seen-pkg/bin/seen-pkg"
+        if exists(targetHelper) {
+            return targetHelper
+        }
+        let targetHelperExe = targetHelper + ".exe"
+        if exists(targetHelperExe) {
+            return targetHelperExe
         }
     }
     return ""

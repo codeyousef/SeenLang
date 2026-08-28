@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made Windows and Unix release payloads recursively source-only for the
   runtime, including the reactor adapter, while excluding generated objects,
   signatures, and archives.
+- Made the compiler resolve its version-coupled sibling `seen-pkg` before any
+  stale checkout build-tools helper, and preserved the underlying per-test log
+  when post-install Gate-0 certification fails.
 
 ### Changed
 

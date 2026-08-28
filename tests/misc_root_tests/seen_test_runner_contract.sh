@@ -48,6 +48,24 @@ grep -Fq 'runCanonicalTests' "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
 grep -Fq 'compiler_seen/target/seen-pkg' \
     "$ROOT_DIR/compiler_seen/src/main_compiler.seen" ||
     fail "source-checkout package-client resolution"
+if ! python3 - "$ROOT_DIR/compiler_seen/src/main_compiler.seen" <<'PY'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+start = source.index("fun packageClientHelperPath()")
+end = source.index("fun packageClientRequestContent(", start)
+resolver = source[start:end]
+assert resolver.index('executableDirectory + "/seen-pkg"') < resolver.index(
+    'compilerRoot + "/tools/seen-pkg/bin/seen-pkg"'
+)
+assert resolver.index('compilerRoot + "/compiler_seen/target/seen-pkg"') < resolver.index(
+    'compilerRoot + "/tools/seen-pkg/bin/seen-pkg"'
+)
+PY
+then
+    fail "version-coupled package-client resolution order"
+fi
 grep -Fq 'seen-test-run-v1' "$ROOT_DIR/docs/testing.md" || fail "documentation"
 grep -Fq 'seen-test-run-v1' "$ROOT_DIR/CHANGELOG.md" || fail "changelog"
 grep -Fq 'seen-test-run-v1' \

@@ -79,7 +79,8 @@ TEST_LOG="$WORK/gate0-test.log"
 rm -f -- "$TEST_JSON" "$TEST_JUNIT"
 echo "Gate 0: running the canonical Seen test against the installed compiler"
 if ! prlimit --as="$((SEEN_MAIN_VMEM_KB * 1024))" -- timeout 600 \
-    "$ARTIFACT_WRAPPER" gate0-certification-test -- \
+    "$ARTIFACT_WRAPPER" gate0-certification-test --keep-on-failure -- \
+    env SEEN_COMPILER_SOURCE_ROOT="$ROOT" SEEN_PACKAGE_CLIENT="$PACKAGE_CLIENT" \
     "$ROOT/compiler_seen/target/seen" test "$ROOT" \
         --filter P0-GATE0-001 --profile ci --jobs 1 --timeout 10m \
         --report json:.seen_cache/test/P0-GATE0-001.json \
@@ -87,6 +88,10 @@ if ! prlimit --as="$((SEEN_MAIN_VMEM_KB * 1024))" -- timeout 600 \
         >"$TEST_LOG" 2>&1; then
 
     cat "$TEST_LOG" >&2
+    if [ -f "$ROOT/.seen_cache/test/run/test-0.log" ]; then
+        echo "Gate 0 canonical test process log:" >&2
+        cat "$ROOT/.seen_cache/test/run/test-0.log" >&2
+    fi
     fail unverified "canonical Seen test failed"
 fi
 grep -Fq 'test result: 1 passed; 0 failed' "$TEST_LOG" ||
