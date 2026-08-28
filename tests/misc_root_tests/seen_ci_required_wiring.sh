@@ -122,6 +122,19 @@ grep -Fq -- '--target-cpu "$RELEASE_TARGET_CPU"' \
 grep -Fq -- '--target-cpu "$RELEASE_TARGET_CPU"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_fs_contract.sh" ||
     fail "filesystem release regression does not pin the release CPU baseline"
+for post_bootstrap_contract in \
+    seen_unimported_extension_contract.sh \
+    seen_time_contract.sh \
+    seen_lines_linear_contract.sh; do
+
+    contract="$ROOT_DIR/tests/misc_root_tests/$post_bootstrap_contract"
+    [ "$(grep -Fc -- '--target-cpu "$RELEASE_TARGET_CPU"' "$contract")" -ge 2 ] ||
+        fail "$post_bootstrap_contract does not pin both executable CPU baselines"
+    [ "$(grep -Fc 'scripts/check_x86_executable_baseline.sh' "$contract")" -ge 1 ] ||
+        fail "$post_bootstrap_contract lacks executable ISA auditing"
+    [ "$(grep -Fc '"$BASELINE_CHECKER" "$RELEASE_TARGET_CPU"' "$contract")" -ge 2 ] ||
+        fail "$post_bootstrap_contract does not audit both executables before launch"
+done
 if [ "$(grep -Fc -- '--target-cpu "$RELEASE_TARGET_CPU"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_utf8_string_indexing.sh")" -lt 2 ]; then
 

@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Closed a detached-process cleanup race in the hard memory guard by requiring
   repeated empty token scans across `setsid` fork/exec transitions before the
   supervisor may report the guarded tree drained.
+- Pinned and audited every post-bootstrap contract executable to the declared
+  portable release CPU baseline before execution, preventing native-only
+  instructions from reaching hosted x86-64 runners after a successful rebuild.
 
 ### Changed
 

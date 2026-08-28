@@ -3,7 +3,16 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 SEEN_BIN=${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}
+RELEASE_TARGET_CPU=${SEEN_RELEASE_CPU_BASELINE:-x86-64}
+case "$RELEASE_TARGET_CPU" in
+    x86-64|x86-64-v3) ;;
+    *)
+        echo "FAIL: unsupported lines contract CPU baseline: $RELEASE_TARGET_CPU" >&2
+        exit 2
+        ;;
+esac
 RUNNER="$ROOT_DIR/scripts/run_with_project_artifacts.sh"
+BASELINE_CHECKER="$ROOT_DIR/scripts/check_x86_executable_baseline.sh"
 SOURCE="$ROOT_DIR/tests/fixtures/fel-1536/lines_contract.seen"
 mkdir -p "$ROOT_DIR/.seen/agent-tools/fel-1536"
 WORK_DIR=$(mktemp -d "$ROOT_DIR/.seen/agent-tools/fel-1536/run.XXXXXX")
@@ -17,10 +26,15 @@ trap cleanup EXIT
 run_seen() { "$RUNNER" fel-1536 --keep-on-failure -- "$SEEN_BIN" "$@"; }
 
 run_seen check "$SOURCE" >"$WORK_DIR/check.log" 2>&1
-run_seen compile "$SOURCE" "$WORK_DIR/fast" >"$WORK_DIR/fast.log" 2>&1
+run_seen compile "$SOURCE" "$WORK_DIR/fast" --fast --no-cache --no-fork \
+    --target-cpu "$RELEASE_TARGET_CPU" --jobs 1 --opt-jobs 1 \
+    >"$WORK_DIR/fast.log" 2>&1
 run_seen compile "$SOURCE" "$WORK_DIR/release" --release --lto thin --no-fork \
+    --no-cache --target-cpu "$RELEASE_TARGET_CPU" --jobs 1 --opt-jobs 1 \
     >"$WORK_DIR/release.log" 2>&1
 
+bash "$BASELINE_CHECKER" "$RELEASE_TARGET_CPU" "$WORK_DIR/fast"
+bash "$BASELINE_CHECKER" "$RELEASE_TARGET_CPU" "$WORK_DIR/release"
 "$WORK_DIR/fast"
 
 counts=(61897 123794 247587)
