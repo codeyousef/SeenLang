@@ -86,6 +86,10 @@ done
     echo '}'
 } >"$PROJECT/tests/main.seen"
 
+"$COMPILER" pkg fetch "$PROJECT" >/dev/null ||
+    fail "canonical project lock generation failed"
+[ -f "$PROJECT/Seen.lock" ] || fail "package fetch did not publish Seen.lock"
+
 (
     cd "$PROJECT"
     SEEN_MEMORY_LIMIT_BYTES=7516192768 \
