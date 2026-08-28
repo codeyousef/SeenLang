@@ -11,13 +11,13 @@ fun main() r: Int {
         buildRootDigest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         rawArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         normalizedArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        artifactBytes: 1048576, toolchain: "seen-0.17.0 llvm-22"})
+        artifactBytes: 1048576, toolchain: "seen-0.18.0 llvm-22"})
     builders.push(BootstrapBuilderEvidence{id: "builder-b",
         builderSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         buildRootDigest: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         rawArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         normalizedArtifactSha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        artifactBytes: 1048576, toolchain: "seen-0.17.0 llvm-22"})
+        artifactBytes: 1048576, toolchain: "seen-0.18.0 llvm-22"})
     let evidence = BootstrapReproducibilityEvidence{
         schema: "seen-bootstrap-reproducibility-v1", target: "linux-x86_64",
         sourceCommit: "1111111111111111111111111111111111111111",

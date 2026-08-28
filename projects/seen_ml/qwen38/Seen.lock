@@ -3,5 +3,5 @@ manifest_sha256 = "08e4bfd3aa75d12d7072c22bb4e7b5a53832263c3513b50606c86c6d1ba4c
 
 [root]
 name = "seen_qwen_foundation"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = []

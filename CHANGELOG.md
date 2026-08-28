@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-29
+
 ### Added
 
 - Added the `seen-sync-v1` synchronization contract: compiler-proven `Send`
@@ -28,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the pre-1.0 raw mutex, atomic, pipe-channel, barrier/TLS, atomic queue,
   and atomic stack compatibility surfaces; synchronization policy now lives in
   native Seen with no silent fallback.
+
+### Fixed
+
+- Fixed FEL-1547 by closing recursive project imports deterministically from a
+  root source file, typing the complete declaration graph before lowering, and
+  rejecting invalid or unresolved project-module IR before publication.
+- Fixed FEL-1548 by streaming moderate multi-module compilation rather than
+  retaining the whole-project AST, with a required 24-module release/ThinLTO
+  regression capped at 7 GiB and a stable bounded failure path.
+- Made two-builder reproducibility certification consume independently signed,
+  pre-pinned builder inventories; the finalizer no longer creates signing keys
+  or signs either builder's evidence.
 
 ## [0.17.0] - 2026-08-27
 

@@ -3,5 +3,5 @@ manifest_sha256 = "d865e86c9b3f0854fc51b3b6a45d5c9c563fde7743097868cdddfee02d2a9
 
 [root]
 name = "seenlang"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = []
