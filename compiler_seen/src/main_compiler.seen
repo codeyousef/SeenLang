@@ -6768,8 +6768,8 @@ fun extractQuotedTomlStrings(line: String) r: Array<String> {
 
 fun extractTomlProjectModules(content: String) r: Array<String> {
     ///
-    Historical manifests put `modules` under `[project]`; newer package-style
-    test manifests may put the build graph next to `[build].entry`. Treat both
+    Historical manifests put modules under the project section; newer package-style
+    test manifests may put the build graph next to the build entry. Treat both
     sections as module-list owners and preserve first-seen order.
     ///
     let modules = Array<String>()
@@ -6885,7 +6885,7 @@ fun discoverImportsFromModule(paths: Array<String>, processedPaths: Array<String
 /// worklist length observed after every append. Array handles are intentionally
 /// passed through this single frame: older shipped compilers could retain the
 /// caller's pre-call Array length while the shared backing store already held
-/// newly pushed paths. A loop that re-read `paths.length()` in the caller then
+/// newly pushed paths. A loop that re-read the path count in the caller then
 /// stopped after the direct imports and never visited their imports.
 ///
 fun discoverModuleClosureStep(paths: Array<String>,
@@ -7609,7 +7609,7 @@ fun checkResolvedLexicalSemanticModule(frontend: FrontendResult,
 
 ///
 Run the full-body half of the lexical semantic gate over a complete module
-graph. No LLVM generator or codegen state is created here, so `seen check` can
+graph. No LLVM generator or codegen state is created here, so the check command can
 share the exact compile validation path without entering lowering.
 ///
 fun validateLexicalSemanticModulePaths(modulePaths: Array<String>,
@@ -7720,7 +7720,7 @@ fun validateIsolatedLexicalSemanticGraph(modulePaths: Array<String>,
 }
 
 ///
-/// CORE-004D gate shared by `check`, `compile`, and deterministic `run`.
+/// CORE-004D gate shared by check, compile, and deterministic run.
 /// Declaration and import identities come from the same package-aware registry
 /// used by lexical semantics. Module ASTs are streamed into bounded effect
 /// metadata, then released before propagation and diagnostics.
@@ -16347,7 +16347,7 @@ fun checkCommandWithProfile(inputFile: String, profile: String, language: String
     }
 
     ///
-    `seen check` uses the same two-phase lexical semantic gate as compile, but
+    The check command uses the same two-phase lexical semantic gate as compile, but
     stops before creating an LLVM generator. Collect every imported module
     first so forward and cross-package references resolve against one registry.
     ///

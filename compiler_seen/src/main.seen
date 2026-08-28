@@ -11,7 +11,7 @@ automatically part of the packaged compiler surface.
 
 CORE-004C deterministic CLI semantics are owned exclusively by
 main_compiler.seen. This wrapper's legacy profile parser is quarantined and
-must not be used to implement, document, or certify `--deterministic`.
+must not be used to implement, document, or certify the deterministic flag.
 
 It parses CLI arguments and routes to one of several compilation paths:
   - "build"  → legacy source-build wrapper

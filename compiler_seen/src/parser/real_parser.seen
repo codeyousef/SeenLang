@@ -1544,8 +1544,8 @@ class RealParser {
 
     ///
     Return true only when the generic argument list at the current cursor is
-    part of an extension receiver (`Type<T>.method`). A declaration generic
-    list (`name<T>(...)`) must remain for parseGenericParametersInto so its
+    part of an extension receiver such as Type<T>.method. A declaration generic
+    list such as name<T>(...) must remain for parseGenericParametersInto so its
     parameter metadata is preserved.
     ///
     fun receiverTypeArgumentsFollowedByDot() r: Bool {
@@ -2413,8 +2413,8 @@ class RealParser {
     ///
     Parse a complete function declaration and push it as an ItemNode directly
     into currentProgram.  Handles generic type parameters, decorators,
-    parameter lists (including the `r: Type` return-type syntax), fat-arrow
-    bodies (`=> expr`), and data-type method syntax (`fun Type.method()`).
+    parameter lists (including the r: Type return-type syntax), fat-arrow
+    bodies, and data-type method syntax.
 
     Uses lastFunction class field instead of a local FunctionNode variable
     to work around a stage1 bootstrap codegen bug where returning or

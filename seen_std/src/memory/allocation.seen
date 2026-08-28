@@ -2,7 +2,7 @@
 Allocation failure contract for Seen 0.17.0.
 
 The runtime owns the raw budget counters. Stdlib APIs expose those counters in
-Seen terms so allocation-heavy code can choose `Result` paths instead of
+Seen terms so allocation-heavy code can choose Result paths instead of
 depending on process OOM behavior.
 ///
 
