@@ -53,8 +53,6 @@ for builder in builder-a builder-b; do
             --compiler "$builder_compiler" --builder "$builder" || fail "$builder"
 done
 
-python3 "$PRODUCER" finalize --repo "$ROOT" --session "$SESSION" || \
-    fail finalize
 mapfile -t trust_a < <(python3 "$PRODUCER" print-trust \
     --session "$SESSION" --builder builder-a)
 mapfile -t trust_b < <(python3 "$PRODUCER" print-trust \
@@ -62,6 +60,11 @@ mapfile -t trust_b < <(python3 "$PRODUCER" print-trust \
 test "${#trust_a[@]}" -eq 3 && test "${#trust_b[@]}" -eq 3 || \
     fail trust-pin-readback
 test "${trust_a[0]}" != "${trust_b[0]}" || fail distinct-builder-keys
+test ! -e "$SESSION/builder-a.private.pem" && \
+    test ! -e "$SESSION/builder-b.private.pem" || fail private-keys-survived-workers
+
+python3 "$PRODUCER" finalize --repo "$ROOT" --session "$SESSION" || \
+    fail finalize
 
 artifact_args=()
 for result_id in \

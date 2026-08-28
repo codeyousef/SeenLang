@@ -225,6 +225,25 @@ def prepare(args: argparse.Namespace) -> None:
     make_installed_archive(repo, compiler, archive)
     for suffix in ("a", "b"):
         shutil.copy2(archive, session / f"builder-{suffix}/seen-runtime.tar.gz")
+    pins = {}
+    for builder_id in ("builder-a", "builder-b"):
+        private_key = session / f"{builder_id}.private.pem"
+        public_key = session / f"{builder_id}.public.pem"
+        openssl(["genpkey", "-algorithm", "ED25519", "-out", str(private_key)])
+        private_key.chmod(0o600)
+        openssl(["pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)])
+        public_key.chmod(0o644)
+        pins[builder_id] = {
+            "identity": ed25519_public_identity(public_key),
+            "issuer": "seenlang-local-release-gate",
+            "public_key": public_key.name,
+        }
+    if pins["builder-a"]["identity"] == pins["builder-b"]["identity"]:
+        die("independent builders received the same signing identity")
+    write_json(session / "trust-pins.json", {
+        **pins,
+        "schema": "seen-program-trust-pins-v1",
+    })
     print(f"prepared={session}")
 
 
@@ -470,6 +489,8 @@ def worker(args: argparse.Namespace) -> None:
         "toolchain": toolchain,
     }
     write_json(session / f"{args.builder}.partial.json", partial)
+    signed = sign_builder(session, partial)
+    write_json(session / f"{args.builder}.attested.json", signed)
     print(f"PASS: {args.builder} produced {len(PROGRAMS) * len(CACHE_MODES)} measured builds")
 
 
@@ -524,22 +545,58 @@ def sign_builder(session: Path, partial: dict[str, object]) -> dict[str, object]
     private_key = session / f"{builder['id']}.private.pem"
     public_key = session / f"{builder['id']}.public.pem"
     signature_path = session / f"{builder['id']}.sig"
-    openssl(["genpkey", "-algorithm", "ED25519", "-out", str(private_key)])
-    private_key.chmod(0o600)
-    openssl(["pkey", "-in", str(private_key), "-pubout", "-out", str(public_key)])
-    public_key.chmod(0o644)
-    signature = sign_inventory(
-        private_key, inventory_payload,
-        session / f"{builder['id']}.inventory.json", signature_path,
-    )
+    trust = json.loads((session / "trust-pins.json").read_text())
+    pin = trust.get(str(builder["id"]), {})
+    if not private_key.is_file() or not public_key.is_file():
+        die(f"pre-provisioned builder identity is unavailable: {builder['id']}")
+    identity = ed25519_public_identity(public_key)
+    if pin.get("identity") != identity or pin.get("public_key") != public_key.name:
+        die(f"pre-provisioned builder trust pin changed: {builder['id']}")
+    try:
+        signature = sign_inventory(
+            private_key, inventory_payload,
+            session / f"{builder['id']}.inventory.json", signature_path,
+        )
+    finally:
+        private_key.unlink(missing_ok=True)
     builder["attestation"] = {
-        "identity": ed25519_public_identity(public_key),
+        "identity": identity,
         "inventory_sha256": inventory,
-        "issuer": "seenlang-local-release-gate",
+        "issuer": pin.get("issuer", ""),
         "mode": "key",
         "signature_sha256": sha_bytes(signature),
     }
     return builder
+
+
+def verify_builder_attestation(session: Path, partial: dict[str, object],
+                               builder: dict[str, object]) -> None:
+    expected = {key: value for key, value in partial.items() if key != "programs"}
+    expected["programs"] = [{
+        "build_input_digest": program["build_input_digest"],
+        "id": program["id"],
+        "runs": program["runs"],
+    } for program in partial["programs"]]
+    unsigned = dict(builder)
+    attestation = unsigned.pop("attestation", None)
+    if unsigned != expected or not isinstance(attestation, dict):
+        die("builder attestation does not cover its measured partial")
+    builder_id = str(builder.get("id", ""))
+    trust = json.loads((session / "trust-pins.json").read_text())
+    pin = trust.get(builder_id, {})
+    public_key = session / str(pin.get("public_key", ""))
+    signature = session / f"{builder_id}.sig"
+    inventory = session / f"{builder_id}.inventory.json"
+    payload = builder_inventory(builder)
+    if inventory.read_bytes() != payload:
+        die(f"builder inventory changed after signing: {builder_id}")
+    if attestation.get("identity") != pin.get("identity") or \
+            attestation.get("issuer") != pin.get("issuer") or \
+            attestation.get("inventory_sha256") != sha_bytes(payload) or \
+            attestation.get("signature_sha256") != sha_file(signature):
+        die(f"builder attestation is not pinned: {builder_id}")
+    openssl(["pkeyutl", "-verify", "-pubin", "-inkey", str(public_key),
+             "-rawin", "-in", str(inventory), "-sigfile", str(signature)])
 
 
 def finalize(args: argparse.Namespace) -> None:
@@ -547,6 +604,12 @@ def finalize(args: argparse.Namespace) -> None:
     session = require_under(Path(args.session), repo / ".seen")
     partials = [json.loads((session / f"builder-{suffix}.partial.json").read_text())
                 for suffix in ("a", "b")]
+    builders = [json.loads((session / f"builder-{suffix}.attested.json").read_text())
+                for suffix in ("a", "b")]
+    if list(session.glob("*.private.pem")):
+        die("finalizer refuses access to builder private keys")
+    for partial, builder in zip(partials, builders):
+        verify_builder_attestation(session, partial, builder)
     first, second = partials
     if first["compiler_sha256"] != second["compiler_sha256"] or \
             first["installed_archive_sha256"] != second["installed_archive_sha256"] or \
@@ -577,20 +640,6 @@ def finalize(args: argparse.Namespace) -> None:
             "mode": mode,
             "source_digest": a["source_digest"],
         })
-    builders = [sign_builder(session, partial) for partial in partials]
-    write_json(session / "trust-pins.json", {
-        "builder-a": {
-            "identity": builders[0]["attestation"]["identity"],
-            "issuer": builders[0]["attestation"]["issuer"],
-            "public_key": "builder-a.public.pem",
-        },
-        "builder-b": {
-            "identity": builders[1]["attestation"]["identity"],
-            "issuer": builders[1]["attestation"]["issuer"],
-            "public_key": "builder-b.public.pem",
-        },
-        "schema": "seen-program-trust-pins-v1",
-    })
     source_commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
                                    check=True, text=True, stdout=subprocess.PIPE).stdout.strip()
     evidence = {

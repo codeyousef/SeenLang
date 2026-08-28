@@ -304,6 +304,16 @@ class ProgramReproducibilityTests(unittest.TestCase):
             value, args, _ = self.prepare_certification(directory)
             partial = copy.deepcopy(value["builders"][0])
             partial.pop("attestation")
+            root = Path(directory)
+            identity = producer.ed25519_public_identity(root / "builder-a.public.pem")
+            (root / "trust-pins.json").write_bytes(producer.canonical({
+                "builder-a": {
+                    "identity": identity,
+                    "issuer": "seenlang-local-release-gate",
+                    "public_key": "builder-a.public.pem",
+                },
+                "schema": "seen-program-trust-pins-v1",
+            }))
             signed = producer.sign_builder(Path(directory), partial)
             value["builders"][0] = signed
             args.signature_a = Path(directory) / "builder-a.sig"
