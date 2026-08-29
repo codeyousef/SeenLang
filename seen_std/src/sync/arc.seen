@@ -34,6 +34,8 @@ class Arc<T: Share> {
     var active: Bool
     var finalizing: Bool
 
+    fun borrowedValue() r: T { return this.state.valueCopy() }
+
     static fun create(value: T) r: Result<Arc<T>, SyncError> {
         let count = AtomicInt.create(1 as Int64)
         if count.isErr() {
@@ -166,7 +168,7 @@ class ArcBorrow<T: Share> {
                 "arc_borrow.get", "shared borrow is closed", false,
                 0 as UInt64))
         }
-        return Ok<T, SyncError>(this.owner.state.valueCopy())
+        return Ok<T, SyncError>(this.owner.borrowedValue())
     }
 
     fun close() r: Result<Bool, SyncError> {

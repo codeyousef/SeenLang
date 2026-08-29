@@ -37,7 +37,8 @@ for state_method in loadStrong compareStrong closeStrong valueCopy; do
     rg -Fq "fun $state_method" "$SYNC_ROOT/arc.seen" ||
         fail "ArcState is missing typed $state_method access"
 done
-if rg -n 'this\.state\.(strong|value)' "$SYNC_ROOT/arc.seen"; then
+if rg -n 'this\.state\.(strong|value)([^A-Za-z0-9_]|$)|this\.owner\.state' \
+    "$SYNC_ROOT/arc.seen"; then
     fail "Arc bypasses typed ArcState access and risks invalid nested receivers"
 fi
 if rg -n 'this\.owner\.(handle|value|rank|poisoned)' "$SYNC_ROOT/mutex.seen"; then
