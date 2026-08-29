@@ -193,8 +193,8 @@ grep -Fq -- '--release --lto thin --no-fork' \
 grep -Fq 'compile "$INVALID"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_unimported_extension_contract.sh" ||
     fail "unimported extension regression omits compile/check parity"
-grep -Fq 'seen_core_004d_determinism_graph.sh' "$REQUIRED" ||
-    fail "required CI omits CORE-004D resolved determinism graph coverage"
+grep -Fq 'seen_core_004d_determinism_graph.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits CORE-004D resolved determinism graph coverage"
 grep -Fq 'CORE-004D_mode_parity' \
     "$ROOT_DIR/tests/misc_root_tests/seen_core_004d_determinism_graph.sh" ||
     fail "CORE-004D regression omits check/compile/run parity"
@@ -300,44 +300,33 @@ for required_command in \
     'tests/misc_root_tests/seen_native_inventory_gate.sh' \
     'tests/misc_root_tests/seen_sync_contract.sh' \
     'tests/misc_root_tests/seen_sync_native_abi.sh' \
-    'tests/misc_root_tests/seen_fs_contract.sh' \
-    'tests/misc_root_tests/seen_tokenizers_a.sh' \
     'tests/misc_root_tests/seen_cpu_benchmark_clock_contract.sh' \
     'tests/misc_root_tests/seen_ci_workflow_contract.sh' \
     'tests/misc_root_tests/seen_ci_containment_contract.sh' \
     'tests/misc_root_tests/seen_gate0_certification_contract.sh' \
     'scripts/certify_gate0_clean_checkout.sh' \
-    'tests/misc_root_tests/seen_unimported_extension_contract.sh' \
-    'tests/misc_root_tests/seen_core_004d_determinism_graph.sh' \
     'tests/misc_root_tests/seen_program_artifacts_contract.sh' \
     'tests/misc_root_tests/seen_program_reproducibility_contract.sh' \
-    'tests/misc_root_tests/seen_time_contract.sh' \
-    'tests/misc_root_tests/seen_lines_linear_contract.sh' \
     'git diff --check'; do
 
     grep -Fq "$required_command" "$REQUIRED" ||
         fail "required gate omitted $required_command"
 done
 
-gate0_line=$(grep -nF 'scripts/certify_gate0_clean_checkout.sh' "$REQUIRED" |
-    cut -d: -f1)
-extension_line=$(grep -nF 'tests/misc_root_tests/seen_unimported_extension_contract.sh' "$REQUIRED" |
-    cut -d: -f1)
-time_line=$(grep -nF 'tests/misc_root_tests/seen_time_contract.sh' "$REQUIRED" |
-    cut -d: -f1)
-lines_line=$(grep -nF 'tests/misc_root_tests/seen_lines_linear_contract.sh' "$REQUIRED" |
-    cut -d: -f1)
-fs_line=$(grep -nF 'tests/misc_root_tests/seen_fs_contract.sh' "$REQUIRED" |
-    cut -d: -f1)
-tokenizers_line=$(grep -nF 'tests/misc_root_tests/seen_tokenizers_a.sh' "$REQUIRED" |
-    cut -d: -f1)
-case "$gate0_line:$extension_line:$time_line:$lines_line:$fs_line:$tokenizers_line" in
-    *[!0-9:]*|:*|*::*) fail "build-dependent gate ordering is ambiguous" ;;
-esac
-[ "$extension_line" -gt "$gate0_line" ] && [ "$time_line" -gt "$gate0_line" ] &&
-    [ "$lines_line" -gt "$gate0_line" ] && [ "$fs_line" -gt "$gate0_line" ] &&
-    [ "$tokenizers_line" -gt "$gate0_line" ] ||
-    fail "compiler, time, string, filesystem, and tokenizer gates must follow the clean-checkout rebuild"
+for fresh_compiler_contract in \
+    seen_unimported_extension_contract.sh \
+    seen_core_004d_determinism_graph.sh \
+    seen_time_contract.sh \
+    seen_lines_linear_contract.sh \
+    seen_fs_contract.sh \
+    seen_tokenizers_a.sh; do
+
+    grep -Fq "$fresh_compiler_contract" "$STAGE1" ||
+        fail "fresh-compiler acceptance omits $fresh_compiler_contract"
+    if grep -Fq "$fresh_compiler_contract" "$REQUIRED"; then
+        fail "$fresh_compiler_contract escapes the attested Stage-1 artifact scope"
+    fi
+done
 grep -Fq 'PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT_DIR/compiler_seen/target/seen-pkg}"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_tokenizers_a.sh" ||
     fail "tokenizer gate does not consume the verified rebuild package client"

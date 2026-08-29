@@ -869,6 +869,12 @@ SEEN_SELFHOSTED_ABI_COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_selfhosted_abi_smoke.sh"
 
 if [ "$TIER" = "verify" ]; then
+    "$REPO_ROOT/tests/misc_root_tests/seen_unimported_extension_contract.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_core_004d_determinism_graph.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_time_contract.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_lines_linear_contract.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_fs_contract.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_tokenizers_a.sh"
     "$REPO_ROOT/tests/misc_root_tests/seen_atomic_text_io.sh"
     "$REPO_ROOT/tests/misc_root_tests/seen_package_client_bridge.sh"
     "$REPO_ROOT/tests/misc_root_tests/seen_linux_installer_handshake.sh"
