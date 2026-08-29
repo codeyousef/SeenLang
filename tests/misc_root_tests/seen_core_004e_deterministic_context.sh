@@ -18,7 +18,8 @@ fail() {
 }
 
 test -x "$COMPILER" || fail "compiler is unavailable"
-test -x "$CAPPED_ENTRY" || fail "capped regression entry is unavailable"
+test -f "$CAPPED_ENTRY" && test ! -L "$CAPPED_ENTRY" ||
+    fail "capped regression entry is unavailable or unsafe"
 test -f "$POLICY" || fail "native policy module is missing"
 test -f "$CONTEXT" || fail "native context module is missing"
 test -f "$FIXTURES/context_contract.seen" || fail "native fixture is missing"
@@ -91,7 +92,7 @@ windows = implementation.split("#ifdef _WIN32", 1)[1].split("#else", 1)[0]
 if "return -2;" not in windows:
     raise SystemExit("Windows path containment must remain explicitly unsupported")
 PY
-rg -Fq 'Windows returns an explicit unsupported status' \
+rg -Fq 'Windows path policy fail closed' \
     "$ROOT_DIR/docs/architecture/native-boundaries.json" || \
     fail windows-path-containment-ledger
 
