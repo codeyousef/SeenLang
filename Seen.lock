@@ -1,5 +1,5 @@
 version = 2
-manifest_sha256 = "d865e86c9b3f0854fc51b3b6a45d5c9c563fde7743097868cdddfee02d2a9889"
+manifest_sha256 = "f032ad7465d19bd907eadb1d864bc86d053a2124cccc63a80bf630a356536720"
 
 [root]
 name = "seenlang"
