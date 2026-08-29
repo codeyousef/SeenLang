@@ -278,6 +278,10 @@ grep -Fq -- '--deterministic-environment' "$RUNNER" ||
     fail "runner omitted bounded deterministic-environment mode"
 grep -Fq 'exec env -i' "$RUNNER" ||
     fail "runner does not isolate deterministic compiler inputs"
+grep -Fq 'XDG_CACHE_HOME="$DETERMINISTIC_CACHE"' "$RUNNER" ||
+    fail "runner omits its validated project-local package cache"
+grep -Fq 'ARTIFACT_ROOT/deterministic-cache' "$RUNNER" ||
+    fail "runner package cache is not contained by the artifact root"
 grep -Fq -- '--deterministic-environment "$COMPILER"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_core_004d_determinism_graph.sh" ||
     fail "CORE-004D bypasses deterministic compiler isolation"

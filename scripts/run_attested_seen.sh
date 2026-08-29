@@ -181,6 +181,19 @@ if [ "$DETERMINISTIC_ENVIRONMENT" = "1" ]; then
         [ -n "${SEEN_DETERMINISTIC_SEED:-}" ] &&
         [ -n "${SEEN_HASH_SEED:-}" ] ||
         fail "deterministic environment inputs are incomplete"
+    ARTIFACT_ROOT=${SEEN_ARTIFACT_ROOT:-}
+    [ -n "$ARTIFACT_ROOT" ] && [ -d "$ARTIFACT_ROOT" ] &&
+        [ ! -L "$ARTIFACT_ROOT" ] ||
+        fail "deterministic environment requires a validated artifact root"
+    case "$ARTIFACT_ROOT" in
+        /*) ;;
+        *) fail "deterministic artifact root must be absolute" ;;
+    esac
+    DETERMINISTIC_CACHE="$ARTIFACT_ROOT/deterministic-cache"
+    mkdir -p -- "$DETERMINISTIC_CACHE" ||
+        fail "could not create the deterministic package cache"
+    [ -d "$DETERMINISTIC_CACHE" ] && [ ! -L "$DETERMINISTIC_CACHE" ] ||
+        fail "deterministic package cache is unavailable or unsafe"
     OPTIONAL_ENV=()
     for variable in SEEN_COMPILER_SOURCE_ROOT SEEN_PACKAGE_CLIENT \
         SEEN_DATA_PATH TMPDIR SEEN_ARTIFACT_ROOT SEEN_PROJECT_ROOT \
@@ -202,6 +215,7 @@ if [ "$DETERMINISTIC_ENVIRONMENT" = "1" ]; then
         SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
         SEEN_DETERMINISTIC_SEED="$SEEN_DETERMINISTIC_SEED" \
         SEEN_HASH_SEED="$SEEN_HASH_SEED" \
+        XDG_CACHE_HOME="$DETERMINISTIC_CACHE" \
         LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC PATH="$EXEC_PATH" \
         "${OPTIONAL_ENV[@]}" "$COMPILER" "${ARGS[@]}"
 fi
