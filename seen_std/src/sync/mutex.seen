@@ -33,6 +33,29 @@ class Mutex<T: Share> {
     var poisoned: Bool
     var active: Bool
 
+    fun guardedValue() r: T { return this.value }
+
+    fun guardedSet(value: T) r: Bool {
+        this.value = value
+        return true
+    }
+
+    fun guardedPoison() r: Bool {
+        this.poisoned = true
+        return true
+    }
+
+    fun guardRank() r: Int { return this.rank }
+
+    fun releaseGuard() r: Result<Bool, SyncError> {
+        let status = seen_sync_mutex_unlock(this.handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status,
+                "mutex_guard.release", 0 as UInt64))
+        }
+        return Ok<Bool, SyncError>(true)
+    }
+
     static fun create(value: T, rank: Int)
         r: Result<Mutex<T>, SyncError> {
         if rank <= 0 or rank > SYNC_MAX_LOCK_RANK {
@@ -139,7 +162,7 @@ class MutexGuard<T: Share> {
                 "mutex_guard.get", "mutex guard is released", false,
                 0 as UInt64))
         }
-        return Ok<T, SyncError>(this.owner.value)
+        return Ok<T, SyncError>(this.owner.guardedValue())
     }
 
     fun set(value: T) r: Result<Bool, SyncError> {
@@ -148,7 +171,7 @@ class MutexGuard<T: Share> {
                 "mutex_guard.set", "mutex guard is released", false,
                 0 as UInt64))
         }
-        this.owner.value = value
+        let _ = this.owner.guardedSet(value)
         return Ok<Bool, SyncError>(true)
     }
 
@@ -158,22 +181,20 @@ class MutexGuard<T: Share> {
                 "mutex_guard.poison", "mutex guard is released", false,
                 0 as UInt64))
         }
-        this.owner.poisoned = true
+        let _ = this.owner.guardedPoison()
         return Ok<Bool, SyncError>(true)
     }
 
     fun release() r: Result<Bool, SyncError> {
         if not this.active { return Ok<Bool, SyncError>(false) }
-        let releasable = this.tracker.canLeave(this.owner.rank)
+        let rank = this.owner.guardRank()
+        let releasable = this.tracker.canLeave(rank)
         if releasable.isErr() {
             return Err<Bool, SyncError>(releasable.unwrapErr())
         }
-        let status = seen_sync_mutex_unlock(this.owner.handle)
-        if status != SYNC_NATIVE_OK {
-            return Err<Bool, SyncError>(syncNativeFailure(status,
-                "mutex_guard.release", 0 as UInt64))
-        }
-        let left = this.tracker.leave(this.owner.rank)
+        let unlocked = this.owner.releaseGuard()
+        if unlocked.isErr() { return unlocked }
+        let left = this.tracker.leave(rank)
         if left.isErr() { return Err<Bool, SyncError>(left.unwrapErr()) }
         this.active = false
         return Ok<Bool, SyncError>(true)
@@ -187,6 +208,29 @@ class RwLock<T: Share> {
     var rank: Int
     var poisoned: Bool
     var active: Bool
+
+    fun guardedValue() r: T { return this.value }
+
+    fun guardedSet(value: T) r: Bool {
+        this.value = value
+        return true
+    }
+
+    fun guardedPoison() r: Bool {
+        this.poisoned = true
+        return true
+    }
+
+    fun guardRank() r: Int { return this.rank }
+
+    fun releaseGuard(operation: String) r: Result<Bool, SyncError> {
+        let status = seen_sync_rwlock_unlock(this.handle)
+        if status != SYNC_NATIVE_OK {
+            return Err<Bool, SyncError>(syncNativeFailure(status, operation,
+                0 as UInt64))
+        }
+        return Ok<Bool, SyncError>(true)
+    }
 
     static fun create(value: T, rank: Int)
         r: Result<RwLock<T>, SyncError> {
@@ -328,21 +372,19 @@ class RwLockReadGuard<T: Share> {
                 "rwlock_read.get", "read guard is released", false,
                 0 as UInt64))
         }
-        return Ok<T, SyncError>(this.owner.value)
+        return Ok<T, SyncError>(this.owner.guardedValue())
     }
 
     fun release() r: Result<Bool, SyncError> {
         if not this.active { return Ok<Bool, SyncError>(false) }
-        let releasable = this.tracker.canLeave(this.owner.rank)
+        let rank = this.owner.guardRank()
+        let releasable = this.tracker.canLeave(rank)
         if releasable.isErr() {
             return Err<Bool, SyncError>(releasable.unwrapErr())
         }
-        let status = seen_sync_rwlock_unlock(this.owner.handle)
-        if status != SYNC_NATIVE_OK {
-            return Err<Bool, SyncError>(syncNativeFailure(status,
-                "rwlock_read.release", 0 as UInt64))
-        }
-        let left = this.tracker.leave(this.owner.rank)
+        let unlocked = this.owner.releaseGuard("rwlock_read.release")
+        if unlocked.isErr() { return unlocked }
+        let left = this.tracker.leave(rank)
         if left.isErr() { return Err<Bool, SyncError>(left.unwrapErr()) }
         this.active = false
         return Ok<Bool, SyncError>(true)
@@ -361,7 +403,7 @@ class RwLockWriteGuard<T: Share> {
                 "rwlock_write.get", "write guard is released", false,
                 0 as UInt64))
         }
-        return Ok<T, SyncError>(this.owner.value)
+        return Ok<T, SyncError>(this.owner.guardedValue())
     }
 
     fun set(value: T) r: Result<Bool, SyncError> {
@@ -370,7 +412,7 @@ class RwLockWriteGuard<T: Share> {
                 "rwlock_write.set", "write guard is released", false,
                 0 as UInt64))
         }
-        this.owner.value = value
+        let _ = this.owner.guardedSet(value)
         return Ok<Bool, SyncError>(true)
     }
 
@@ -380,22 +422,20 @@ class RwLockWriteGuard<T: Share> {
                 "rwlock_write.poison", "write guard is released", false,
                 0 as UInt64))
         }
-        this.owner.poisoned = true
+        let _ = this.owner.guardedPoison()
         return Ok<Bool, SyncError>(true)
     }
 
     fun release() r: Result<Bool, SyncError> {
         if not this.active { return Ok<Bool, SyncError>(false) }
-        let releasable = this.tracker.canLeave(this.owner.rank)
+        let rank = this.owner.guardRank()
+        let releasable = this.tracker.canLeave(rank)
         if releasable.isErr() {
             return Err<Bool, SyncError>(releasable.unwrapErr())
         }
-        let status = seen_sync_rwlock_unlock(this.owner.handle)
-        if status != SYNC_NATIVE_OK {
-            return Err<Bool, SyncError>(syncNativeFailure(status,
-                "rwlock_write.release", 0 as UInt64))
-        }
-        let left = this.tracker.leave(this.owner.rank)
+        let unlocked = this.owner.releaseGuard("rwlock_write.release")
+        if unlocked.isErr() { return unlocked }
+        let left = this.tracker.leave(rank)
         if left.isErr() { return Err<Bool, SyncError>(left.unwrapErr()) }
         this.active = false
         return Ok<Bool, SyncError>(true)

@@ -40,6 +40,9 @@ done
 if rg -n 'this\.state\.(strong|value)' "$SYNC_ROOT/arc.seen"; then
     fail "Arc bypasses typed ArcState access and risks invalid nested receivers"
 fi
+if rg -n 'this\.owner\.(handle|value|rank|poisoned)' "$SYNC_ROOT/mutex.seen"; then
+    fail "lock guard bypasses typed owner access and risks invalid nested receivers"
+fi
 
 for issue in a b c d e f g h; do
     test_file="$TEST_ROOT/sync-001${issue}.seen"
