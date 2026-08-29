@@ -21,7 +21,14 @@ WORK_DIR=$(mktemp -d "$ARTIFACT_ROOT/core-004d.XXXXXX")
 cleanup() {
     local status=$?
     if [ "$status" -eq 0 ]; then
-        rm -rf -- "$WORK_DIR"
+        if ! chmod -R u+rwX -- "$WORK_DIR"; then
+            echo "FAIL: could not make CORE-004D generated artifacts removable: $WORK_DIR" >&2
+            return 1
+        fi
+        if ! rm -rf -- "$WORK_DIR"; then
+            echo "FAIL: could not remove CORE-004D generated artifacts: $WORK_DIR" >&2
+            return 1
+        fi
     else
         echo "Preserved failed CORE-004D artifacts: $WORK_DIR" >&2
     fi
