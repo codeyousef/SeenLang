@@ -16,7 +16,7 @@ set -euo pipefail
 
 case "${1:-}" in
     --version)
-        echo "Seen 0.18.0"
+        echo "Seen 0.18.1"
         ;;
     pkg)
         [[ -f "$(dirname "$0")/compatibility-manifest.json" ]] || {
@@ -78,8 +78,8 @@ FAKE_PACKAGE_CLIENT="$TMP_DIR/seen-pkg"
 cat > "$FAKE_PACKAGE_CLIENT" <<'PKG_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == "--expect-version" && "${2:-}" == "0.18.0" && "${3:-}" == "version" ]]; then
-    echo "seen-pkg 0.18.0"
+if [[ "${1:-}" == "--expect-version" && "${2:-}" == "0.18.1" && "${3:-}" == "version" ]]; then
+    echo "seen-pkg 0.18.1"
     exit 0
 fi
 echo "fake seen package client"
@@ -109,7 +109,7 @@ printf 'stale release artifact\n' > "$DIST_DIR/seen-0.9.2-linux-x64.tar.gz"
 
 PATH="$PACKAGING_TOOL_PATH:$PATH" SEEN_PACKAGE_CLIENT_BIN="$FAKE_PACKAGE_CLIENT" \
 SEEN_RELEASE_ARTIFACT_CACHE_ROOT="$ARTIFACT_CACHE_ROOT" "$ROOT_DIR/scripts/build_release.sh" \
-    --version 0.18.0 \
+    --version 0.18.1 \
     --output-dir "$DIST_DIR" \
     --compiler "$FAKE_COMPILER" \
     --cpu-baseline x86-64 \
@@ -120,7 +120,7 @@ rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 PATH="$PACKAGING_TOOL_PATH:$PATH" SEEN_PACKAGE_CLIENT_BIN="$FAKE_PACKAGE_CLIENT" \
 SEEN_RELEASE_ARTIFACT_CACHE_ROOT="$ARTIFACT_CACHE_ROOT" "$ROOT_DIR/scripts/build_release.sh" \
-    --version 0.18.0 \
+    --version 0.18.1 \
     --output-dir "$DIST_DIR" \
     --compiler "$FAKE_COMPILER" \
     --cpu-baseline x86-64 \
@@ -132,9 +132,9 @@ if [[ -e "$DIST_DIR/seen-0.9.2-linux-x64.tar.gz" ]]; then
     exit 1
 fi
 
-TARBALL="$DIST_DIR/seen-0.18.0-linux-x64.tar.gz"
+TARBALL="$DIST_DIR/seen-0.18.1-linux-x64.tar.gz"
 test -f "$TARBALL"
-RUNTIME_COMPONENT="$DIST_DIR/seen-runtime-0.18.0-linux-x64.tar.gz"
+RUNTIME_COMPONENT="$DIST_DIR/seen-runtime-0.18.1-linux-x64.tar.gz"
 test -f "$RUNTIME_COMPONENT"
 tar -tzf "$TARBALL" > "$TMP_DIR/installer-archive-contents.txt"
 tar -tzf "$RUNTIME_COMPONENT" > "$TMP_DIR/runtime-component-contents.txt"
@@ -148,13 +148,13 @@ if grep -Eq '\.(o|sig|a)$' "$TMP_DIR/runtime-component-contents.txt"; then
     exit 1
 fi
 grep -Fqx \
-    'seen-0.18.0-linux-x64/lib/seen/runtime/cuda/src/seen_cuda.cu' \
+    'seen-0.18.1-linux-x64/lib/seen/runtime/cuda/src/seen_cuda.cu' \
     "$TMP_DIR/installer-archive-contents.txt"
 grep -Fqx \
     'seen_runtime/cuda/src/seen_cuda.cu' \
     "$TMP_DIR/runtime-component-contents.txt"
 tar -xOf "$TARBALL" \
-    seen-0.18.0-linux-x64/bin/compatibility-manifest.json \
+    seen-0.18.1-linux-x64/bin/compatibility-manifest.json \
     > "$TMP_DIR/packaged-compatibility-manifest.json"
 cmp -s "$TMP_DIR/packaged-compatibility-manifest.json" \
     "$ROOT_DIR/releases/compatibility-manifest.json"
@@ -200,7 +200,7 @@ PATH="$GO_SCAN_PATH" \
 GO_V4_DIR="$TMP_DIR/go-v4"
 mkdir -p "$GO_V4_DIR"
 tar -xzf "$TARBALL" -C "$GO_V4_DIR"
-GO_V4_PACKAGE="$GO_V4_DIR/seen-0.18.0-linux-x64"
+GO_V4_PACKAGE="$GO_V4_DIR/seen-0.18.1-linux-x64"
 sed -i 's/GOAMD64=v1/GOAMD64=v4/' "$GO_V4_PACKAGE/bin/seen-pkg"
 GO_V4_TARBALL="$TMP_DIR/seen-go-v4.tar.gz"
 tar -czf "$GO_V4_TARBALL" -C "$GO_V4_DIR" "$(basename "$GO_V4_PACKAGE")"
@@ -223,7 +223,7 @@ fi
 GO_DUPLICATE_DIR="$TMP_DIR/go-duplicate"
 mkdir -p "$GO_DUPLICATE_DIR"
 tar -xzf "$TARBALL" -C "$GO_DUPLICATE_DIR"
-GO_DUPLICATE_PACKAGE="$GO_DUPLICATE_DIR/seen-0.18.0-linux-x64"
+GO_DUPLICATE_PACKAGE="$GO_DUPLICATE_DIR/seen-0.18.1-linux-x64"
 printf '# build\tGOAMD64=v4\n' >> "$GO_DUPLICATE_PACKAGE/bin/seen-pkg"
 GO_DUPLICATE_TARBALL="$TMP_DIR/seen-go-duplicate.tar.gz"
 tar -czf "$GO_DUPLICATE_TARBALL" -C "$GO_DUPLICATE_DIR" "$(basename "$GO_DUPLICATE_PACKAGE")"
@@ -279,7 +279,7 @@ fi
 MISMATCH_DIR="$TMP_DIR/version-mismatch"
 mkdir -p "$MISMATCH_DIR"
 tar -xzf "$TARBALL" -C "$MISMATCH_DIR"
-MISMATCH_PACKAGE="$MISMATCH_DIR/seen-0.18.0-linux-x64"
+MISMATCH_PACKAGE="$MISMATCH_DIR/seen-0.18.1-linux-x64"
 sed -i 's/Seen 0\.15\.0/Seen 9.9.9/' "$MISMATCH_PACKAGE/bin/seen"
 MISMATCH_TARBALL="$TMP_DIR/seen-version-mismatch.tar.gz"
 tar -czf "$MISMATCH_TARBALL" -C "$MISMATCH_DIR" "$(basename "$MISMATCH_PACKAGE")"
@@ -292,7 +292,7 @@ if [[ "$mismatch_status" -eq 0 ]]; then
     echo "release verifier accepted mismatched compiler and release versions" >&2
     exit 1
 fi
-if ! grep -Fq "Compiler version mismatch: release metadata expects 'Seen 0.18.0', got 'Seen 9.9.9'" \
+if ! grep -Fq "Compiler version mismatch: release metadata expects 'Seen 0.18.1', got 'Seen 9.9.9'" \
     <<<"$mismatch_output"; then
     echo "$mismatch_output" >&2
     echo "release verifier did not report the compiler version mismatch" >&2
@@ -312,7 +312,7 @@ PATH="$MIN_SCAN_PATH" "$ROOT_DIR/scripts/verify_release_cpu_baseline.sh" \
 EXTRACT_DIR="$TMP_DIR/extract"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
-PACKAGE_DIR="$EXTRACT_DIR/seen-0.18.0-linux-x64"
+PACKAGE_DIR="$EXTRACT_DIR/seen-0.18.1-linux-x64"
 
 PREFIX="$TMP_DIR/prefix"
 mkdir -p "$PREFIX/bin" "$PREFIX/lib/seen/runtime"
@@ -361,7 +361,7 @@ if [[ -L "$PREFIX/bin/seen-pkg" || ! -x "$PREFIX/bin/seen-pkg" ]]; then
     exit 1
 fi
 
-if ! "$PREFIX/bin/seen" --version | grep -q '0.18.0'; then
+if ! "$PREFIX/bin/seen" --version | grep -q '0.18.1'; then
     echo "installed seen binary did not come from the release package" >&2
     exit 1
 fi
@@ -383,7 +383,7 @@ done
 
 grep -qx 'cpu-baseline=x86-64' "$PACKAGE_DIR/share/doc/seen/release-cpu-baseline.txt"
 test -f "$PACKAGE_DIR/share/doc/seen/CHANGELOG.md"
-grep -Fq '## [0.18.0] - 2026-08-29' "$PACKAGE_DIR/share/doc/seen/CHANGELOG.md"
+grep -Fq '## [0.18.1] - 2026-08-29' "$PACKAGE_DIR/share/doc/seen/CHANGELOG.md"
 grep -qx 'llvm_min_version=19' "$PACKAGE_DIR/lib/seen/toolchain/manifest.env"
 grep -qx 'llvm_preferred_version=20' "$PACKAGE_DIR/lib/seen/toolchain/manifest.env"
 test -x "$PACKAGE_DIR/lib/seen/toolchain/seen-toolchain.sh"

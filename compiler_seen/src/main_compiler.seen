@@ -1550,7 +1550,7 @@ fun removePathIfExists(path: String) r: Void {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.18.0"
+    return "0.18.1"
 }
 
 fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
@@ -6988,9 +6988,27 @@ fun mainCompilerRawScanIsTripleSlashDelimiterLine(line: String) r: Bool {
     return line.trim() == "///"
 }
 
+fun mainCompilerRawScanLineStartsWithTripleSlash(line: String) r: Bool {
+    return line.trim().startsWith("///")
+}
+
+fun mainCompilerRawScanNextLineStartsWithTripleSlash(source: String,
+    lineEnd: Int) r: Bool {
+
+    var nextStart = lineEnd + 1
+    if nextStart >= source.length() { return false }
+    var nextEnd = nextStart
+    while nextEnd < source.length() and source.byteAt(nextEnd) != 10 {
+        nextEnd = nextEnd + 1
+    }
+    return mainCompilerRawScanLineStartsWithTripleSlash(
+        source.substring(nextStart, nextEnd))
+}
+
 fun stripTripleSlashBlockBodiesForRawScan(source: String) r: String {
     let parts = Array<String>()
     var insideBlock = false
+    var previousLineWasTripleSlash = false
     var lineStart = 0
     var pos = 0
     while pos <= source.length() {
@@ -7007,7 +7025,16 @@ fun stripTripleSlashBlockBodiesForRawScan(source: String) r: String {
         if isNewline == 1 or atEnd == 1 {
             let line = source.substring(lineStart, pos)
             if mainCompilerRawScanIsTripleSlashDelimiterLine(line) {
-                insideBlock = not insideBlock
+                if insideBlock {
+                    insideBlock = false
+                } else {
+                    if not previousLineWasTripleSlash and not
+                        mainCompilerRawScanNextLineStartsWithTripleSlash(
+                            source, pos) {
+
+                        insideBlock = true
+                    }
+                }
                 parts.push("\n")
             } else {
                 if insideBlock {
@@ -7017,6 +7044,8 @@ fun stripTripleSlashBlockBodiesForRawScan(source: String) r: String {
                     parts.push("\n")
                 }
             }
+            previousLineWasTripleSlash =
+                mainCompilerRawScanLineStartsWithTripleSlash(line)
             lineStart = pos + 1
         }
         pos = pos + 1
@@ -7031,6 +7060,7 @@ fun sourceContainsOutsideTripleSlashBlockBodies(source: String,
         return true
     }
     var insideBlock = false
+    var previousLineWasTripleSlash = false
     var lineStart = 0
     var pos = 0
     while pos <= source.length() {
@@ -7047,12 +7077,23 @@ fun sourceContainsOutsideTripleSlashBlockBodies(source: String,
         if isNewline == 1 or atEnd == 1 {
             let line = source.substring(lineStart, pos)
             if mainCompilerRawScanIsTripleSlashDelimiterLine(line) {
-                insideBlock = not insideBlock
+                if insideBlock {
+                    insideBlock = false
+                } else {
+                    if not previousLineWasTripleSlash and not
+                        mainCompilerRawScanNextLineStartsWithTripleSlash(
+                            source, pos) {
+
+                        insideBlock = true
+                    }
+                }
             } else {
                 if not insideBlock and line.contains(needle) {
                     return true
                 }
             }
+            previousLineWasTripleSlash =
+                mainCompilerRawScanLineStartsWithTripleSlash(line)
             lineStart = pos + 1
         }
         pos = pos + 1
@@ -16803,7 +16844,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.18.0"
+    return "0.18.1"
 }
 
 fun printVersion() r: Void {

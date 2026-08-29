@@ -35,7 +35,7 @@ cat > "$SOURCE_DIR/seen" <<'COMPILER_EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "--version" && $# -eq 1 ]]; then
     printf 'Seen %s\nLanguage: Seen\nEntrypoint: fixture\n' \
-        "${FAKE_COMPILER_VERSION:-0.18.0}"
+        "${FAKE_COMPILER_VERSION:-0.18.1}"
     exit 0
 fi
 exit 2
@@ -44,7 +44,7 @@ COMPILER_EOF
 cat > "$SOURCE_DIR/seen-pkg" <<'PACKAGE_CLIENT_EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SEEN_INSTALLER_PACKAGE_CLIENT_LOG"
-if [[ "${1:-}" != "--expect-version" || "${2:-}" != "0.18.0" ||
+if [[ "${1:-}" != "--expect-version" || "${2:-}" != "0.18.1" ||
       "${3:-}" != "version" || "${4:-}" != "--machine" || $# -ne 4 ]]; then
     exit 64
 fi
@@ -53,7 +53,7 @@ if [[ "${FAKE_PACKAGE_CLIENT_FAILURE:-0}" == "1" ]]; then
 fi
 printf 'protocol=%s\nversion=%s\n' \
     "${FAKE_PACKAGE_PROTOCOL:-SEENPKG1}" \
-    "${FAKE_PACKAGE_VERSION:-0.18.0}"
+    "${FAKE_PACKAGE_VERSION:-0.18.1}"
 PACKAGE_CLIENT_EOF
 
 cat > "$FAKE_BIN/package-tool" <<'PACKAGE_TOOL_EOF'
@@ -86,7 +86,7 @@ assert_no_packager_call() {
 }
 
 assert_handshake_invocation() {
-    if ! grep -Fxq -- '--expect-version 0.18.0 version --machine' \
+    if ! grep -Fxq -- '--expect-version 0.18.1 version --machine' \
         "$PACKAGE_CLIENT_LOG"; then
         printf 'package-client handshake did not use the required arguments\n' >&2
         cat "$PACKAGE_CLIENT_LOG" >&2
@@ -116,7 +116,7 @@ run_builder_failure() {
         SEEN_ARTIFACT_ROOT="$BUILDER_ARTIFACT_ROOT" \
         "$@" \
         bash "$ROOT_DIR/installer/linux/$builder" \
-        0.18.0 "$arch" \
+        0.18.1 "$arch" \
         --source-dir "$SOURCE_DIR" \
         --output-dir "$OUTPUT_DIR" >"$log_file" 2>&1; then
         printf '%s unexpectedly succeeded\n' "$builder" >&2
@@ -140,7 +140,7 @@ for builder_arch in \
     : > "$PACKAGER_LOG"
     : > "$PACKAGE_CLIENT_LOG"
     run_builder_failure "$builder" "$arch" \
-        'does not match package version 0.18.0' \
+        'does not match package version 0.18.1' \
         "$TEST_ROOT/case-$case_number.log" \
         FAKE_COMPILER_VERSION=9.9.9
     assert_no_packager_call
@@ -163,7 +163,7 @@ for builder_arch in \
     : > "$PACKAGER_LOG"
     : > "$PACKAGE_CLIENT_LOG"
     run_builder_failure "$builder" "$arch" \
-        'does not match Seen 0.18.0' \
+        'does not match Seen 0.18.1' \
         "$TEST_ROOT/case-$case_number.log" \
         FAKE_PACKAGE_CLIENT_FAILURE=1
     assert_no_packager_call

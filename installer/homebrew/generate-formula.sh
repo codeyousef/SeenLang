@@ -56,7 +56,7 @@ Homebrew Formula Generator for Seen Language
 Usage: $0 --version <version> [options]
 
 Required:
-  --version VERSION    Release version (e.g., 0.18.0)
+  --version VERSION    Release version (e.g., 0.18.1)
 
 Options:
   --macos-x64-url URL      macOS x64 tarball URL
@@ -72,7 +72,7 @@ Options:
 If URLs are not provided, they will be auto-generated based on GitHub releases.
 
 Examples:
-  $0 --version 0.18.0
+  $0 --version 0.18.1
   $0 --version 1.2.3 --output /path/to/homebrew-tap/Formula/seen-lang.rb
   $0 --version 2.0.0 --verbose
 

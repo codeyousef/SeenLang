@@ -1,7 +1,7 @@
 # GPU
 
 Seen's GPU support is an experimental Vulkan compute path. Shader declaration,
-artifact generation, and runtime dispatch are separate steps in 0.18.0.
+artifact generation, and runtime dispatch are separate steps in 0.18.1.
 
 ## Shader declarations
 
@@ -32,7 +32,7 @@ JSON, and—when `glslc` is available—`.comp.spv` files. Arbitrary Seen functi
 bodies are not yet guaranteed to translate faithfully to GLSL, so inspect and
 test generated artifacts.
 
-The compiler can emit a `<name>_gpu_dispatch` host wrapper, but the 0.18.0
+The compiler can emit a `<name>_gpu_dispatch` host wrapper, but the 0.18.1
 wrapper does not construct the caller's Vulkan pipeline. A production caller
 must load the emitted SPIR-V and pass a real pipeline handle through the runtime
 API.

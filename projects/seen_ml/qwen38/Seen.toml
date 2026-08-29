@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seen_qwen_foundation"
-version = "0.18.0"
+version = "0.18.1"
 language = "en"
 visibility = "private"
 edition = "2025"

@@ -145,7 +145,7 @@ class SeenLexer {
 
             // Handle comments
             if char == '/' and peekChar(1) == '/' and peekChar(2) == '/' and
-                isTripleSlashBlockDelimiterLine() {
+                isTripleSlashBlockOpeningDelimiterLine() {
 
                 if traceVerbose {
                     traceLexVerbose("triple-slash block comment pos=" +
@@ -549,6 +549,63 @@ class SeenLexer {
         }
 
         return true
+    }
+
+    fun sourceLineStartsWithTripleSlash(start: Int, end: Int) r: Bool {
+        var cursor = start
+        while cursor < end {
+            let byte = this.source.byteAt(cursor)
+            if byte != 32 and byte != 9 and byte != 13 {
+                return cursor + 2 < end and byte == 47 and
+                    this.source.byteAt(cursor + 1) == 47 and
+                    this.source.byteAt(cursor + 2) == 47
+            }
+            cursor = cursor + 1
+        }
+        return false
+    }
+
+    fun previousLineStartsWithTripleSlash() r: Bool {
+        var currentStart = this.position - this.column + 1
+        if currentStart <= 0 { return false }
+        var previousEnd = currentStart - 1
+        if previousEnd > 0 and this.source.byteAt(previousEnd - 1) == 13 {
+            previousEnd = previousEnd - 1
+        }
+        var previousStart = previousEnd
+        while previousStart > 0 and
+            this.source.byteAt(previousStart - 1) != 10 {
+
+            previousStart = previousStart - 1
+        }
+        return sourceLineStartsWithTripleSlash(previousStart, previousEnd)
+    }
+
+    fun nextLineStartsWithTripleSlash() r: Bool {
+        var nextStart = this.position + 3
+        while nextStart < this.source.length() and
+            this.source.byteAt(nextStart) != 10 {
+
+            nextStart = nextStart + 1
+        }
+        if nextStart >= this.source.length() { return false }
+        nextStart = nextStart + 1
+        var nextEnd = nextStart
+        while nextEnd < this.source.length() and
+            this.source.byteAt(nextEnd) != 10 {
+
+            nextEnd = nextEnd + 1
+        }
+        return sourceLineStartsWithTripleSlash(nextStart, nextEnd)
+    }
+
+    fun isTripleSlashBlockOpeningDelimiterLine() r: Bool {
+        if not isTripleSlashBlockDelimiterLine() { return false }
+        // Conventional documentation commonly uses a bare `///` as a visual
+        // separator among adjacent `/// text` lines. Such a line is still a
+        // line comment; only an isolated bare marker opens a block comment.
+        return not previousLineStartsWithTripleSlash() and
+            not nextLineStartsWithTripleSlash()
     }
 
     fun consumeCurrentLine() r: Void {

@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "qwen_native_dependency_probe"
-version = "0.18.0"
+version = "0.18.1"
 language = "en"
 modules = ["src/main.seen"]
 

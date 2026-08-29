@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-08-29
+
+### Fixed
+
+- Completed FEL-1547 by distinguishing conventional `///` documentation
+  sequences from isolated triple-slash block comments in both lexical and raw
+  import scanning. Production-shaped recursive module graphs now retain their
+  imports and declarations, including `CpuMiniEngine_open`, instead of linking
+  an incomplete graph.
+- Strengthened recursive-import certification with conventional documentation,
+  true hidden block-comment imports, multiline imports, a 24-module graph, and
+  release/ThinLTO symbol and execution checks under bounded memory.
+- Replaced the prior missing-symbol or invalid-IR failure with stable source
+  diagnostics when a downstream module has an independent ownership error.
+
 ## [0.18.0] - 2026-08-29
 
 ### Added

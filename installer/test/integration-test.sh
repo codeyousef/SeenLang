@@ -17,7 +17,7 @@ source "$ARTIFACT_ROOT_SCRIPT"
 seen_artifact_root_init "$PROJECT_ROOT"
 INSTALLER_ARTIFACT_ROOT=$(seen_artifact_scope_init installer-tests)
 
-TEST_VERSION="0.18.0"
+TEST_VERSION="0.18.1"
 TEST_DIR="$INSTALLER_ARTIFACT_ROOT/integration"
 CLEANUP=true
 VERBOSE=false
@@ -176,7 +176,7 @@ test_binary_execution() {
 #!/bin/bash
 case "$1" in
     --version)
-        echo "Seen 0.18.0"
+        echo "Seen 0.18.1"
         echo "Commit: abc123def456"
         echo "Built: 2024-01-01"
         ;;
@@ -218,7 +218,7 @@ EOF
     
     # Test version command
     local version_output=$(seen --version)
-    if [[ "$version_output" == *"Seen 0.18.0"* ]]; then
+    if [[ "$version_output" == *"Seen 0.18.1"* ]]; then
         return 0
     else
         return 1
@@ -381,7 +381,7 @@ test_lsp_server() {
 #!/bin/bash
 case "$1" in
     --version)
-        echo "Seen Language Server 0.18.0"
+        echo "Seen Language Server 0.18.1"
         ;;
     --stdio)
         echo "LSP server started in stdio mode"
@@ -422,7 +422,7 @@ test_riscv_tools() {
 #!/bin/bash
 case "$1" in
     --version)
-        echo "Seen RISC-V Compiler 0.18.0"
+        echo "Seen RISC-V Compiler 0.18.1"
         echo "Target: riscv64-unknown-linux-gnu"
         ;;
     compile)
