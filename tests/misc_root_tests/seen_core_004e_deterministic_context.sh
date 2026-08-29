@@ -193,6 +193,7 @@ base_environment = {
     "SEEN_HASH_SEED": "1101",
     "LC_ALL": "C.UTF-8",
     "TZ": "UTC",
+    "CORE_004E_VISIBLE": "granted-value",
 }
 path_arguments = [
     str(binary), "captured-argument", str(work / "path-root"),
@@ -217,7 +218,7 @@ def expect_invalid(label: str, arguments: list[str],
 
 over_bound_environment = dict(base_environment)
 over_bound_environment.update({f"CORE_004E_EXTRA_{index}": "x"
-                               for index in range(123)})
+                               for index in range(122)})
 if len(over_bound_environment) != 129:
     raise SystemExit("environment-bound fixture is not exact")
 expect_invalid("over-bound environment", path_arguments,
@@ -225,7 +226,7 @@ expect_invalid("over-bound environment", path_arguments,
 
 maximum_environment = dict(base_environment)
 maximum_environment.update({f"CORE_004E_EXTRA_{index}": "x"
-                            for index in range(122)})
+                            for index in range(121)})
 if len(maximum_environment) != 128:
     raise SystemExit("maximum environment fixture is not exact")
 maximum_environment_result = run(path_arguments, maximum_environment)
