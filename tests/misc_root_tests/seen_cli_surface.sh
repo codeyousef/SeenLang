@@ -315,7 +315,7 @@ expect_exit_one_contains "CORE-004C_compile_check_run_parity run" \
 expect_success_contains "CORE-004C_alias_happy compile" \
     "Architecture: target-cpu=x86-64" deterministic_seen_command compile "$CORE_004C_OK" \
     "$TMP_DIR/core-004c-compiled" --deterministic --profile deterministic \
-    --simd none --no-cache --no-fork --jobs 1 --opt-jobs 1
+    --simd none --no-cache --jobs 1 --opt-jobs 1
 expect_success "CORE-004C_alias_happy run" \
     deterministic_seen_command run "$CORE_004C_OK" --deterministic --no-cache
 
