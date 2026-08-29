@@ -288,7 +288,7 @@ grep -Fq 'core.004d.unsafe-ffi' "$WORK_DIR/ffi-bypass.log" || {
 
 bash "$ATTESTED_SEEN" "$COMPILER" compile \
     "$WORK_DIR/source/main.seen" "$WORK_DIR/context-contract" \
-    --fast --no-cache --no-fork --jobs 1 --opt-jobs 1 \
+    --fast --no-cache --no-fork \
     >"$WORK_DIR/compile.log" 2>&1 || {
     tail -n 160 "$WORK_DIR/compile.log" >&2 || true
     fail native-compile
