@@ -1,6 +1,6 @@
 ///
 /// Canonical compiler policy for cross-thread value movement and sharing.
-///
+/// The same policy is consumed by both frontend validation passes.
 /// This module is intentionally independent of LLVM lowering.  The lexical
 /// and resolved-program passes consume the same bounded classification so a
 /// type cannot be accepted by one frontend path and rejected by another.

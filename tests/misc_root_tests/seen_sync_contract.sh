@@ -5,6 +5,7 @@ ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 SYNC_ROOT="$ROOT_DIR/seen_std/src/sync"
 TEST_ROOT="$ROOT_DIR/seen_std/tests/sync"
 LEDGER="$ROOT_DIR/docs/architecture/native-boundaries.json"
+SEND_SHARE_SOURCE="$ROOT_DIR/compiler_seen/src/types/send_share.seen"
 
 fail() {
     echo "FAIL: SYNC-001A-H contract: $*" >&2
@@ -15,6 +16,15 @@ for file in contracts atomic arc lock_order mutex channel mod; do
     [ -f "$SYNC_ROOT/$file.seen" ] && [ ! -L "$SYNC_ROOT/$file.seen" ] ||
         fail "missing native Seen sync module $file"
 done
+
+[ -f "$SEND_SHARE_SOURCE" ] && [ ! -L "$SEND_SHARE_SOURCE" ] ||
+    fail "missing compiler Send/Share policy module"
+send_share_doc_delimiters=$(awk '$0 == "///" { count += 1 } END { print count + 0 }' \
+    "$SEND_SHARE_SOURCE")
+[ $((send_share_doc_delimiters % 2)) -eq 0 ] ||
+    fail "compiler Send/Share policy has an unclosed documentation block"
+rg -Fq 'fun sendShareFoundationContract' "$SEND_SHARE_SOURCE" ||
+    fail "missing compiler foundation Send/Share implementation"
 
 for symbol in Send Share SyncError SYNC_MAX_CAPACITY \
     SYNC_MAX_SHARED_OWNERS MemoryOrder AtomicInt AtomicBool 'Atomic<T: Share>' \
