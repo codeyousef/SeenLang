@@ -33,6 +33,14 @@ for symbol in Send Share SyncError SYNC_MAX_CAPACITY \
     rg -Fq "$symbol" "$SYNC_ROOT" || fail "missing public symbol $symbol"
 done
 
+for state_method in loadStrong compareStrong closeStrong valueCopy; do
+    rg -Fq "fun $state_method" "$SYNC_ROOT/arc.seen" ||
+        fail "ArcState is missing typed $state_method access"
+done
+if rg -n 'this\.state\.(strong|value)' "$SYNC_ROOT/arc.seen"; then
+    fail "Arc bypasses typed ArcState access and risks invalid nested receivers"
+fi
+
 for issue in a b c d e f g h; do
     test_file="$TEST_ROOT/sync-001${issue}.seen"
     [ -f "$test_file" ] && [ ! -L "$test_file" ] ||

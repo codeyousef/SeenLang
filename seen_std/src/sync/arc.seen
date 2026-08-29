@@ -3,11 +3,29 @@
 import core.result.{Result, Ok, Err}
 import sync.contracts.{Share, SyncError, SYNC_MAX_ATOMIC_RETRIES,
     SYNC_MAX_SHARED_OWNERS, syncFailure}
-import sync.atomic.{AtomicInt, MemoryOrder}
+import sync.atomic.{AtomicCompareExchange, AtomicInt, MemoryOrder}
 
 class ArcState<T: Share> {
     var value: T
     var strong: AtomicInt
+
+    fun loadStrong(order: MemoryOrder) r: Result<Int64, SyncError> {
+        return this.strong.load(order)
+    }
+
+    fun compareStrong(expected: Int64, desired: Int64,
+        successOrder: MemoryOrder, failureOrder: MemoryOrder)
+        r: Result<AtomicCompareExchange, SyncError> {
+
+        return this.strong.compareExchange(expected, desired, successOrder,
+            failureOrder)
+    }
+
+    fun closeStrong() r: Result<Bool, SyncError> {
+        return this.strong.close()
+    }
+
+    fun valueCopy() r: T { return this.value }
 }
 
 @move
@@ -33,7 +51,7 @@ class Arc<T: Share> {
         }
         var attempts = 0
         while attempts < SYNC_MAX_ATOMIC_RETRIES {
-            let loaded = this.state.strong.load(MemoryOrder.Acquire)
+            let loaded = this.state.loadStrong(MemoryOrder.Acquire)
             if loaded.isErr() {
                 return Err<Arc<T>, SyncError>(loaded.unwrapErr())
             }
@@ -48,7 +66,7 @@ class Arc<T: Share> {
                     "arc.clone", "shared owner limit was reached", false,
                     observed as UInt64))
             }
-            let exchanged = this.state.strong.compareExchange(observed,
+            let exchanged = this.state.compareStrong(observed,
                 observed + (1 as Int64), MemoryOrder.AcqRel,
                 MemoryOrder.Acquire)
             if exchanged.isErr() {
@@ -85,7 +103,7 @@ class Arc<T: Share> {
                 "arc.strong_count", "shared owner is closed", false,
                 0 as UInt64))
         }
-        return this.state.strong.load(MemoryOrder.Acquire)
+        return this.state.loadStrong(MemoryOrder.Acquire)
     }
 
     fun close() r: Result<Bool, SyncError> {
@@ -93,7 +111,7 @@ class Arc<T: Share> {
         if not this.finalizing {
             var attempts = 0
             while attempts < SYNC_MAX_ATOMIC_RETRIES {
-                let loaded = this.state.strong.load(MemoryOrder.Acquire)
+                let loaded = this.state.loadStrong(MemoryOrder.Acquire)
                 if loaded.isErr() {
                     return Err<Bool, SyncError>(loaded.unwrapErr())
                 }
@@ -103,7 +121,7 @@ class Arc<T: Share> {
                         "arc.close", "shared owner count underflow", false,
                         0 as UInt64))
                 }
-                let exchanged = this.state.strong.compareExchange(observed,
+                let exchanged = this.state.compareStrong(observed,
                     observed - (1 as Int64), MemoryOrder.AcqRel,
                     MemoryOrder.Acquire)
                 if exchanged.isErr() {
@@ -125,7 +143,7 @@ class Arc<T: Share> {
             }
         }
         if this.finalizing {
-            let closed = this.state.strong.close()
+            let closed = this.state.closeStrong()
             if closed.isErr() { return closed }
         }
         this.active = false
@@ -148,7 +166,7 @@ class ArcBorrow<T: Share> {
                 "arc_borrow.get", "shared borrow is closed", false,
                 0 as UInt64))
         }
-        return Ok<T, SyncError>(this.owner.state.value)
+        return Ok<T, SyncError>(this.owner.state.valueCopy())
     }
 
     fun close() r: Result<Bool, SyncError> {
