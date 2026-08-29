@@ -11,13 +11,18 @@ fail() {
     exit 126
 }
 
+DETERMINISTIC_ENVIRONMENT=0
+if [ "${1:-}" = "--deterministic-environment" ]; then
+    DETERMINISTIC_ENVIRONMENT=1
+    shift
+fi
 USAGE_ONLY_INVALID_WORKER=0
 if [ "${1:-}" = "--usage-only-invalid-worker" ]; then
     USAGE_ONLY_INVALID_WORKER=1
     shift
 fi
 [ "$#" -ge 1 ] ||
-    fail "usage: run_attested_seen.sh [--usage-only-invalid-worker] <compiler> [args...]"
+    fail "usage: run_attested_seen.sh [--deterministic-environment] [--usage-only-invalid-worker] <compiler> [args...]"
 COMPILER=$1
 shift
 ARGS=("$@")
@@ -168,6 +173,38 @@ case "$EXEC_PATH" in
     "$SEEN_BOUNDED_TOOLCHAIN_DIR"|"$SEEN_BOUNDED_TOOLCHAIN_DIR":*) ;;
     *) fail "compiler PATH must keep the bounded toolchain first" ;;
 esac
+
+if [ "$DETERMINISTIC_ENVIRONMENT" = "1" ]; then
+    [ "${SEEN_DETERMINISTIC:-}" = "1" ] ||
+        fail "deterministic environment requires SEEN_DETERMINISTIC=1"
+    [ -n "${SOURCE_DATE_EPOCH:-}" ] &&
+        [ -n "${SEEN_DETERMINISTIC_SEED:-}" ] &&
+        [ -n "${SEEN_HASH_SEED:-}" ] ||
+        fail "deterministic environment inputs are incomplete"
+    OPTIONAL_ENV=()
+    for variable in SEEN_COMPILER_SOURCE_ROOT SEEN_PACKAGE_CLIENT \
+        SEEN_DATA_PATH TMPDIR SEEN_ARTIFACT_ROOT SEEN_PROJECT_ROOT \
+        SEEN_PROJECT_ARTIFACT_WRAPPER \
+        SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE; do
+
+        if [ -n "${!variable:-}" ]; then
+            OPTIONAL_ENV+=("$variable=${!variable}")
+        fi
+    done
+    exec env -i \
+        LD_PRELOAD="$SERIALIZER" \
+        SEEN_FORK_SERIALIZER_TARGET="$COMPILER" \
+        SEEN_LOW_MEMORY=1 SEEN_JOBS=1 SEEN_OPT_JOBS=1 \
+        SEEN_MAIN_VMEM_KB="$SEEN_MAIN_VMEM_KB" \
+        SEEN_OPT_VMEM_KB="$SEEN_OPT_VMEM_KB" \
+        SEEN_MEMORY_LIMIT_BYTES="$SEEN_MEMORY_LIMIT_BYTES" \
+        SEEN_BOUNDED_TOOLCHAIN_DIR="$SEEN_BOUNDED_TOOLCHAIN_DIR" \
+        SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+        SEEN_DETERMINISTIC_SEED="$SEEN_DETERMINISTIC_SEED" \
+        SEEN_HASH_SEED="$SEEN_HASH_SEED" \
+        LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC PATH="$EXEC_PATH" \
+        "${OPTIONAL_ENV[@]}" "$COMPILER" "${ARGS[@]}"
+fi
 
 exec env -u SEEN_FORK_SERIALIZER_ROOT_PID \
     LD_PRELOAD="$SERIALIZER" \

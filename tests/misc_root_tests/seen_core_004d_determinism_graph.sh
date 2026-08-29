@@ -33,7 +33,7 @@ run_compiler() {
     SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
         SEEN_DETERMINISTIC_SEED=1101 SEEN_HASH_SEED=1101 \
         LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
-        bash "$ATTESTED_SEEN" "$COMPILER" "$@"
+        bash "$ATTESTED_SEEN" --deterministic-environment "$COMPILER" "$@"
 }
 
 expect_check_success() {

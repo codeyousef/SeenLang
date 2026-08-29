@@ -274,6 +274,16 @@ grep -Fq 'SEEN_FORK_SERIALIZER_TARGET="$COMPILER"' "$RUNNER" ||
     fail "runner does not bind the serializer to the exact compiler target"
 grep -Fq 'env -u SEEN_FORK_SERIALIZER_ROOT_PID' "$RUNNER" ||
     fail "runner does not clear inherited serializer root state"
+grep -Fq -- '--deterministic-environment' "$RUNNER" ||
+    fail "runner omitted bounded deterministic-environment mode"
+grep -Fq 'exec env -i' "$RUNNER" ||
+    fail "runner does not isolate deterministic compiler inputs"
+grep -Fq -- '--deterministic-environment "$COMPILER"' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_core_004d_determinism_graph.sh" ||
+    fail "CORE-004D bypasses deterministic compiler isolation"
+grep -Fq -- '--deterministic-environment "$COMPILER"' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_core_004e_deterministic_context.sh" ||
+    fail "CORE-004E bypasses deterministic compiler isolation"
 grep -Fq 'SEEN_JOBS=1' "$RUNNER" || fail "runner omitted serial compiler jobs"
 grep -Fq 'SEEN_OPT_JOBS=1' "$RUNNER" || fail "runner omitted serial optimizer jobs"
 grep -Fq 'safe rebuild containing CI read-back' "$SAFE_REBUILD" ||

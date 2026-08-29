@@ -275,7 +275,7 @@ set +e
 SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
     SEEN_DETERMINISTIC_SEED=1101 SEEN_HASH_SEED=1101 \
     LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
-    bash "$ATTESTED_SEEN" "$COMPILER" check \
+    bash "$ATTESTED_SEEN" --deterministic-environment "$COMPILER" check \
     "$FIXTURES/CORE-004E_ffi_bypass_rejected/main.seen" --deterministic \
     >"$WORK_DIR/ffi-bypass.log" 2>&1
 ffi_status=$?
