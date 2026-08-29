@@ -456,6 +456,8 @@ COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_nested_array_ba
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_safetensors_slot_return_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_json_tiny_object_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_stdlib_string_io_cycle.sh"
+COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_core_004e_deterministic_context.sh"
 
 SEEN_EXPECTED_VERSION="$EXPECTED_VERSION" \
     "$REPO_ROOT/tests/misc_root_tests/seen_cli_surface.sh"
@@ -614,8 +616,6 @@ run_fixture synchronization-example \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_parallel_for_codegen_regression.sh"
 "$REPO_ROOT/tests/misc_root_tests/seen_parallel_for_runtime_v2.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_core_004e_deterministic_context.sh"
 "$REPO_ROOT/tests/misc_root_tests/seen_json_large_object_release.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_safetensors_reader_ownership.sh"
