@@ -26,7 +26,7 @@ limitation where boolean variables generate invalid IR.
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, runFrontendCompat, runFrontendDeclarationsCompat, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
 import io.file.{readText, readTextChecked, writeText, writeTextAtomically, appendText, exists, deleteFile}
 import process.process.{runCommand, runProgram, runProgramRequest, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
-import env.env.{args, getOrDefault, set}
+import env.env.{args, getOrDefault, set, removeEnv}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, newLLVMIRGenerator, overrideTargetTriple}
 import parser.real_parser.{ProgramNode, ItemNode, ImportSymbolNode, ClassNode, FunctionNode, ParamNode, TypeNode, AnnotationNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode, getUiSlotCount, getUiSlotBlock}
 import lexer.language_pack.{resolveLanguagesRoot}
@@ -17033,9 +17033,19 @@ fun captureDeterministicCliInputs() r: Bool {
     if g_deterministicInputsParsed == 1 { return true }
 
     let enabled = getOrDefault("SEEN_DETERMINISTIC", "")
+    let compilerReexec = getOrDefault(
+        "SEEN_DETERMINISTIC_COMPILER_REEXEC", "")
     if enabled != "" and enabled != "1" {
         return deterministicCliInputFailure("core.004e.policy_conflict",
             "SEEN_DETERMINISTIC conflicts with --deterministic")
+    }
+    if compilerReexec != "" and compilerReexec != "1" {
+        return deterministicCliInputFailure("core.004e.policy_conflict",
+            "deterministic compiler re-exec marker is invalid")
+    }
+    if enabled == "1" and compilerReexec == "1" {
+        return deterministicCliInputFailure("core.004e.policy_conflict",
+            "deterministic compiler re-exec state is ambiguous")
     }
     let epoch = getOrDefault("SOURCE_DATE_EPOCH", "")
     if epoch == "" {
@@ -17071,14 +17081,15 @@ fun captureDeterministicCliInputs() r: Bool {
     }
     if hashSeed == "" { hashSeed = seed }
 
-    // A compiler process launched with SEEN_DETERMINISTIC=1 is already using
-    // the runtime's immutable process-start snapshot. Do not attempt to mutate
-    // that snapshot: only publish values which were genuinely absent at
-    // process start, for inheritance by the deterministic run child.
-    if enabled == "" {
-        if not set("SEEN_DETERMINISTIC", "1") {
+    // The compiler's bounded toolchain/containment environment can legitimately
+    // exceed the public user-program snapshot limit. Re-exec under an internal
+    // one-shot marker first, while the runtime snapshot remains disabled. The
+    // replacement compiler removes that marker and publishes the public mode
+    // only for compiler subprocesses and generated-program children.
+    if enabled == "" and compilerReexec == "" {
+        if not set("SEEN_DETERMINISTIC_COMPILER_REEXEC", "1") {
             return deterministicCliInputFailure("core.004e.unavailable",
-                "validated deterministic mode could not be published")
+                "deterministic compiler re-exec could not be prepared")
         }
         if getOrDefault("SEEN_HASH_SEED", "") == "" and
             not set("SEEN_HASH_SEED", hashSeed) {
@@ -17093,6 +17104,14 @@ fun captureDeterministicCliInputs() r: Bool {
         let _ = seen_reexec_current_process()
         return deterministicCliInputFailure("core.004e.unavailable",
             "deterministic compiler process re-exec is unavailable")
+    }
+    if compilerReexec == "1" {
+        if not removeEnv("SEEN_DETERMINISTIC_COMPILER_REEXEC") or
+            not set("SEEN_DETERMINISTIC", "1") {
+
+            return deterministicCliInputFailure("core.004e.unavailable",
+                "validated deterministic mode could not be published")
+        }
     }
     if getOrDefault("SEEN_HASH_SEED", "") == "" and
         not set("SEEN_HASH_SEED", hashSeed) {

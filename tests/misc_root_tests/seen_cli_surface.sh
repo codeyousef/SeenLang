@@ -39,7 +39,7 @@ seen_command() {
 }
 
 deterministic_seen_command() {
-    SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
+    env -u SEEN_DETERMINISTIC SOURCE_DATE_EPOCH=1700000000 \
         SEEN_DETERMINISTIC_SEED=1101 SEEN_HASH_SEED=1101 \
         LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
         bash "$ATTESTED_SEEN" "$COMPILER" "$@"
@@ -52,15 +52,24 @@ flag_only_deterministic_seen_command() {
         bash "$ATTESTED_SEEN" "$COMPILER" "$@"
 }
 
+inflated_deterministic_seen_command() (
+    index=0
+    while [ "$index" -lt 140 ]; do
+        export "CORE_004C_EXTRA_$index=x"
+        index=$((index + 1))
+    done
+    deterministic_seen_command "$@"
+)
+
 missing_epoch_seen_command() {
-    env -u SOURCE_DATE_EPOCH -u SEEN_HASH_SEED \
-        SEEN_DETERMINISTIC=1 SEEN_DETERMINISTIC_SEED=1101 \
+    env -u SEEN_DETERMINISTIC -u SOURCE_DATE_EPOCH -u SEEN_HASH_SEED \
+        SEEN_DETERMINISTIC_SEED=1101 \
         LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
         bash "$ATTESTED_SEEN" "$COMPILER" "$@"
 }
 
 invalid_seed_seen_command() {
-    SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
+    env -u SEEN_DETERMINISTIC SOURCE_DATE_EPOCH=1700000000 \
         SEEN_DETERMINISTIC_SEED=not-a-seed \
         LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
         bash "$ATTESTED_SEEN" "$COMPILER" "$@"
@@ -276,6 +285,9 @@ expect_success_contains "CORE-004C_alias_happy" "[OK] Check passed" \
     deterministic_seen_command check "$CORE_004C_OK" --deterministic
 expect_success_contains "CORE-004E_flag_only_reexec" "[OK] Check passed" \
     flag_only_deterministic_seen_command check "$CORE_004C_OK" --deterministic
+expect_success_contains "CORE-004E_compiler_reexec_bounded_env" \
+    "[OK] Check passed" inflated_deterministic_seen_command check \
+    "$CORE_004C_OK" --deterministic
 expect_success_contains "CORE-004C_alias_explicit_profile_happy" "[OK] Check passed" \
     deterministic_seen_command check "$CORE_004C_OK" --deterministic \
     --profile deterministic
