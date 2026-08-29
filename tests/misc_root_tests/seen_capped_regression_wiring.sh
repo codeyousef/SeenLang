@@ -285,6 +285,11 @@ grep -Fq 'ARTIFACT_ROOT/deterministic-cache' "$RUNNER" ||
 grep -Fq -- '--deterministic-environment "$COMPILER"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_core_004d_determinism_graph.sh" ||
     fail "CORE-004D bypasses deterministic compiler isolation"
+if rg -n -- '--jobs(?:=|[[:space:]])|--opt-jobs(?:=|[[:space:]])' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_core_004d_determinism_graph.sh"; then
+
+    fail "CORE-004D bypasses the attested runner worker schema"
+fi
 grep -Fq -- '--deterministic-environment "$COMPILER"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_core_004e_deterministic_context.sh" ||
     fail "CORE-004E bypasses deterministic compiler isolation"

@@ -161,7 +161,7 @@ if run_compiler check "$PARITY_SOURCE" --deterministic \
     exit 1
 fi
 if run_compiler compile "$PARITY_SOURCE" "$WORK_DIR/parity-output" \
-    --deterministic --no-cache --no-fork --jobs 1 --opt-jobs 1 \
+    --deterministic --no-cache --no-fork \
     >"$COMPILE_LOG" 2>&1; then
     echo 'FAIL: mode-parity compile unexpectedly passed' >&2
     exit 1
