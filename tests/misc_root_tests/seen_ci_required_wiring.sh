@@ -327,6 +327,14 @@ for fresh_compiler_contract in \
         fail "$fresh_compiler_contract escapes the attested Stage-1 artifact scope"
     fi
 done
+stabilization_line=$(grep -nF 'seen_core_004d_determinism_graph.sh' "$STAGE1" |
+    cut -d: -f1)
+acceptance_corpus_line=$(grep -nF 'run_fixture type-ref ' "$STAGE1" | cut -d: -f1)
+case "$stabilization_line:$acceptance_corpus_line" in
+    *[!0-9:]*|:*|*::*) fail "fresh-compiler fail-fast ordering is ambiguous" ;;
+esac
+[ "$stabilization_line" -lt "$acceptance_corpus_line" ] ||
+    fail "release-blocking fresh-compiler contracts must precede the broad acceptance corpus"
 grep -Fq 'PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT_DIR/compiler_seen/target/seen-pkg}"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_tokenizers_a.sh" ||
     fail "tokenizer gate does not consume the verified rebuild package client"
