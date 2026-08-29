@@ -298,18 +298,18 @@ expect_exit_one_contains "CORE-004E_missing_epoch" "core.004e.missing_epoch" \
 expect_exit_one_contains "CORE-004E_invalid_seed" "core.004e.invalid_seed" \
     invalid_seed_seen_command compile "$CORE_004C_OK" \
     "$TMP_DIR/core-004e-invalid-seed" --deterministic
-expect_exit_one_contains "CORE-004C_semantic_profile_only" "Determinism Error:" \
+expect_exit_one_contains "CORE-004C_semantic_profile_only" "error[core.004d." \
     semantic_profile_seen_command compile "$CORE_004C_REJECT" \
     "$TMP_DIR/core-004c-semantic-profile" --profile deterministic
 
 expect_exit_one_contains "CORE-004C_compile_check_run_parity compile" \
-    "Determinism Error:" deterministic_seen_command compile "$CORE_004C_REJECT" \
+    "error[core.004d." deterministic_seen_command compile "$CORE_004C_REJECT" \
     "$TMP_DIR/core-004c-rejected" --deterministic
 expect_exit_one_contains "CORE-004C_compile_check_run_parity check" \
-    "Determinism Error:" deterministic_seen_command check "$CORE_004C_REJECT" \
+    "error[core.004d." deterministic_seen_command check "$CORE_004C_REJECT" \
     --deterministic
 expect_exit_one_contains "CORE-004C_compile_check_run_parity run" \
-    "Determinism Error:" deterministic_seen_command run "$CORE_004C_REJECT" \
+    "error[core.004d." deterministic_seen_command run "$CORE_004C_REJECT" \
     --deterministic
 
 expect_success_contains "CORE-004C_alias_happy compile" \
