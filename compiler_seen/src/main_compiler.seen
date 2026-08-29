@@ -16753,7 +16753,27 @@ fun aotRunCommandWithPolicy(inputFile: String, verbose: Bool, language: String,
     if verbose {
         println("[run] Executing...")
     }
-    let exitCode: Int = runProgram(tempOutput)
+    var executionCommand = tempOutput
+    if profile == "deterministic" {
+        // Compiler containment and toolchain variables are intentionally not
+        // user-program inputs. Launch deterministic programs with the exact
+        // validated public input set so seen run remains usable when the
+        // compiler itself needs more than the runtime's 128-variable bound.
+        // The shell only receives validated values and a quoted executable.
+        executionCommand = "env -i" +
+            " LANG=" + mainCompilerShellQuote(g_deterministicLang) +
+            " LC_ALL=" + mainCompilerShellQuote(g_deterministicLcAll) +
+            " SEEN_DETERMINISTIC=1" +
+            " SEEN_DETERMINISTIC_SEED=" +
+                mainCompilerShellQuote(g_deterministicSeed) +
+            " SEEN_HASH_SEED=" +
+                mainCompilerShellQuote(g_deterministicHashSeed) +
+            " SOURCE_DATE_EPOCH=" +
+                mainCompilerShellQuote(g_deterministicEpoch) +
+            " TZ=" + mainCompilerShellQuote(g_deterministicTimezone) +
+            " " + mainCompilerShellQuote(tempOutput)
+    }
+    let exitCode: Int = runProgram(executionCommand)
     if exitCode != 0 {
         println("[run] Execution failed (exit code " + exitCode.toString() + ")")
         return exitCode

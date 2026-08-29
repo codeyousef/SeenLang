@@ -317,7 +317,8 @@ expect_success_contains "CORE-004C_alias_happy compile" \
     "$TMP_DIR/core-004c-compiled" --deterministic --profile deterministic \
     --simd none --no-cache --jobs 1 --opt-jobs 1
 expect_success "CORE-004C_alias_happy run" \
-    deterministic_seen_command run "$CORE_004C_OK" --deterministic --no-cache
+    inflated_deterministic_seen_command run "$CORE_004C_OK" --deterministic \
+    --no-cache
 
 mkdir -p "$TMP_DIR/work"
 printf 'manifest-version = 1\n\n[project]\nname = "cli_fixture"\nversion = "0.1.0"\nlanguage = "en"\n\n[dependencies]\n' > \

@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kept deterministic compiler re-execution separate from the public bounded
   user-program environment snapshot, so contained builds can preserve their
   verified toolchain controls without weakening the 128-variable runtime cap.
+- Made `seen run --deterministic` launch generated programs with only the
+  validated deterministic input set, so compiler containment variables cannot
+  overflow or perturb the program's bounded environment snapshot.
 - Fixed FEL-1547 by closing recursive project imports deterministically from a
   root source file, typing the complete declaration graph before lowering, and
   rejecting invalid or unresolved project-module IR before publication.
