@@ -114,6 +114,18 @@ fun main() r: Int {
     }
     println("PASS: CORE-004E_invalid_seed")
 
+    let maximumSeed = createDeterministicExecutionContext(
+        core004eInputs("1700000000", "18446744073709551615",
+            "granted-value"), operation)
+    let overflowSeed = createDeterministicExecutionContext(
+        core004eInputs("1700000000", "18446744073709551616",
+            "granted-value"), operation)
+    if maximumSeed.isErr() or not overflowSeed.isErr() or
+        overflowSeed.unwrapErr().code.value != "core.004e.invalid_seed" {
+
+        return core004eFail("CORE-004E_invalid_seed", "UInt64 bound mismatch")
+    }
+
     let deniedEnvironment = deterministicEnvironment(context,
         "CORE_004E_SECRET", operation)
     if not deniedEnvironment.isErr() or

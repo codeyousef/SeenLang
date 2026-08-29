@@ -294,7 +294,7 @@ bash "$ATTESTED_SEEN" "$COMPILER" compile \
     fail native-compile
 }
 for repetition in 1 2; do
-    SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
+    env -i SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
         SEEN_DETERMINISTIC_SEED=1101 SEEN_HASH_SEED=1101 \
         CORE_004E_VISIBLE=granted-value LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
         "$WORK_DIR/context-contract" >"$WORK_DIR/run-$repetition.out" \

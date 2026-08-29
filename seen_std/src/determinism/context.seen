@@ -112,7 +112,25 @@ fun parseDeterministicSeed(value: String, operation: String)
         return core004eFailure<UInt64>("core.004e.invalid_seed", operation,
             "SEEN_DETERMINISTIC_SEED is required", false)
     }
-    let maximum = 0xFFFFFFFFFFFFFFFF as UInt64
+    let maximumDecimal = "18446744073709551615"
+    if value.length() > maximumDecimal.length() {
+        return core004eFailure<UInt64>("core.004e.invalid_seed", operation,
+            "deterministic seed exceeds UInt64", false)
+    }
+    if value.length() == maximumDecimal.length() {
+        var boundIndex = 0
+        var belowMaximum = false
+        while boundIndex < value.length() and not belowMaximum {
+            let byte = value.byteAt(boundIndex)
+            let maximumByte = maximumDecimal.byteAt(boundIndex)
+            if byte > maximumByte {
+                return core004eFailure<UInt64>("core.004e.invalid_seed",
+                    operation, "deterministic seed exceeds UInt64", false)
+            }
+            if byte < maximumByte { belowMaximum = true }
+            boundIndex = boundIndex + 1
+        }
+    }
     var parsed: UInt64 = 0 as UInt64
     var index = 0
     while index < value.length() {
@@ -123,10 +141,6 @@ fun parseDeterministicSeed(value: String, operation: String)
                 false)
         }
         let digit = (byte - 48) as UInt64
-        if parsed > (maximum - digit) / (10 as UInt64) {
-            return core004eFailure<UInt64>("core.004e.invalid_seed",
-                operation, "deterministic seed exceeds UInt64", false)
-        }
         parsed = parsed * (10 as UInt64) + digit
         index = index + 1
     }
