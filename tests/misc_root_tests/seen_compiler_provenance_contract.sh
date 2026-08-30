@@ -6,6 +6,7 @@ VERIFY="$ROOT_DIR/scripts/verify_compiler_provenance.sh"
 DELIVERY_VERIFY="$ROOT_DIR/scripts/verify_linux_delivery_compiler_identity.sh"
 BUILD_RELEASE="$ROOT_DIR/scripts/build_release.sh"
 RELEASE_UPLOAD="$ROOT_DIR/scripts/build_and_upload_release.sh"
+RPM_BUILDER="$ROOT_DIR/installer/linux/build-rpm.sh"
 ARTIFACT_HELPER="$ROOT_DIR/scripts/artifact_root.sh"
 
 fail() { echo "FAIL: compiler provenance contract: $*" >&2; exit 1; }
@@ -74,6 +75,10 @@ for installer in \
     "$ROOT_DIR/installer/linux/build-appimage.sh"; do
     grep -Fq 'verify-compiler-provenance.sh' "$installer" ||
         fail "installer omits provenance verification: $installer"
+done
+for rpm_mutator in __brp_strip __brp_strip_static_archive __brp_strip_comment_note; do
+    grep -Fq "%global $rpm_mutator %{nil}" "$RPM_BUILDER" ||
+        fail "RPM packaging may mutate canonical compiler bytes: $rpm_mutator"
 done
 
 echo "PASS: compiler provenance contract"

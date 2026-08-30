@@ -306,6 +306,12 @@ create_spec_file() {
     
     cat > "$spec_file" << EOF
 %global debug_package %{nil}
+# The compiler is already canonicalized and hashed before RPM packaging.
+# Disable RPM's buildroot stripping passes so the installed bytes remain the
+# exact signed compiler component instead of a second, package-specific form.
+%global __brp_strip %{nil}
+%global __brp_strip_static_archive %{nil}
+%global __brp_strip_comment_note %{nil}
 
 Name:           seen-lang
 Version:        $RPM_VERSION
