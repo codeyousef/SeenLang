@@ -63,16 +63,18 @@ fun coerceStringConcatPieceRegImpl(output: StringBuilder,
         output.append("  " + promotedReg + " = fpext float " + valueReg +
             " to double\n")
         let float32StrReg = getNextRegFn(regBox)
+        let doubleValueReg = normalizeDoubleLiteralForLlvmImpl(promotedReg)
         output.append("  " + float32StrReg +
             " = call %SeenString @seen_float_to_string(double " +
-            promotedReg + ")\n")
+            doubleValueReg + ")\n")
         return float32StrReg
     }
     if valueType == "Float64" {
         let float64StrReg = getNextRegFn(regBox)
+        let doubleValueReg = normalizeDoubleLiteralForLlvmImpl(valueReg)
         output.append("  " + float64StrReg +
             " = call %SeenString @seen_float_to_string(double " +
-            valueReg + ")\n")
+            doubleValueReg + ")\n")
         return float64StrReg
     }
     if valueType == "Bool" or valueType == "Boolean" {

@@ -60,16 +60,18 @@ fun emitToStringMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverRe
         output.append("  " + promotedReg + " = fpext float " + receiverReg +
             " to double\n")
         let resultReg = getNextRegFn(regBox)
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(promotedReg)
         output.append("  " + resultReg +
             " = call %SeenString @seen_float_to_string(double " +
-            promotedReg + ")\n")
+            doubleReceiverReg + ")\n")
         return resultReg
     }
     if receiverType == "Float64" {
         let resultReg = getNextRegFn(regBox)
+        let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
         output.append("  " + resultReg +
             " = call %SeenString @seen_float_to_string(double " +
-            receiverReg + ")\n")
+            doubleReceiverReg + ")\n")
         return resultReg
     }
     if receiverType == "Float" {
