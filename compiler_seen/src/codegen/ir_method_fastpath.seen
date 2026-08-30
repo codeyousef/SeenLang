@@ -462,11 +462,18 @@ fun tryGenerateUnresolvedReceiverFallbackMethodImpl(output: StringBuilder,
 
     if methodName == "toString" {
         let toStrReg = getNextRegFn(regBox)
-        if receiverType == "Float" {
+        if receiverType == "Float" or receiverType == "Float64" {
             let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)
             output.append("  " + toStrReg +
                 " = call %SeenString @seen_float_to_string(double " +
                 doubleReceiverReg + ")\n")
+        } else if receiverType == "Float32" {
+            let promotedReg = getNextRegFn(regBox)
+            output.append("  " + promotedReg + " = fpext float " +
+                receiverReg + " to double\n")
+            output.append("  " + toStrReg +
+                " = call %SeenString @seen_float_to_string(double " +
+                promotedReg + ")\n")
         } else if receiverType == "Int" or receiverType == "" or
             receiverType == "Char" {
             output.append("  " + toStrReg +

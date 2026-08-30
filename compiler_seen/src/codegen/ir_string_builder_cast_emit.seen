@@ -215,6 +215,25 @@ fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String
         castResultReg = cReg
         castDone = 1
     }
+    // Fixed-width integer -> floating-point. Unsigned values must use uitofp;
+    // treating UInt64 as a signed or already-floating i64 produces invalid IR
+    // and corrupts values above Int64.max.
+    if castDone == 0 and (castTarget == "Float" or
+        castTarget == "Float32" or castTarget == "Float64") {
+
+        let sourceIntegerLlvm = getFixedWidthScalarLlvmTypeImpl(innerType)
+        if sourceIntegerLlvm.startsWith("i") {
+            var floatLlvm = "double"
+            if castTarget == "Float32" { floatLlvm = "float" }
+            var conversion = "sitofp"
+            if innerType.startsWith("UInt") { conversion = "uitofp" }
+            output.append("  " + cReg + " = " + conversion + " " +
+                sourceIntegerLlvm + " " + innerReg + " to " +
+                floatLlvm + "\n")
+            castResultReg = cReg
+            castDone = 1
+        }
+    }
     // Int -> Int64 / UInt64 — same width, no-op
     if castDone == 0 and innerType == "Int" and (castTarget == "Int64" or castTarget == "UInt64") {
         castResultReg = innerReg

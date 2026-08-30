@@ -126,8 +126,11 @@ fun emitPreparedCoreBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
     }
     let fixedResultLlvmType =
         getFixedWidthScalarLlvmTypeImpl(fixedResultSeenType)
+    // Keep two FP32 operands in their native LLVM `float` domain. Mixed
+    // precision and FP64 operations are deliberately promoted to `double`.
     if (leftType == "Float32" or leftType == "Float64") and
-        (rightType == "Float32" or rightType == "Float64") {
+        (rightType == "Float32" or rightType == "Float64") and
+        not (leftType == "Float32" and rightType == "Float32") {
 
         emitLeftReg = coerceValueForLlvmTargetImpl(output, regBox, "double",
             leftType, leftMappedType, leftReg)
@@ -151,7 +154,9 @@ fun emitPreparedCoreBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
     let producesValue = not (operator == "==" or operator == "!=" or
         operator == "<" or operator == "<=" or operator == ">" or
         operator == ">=")
-    if producesValue and fixedResultLlvmType != "" and
+    if producesValue and
+        not (leftType == "Float32" and rightType == "Float32") and
+        fixedResultLlvmType != "" and
         fixedResultLlvmType != "i64" and
         fixedResultLlvmType != "double" {
 

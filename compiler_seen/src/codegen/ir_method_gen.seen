@@ -55,6 +55,23 @@ emitToStringMethodImpl — toString dispatch for Float/Bool/Char/String/Class/In
 isClassReceiver: 1 if receiverType is a class type (pre-resolved by wrapper)
 ///
 fun emitToStringMethodImpl(output: StringBuilder, regBox: Array<Int>, receiverReg: String, receiverType: String, isClassReceiver: Int) r: String {
+    if receiverType == "Float32" {
+        let promotedReg = getNextRegFn(regBox)
+        output.append("  " + promotedReg + " = fpext float " + receiverReg +
+            " to double\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = call %SeenString @seen_float_to_string(double " +
+            promotedReg + ")\n")
+        return resultReg
+    }
+    if receiverType == "Float64" {
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg +
+            " = call %SeenString @seen_float_to_string(double " +
+            receiverReg + ")\n")
+        return resultReg
+    }
     if receiverType == "Float" {
         let resultReg = getNextRegFn(regBox)
         let doubleReceiverReg = normalizeDoubleLiteralForLlvmImpl(receiverReg)

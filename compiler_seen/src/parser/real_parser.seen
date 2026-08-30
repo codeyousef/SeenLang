@@ -5411,7 +5411,8 @@ class RealParser {
     ///
     Lowest precedence: simple assignment (=), compound arithmetic assigns
     (+=, -=, *=, /=), compound bitwise assigns (%=, &=, |=, ^=, <<=, >>=),
-    and the postfix `as` type-cast operator.
+    Postfix `as` casts are parsed by parseCall so they bind more tightly than
+    arithmetic and comparison operators.
 
     Compound bitwise assigns use a save/restore cursor pattern because
     the operators (&, |, ^, <<, >>) are the SAME tokens used by
@@ -5420,17 +5421,6 @@ class RealParser {
     ///
     fun parseAssignment() r: ParserExpressionNode {
         let expr = parseOr()
-
-        // Postfix 'as' type cast. Match the canonical token kind so localized
-        // spellings are parsed identically to the English source spelling.
-        if matchTokenStr(SeenTokenType.KeywordAs) {
-            let castTN = parseTypeNode()
-            let castE = ParserExpressionNode.new()
-            castE.kind = "Cast"
-            castE.operands.push(expr)
-            castE.literalValue = castTN.typeName
-            return castE
-        }
 
         // Check for simple assignment
         if matchTokenStr(SeenTokenType.Equal) {
@@ -6293,7 +6283,9 @@ class RealParser {
                         memberExpr.operands.push(expr)
                         memberLitSet = true
                     }
-                    if not memberLitSet and (expr.kind == "Literal" or expr.kind == "Unary" or expr.kind == "Binary") {
+                    if not memberLitSet and (expr.kind == "Literal" or
+                        expr.kind == "Unary" or expr.kind == "Binary" or
+                        expr.kind == "Cast") {
                         // Literal/expression receiver (e.g. '~'.toInt(), (a+b).method())
                         memberExpr.literalValue = ""
                         memberExpr.operands.push(expr)
@@ -6348,6 +6340,22 @@ class RealParser {
                 accessExpr.operands.push(expr)      // [0] = array/object
                 accessExpr.operands.push(indexExpr) // [1] = index
                 expr = accessExpr
+                callTokenHandled = true
+            }
+            // Postfix casts bind to the immediately preceding expression.
+            // Keeping this in the postfix loop makes `value as Int == other`
+            // mean `(value as Int) == other` and still permits chains such as
+            // `(value as Float).toString()` without extra parser special cases.
+            if not callTokenHandled and
+                checkToken(SeenTokenType.KeywordAs) {
+
+                advance()
+                let castType = parseTypeNode()
+                let castExpr = ParserExpressionNode.new()
+                castExpr.kind = "Cast"
+                castExpr.operands.push(expr)
+                castExpr.literalValue = castType.typeName
+                expr = castExpr
                 callTokenHandled = true
             }
             // Postfix '?' error propagation: expr?

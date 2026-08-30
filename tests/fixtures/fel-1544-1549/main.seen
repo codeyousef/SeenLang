@@ -1,0 +1,61 @@
+import float_cast_support.{qwenShape, unsignedRatio}
+import json.value.{JsonValue_destroy}
+import str.string.{startsWith}
+
+fun requireValue(condition: Bool, code: Int) r: Void {
+    if not condition { abort("FEL float regression " + code.toString()) }
+}
+
+fun main() r: Int {
+    let values = Array<Float32>()
+    values.push(1.5 as Float32)
+    values.push(3.0e38 as Float32)
+    values.push(1.0e-30 as Float32)
+
+    let local: Float32 = values[0]
+    let direct = "direct=" + local.toString()
+    let converted = "converted=" + (local as Float).toString()
+    let multilingual = "قيمة=" + values[0].toString()
+    requireValue(direct.startsWith("direct=1.5"), 154401)
+    requireValue(converted.startsWith("converted=1.5"), 154402)
+    requireValue(multilingual.startsWith("قيمة=1.5"), 154403)
+
+    let huge: Float32 = values[1]
+    let overflow: Float32 = huge * huge
+    requireValue(overflow > (3.0e38 as Float32), 154501)
+    let tiny: Float32 = values[2]
+    let underflow: Float32 = tiny * tiny
+    requireValue(underflow == (0.0 as Float32), 154502)
+    let finite: Float32 = values[0] * (2.0 as Float32)
+    requireValue(finite == (3.0 as Float32), 154503)
+    let nan: Float32 = overflow - overflow
+    requireValue(nan != nan, 154504)
+
+    let ratio = unsignedRatio(3 as UInt64, 2 as UInt64)
+    requireValue(ratio == 1.5, 154601)
+    let unsignedHigh: UInt64 = (9223372036854775807 as UInt64) +
+        (1 as UInt64)
+    requireValue((unsignedHigh as Float) > 0.0, 154602)
+
+    let shape = qwenShape()
+    requireValue(shape[0].getNumber() as Int == 2 and
+        shape[1].getNumber() as Int == 3, 154901)
+    requireValue((shape[0].getNumber() as Int) == 2 and
+        (shape[1].getNumber() as Int) == 3 and
+        (shape[2].getNumber() as Int) == 4, 154902)
+    requireValue(shape[0].getNumber() as Int == 99 or
+        shape[1].getNumber() as Int == 3, 154903)
+
+    var i = 0
+    while i < shape.length() {
+        JsonValue_destroy(shape[i])
+        i = i + 1
+    }
+    shape.free()
+    values.free()
+    println("PASS: FEL-1544 Float32 string lowering")
+    println("PASS: FEL-1545 Float32 array arithmetic")
+    println("PASS: FEL-1546 UInt64 floating conversion")
+    println("PASS: FEL-1549 chained cast comparisons")
+    return 0
+}

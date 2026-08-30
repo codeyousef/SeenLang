@@ -101,8 +101,8 @@ fun generateMethodCallState(ctx: CodegenLoweringContext,
     }
 
     if receiverPhasePlan.shouldUseExplicitReceiver {
-        receiverReg = lowerExpression(ctx, expr.operands[0])
         receiverType = inferLoweredExpressionType(ctx, expr.operands[0])
+        receiverReg = lowerExpression(ctx, expr.operands[0])
         let simdRedResult = emitSimdReductionImpl(output, getFeatureRegBoxImpl(),
             methodName, receiverReg, receiverType)
         if simdRedResult != "" {

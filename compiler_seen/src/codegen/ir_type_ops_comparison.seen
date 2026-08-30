@@ -42,6 +42,22 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
     rightExprKind: String, rightLiteralValue: String,
     leftMappedType: String) r: String {
 
+    if leftType == "Float32" and rightType == "Float32" {
+        var float32Predicate = ""
+        if operator == "==" { float32Predicate = "oeq" }
+        if operator == "!=" { float32Predicate = "une" }
+        if operator == "<" { float32Predicate = "olt" }
+        if operator == "<=" { float32Predicate = "ole" }
+        if operator == ">" { float32Predicate = "ogt" }
+        if operator == ">=" { float32Predicate = "oge" }
+        if float32Predicate != "" {
+            output.append("  " + resultReg + " = fcmp " +
+                float32Predicate + " float " + leftReg + ", " +
+                rightReg + "\n")
+            return resultReg
+        }
+    }
+
     if operator == "==" {
         if isBoxedOptionSeenTypeImpl(leftType) and rightReg == "0" {
             return emitBoxedOptionNullComparisonImpl(output, regBox,

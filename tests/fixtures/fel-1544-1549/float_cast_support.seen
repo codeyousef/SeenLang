@@ -1,0 +1,13 @@
+import json.value.{JsonValue, JsonValue_numberFloat}
+
+fun qwenShape() r: Array<JsonValue> {
+    let shape = Array<JsonValue>()
+    shape.push(JsonValue_numberFloat(2.0))
+    shape.push(JsonValue_numberFloat(3.0))
+    shape.push(JsonValue_numberFloat(4.0))
+    return shape
+}
+
+fun unsignedRatio(numerator: UInt64, denominator: UInt64) r: Float {
+    return (numerator as Float) / (denominator as Float)
+}

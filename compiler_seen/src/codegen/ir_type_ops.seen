@@ -25,6 +25,24 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
     panicOnOverflow: Int, inductionVarName: String,
     leftMappedType: String) r: String {
 
+    // Preserve genuine FP32 semantics. Generic Array<Float32> reads are LLVM
+    // `float` values and must not fall through to integer operations or be
+    // silently widened before the operation.
+    if leftType == "Float32" and rightType == "Float32" {
+        var float32Op = ""
+        if operator == "+" { float32Op = "fadd" }
+        if operator == "-" { float32Op = "fsub" }
+        if operator == "*" { float32Op = "fmul" }
+        if operator == "/" { float32Op = "fdiv" }
+        if operator == "%" { float32Op = "frem" }
+        if float32Op != "" {
+            let float32Result = getNextRegFn(regBox)
+            output.append("  " + float32Result + " = " + float32Op +
+                " float " + leftReg + ", " + rightReg + "\n")
+            return float32Result
+        }
+    }
+
     if operator == "+" {
         if leftType == "String" or rightType == "String" or leftType == "Char" or rightType == "Char" {
             var leftStrReg = leftReg
