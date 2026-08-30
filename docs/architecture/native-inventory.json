@@ -2149,13 +2149,6 @@
       ]
     },
     {
-      "name": "__panic",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/async/future.seen"
-      ]
-    },
-    {
       "name": "__seen_attestation_measurement_json",
       "abi": "Seen",
       "sources": [
@@ -2342,20 +2335,6 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/security/enclave.seen"
-      ]
-    },
-    {
-      "name": "__seen_promise_load_f64",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/async/runtime.seen"
-      ]
-    },
-    {
-      "name": "__seen_promise_load_i64",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/async/runtime.seen"
       ]
     },
     {
@@ -2604,26 +2583,11 @@
       ]
     },
     {
-      "name": "__thread_yield",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/async/future.seen",
-        "seen_std/src/async/runtime.seen"
-      ]
-    },
-    {
       "name": "abort",
       "abi": "Seen",
       "sources": [
         "compiler_seen/src/bootstrap/intrinsics.seen",
         "seen_std/src/core/intrinsics.seen"
-      ]
-    },
-    {
-      "name": "async_yield",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/async/runtime.seen"
       ]
     },
     {
@@ -3016,20 +2980,6 @@
       "abi": "C",
       "sources": [
         "seen_std/src/platform/linux/libinput.seen"
-      ]
-    },
-    {
-      "name": "llvm_coro_destroy",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/async/runtime.seen"
-      ]
-    },
-    {
-      "name": "llvm_coro_resume",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/async/runtime.seen"
       ]
     },
     {
@@ -3835,20 +3785,6 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/platform/darwin/cocoa.seen"
-      ]
-    },
-    {
-      "name": "seen_coro_done",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/async/runtime.seen"
-      ]
-    },
-    {
-      "name": "seen_coro_promise",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/async/runtime.seen"
       ]
     },
     {
@@ -6209,6 +6145,7 @@
       "name": "seen_time_monotonic_nanos",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/structured.seen",
         "seen_std/src/determinism/policy.seen",
         "seen_std/src/sync/contracts.seen"
       ]
