@@ -226,6 +226,12 @@ grep -Fq '@llvm.stackrestore(ptr' \
 grep -Fq 'seen_arr_set_i64' \
     "$ROOT_DIR/compiler_seen/tests/array_bool_push_codegen.seen" ||
     fail "Boolean Array assignment direct-lowering contract is missing"
+grep -Fq 'seen_v019_float_codegen_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits v0.19 float regressions"
+grep -Fq 'seen_async_structured_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits structured async regressions"
+grep -Fq 'structured_async.seen' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits the structured async example"
 grep -Fq 'production_vocab_contract.seen' \
     "$ROOT_DIR/tests/misc_root_tests/seen_utf8_string_indexing.sh" ||
     fail "tokenizer verification omits the production vocabulary contract"

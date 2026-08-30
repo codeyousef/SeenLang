@@ -458,6 +458,10 @@ COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_json_tiny_objec
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_stdlib_string_io_cycle.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_core_004e_deterministic_context.sh"
+COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_v019_float_codegen_contract.sh"
+COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_async_structured_contract.sh"
 
 if [ "$TIER" = "verify" ]; then
     "$REPO_ROOT/tests/misc_root_tests/seen_unimported_extension_contract.sh"
@@ -872,6 +876,8 @@ run_fixture nullable-class-primitive-runtime \
     "$REPO_ROOT/compiler_seen/tests/nullable_class_primitive_runtime.seen"
 run_fixture array-bool-push-codegen \
     "$REPO_ROOT/compiler_seen/tests/array_bool_push_codegen.seen"
+run_fixture structured-async-example \
+    "$REPO_ROOT/seen_std/examples/structured_async.seen"
 "$REPO_ROOT/tests/misc_root_tests/seen_extern_runtime_declaration_dedup.sh"
 "$REPO_ROOT/tests/misc_root_tests/seen_semantic_foundation.sh"
 SEEN_SELFHOSTED_ABI_COMPILER="$REAL_COMPILER" \

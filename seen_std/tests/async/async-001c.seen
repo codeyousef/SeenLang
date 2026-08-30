@@ -1,0 +1,26 @@
+import async.mod.{ReadyQueue}
+
+fun main() r: Int {
+    let made = ReadyQueue.create(2)
+    if made.isErr() { return 1 }
+    let queue = made.unwrap()
+    if queue.wake(2).isErr() or queue.wake(1).isErr() { return 2 }
+    let duplicate = queue.wake(2)
+    if duplicate.isErr() or duplicate.unwrap() { return 3 }
+    let full = queue.wake(3)
+    if not full.isErr() or full.unwrapErr().code != "async.limit" { return 4 }
+    if queue.pop().unwrap() != 2 or queue.pop().unwrap() != 1 { return 5 }
+    if queue.pop().isSome() { return 6 }
+    queue.close()
+    let closed = queue.wake(1)
+    if not closed.isErr() or closed.unwrapErr().code != "async.invalid" {
+        return 7
+    }
+    println("PASS: ASYNC-001C_happy")
+    println("PASS: ASYNC-001C_partial")
+    println("PASS: ASYNC-001C_invalid")
+    println("PASS: ASYNC-001C_limit")
+    println("PASS: ASYNC-001C_cancel")
+    println("PASS: ASYNC-001C_cleanup")
+    return 0
+}

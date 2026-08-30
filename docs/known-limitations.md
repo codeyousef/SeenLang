@@ -93,14 +93,14 @@ the nondeterministic usage where allowed.
   explicit `@move` and `@c_resource` bindings. Ownership transfer through
   closure environments and task captures remains unsupported rather than
   implicitly copied.
-- `parallel_for` is capture-free in 0.18.1. Its pthread worker callback has no
+- `parallel_for` is capture-free in 0.19.0. Its pthread worker callback has no
   outer-local environment, so examples must not read or mutate enclosing
   locals. Explicit value/reference/move captures and compiler-proven disjoint
   mutation are future work.
-- `await` and the blocking async helpers use cooperative polling. Several
-  awaited calls do not become concurrent merely by appearing in an async
-  function; register coroutine handles with `runtime_spawn` and drive the
-  runtime when cooperative interleaving is required.
+- `@async` and `await` lower coroutine syntax, but they do not implicitly start
+  operating-system threads. Production coordination uses the bounded
+  `async.mod` scope/executor surface; no poll-all or best-effort cancellation
+  fallback is shipped.
 - `comptime` supports the tested integer/string expressions, target predicates,
   parameters, assertions, and simple block control flow. Arbitrary recursive
   compile-time functions, heap-backed values, I/O, and general macro execution

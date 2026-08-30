@@ -1,0 +1,30 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import async.mod.{AsyncLimits, AsyncOperationContext, CancellationSource,
+    DeterministicExecutor, Scope, ASYNC_FALLBACK_FORBIDDEN}
+
+fun exampleContext() r: AsyncOperationContext {
+    return AsyncOperationContext{operation: OperationContext{
+        cancellation: false,
+        monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 16, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4096, maxGraphModules: 16,
+            maxGraphEdges: 32, maxGraphDepth: 8},
+        traceId: AsciiString{value: "structured-async-example"}},
+        resourceId: "answer-task",
+        fallbackPolicy: ASYNC_FALLBACK_FORBIDDEN,
+        limits: AsyncLimits.bounded(16, 16, 8, 8, 1024)}
+}
+
+fun main() r: Int {
+    let limits = AsyncLimits.bounded(16, 16, 8, 8, 1024)
+    let executor = DeterministicExecutor<Int>.create(limits).unwrap()
+    let scope = Scope<Int>.create(executor, CancellationSource.root(1))
+    let answer = scope.spawn(42, 1).unwrap()
+    scope.runUntilIdle().unwrap()
+    let value = scope.join(answer, exampleContext()).unwrap()
+    scope.close().unwrap()
+    println("structured async answer=" + value.toString())
+    return 0
+}

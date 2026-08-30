@@ -1,0 +1,640 @@
+/// Bounded, deterministic structured concurrency for Seen.
+///
+/// Scheduling policy, cancellation, ownership, and combinators are native
+/// Seen. The scalar executor is deliberately wake-driven: each tick removes
+/// exactly one task id from ReadyQueue and never scans dormant tasks.
+
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext, validateOperationContext}
+
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+let ASYNC_MAX_TASKS: Int = 1048576
+let ASYNC_MAX_QUEUE: Int = 1048576
+let ASYNC_MAX_TREE_DEPTH: Int = 1024
+let ASYNC_MAX_FAN_OUT: Int = 65536
+let ASYNC_FALLBACK_FORBIDDEN: Int = 0
+let ASYNC_FALLBACK_EXPLICIT: Int = 1
+
+class AsyncError {
+    var code: String
+    var operation: String
+    var message: String
+    var retryable: Bool
+    var progress: UInt64
+    var traceId: String
+}
+
+fun asyncFailure(code: String, operation: String, message: String,
+    retryable: Bool, progress: UInt64, traceId: String) r: AsyncError {
+
+    return AsyncError{code: code, operation: operation, message: message,
+        retryable: retryable, progress: progress, traceId: traceId}
+}
+
+fun asyncUnsupported(operation: String) r: AsyncError {
+    return asyncFailure("async.unsupported_platform", operation,
+        "async operation is unsupported on this platform", false,
+        0 as UInt64, "platform")
+}
+
+class AsyncLimits {
+    var maxTasks: Int
+    var maxReady: Int
+    var maxTreeDepth: Int
+    var maxFanOut: Int
+    var maxPolls: Int
+
+    static fun bounded(maxTasks: Int, maxReady: Int, maxTreeDepth: Int,
+        maxFanOut: Int, maxPolls: Int) r: AsyncLimits {
+
+        return AsyncLimits{maxTasks: maxTasks, maxReady: maxReady,
+            maxTreeDepth: maxTreeDepth, maxFanOut: maxFanOut,
+            maxPolls: maxPolls}
+    }
+}
+
+class AsyncOperationContext {
+    var operation: OperationContext
+    var resourceId: String
+    var fallbackPolicy: Int
+    var limits: AsyncLimits
+}
+
+fun validateAsyncContext(context: AsyncOperationContext, operation: String,
+    progress: UInt64) r: Result<Bool, AsyncError> {
+
+    let base = validateOperationContext(context.operation)
+    let trace = context.operation.traceId.value
+    if base.isErr() {
+        let code = base.unwrapErr().code.value
+        if code == "err.001a.cancelled" {
+            return Err<Bool, AsyncError>(asyncFailure("async.cancelled",
+                operation, "operation is cancelled", false, progress, trace))
+        }
+        if code == "err.001a.limit" {
+            return Err<Bool, AsyncError>(asyncFailure("async.limit",
+                operation, "operation context exceeds a bound", false,
+                progress, trace))
+        }
+        return Err<Bool, AsyncError>(asyncFailure("async.invalid", operation,
+            "operation context is invalid", false, progress, trace))
+    }
+    let limits = context.limits
+    if limits.maxTasks <= 0 or limits.maxTasks > ASYNC_MAX_TASKS or
+        limits.maxReady <= 0 or limits.maxReady > ASYNC_MAX_QUEUE or
+        limits.maxTreeDepth <= 0 or
+        limits.maxTreeDepth > ASYNC_MAX_TREE_DEPTH or
+        limits.maxFanOut <= 0 or limits.maxFanOut > ASYNC_MAX_FAN_OUT or
+        limits.maxPolls <= 0 {
+
+        return Err<Bool, AsyncError>(asyncFailure("async.limit", operation,
+            "async resource limit is invalid", false, progress, trace))
+    }
+    if context.resourceId.length() <= 0 or
+        context.resourceId.length() > context.operation.limits.maxIdentityBytes {
+
+        return Err<Bool, AsyncError>(asyncFailure("async.invalid", operation,
+            "resource identity is empty or too large", false, progress, trace))
+    }
+    if context.fallbackPolicy != ASYNC_FALLBACK_FORBIDDEN and
+        context.fallbackPolicy != ASYNC_FALLBACK_EXPLICIT {
+
+        return Err<Bool, AsyncError>(asyncFailure("async.invalid", operation,
+            "fallback policy is invalid", false, progress, trace))
+    }
+    let deadline = context.operation.monotonicDeadline
+    if deadline != (9223372036854775807 as Int64) {
+        let now = seen_time_monotonic_nanos()
+        if now < (0 as Int64) {
+            return Err<Bool, AsyncError>(asyncFailure("async.unavailable",
+                operation, "monotonic clock is unavailable", true, progress,
+                trace))
+        }
+        if now >= deadline {
+            return Err<Bool, AsyncError>(asyncFailure("async.timeout",
+                operation, "operation deadline expired", false, progress,
+                trace))
+        }
+    }
+    return Ok<Bool, AsyncError>(true)
+}
+
+/// A CancellationSource transitions from active to cancelled once. Repeated
+/// cancellation is successful but cannot redeliver cancellation to children.
+class CancellationSource {
+    var id: Int
+    var generation: Int
+    var cancelled: Bool
+    var deliveries: UInt64
+    var depth: Int
+    var children: Array<CancellationSource>
+
+    static fun root(id: Int) r: CancellationSource {
+        return CancellationSource{id: id, generation: 1, cancelled: false,
+            deliveries: 0 as UInt64, depth: 0,
+            children: Array<CancellationSource>()}
+    }
+
+    fun child(id: Int, maxDepth: Int)
+        r: Result<CancellationSource, AsyncError> {
+
+        if id <= 0 or this.depth + 1 > maxDepth or
+            maxDepth > ASYNC_MAX_TREE_DEPTH {
+
+            return Err<CancellationSource, AsyncError>(asyncFailure(
+                "async.limit", "cancellation.child",
+                "cancellation tree depth exceeds its bound", false,
+                0 as UInt64, "cancellation"))
+        }
+        let childSource = CancellationSource{id: id,
+            generation: this.generation + 1, cancelled: this.cancelled,
+            deliveries: 0 as UInt64, depth: this.depth + 1,
+            children: Array<CancellationSource>()}
+        this.children.push(childSource)
+        return Ok<CancellationSource, AsyncError>(childSource)
+    }
+
+    fun cancel() r: UInt64 {
+        if this.cancelled { return 0 as UInt64 }
+        this.cancelled = true
+        this.deliveries = this.deliveries + (1 as UInt64)
+        var delivered = 1 as UInt64
+        var i = 0
+        while i < this.children.length() {
+            delivered = delivered + this.children[i].cancel()
+            i = i + 1
+        }
+        return delivered
+    }
+
+    fun isCancelled() r: Bool { return this.cancelled }
+}
+
+/// Bounded FIFO with at-most-one queued wake per task id.
+@move
+class ReadyQueue {
+    var ids: Array<Int>
+    var head: Int
+    var capacity: Int
+    var closed: Bool
+    var wakeCount: UInt64
+    var popCount: UInt64
+
+    static fun create(capacity: Int) r: Result<ReadyQueue, AsyncError> {
+        if capacity <= 0 or capacity > ASYNC_MAX_QUEUE {
+            return Err<ReadyQueue, AsyncError>(asyncFailure("async.limit",
+                "ready.create", "ready capacity exceeds its bound", false,
+                0 as UInt64, "ready"))
+        }
+        return Ok<ReadyQueue, AsyncError>(ReadyQueue{
+            ids: Array<Int>(), head: 0, capacity: capacity, closed: false,
+            wakeCount: 0 as UInt64, popCount: 0 as UInt64})
+    }
+
+    fun wake(taskId: Int) r: Result<Bool, AsyncError> {
+        if this.closed or taskId <= 0 {
+            return Err<Bool, AsyncError>(asyncFailure("async.invalid",
+                "ready.wake", "ready queue is closed or task id is invalid",
+                false, 0 as UInt64, "ready"))
+        }
+        var i = this.head
+        while i < this.ids.length() {
+            if this.ids[i] == taskId {
+                return Ok<Bool, AsyncError>(false)
+            }
+            i = i + 1
+        }
+        if this.ids.length() - this.head >= this.capacity {
+            return Err<Bool, AsyncError>(asyncFailure("async.limit",
+                "ready.wake", "ready queue is full", false,
+                this.ids.length() as UInt64, "ready"))
+        }
+        this.ids.push(taskId)
+        this.wakeCount = this.wakeCount + (1 as UInt64)
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun pop() r: Option<Int> {
+        if this.head >= this.ids.length() { return None<Int>() }
+        let taskId = this.ids[this.head]
+        this.head = this.head + 1
+        this.popCount = this.popCount + (1 as UInt64)
+        if this.head == this.ids.length() {
+            this.ids = Array<Int>()
+            this.head = 0
+        }
+        return Some<Int>(taskId)
+    }
+
+    fun length() r: Int { return this.ids.length() - this.head }
+
+    fun close() r: Void {
+        this.closed = true
+        this.ids = Array<Int>()
+        this.head = 0
+    }
+}
+
+let ASYNC_TASK_PENDING: Int = 0
+let ASYNC_TASK_READY: Int = 1
+let ASYNC_TASK_FAILED: Int = 2
+let ASYNC_TASK_CANCELLED: Int = 3
+let ASYNC_TASK_JOINED: Int = 4
+
+@move
+class JoinHandle<T> {
+    var taskId: Int
+}
+
+@move
+class DeterministicExecutor<T> {
+    // Parallel arrays avoid nested-generic aggregate layouts while preserving
+    // a typed result slot. Task id N maps to index N-1 in every array.
+    var values: Array<T>
+    var remainingPolls: Array<Int>
+    var states: Array<Int>
+    var cancellations: Array<CancellationSource>
+    var joinCounts: Array<UInt64>
+    var ready: ReadyQueue
+    var limits: AsyncLimits
+    var nextTaskId: Int
+    var polls: UInt64
+    var closed: Bool
+
+    static fun create(limits: AsyncLimits)
+        r: Result<DeterministicExecutor<T>, AsyncError> {
+
+        let queue = ReadyQueue.create(limits.maxReady)
+        if queue.isErr() {
+            return Err<DeterministicExecutor<T>, AsyncError>(queue.unwrapErr())
+        }
+        if limits.maxTasks <= 0 or limits.maxTasks > ASYNC_MAX_TASKS or
+            limits.maxPolls <= 0 {
+            return Err<DeterministicExecutor<T>, AsyncError>(asyncFailure(
+                "async.limit", "executor.create",
+                "executor limits are invalid", false, 0 as UInt64,
+                "executor"))
+        }
+        return Ok<DeterministicExecutor<T>, AsyncError>(
+            DeterministicExecutor<T>{values: Array<T>(),
+                remainingPolls: Array<Int>(), states: Array<Int>(),
+                cancellations: Array<CancellationSource>(),
+                joinCounts: Array<UInt64>(),
+                ready: queue.unwrap(), limits: limits, nextTaskId: 1,
+                polls: 0 as UInt64, closed: false})
+    }
+
+    fun spawn(value: T, pollsUntilReady: Int,
+        cancellation: CancellationSource)
+        r: Result<JoinHandle<T>, AsyncError> {
+
+        if this.closed or pollsUntilReady < 0 {
+            return Err<JoinHandle<T>, AsyncError>(asyncFailure(
+                "async.invalid", "scope.spawn",
+                "executor is closed or task poll count is invalid", false,
+                0 as UInt64, "executor"))
+        }
+        if this.values.length() >= this.limits.maxTasks {
+            return Err<JoinHandle<T>, AsyncError>(asyncFailure("async.limit",
+                "scope.spawn", "task capacity is exhausted", false,
+                this.values.length() as UInt64, "executor"))
+        }
+        let taskId = this.nextTaskId
+        this.nextTaskId = this.nextTaskId + 1
+        let handle = JoinHandle<T>{taskId: taskId}
+        let queued = this.ready.wake(taskId)
+        if queued.isErr() {
+            return Err<JoinHandle<T>, AsyncError>(queued.unwrapErr())
+        }
+        this.values.push(value)
+        this.remainingPolls.push(pollsUntilReady)
+        this.states.push(ASYNC_TASK_PENDING)
+        this.cancellations.push(cancellation)
+        this.joinCounts.push(0 as UInt64)
+        return Ok<JoinHandle<T>, AsyncError>(handle)
+    }
+
+    /// Poll exactly one explicitly-ready task. Task ids are monotonic and map
+    /// directly to their slot, so dormant tasks are never scanned.
+    fun tick() r: Result<Bool, AsyncError> {
+        if this.closed {
+            return Err<Bool, AsyncError>(asyncFailure("async.invalid",
+                "executor.tick", "executor is closed", false, this.polls,
+                "executor"))
+        }
+        let next = this.ready.pop()
+        if next.isNone() { return Ok<Bool, AsyncError>(false) }
+        if this.polls >= (this.limits.maxPolls as UInt64) {
+            return Err<Bool, AsyncError>(asyncFailure("async.limit",
+                "executor.tick", "executor poll budget is exhausted", false,
+                this.polls, "executor"))
+        }
+        let taskId = next.unwrap()
+        if taskId <= 0 or taskId > this.values.length() {
+            return Err<Bool, AsyncError>(asyncFailure("async.invalid",
+                "executor.tick", "ready queue contains a stale task id",
+                false, this.polls, "executor"))
+        }
+        let taskIndex = taskId - 1
+        this.polls = this.polls + (1 as UInt64)
+        if this.states[taskIndex] != ASYNC_TASK_PENDING {
+            return Ok<Bool, AsyncError>(true)
+        }
+        let cancellation = this.cancellations[taskIndex]
+        if cancellation.isCancelled() {
+            this.states[taskIndex] = ASYNC_TASK_CANCELLED
+            return Ok<Bool, AsyncError>(true)
+        }
+        if this.remainingPolls[taskIndex] <= 0 {
+            this.states[taskIndex] = ASYNC_TASK_READY
+            return Ok<Bool, AsyncError>(true)
+        }
+        this.remainingPolls[taskIndex] =
+            this.remainingPolls[taskIndex] - 1
+        let rewake = this.ready.wake(taskId)
+        if rewake.isErr() {
+            this.states[taskIndex] = ASYNC_TASK_FAILED
+            return Err<Bool, AsyncError>(rewake.unwrapErr())
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun taskState(handle: JoinHandle<T>) r: Int {
+        if handle.taskId <= 0 or handle.taskId > this.values.length() {
+            return ASYNC_TASK_FAILED
+        }
+        return this.states[handle.taskId - 1]
+    }
+
+    fun isReady(handle: JoinHandle<T>) r: Bool {
+        return this.taskState(handle) == ASYNC_TASK_READY
+    }
+
+    fun readyCount() r: Int { return this.ready.length() }
+
+    fun join(handle: JoinHandle<T>, context: AsyncOperationContext)
+        r: Result<T, AsyncError> {
+
+        if handle.taskId <= 0 or handle.taskId > this.values.length() {
+            return Err<T, AsyncError>(asyncFailure("async.invalid",
+                "join.await", "join handle does not belong to this executor",
+                false, 0 as UInt64, context.operation.traceId.value))
+        }
+        let taskIndex = handle.taskId - 1
+        let progress = this.joinCounts[taskIndex]
+        let checked = validateAsyncContext(context, "join.await", progress)
+        if checked.isErr() {
+            return Err<T, AsyncError>(checked.unwrapErr())
+        }
+        let state = this.states[taskIndex]
+        if state == ASYNC_TASK_JOINED {
+            return Err<T, AsyncError>(asyncFailure("async.invalid",
+                "join.await", "join handle was already consumed", false,
+                progress, context.operation.traceId.value))
+        }
+        if state == ASYNC_TASK_CANCELLED {
+            return Err<T, AsyncError>(asyncFailure("async.cancelled",
+                "join.await", "task was cancelled", false, progress,
+                context.operation.traceId.value))
+        }
+        if state == ASYNC_TASK_FAILED {
+            return Err<T, AsyncError>(asyncFailure("async.unavailable",
+                "join.await", "task failed", true, progress,
+                context.operation.traceId.value))
+        }
+        if state != ASYNC_TASK_READY {
+            return Err<T, AsyncError>(asyncFailure("async.unavailable",
+                "join.await", "task is not ready", true, progress,
+                context.operation.traceId.value))
+        }
+        let value = this.values[taskIndex]
+        this.states[taskIndex] = ASYNC_TASK_JOINED
+        this.joinCounts[taskIndex] = progress + (1 as UInt64)
+        return Ok<T, AsyncError>(value)
+    }
+
+    fun runUntilIdle() r: Result<UInt64, AsyncError> {
+        let start = this.polls
+        while this.ready.length() > 0 {
+            let progressed = this.tick()
+            if progressed.isErr() {
+                return Err<UInt64, AsyncError>(progressed.unwrapErr())
+            }
+        }
+        return Ok<UInt64, AsyncError>(this.polls - start)
+    }
+
+    fun boundedFanOut(values: Array<T>, pollsUntilReady: Int,
+        cancellation: CancellationSource, maxFanOut: Int)
+        r: Result<Int, AsyncError> {
+
+        if maxFanOut <= 0 or maxFanOut > this.limits.maxFanOut or
+            values.length() > maxFanOut {
+
+            return Err<Int, AsyncError>(asyncFailure("async.limit",
+                "bounded_fan_out", "fan-out exceeds its configured bound",
+                false, values.length() as UInt64, "fan-out"))
+        }
+        var i = 0
+        while i < values.length() {
+            let handle = this.spawn(values[i], pollsUntilReady, cancellation)
+            if handle.isErr() {
+                cancellation.cancel()
+                return Err<Int, AsyncError>(handle.unwrapErr())
+            }
+            i = i + 1
+        }
+        return Ok<Int, AsyncError>(values.length())
+    }
+
+    fun selectTaskId(taskIds: Array<Int>) r: Result<Int, AsyncError> {
+        var winner = -1
+        var winnerTaskId = 9223372036854775807
+        var i = 0
+        while i < taskIds.length() {
+            let handle = JoinHandle<T>{taskId: taskIds[i]}
+            if this.isReady(handle) and taskIds[i] < winnerTaskId {
+                winner = i
+                winnerTaskId = taskIds[i]
+            }
+            i = i + 1
+        }
+        if winner < 0 {
+            return Err<Int, AsyncError>(asyncFailure("async.unavailable",
+                "select", "no handle is ready", true, 0 as UInt64,
+                "select"))
+        }
+        return Ok<Int, AsyncError>(taskIds[winner])
+    }
+
+    fun shutdown(cancelPending: Bool) r: Result<UInt64, AsyncError> {
+        if this.closed { return Ok<UInt64, AsyncError>(0 as UInt64) }
+        var cancelled = 0 as UInt64
+        if cancelPending {
+            var i = 0
+            while i < this.states.length() {
+                if this.states[i] == ASYNC_TASK_PENDING {
+                    let cancellation = this.cancellations[i]
+                    cancellation.cancel()
+                    this.states[i] = ASYNC_TASK_CANCELLED
+                    cancelled = cancelled + (1 as UInt64)
+                }
+                i = i + 1
+            }
+        }
+        this.ready.close()
+        this.closed = true
+        return Ok<UInt64, AsyncError>(cancelled)
+    }
+}
+
+@move
+class Scope<T> {
+    var executor: DeterministicExecutor<T>
+    var cancellation: CancellationSource
+    var closed: Bool
+
+    static fun create(executor: DeterministicExecutor<T>,
+        cancellation: CancellationSource) r: Scope<T> {
+
+        return Scope<T>{executor: executor, cancellation: cancellation,
+            closed: false}
+    }
+
+    fun spawn(value: T, pollsUntilReady: Int)
+        r: Result<JoinHandle<T>, AsyncError> {
+
+        if this.closed {
+            return Err<JoinHandle<T>, AsyncError>(asyncFailure(
+                "async.invalid", "scope.spawn", "scope is closed", false,
+                0 as UInt64, "scope"))
+        }
+        let handle = this.executor.spawn(value, pollsUntilReady,
+            this.cancellation)
+        return handle
+    }
+
+    fun runUntilIdle() r: Result<UInt64, AsyncError> {
+        return this.executor.runUntilIdle()
+    }
+
+    fun isReady(handle: JoinHandle<T>) r: Bool {
+        return this.executor.isReady(handle)
+    }
+
+    fun join(handle: JoinHandle<T>, context: AsyncOperationContext)
+        r: Result<T, AsyncError> {
+
+        return this.executor.join(handle, context)
+    }
+
+    fun cancel() r: UInt64 { return this.cancellation.cancel() }
+
+    fun close() r: Result<UInt64, AsyncError> {
+        if this.closed { return Ok<UInt64, AsyncError>(0 as UInt64) }
+        let cancelled = this.executor.shutdown(true)
+        if cancelled.isErr() {
+            return Err<UInt64, AsyncError>(cancelled.unwrapErr())
+        }
+        this.closed = true
+        return cancelled
+    }
+}
+
+fun selectTaskId<T>(executor: DeterministicExecutor<T>,
+    taskIds: Array<Int>) r: Result<Int, AsyncError> {
+    return executor.selectTaskId(taskIds)
+}
+
+fun raceTaskId<T>(executor: DeterministicExecutor<T>, taskIds: Array<Int>)
+    r: Result<Int, AsyncError> {
+
+    return executor.selectTaskId(taskIds)
+}
+
+fun timeoutJoin<T>(executor: DeterministicExecutor<T>, handle: JoinHandle<T>,
+    context: AsyncOperationContext)
+    r: Result<T, AsyncError> {
+
+    return executor.join(handle, context)
+}
+
+fun boundedFanOut<T>(executor: DeterministicExecutor<T>, values: Array<T>,
+    pollsUntilReady: Int, cancellation: CancellationSource,
+    maxFanOut: Int) r: Result<Int, AsyncError> {
+
+    return executor.boundedFanOut(values, pollsUntilReady, cancellation,
+        maxFanOut)
+}
+
+class AsyncWaitGroup {
+    var remaining: Int
+    var limit: Int
+
+    static fun create(count: Int, limit: Int)
+        r: Result<AsyncWaitGroup, AsyncError> {
+
+        if count < 0 or limit <= 0 or count > limit {
+            return Err<AsyncWaitGroup, AsyncError>(asyncFailure("async.limit",
+                "wait_group.create", "wait count exceeds its bound", false,
+                count as UInt64, "wait-group"))
+        }
+        return Ok<AsyncWaitGroup, AsyncError>(AsyncWaitGroup{
+            remaining: count, limit: limit})
+    }
+
+    fun done() r: Result<Bool, AsyncError> {
+        if this.remaining <= 0 {
+            return Err<Bool, AsyncError>(asyncFailure("async.invalid",
+                "wait_group.done", "wait group is already complete", false,
+                0 as UInt64, "wait-group"))
+        }
+        this.remaining = this.remaining - 1
+        return Ok<Bool, AsyncError>(this.remaining == 0)
+    }
+}
+
+class AsyncBarrier {
+    var parties: Int
+    var arrived: Int
+    var generation: Int
+
+    static fun create(parties: Int) r: Result<AsyncBarrier, AsyncError> {
+        if parties <= 0 or parties > ASYNC_MAX_FAN_OUT {
+            return Err<AsyncBarrier, AsyncError>(asyncFailure("async.limit",
+                "barrier.create", "barrier parties exceed the bound", false,
+                0 as UInt64, "barrier"))
+        }
+        return Ok<AsyncBarrier, AsyncError>(AsyncBarrier{parties: parties,
+            arrived: 0, generation: 0})
+    }
+
+    fun arrive() r: Bool {
+        this.arrived = this.arrived + 1
+        if this.arrived == this.parties {
+            this.arrived = 0
+            this.generation = this.generation + 1
+            return true
+        }
+        return false
+    }
+}
+
+fun deterministicReduceSum(values: Array<Int>, maxItems: Int)
+    r: Result<Int, AsyncError> {
+
+    if maxItems <= 0 or values.length() > maxItems {
+        return Err<Int, AsyncError>(asyncFailure("async.limit", "reduce",
+            "reduction exceeds its bound", false, values.length() as UInt64,
+            "reduce"))
+    }
+    var sum = 0
+    var i = 0
+    while i < values.length() {
+        sum = sum + values[i]
+        i = i + 1
+    }
+    return Ok<Int, AsyncError>(sum)
+}

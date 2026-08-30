@@ -59,7 +59,8 @@ modules = [
     "src/time/mod.seen",
     "src/time/time.seen",
     "src/time/timer.seen",
-    "src/async/runtime.seen",
+    "src/async/structured.seen",
+    "src/async/mod.seen",
 
     # Synchronization and shared ownership
     "src/sync/contracts.seen",

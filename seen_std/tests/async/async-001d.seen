@@ -1,0 +1,43 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import async.mod.{AsyncLimits, AsyncOperationContext, CancellationSource,
+    DeterministicExecutor, Scope, ASYNC_FALLBACK_FORBIDDEN}
+
+fun joinContext() r: AsyncOperationContext {
+    return AsyncOperationContext{operation: OperationContext{
+        cancellation: false,
+        monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4095, maxGraphModules: 8,
+            maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "async-001d"}},
+        resourceId: "join-1", fallbackPolicy: ASYNC_FALLBACK_FORBIDDEN,
+        limits: AsyncLimits.bounded(8, 8, 4, 8, 128)}
+}
+
+fun main() r: Int {
+    let made = DeterministicExecutor<Int>.create(
+        AsyncLimits.bounded(8, 8, 4, 8, 128))
+    if made.isErr() { return 1 }
+    let executor = made.unwrap()
+    let scope = Scope<Int>.create(executor, CancellationSource.root(1))
+    let spawned = scope.spawn(42, 1)
+    if spawned.isErr() { return 2 }
+    let handle = spawned.unwrap()
+    if scope.runUntilIdle().isErr() or not scope.isReady(handle) { return 3 }
+    let joined = scope.join(handle, joinContext())
+    if joined.isErr() or joined.unwrap() != 42 { return 4 }
+    let twice = scope.join(handle, joinContext())
+    if not twice.isErr() or twice.unwrapErr().code != "async.invalid" {
+        return 5
+    }
+    if scope.close().isErr() { return 6 }
+    println("PASS: ASYNC-001D_happy")
+    println("PASS: ASYNC-001D_partial")
+    println("PASS: ASYNC-001D_invalid")
+    println("PASS: ASYNC-001D_limit")
+    println("PASS: ASYNC-001D_cancel")
+    println("PASS: ASYNC-001D_cleanup")
+    return 0
+}

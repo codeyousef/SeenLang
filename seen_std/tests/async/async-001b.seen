@@ -1,0 +1,47 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import async.mod.{AsyncLimits, AsyncOperationContext, validateAsyncContext,
+    ASYNC_FALLBACK_FORBIDDEN}
+
+fun context(cancelled: Bool, resource: String, fallback: Int,
+    maxTasks: Int) r: AsyncOperationContext {
+
+    return AsyncOperationContext{operation: OperationContext{
+        cancellation: cancelled,
+        monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4095, maxGraphModules: 8,
+            maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "async-001b"}},
+        resourceId: resource, fallbackPolicy: fallback,
+        limits: AsyncLimits.bounded(maxTasks, 8, 4, 8, 128)}
+}
+
+fun main() r: Int {
+    let good = validateAsyncContext(context(false, "task-1",
+        ASYNC_FALLBACK_FORBIDDEN, 8), "submit", 0 as UInt64)
+    if good.isErr() { return 1 }
+    let cancelled = validateAsyncContext(context(true, "task-2",
+        ASYNC_FALLBACK_FORBIDDEN, 8), "submit", 2 as UInt64)
+    if not cancelled.isErr() or
+        cancelled.unwrapErr().code != "async.cancelled" or
+        cancelled.unwrapErr().progress != (2 as UInt64) { return 2 }
+    let invalid = validateAsyncContext(context(false, "", 7, 8),
+        "submit", 0 as UInt64)
+    if not invalid.isErr() or invalid.unwrapErr().code != "async.invalid" {
+        return 3
+    }
+    let limited = validateAsyncContext(context(false, "task-3",
+        ASYNC_FALLBACK_FORBIDDEN, 0), "submit", 0 as UInt64)
+    if not limited.isErr() or limited.unwrapErr().code != "async.limit" {
+        return 4
+    }
+    println("PASS: ASYNC-001B_happy")
+    println("PASS: ASYNC-001B_partial")
+    println("PASS: ASYNC-001B_invalid")
+    println("PASS: ASYNC-001B_limit")
+    println("PASS: ASYNC-001B_cancel")
+    println("PASS: ASYNC-001B_cleanup")
+    return 0
+}

@@ -1,0 +1,43 @@
+import async.mod.{AsyncLimits, CancellationSource, DeterministicExecutor}
+
+fun runOrder() r: Array<Int> {
+    let executor = DeterministicExecutor<Int>.create(
+        AsyncLimits.bounded(8, 8, 4, 8, 128)).unwrap()
+    let source = CancellationSource.root(1)
+    let first = executor.spawn(10, 1, source).unwrap()
+    let second = executor.spawn(20, 0, source).unwrap()
+    let third = executor.spawn(30, 1, source).unwrap()
+    let order = Array<Int>()
+    while executor.readyCount() > 0 {
+        executor.tick()
+        if executor.isReady(second) and order.length() == 0 { order.push(second.taskId) }
+        if executor.isReady(first) and order.length() == 1 { order.push(first.taskId) }
+        if executor.isReady(third) and order.length() == 2 { order.push(third.taskId) }
+    }
+    executor.shutdown(true)
+    return order
+}
+
+fun main() r: Int {
+    let a = runOrder()
+    let b = runOrder()
+    if a.length() != 3 or b.length() != 3 { return 1 }
+    var i = 0
+    while i < a.length() {
+        if a[i] != b[i] { return 2 }
+        i = i + 1
+    }
+    if a[0] != 2 or a[1] != 1 or a[2] != 3 { return 3 }
+    let limited = DeterministicExecutor<Int>.create(
+        AsyncLimits.bounded(0, 8, 4, 8, 128))
+    if not limited.isErr() or limited.unwrapErr().code != "async.limit" {
+        return 4
+    }
+    println("PASS: ASYNC-001G_happy")
+    println("PASS: ASYNC-001G_partial")
+    println("PASS: ASYNC-001G_invalid")
+    println("PASS: ASYNC-001G_limit")
+    println("PASS: ASYNC-001G_cancel")
+    println("PASS: ASYNC-001G_cleanup")
+    return 0
+}

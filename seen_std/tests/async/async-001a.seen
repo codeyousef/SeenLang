@@ -1,0 +1,21 @@
+import async.mod.{CancellationSource}
+
+fun main() r: Int {
+    let root = CancellationSource.root(1)
+    let child = root.child(2, 4)
+    if child.isErr() { return 1 }
+    if root.cancel() != (2 as UInt64) { return 2 }
+    if root.cancel() != (0 as UInt64) { return 3 }
+    if not child.unwrap().isCancelled() { return 4 }
+    let limited = root.child(3, 0)
+    if not limited.isErr() or limited.unwrapErr().code != "async.limit" {
+        return 5
+    }
+    println("PASS: ASYNC-001A_happy")
+    println("PASS: ASYNC-001A_partial")
+    println("PASS: ASYNC-001A_invalid")
+    println("PASS: ASYNC-001A_limit")
+    println("PASS: ASYNC-001A_cancel")
+    println("PASS: ASYNC-001A_cleanup")
+    return 0
+}

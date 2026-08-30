@@ -113,7 +113,7 @@
     {
       "id": "time-clock-adapter",
       "subsystem": "stdlib.time",
-      "purpose": "Narrow clock and sleep normalization ABI. Native Seen owns checked duration geometry, injected/manual clocks, timer queue bounds, missed-tick policy, RFC3339 parsing, cancellation, and backoff. The runtime only reads monotonic/wall clocks and performs an interrupt-safe sleep.",
+      "purpose": "Narrow clock and sleep normalization ABI. Native Seen owns checked duration geometry, injected/manual clocks, timer queue bounds, structured-async deadlines, missed-tick policy, RFC3339 parsing, cancellation, and backoff. The runtime only reads monotonic/wall clocks and performs an interrupt-safe sleep.",
       "abi": "OS time C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_time_monotonic_nanos", "seen_time_sleep_nanos", "seen_time_system_nanos"],

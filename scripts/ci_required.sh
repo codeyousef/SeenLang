@@ -38,7 +38,9 @@ fi
 bash -n \
     tests/misc_root_tests/seen_core_004e_deterministic_context.sh \
     tests/misc_root_tests/seen_program_artifacts_contract.sh \
-    tests/misc_root_tests/seen_program_reproducibility_contract.sh
+    tests/misc_root_tests/seen_program_reproducibility_contract.sh \
+    tests/misc_root_tests/seen_v019_float_codegen_contract.sh \
+    tests/misc_root_tests/seen_async_structured_contract.sh
 tests/misc_root_tests/seen_program_artifacts_contract.sh
 SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh

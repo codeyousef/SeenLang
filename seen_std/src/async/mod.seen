@@ -1,0 +1,11 @@
+/// Public structured-async surface.
+
+import async.structured.{AsyncError, AsyncLimits, AsyncOperationContext,
+    CancellationSource, ReadyQueue, JoinHandle,
+    DeterministicExecutor, Scope, AsyncWaitGroup, AsyncBarrier,
+    ASYNC_MAX_TASKS, ASYNC_MAX_QUEUE, ASYNC_MAX_TREE_DEPTH,
+    ASYNC_MAX_FAN_OUT, ASYNC_FALLBACK_FORBIDDEN, ASYNC_FALLBACK_EXPLICIT,
+    ASYNC_TASK_PENDING, ASYNC_TASK_READY, ASYNC_TASK_FAILED,
+    ASYNC_TASK_CANCELLED, ASYNC_TASK_JOINED, asyncFailure, asyncUnsupported,
+    validateAsyncContext, selectTaskId, raceTaskId, timeoutJoin,
+    boundedFanOut, deterministicReduceSum}
