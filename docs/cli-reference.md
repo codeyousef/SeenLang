@@ -1,6 +1,6 @@
 # CLI Reference
 
-This page documents the shipped Seen 0.19.0 compiler binary. The release
+This page documents the shipped Seen 0.19.1 compiler binary. The release
 entrypoint is `seen compile`; older `seen build` examples are stale for the
 current packaged compiler.
 
@@ -255,7 +255,7 @@ seen pkg yank|report [options]
 
 The service exposes authenticated report, yank, appeal, and emergency-security
 workflows, while their CLI commands and private-package access remain inactive
-in 0.19.0. The development service and embedded trust root are live; production
+in 0.19.1. The development service and embedded trust root are live; production
 remains absent and fails closed.
 
 ### Platform Packaging Commands

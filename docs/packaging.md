@@ -1,6 +1,6 @@
 # Seen Packaging
 
-Seen 0.19.0 ships a version-coupled package client for declaring dependencies in
+Seen 0.19.1 ships a version-coupled package client for declaring dependencies in
 `Seen.toml`, resolving complete dependency graphs, enforcing `Seen.lock`, and
 installing verified source packages. The compiler prepares those dependencies
 before `compile`, `check`, and `run` and rejects a package client from a

@@ -34,7 +34,7 @@ grep -Fq 'generated Unicode tables are stale: expected sha256' \
 mkdir -p "$PACKAGE_ARTIFACT_ROOT/tokenizers-package"
 ARCHIVE="$PACKAGE_ARTIFACT_ROOT/tokenizers-package/seen-tokenizers-0.1.0.tar.gz"
 ARCHIVE_LIST="$PACKAGE_ARTIFACT_ROOT/tokenizers-package/contents.txt"
-"$PACKAGE_CLIENT" --expect-version 0.19.0 pack \
+"$PACKAGE_CLIENT" --expect-version 0.19.1 pack \
     "$ROOT_DIR/packages/seen_tokenizers" --output "$ARCHIVE" >/dev/null
 tar -tzf "$ARCHIVE" >"$ARCHIVE_LIST"
 for required in Seen.toml README.md LICENSE src/mod.seen src/unicode_tables.seen \
