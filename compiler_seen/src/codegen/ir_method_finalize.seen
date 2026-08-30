@@ -257,6 +257,84 @@ fun emitResultPayloadHandleCallImpl(output: StringBuilder,
     return payloadHandleReg
 }
 
+///
+/// emitResultAggregatePayloadLoadImpl — validate a Result branch and load an
+/// inline data payload with its concrete LLVM aggregate type. Generic Result
+/// methods use an erased i64 ABI for scalar/handle payloads, which must never
+/// be used for a multi-field value.
+///
+fun emitResultAggregatePayloadLoadImpl(output: StringBuilder,
+    regBox: Array<Int>, methodName: String, payloadType: String,
+    receiverReg: String, argRegs: Array<String>) r: String {
+
+    let labelId = regBox[0].toString()
+    let invalidLabel = "result.aggregate.invalid." + labelId
+    let validLabel = "result.aggregate.valid." + labelId
+    let isOkPtrReg = getNextRegFn(regBox)
+    output.append("  " + isOkPtrReg +
+        " = getelementptr inbounds { i1, ptr, ptr }, ptr " + receiverReg +
+        ", i32 0, i32 0\n")
+    let isOkReg = getNextRegFn(regBox)
+    output.append("  " + isOkReg + " = load i1, ptr " + isOkPtrReg + "\n")
+
+    var storageIndex = 1
+    if methodName == "unwrapErr" { storageIndex = 2 }
+    let storagePtrPtrReg = getNextRegFn(regBox)
+    output.append("  " + storagePtrPtrReg +
+        " = getelementptr inbounds { i1, ptr, ptr }, ptr " + receiverReg +
+        ", i32 0, i32 " + storageIndex.toString() + "\n")
+    let storagePtrReg = getNextRegFn(regBox)
+    output.append("  " + storagePtrReg + " = load ptr, ptr " +
+        storagePtrPtrReg + "\n")
+    let storageLengthReg = getNextRegFn(regBox)
+    output.append("  " + storageLengthReg +
+        " = call i64 @seen_arr_length_ptr(ptr " + storagePtrReg + ")\n")
+    let emptyReg = getNextRegFn(regBox)
+    output.append("  " + emptyReg + " = icmp eq i64 " + storageLengthReg +
+        ", 0\n")
+    var wrongBranchReg = isOkReg
+    if methodName != "unwrapErr" {
+        wrongBranchReg = getNextRegFn(regBox)
+        output.append("  " + wrongBranchReg + " = xor i1 " + isOkReg +
+            ", true\n")
+    }
+    let invalidReg = getNextRegFn(regBox)
+    output.append("  " + invalidReg + " = or i1 " + wrongBranchReg + ", " +
+        emptyReg + "\n")
+    output.append("  br i1 " + invalidReg + ", label %" + invalidLabel +
+        ", label %" + validLabel + "\n")
+    output.append(invalidLabel + ":\n")
+    if methodName == "expect" and argRegs.length() > 0 {
+        let messageLengthReg = getNextRegFn(regBox)
+        output.append("  " + messageLengthReg +
+            " = extractvalue %SeenString " + argRegs[0] + ", 0\n")
+        let messageDataReg = getNextRegFn(regBox)
+        output.append("  " + messageDataReg +
+            " = extractvalue %SeenString " + argRegs[0] + ", 1\n")
+        output.append("  call void @__panic(i64 " + messageLengthReg +
+            ", ptr " + messageDataReg + ") noreturn\n")
+    } else {
+        output.append("  call void @__panic(i64 0, ptr null) noreturn\n")
+    }
+    output.append("  unreachable\n")
+    output.append(validLabel + ":\n")
+    let elementPtrReg = getNextRegFn(regBox)
+    output.append("  " + elementPtrReg +
+        " = call ptr @seen_arr_get_element_ptr(ptr " + storagePtrReg +
+        ", i64 0)\n")
+    let payloadHandleReg = getNextRegFn(regBox)
+    output.append("  " + payloadHandleReg + " = load i64, ptr " +
+        elementPtrReg + "\n")
+    let payloadPtrReg = getNextRegFn(regBox)
+    output.append("  " + payloadPtrReg + " = inttoptr i64 " +
+        payloadHandleReg + " to ptr\n")
+    let resultReg = getNextRegFn(regBox)
+    let payloadLlvmType = mapTypeState(payloadType)
+    output.append("  " + resultReg + " = load " + payloadLlvmType +
+        ", ptr " + payloadPtrReg + "\n")
+    return resultReg
+}
+
 fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
     regBox: Array<Int>, methodName: String, instanceTypeName: String,
     receiverType: String, returnTypeStr: String, receiverLlvmType: String,
@@ -310,6 +388,15 @@ fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
         var payloadType = extractResultInnerType(receiverType)
         if methodName == "unwrapErr" {
             payloadType = extractResultErrorType(receiverType)
+        }
+        if payloadType == "" or payloadType == "Unknown" {
+            payloadType = returnTypeStr
+        }
+        let payloadLlvmType = mapTypeState(payloadType)
+        if isDataTypeState(payloadType) or
+            (payloadType != "String" and payloadLlvmType.startsWith("%")) {
+            return emitResultAggregatePayloadLoadImpl(output, regBox,
+                methodName, payloadType, receiverReg, argRegs)
         }
         if payloadType == "String" {
             let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,

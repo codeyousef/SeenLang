@@ -1,0 +1,39 @@
+import core.result.{Result}
+import result_support.{validateCrossModuleView}
+
+@repr(C)
+@trivially_copyable
+class LocalView {
+    var data: *const UInt8
+    var byteLength: UInt64
+    var logicalElements: UInt64
+    var codec: UInt16
+}
+
+class LocalError {
+    var code: Int
+}
+
+fun sameModuleView() r: Result<LocalView, LocalError> {
+    return Ok<LocalView, LocalError>(LocalView{
+        data: null as *const UInt8,
+        byteLength: 8192 as UInt64,
+        logicalElements: 2048 as UInt64,
+        codec: 8 as UInt16
+    })
+}
+
+fun main() r: Int {
+    let localResult = sameModuleView()
+    if not localResult.isOkay() or localResult.isErr() { return 1 }
+    let localView = localResult.unwrap()
+    if localView.byteLength != (8192 as UInt64) { return 2 }
+    if localView.logicalElements != (2048 as UInt64) { return 3 }
+    if localView.codec != (8 as UInt16) { return 4 }
+
+    let crossModuleStatus = validateCrossModuleView()
+    if crossModuleStatus != 0 { return 4 + crossModuleStatus }
+    return 0
+}
+
+main()

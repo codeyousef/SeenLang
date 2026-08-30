@@ -228,6 +228,8 @@ grep -Fq 'seen_arr_set_i64' \
     fail "Boolean Array assignment direct-lowering contract is missing"
 grep -Fq 'seen_v019_float_codegen_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits v0.19 float regressions"
+grep -Fq 'seen_result_aggregate_array_data_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1554/FEL-1555 regressions"
 grep -Fq 'seen_async_structured_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits structured async regressions"
 grep -Fq 'structured_async.seen' "$STAGE1" ||

@@ -306,7 +306,7 @@ fun emitArrayBasicMethodImpl(output: StringBuilder, regBox: Array<Int>,
         return resultReg
     }
 
-    if methodName == "dataPtr" {
+    if methodName == "data" or methodName == "dataPtr" {
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = call i64 @seen_arr_data_ptr(ptr " + receiverReg + ")\n")
         return resultReg

@@ -98,6 +98,13 @@ fun getCollectionMethodReturnTypeImpl(structName: String,
 
     if structName == "Array" or structName.startsWith("Array<") {
         if methodName == "length" or methodName == "len" { return "Int" }
+        if methodName == "data" or methodName == "dataPtr" {
+            if structName.startsWith("Array<") and structName.endsWith(">") {
+                return "*" + structName.substring(6,
+                    structName.length() - 1)
+            }
+            return "*Void"
+        }
         if methodName == "push" or methodName == "set" or
             methodName == "clear" or methodName == "free" or
             methodName == "swap" {

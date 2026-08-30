@@ -461,6 +461,8 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_v019_float_codegen_contract.sh"
 COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_result_aggregate_array_data_contract.sh"
+COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_async_structured_contract.sh"
 
 if [ "$TIER" = "verify" ]; then

@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed FEL-1549 by giving postfix `as` casts their correct precedence before
   comparisons and short-circuit operators, so every Float-to-Int conversion is
   lowered before integer comparison.
+- Fixed FEL-1554 by preserving concrete multi-field aggregate types through
+  generic `Result<T, E>` validation and unwrap, including cross-module
+  release/ThinLTO calls, instead of routing value payloads through `i64`.
+- Fixed FEL-1555 by lowering `Array<T>.data()` to the typed array data-pointer
+  primitive; accepted source no longer emits an undefined `Array_data` symbol.
 
 ## [0.18.1] - 2026-08-29
 

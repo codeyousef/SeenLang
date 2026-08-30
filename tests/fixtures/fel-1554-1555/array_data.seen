@@ -1,0 +1,11 @@
+fun main() r: Int {
+    let values = Array<Int>()
+    values.push(17)
+    let pointer = values.data()
+    if pointer == (null as *Int) { return 1 }
+    if *pointer != 17 { return 2 }
+    values.free()
+    return 0
+}
+
+main()

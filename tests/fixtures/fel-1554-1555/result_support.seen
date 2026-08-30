@@ -1,0 +1,33 @@
+import core.result.{Result}
+
+@repr(C)
+@trivially_copyable
+class AggregateView {
+    var data: *const UInt8
+    var byteLength: UInt64
+    var logicalElements: UInt64
+    var codec: UInt16
+}
+
+class AggregateError {
+    var code: Int
+}
+
+fun crossModuleView() r: Result<AggregateView, AggregateError> {
+    return Ok<AggregateView, AggregateError>(AggregateView{
+        data: null as *const UInt8,
+        byteLength: 4096 as UInt64,
+        logicalElements: 1024 as UInt64,
+        codec: 16 as UInt16
+    })
+}
+
+fun validateCrossModuleView() r: Int {
+    let result = crossModuleView()
+    if not result.isOkay() or result.isErr() { return 1 }
+    let view = result.unwrap()
+    if view.byteLength != (4096 as UInt64) { return 2 }
+    if view.logicalElements != (1024 as UInt64) { return 3 }
+    if view.codec != (16 as UInt16) { return 4 }
+    return 0
+}
