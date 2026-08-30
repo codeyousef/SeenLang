@@ -648,7 +648,7 @@ fun InitializeResult_new() r: InitializeResult {
     result.capabilities = ServerCapabilities()
     result.serverInfo = ServerInfo()
     result.serverInfo.name = "Seen Language Server"
-    result.serverInfo.version = "0.18.1"
+    result.serverInfo.version = "0.19.0"
     return result
 }
 

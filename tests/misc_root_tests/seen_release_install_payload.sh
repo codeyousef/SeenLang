@@ -76,7 +76,7 @@ cmp -s "$WORK_DIR/prefix/bin/compatibility-manifest.json" \
     "$ROOT_DIR/releases/compatibility-manifest.json"
 test -f "$WORK_DIR/prefix/lib/seen/std/json/strict.seen"
 test -f "$WORK_DIR/prefix/lib/seen/std/crypto/sha256.seen"
-"$WORK_DIR/prefix/bin/seen-pkg" --expect-version 0.18.1 version >/dev/null
+"$WORK_DIR/prefix/bin/seen-pkg" --expect-version 0.19.0 version >/dev/null
 cp "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" \
     "$WORK_DIR/source/main.seen"
 mkdir -p "$WORK_DIR/source/.seen/agent-tools"
@@ -161,4 +161,4 @@ PREFIX_DIGEST_AFTER=$(prefix_digest)
     echo "FAIL: installed source payload changed during compilation" >&2
     exit 1
 }
-echo "PASS: installed layout provides a self-contained Seen 0.18.1 payload"
+echo "PASS: installed layout provides a self-contained Seen 0.19.0 payload"

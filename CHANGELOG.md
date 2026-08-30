@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-30
+
+### Added
+
+- Added the `seen-structured-async-v1` native Seen contract with one-shot tree
+  cancellation, bounded operation contexts, a duplicate-suppressing wake
+  queue, move-only scopes and typed join handles, deterministic scheduling,
+  select/race/timeout helpers, bounded fan-out, wait groups, barriers, and
+  deterministic reduction.
+- Added named ASYNC-001A through ASYNC-001G adverse-path fixtures and a
+  compiling structured-async example. The release gate verifies cancellation,
+  limits, partial progress, deterministic order, and idempotent cleanup using
+  the fresh compiler.
+
+### Changed
+
+- Replaced the pre-1.0 poll-all coroutine coordinator and disconnected future
+  class with the bounded `async.mod` surface. Scheduling and cancellation
+  policy remain in Seen and use only the ledgered monotonic-clock adapter.
+
+### Fixed
+
+- Fixed FEL-1544 by preserving Float32 receiver types through method lowering
+  and promoting them explicitly before runtime string conversion, including
+  direct, array-loaded, concatenated, and multilingual expressions.
+- Fixed FEL-1545 by emitting true LLVM `float` arithmetic and comparisons for
+  `Float32` operands, preserving finite, overflow, underflow, infinity, and NaN
+  behavior after generic array access.
+- Fixed FEL-1546 by lowering fixed-width integer-to-float conversions with the
+  source integer width and correct signedness; `UInt64` now uses `uitofp`
+  before floating-point division.
+- Fixed FEL-1549 by giving postfix `as` casts their correct precedence before
+  comparisons and short-circuit operators, so every Float-to-Int conversion is
+  lowered before integer comparison.
+
 ## [0.18.1] - 2026-08-29
 
 ### Fixed
