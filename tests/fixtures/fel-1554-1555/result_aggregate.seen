@@ -15,12 +15,13 @@ class LocalError {
 }
 
 fun sameModuleView() r: Result<LocalView, LocalError> {
-    return Ok<LocalView, LocalError>(LocalView{
+    let view = LocalView{
         data: null as *const UInt8,
         byteLength: 8192 as UInt64,
         logicalElements: 2048 as UInt64,
         codec: 8 as UInt16
-    })
+    }
+    return Ok<LocalView, LocalError>(view)
 }
 
 fun main() r: Int {

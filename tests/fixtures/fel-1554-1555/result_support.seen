@@ -14,12 +14,13 @@ class AggregateError {
 }
 
 fun crossModuleView() r: Result<AggregateView, AggregateError> {
-    return Ok<AggregateView, AggregateError>(AggregateView{
+    let view = AggregateView{
         data: null as *const UInt8,
         byteLength: 4096 as UInt64,
         logicalElements: 1024 as UInt64,
         codec: 16 as UInt16
-    })
+    }
+    return Ok<AggregateView, AggregateError>(view)
 }
 
 fun validateCrossModuleView() r: Int {

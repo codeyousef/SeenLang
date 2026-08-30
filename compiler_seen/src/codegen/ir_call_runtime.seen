@@ -8,6 +8,8 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_declarations.{emitMathBuiltinImpl, emitSomeConstructorImpl, emitNoneConstructorImpl}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructSizesImpl}
+import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
 
 fun normalizeRuntimeDoubleOperandImpl(argReg: String) r: String {
     if argReg.startsWith("%") {
@@ -56,7 +58,8 @@ fun emitOptionRuntimeBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>, 
 }
 
 fun emitResultRuntimeBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
-    funcName: String, argReg: String, argLlvmType: String) r: String {
+    funcName: String, argReg: String, argLlvmType: String,
+    argIsStructLiteral: Bool) r: String {
 
     if funcName != "Ok" and funcName != "Err" {
         return ""
@@ -84,6 +87,30 @@ fun emitResultRuntimeBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
         output.append("  store %SeenString " + argReg + ", ptr " + slotReg + "\n")
         let resultReg = getNextRegFn(regBox)
         output.append("  " + resultReg + " = ptrtoint ptr " + slotReg + " to i64\n")
+        return resultReg
+    }
+
+    if argLlvmType.startsWith("%") {
+        // Struct literals already carry the heap-storage handle produced by
+        // generateStructLiteralState. Other aggregate expressions are values
+        // and need escaping storage before crossing Result's erased i64 ABI.
+        if argIsStructLiteral {
+            return argReg
+        }
+        let aggregateSize = getLlvmTypeSizeImpl(argLlvmType,
+            getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+            getGlobalStructSizesImpl())
+        if aggregateSize <= 0 {
+            return ""
+        }
+        let slotReg = getNextRegFn(regBox)
+        output.append("  " + slotReg + " = call ptr @seen_checked_malloc(i64 " +
+            aggregateSize.toString() + ")\n")
+        output.append("  store " + argLlvmType + " " + argReg +
+            ", ptr " + slotReg + "\n")
+        let resultReg = getNextRegFn(regBox)
+        output.append("  " + resultReg + " = ptrtoint ptr " + slotReg +
+            " to i64\n")
         return resultReg
     }
 

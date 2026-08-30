@@ -43,9 +43,24 @@ fun emitLetStatementInitializerState(ctx: CodegenLoweringContext,
         stmt.initializer.kind, varType) != 0 {
         setPendingArrayLiteralTypeWithGlobalStateImpl(varType)
     }
-    let valueReg = lowerExpression(ctx, stmt.initializer)
+    var valueReg = lowerExpression(ctx, stmt.initializer)
     setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
     let initializerType = inferLoweredExpressionType(ctx, stmt.initializer)
+    if stmt.initializer.kind == "StructLiteral" and
+        llvmType.startsWith("%") {
+
+        var literalStorageReg = valueReg
+        if isClassTypeState(initializerType) {
+            let storagePtrReg = getNextRegFn(getFeatureRegBoxImpl())
+            output.append("  " + storagePtrReg + " = inttoptr i64 " +
+                valueReg + " to ptr\n")
+            literalStorageReg = storagePtrReg
+        }
+        let loadedValueReg = getNextRegFn(getFeatureRegBoxImpl())
+        output.append("  " + loadedValueReg + " = load " + llvmType +
+            ", ptr " + literalStorageReg + "\n")
+        valueReg = loadedValueReg
+    }
     var storedValueReg = coerceOptionStoreValueCoreImpl(output,
         getFeatureRegBoxImpl(), varType, initializerType, valueReg,
         getGlobalStructNamesImpl())

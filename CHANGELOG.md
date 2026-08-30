@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Completed FEL-1554 for aggregate values first bound to a local before
+  `Ok`/`Err`: `@repr(C)` literals now enter locals as concrete LLVM
+  aggregates, and non-literal aggregate payloads receive correctly sized
+  escaping storage before crossing the generic `Result<T, E>` handle ABI.
+  Same-module and cross-module fast and release/ThinLTO regressions cover the
+  production Qwen source shape.
+
 ## [0.19.0] - 2026-08-30
 
 ### Added

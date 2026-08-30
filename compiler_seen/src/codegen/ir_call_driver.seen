@@ -173,7 +173,8 @@ fun generateCallState(ctx: CodegenLoweringContext,
     }
     if (funcName == "Ok" or funcName == "Err") and argRegs.length() > 0 {
         let boxedResultPayload = emitResultRuntimeBuiltinCallImpl(output,
-            getFeatureRegBoxImpl(), funcName, argRegs[0], argTypeStrs[0])
+            getFeatureRegBoxImpl(), funcName, argRegs[0], argTypeStrs[0],
+            expr.arguments[0].kind == "StructLiteral")
         if boxedResultPayload != "" {
             argRegs[0] = boxedResultPayload
             argTypeStrs[0] = "i64"
