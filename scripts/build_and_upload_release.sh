@@ -438,6 +438,11 @@ fi
 
 require_artifacts "${EXPECTED_ARTIFACTS[@]}"
 
+# Refuse to publish if any Linux installer/package embeds a compiler other
+# than the exact standalone component that will be signed below.
+"$SCRIPT_DIR/verify_linux_delivery_compiler_identity.sh" \
+    "$VERSION" "$DIST_DIR"
+
 CHECKSUM_ARTIFACTS=("${EXPECTED_ARTIFACTS[@]}")
 
 # macOS archives can only reach dist/ through the explicit cross-host input

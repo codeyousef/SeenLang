@@ -16,7 +16,7 @@ fun main() r: Int {
     pins.push(examplePin("stdlib", "stdlib.tar.gz", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"))
     pins.push(examplePin("package-client", "seen-pkg", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"))
     let manifest = ReleaseArtifactManifest{schema: "seen-release-artifact-manifest-v1",
-        version: "0.19.1", target: "linux-x86_64",
+        version: "0.19.2", target: "linux-x86_64",
         sourceCommit: "1111111111111111111111111111111111111111",
         sourceDigest: "2222222222222222222222222222222222222222222222222222222222222222",
         signer: ReleaseSignerIdentity{mode: "keyless", identity: "github-release-workflow",

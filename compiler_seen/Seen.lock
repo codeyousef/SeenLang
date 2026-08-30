@@ -1,7 +1,7 @@
 version = 2
-manifest_sha256 = "d23fd56a36024780b5733ebe4f5377b95fbe17455274be7f33bab95bb2a963aa"
+manifest_sha256 = "33245750bb375eb4683ff301477d667e0071517451659e8ce513bb3e9fc18239"
 
 [root]
 name = "seen_compiler"
-version = "0.19.1"
+version = "0.19.2"
 dependencies = []

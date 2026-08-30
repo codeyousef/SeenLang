@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-08-30
+
+### Fixed
+
+- Made the signed Linux compiler component the canonical stripped byte
+  sequence embedded by the complete archive, DEB, RPM, and AppImage delivery
+  paths. Every package now carries bounded provenance metadata and verifies
+  compiler SHA-256, size, build ID, version, CPU baseline, source commit, and
+  signed source-asset identity before use and after installation.
+- Added a fail-closed pre-upload release gate that extracts every produced
+  Linux delivery, compares its compiler byte-for-byte with the signed
+  component, and performs a clean-prefix install with installed-path hash
+  readback. Tampered, stale, mismatched, or ambiguous provenance is rejected.
+
 ## [0.19.1] - 2026-08-30
 
 ### Fixed

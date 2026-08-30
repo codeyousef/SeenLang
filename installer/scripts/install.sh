@@ -219,6 +219,14 @@ install_seen() {
     if [ ! -f "$package_client_bin" ]; then
         error "Release archive does not contain the version-coupled Seen package client"
     fi
+    local provenance_file="$package_dir/share/seen/compiler-provenance.env"
+    local provenance_verifier="$package_dir/lib/seen/toolchain/verify-compiler-provenance.sh"
+    if [ ! -f "$provenance_file" ] || [ ! -x "$provenance_verifier" ]; then
+        error "Release archive does not contain compiler provenance evidence"
+    fi
+    if ! "$provenance_verifier" "$provenance_file" "$seen_bin"; then
+        error "Release compiler does not match its declared signed source asset"
+    fi
     
     info "Installing Seen to $install_dir..."
     
@@ -314,6 +322,12 @@ install_seen() {
         elif [ -d "$temp_dir/docs" ]; then
             cp -r "$temp_dir/docs" "$install_dir/share/seen/"
         fi
+    fi
+
+    if ! "$install_dir/lib/seen/toolchain/verify-compiler-provenance.sh" \
+        "$install_dir/share/seen/compiler-provenance.env" \
+        "$install_dir/bin/seen"; then
+        error "Installed compiler does not match the release provenance evidence"
     fi
     
     success "Seen installed successfully"

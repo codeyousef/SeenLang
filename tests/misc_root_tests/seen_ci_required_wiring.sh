@@ -15,6 +15,8 @@ RELEASE_CI_CHECKER="$ROOT_DIR/scripts/check_release_ci_run.py"
 RELEASE_TOOLCHAIN="$ROOT_DIR/scripts/release_toolchain_artifact.py"
 PREPARE_RELEASE_TOOLCHAIN="$ROOT_DIR/scripts/prepare_release_toolchain_artifact.sh"
 RELEASE_TAG_POLICY="$ROOT_DIR/scripts/release_tag_policy.sh"
+COMPILER_PROVENANCE="$ROOT_DIR/scripts/verify_compiler_provenance.sh"
+LINUX_DELIVERY_PROVENANCE="$ROOT_DIR/scripts/verify_linux_delivery_compiler_identity.sh"
 PREBUILD="$ROOT_DIR/scripts/seen_prebuild_gates.sh"
 STAGE1="$ROOT_DIR/scripts/seen_stage1_acceptance.sh"
 CORE_004E="$ROOT_DIR/tests/misc_root_tests/seen_core_004e_deterministic_context.sh"
@@ -37,6 +39,8 @@ fail() {
 [ -f "$RELEASE_TOOLCHAIN" ] && [ ! -L "$RELEASE_TOOLCHAIN" ] || fail "release toolchain checker is missing or unsafe"
 [ -x "$PREPARE_RELEASE_TOOLCHAIN" ] && [ ! -L "$PREPARE_RELEASE_TOOLCHAIN" ] || fail "release toolchain preparer is missing or unsafe"
 [ -f "$RELEASE_TAG_POLICY" ] && [ ! -L "$RELEASE_TAG_POLICY" ] || fail "release tag policy is missing or unsafe"
+[ -x "$COMPILER_PROVENANCE" ] && [ ! -L "$COMPILER_PROVENANCE" ] || fail "compiler provenance verifier is missing or unsafe"
+[ -x "$LINUX_DELIVERY_PROVENANCE" ] && [ ! -L "$LINUX_DELIVERY_PROVENANCE" ] || fail "Linux delivery provenance verifier is missing or unsafe"
 bash -n "$REQUIRED" || fail "required gate shell syntax"
 bash -n "$CONTAINED" || fail "contained CI entrypoint shell syntax"
 bash -n "$PROVISION" || fail "CI host provisioner shell syntax"
@@ -45,6 +49,7 @@ bash -n "$RELEASE_CONTAINED" || fail "contained release entrypoint shell syntax"
 bash -n "$RELEASE_CI" || fail "release CI verifier shell syntax"
 bash -n "$PREPARE_RELEASE_TOOLCHAIN" || fail "release toolchain preparer shell syntax"
 bash -n "$RELEASE_TAG_POLICY" || fail "release tag policy shell syntax"
+bash -n "$COMPILER_PROVENANCE" "$LINUX_DELIVERY_PROVENANCE" || fail "compiler provenance shell syntax"
 bash -n "$PREBUILD" || fail "prebuild gate shell syntax"
 bash -n "$STAGE1" || fail "Stage-1 acceptance shell syntax"
 bash -n "$CORE_004E" "$CORE_004F" "$CORE_004G" ||
@@ -104,6 +109,10 @@ grep -Fq 'seen_release_verify_published_tag' "$RELEASE_CI" ||
     fail "release attestation does not verify the annotated published tag"
 grep -Fq 'seen_release_verify_published_tag' "$RELEASE_INNER" ||
     fail "release uploader does not reverify the annotated published tag"
+grep -Fq 'verify_linux_delivery_compiler_identity.sh' "$RELEASE_INNER" ||
+    fail "release uploader omits Linux delivery compiler identity verification"
+grep -Fq 'tests/misc_root_tests/seen_compiler_provenance_contract.sh' "$REQUIRED" ||
+    fail "required CI omits compiler provenance contract"
 grep -Fq 'tests/misc_root_tests/seen_release_upload_artifact_scope.sh' "$REQUIRED" ||
     fail "required CI omits the release mutation-safety regression"
 grep -Fq 'scripts/check_qwen_contracts.py' "$REQUIRED" ||

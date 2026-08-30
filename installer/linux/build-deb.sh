@@ -8,6 +8,8 @@ set -e
 VERSION=""
 ARCH=""
 SOURCE_DIR="${SOURCE_DIR:-../../compiler_seen/target}"
+COMPILER_PROVENANCE_FILE="${SEEN_COMPILER_PROVENANCE_FILE:-}"
+COMPILER_PROVENANCE_VERIFIER="${SEEN_COMPILER_PROVENANCE_VERIFIER:-}"
 OUTPUT_DIR="output"
 VERBOSE=false
 INSTALLER_SCOPE=""
@@ -63,7 +65,7 @@ Seen Language DEB Package Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 0.19.1)
+  version              Version number (e.g., 0.19.2)
   architecture         Target architecture (amd64, arm64, riscv64)
 
 Options:
@@ -73,7 +75,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 0.19.1 amd64
+  $0 0.19.2 amd64
   $0 1.2.3 arm64 --verbose
   $0 2.0.0 amd64 --source-dir /opt/seen/build
 
@@ -188,6 +190,8 @@ validate_sources() {
         "$SOURCE_DIR/seen"
         "$SOURCE_DIR/seen-pkg"
         "$SOURCE_DIR/compatibility-manifest.json"
+        "$COMPILER_PROVENANCE_FILE"
+        "$COMPILER_PROVENANCE_VERIFIER"
         "$PROJECT_ROOT/seen_std"
         "$PROJECT_ROOT/languages"
     )
@@ -210,7 +214,6 @@ validate_sources() {
     if [ ! -x "$SOURCE_DIR/seen-pkg" ]; then
         error "Seen package client is not executable: $SOURCE_DIR/seen-pkg"
     fi
-
     local compiler_version_output
     local compiler_version_line
     if ! compiler_version_output=$("$SOURCE_DIR/seen" --version 2>/dev/null); then
@@ -230,6 +233,13 @@ validate_sources() {
     expected_handshake=$(printf 'protocol=SEENPKG1\nversion=%s' "$VERSION")
     if [ "$package_client_handshake" != "$expected_handshake" ]; then
         error "Package client at $SOURCE_DIR/seen-pkg returned an invalid version handshake"
+    fi
+    if [ ! -x "$COMPILER_PROVENANCE_VERIFIER" ]; then
+        error "Compiler provenance verifier is not executable"
+    fi
+    if ! bash "$COMPILER_PROVENANCE_VERIFIER" "$COMPILER_PROVENANCE_FILE" \
+        "$SOURCE_DIR/seen" "$VERSION" >/dev/null; then
+        error "Compiler does not match its declared signed source asset"
     fi
     
     # Check optional files
@@ -355,6 +365,8 @@ case "$1" in
             /usr/lib/seen/toolchain/seen-toolchain.sh --check --prefix /usr >/dev/null 2>&1 || \
                 echo "LLVM 19+ toolchain check failed; run /usr/lib/seen/toolchain/seen-toolchain.sh --install or install clang/opt/llc/llvm-as/lld."
         fi
+        /usr/lib/seen/toolchain/verify-compiler-provenance.sh \
+            /usr/share/seen/compiler-provenance.env /usr/bin/seen
         
         # Print installation success message
         echo "Seen Language installed successfully!"
@@ -427,6 +439,12 @@ install_package_files() {
     chmod 755 "$package_dir/usr/bin/seen-pkg"
     cp "$SOURCE_DIR/compatibility-manifest.json" "$package_dir/usr/bin/"
     chmod 644 "$package_dir/usr/bin/compatibility-manifest.json"
+    cp "$COMPILER_PROVENANCE_FILE" \
+        "$package_dir/usr/share/seen/compiler-provenance.env"
+    chmod 644 "$package_dir/usr/share/seen/compiler-provenance.env"
+    cp "$COMPILER_PROVENANCE_VERIFIER" \
+        "$package_dir/usr/lib/seen/toolchain/verify-compiler-provenance.sh"
+    chmod 755 "$package_dir/usr/lib/seen/toolchain/verify-compiler-provenance.sh"
     
     if [ -f "$SOURCE_DIR/seen-lsp" ]; then
         cp "$SOURCE_DIR/seen-lsp" "$package_dir/usr/bin/"

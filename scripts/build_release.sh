@@ -2,9 +2,9 @@
 # Build release packages for the Seen language compiler.
 #
 # Usage:
-#   ./scripts/build_release.sh --version 0.19.1 \
+#   ./scripts/build_release.sh --version 0.19.2 \
 #     --cpu-baseline x86-64 --artifact-suffix linux-x64
-#   ./scripts/build_release.sh --version 0.19.1 \
+#   ./scripts/build_release.sh --version 0.19.2 \
 #     --compiler compiler_seen/target/seen-x86-64-v3 \
 #     --cpu-baseline x86-64-v3 --artifact-suffix linux-x64-v3
 #
@@ -34,6 +34,7 @@ COMPILER_BIN="$ROOT_DIR/compiler_seen/target/seen"
 PACKAGE_CLIENT_BIN="${SEEN_PACKAGE_CLIENT_BIN:-$ROOT_DIR/tools/seen-pkg/bin/seen-pkg}"
 COMPATIBILITY_MANIFEST="$ROOT_DIR/releases/compatibility-manifest.json"
 COMPATIBILITY_CHECKER="$ROOT_DIR/scripts/check_compatibility_manifest.py"
+COMPILER_PROVENANCE_VERIFIER="$ROOT_DIR/scripts/verify_compiler_provenance.sh"
 CPU_BASELINE="${SEEN_RELEASE_CPU_BASELINE:-x86-64}"
 ARTIFACT_SUFFIX=""
 SKIP_VERIFY="${SEEN_RELEASE_SKIP_VERIFY:-0}"
@@ -84,6 +85,7 @@ release_payload_hash() {
             "$ROOT_DIR/schemas/compatibility-manifest.schema.json" \
             "$COMPATIBILITY_CHECKER" \
             "$ROOT_DIR/scripts/seen_toolchain.sh" \
+            "$COMPILER_PROVENANCE_VERIFIER" \
             "$ROOT_DIR/tools/seen-pkg/go.mod" \
             "$ROOT_DIR/tools/seen-pkg/go.sum" \
             "$ROOT_DIR/tools/seen-pkg/cmd" \
@@ -226,7 +228,7 @@ usage() {
     echo "          [--cpu-baseline <x86-64|x86-64-v3>] [--artifact-suffix <linux-x64|linux-x64-v3>]"
     echo ""
     echo "Options:"
-    echo "  --version          Release version (e.g., 0.19.1) [required]"
+    echo "  --version          Release version (e.g., 0.19.2) [required]"
     echo "  --output-dir       Output directory (default: dist/)"
     echo "  --compiler         Path to compiler binary (default: compiler_seen/target/seen)"
     echo "  --cpu-baseline     Packaged binary CPU baseline (default: x86-64)"
@@ -352,7 +354,12 @@ mkdir -p "$STAGING"/{bin,lib/seen/std,lib/seen/runtime,lib/seen/toolchain,share/
 echo "[1/6] Copying compiler and package-client binaries..."
 cp "$COMPILER_BIN" "$STAGING/bin/seen"
 chmod +x "$STAGING/bin/seen"
-strip "$STAGING/bin/seen" 2>/dev/null || true
+if command -v strip >/dev/null 2>&1; then
+    strip "$STAGING/bin/seen" || {
+        echo "Error: could not strip the canonical Linux compiler component" >&2
+        exit 1
+    }
+fi
 cp "$PACKAGE_CLIENT_BIN" "$STAGING/bin/seen-pkg"
 chmod +x "$STAGING/bin/seen-pkg"
 cp "$COMPATIBILITY_MANIFEST" "$STAGING/bin/compatibility-manifest.json"
@@ -452,6 +459,40 @@ TOOLCHAIN_DOC_EOF
     copy_payload_to_cache "$PAYLOAD_CACHE_DIR"
 fi
 
+# All Linux delivery formats consume this one canonical stripped byte
+# sequence.  The standalone compiler component is signed by release CI; the
+# embedded manifest lets installers prove that their compiler is that exact
+# immutable asset rather than merely another build from the same commit.
+[[ -f "$COMPILER_PROVENANCE_VERIFIER" && ! -L "$COMPILER_PROVENANCE_VERIFIER" ]] || {
+    echo "Error: compiler provenance verifier is missing or unsafe" >&2
+    exit 1
+}
+cp "$COMPILER_PROVENANCE_VERIFIER" \
+    "$STAGING/lib/seen/toolchain/verify-compiler-provenance.sh"
+chmod 755 "$STAGING/lib/seen/toolchain/verify-compiler-provenance.sh"
+COMPILER_PROVENANCE="$STAGING/share/seen/compiler-provenance.env"
+compiler_sha256=$(sha256sum "$STAGING/bin/seen" | awk '{print $1}')
+compiler_size=$(wc -c < "$STAGING/bin/seen" | tr -d ' ')
+compiler_build_id=none
+if command -v readelf >/dev/null 2>&1; then
+    detected_build_id=$(readelf -n "$STAGING/bin/seen" 2>/dev/null |
+        awk '/Build ID:/ {print tolower($3); exit}' || true)
+    [[ -z "$detected_build_id" ]] || compiler_build_id=$detected_build_id
+fi
+source_commit=$(git -C "$ROOT_DIR" rev-parse HEAD)
+cat > "$COMPILER_PROVENANCE" << PROVENANCE_EOF
+seen_compiler_provenance_version=1
+release_version=$VERSION
+source_commit=$source_commit
+source_asset=seen-compiler-$VERSION-$ARTIFACT_SUFFIX
+compiler_sha256=$compiler_sha256
+compiler_size=$compiler_size
+compiler_build_id=$compiler_build_id
+cpu_baseline=$CPU_BASELINE
+PROVENANCE_EOF
+bash "$STAGING/lib/seen/toolchain/verify-compiler-provenance.sh" \
+    "$COMPILER_PROVENANCE" "$STAGING/bin/seen" "$VERSION" >/dev/null
+
 cat > "$STAGING/install.sh" << 'INSTALL_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -483,6 +524,8 @@ install_file_no_follow() {
 }
 
 echo "Installing Seen Language to $PREFIX ..."
+bash "lib/seen/toolchain/verify-compiler-provenance.sh" \
+    "share/seen/compiler-provenance.env" "bin/seen"
 run_install mkdir -p "$PREFIX/bin" "$PREFIX/lib/seen" "$PREFIX/share/seen" "$PREFIX/share/doc/seen"
 install_file_no_follow "bin/seen" "$PREFIX/bin/seen" 755
 install_file_no_follow "bin/seen-pkg" "$PREFIX/bin/seen-pkg" 755
@@ -505,6 +548,8 @@ done
 run_install cp -r lib/seen/* "$PREFIX/lib/seen/"
 run_install cp -r share/seen/* "$PREFIX/share/seen/"
 run_install cp -r share/doc/seen/* "$PREFIX/share/doc/seen/"
+bash "$PREFIX/lib/seen/toolchain/verify-compiler-provenance.sh" \
+    "$PREFIX/share/seen/compiler-provenance.env" "$PREFIX/bin/seen"
 TOOLCHAIN_HELPER="$PREFIX/lib/seen/toolchain/seen-toolchain.sh"
 if [[ -x "$TOOLCHAIN_HELPER" ]]; then
     if [[ "${SEEN_SKIP_TOOLCHAIN:-0}" == "1" ]]; then
@@ -542,7 +587,7 @@ if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
     RUNTIME_COMPONENT="$OUTPUT_DIR/seen-runtime-$VERSION-$ARTIFACT_SUFFIX.tar.gz"
     STDLIB_COMPONENT="$OUTPUT_DIR/seen-stdlib-$VERSION-$ARTIFACT_SUFFIX.tar.gz"
     PACKAGE_CLIENT_COMPONENT="$OUTPUT_DIR/seen-pkg-$VERSION-$ARTIFACT_SUFFIX"
-    cp "$COMPILER_BIN" "$COMPILER_COMPONENT"
+    cp "$STAGING/bin/seen" "$COMPILER_COMPONENT"
     cp "$PACKAGE_CLIENT_BIN" "$PACKAGE_CLIENT_COMPONENT"
     chmod +x "$COMPILER_COMPONENT" "$PACKAGE_CLIENT_COMPONENT"
     (cd "$ROOT_DIR" && tracked_runtime_files | \
@@ -625,21 +670,27 @@ if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
 
     if command -v dpkg-deb &>/dev/null; then
         start_package_job "deb package" "$PKG_LOG_DIR/build-deb.log" \
-            env SOURCE_DIR="$STAGING/bin" bash \
+            env SOURCE_DIR="$STAGING/bin" \
+            SEEN_COMPILER_PROVENANCE_FILE="$COMPILER_PROVENANCE" \
+            SEEN_COMPILER_PROVENANCE_VERIFIER="$STAGING/lib/seen/toolchain/verify-compiler-provenance.sh" bash \
             "$ROOT_DIR/installer/linux/build-deb.sh" "$VERSION" amd64 \
             --output-dir "$OUTPUT_DIR"
     fi
 
     if command -v rpmbuild &>/dev/null; then
         start_package_job "rpm package" "$PKG_LOG_DIR/build-rpm.log" \
-            env SOURCE_DIR="$STAGING/bin" bash \
+            env SOURCE_DIR="$STAGING/bin" \
+            SEEN_COMPILER_PROVENANCE_FILE="$COMPILER_PROVENANCE" \
+            SEEN_COMPILER_PROVENANCE_VERIFIER="$STAGING/lib/seen/toolchain/verify-compiler-provenance.sh" bash \
             "$ROOT_DIR/installer/linux/build-rpm.sh" "$VERSION" x86_64 \
             --output-dir "$OUTPUT_DIR"
     fi
 
     if command -v appimagetool &>/dev/null; then
         start_package_job "appimage package" "$PKG_LOG_DIR/build-appimage.log" \
-            env SOURCE_DIR="$STAGING/bin" bash \
+            env SOURCE_DIR="$STAGING/bin" \
+            SEEN_COMPILER_PROVENANCE_FILE="$COMPILER_PROVENANCE" \
+            SEEN_COMPILER_PROVENANCE_VERIFIER="$STAGING/lib/seen/toolchain/verify-compiler-provenance.sh" bash \
             "$ROOT_DIR/installer/linux/build-appimage.sh" "$VERSION" x86_64 \
             --output-dir "$OUTPUT_DIR"
     fi

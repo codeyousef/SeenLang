@@ -1550,7 +1550,7 @@ fun removePathIfExists(path: String) r: Void {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.19.1"
+    return "0.19.2"
 }
 
 fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
@@ -16844,7 +16844,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.19.1"
+    return "0.19.2"
 }
 
 fun printVersion() r: Void {

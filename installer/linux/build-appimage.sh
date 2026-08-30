@@ -8,6 +8,8 @@ set -e
 VERSION=""
 ARCH=""
 SOURCE_DIR="${SOURCE_DIR:-../../compiler_seen/target}"
+COMPILER_PROVENANCE_FILE="${SEEN_COMPILER_PROVENANCE_FILE:-}"
+COMPILER_PROVENANCE_VERIFIER="${SEEN_COMPILER_PROVENANCE_VERIFIER:-}"
 OUTPUT_DIR="output"
 VERBOSE=false
 STEAM_RUNTIME=false
@@ -70,7 +72,7 @@ Seen Language AppImage Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 0.19.1)
+  version              Version number (e.g., 0.19.2)
   architecture         Target architecture (x86_64, aarch64, riscv64)
 
 Options:
@@ -82,7 +84,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 0.19.1 x86_64
+  $0 0.19.2 x86_64
   $0 1.2.3 x86_64 --steam-runtime --bundle-vulkan
   $0 1.2.3 aarch64 --verbose
 
@@ -246,6 +248,8 @@ validate_sources() {
         "$SOURCE_DIR/seen"
         "$SOURCE_DIR/seen-pkg"
         "$SOURCE_DIR/compatibility-manifest.json"
+        "$COMPILER_PROVENANCE_FILE"
+        "$COMPILER_PROVENANCE_VERIFIER"
         "$PROJECT_ROOT/seen_std"
         "$PROJECT_ROOT/languages"
     )
@@ -268,7 +272,6 @@ validate_sources() {
     if [ ! -x "$SOURCE_DIR/seen-pkg" ]; then
         error "Seen package client is not executable: $SOURCE_DIR/seen-pkg"
     fi
-
     local compiler_version_output
     local compiler_version_line
     if ! compiler_version_output=$("$SOURCE_DIR/seen" --version 2>/dev/null); then
@@ -288,6 +291,13 @@ validate_sources() {
     expected_handshake=$(printf 'protocol=SEENPKG1\nversion=%s' "$VERSION")
     if [ "$package_client_handshake" != "$expected_handshake" ]; then
         error "Package client at $SOURCE_DIR/seen-pkg returned an invalid version handshake"
+    fi
+    if [ ! -x "$COMPILER_PROVENANCE_VERIFIER" ]; then
+        error "Compiler provenance verifier is not executable"
+    fi
+    if ! bash "$COMPILER_PROVENANCE_VERIFIER" "$COMPILER_PROVENANCE_FILE" \
+        "$SOURCE_DIR/seen" "$VERSION" >/dev/null; then
+        error "Compiler does not match its declared signed source asset"
     fi
     
     # Check optional files
@@ -391,6 +401,10 @@ export PATH="${HERE}/usr/bin:$PATH"
 export SEEN_LIB_PATH="${HERE}/usr/lib/seen"
 export SEEN_DATA_PATH="${HERE}/usr/share/seen"
 
+"${HERE}/usr/lib/seen/toolchain/verify-compiler-provenance.sh" \
+    "${HERE}/usr/share/seen/compiler-provenance.env" \
+    "${HERE}/usr/bin/seen" >/dev/null
+
 # Library path setup - prepend our libs but respect Steam Runtime
 if [ "$STEAM_RUNTIME_DETECTED" = true ]; then
     # In Steam Runtime, be careful with library overrides
@@ -462,6 +476,10 @@ export PATH="${HERE}/usr/bin:$PATH"
 export LD_LIBRARY_PATH="${HERE}/usr/lib:$LD_LIBRARY_PATH"
 export SEEN_LIB_PATH="${HERE}/usr/lib/seen"
 export SEEN_DATA_PATH="${HERE}/usr/share/seen"
+
+"${HERE}/usr/lib/seen/toolchain/verify-compiler-provenance.sh" \
+    "${HERE}/usr/share/seen/compiler-provenance.env" \
+    "${HERE}/usr/bin/seen" >/dev/null
 
 # Vulkan ICD discovery for bundled Vulkan
 if [ -d "${HERE}/usr/share/vulkan/icd.d" ]; then
@@ -601,6 +619,13 @@ install_app_files() {
     chmod +x "$appdir/usr/bin/seen-pkg"
     cp "$SOURCE_DIR/compatibility-manifest.json" "$appdir/usr/bin/"
     chmod 644 "$appdir/usr/bin/compatibility-manifest.json"
+    mkdir -p "$appdir/usr/lib/seen/toolchain" "$appdir/usr/share/seen"
+    cp "$COMPILER_PROVENANCE_FILE" \
+        "$appdir/usr/share/seen/compiler-provenance.env"
+    chmod 644 "$appdir/usr/share/seen/compiler-provenance.env"
+    cp "$COMPILER_PROVENANCE_VERIFIER" \
+        "$appdir/usr/lib/seen/toolchain/verify-compiler-provenance.sh"
+    chmod 755 "$appdir/usr/lib/seen/toolchain/verify-compiler-provenance.sh"
     
     if [ -f "$SOURCE_DIR/seen-lsp" ]; then
         cp "$SOURCE_DIR/seen-lsp" "$appdir/usr/bin/"

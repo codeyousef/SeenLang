@@ -8,6 +8,8 @@ set -e
 VERSION=""
 ARCH=""
 SOURCE_DIR="${SOURCE_DIR:-../../compiler_seen/target}"
+COMPILER_PROVENANCE_FILE="${SEEN_COMPILER_PROVENANCE_FILE:-}"
+COMPILER_PROVENANCE_VERIFIER="${SEEN_COMPILER_PROVENANCE_VERIFIER:-}"
 OUTPUT_DIR="output"
 VERBOSE=false
 RELEASE="1"
@@ -64,7 +66,7 @@ Seen Language RPM Package Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 0.19.1)
+  version              Version number (e.g., 0.19.2)
   architecture         Target architecture (x86_64, aarch64, riscv64)
 
 Options:
@@ -75,7 +77,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 0.19.1 x86_64
+  $0 0.19.2 x86_64
   $0 1.2.3 aarch64 --verbose
   $0 2.0.0 x86_64 --release 2
 
@@ -202,6 +204,8 @@ validate_sources() {
         "$SOURCE_DIR/seen"
         "$SOURCE_DIR/seen-pkg"
         "$SOURCE_DIR/compatibility-manifest.json"
+        "$COMPILER_PROVENANCE_FILE"
+        "$COMPILER_PROVENANCE_VERIFIER"
         "$PROJECT_ROOT/seen_std"
         "$PROJECT_ROOT/languages"
     )
@@ -224,7 +228,6 @@ validate_sources() {
     if [ ! -x "$SOURCE_DIR/seen-pkg" ]; then
         error "Seen package client is not executable: $SOURCE_DIR/seen-pkg"
     fi
-
     local compiler_version_output
     local compiler_version_line
     if ! compiler_version_output=$("$SOURCE_DIR/seen" --version 2>/dev/null); then
@@ -244,6 +247,13 @@ validate_sources() {
     expected_handshake=$(printf 'protocol=SEENPKG1\nversion=%s' "$VERSION")
     if [ "$package_client_handshake" != "$expected_handshake" ]; then
         error "Package client at $SOURCE_DIR/seen-pkg returned an invalid version handshake"
+    fi
+    if [ ! -x "$COMPILER_PROVENANCE_VERIFIER" ]; then
+        error "Compiler provenance verifier is not executable"
+    fi
+    if ! bash "$COMPILER_PROVENANCE_VERIFIER" "$COMPILER_PROVENANCE_FILE" \
+        "$SOURCE_DIR/seen" "$VERSION" >/dev/null; then
+        error "Compiler does not match its declared signed source asset"
     fi
     
     # Check optional files
@@ -367,6 +377,8 @@ install -d %{buildroot}%{_datadir}/pixmaps
 install -m 755 seen %{buildroot}%{_bindir}/seen
 install -m 755 seen-pkg %{buildroot}%{_bindir}/seen-pkg
 install -m 644 compatibility-manifest.json %{buildroot}%{_bindir}/compatibility-manifest.json
+install -m 644 compiler-provenance.env %{buildroot}%{_datadir}/seen/compiler-provenance.env
+install -m 755 toolchain/verify-compiler-provenance.sh %{buildroot}%{_libdir}/seen/toolchain/verify-compiler-provenance.sh
 %if 0%{?with_lsp:1}
 install -m 755 seen-lsp %{buildroot}%{_bindir}/seen-lsp
 %endif
@@ -465,6 +477,9 @@ DESKTOPEOF
 %{_docdir}/%{name}/
 
 %post
+%{_libdir}/seen/toolchain/verify-compiler-provenance.sh \
+    %{_datadir}/seen/compiler-provenance.env %{_bindir}/seen
+
 # Update alternatives
 update-alternatives --install %{_bindir}/seen seen %{_bindir}/seen 100 || :
 
@@ -530,6 +545,7 @@ create_source_tarball() {
     cp "$SOURCE_DIR/seen" "$source_dir/"
     cp "$SOURCE_DIR/seen-pkg" "$source_dir/"
     cp "$SOURCE_DIR/compatibility-manifest.json" "$source_dir/"
+    cp "$COMPILER_PROVENANCE_FILE" "$source_dir/compiler-provenance.env"
     
     if [ -f "$SOURCE_DIR/seen-lsp" ]; then
         cp "$SOURCE_DIR/seen-lsp" "$source_dir/"
@@ -550,6 +566,9 @@ create_source_tarball() {
     mkdir -p "$source_dir/toolchain"
     cp "$PROJECT_ROOT/scripts/seen_toolchain.sh" "$source_dir/toolchain/seen-toolchain.sh"
     chmod 755 "$source_dir/toolchain/seen-toolchain.sh"
+    cp "$COMPILER_PROVENANCE_VERIFIER" \
+        "$source_dir/toolchain/verify-compiler-provenance.sh"
+    chmod 755 "$source_dir/toolchain/verify-compiler-provenance.sh"
     cat > "$source_dir/toolchain/manifest.env" << EOF
 seen_toolchain_manifest_version=1
 llvm_min_version=19

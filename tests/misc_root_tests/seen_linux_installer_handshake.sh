@@ -26,6 +26,8 @@ FAKE_BIN="$TEST_ROOT/fake tools"
 OUTPUT_DIR="$TEST_ROOT/output files"
 PACKAGER_LOG="$TEST_ROOT/packager.log"
 PACKAGE_CLIENT_LOG="$TEST_ROOT/package-client.log"
+PROVENANCE_FILE="$TEST_ROOT/compiler-provenance.env"
+PROVENANCE_VERIFIER="$ROOT_DIR/scripts/verify_compiler_provenance.sh"
 BUILDER_ARTIFACT_ROOT="$TEST_ROOT/builder artifacts"
 mkdir -p "$SOURCE_DIR" "$FAKE_BIN" "$OUTPUT_DIR" "$BUILDER_ARTIFACT_ROOT"
 cp "$ROOT_DIR/releases/compatibility-manifest.json" \
@@ -35,7 +37,7 @@ cat > "$SOURCE_DIR/seen" <<'COMPILER_EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "--version" && $# -eq 1 ]]; then
     printf 'Seen %s\nLanguage: Seen\nEntrypoint: fixture\n' \
-        "${FAKE_COMPILER_VERSION:-0.19.1}"
+        "${FAKE_COMPILER_VERSION:-0.19.2}"
     exit 0
 fi
 exit 2
@@ -44,7 +46,7 @@ COMPILER_EOF
 cat > "$SOURCE_DIR/seen-pkg" <<'PACKAGE_CLIENT_EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SEEN_INSTALLER_PACKAGE_CLIENT_LOG"
-if [[ "${1:-}" != "--expect-version" || "${2:-}" != "0.19.1" ||
+if [[ "${1:-}" != "--expect-version" || "${2:-}" != "0.19.2" ||
       "${3:-}" != "version" || "${4:-}" != "--machine" || $# -ne 4 ]]; then
     exit 64
 fi
@@ -53,7 +55,7 @@ if [[ "${FAKE_PACKAGE_CLIENT_FAILURE:-0}" == "1" ]]; then
 fi
 printf 'protocol=%s\nversion=%s\n' \
     "${FAKE_PACKAGE_PROTOCOL:-SEENPKG1}" \
-    "${FAKE_PACKAGE_VERSION:-0.19.1}"
+    "${FAKE_PACKAGE_VERSION:-0.19.2}"
 PACKAGE_CLIENT_EOF
 
 cat > "$FAKE_BIN/package-tool" <<'PACKAGE_TOOL_EOF'
@@ -70,6 +72,18 @@ CONVERT_EOF
 
 chmod +x "$SOURCE_DIR/seen" "$SOURCE_DIR/seen-pkg" \
     "$FAKE_BIN/package-tool" "$FAKE_BIN/convert"
+compiler_digest=$(sha256sum "$SOURCE_DIR/seen" | awk '{print $1}')
+compiler_size=$(wc -c < "$SOURCE_DIR/seen" | tr -d ' ')
+cat > "$PROVENANCE_FILE" <<EOF
+seen_compiler_provenance_version=1
+release_version=0.19.2
+source_commit=1111111111111111111111111111111111111111
+source_asset=seen-compiler-0.19.2-linux-x64
+compiler_sha256=$compiler_digest
+compiler_size=$compiler_size
+compiler_build_id=none
+cpu_baseline=x86-64
+EOF
 for tool in dpkg-deb rpmbuild appimagetool; do
     ln -s package-tool "$FAKE_BIN/$tool"
 done
@@ -86,7 +100,7 @@ assert_no_packager_call() {
 }
 
 assert_handshake_invocation() {
-    if ! grep -Fxq -- '--expect-version 0.19.1 version --machine' \
+    if ! grep -Fxq -- '--expect-version 0.19.2 version --machine' \
         "$PACKAGE_CLIENT_LOG"; then
         printf 'package-client handshake did not use the required arguments\n' >&2
         cat "$PACKAGE_CLIENT_LOG" >&2
@@ -114,9 +128,11 @@ run_builder_failure() {
     if env \
         PATH="$FAKE_BIN:$PATH" \
         SEEN_ARTIFACT_ROOT="$BUILDER_ARTIFACT_ROOT" \
+        SEEN_COMPILER_PROVENANCE_FILE="$PROVENANCE_FILE" \
+        SEEN_COMPILER_PROVENANCE_VERIFIER="$PROVENANCE_VERIFIER" \
         "$@" \
         bash "$ROOT_DIR/installer/linux/$builder" \
-        0.19.1 "$arch" \
+        0.19.2 "$arch" \
         --source-dir "$SOURCE_DIR" \
         --output-dir "$OUTPUT_DIR" >"$log_file" 2>&1; then
         printf '%s unexpectedly succeeded\n' "$builder" >&2
@@ -140,7 +156,7 @@ for builder_arch in \
     : > "$PACKAGER_LOG"
     : > "$PACKAGE_CLIENT_LOG"
     run_builder_failure "$builder" "$arch" \
-        'does not match package version 0.19.1' \
+        'does not match package version 0.19.2' \
         "$TEST_ROOT/case-$case_number.log" \
         FAKE_COMPILER_VERSION=9.9.9
     assert_no_packager_call
@@ -163,7 +179,7 @@ for builder_arch in \
     : > "$PACKAGER_LOG"
     : > "$PACKAGE_CLIENT_LOG"
     run_builder_failure "$builder" "$arch" \
-        'does not match Seen 0.19.1' \
+        'does not match Seen 0.19.2' \
         "$TEST_ROOT/case-$case_number.log" \
         FAKE_PACKAGE_CLIENT_FAILURE=1
     assert_no_packager_call
@@ -189,6 +205,7 @@ for builder_arch in \
     if ! grep -Fxq -- "$package_tool" "$PACKAGER_LOG"; then
         printf '%s did not reach its mocked packaging tool\n' "$builder" >&2
         cat "$PACKAGER_LOG" >&2
+        cat "$TEST_ROOT/case-$case_number.log" >&2
         exit 1
     fi
     assert_no_staging_directory
