@@ -22,6 +22,22 @@ IMPLICIT_MACOS_ARTIFACT="$DIST_DIR/seen-0.10.1-macos-arm64.tar.gz"
 mkdir -p "$FIXTURE_ROOT/scripts" "$FIXTURE_BIN" "$MIN_PATH" "$OPTIONAL_PATH" "$DIST_DIR"
 cp "$ROOT_DIR/scripts/build_and_upload_release.sh" "$FIXTURE_ROOT/scripts/"
 cp "$ROOT_DIR/scripts/release_tag_policy.sh" "$FIXTURE_ROOT/scripts/"
+cat > "$FIXTURE_ROOT/scripts/verify_linux_delivery_compiler_identity.sh" <<'PROVENANCE_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ "$#" -eq 2 && "$1" == "0.10.1" ]] || exit 2
+dist_dir=$2
+for artifact in \
+    "$dist_dir/seen-0.10.1-linux-x64.tar.gz" \
+    "$dist_dir/seen-compiler-0.10.1-linux-x64" \
+    "$dist_dir/seen-runtime-0.10.1-linux-x64.tar.gz" \
+    "$dist_dir/seen-stdlib-0.10.1-linux-x64.tar.gz" \
+    "$dist_dir/seen-pkg-0.10.1-linux-x64"; do
+    [[ -s "$artifact" ]] || exit 1
+done
+: > "$dist_dir/.compiler-provenance-verified"
+PROVENANCE_EOF
 cat > "$FIXTURE_ROOT/scripts/run_in_hard_memory_scope.sh" <<'SCOPE_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -247,6 +263,7 @@ chmod 755 \
     "$FIXTURE_BIN/git" \
     "$FIXTURE_BIN/gh" \
     "$FIXTURE_ROOT/scripts/build_release.sh" \
+    "$FIXTURE_ROOT/scripts/verify_linux_delivery_compiler_identity.sh" \
     "$FIXTURE_ROOT/scripts/run_in_hard_memory_scope.sh" \
     "$FIXTURE_ROOT/scripts/run_with_project_artifacts.sh" \
     "$FIXTURE_ROOT/scripts/sign_release.sh"
@@ -267,6 +284,10 @@ chmod 755 "$OPTIONAL_PATH/dpkg-deb"
 
 assert_checksum_scope() {
     local expected_macos="${1:-}"
+    if [[ ! -f "$DIST_DIR/.compiler-provenance-verified" ]]; then
+        echo "release uploader omitted the Linux compiler identity gate" >&2
+        exit 1
+    fi
     if ! grep -Fq 'seen-0.10.1-linux-x64.tar.gz' "$DIST_DIR/SHA256SUMS"; then
         echo "SHA256SUMS omitted the current release artifact" >&2
         exit 1
