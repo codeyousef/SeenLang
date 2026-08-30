@@ -1018,7 +1018,12 @@ printf '%s\n' '#!/usr/bin/env bash' 'trap "" HUP' 'echo $$ > "$1"' \
 printf '%s\n' '#!/usr/bin/env bash' \
     'nohup setsid "$2" "$1" </dev/null >/dev/null 2>&1 &' \
     'worker_job=$!' \
-    'for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$1" ] && break; sleep 0.01; done' \
+    'attempt=0' \
+    'while [ ! -s "$1" ] && [ "$attempt" -lt 1000 ]; do' \
+    '    sleep 0.01' \
+    '    attempt=$((attempt + 1))' \
+    'done' \
+    '[ -s "$1" ] || exit 70' \
     'disown "$worker_job"' \
     > "$TEST_ROOT/detached-launcher"
 chmod +x "$TEST_ROOT/detached-worker" "$TEST_ROOT/detached-launcher"
