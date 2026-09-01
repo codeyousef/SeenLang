@@ -2,7 +2,7 @@
 
 Module: `async.mod`
 
-Seen 0.19.2 provides a bounded, native-Seen structured-concurrency surface.
+Seen 0.19.3 provides a bounded, native-Seen structured-concurrency surface.
 The executor consumes explicit wakeups in FIFO order and never polls every
 dormant task. The former unbounded coroutine coordinator and unrelated future
 class are not compatibility surfaces.

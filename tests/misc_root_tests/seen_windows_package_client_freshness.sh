@@ -28,10 +28,10 @@ while [[ $# -gt 0 ]]; do
         *) exit 2 ;;
     esac
 done
-[[ "$version" == "0.19.2" ]]
+[[ "$version" == "0.19.3" ]]
 [[ "$goos" == "windows" ]]
 [[ "$goarch" == "amd64" ]]
-printf 'fresh 0.19.2 helper\n' > "$output"
+printf 'fresh 0.19.3 helper\n' > "$output"
 BUILD_EOF
     chmod 755 "$fixture/scripts/build_package_client.sh"
     printf '%s\n' "$fixture"
@@ -39,20 +39,20 @@ BUILD_EOF
 
 installer_fixture="$(make_fixture installer build_windows_installer.sh)"
 if bash "$installer_fixture/scripts/build_windows_installer.sh" \
-    0.19.2 --skip-compile >/dev/null 2>&1; then
+    0.19.3 --skip-compile >/dev/null 2>&1; then
     echo "Windows installer fixture unexpectedly found a compiler" >&2
     exit 1
 fi
-grep -qx 'fresh 0.19.2 helper' \
+grep -qx 'fresh 0.19.3 helper' \
     "$installer_fixture/target-windows/seen-pkg.exe"
 
 package_fixture="$(make_fixture package package_windows.sh)"
 if bash "$package_fixture/scripts/package_windows.sh" \
-    0.19.2 >/dev/null 2>&1; then
+    0.19.3 >/dev/null 2>&1; then
     echo "Windows package fixture unexpectedly found a compiler" >&2
     exit 1
 fi
-grep -qx 'fresh 0.19.2 helper' \
+grep -qx 'fresh 0.19.3 helper' \
     "$package_fixture/target-windows/seen-pkg.exe"
 
 echo "Windows package-client freshness test passed"

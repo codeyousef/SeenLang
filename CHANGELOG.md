@@ -7,7 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.19.2] - 2026-08-30
+## [0.19.3] - 2026-09-01
+
+### Fixed
+
+- Fixed FEL-1550 for scalar `Result<T, E>` payloads: `unwrap()` on
+  `Float`, `Float32`, `UInt32`, `Int32`, `Int16`, and `Int8` results now
+  reifies the erased `i64` handle to the concrete payload type (bitcast for
+  floats, truncation for narrow integers) at method finalization instead of
+  returning raw handle bits.
+- Fixed FEL-1551 for `transmute<T>` and `unsafe` blocks: the parser now
+  pushes `unsafe` blocks into the current statement block, so returns and
+  assignments inside them execute instead of being silently dropped; the
+  statement driver publishes the incremented unsafe depth to nested
+  statement lowering so unsafe-only builtins are reachable inside the block;
+  generic meta-builtin calls (`transmute<T>`, `stackAlloc<T>`,
+  `__default<T>`) resolve during call validation; the transmute result
+  register is allocated after its scratch slot so the fallback
+  alloca/store/load path emits monotonically numbered, optimizer-valid IR;
+  and `transmute<T>(x)` infers type `T` instead of the argument type, so
+  assigning the punned result no longer double-coerces the bits.
+- Fixed FEL-1552 for float-to-unsigned casts: `Float`/`Float32` to
+  `UInt32`/`UInt64` conversions now emit `fptoui` instead of leaving the
+  value unlowered.
+- Fixed FEL-1553 for `UInt64` operations: comparisons use unsigned
+  predicates (`ult`/`ule`/`ugt`/`uge`), division and remainder use
+  `udiv`/`urem`, and mixed `Float`/`UInt64` conversions use `uitofp`.
+- Fixed FEL-1559 for pointer dereference width: `*UInt8` (and other
+  fixed-width pointees) now load the pointee's actual LLVM type instead of
+  an `i64` slot.
+- Fixed FEL-1561 memory leak in `parseStrictJson`: failed parses destroy
+  the `JsonParseResult` before returning the error, reclaiming roughly
+  2 KB per malformed document.
+
+## [0.19.3] - 2026-08-30
 
 ### Fixed
 

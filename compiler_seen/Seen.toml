@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seen_compiler"
-version = "0.19.2"
+version = "0.19.3"
 language = "en"
 visibility = "caps"
 description = "Self-hosted Seen compiler - written in Seen"
