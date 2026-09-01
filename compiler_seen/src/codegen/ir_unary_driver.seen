@@ -155,7 +155,7 @@ fun emitUnaryDereferenceState(ctx: CodegenLoweringContext,
     // scalar type. Loading i64 unconditionally produced mismatched SSA types
     // (`load i64` feeding an i8 store) and rejected IR for narrow pointees.
     let operandType = inferLoweredExpressionType(ctx, expr.operands[0])
-    var loadLlvmType = "i64"
+    var loadLlvmType: String = "i64"
     if operandType.startsWith("*") {
         let pointeeScalar = getFixedWidthScalarLlvmTypeImpl(operandType.substring(1,
             operandType.length()))
