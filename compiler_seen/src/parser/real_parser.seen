@@ -4453,6 +4453,11 @@ class RealParser {
                 consume(SeenTokenType.RightBrace, "Expected '}' after unsafe block")
                 this.lastStatement.thenBranch = unsafeBlock2
             }
+            // FEL-1551: the Unsafe branch must push the statement into the
+            // current block like every other keyword branch. Without the push
+            // the whole unsafe block was silently dropped from the function
+            // body, so any return inside it never executed.
+            this.currentBlock.statements.push(this.lastStatement)
             return
         }
         // defer statement: consume keyword, parse expression/block

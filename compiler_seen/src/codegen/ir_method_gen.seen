@@ -461,38 +461,47 @@ emitTransmuteImpl — zero-cost type punning (bitcast / alloca+load)
 srcLlvmType/dstLlvmType: pre-resolved LLVM types from mapType()
 ///
 fun emitTransmuteImpl(output: StringBuilder, regBox: Array<Int>, srcReg: String, srcLlvmType: String, dstLlvmType: String) r: String {
-    let tmResultReg = getNextRegFn(regBox)
     // Same width reinterpret: use bitcast
     if srcLlvmType == "i64" and dstLlvmType == "double" {
+        let tmResultReg = getNextRegFn(regBox)
         output.append("  " + tmResultReg + " = bitcast i64 " + srcReg + " to double\n")
         return tmResultReg
     }
     if srcLlvmType == "double" and dstLlvmType == "i64" {
         let doubleSrcReg = normalizeDoubleLiteralForLlvmImpl(srcReg)
+        let tmResultReg = getNextRegFn(regBox)
         output.append("  " + tmResultReg + " = bitcast double " + doubleSrcReg + " to i64\n")
         return tmResultReg
     }
     if srcLlvmType == "i32" and dstLlvmType == "float" {
+        let tmResultReg = getNextRegFn(regBox)
         output.append("  " + tmResultReg + " = bitcast i32 " + srcReg + " to float\n")
         return tmResultReg
     }
     if srcLlvmType == "float" and dstLlvmType == "i32" {
+        let tmResultReg = getNextRegFn(regBox)
         output.append("  " + tmResultReg + " = bitcast float " + srcReg + " to i32\n")
         return tmResultReg
     }
     // ptr <-> i64
     if srcLlvmType == "ptr" and dstLlvmType == "i64" {
+        let tmResultReg = getNextRegFn(regBox)
         output.append("  " + tmResultReg + " = ptrtoint ptr " + srcReg + " to i64\n")
         return tmResultReg
     }
     if srcLlvmType == "i64" and dstLlvmType == "ptr" {
+        let tmResultReg = getNextRegFn(regBox)
         output.append("  " + tmResultReg + " = inttoptr i64 " + srcReg + " to ptr\n")
         return tmResultReg
     }
-    // Fallback: alloca + store + load (works for any same-width types)
+    // Fallback: alloca + store + load (works for any same-width types).
+    // The scratch slot must be numbered before the result register, and the
+    // load must use the DESTINATION type — punning reinterprets the stored
+    // bits, which is the entire point of transmute.
     let tmSlot = getNextRegFn(regBox)
     output.append("  " + tmSlot + " = alloca " + srcLlvmType + "\n")
     output.append("  store " + srcLlvmType + " " + srcReg + ", ptr " + tmSlot + "\n")
+    let tmResultReg = getNextRegFn(regBox)
     output.append("  " + tmResultReg + " = load " + dstLlvmType + ", ptr " + tmSlot + "\n")
     return tmResultReg
 }

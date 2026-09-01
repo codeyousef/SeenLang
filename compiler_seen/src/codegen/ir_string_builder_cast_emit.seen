@@ -94,9 +94,59 @@ fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String
         castResultReg = cReg
         castDone = 1
     }
+    // FEL-1552: Float -> fixed-width unsigned integer targets. These must emit
+    // a real fptoui conversion; falling through to the no-op path left the
+    // double SSA value stored into an i32/i16/i8 slot, which the optimizer
+    // rejects as invalid IR.
+    if castDone == 0 and innerType == "Float" and
+        (castTarget == "UInt32" or castTarget == "UInt16" or
+            castTarget == "UInt8" or castTarget == "UInt64") {
+        let doubleInnerReg = normalizeDoubleLiteralForLlvmImpl(innerReg)
+        var targetLlvm = "i64"
+        if castTarget == "UInt32" { targetLlvm = "i32" }
+        if castTarget == "UInt16" { targetLlvm = "i16" }
+        if castTarget == "UInt8" { targetLlvm = "i8" }
+        output.append("  " + cReg + " = fptoui double " + doubleInnerReg + " to " + targetLlvm + "\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // FEL-1552: Float -> fixed-width signed integer targets below i64.
+    if castDone == 0 and innerType == "Float" and
+        (castTarget == "Int32" or castTarget == "Int16" or castTarget == "Int8") {
+        let doubleInnerReg = normalizeDoubleLiteralForLlvmImpl(innerReg)
+        var targetLlvm = "i32"
+        if castTarget == "Int16" { targetLlvm = "i16" }
+        if castTarget == "Int8" { targetLlvm = "i8" }
+        output.append("  " + cReg + " = fptosi double " + doubleInnerReg + " to " + targetLlvm + "\n")
+        castResultReg = cReg
+        castDone = 1
+    }
     // Float32 -> Int
     if castDone == 0 and innerType == "Float32" and castTarget == "Int" {
         output.append("  " + cReg + " = fptosi float " + innerReg + " to i64\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    // FEL-1552: Float32 -> fixed-width integer targets. Without these the
+    // float SSA value fell through to the no-op path and was stored into an
+    // integer slot of the wrong type (invalid IR / silent zero).
+    if castDone == 0 and innerType == "Float32" and
+        (castTarget == "UInt32" or castTarget == "UInt16" or
+            castTarget == "UInt8" or castTarget == "UInt64") {
+        var f32TargetLlvm = "i64"
+        if castTarget == "UInt32" { f32TargetLlvm = "i32" }
+        if castTarget == "UInt16" { f32TargetLlvm = "i16" }
+        if castTarget == "UInt8" { f32TargetLlvm = "i8" }
+        output.append("  " + cReg + " = fptoui float " + innerReg + " to " + f32TargetLlvm + "\n")
+        castResultReg = cReg
+        castDone = 1
+    }
+    if castDone == 0 and innerType == "Float32" and
+        (castTarget == "Int32" or castTarget == "Int16" or castTarget == "Int8") {
+        var f32TargetLlvm = "i32"
+        if castTarget == "Int16" { f32TargetLlvm = "i16" }
+        if castTarget == "Int8" { f32TargetLlvm = "i8" }
+        output.append("  " + cReg + " = fptosi float " + innerReg + " to " + f32TargetLlvm + "\n")
         castResultReg = cReg
         castDone = 1
     }

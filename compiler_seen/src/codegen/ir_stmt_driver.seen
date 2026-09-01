@@ -393,6 +393,14 @@ fun generateUnsafeStatementState(ctx: CodegenLoweringContext,
     insideUnsafeBox.push(state.insideUnsafe)
     enterUnsafeStatementImpl(output, insideUnsafeBox)
     state.insideUnsafe = insideUnsafeBox[0]
+    // FEL-1551: nested statements are lowered through
+    // generateStatementWithGlobalState, which reads the global unsafe depth.
+    // Publish the incremented depth so transmute and other unsafe-only
+    // builtins are reachable inside the block body.
+    applyStatementDriverFeatureStateImpl(state.boundsCheckLabelCount,
+        state.errdeferTempAlloca, state.tryCatchLabel,
+        state.tryCatchEndLabel, state.insideUnsafe, state.pforCount,
+        state.closureDefs)
     if stmt.thenBranch.statements.length() > 0 {
         lowerBlock(ctx, stmt.thenBranch)
     }

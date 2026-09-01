@@ -309,6 +309,23 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
             floatPredicate = "oge"
         }
 
+        // FEL-1553: unsigned integer semantics. UInt64 values with bit 63 set
+        // must compare unsigned; signed predicates misclassify them.
+        if leftType == "UInt64" or rightType == "UInt64" {
+            if operator == "<" {
+                intPredicate = "ult"
+            }
+            if operator == "<=" {
+                intPredicate = "ule"
+            }
+            if operator == ">" {
+                intPredicate = "ugt"
+            }
+            if operator == ">=" {
+                intPredicate = "uge"
+            }
+        }
+
         if leftType == "String" and rightType == "String" {
             var leftStrReg = leftReg
             var rightStrReg = rightReg
@@ -330,17 +347,27 @@ fun emitComparisonBinaryOpImpl(output: StringBuilder, regBox: Array<Int>,
                 output.append("  " + resultReg + " = fcmp " + floatPredicate +
                     " double " + fcmpLeftNorm + ", " + fcmpRightNorm + "\n")
             } else {
+                // FEL-1553: mixed Float/UInt64 must convert unsigned (uitofp),
+                // not signed (sitofp), or values with bit 63 set go negative.
                 var fcmpLeft = leftVal
                 var fcmpRight = rightVal
+                var leftConv = "sitofp"
+                var rightConv = "sitofp"
+                if leftType == "UInt64" {
+                    leftConv = "uitofp"
+                }
+                if rightType == "UInt64" {
+                    rightConv = "uitofp"
+                }
                 if leftType != "Float" {
                     let cvtL = getNextRegFn(regBox)
-                    output.append("  " + cvtL + " = sitofp i64 " + leftVal +
+                    output.append("  " + cvtL + " = " + leftConv + " i64 " + leftVal +
                         " to double\n")
                     fcmpLeft = cvtL
                 }
                 if rightType != "Float" {
                     let cvtR = getNextRegFn(regBox)
-                    output.append("  " + cvtR + " = sitofp i64 " + rightVal +
+                    output.append("  " + cvtR + " = " + rightConv + " i64 " + rightVal +
                         " to double\n")
                     fcmpRight = cvtR
                 }

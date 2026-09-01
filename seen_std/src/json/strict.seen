@@ -1,6 +1,6 @@
 /// Strict manifest-oriented JSON helpers layered on the bounded parser.
 
-import json.parser.{JsonParseResult, parseJsonWithStrictLimits}
+import json.parser.{JsonParseResult, parseJsonWithStrictLimits, destroyJsonParseResult}
 import core.result.{Result, Ok, Err}
 import json.value.{JsonValue}
 
@@ -103,9 +103,17 @@ fun parseStrictJson(input: String, limits: StrictJsonLimits)
     let parsed = parseJsonWithStrictLimits(input, limits.maxInputBytes,
         limits.maxDepth, limits.maxValues, limits.maxStringBytes)
     if parsed.success != 1 {
+        // FEL-1561: capture the error fields, then release the failed parse
+        // result (including any partially built value) before returning Err.
+        // Abandoning it here leaked the JsonParseResult and its partial
+        // allocations on every syntax error.
+        let errCode = "json.syntax"
+        let errPos = parsed.errorPosition
+        let errMessage = parsed.error
+        destroyJsonParseResult(parsed, true)
         return Err<JsonParseResult, StrictJsonError>(StrictJsonError{
-            code: "json.syntax", position: parsed.errorPosition,
-            message: parsed.error
+            code: errCode, position: errPos,
+            message: errMessage
         })
     }
     return Ok<JsonParseResult, StrictJsonError>(parsed)

@@ -95,12 +95,21 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
             var fAddRight = rightReg
             if leftType != "Float" {
                 let cvtL = getNextRegFn(regBox)
-                output.append("  " + cvtL + " = sitofp i64 " + leftReg + " to double\n")
+                // FEL-1553: UInt64 converts unsigned.
+                var addLeftConv = "sitofp"
+                if leftType == "UInt64" {
+                    addLeftConv = "uitofp"
+                }
+                output.append("  " + cvtL + " = " + addLeftConv + " i64 " + leftReg + " to double\n")
                 fAddLeft = cvtL
             }
             if rightType != "Float" {
                 let cvtR = getNextRegFn(regBox)
-                output.append("  " + cvtR + " = sitofp i64 " + rightReg + " to double\n")
+                var addRightConv = "sitofp"
+                if rightType == "UInt64" {
+                    addRightConv = "uitofp"
+                }
+                output.append("  " + cvtR + " = " + addRightConv + " i64 " + rightReg + " to double\n")
                 fAddRight = cvtR
             }
             let fAddRes = getNextRegFn(regBox)
@@ -181,11 +190,19 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 var fSubLeft = leftReg
                 var fSubRight = rightReg
                 if leftType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + leftReg + " to double\n")
+                    var convSel1 = "sitofp"
+                    if leftType == "UInt64" {
+                        convSel1 = "uitofp"
+                    }
+                    output.append("  " + resultReg + " = " + convSel1 + " i64 " + leftReg + " to double\n")
                     fSubLeft = resultReg
                 }
                 if rightType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + rightReg + " to double\n")
+                    var convSel5 = "sitofp"
+                    if rightType == "UInt64" {
+                        convSel5 = "uitofp"
+                    }
+                    output.append("  " + resultReg + " = " + convSel5 + " i64 " + rightReg + " to double\n")
                     fSubRight = resultReg
                 }
                 let fSubRes = getNextRegFn(regBox)
@@ -244,11 +261,19 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 var fMulLeft = leftReg
                 var fMulRight = rightReg
                 if leftType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + leftReg + " to double\n")
+                    var convSel2 = "sitofp"
+                    if leftType == "UInt64" {
+                        convSel2 = "uitofp"
+                    }
+                    output.append("  " + resultReg + " = " + convSel2 + " i64 " + leftReg + " to double\n")
                     fMulLeft = resultReg
                 }
                 if rightType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + rightReg + " to double\n")
+                    var convSel6 = "sitofp"
+                    if rightType == "UInt64" {
+                        convSel6 = "uitofp"
+                    }
+                    output.append("  " + resultReg + " = " + convSel6 + " i64 " + rightReg + " to double\n")
                     fMulRight = resultReg
                 }
                 let fMulRes = getNextRegFn(regBox)
@@ -293,11 +318,19 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 var fDivLeft = leftReg
                 var fDivRight = rightReg
                 if leftType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + leftReg + " to double\n")
+                    var convSel3 = "sitofp"
+                    if leftType == "UInt64" {
+                        convSel3 = "uitofp"
+                    }
+                    output.append("  " + resultReg + " = " + convSel3 + " i64 " + leftReg + " to double\n")
                     fDivLeft = resultReg
                 }
                 if rightType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + rightReg + " to double\n")
+                    var convSel7 = "sitofp"
+                    if rightType == "UInt64" {
+                        convSel7 = "uitofp"
+                    }
+                    output.append("  " + resultReg + " = " + convSel7 + " i64 " + rightReg + " to double\n")
                     fDivRight = resultReg
                 }
                 let fDivRes = getNextRegFn(regBox)
@@ -307,7 +340,13 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 return fDivRes
             }
         } else {
-            output.append("  " + resultReg + " = sdiv i64 " + leftReg + ", " + rightReg + "\n")
+            // FEL-1553: UInt64 division must lower unsigned (udiv); sdiv
+            // misclassifies values with bit 63 set.
+            var divOp = "sdiv"
+            if leftType == "UInt64" or rightType == "UInt64" {
+                divOp = "udiv"
+            }
+            output.append("  " + resultReg + " = " + divOp + " i64 " + leftReg + ", " + rightReg + "\n")
         }
         opHandled = true
     }
@@ -321,11 +360,19 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 var fRemLeft = leftReg
                 var fRemRight = rightReg
                 if leftType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + leftReg + " to double\n")
+                    var convSel4 = "sitofp"
+                    if leftType == "UInt64" {
+                        convSel4 = "uitofp"
+                    }
+                    output.append("  " + resultReg + " = " + convSel4 + " i64 " + leftReg + " to double\n")
                     fRemLeft = resultReg
                 }
                 if rightType != "Float" {
-                    output.append("  " + resultReg + " = sitofp i64 " + rightReg + " to double\n")
+                    var convSel8 = "sitofp"
+                    if rightType == "UInt64" {
+                        convSel8 = "uitofp"
+                    }
+                    output.append("  " + resultReg + " = " + convSel8 + " i64 " + rightReg + " to double\n")
                     fRemRight = resultReg
                 }
                 let fRemRes = getNextRegFn(regBox)
@@ -336,6 +383,12 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
             }
         } else {
             var modHandled = false
+            // FEL-1553: unsigned remainder for UInt64 (and the power-of-two
+            // and-mask shortcuts are sign-agnostic, so they stay shared).
+            var remOp = "srem"
+            if leftType == "UInt64" or rightType == "UInt64" {
+                remOp = "urem"
+            }
             if rightReg == "2" {
                 output.append("  " + resultReg + " = and i64 " + leftReg + ", 1 ; srem %x, 2 -> and %x, 1\n")
                 modHandled = true
@@ -353,7 +406,7 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
                 modHandled = true
             }
             if not modHandled {
-                output.append("  " + resultReg + " = srem i64 " + leftReg + ", " + rightReg + "\n")
+                output.append("  " + resultReg + " = " + remOp + " i64 " + leftReg + ", " + rightReg + "\n")
             }
         }
         opHandled = true

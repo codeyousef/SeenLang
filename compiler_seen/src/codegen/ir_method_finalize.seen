@@ -417,6 +417,50 @@ fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
                 boxedPayloadReg + " to i1\n")
             return resultReg
         }
+        // FEL-1550: generic scalar payloads must be reified from the erased
+        // i64 handle into their concrete LLVM type. Without this, Float and
+        // fixed-width payloads left an i64 SSA value flowing into typed
+        // consumer slots (invalid IR) or were silently dropped.
+        if payloadType == "Float" or payloadType == "Float64" {
+            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
+                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = bitcast i64 " +
+                boxedPayloadReg + " to double\n")
+            return resultReg
+        }
+        if payloadType == "Float32" {
+            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
+                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = bitcast i64 " +
+                boxedPayloadReg + " to float\n")
+            return resultReg
+        }
+        if payloadType == "UInt32" or payloadType == "Int32" {
+            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
+                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = trunc i64 " +
+                boxedPayloadReg + " to i32\n")
+            return resultReg
+        }
+        if payloadType == "UInt16" or payloadType == "Int16" {
+            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
+                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = trunc i64 " +
+                boxedPayloadReg + " to i16\n")
+            return resultReg
+        }
+        if payloadType == "UInt8" or payloadType == "Int8" {
+            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
+                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
+            let resultReg = getNextRegFn(regBox)
+            output.append("  " + resultReg + " = trunc i64 " +
+                boxedPayloadReg + " to i8\n")
+            return resultReg
+        }
         if mapTypeState(payloadType) == "ptr" {
             let payloadHandleReg = emitResultPayloadHandleCallImpl(output,
                 regBox, methodName, receiverLlvmType, receiverReg, argRegs)

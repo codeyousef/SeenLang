@@ -150,13 +150,18 @@ fun emitUnaryAddressOfVariablePtrImpl(output: StringBuilder,
 }
 
 fun emitUnaryDereferenceImpl(output: StringBuilder, regBox: Array<Int>,
-    derefValueReg: String) r: String {
+    derefValueReg: String, loadLlvmType: String) r: String {
 
     let ptrReg = getNextRegFn(regBox)
     output.append("  " + ptrReg + " = inttoptr i64 " + derefValueReg +
         " to ptr\n")
     let resultReg = getNextRegFn(regBox)
-    output.append("  " + resultReg + " = load i64, ptr " + ptrReg +
+    // FEL-1559: load the pointee width instead of a fixed i64.
+    var loadType = "i64"
+    if loadLlvmType != "" {
+        loadType = loadLlvmType
+    }
+    output.append("  " + resultReg + " = load " + loadType + ", ptr " + ptrReg +
         " ; *ptr dereference\n")
     return resultReg
 }

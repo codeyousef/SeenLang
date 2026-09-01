@@ -596,8 +596,23 @@ fun inferCallExprTypeImpl(callee: String) r: String {
     if callee.startsWith("Err<") or callee.startsWith("Ok<") {
         return "Result"
     }
+    // FEL-1551: transmute<T>(x) yields type T. Without this the call was
+    // typed as its argument, so assigning the result to a T variable re-coerced
+    // already-punned bits a second time (e.g. sitofp after a bitcast).
+    if callee.startsWith("transmute<") {
+        // FEL-1551: extract the target type between < and > — this is the
+        // result type of transmute<T>(x). Stripping the suffix would return
+        // "transmute" itself, which maps to ptr and re-coerces the bits.
+        let ltPos = callee.indexOf("<", 0)
+        let gtPos = callee.indexOf(">", 0)
+        if ltPos >= 0 and gtPos > ltPos {
+            return callee.substring(ltPos + 1, gtPos)
+        }
+        return ""
+    }
     return ""
 }
+
 
 ///
 extractResultInnerType — extract T from "Result<T, E>" type string

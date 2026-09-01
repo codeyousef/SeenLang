@@ -10572,6 +10572,12 @@ fun isResolvableFreeFunctionCall(modulePath: String,
         return true
     }
     let resolvedCallName = stripCallGenericArguments(callName)
+    // FEL-1551: generic meta-builtins (transmute<T>, stackAlloc<T>,
+    // __default<T>) are matched by their full spelling, so the builtin check
+    // must see the original name as well as the stripped one.
+    if isKnownCompilerBuiltinCallName(callName) {
+        return true
+    }
     if isKnownCompilerBuiltinCallName(resolvedCallName) {
         return true
     }
