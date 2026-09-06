@@ -12,6 +12,7 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadataForStatementImpl, finalizeConditionalEndBlockImpl, emitIfLetBindingStateImpl}
 import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, restoreMovedVariablesImpl, mergeMovedVariablesImpl}
 
 class IfStatementDriverResult {
     var branchesEliminated: Int
@@ -163,16 +164,35 @@ fun generateIfStatementState(ctx: CodegenLoweringContext,
         getFeatureBlockBoxImpl(), condBool,
         computeIfBranchWeightMetadataForStatementImpl(stmt))
     let hasElseBranch = stmt.elseBranch.statements.length() > 0
+    let moveState = getCurrentFunctionEmissionStateImpl()
+    let beforeMovedNames = moveState.movedVarNames
+    let beforeMovedCount = moveState.movedVarCount
     lowerBlock(ctx, stmt.thenBranch)
     let thenTerminated = getBlockTerminatedWithGlobalStateImpl()
+    let thenMovedNames = moveState.movedVarNames
+    let thenMovedCount = moveState.movedVarCount
     finalizeConditionalEndBlockImpl(output, thenTerminated,
         branching.endLabel)
     output.append(branching.elseLabel + ":\n")
     setBlockTerminatedWithGlobalStateImpl(false)
+    restoreMovedVariablesImpl(moveState, beforeMovedNames, beforeMovedCount)
     if hasElseBranch {
         lowerBlock(ctx, stmt.elseBranch)
     }
     let elseTerminated = getBlockTerminatedWithGlobalStateImpl()
+    let elseMovedNames = moveState.movedVarNames
+    let elseMovedCount = moveState.movedVarCount
+    if thenTerminated and not elseTerminated {
+        restoreMovedVariablesImpl(moveState, elseMovedNames, elseMovedCount)
+    } else if elseTerminated and not thenTerminated {
+        restoreMovedVariablesImpl(moveState, thenMovedNames, thenMovedCount)
+    } else if thenTerminated and elseTerminated {
+        restoreMovedVariablesImpl(moveState, beforeMovedNames,
+            beforeMovedCount)
+    } else {
+        mergeMovedVariablesImpl(moveState, thenMovedNames, thenMovedCount,
+            elseMovedNames, elseMovedCount)
+    }
     finalizeConditionalEndBlockImpl(output, elseTerminated,
         branching.endLabel)
     let allBranchesTerminated =
@@ -193,6 +213,9 @@ fun generateIfLetStatementState(ctx: CodegenLoweringContext,
         getFeatureBlockBoxImpl(), condReg, "")
     let savedIfLetVarCount =
         getBoundedActiveVarCountWithGlobalStateImpl(varNames)
+    let moveState = getCurrentFunctionEmissionStateImpl()
+    let beforeMovedNames = moveState.movedVarNames
+    let beforeMovedCount = moveState.movedVarCount
     let boundCount = emitIfLetBindingStateImpl(output, getFeatureRegBoxImpl(),
         varNames, varRegs, varTypes, savedIfLetVarCount, stmt.variableName,
         condReg)
@@ -200,15 +223,31 @@ fun generateIfLetStatementState(ctx: CodegenLoweringContext,
     lowerBlock(ctx, stmt.thenBranch)
     setActiveVarCountWithGlobalStateImpl(savedIfLetVarCount)
     let thenTerminated = getBlockTerminatedWithGlobalStateImpl()
+    let thenMovedNames = moveState.movedVarNames
+    let thenMovedCount = moveState.movedVarCount
     let hasElseBranch = stmt.elseBranch.statements.length() > 0
     finalizeConditionalEndBlockImpl(output, thenTerminated,
         branching.endLabel)
     output.append(branching.elseLabel + ":\n")
     setBlockTerminatedWithGlobalStateImpl(false)
+    restoreMovedVariablesImpl(moveState, beforeMovedNames, beforeMovedCount)
     if hasElseBranch {
         lowerBlock(ctx, stmt.elseBranch)
     }
     let elseTerminated = getBlockTerminatedWithGlobalStateImpl()
+    let elseMovedNames = moveState.movedVarNames
+    let elseMovedCount = moveState.movedVarCount
+    if thenTerminated and not elseTerminated {
+        restoreMovedVariablesImpl(moveState, elseMovedNames, elseMovedCount)
+    } else if elseTerminated and not thenTerminated {
+        restoreMovedVariablesImpl(moveState, thenMovedNames, thenMovedCount)
+    } else if thenTerminated and elseTerminated {
+        restoreMovedVariablesImpl(moveState, beforeMovedNames,
+            beforeMovedCount)
+    } else {
+        mergeMovedVariablesImpl(moveState, thenMovedNames, thenMovedCount,
+            elseMovedNames, elseMovedCount)
+    }
     finalizeConditionalEndBlockImpl(output, elseTerminated,
         branching.endLabel)
     let allBranchesTerminated =

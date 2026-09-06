@@ -437,6 +437,8 @@ if command -v x86_64-w64-mingw32-gcc &>/dev/null && [[ -f "$ROOT_DIR/target-wind
 fi
 
 require_artifacts "${EXPECTED_ARTIFACTS[@]}"
+"$SCRIPT_DIR/verify_stdlib_component_payload.sh" \
+    "$DIST_DIR/seen-stdlib-$VERSION-linux-x64.tar.gz"
 
 # Refuse to publish if any Linux installer/package embeds a compiler other
 # than the exact standalone component that will be signed below.

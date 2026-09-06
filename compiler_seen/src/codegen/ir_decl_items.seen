@@ -144,6 +144,22 @@ fun registerFunctionParamDefaultMetadataIntoStateImpl(fn: FunctionNode,
     }
 }
 
+fun registerFunctionBorrowMetadataIntoStateImpl(fn: FunctionNode,
+    implFuncName: String, state: DeclarationPassState) r: Void {
+
+    var paramIdx = 0
+    while paramIdx < fn.params.length() {
+        let rawTypeName = fn.params[paramIdx].paramType.typeName
+        if rawTypeName.startsWith("borrow:") or
+            rawTypeName.startsWith("ref:") {
+
+            state.funcBorrowParams = state.funcBorrowParams + "|" +
+                implFuncName + ":" + paramIdx.toString() + "|"
+        }
+        paramIdx = paramIdx + 1
+    }
+}
+
 fun collectDeclaredParamTypeInfoImpl(params: Array<ParamNode>,
     paramSeenTypes: Array<String>, paramLlvmTypes: Array<String>,
     structNames: Array<String>, typeAliasNames: String,
@@ -235,6 +251,8 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
             ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
         registerFunctionParamDefaultMetadataIntoStateImpl(method, mangledName,
             ctx.state)
+        registerFunctionBorrowMetadataIntoStateImpl(method, mangledName,
+            ctx.state)
 
         var methodRetLlvm = mapDeclaredTypeImpl(methodRetTypeName,
             ctx.structNames, ctx.typeAliasNames, ctx.typeAliasTargets,
@@ -278,6 +296,8 @@ fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
     registerFloatParamMetadataImpl(floatRegistryFuncName, funcObj.params,
         ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
     registerFunctionParamDefaultMetadataIntoStateImpl(funcObj, funcObj.name,
+        ctx.state)
+    registerFunctionBorrowMetadataIntoStateImpl(funcObj, funcObj.name,
         ctx.state)
 
     let bodyStmtCount = funcObj.body.statements.length()

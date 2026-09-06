@@ -104,13 +104,13 @@ fun parseStrictJson(input: String, limits: StrictJsonLimits)
         limits.maxDepth, limits.maxValues, limits.maxStringBytes)
     if parsed.success != 1 {
         // FEL-1561: capture the error fields, then release the failed parse
-        // result (including any partially built value) before returning Err.
-        // Abandoning it here leaked the JsonParseResult and its partial
-        // allocations on every syntax error.
+        // result before returning Err. Failed parser results do not transfer a
+        // value, so destroyValue remains false; abandoning the result object
+        // here leaked one allocation on every syntax error.
         let errCode = "json.syntax"
         let errPos = parsed.errorPosition
         let errMessage = parsed.error
-        destroyJsonParseResult(parsed, true)
+        destroyJsonParseResult(parsed, false)
         return Err<JsonParseResult, StrictJsonError>(StrictJsonError{
             code: errCode, position: errPos,
             message: errMessage

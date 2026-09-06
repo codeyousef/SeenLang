@@ -1,0 +1,18 @@
+@move
+class BorrowResource {
+    var id: Int
+}
+
+fun inspectBorrow(borrow value: BorrowResource) r: Int {
+    return value.id
+}
+
+fun main() r: Int {
+    let resource = BorrowResource{ id: 17 }
+    if inspectBorrow(resource) != 17 { return 1 }
+    if resource.id != 17 { return 2 }
+    println("PASS: FEL-1567 borrow")
+    return 0
+}
+
+main()

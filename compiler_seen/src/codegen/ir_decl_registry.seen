@@ -37,6 +37,7 @@ class DeclarationPassState {
     var xmConstSeenTypesArr: Array<String>
     var funcDefaultsArr: String
     var funcParamCountArr: String
+    var funcBorrowParams: String
 
     static fun new(asyncFuncNames: String, asyncFuncRetTypes: String,
         asyncFuncCount: Int, xmDeclareNames: String, xmDeclareStrs: String,
@@ -51,7 +52,8 @@ class DeclarationPassState {
         xmConstNamesArr: Array<String>, xmConstTypesArr: Array<String>,
         xmConstMutableArr: Array<String>,
         xmConstSeenTypesArr: Array<String>, funcDefaultsArr: String,
-        funcParamCountArr: String) r: DeclarationPassState {
+        funcParamCountArr: String, funcBorrowParams: String)
+        r: DeclarationPassState {
 
         return DeclarationPassState{
             asyncFuncNames: asyncFuncNames,
@@ -82,7 +84,8 @@ class DeclarationPassState {
             xmConstMutableArr: xmConstMutableArr,
             xmConstSeenTypesArr: xmConstSeenTypesArr,
             funcDefaultsArr: funcDefaultsArr,
-            funcParamCountArr: funcParamCountArr
+            funcParamCountArr: funcParamCountArr,
+            funcBorrowParams: funcBorrowParams
         }
     }
 }
@@ -133,7 +136,8 @@ fun captureDeclarationPassStateImpl(asyncFuncNames: String,
     xmConstCount: Int, xmConstNamesArr: Array<String>,
     xmConstTypesArr: Array<String>, xmConstMutableArr: Array<String>,
     xmConstSeenTypesArr: Array<String>, funcDefaultsArr: String,
-    funcParamCountArr: String) r: DeclarationPassState {
+    funcParamCountArr: String, funcBorrowParams: String)
+    r: DeclarationPassState {
 
     return DeclarationPassState.new(asyncFuncNames, asyncFuncRetTypes,
         asyncFuncCount, xmDeclareNames, xmDeclareStrs, xmDeclareVis,
@@ -143,7 +147,7 @@ fun captureDeclarationPassStateImpl(asyncFuncNames: String,
         enumTypeCount, enumVariantCount, xmConstNames, xmConstTypes,
         xmConstMutable, xmConstSeenTypes, xmConstCount, xmConstNamesArr,
         xmConstTypesArr, xmConstMutableArr, xmConstSeenTypesArr,
-        funcDefaultsArr, funcParamCountArr)
+        funcDefaultsArr, funcParamCountArr, funcBorrowParams)
 }
 
 fun captureLateUserDeclareStateImpl(lateXmDeclareNames: String,

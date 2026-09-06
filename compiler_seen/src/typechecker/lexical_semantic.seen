@@ -460,6 +460,18 @@ fun registerSemanticFunction(result: LexicalSemanticResult,
         function.decorators)
     registerSemanticDecoratorGenerics(result.registry, canonical,
         function.decorators)
+    var parameterIndex = 0
+    while parameterIndex < function.params.length() {
+        let rawType = function.params[parameterIndex].paramType.typeName
+        var ownership = ""
+        if rawType.startsWith("borrow:") { ownership = "borrow" }
+        else if rawType.startsWith("ref:") { ownership = "ref" }
+        else if rawType.startsWith("move:") { ownership = "move" }
+        else if rawType.startsWith("own:") { ownership = "own" }
+        result.registry.registerParameterOwnership(canonical,
+            parameterIndex, ownership)
+        parameterIndex = parameterIndex + 1
+    }
 }
 
 fun semanticGlobalEncodedType(encoded: String) r: String {
@@ -733,6 +745,14 @@ fun semanticConsumeSimpleMove(result: LexicalSemanticResult,
     }
 }
 
+fun semanticCallArgumentTransfersOwnership(result: LexicalSemanticResult,
+    moduleName: String, callee: String, argumentIndex: Int) r: Bool {
+
+    let ownership = result.registry.callParameterOwnership(moduleName,
+        callee, argumentIndex)
+    return ownership != "borrow" and ownership != "ref"
+}
+
 fun semanticCheckExpression(result: LexicalSemanticResult,
     expression: ParserExpressionNode, bindings: ScopedBindings,
     moduleName: String, file: String, line: Int, column: Int,
@@ -829,7 +849,12 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
     while i < expression.arguments.length() {
         semanticCheckExpression(result, expression.arguments[i], bindings,
             moduleName, file, line, column, ownerType)
-        semanticConsumeSimpleMove(result, expression.arguments[i], bindings)
+        if semanticCallArgumentTransfersOwnership(result, moduleName,
+            expression.callee, i) {
+
+            semanticConsumeSimpleMove(result, expression.arguments[i],
+                bindings)
+        }
         i = i + 1
     }
     if expression.kind == "Assignment" and
@@ -1019,6 +1044,17 @@ fun semanticValidateParallelForCaptures(result: LexicalSemanticResult,
     }
 }
 
+fun semanticBlockDefinitelyTerminates(block: BlockNode) r: Bool {
+    if block.statements.length() == 0 { return false }
+    let last = block.statements[block.statements.length() - 1]
+    if last.kind == "Return" or last.kind == "Throw" { return true }
+    if last.kind == "If" and last.elseBranch.statements.length() > 0 {
+        return semanticBlockDefinitelyTerminates(last.thenBranch) and
+            semanticBlockDefinitelyTerminates(last.elseBranch)
+    }
+    return false
+}
+
 fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
     bindings: ScopedBindings, moduleName: String, file: String,
     ownerType: String, genericOwner: String,
@@ -1082,8 +1118,20 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
             semanticCheckBlock(result, statement.elseBranch, bindings,
                 moduleName, file, ownerType, genericOwner, genericNames)
             let elseMoves = bindings.copyMoveStates()
-            bindings.mergeConditionalMoveStates(beforeMoves, thenMoves,
-                elseMoves)
+            let thenTerminates = semanticBlockDefinitelyTerminates(
+                statement.thenBranch)
+            let elseTerminates = statement.elseBranch.statements.length() > 0 and
+                semanticBlockDefinitelyTerminates(statement.elseBranch)
+            if thenTerminates and not elseTerminates {
+                bindings.restoreMoveStates(elseMoves)
+            } else if elseTerminates and not thenTerminates {
+                bindings.restoreMoveStates(thenMoves)
+            } else if thenTerminates and elseTerminates {
+                bindings.restoreMoveStates(beforeMoves)
+            } else {
+                bindings.mergeConditionalMoveStates(beforeMoves, thenMoves,
+                    elseMoves)
+            }
         } else if statement.kind == "While" {
             semanticCheckExpression(result, statement.loopCondition, bindings,
                 moduleName, file, statement.line, statement.column, ownerType)

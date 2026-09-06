@@ -1,0 +1,25 @@
+import env.env.{args}
+import memory.mapped_file.{MappedFile, closeMappedWindow, closeMappedFile}
+
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let argv = args()
+    require(argv.length() == 2, "expected one-byte fixture path")
+    let opened = MappedFile.openReadonly(argv[1])
+    require(opened.isOkay(), "open mapping")
+    let file = opened.unwrap()
+    let mapped = file.window(0 as UInt64, 1 as UInt64)
+    require(mapped.isOkay(), "map final byte")
+    let window = mapped.unwrap()
+    let value: UInt8 = *window.data
+    require(value == (90 as UInt8), "typed UInt8 dereference")
+    require(closeMappedWindow(window).isOkay(), "close window")
+    require(closeMappedFile(file).isOkay(), "close file")
+    println("PASS: FEL-1559 typed UInt8 pointer dereference")
+    return 0
+}
+
+main()

@@ -1,0 +1,26 @@
+@move
+class EarlyResource {
+    var id: Int
+}
+
+fun consumeEarly(value: EarlyResource) r: Void {
+    println(value.id.toString())
+}
+
+fun choose(flag: Bool) r: Int {
+    let resource = EarlyResource{ id: 23 }
+    if flag {
+        consumeEarly(resource)
+        return 23
+    }
+    return resource.id
+}
+
+fun main() r: Int {
+    if choose(true) != 23 { return 1 }
+    if choose(false) != 23 { return 2 }
+    println("PASS: FEL-1567 early return")
+    return 0
+}
+
+main()

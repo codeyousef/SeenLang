@@ -9,6 +9,7 @@ STAGE1_ACCEPTANCE="$ROOT_DIR/scripts/seen_stage1_acceptance.sh"
 SAFE_REBUILD="$ROOT_DIR/scripts/safe_rebuild.sh"
 TEST_PARENT="$ROOT_DIR/.seen/agent-tools/tests"
 FIXTURE_ROOT="$TEST_PARENT/artifact-root"
+HOST_TMP_EXEC=""
 
 fail() {
     printf 'FAIL: %s\n' "$*" >&2
@@ -31,6 +32,9 @@ safe_fixture_cleanup() {
         [ "$resolved_parent" = "$resolved_fixture_parent" ] || return 1
     fi
     rm -rf -- "$FIXTURE_ROOT"
+    case "$HOST_TMP_EXEC" in
+        /tmp/seen-artifact-wrapper-exec-*) rm -f -- "$HOST_TMP_EXEC" ;;
+    esac
 }
 
 mkdir -p -- "$TEST_PARENT"
@@ -193,6 +197,19 @@ if [ "$(uname -s)" = "Linux" ] && command -v bwrap >/dev/null 2>&1; then
         -type d -name 'run.*' -print -quit | grep -q .; then
         fail "successful wrapper command left a run directory behind"
     fi
+
+    HOST_TMP_EXEC="/tmp/seen-artifact-wrapper-exec-$$"
+    cp -- /bin/sh "$HOST_TMP_EXEC"
+    chmod 0700 "$HOST_TMP_EXEC"
+    tmp_exec_output=$(
+        SEEN_ARTIFACT_ROOT="$wrapper_root" \
+            "$WRAPPER" wrapper-host-tmp-exec -- \
+            "$HOST_TMP_EXEC" -c 'printf "private-tmp-exec-ok\n"'
+    )
+    [ "$tmp_exec_output" = "private-tmp-exec-ok" ] ||
+        fail "project-artifact wrapper did not stage a host /tmp executable"
+    rm -f -- "$HOST_TMP_EXEC"
+    HOST_TMP_EXEC=""
 
     stale_auxiliary_root="$wrapper_root/outer-hard-scope"
     stale_auxiliary_config="$stale_auxiliary_root/auxiliary-limits/ripgrep.conf"

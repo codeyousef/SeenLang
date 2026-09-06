@@ -41,7 +41,10 @@ bash -n \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh \
     tests/misc_root_tests/seen_v019_float_codegen_contract.sh \
     tests/misc_root_tests/seen_result_aggregate_array_data_contract.sh \
-    tests/misc_root_tests/seen_async_structured_contract.sh
+    tests/misc_root_tests/seen_async_structured_contract.sh \
+    tests/misc_root_tests/seen_stdlib_component_payload.sh \
+    tests/misc_root_tests/seen_mapped_close_ownership.sh \
+    tests/misc_root_tests/seen_open_issue_regressions.sh
 tests/misc_root_tests/seen_program_artifacts_contract.sh
 SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh
@@ -145,6 +148,7 @@ tests/misc_root_tests/seen_cpu_benchmark_clock_contract.sh
 tests/misc_root_tests/seen_error_api_migration.sh
 tests/misc_root_tests/seen_error_policy_contract.sh
 tests/misc_root_tests/seen_owned_resource_contract.sh
+tests/misc_root_tests/seen_mapped_close_ownership.sh
 tests/misc_root_tests/seen_secret_marker_contract.sh
 tests/misc_root_tests/seen_test_instrumentation_contract.sh
 tests/misc_root_tests/seen_fuzz_corpus_contract.sh
@@ -152,6 +156,7 @@ tests/misc_root_tests/seen_benchmark_evidence_contract.sh
 tests/misc_root_tests/seen_leak_soak_contract.sh
 tests/misc_root_tests/seen_bootstrap_reproducibility_contract.sh
 tests/misc_root_tests/seen_release_artifact_pins_contract.sh
+tests/misc_root_tests/seen_stdlib_component_payload.sh
 tests/misc_root_tests/seen_compiler_provenance_contract.sh
 tests/misc_root_tests/seen_release_upload_artifact_scope.sh
 tests/misc_root_tests/seen_gate0_certification_contract.sh

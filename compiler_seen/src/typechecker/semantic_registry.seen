@@ -285,6 +285,9 @@ class SemanticDeclarationRegistry {
     var genericOwners: Array<String>
     var genericNames: Array<String>
     var genericModifiers: Array<String>
+    var parameterOwners: Array<String>
+    var parameterIndices: Array<Int>
+    var parameterOwnerships: Array<String>
     var lifecycleFieldOwners: Array<String>
     var lifecycleFieldModules: Array<String>
     var lifecycleFieldNames: Array<String>
@@ -322,6 +325,9 @@ class SemanticDeclarationRegistry {
             genericOwners: Array<String>(),
             genericNames: Array<String>(),
             genericModifiers: Array<String>(),
+            parameterOwners: Array<String>(),
+            parameterIndices: Array<Int>(),
+            parameterOwnerships: Array<String>(),
             lifecycleFieldOwners: Array<String>(),
             lifecycleFieldModules: Array<String>(),
             lifecycleFieldNames: Array<String>(),
@@ -611,6 +617,54 @@ class SemanticDeclarationRegistry {
             if this.genericOwners[i] == ownerCanonical and
                 this.genericNames[i] == name {
                 return this.genericModifiers[i]
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fun registerParameterOwnership(ownerCanonical: String,
+        parameterIndex: Int, ownership: String) r: Void {
+
+        if ownerCanonical == "" or parameterIndex < 0 or ownership == "" {
+            return
+        }
+        var i = 0
+        while i < this.parameterOwners.length() {
+            if this.parameterOwners[i] == ownerCanonical and
+                this.parameterIndices[i] == parameterIndex {
+
+                this.parameterOwnerships[i] = ownership
+                return
+            }
+            i = i + 1
+        }
+        this.parameterOwners.push(ownerCanonical)
+        this.parameterIndices.push(parameterIndex)
+        this.parameterOwnerships.push(ownership)
+    }
+
+    fun callParameterOwnership(moduleName: String, callee: String,
+        parameterIndex: Int) r: String {
+
+        var lookupName = callee
+        let genericStart = lookupName.indexOf("<", 0)
+        if genericStart > 0 {
+            lookupName = lookupName.substring(0, genericStart)
+        }
+        let declarationIndex = this.lookupIndex(moduleName, lookupName)
+        if declarationIndex < 0 or
+            declarationIndex >= this.canonicalNames.length() {
+
+            return ""
+        }
+        let ownerCanonical = this.canonicalNames[declarationIndex]
+        var i = 0
+        while i < this.parameterOwners.length() {
+            if this.parameterOwners[i] == ownerCanonical and
+                this.parameterIndices[i] == parameterIndex {
+
+                return this.parameterOwnerships[i]
             }
             i = i + 1
         }

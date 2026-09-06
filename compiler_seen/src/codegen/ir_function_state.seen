@@ -82,6 +82,36 @@ fun isMovedVariableImpl(state: FunctionEmissionState, varName: String) r: Int {
     return 0
 }
 
+fun restoreMovedVariablesImpl(state: FunctionEmissionState, names: String,
+    count: Int) r: Void {
+
+    state.movedVarNames = names
+    state.movedVarCount = count
+}
+
+fun mergeMovedVariablesImpl(state: FunctionEmissionState,
+    leftNames: String, leftCount: Int, rightNames: String,
+    rightCount: Int) r: Void {
+
+    state.movedVarNames = leftNames
+    state.movedVarCount = leftCount
+    var start = 0
+    var i = 0
+    while i <= rightNames.length() {
+        if i == rightNames.length() or rightNames.byteAt(i) == 124 {
+            if i > start {
+                let name = rightNames.substring(start, i)
+                if not state.movedVarNames.contains(name + "|") {
+                    state.movedVarNames = state.movedVarNames + name + "|"
+                    state.movedVarCount = state.movedVarCount + 1
+                }
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+}
+
 fun resetFunctionLoweringOptionsStateImpl(opts: FunctionLoweringOptions)
     r: Void {
 
