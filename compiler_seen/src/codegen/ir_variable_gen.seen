@@ -69,7 +69,10 @@ fun storeActiveVariableBindingImpl(varNames: Array<String>,
 fun emitMovedVariableUseTrapImpl(output: StringBuilder, varName: String) r: Void {
     output.append("  ; ERROR: use after move of '" + varName + "'\n")
     output.append("  call void @seen_use_after_move(%SeenString zeroinitializer)\n")
-    output.append("  unreachable\n")
+    // Lexical semantics rejects this source before lowering. Keep defensive
+    // IR structurally valid if an incomplete bootstrap graph reaches here:
+    // the runtime call aborts, while the enclosing block retains its one
+    // canonical terminator instead of appending numbered SSA after unreachable.
 }
 
 fun emitComptimeVariableLoadImpl(output: StringBuilder, regBox: Array<Int>, ctVal: Int) r: String {

@@ -157,8 +157,11 @@ fun emitUnaryDereferenceState(ctx: CodegenLoweringContext,
     let operandType = inferLoweredExpressionType(ctx, expr.operands[0])
     var loadLlvmType: String = "i64"
     if operandType.startsWith("*") {
-        let pointeeScalar = getFixedWidthScalarLlvmTypeImpl(operandType.substring(1,
-            operandType.length()))
+        var pointeeType = operandType.substring(1, operandType.length())
+        if pointeeType.startsWith("const ") {
+            pointeeType = pointeeType.substring(6, pointeeType.length())
+        }
+        let pointeeScalar = getFixedWidthScalarLlvmTypeImpl(pointeeType)
         if pointeeScalar != "" {
             loadLlvmType = pointeeScalar
         }

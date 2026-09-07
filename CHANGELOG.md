@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Completed FEL-1559 for qualified pointer types: unary dereference now strips
+  `const` from the pointee before selecting its fixed-width LLVM load, so
+  `*const UInt8` remains an `i8` load instead of widening to `i64`.
+- Fixed FEL-1560 mapped-resource close ownership by adding consuming close
+  operations whose typed failure values retain the sole retryable
+  `MappedWindow` or `MappedFile` owner; deterministic runtime fault injection
+  verifies unlock, unmap, busy-file, and file-close retry paths.
+- Fixed FEL-1561 strict-JSON error cleanup so failed parse results destroy only
+  parser-owned state and never claim that an unsuccessful result transferred a
+  value to the caller.
+- Fixed FEL-1565 standalone stdlib packaging to copy only canonical tracked
+  sources and to reject temporary, build, target, or cache members before a
+  component can be signed or uploaded.
+- Fixed FEL-1567 ownership analysis across calls and conditional control flow:
+  borrowed parameters do not consume their arguments, moves in non-terminating
+  branches are merged conservatively, terminating branches do not poison the
+  surviving path, and invalid use-after-move is rejected before LLVM lowering.
+
 ## [0.19.3] - 2026-09-01
 
 ### Fixed

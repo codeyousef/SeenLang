@@ -11827,6 +11827,23 @@ typedef struct SeenMappedWindowV2 {
     bool locked;
 } SeenMappedWindowV2;
 
+#ifdef SEEN_RUNTIME_TESTING
+static int32_t seen_mapped_test_unlock_failures = 0;
+static int32_t seen_mapped_test_unmap_failures = 0;
+static int32_t seen_mapped_test_file_close_failures = 0;
+
+void seen_mapped_test_set_close_failures(int32_t unlock_failures,
+                                         int32_t unmap_failures,
+                                         int32_t file_close_failures) {
+    seen_mapped_test_unlock_failures = unlock_failures > 0
+        ? unlock_failures : 0;
+    seen_mapped_test_unmap_failures = unmap_failures > 0
+        ? unmap_failures : 0;
+    seen_mapped_test_file_close_failures = file_close_failures > 0
+        ? file_close_failures : 0;
+}
+#endif
+
 static int seen_mapped_copy_path(int64_t path_len, const char *path_data,
                                  char path[4096]) {
     if (!path_data || path_len <= 0 || path_len >= 4096) return 0;
@@ -12068,9 +12085,21 @@ int32_t seen_mapped_window_close(uint64_t *window_handle) {
     SeenMappedWindowV2 *window =
         (SeenMappedWindowV2 *)(uintptr_t)*window_handle;
     if (window->locked) {
+#ifdef SEEN_RUNTIME_TESTING
+        if (seen_mapped_test_unlock_failures > 0) {
+            seen_mapped_test_unlock_failures--;
+            return SEEN_MMAP_LOCK_FAILED;
+        }
+#endif
         int32_t unlock_status = seen_mapped_window_unlock(*window_handle);
         if (unlock_status != SEEN_MMAP_OK) return unlock_status;
     }
+#ifdef SEEN_RUNTIME_TESTING
+    if (seen_mapped_test_unmap_failures > 0) {
+        seen_mapped_test_unmap_failures--;
+        return SEEN_MMAP_MAP_FAILED;
+    }
+#endif
 #ifdef _WIN32
     if (!UnmapViewOfFile(window->mapping)) return SEEN_MMAP_MAP_FAILED;
 #else
@@ -12089,6 +12118,12 @@ int32_t seen_mapped_file_close(uint64_t *file_handle) {
     if (*file_handle == 0) return SEEN_MMAP_OK;
     SeenMappedFileV2 *file = (SeenMappedFileV2 *)(uintptr_t)*file_handle;
     if (file->active_windows != 0) return SEEN_MMAP_BUSY;
+#ifdef SEEN_RUNTIME_TESTING
+    if (seen_mapped_test_file_close_failures > 0) {
+        seen_mapped_test_file_close_failures--;
+        return SEEN_MMAP_STAT_FAILED;
+    }
+#endif
 #ifdef _WIN32
     if (!CloseHandle(file->file)) return SEEN_MMAP_STAT_FAILED;
 #else

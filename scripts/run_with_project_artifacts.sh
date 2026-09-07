@@ -73,6 +73,34 @@ if [ -L "$TMPDIR" ]; then
     exit 1
 fi
 mkdir -p -- "$TMPDIR"
+
+# A freshly rebuilt compiler is staged at a single-file host /tmp path. Since
+# this wrapper replaces /tmp with RUN_WORK_ROOT, publish an exact byte copy at
+# the corresponding private path before entering Bubblewrap. Refuse nested
+# paths and symlinks so an arbitrary host /tmp tree can never be imported.
+case "${COMMAND[0]}" in
+    /tmp/*)
+        command_tmp_name=${COMMAND[0]#/tmp/}
+        case "$command_tmp_name" in
+            ''|*/*)
+                echo "ERROR: command executable uses an unsupported nested /tmp path: ${COMMAND[0]}" >&2
+                exit 1
+                ;;
+        esac
+        [ -f "${COMMAND[0]}" ] && [ -x "${COMMAND[0]}" ] &&
+            [ ! -L "${COMMAND[0]}" ] || {
+            echo "ERROR: /tmp command must be a regular executable: ${COMMAND[0]}" >&2
+            exit 1
+        }
+        private_tmp_command="$RUN_WORK_ROOT/$command_tmp_name"
+        cp -- "${COMMAND[0]}" "$private_tmp_command"
+        chmod 0700 "$private_tmp_command"
+        cmp -s -- "${COMMAND[0]}" "$private_tmp_command" || {
+            echo "ERROR: private /tmp command bytes differ from the requested executable" >&2
+            exit 1
+        }
+        ;;
+esac
 SEEN_ARTIFACT_ROOT="$RUN_WORK_ROOT"
 SEEN_PROJECT_ARTIFACT_WRAPPER=1
 SEEN_PROJECT_ARTIFACT_NAMESPACE_ACTIVE=1

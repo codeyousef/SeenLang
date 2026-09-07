@@ -22,6 +22,8 @@ IMPLICIT_MACOS_ARTIFACT="$DIST_DIR/seen-0.10.1-macos-arm64.tar.gz"
 mkdir -p "$FIXTURE_ROOT/scripts" "$FIXTURE_BIN" "$MIN_PATH" "$OPTIONAL_PATH" "$DIST_DIR"
 cp "$ROOT_DIR/scripts/build_and_upload_release.sh" "$FIXTURE_ROOT/scripts/"
 cp "$ROOT_DIR/scripts/release_tag_policy.sh" "$FIXTURE_ROOT/scripts/"
+cp "$ROOT_DIR/scripts/verify_stdlib_component_payload.sh" \
+    "$FIXTURE_ROOT/scripts/"
 cat > "$FIXTURE_ROOT/scripts/verify_linux_delivery_compiler_identity.sh" <<'PROVENANCE_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -98,7 +100,13 @@ printf 'current release artifact\n' > "$output_dir/seen-$version-$artifact_suffi
 if [[ "$artifact_suffix" == "linux-x64" ]]; then
     printf 'compiler\n' > "$output_dir/seen-compiler-$version-linux-x64"
     printf 'runtime\n' > "$output_dir/seen-runtime-$version-linux-x64.tar.gz"
-    printf 'stdlib\n' > "$output_dir/seen-stdlib-$version-linux-x64.tar.gz"
+    stdlib_fixture="$output_dir/stdlib-fixture"
+    mkdir -p "$stdlib_fixture/seen_std/src/core"
+    printf 'fun fixture() r: Int { return 0 }\n' > \
+        "$stdlib_fixture/seen_std/src/core/fixture.seen"
+    tar -C "$stdlib_fixture" -czf \
+        "$output_dir/seen-stdlib-$version-linux-x64.tar.gz" seen_std
+    rm -rf -- "$stdlib_fixture"
     printf 'package-client\n' > "$output_dir/seen-pkg-$version-linux-x64"
 fi
 BUILD_EOF
@@ -266,13 +274,14 @@ chmod 755 \
     "$FIXTURE_ROOT/scripts/verify_linux_delivery_compiler_identity.sh" \
     "$FIXTURE_ROOT/scripts/run_in_hard_memory_scope.sh" \
     "$FIXTURE_ROOT/scripts/run_with_project_artifacts.sh" \
+    "$FIXTURE_ROOT/scripts/verify_stdlib_component_payload.sh" \
     "$FIXTURE_ROOT/scripts/sign_release.sh"
 
 export SEEN_RELEASE_CONTAINMENT_IN_SCOPE=1
 export SEEN_RELEASE_PROJECT_WRAPPER="$FIXTURE_ROOT/scripts/run_with_project_artifacts.sh"
 export SEEN_JOBS=1 SEEN_OPT_JOBS=1 SEEN_PACKAGE_JOBS=1 SEEN_NO_FORK=1
 
-for tool in awk bash basename cat chmod cp dirname grep ls mkdir mktemp rm sha256sum sort; do
+for tool in awk bash basename cat chmod cp dirname grep gzip ls mkdir mktemp rm sha256sum sort tar; do
     ln -s "$(command -v "$tool")" "$MIN_PATH/$tool"
 done
 

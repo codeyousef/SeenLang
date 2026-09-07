@@ -1,0 +1,20 @@
+import json.strict.{StrictJsonLimits, parseStrictJson}
+
+fun require(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    var index = 0
+    while index < 2000 {
+        let parsed = parseStrictJson("{\"broken\":]",
+            StrictJsonLimits.manifests())
+        require(parsed.isErr(), "malformed JSON must fail")
+        parsed.free()
+        index = index + 1
+    }
+    println("PASS: FEL-1561 strict JSON error cleanup")
+    return 0
+}
+
+main()

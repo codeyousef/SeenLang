@@ -59,6 +59,27 @@ tracked_runtime_files() {
     done < <(git -C "$ROOT_DIR" ls-files -z -- seen_runtime)
 }
 
+tracked_stdlib_files() {
+    local path
+    while IFS= read -r -d '' path; do
+        case "$path" in
+            *.tmp.*|*/build/*|*/target/*|*/.seen/*) continue ;;
+            seen_std/src/*) printf '%s\0' "$path" ;;
+        esac
+    done < <(git -C "$ROOT_DIR" ls-files -z -- seen_std/src)
+}
+
+copy_tracked_stdlib_payload() {
+    local destination="$1"
+    local path relative target
+    while IFS= read -r -d '' path; do
+        relative="${path#seen_std/src/}"
+        target="$destination/$relative"
+        mkdir -p "$(dirname "$target")"
+        cp "$ROOT_DIR/$path" "$target"
+    done < <(tracked_stdlib_files)
+}
+
 copy_tracked_runtime_payload() {
     local destination="$1"
     local path relative target
@@ -383,7 +404,7 @@ fi
 if [[ "$PAYLOAD_CACHE_HIT" != "1" ]]; then
     echo "[2/6] Copying standard library..."
     if [[ -d "$ROOT_DIR/seen_std/src" ]]; then
-        cp -r "$ROOT_DIR/seen_std/src/"* "$STAGING/lib/seen/std/"
+        copy_tracked_stdlib_payload "$STAGING/lib/seen/std"
         prune_packaged_stdlib_artifacts "$STAGING/lib/seen/std"
     fi
 
@@ -593,8 +614,10 @@ if [[ "$ARTIFACT_SUFFIX" == "linux-x64" ]]; then
     (cd "$ROOT_DIR" && tracked_runtime_files | \
         tar --null --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 \
             --group=0 --numeric-owner -T - -cf - | gzip -n > "$RUNTIME_COMPONENT")
-    (cd "$ROOT_DIR" && tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 \
-        --numeric-owner -cf - seen_std/src | gzip -n > "$STDLIB_COMPONENT")
+    (cd "$ROOT_DIR" && tracked_stdlib_files | \
+        tar --null --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 \
+            --group=0 --numeric-owner -T - -cf - | gzip -n > "$STDLIB_COMPONENT")
+    "$SCRIPT_DIR/verify_stdlib_component_payload.sh" "$STDLIB_COMPONENT"
 fi
 
 if [[ "$SKIP_VERIFY" != "1" ]]; then

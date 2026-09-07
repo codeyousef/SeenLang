@@ -1,0 +1,20 @@
+@move
+class BranchResource {
+    var id: Int
+}
+
+fun consumeBranch(value: BranchResource) r: Void {
+    println(value.id.toString())
+}
+
+fun invalidBranch(flag: Bool) r: Int {
+    let resource = BranchResource{ id: 7 }
+    if flag {
+        consumeBranch(resource)
+    }
+    return resource.id
+}
+
+fun main() r: Int { return invalidBranch(true) }
+
+main()

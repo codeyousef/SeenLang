@@ -1046,6 +1046,11 @@ int32_t seen_mapped_window_unlock(uint64_t window_handle);
 int32_t seen_mapped_window_bind_numa(uint64_t window_handle, int32_t node);
 int32_t seen_mapped_window_close(uint64_t *window_handle);
 int32_t seen_mapped_file_close(uint64_t *file_handle);
+#ifdef SEEN_RUNTIME_TESTING
+void seen_mapped_test_set_close_failures(int32_t unlock_failures,
+                                         int32_t unmap_failures,
+                                         int32_t file_close_failures);
+#endif
 
 // ============================================================================
 // Time — narrow OS normalization ABI; scheduling policy remains in Seen

@@ -86,6 +86,7 @@ var g_cResourceDestructors: String = ""
 
 var g_funcDefaultsArr: String = ""
 var g_funcParamCountArr: String = ""
+var g_funcBorrowParams: String = ""
 var g_defaultFillArgRegs: Array<String> = Array<String>()
 var g_defaultFillArgTypeStrs: Array<String> = Array<String>()
 
@@ -731,6 +732,10 @@ fun getFeatureFuncDefaultsArrImpl() r: String {
     return g_funcDefaultsArr
 }
 
+fun getFeatureFuncBorrowParamsImpl() r: String {
+    return g_funcBorrowParams
+}
+
 fun getFeatureCResourceClassesImpl() r: String {
     return g_cResourceClasses
 }
@@ -763,6 +768,7 @@ fun populateFeatureDeclarationPassStateImpl(
     declState.enumVariantCount = g_enumVariantCount
     declState.funcDefaultsArr = g_funcDefaultsArr
     declState.funcParamCountArr = g_funcParamCountArr
+    declState.funcBorrowParams = g_funcBorrowParams
 }
 
 fun applyFeatureDeclarationPassStateImpl(
@@ -781,4 +787,5 @@ fun applyFeatureDeclarationPassStateImpl(
     g_enumVariantCount = declState.enumVariantCount
     g_funcDefaultsArr = declState.funcDefaultsArr
     g_funcParamCountArr = declState.funcParamCountArr
+    g_funcBorrowParams = declState.funcBorrowParams
 }

@@ -464,6 +464,8 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_result_aggregate_array_data_contract.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_async_structured_contract.sh"
+COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_open_issue_regressions.sh"
 
 if [ "$TIER" = "verify" ]; then
     "$REPO_ROOT/tests/misc_root_tests/seen_unimported_extension_contract.sh"

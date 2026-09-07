@@ -23,6 +23,18 @@ class MmapError {
     var operation: String
 }
 
+@move
+class MappedWindowCloseFailure {
+    var owner: MappedWindow
+    var error: MmapError
+}
+
+@move
+class MappedFileCloseFailure {
+    var owner: MappedFile
+    var error: MmapError
+}
+
 fun mmapFailure(code: Int32, operation: String) r: MmapError {
     return MmapError{ code: code, operation: operation }
 }
@@ -152,4 +164,40 @@ class MappedFile {
         this.length = 0 as UInt64
         return Ok<Bool, MmapError>(true)
     }
+}
+
+/// Consume a window on success. On failure the error owns the unchanged,
+/// exactly-once handle so callers may retry or carry it in a typed validation
+/// error. The owner must not be copied or discarded without an explicit
+/// application cleanup policy.
+fun closeMappedWindow(window: MappedWindow)
+    r: Result<Bool, MappedWindowCloseFailure> {
+
+    let status = seen_mapped_window_close(&window.handle)
+    if status != MMAP_OK {
+        return Err<Bool, MappedWindowCloseFailure>(
+            MappedWindowCloseFailure{
+                owner: window,
+                error: mmapFailure(status, "close-window")
+            })
+    }
+    window.data = null as *const UInt8
+    window.length = 0 as UInt64
+    return Ok<Bool, MappedWindowCloseFailure>(true)
+}
+
+/// Consume a file on success and preserve the sole owner inside the typed
+/// failure on busy/native-close errors. Retrying consumes that returned owner.
+fun closeMappedFile(file: MappedFile)
+    r: Result<Bool, MappedFileCloseFailure> {
+
+    let status = seen_mapped_file_close(&file.handle)
+    if status != MMAP_OK {
+        return Err<Bool, MappedFileCloseFailure>(MappedFileCloseFailure{
+            owner: file,
+            error: mmapFailure(status, "close-file")
+        })
+    }
+    file.length = 0 as UInt64
+    return Ok<Bool, MappedFileCloseFailure>(true)
 }
