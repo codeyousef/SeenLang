@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-09-08
+
+### Fixed
+
+- Fixed FEL-1570 aggregate lowering so fixed-width `@repr(C)` values retain
+  their concrete LLVM ABI through constructors, locals, direct returns,
+  cross-module declarations and calls, and field access.
+- Fixed packaged CUDA standard-library executable compilation by preserving
+  the concrete `String` return type of `String.fromCString` and placing native
+  object functions and data in independently removable sections. CPU-only
+  builds can import CUDA API types without locating or linking a GPU SDK.
+
 ## [0.20.0] - 2026-09-08
 
 ### Added
