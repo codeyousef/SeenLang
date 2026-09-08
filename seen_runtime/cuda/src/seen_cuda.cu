@@ -3,6 +3,7 @@
 #include <cublasLt.h>
 #include <cuda_runtime_api.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -12,19 +13,77 @@ namespace {
 
 constexpr uint64_t kAllocationMagic = UINT64_C(0x5343414c4c4f4331);
 constexpr uint64_t kHostMagic = UINT64_C(0x5343484f53543031);
-constexpr uint64_t kStreamMagic = UINT64_C(0x534353545245414d);
 constexpr uint64_t kEventMagic = UINT64_C(0x53434556454e5431);
 constexpr uint64_t kGraphMagic = UINT64_C(0x5343475241504831);
 constexpr uint64_t kGraphExecMagic = UINT64_C(0x5343474558454331);
 constexpr uint64_t kLtMagic = UINT64_C(0x53434355424c5431);
+constexpr uint64_t kStreamHandleTag = UINT64_C(0xc57e000000000000);
+constexpr uint64_t kStreamHandleTagMask = UINT64_C(0xffff000000000000);
+constexpr uint64_t kStreamGenerationMask = UINT64_C(0x0000ffffffff0000);
+constexpr uint32_t kStreamSlotCount = 256;
+
+enum StreamState : uint32_t {
+    kStreamFree = 0,
+    kStreamReserved = 1,
+    kStreamActive = 2,
+    kStreamClosing = 3
+};
 
 struct Allocation { uint64_t magic; void *data; uint64_t bytes; int device; };
 struct HostAllocation { uint64_t magic; void *data; uint64_t bytes; };
-struct Stream { uint64_t magic; cudaStream_t value; int device; bool capturing; };
+struct Stream {
+    std::atomic<uint32_t> state{ kStreamFree };
+    uint32_t generation = 0;
+    cudaStream_t value = nullptr;
+    int32_t device = -1;
+    bool capturing = false;
+};
 struct Event { uint64_t magic; cudaEvent_t value; int device; };
 struct Graph { uint64_t magic; cudaGraph_t value; int device; };
 struct GraphExec { uint64_t magic; cudaGraphExec_t value; int device; };
 struct LtHandle { uint64_t magic; cublasLtHandle_t value; int device; };
+
+Stream stream_slots[kStreamSlotCount];
+
+uint64_t stream_handle(uint32_t index, uint32_t generation) {
+    return kStreamHandleTag |
+        (static_cast<uint64_t>(generation) << 16) |
+        static_cast<uint64_t>(index + 1);
+}
+
+enum class StreamLookup { kActive, kClosed, kInvalid };
+
+SeenCudaStatus status(int code, int native, int device, const char *operation,
+                      const char *message);
+
+Stream *checked_stream(SeenCudaHandle handle, StreamLookup *lookup = nullptr) {
+    if (lookup) *lookup = handle == 0 ? StreamLookup::kClosed
+                                      : StreamLookup::kInvalid;
+    if (handle == 0 || (handle & kStreamHandleTagMask) != kStreamHandleTag)
+        return nullptr;
+    const uint64_t encoded_index = handle & UINT64_C(0xffff);
+    if (encoded_index == 0 || encoded_index > kStreamSlotCount) return nullptr;
+    const uint32_t generation = static_cast<uint32_t>(
+        (handle & kStreamGenerationMask) >> 16);
+    if (generation == 0) return nullptr;
+    Stream *slot = &stream_slots[encoded_index - 1];
+    if (slot->state.load(std::memory_order_acquire) != kStreamActive ||
+        slot->generation != generation) {
+        if (lookup) *lookup = StreamLookup::kClosed;
+        return nullptr;
+    }
+    if (lookup) *lookup = StreamLookup::kActive;
+    return slot;
+}
+
+SeenCudaStatus stream_lookup_failure(StreamLookup lookup,
+                                     const char *operation) {
+    return status(lookup == StreamLookup::kClosed ? SEEN_CUDA_CLOSED
+                                                  : SEEN_CUDA_INVALID_ARGUMENT,
+                  0, -1, operation,
+                  lookup == StreamLookup::kClosed ? "CUDA stream is closed"
+                                                   : "invalid CUDA stream handle");
+}
 
 SeenCudaStatus status(int code, int native, int device, const char *operation,
                       const char *message) {
@@ -377,41 +436,97 @@ SeenCudaStatus seen_cuda_stream_create(int32_t device, SeenCudaHandle *stream) {
     *stream = 0;
     SeenCudaStatus selected = select_device(device, "stream-create");
     if (selected.code != SEEN_CUDA_OK) return selected;
-    auto *object = static_cast<Stream *>(std::calloc(1, sizeof(Stream)));
-    if (!object) return status(SEEN_CUDA_OUT_OF_MEMORY, 0, device,
-                               "stream-create", "stream metadata allocation failed");
-    cudaError_t error = cudaStreamCreateWithFlags(&object->value, cudaStreamNonBlocking);
-    if (error != cudaSuccess) { std::free(object); return cuda_failure("stream-create", error, device); }
-    object->magic = kStreamMagic; object->device = device;
-    *stream = reinterpret_cast<uintptr_t>(object);
-    return ok("stream-create", device);
+    for (uint32_t index = 0; index < kStreamSlotCount; ++index) {
+        Stream *slot = &stream_slots[index];
+        uint32_t expected = kStreamFree;
+        if (!slot->state.compare_exchange_strong(expected, kStreamReserved,
+                std::memory_order_acq_rel, std::memory_order_relaxed))
+            continue;
+        uint32_t generation = slot->generation + 1;
+        if (generation == 0) generation = 1;
+        cudaStream_t native_stream = nullptr;
+        cudaError_t error = cudaStreamCreateWithFlags(
+            &native_stream, cudaStreamNonBlocking);
+        if (error != cudaSuccess) {
+            slot->state.store(kStreamFree, std::memory_order_release);
+            return cuda_failure("stream-create", error, device);
+        }
+        slot->value = native_stream;
+        slot->device = device;
+        slot->capturing = false;
+        slot->generation = generation;
+        slot->state.store(kStreamActive, std::memory_order_release);
+        *stream = stream_handle(index, generation);
+        return ok("stream-create", device);
+    }
+    return status(SEEN_CUDA_LIMIT, 0, device, "stream-create",
+                  "CUDA stream owner slot limit reached");
 }
 
 SeenCudaStatus seen_cuda_stream_destroy(SeenCudaHandle *stream) {
     if (!stream) return invalid("stream-destroy", "missing owner handle");
     if (*stream == 0) return ok("stream-destroy");
-    Stream *object = checked<Stream>(*stream, kStreamMagic);
-    if (!object || object->capturing)
-        return status(object ? SEEN_CUDA_BUSY : SEEN_CUDA_INVALID_ARGUMENT,
-            0, object ? object->device : -1, "stream-destroy",
-            object ? "stream capture is active" : "invalid stream owner");
+    StreamLookup lookup = StreamLookup::kInvalid;
+    Stream *object = checked_stream(*stream, &lookup);
+    if (!object) return stream_lookup_failure(lookup, "stream-destroy");
+    if (object->capturing)
+        return status(SEEN_CUDA_BUSY, 0, object->device, "stream-destroy",
+                      "stream capture is active");
+    uint32_t expected = kStreamActive;
+    if (!object->state.compare_exchange_strong(expected, kStreamClosing,
+            std::memory_order_acq_rel, std::memory_order_relaxed))
+        return status(SEEN_CUDA_BUSY, 0, object->device, "stream-destroy",
+                      "stream ownership operation is active");
     cudaError_t error = cudaStreamDestroy(object->value);
-    if (error != cudaSuccess) return cuda_failure("stream-destroy", error, object->device);
-    object->magic = 0; std::free(object); *stream = 0;
+    if (error != cudaSuccess) {
+        object->state.store(kStreamActive, std::memory_order_release);
+        return cuda_failure("stream-destroy", error, object->device);
+    }
+    object->value = nullptr;
+    object->device = -1;
+    object->capturing = false;
+    object->state.store(kStreamFree, std::memory_order_release);
+    *stream = 0;
     return ok("stream-destroy");
 }
 
 SeenCudaStatus seen_cuda_stream_synchronize(SeenCudaHandle stream) {
-    Stream *object = checked<Stream>(stream, kStreamMagic);
-    if (!object) return invalid("stream-synchronize", "invalid stream");
+    StreamLookup lookup = StreamLookup::kInvalid;
+    Stream *object = checked_stream(stream, &lookup);
+    if (!object) return stream_lookup_failure(lookup, "stream-synchronize");
     cudaError_t error = cudaStreamSynchronize(object->value);
     return error == cudaSuccess ? ok("stream-synchronize", object->device)
                                 : cuda_failure("stream-synchronize", error, object->device);
 }
 
+SeenCudaStatus seen_cuda_stream_borrow_launch_token(SeenCudaHandle stream,
+    int32_t expected_device, SeenCudaStreamLaunchToken *token) {
+    if (!token) return invalid("stream-borrow-launch-token", "missing token output");
+    *token = SeenCudaStreamLaunchToken{};
+    if (expected_device < 0)
+        return invalid("stream-borrow-launch-token", "negative expected device ordinal");
+    StreamLookup lookup = StreamLookup::kInvalid;
+    Stream *object = checked_stream(stream, &lookup);
+    if (!object) return stream_lookup_failure(lookup, "stream-borrow-launch-token");
+    if (object->device != expected_device)
+        return status(SEEN_CUDA_INCOMPATIBLE, 0, object->device,
+                      "stream-borrow-launch-token",
+                      "CUDA stream belongs to a different device");
+    static_assert(sizeof(cudaStream_t) <= sizeof(uint64_t),
+                  "CUDA stream token requires a fixed-width 64-bit representation");
+    token->abi_version = SEEN_CUDA_STREAM_LAUNCH_TOKEN_ABI_VERSION;
+    token->flags = SEEN_CUDA_STREAM_LAUNCH_CAPTURE_COMPATIBLE |
+        (object->capturing ? SEEN_CUDA_STREAM_LAUNCH_CAPTURE_ACTIVE : 0u);
+    token->device_ordinal = object->device;
+    token->native_stream = static_cast<uint64_t>(
+        reinterpret_cast<uintptr_t>(object->value));
+    token->generation = object->generation;
+    return ok("stream-borrow-launch-token", object->device);
+}
+
 SeenCudaStatus seen_cuda_memcpy_async(void *destination, const void *source,
     uint64_t bytes, int32_t kind, SeenCudaHandle stream) {
-    Stream *object = checked<Stream>(stream, kStreamMagic);
+    Stream *object = checked_stream(stream);
     if (!object || !destination || !source || bytes == 0 || bytes > SIZE_MAX ||
         kind < SEEN_CUDA_COPY_HOST_TO_DEVICE || kind > SEEN_CUDA_COPY_DEVICE_TO_DEVICE)
         return invalid("memcpy-async", "invalid bounded asynchronous copy");
@@ -426,7 +541,7 @@ SeenCudaStatus seen_cuda_memcpy_async(void *destination, const void *source,
 
 SeenCudaStatus seen_cuda_memset_async(void *destination, int32_t value,
     uint64_t bytes, SeenCudaHandle stream) {
-    Stream *object = checked<Stream>(stream, kStreamMagic);
+    Stream *object = checked_stream(stream);
     if (!object || !destination || bytes == 0 || bytes > SIZE_MAX)
         return invalid("memset-async", "invalid bounded asynchronous fill");
     cudaError_t error = cudaMemsetAsync(destination, value, static_cast<size_t>(bytes),
@@ -452,7 +567,7 @@ SeenCudaStatus seen_cuda_event_create(int32_t device, SeenCudaHandle *event) {
 
 SeenCudaStatus seen_cuda_event_record(SeenCudaHandle event, SeenCudaHandle stream) {
     Event *event_object = checked<Event>(event, kEventMagic);
-    Stream *stream_object = checked<Stream>(stream, kStreamMagic);
+    Stream *stream_object = checked_stream(stream);
     if (!event_object || !stream_object || event_object->device != stream_object->device)
         return invalid("event-record", "invalid or cross-device event/stream");
     cudaError_t error = cudaEventRecord(event_object->value, stream_object->value);
@@ -493,7 +608,7 @@ SeenCudaStatus seen_cuda_event_destroy(SeenCudaHandle *event) {
 }
 
 SeenCudaStatus seen_cuda_graph_begin_capture(SeenCudaHandle stream) {
-    Stream *object = checked<Stream>(stream, kStreamMagic);
+    Stream *object = checked_stream(stream);
     if (!object || object->capturing)
         return invalid("graph-begin-capture", "invalid stream or capture already active");
     cudaError_t error = cudaStreamBeginCapture(object->value, cudaStreamCaptureModeThreadLocal);
@@ -504,7 +619,7 @@ SeenCudaStatus seen_cuda_graph_begin_capture(SeenCudaHandle stream) {
 
 SeenCudaStatus seen_cuda_graph_end_capture(SeenCudaHandle stream,
                                            SeenCudaHandle *graph) {
-    Stream *stream_object = checked<Stream>(stream, kStreamMagic);
+    Stream *stream_object = checked_stream(stream);
     if (!stream_object || !stream_object->capturing || !graph)
         return invalid("graph-end-capture", "capture is not active or output is missing");
     *graph = 0;
@@ -538,7 +653,7 @@ SeenCudaStatus seen_cuda_graph_instantiate(SeenCudaHandle graph,
 SeenCudaStatus seen_cuda_graph_launch(SeenCudaHandle graph_exec,
                                       SeenCudaHandle stream) {
     GraphExec *exec_object = checked<GraphExec>(graph_exec, kGraphExecMagic);
-    Stream *stream_object = checked<Stream>(stream, kStreamMagic);
+    Stream *stream_object = checked_stream(stream);
     if (!exec_object || !stream_object || exec_object->device != stream_object->device)
         return invalid("graph-launch", "invalid or cross-device graph/stream");
     cudaError_t error = cudaGraphLaunch(exec_object->value, stream_object->value);
@@ -621,7 +736,7 @@ SeenCudaStatus seen_cublaslt_matmul(SeenCudaHandle handle,
     const void *a, const void *b, void *c, void *workspace,
     SeenCudaHandle stream) {
     LtHandle *handle_object = checked<LtHandle>(handle, kLtMagic);
-    Stream *stream_object = checked<Stream>(stream, kStreamMagic);
+    Stream *stream_object = checked_stream(stream);
     if (!handle_object || !stream_object || !algorithm || !a || !b || !c ||
         handle_object->device != stream_object->device)
         return invalid("cublaslt-matmul", "invalid or cross-device matmul resources");

@@ -15,7 +15,30 @@ extern "C" {
 #endif
 
 #define SEEN_CUDA_ABI_VERSION 1u
+#define SEEN_CUDA_STREAM_LAUNCH_TOKEN_ABI_VERSION 1u
 typedef uint64_t SeenCudaHandle;
+
+typedef enum SeenCudaStreamLaunchTokenFlags {
+    SEEN_CUDA_STREAM_LAUNCH_CAPTURE_COMPATIBLE = 1u,
+    SEEN_CUDA_STREAM_LAUNCH_CAPTURE_ACTIVE = 2u
+} SeenCudaStreamLaunchTokenFlags;
+
+/*
+ * A short-lived, non-owning view of a Seen-owned CUDA stream. The token is
+ * valid only while the originating stream owner remains open. Borrowers must
+ * not retain it beyond one adapter call, destroy the native stream, change its
+ * device, or synchronize it. native_stream is the uintptr_t representation of
+ * cudaStream_t on the supported Linux x86-64 ABI; this header deliberately does
+ * not include CUDA headers so CPU-only consumers never discover the CUDA SDK.
+ */
+typedef struct SeenCudaStreamLaunchToken {
+    uint32_t abi_version;
+    uint32_t flags;
+    int32_t device_ordinal;
+    uint32_t reserved;
+    uint64_t native_stream;
+    uint64_t generation;
+} SeenCudaStreamLaunchToken;
 
 typedef enum SeenCudaCode {
     SEEN_CUDA_OK = 0,
@@ -125,6 +148,9 @@ SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_create(int32_t device,
     SeenCudaHandle *stream);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_destroy(SeenCudaHandle *stream);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_synchronize(SeenCudaHandle stream);
+SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_borrow_launch_token(
+    SeenCudaHandle stream, int32_t expected_device,
+    SeenCudaStreamLaunchToken *token);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_create(int32_t device,
     SeenCudaHandle *event);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_record(SeenCudaHandle event,

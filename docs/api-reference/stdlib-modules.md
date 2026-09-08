@@ -245,6 +245,11 @@ capability and unsupported-platform diagnostics. See
 - `accelerator/cuda/error` (explicit Linux x86-64 CUDA dependency)
 - `accelerator/cuda/mod` (experimental hardware maturity)
 
+`CudaStream.borrowLaunchToken()` returns a non-owning
+`CudaStreamLaunchToken` for one immediately nested model-kernel adapter call.
+The token is generation- and device-checked, supports graph capture, and does
+not authorize retention, synchronization, destruction, or device changes.
+
 ### `net`
 
 - `net/poll`

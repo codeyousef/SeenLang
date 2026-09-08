@@ -22,13 +22,30 @@ NVCC="${SEEN_NVCC:-/opt/cuda/bin/nvcc}"
     -L "$BUILD_DIR/build" -Xlinker=-rpath -Xlinker="$BUILD_DIR/build" \
     -lseen_cuda \
     -o "$BUILD_DIR/qwen_cuda_foundation"
+"$NVCC" -std=c++17 -arch=sm_89 -O2 --threads 1 -c \
+    -I "$ROOT_DIR/seen_runtime/cuda/include" \
+    -I "$ROOT_DIR/tests/misc_root_tests" \
+    "$ROOT_DIR/tests/misc_root_tests/seen_qwen_stream_adapter.cu" \
+    -o "$BUILD_DIR/seen_qwen_stream_adapter.o"
+"$NVCC" -std=c++17 -arch=sm_89 -O2 --threads 1 \
+    -I "$ROOT_DIR/seen_runtime/cuda/include" \
+    -I "$ROOT_DIR/tests/misc_root_tests" \
+    "$ROOT_DIR/tests/misc_root_tests/seen_cuda_stream_launch_token.cu" \
+    "$BUILD_DIR/seen_qwen_stream_adapter.o" \
+    -L "$BUILD_DIR/build" -Xlinker=-rpath -Xlinker="$BUILD_DIR/build" \
+    -lseen_cuda \
+    -o "$BUILD_DIR/seen_cuda_stream_launch_token"
 if [ "${SEEN_QWEN_REQUIRE_CUDA:-0}" = 1 ]; then
     if [ "${SEEN_QWEN_COMPUTE_SANITIZER:-0}" = 1 ]; then
         SEEN_QWEN_SKIP_OOM_PROBE=1 /opt/cuda/bin/compute-sanitizer \
             --tool memcheck --leak-check full --error-exitcode 99 \
             "$BUILD_DIR/qwen_cuda_foundation"
+        /opt/cuda/bin/compute-sanitizer \
+            --tool memcheck --leak-check full --error-exitcode 99 \
+            "$BUILD_DIR/seen_cuda_stream_launch_token"
     else
         "$BUILD_DIR/qwen_cuda_foundation"
+        "$BUILD_DIR/seen_cuda_stream_launch_token"
     fi
 else
     echo "PASS: CUDA foundation compile-only (set SEEN_QWEN_REQUIRE_CUDA=1 for hardware certification)"

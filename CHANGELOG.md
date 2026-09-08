@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added FEL-1569's generation- and device-checked borrowed CUDA stream launch
+  token, allowing separately built model-kernel adapters to enqueue on the
+  exact Seen-owned stream without ownership transfer, allocation, fallback,
+  or implicit synchronization; RTX 4090 coverage includes ordered transfers,
+  graph capture/replay, stale-handle rejection, and teardown.
+
 ## [0.19.4] - 2026-09-07
 
 ### Fixed

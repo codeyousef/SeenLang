@@ -48,6 +48,17 @@ and diagnostics. It covers devices, device and pinned memory, asynchronous
 copies, streams, events, graph capture/replay/update, and deterministic
 cuBLASLt F16/BF16 algorithm selection. Silent fallback is not supported.
 
+Model-specific native kernels borrow the exact Seen-owned stream through the
+fixed-width `seen-cuda-stream-launch-token-v1` contract. A token contains the
+native `cudaStream_t` value, device ordinal, capture flags, and a generation;
+it is valid only for one immediately nested adapter call while its move-only
+`CudaStream` owner remains open. Borrowing validates the opaque handle and
+expected device without allocation, fallback, host blocking, or CUDA
+synchronization. The borrower may enqueue capture-compatible work but may not
+retain the token, destroy or synchronize the stream, change its device, or
+make scheduling policy. Closed, stale, malformed, and cross-device requests
+return typed CUDA statuses before the native value is exposed.
+
 ## Frozen Qwen inputs and evidence
 
 `projects/seen_ml/qwen38` contains the strict model/source lock contracts,

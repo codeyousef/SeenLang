@@ -26,6 +26,7 @@ python3 "$ROOT_DIR/scripts/check_native_boundaries.py" \
     "$ROOT_DIR/docs/architecture/native-boundaries.json"
 
 "$ROOT_DIR/tests/misc_root_tests/seen_qwen_seen_contracts.sh"
+"$ROOT_DIR/tests/misc_root_tests/seen_cuda_stream_launch_token_contract.sh"
 
 for source in \
     "$ROOT_DIR/seen_std/src/inference/scalars.seen" \

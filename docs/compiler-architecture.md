@@ -595,6 +595,16 @@ semantics remain native Seen behavior. Version 0.14 ships Linux x86-64 `sm_89`
 support at `experimental-hardware` maturity. Compile-only results never imply a
 hardware certification, and fallback is never silent.
 
+`seen-cuda-stream-launch-token-v1` is the narrow exception that permits a
+separately built model-kernel adapter to enqueue on an exact Seen-owned stream.
+`CudaStream.borrowLaunchToken()` asks the native adapter to validate the opaque,
+generation-checked owner and expected device, then returns a fixed-width
+short-lived view of `cudaStream_t`. The token transfers no ownership and is
+invalidated by stream close. Borrowing has no allocation, CUDA synchronization,
+fallback, or scheduling policy. Capture is supported explicitly and reported in
+the token flags. The optional CUDA ABI remains outside CPU-only discovery and is
+bound by the release manifest's `runtime-v3` compatibility identity.
+
 ## Key Source Areas
 
 | Area | Purpose |

@@ -1,0 +1,25 @@
+import accelerator.cuda.mod.{CudaStreamLaunchToken,
+    CUDA_STREAM_LAUNCH_TOKEN_ABI_VERSION,
+    CUDA_STREAM_LAUNCH_CAPTURE_COMPATIBLE}
+
+fun tokenHasStableShape(token: CudaStreamLaunchToken) r: Bool {
+    return token.abiVersion == CUDA_STREAM_LAUNCH_TOKEN_ABI_VERSION and
+        (token.flags & CUDA_STREAM_LAUNCH_CAPTURE_COMPATIBLE) != (0 as UInt32) and
+        token.deviceOrdinal >= (0 as Int32) and token.nativeStream != (0 as UInt64) and
+        token.generation != (0 as UInt64)
+}
+
+fun main() r: Int {
+    let token = CudaStreamLaunchToken{
+        abiVersion: CUDA_STREAM_LAUNCH_TOKEN_ABI_VERSION,
+        flags: CUDA_STREAM_LAUNCH_CAPTURE_COMPATIBLE,
+        deviceOrdinal: 0 as Int32,
+        reserved: 0 as UInt32,
+        nativeStream: 1 as UInt64,
+        generation: 1 as UInt64
+    }
+    if not tokenHasStableShape(token) { return 1 }
+    return 0
+}
+
+main()

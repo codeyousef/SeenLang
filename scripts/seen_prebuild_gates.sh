@@ -345,6 +345,7 @@ bash -n "$SCRIPT_DIR/artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_pkg_local_registry.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_pkg_scoped_identity.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_qwen_cpu_isolation.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_cuda_stream_launch_token_contract.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_qwen_cuda_foundation.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_qwen_g0_baseline.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_qwen_mapped_file_large.sh" \

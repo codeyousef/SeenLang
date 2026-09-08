@@ -5,6 +5,9 @@ import accelerator.cuda.error.{CudaNativeStatus, CudaError, cudaSucceeded, cudaE
 import core.result.{Result, Ok, Err}
 
 let CUDA_ABI_VERSION: UInt32 = 1 as UInt32
+let CUDA_STREAM_LAUNCH_TOKEN_ABI_VERSION: UInt32 = 1 as UInt32
+let CUDA_STREAM_LAUNCH_CAPTURE_COMPATIBLE: UInt32 = 1 as UInt32
+let CUDA_STREAM_LAUNCH_CAPTURE_ACTIVE: UInt32 = 2 as UInt32
 let CUDA_COPY_HOST_TO_DEVICE: Int32 = 1 as Int32
 let CUDA_COPY_DEVICE_TO_HOST: Int32 = 2 as Int32
 let CUDA_COPY_DEVICE_TO_DEVICE: Int32 = 3 as Int32
@@ -36,6 +39,21 @@ class CudaAlgorithm {
     var cacheIdentity: UInt64
 }
 
+/// Borrowed fixed-width launch view for a Seen-owned stream. The token may be
+/// passed to one native adapter call while the CudaStream owner remains open;
+/// it never transfers ownership and must not be stored or destroyed by the
+/// adapter.
+@repr(C)
+@trivially_copyable
+class CudaStreamLaunchToken {
+    var abiVersion: UInt32
+    var flags: UInt32
+    var deviceOrdinal: Int32
+    var reserved: UInt32
+    var nativeStream: UInt64
+    var generation: UInt64
+}
+
 extern "C" fun seen_cuda_abi_version() r: UInt32
 extern "C" fun seen_cuda_runtime_version(version: *Int32) r: CudaNativeStatus
 extern "C" fun seen_cuda_driver_version(version: *Int32) r: CudaNativeStatus
@@ -58,6 +76,8 @@ extern "C" fun seen_cuda_stream_create(device: Int32,
     stream: *UInt64) r: CudaNativeStatus
 extern "C" fun seen_cuda_stream_destroy(stream: *UInt64) r: CudaNativeStatus
 extern "C" fun seen_cuda_stream_synchronize(stream: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_stream_borrow_launch_token(stream: UInt64,
+    expectedDevice: Int32, token: *CudaStreamLaunchToken) r: CudaNativeStatus
 extern "C" fun seen_cuda_event_create(device: Int32,
     event: *UInt64) r: CudaNativeStatus
 extern "C" fun seen_cuda_event_record(event: UInt64,
@@ -222,6 +242,26 @@ class CudaStream {
         let status = seen_cuda_stream_synchronize(this.handle)
         if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
         return Ok<Bool, CudaError>(true)
+    }
+
+    /// Borrows the exact native stream for one immediately nested native
+    /// adapter call. The adapter may enqueue capture-compatible work but may
+    /// not retain, synchronize, destroy, or change the device of the token.
+    fun borrowLaunchToken() r: Result<CudaStreamLaunchToken, CudaError> {
+        var token = CudaStreamLaunchToken{
+            abiVersion: 0 as UInt32,
+            flags: 0 as UInt32,
+            deviceOrdinal: -1 as Int32,
+            reserved: 0 as UInt32,
+            nativeStream: 0 as UInt64,
+            generation: 0 as UInt64
+        }
+        let status = seen_cuda_stream_borrow_launch_token(
+            this.handle, this.device, &token)
+        if not cudaSucceeded(status) {
+            return Err<CudaStreamLaunchToken, CudaError>(cudaError(status))
+        }
+        return Ok<CudaStreamLaunchToken, CudaError>(token)
     }
 
     fun beginCapture() r: Result<Bool, CudaError> {

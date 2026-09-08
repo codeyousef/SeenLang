@@ -4005,6 +4005,13 @@
       ]
     },
     {
+      "name": "seen_cuda_stream_borrow_launch_token",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
       "name": "seen_cuda_stream_create",
       "abi": "C",
       "sources": [
