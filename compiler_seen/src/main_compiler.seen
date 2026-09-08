@@ -14780,19 +14780,22 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     }
                 }
                 moduleObjCmd = llvmLlcTool + " -filetype=obj " +
-                    picLlcOptLevel + " -relocation-model=pic " +
+                    picLlcOptLevel +
+                    " -function-sections -data-sections -relocation-model=pic " +
                     mainCompilerShellQuote(optFile) + " -o " +
                     mainCompilerShellQuote(objFile)
             }
             if g_fastMode == 1 and normalizedCrossTarget != "android-arm64" and normalizedCrossTarget != "linux-riscv64" {
                 moduleObjCmd = llvmLlcTool +
-                    " -filetype=obj -O1 -relocation-model=pic " +
+                    " -filetype=obj -O1 -function-sections -data-sections" +
+                    " -relocation-model=pic " +
                     mainCompilerShellQuote(optFile) + " -o " +
                     mainCompilerShellQuote(objFile)
             }
             if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" and normalizedCrossTarget != "linux-riscv64" {
                 moduleObjCmd = llvmLlcTool +
-                    " -filetype=obj -O0 -relocation-model=pic " +
+                    " -filetype=obj -O0 -function-sections -data-sections" +
+                    " -relocation-model=pic " +
                     mainCompilerShellQuote(optFile) + " -o " +
                     mainCompilerShellQuote(objFile)
             }

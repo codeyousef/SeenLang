@@ -26,16 +26,28 @@ fun mapTypeState(seenType: String) r: String {
         getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl())
 }
 
+fun isReprCDataTypeState(seenType: String) r: Bool {
+    let reprCClassNames = getFeatureReprCClassNamesImpl()
+    if reprCClassNames == "" {
+        return false
+    }
+    let baseType = getBaseTypeNameImpl(seenType)
+    return reprCClassNames.contains(baseType + "|")
+}
+
 fun isClassTypeState(seenType: String) r: Bool {
+    if isReprCDataTypeState(seenType) { return false }
     return isClassTypeReg(seenType, getGlobalStructNamesImpl())
 }
 
 fun isClassHandleLikeTypeState(seenType: String) r: Bool {
+    if isReprCDataTypeState(seenType) { return false }
     return isClassHandleLikeTypeImpl(seenType, getGlobalStructNamesImpl()) == 1
 }
 
 fun isDataTypeState(seenType: String) r: Bool {
     if isDataTypeImpl(seenType) == 1 { return true }
+    if isReprCDataTypeState(seenType) { return true }
     return false
 }
 

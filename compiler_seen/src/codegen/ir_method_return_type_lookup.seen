@@ -120,6 +120,7 @@ fun computeMethodReturnTypeUncachedImpl(structName: String, methodName: String,
         if methodName == "charAt" { return "Char" }
         if methodName == "charCodeAt" or methodName == "byteAt" { return "Int" }
         if methodName == "fromCharCode" { return "String" }
+        if methodName == "fromCString" { return "String" }
         if methodName == "toCString" { return "Int" }
         if methodName == "replace" { return "String" }
         if methodName == "repeat" { return "String" }

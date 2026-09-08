@@ -110,7 +110,9 @@ fun registerClassTypeDecoratorMetadataImpl(output: StringBuilder,
     }
     if decorator.name == "repr" {
         typeFlags[0] = 1
-        state.reprCClassNames = state.reprCClassNames + className + "|"
+        if not state.reprCClassNames.contains(className + "|") {
+            state.reprCClassNames = state.reprCClassNames + className + "|"
+        }
     }
     if decorator.name == "packed" {
         typeFlags[1] = 1

@@ -239,6 +239,14 @@ grep -Fq 'seen_v019_float_codegen_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits v0.19 float regressions"
 grep -Fq 'seen_result_aggregate_array_data_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1554/FEL-1555 regressions"
+grep -Fq 'seen_aggregate_return_cuda_stdlib_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1570 aggregate/CUDA regression"
+grep -Fq 'CudaStreamLaunchToken' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
+    fail "installed release payload omits the packaged CUDA stream API"
+grep -Fq 'CudaNativeStatus' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
+    fail "installed release payload omits the packaged CUDA error API"
 grep -Fq 'seen_async_structured_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits structured async regressions"
 grep -Fq 'structured_async.seen' "$STAGE1" ||

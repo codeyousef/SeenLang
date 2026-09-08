@@ -265,6 +265,32 @@ fun emitRuntimeDeclarationsWithGlobalStateImpl(output: StringBuilder,
     emitFeatureDecls(output, definedFuncs)
 }
 
+fun emitImportedReprCClassTypesWithGlobalStateImpl(
+    output: StringBuilder) r: Void {
+
+    let reprCClassNames = getFeatureReprCClassNamesImpl()
+    var searchPos = 0
+    while searchPos < reprCClassNames.length() {
+        var nextPipe = reprCClassNames.indexOf("|", searchPos)
+        if nextPipe < 0 {
+            nextPipe = reprCClassNames.length()
+        }
+        let className = reprCClassNames.substring(searchPos, nextPipe)
+        if className != "" and
+            not hasGeneratedClassWithGlobalStateImpl(className) {
+
+            let structIdx = findStructReg(className, structNames)
+            if structIdx >= 0 and structLayouts[structIdx] != "" {
+                output.append("; imported @repr(C) type: " + className + "\n")
+                output.append("%" + className + " = type " +
+                    structLayouts[structIdx] + "\n")
+                generatedClasses.push(className)
+            }
+        }
+        searchPos = nextPipe + 1
+    }
+}
+
 fun emitGlobalVariablesWithGlobalStateImpl(output: StringBuilder,
     program: ProgramNode, moduleConstMutable: String,
     moduleConstSeenTypes: String) r: ModuleConstantRegistrySnapshot {
