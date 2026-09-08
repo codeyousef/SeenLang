@@ -256,6 +256,11 @@ fun resolveStructFieldLlvmTypeImpl(structName: String, fieldName: String,
 
             if typeIdx == fieldIdx {
                 let typeName = fieldTypesStr.substring(typeStart, typePos)
+                if typeName.startsWith("*") and reprCClassNames != "" and
+                    reprCClassNames.contains(structName + "|") {
+
+                    return "ptr"
+                }
                 return mapRegistryFieldTypeImpl(typeName, reprCClassNames,
                     structNames, typeAliasNames, typeAliasTargets,
                     typeAliasCount, enumTypeNames)

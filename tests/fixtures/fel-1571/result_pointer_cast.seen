@@ -1,0 +1,13 @@
+import pointer_cast_support.{makeCrossModulePointerViewResult}
+
+fun main() r: Int {
+    let result = makeCrossModulePointerViewResult(null as *const UInt8,
+        128 as UInt64)
+    if not result.isOkay() { return 1 }
+    let view = result.unwrap()
+    if (view.data as Int) + 13 != 13 { return 2 }
+    if view.byteLength != (128 as UInt64) { return 3 }
+    return 0
+}
+
+main()

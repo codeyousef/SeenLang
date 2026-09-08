@@ -4,6 +4,20 @@ import json.parser.{destroyJsonParseResult}
 import accelerator.cuda.mod.{CudaStreamLaunchToken}
 import accelerator.cuda.error.{CudaNativeStatus}
 
+@repr(C)
+@trivially_copyable
+class InstalledPointerView {
+    var data: *const UInt8
+    var byteLength: UInt64
+}
+
+fun installedPointerView(address: *const UInt8) r: InstalledPointerView {
+    return InstalledPointerView{
+        data: address,
+        byteLength: 32 as UInt64
+    }
+}
+
 fun require(condition: Bool, message: String) r: Void {
     if not condition { abort(message) }
 }
@@ -39,6 +53,9 @@ fun main() r: Int {
         token.nativeStream == (0 as UInt64) and
         status.code == (0 as Int32),
         "installed CUDA standard-library surface")
+    let pointerView = installedPointerView(null as *const UInt8)
+    require((pointerView.data as Int) + 9 == 9,
+        "installed repr(C) pointer-field integer cast")
     println("PASS: installed release standard-library payload")
     return 0
 }

@@ -1,0 +1,28 @@
+@repr(C)
+@trivially_copyable
+class LocalPointerView {
+    var data: *const UInt8
+    var byteLength: UInt64
+}
+
+fun makeLocalPointerView(address: *const UInt8,
+    byteLength: UInt64) r: LocalPointerView {
+    return LocalPointerView{
+        data: address,
+        byteLength: byteLength
+    }
+}
+
+fun main() r: Int {
+    let direct = LocalPointerView{
+        data: null as *const UInt8,
+        byteLength: 16 as UInt64
+    }
+    if (direct.data as Int) + 3 != 3 { return 1 }
+
+    let returned = makeLocalPointerView(null as *const UInt8, 32 as UInt64)
+    if (returned.data as Int) + 7 != 7 { return 2 }
+    return 0
+}
+
+main()

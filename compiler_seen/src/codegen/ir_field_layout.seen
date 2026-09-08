@@ -177,6 +177,12 @@ fun emitSimpleFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
             let resultReg = getNextRegFn(regBox)
             output.append("  " + resultReg + " = extractvalue %" + structType +
                 " " + ptrReg + ", " + fieldIdx.toString() + "\n")
+            if fieldSeenType.startsWith("*") and llvmFieldType == "ptr" {
+                let handleReg = getNextRegFn(regBox)
+                output.append("  " + handleReg + " = ptrtoint ptr " +
+                    resultReg + " to i64 ; repr(C) pointer field\n")
+                return handleReg
+            }
             return resultReg
         }
     }
@@ -202,6 +208,12 @@ fun emitDirectFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
             let resultReg = getNextRegFn(regBox)
             output.append("  " + resultReg + " = extractvalue %" + structType +
                 " " + ptrReg + ", " + fieldIdx.toString() + "\n")
+            if llvmFieldType == "ptr" {
+                let handleReg = getNextRegFn(regBox)
+                output.append("  " + handleReg + " = ptrtoint ptr " +
+                    resultReg + " to i64 ; repr(C) pointer field\n")
+                return handleReg
+            }
             return resultReg
         }
     }
