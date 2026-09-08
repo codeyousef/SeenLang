@@ -2,7 +2,7 @@
 
 import parser.real_parser.{ProgramNode}
 import str.string.{StringBuilder}
-import codegen.ir_codegen_global_state.{emitModulePrologueWithGlobalStateImpl, emitRuntimeDeclarationsWithGlobalStateImpl}
+import codegen.ir_codegen_global_state.{emitModulePrologueWithGlobalStateImpl, emitRuntimeDeclarationsWithGlobalStateImpl, emitImportedReprCClassTypesWithGlobalStateImpl}
 import codegen.ir_codegen_metrics_state.{callCountClear, selfCallClear, loadMLWeights}
 import codegen.ir_codegen_module_state.{emitCrossModuleConstantDeclaresWithModuleStateImpl, emitCrossModuleFunctionDeclaresWithModuleStateImpl}
 import codegen.ir_module_emit.{collectProgramDefinedSymbolsImpl}
@@ -44,6 +44,7 @@ fun emitSingleModuleEntryState(output: StringBuilder,
     collectProgramStringConstantsState(program, stringConstants)
     emitModulePrologueWithGlobalStateImpl(output)
     emitProgramClassTypesState(output, program)
+    emitImportedReprCClassTypesWithGlobalStateImpl(output)
     emitProgramGlobalVariablesState(output, program)
     emitCrossModuleConstantDeclaresWithModuleStateImpl(output)
     emitStringConstantsWithPrefixImpl(output, stringConstants, moduleIndex)

@@ -431,6 +431,21 @@ fun appendDistinctTypeNameWithFeatureStateImpl(className: String) r: Void {
     g_distinctTypeNames = g_distinctTypeNames + className + "|"
 }
 
+fun preRegisterClassAbiDecoratorsWithFeatureStateImpl(
+    classNode: ClassNode) r: Void {
+
+    var decoratorIdx = 0
+    while decoratorIdx < classNode.decorators.length() {
+        let decorator = classNode.decorators[decoratorIdx]
+        if decorator.name == "repr" and
+            not g_reprCClassNames.contains(classNode.name + "|") {
+
+            g_reprCClassNames = g_reprCClassNames + classNode.name + "|"
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+}
+
 fun prepareClassTypeDecoratorScanWithFeatureStateImpl(output: StringBuilder,
     classNode: ClassNode, structNames: Array<String>,
     structLayouts: Array<String>, structSizes: Array<Int>)

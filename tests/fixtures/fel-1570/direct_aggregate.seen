@@ -1,0 +1,29 @@
+@repr(C)
+@trivially_copyable
+class BufferView {
+    var abiVersion: UInt32
+    var deviceOrdinal: Int32
+    var address: UInt64
+    var byteLength: UInt64
+}
+
+fun makeView(address: *Void, byteLength: UInt64,
+    deviceOrdinal: Int32) r: BufferView {
+    return BufferView{
+        abiVersion: 1 as UInt32,
+        deviceOrdinal: deviceOrdinal,
+        address: address as UInt64,
+        byteLength: byteLength
+    }
+}
+
+fun main() r: Int {
+    let view = makeView(null as *Void, 4096 as UInt64, 0 as Int32)
+    if view.abiVersion != (1 as UInt32) { return 1 }
+    if view.deviceOrdinal != (0 as Int32) { return 2 }
+    if view.address != (0 as UInt64) { return 3 }
+    if view.byteLength != (4096 as UInt64) { return 4 }
+    return 0
+}
+
+main()

@@ -1,0 +1,32 @@
+import accelerator.cuda.mod.{CudaStreamLaunchToken}
+import accelerator.cuda.error.{CudaNativeStatus}
+
+fun validateCudaSurface(token: CudaStreamLaunchToken,
+    status: CudaNativeStatus) r: Int {
+    if token.abiVersion != (1 as UInt32) { return 1 }
+    if token.nativeStream != (0 as UInt64) { return 2 }
+    if status.code != (0 as Int32) { return 3 }
+    return 0
+}
+
+fun main() r: Int {
+    let token = CudaStreamLaunchToken{
+        abiVersion: 1 as UInt32,
+        flags: 0 as UInt32,
+        deviceOrdinal: 0 as Int32,
+        reserved: 0 as UInt32,
+        nativeStream: 0 as UInt64,
+        generation: 1 as UInt64
+    }
+    let status = CudaNativeStatus{
+        code: 0 as Int32,
+        nativeCode: 0 as Int32,
+        deviceOrdinal: 0 as Int32,
+        maturity: 0 as Int32,
+        operation: null as *const Char,
+        message: null as *const Char
+    }
+    return validateCudaSurface(token, status)
+}
+
+main()

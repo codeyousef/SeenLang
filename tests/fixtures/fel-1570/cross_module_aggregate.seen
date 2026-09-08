@@ -1,0 +1,13 @@
+import aggregate_support.{CrossModuleBufferView, makeCrossModuleView}
+
+fun main() r: Int {
+    let view = makeCrossModuleView(null as *Void, 8192 as UInt64,
+        3 as Int32)
+    if view.abiVersion != (1 as UInt32) { return 1 }
+    if view.deviceOrdinal != (3 as Int32) { return 2 }
+    if view.address != (0 as UInt64) { return 3 }
+    if view.byteLength != (8192 as UInt64) { return 4 }
+    return 0
+}
+
+main()

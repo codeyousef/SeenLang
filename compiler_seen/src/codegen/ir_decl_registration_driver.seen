@@ -6,6 +6,7 @@ import codegen.ir_decl_pass_driver.{finishDeclarationRegistrationPassImpl}
 import codegen.ir_decl_state_driver.{beginDeclarationRegistrationWithGlobalState, captureDeclarationPassState, createDeclarationItemContextFromOwnerState, applyDeclarationPassState}
 import codegen.ir_return_type_driver.{resolveMethodReturnTypeFromListState, resolveFunctionReturnTypeState}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
+import codegen.ir_codegen_feature_state.{preRegisterClassAbiDecoratorsWithFeatureStateImpl}
 
 fun collectClassMethodDeclarationReturnTypesState(classNode: ClassNode,
     varNames: Array<String>, varTypes: Array<String>,
@@ -61,6 +62,17 @@ fun collectPreparedDeclarationItemsState(program: ProgramNode,
     return preparedItems
 }
 
+fun preRegisterProgramAbiDecoratorsState(program: ProgramNode) r: Void {
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "Class" {
+            preRegisterClassAbiDecoratorsWithFeatureStateImpl(item.classNode)
+        }
+        itemIdx = itemIdx + 1
+    }
+}
+
 fun registerDeclarationsState(program: ProgramNode, varNames: Array<String>,
     varTypes: Array<String>, stringConstants: Array<String>) r: Void {
 
@@ -68,6 +80,7 @@ fun registerDeclarationsState(program: ProgramNode, varNames: Array<String>,
     // prepare items against that snapshot, then apply the updated state once.
     // This keeps cross-module declaration scans deterministic during bootstrap.
     beginDeclarationRegistrationWithGlobalState(program)
+    preRegisterProgramAbiDecoratorsState(program)
     let declState = captureDeclarationPassState()
     let declItemContext = createDeclarationItemContextFromOwnerState(
         declState)

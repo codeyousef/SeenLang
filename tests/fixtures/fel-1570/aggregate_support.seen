@@ -1,0 +1,18 @@
+@repr(C)
+@trivially_copyable
+class CrossModuleBufferView {
+    var abiVersion: UInt32
+    var deviceOrdinal: Int32
+    var address: UInt64
+    var byteLength: UInt64
+}
+
+fun makeCrossModuleView(address: *Void, byteLength: UInt64,
+    deviceOrdinal: Int32) r: CrossModuleBufferView {
+    return CrossModuleBufferView{
+        abiVersion: 1 as UInt32,
+        deviceOrdinal: deviceOrdinal,
+        address: address as UInt64,
+        byteLength: byteLength
+    }
+}
