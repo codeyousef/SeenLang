@@ -76,8 +76,15 @@ fun resolveAssignmentFieldTypesImpl(structType: String, fieldName: String,
     }
 
     if llvmFieldType == "" and seenFieldType != "" {
-        llvmFieldType = mapAssignmentFieldTypeImpl(seenFieldType, reprCClassNames,
-            structNames, typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        if seenFieldType.startsWith("*") and reprCClassNames != "" and
+            reprCClassNames.contains(structType + "|") {
+
+            llvmFieldType = "ptr"
+        } else {
+            llvmFieldType = mapAssignmentFieldTypeImpl(seenFieldType,
+                reprCClassNames, structNames, typeAliasNames,
+                typeAliasTargets, typeAliasCount, enumTypeNames)
+        }
     }
     if llvmFieldType == "" {
         llvmFieldType = "i64"

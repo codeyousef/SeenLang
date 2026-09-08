@@ -84,8 +84,8 @@ fun prepareClassTypeAliasStateSnapshotImpl(classNode: ClassNode,
     return snapshot
 }
 
-fun resolveClassTypeFieldLlvmTypeImpl(field: ParamNode, reprCClassNames: String,
-    structNames: Array<String>, typeAliasNames: String,
+fun resolveClassTypeFieldLlvmTypeImpl(field: ParamNode, ownerIsReprC: Bool,
+    reprCClassNames: String, structNames: Array<String>, typeAliasNames: String,
     typeAliasTargets: String, typeAliasCount: Int, enumTypeNames: String)
     r: String {
 
@@ -95,6 +95,9 @@ fun resolveClassTypeFieldLlvmTypeImpl(field: ParamNode, reprCClassNames: String,
         return "i64"
     }
     if fieldTypeName.startsWith("*") {
+        if ownerIsReprC {
+            return "ptr"
+        }
         return "i64"
     }
     if reprCClassNames != "" {
@@ -112,6 +115,8 @@ fun emitClassTypeFieldsImpl(output: StringBuilder, classNode: ClassNode,
     typeAliasNames: String, typeAliasTargets: String, typeAliasCount: Int,
     enumTypeNames: String) r: Void {
 
+    let ownerIsReprC = reprCClassNames != "" and
+        reprCClassNames.contains(classNode.name + "|")
     var fieldIdx = 0
     var emittedFirst = false
     while fieldIdx < classNode.fields.length() {
@@ -121,7 +126,7 @@ fun emitClassTypeFieldsImpl(output: StringBuilder, classNode: ClassNode,
                 output.append(", ")
             }
             output.append(resolveClassTypeFieldLlvmTypeImpl(field,
-                reprCClassNames, structNames, typeAliasNames,
+                ownerIsReprC, reprCClassNames, structNames, typeAliasNames,
                 typeAliasTargets, typeAliasCount, enumTypeNames))
             emittedFirst = true
         }

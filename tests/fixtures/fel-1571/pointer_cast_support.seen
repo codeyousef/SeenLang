@@ -1,0 +1,26 @@
+import core.result.{Result}
+
+@repr(C)
+@trivially_copyable
+class CrossModulePointerView {
+    var data: *const UInt8
+    var byteLength: UInt64
+}
+
+class PointerViewError {
+    var code: Int
+}
+
+fun makeCrossModulePointerView(address: *const UInt8,
+    byteLength: UInt64) r: CrossModulePointerView {
+    return CrossModulePointerView{
+        data: address,
+        byteLength: byteLength
+    }
+}
+
+fun makeCrossModulePointerViewResult(address: *const UInt8,
+    byteLength: UInt64) r: Result<CrossModulePointerView, PointerViewError> {
+    let view = makeCrossModulePointerView(address, byteLength)
+    return Ok<CrossModulePointerView, PointerViewError>(view)
+}
