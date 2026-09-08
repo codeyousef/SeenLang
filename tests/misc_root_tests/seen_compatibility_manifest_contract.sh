@@ -119,7 +119,7 @@ grep -Fq 'compiler_seen/tests/compatibility_manifest.seen' \
 
 for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
     seen-prebuilt-package-v2 seen-package-interface-v2 \
-    seen-package-object-manifest-v2 runtime-v3 SEENPKG1 \
+    seen-package-object-manifest-v2 runtime-v4 SEENPKG1 \
     seen-deterministic-context-v1 seen-program-build-input-v1 \
     seen-object-cache-record-v1 seen-release-lto-cache-record-v1 \
     seen-program-artifacts-v1 seen-program-reproducibility-v1; do

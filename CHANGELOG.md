@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-08
+
 ### Added
 
 - Added FEL-1569's generation- and device-checked borrowed CUDA stream launch
@@ -14,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exact Seen-owned stream without ownership transfer, allocation, fallback,
   or implicit synchronization; RTX 4090 coverage includes ordered transfers,
   graph capture/replay, stale-handle rejection, and teardown.
+- Advanced the release runtime compatibility identity to `runtime-v4`, binding
+  the optional `seen-cuda-stream-launch-token-v1` ABI without changing
+  CPU-only dependency isolation.
 
 ## [0.19.4] - 2026-09-07
 
