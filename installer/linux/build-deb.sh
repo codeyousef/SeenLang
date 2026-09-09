@@ -65,7 +65,7 @@ Seen Language DEB Package Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 0.20.3)
+  version              Version number (e.g., 0.20.4)
   architecture         Target architecture (amd64, arm64, riscv64)
 
 Options:
@@ -75,7 +75,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 0.20.3 amd64
+  $0 0.20.4 amd64
   $0 1.2.3 arm64 --verbose
   $0 2.0.0 amd64 --source-dir /opt/seen/build
 

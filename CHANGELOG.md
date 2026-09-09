@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.4] - 2026-09-09
+
+### Fixed
+
+- Fixed FEL-1573 lowering for fixed-width `@repr(C)` aggregate values passed to
+  generic `Result` constructors. Direct and cross-module `Ok<T, E>` calls now
+  erase aggregate payloads through owned storage while preserving the concrete
+  aggregate ABI at construction, propagation, and unwrap boundaries.
+- Added fast and release/ThinLTO regressions for direct `BFloat16` results,
+  cross-module propagation, generated LLVM signatures, and the source-only
+  installed release payload used by downstream Qwen compilation.
+
 ## [0.20.3] - 2026-09-09
 
 ### Fixed
