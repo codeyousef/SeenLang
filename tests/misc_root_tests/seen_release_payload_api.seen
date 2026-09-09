@@ -4,6 +4,7 @@ import json.parser.{destroyJsonParseResult}
 import accelerator.cuda.mod.{CudaStreamLaunchToken}
 import accelerator.cuda.error.{CudaNativeStatus}
 import inference.scalars.{BFloat16}
+import core.result.{Result, Ok}
 
 @repr(C)
 @trivially_copyable
@@ -21,6 +22,10 @@ fun installedPointerView(address: *const UInt8) r: InstalledPointerView {
 
 fun installedBFloat16Bits(value: BFloat16) r: Int {
     return value.bits as Int
+}
+
+fun installedBFloat16Result() r: Result<BFloat16, Int> {
+    return Ok<BFloat16, Int>(BFloat16{ bits: 23 as UInt16 })
 }
 
 fun require(condition: Bool, message: String) r: Void {
@@ -63,6 +68,10 @@ fun main() r: Int {
         "installed repr(C) pointer-field integer cast")
     require(installedBFloat16Bits(BFloat16{ bits: 17 as UInt16 }) == 17,
         "installed repr(C) aggregate literal call argument")
+    let bitsResult = installedBFloat16Result()
+    require(bitsResult.isOkay() and
+        bitsResult.unwrap().bits == (23 as UInt16),
+        "installed repr(C) aggregate Result literal")
     println("PASS: installed release standard-library payload")
     return 0
 }

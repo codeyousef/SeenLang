@@ -58,8 +58,7 @@ fun emitOptionRuntimeBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>, 
 }
 
 fun emitResultRuntimeBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
-    funcName: String, argReg: String, argLlvmType: String,
-    argIsStructLiteral: Bool) r: String {
+    funcName: String, argReg: String, argLlvmType: String) r: String {
 
     if funcName != "Ok" and funcName != "Err" {
         return ""
@@ -91,12 +90,10 @@ fun emitResultRuntimeBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>,
     }
 
     if argLlvmType.startsWith("%") {
-        // Struct literals already carry the heap-storage handle produced by
-        // generateStructLiteralState. Other aggregate expressions are values
-        // and need escaping storage before crossing Result's erased i64 ABI.
-        if argIsStructLiteral {
-            return argReg
-        }
+        // Call preparation presents repr(C) literals and other aggregate
+        // expressions as concrete values. Result's generic payload slot is an
+        // escaping erased i64 handle, so every aggregate value must first be
+        // copied into owned storage before it crosses the Ok/Err ABI.
         let aggregateSize = getLlvmTypeSizeImpl(argLlvmType,
             getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
             getGlobalStructSizesImpl())

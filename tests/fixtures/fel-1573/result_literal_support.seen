@@ -1,0 +1,29 @@
+import core.result.{Result, Ok, Err}
+import inference.scalars.{BFloat16}
+
+class CrossModuleBitsError {
+    var code: Int
+}
+
+fun crossModuleBits() r: Result<BFloat16, CrossModuleBitsError> {
+    return Ok<BFloat16, CrossModuleBitsError>(BFloat16{
+        bits: 29 as UInt16
+    })
+}
+
+fun propagateCrossModuleBits()
+    r: Result<BFloat16, CrossModuleBitsError> {
+
+    let value = crossModuleBits()
+    if value.isErr() {
+        return Err<BFloat16, CrossModuleBitsError>(value.unwrapErr())
+    }
+    return value
+}
+
+fun validateCrossModuleBits() r: Int {
+    let value = propagateCrossModuleBits()
+    if value.isErr() { return 1 }
+    if value.unwrap().bits != (29 as UInt16) { return 2 }
+    return 0
+}

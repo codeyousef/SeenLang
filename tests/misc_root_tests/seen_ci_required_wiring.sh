@@ -245,12 +245,17 @@ grep -Fq 'seen_pointer_field_cast_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1571 pointer-field cast regression"
 grep -Fq 'seen_repr_c_aggregate_argument_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1572 aggregate argument regression"
+grep -Fq 'seen_result_repr_c_literal_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1573 Result aggregate literal regression"
 grep -Fq 'repr(C) pointer field' \
     "$ROOT_DIR/compiler_seen/src/codegen/ir_field_layout.seen" ||
     fail "repr(C) pointer-field loads omit the canonical handle conversion"
 grep -Fq 'InstalledPointerView' \
     "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
     fail "installed release payload omits the repr(C) pointer-field cast regression"
+grep -Fq 'installedBFloat16Result' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
+    fail "installed release payload omits the Result aggregate literal regression"
 grep -Fq 'CudaStreamLaunchToken' \
     "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
     fail "installed release payload omits the packaged CUDA stream API"

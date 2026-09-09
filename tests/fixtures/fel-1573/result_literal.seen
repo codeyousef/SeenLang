@@ -1,0 +1,19 @@
+import core.result.{Result, Ok}
+import inference.scalars.{BFloat16}
+import result_literal_support.{validateCrossModuleBits}
+
+fun sameModuleBits() r: Result<BFloat16, Int> {
+    return Ok<BFloat16, Int>(BFloat16{ bits: 17 as UInt16 })
+}
+
+fun main() r: Int {
+    let local = sameModuleBits()
+    if local.isErr() { return 1 }
+    if local.unwrap().bits != (17 as UInt16) { return 2 }
+
+    let crossStatus = validateCrossModuleBits()
+    if crossStatus != 0 { return 2 + crossStatus }
+    return 0
+}
+
+main()
