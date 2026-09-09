@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.3] - 2026-09-09
+
+### Fixed
+
+- Fixed FEL-1572 call lowering for fixed-width `@repr(C)` aggregate literals.
+  Literal construction storage is now loaded as the concrete aggregate value
+  before a by-value call, preserving the declared ABI in same-module and
+  cross-module calls without changing local or generic `Result` values.
+- Added fast and release/ThinLTO regressions for direct literals, locals, and
+  `Result`-unwrapped values, including the Qwen `BFloat16` call shape and the
+  source-only installed release payload.
+
 ## [0.20.2] - 2026-09-09
 
 ### Fixed
