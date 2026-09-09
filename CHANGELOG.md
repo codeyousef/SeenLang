@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-09-09
+
+### Fixed
+
+- Fixed FEL-1571 lowering for pointer-typed fields in fixed-width `@repr(C)`
+  aggregates. Pointer fields now retain the concrete LLVM `ptr` ABI through
+  construction, assignment, direct and cross-module returns, field access,
+  and generic `Result` payloads, while Seen expressions continue to observe
+  the established integer-handle representation.
+- Added release-payload and fast/release ThinLTO regressions for the exact
+  pointer-field cast shape used by the Qwen SQW reader.
+
 ## [0.20.1] - 2026-09-08
 
 ### Fixed
