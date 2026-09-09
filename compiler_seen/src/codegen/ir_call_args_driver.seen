@@ -5,7 +5,7 @@ import str.string.{StringBuilder}
 import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, setDefaultFillArgsImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, getFeatureDynParamFuncsImpl, getFeatureFloatParamFuncNamesImpl, getFeatureFloatParamParamIdxsImpl, getFeatureMoveOnlyClassesImpl, getFeatureFuncParamCountArrImpl, getFeatureFuncDefaultsArrImpl, getFeatureFuncBorrowParamsImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getStringConstantPrefixWithGlobalStateImpl}
-import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_codegen_type_state.{isReprCDataTypeState, mapTypeState}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, recordMovedVariableImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl, shouldRecordMovedArgumentSourceImpl}
@@ -29,7 +29,8 @@ fun prepareCallArgumentsState(ctx: CodegenLoweringContext,
         let argType = inferLoweredExpressionType(ctx, argExpr)
         let argLlvmType = mapTypeState(argType)
         appendPreparedCallArgImpl(output, getFeatureRegBoxImpl(), funcName,
-            argReg, argType, argLlvmType, argIdx, argRegs, argTypeStrs,
+            argReg, argType, argLlvmType, argExpr.kind,
+            isReprCDataTypeState(argType), argIdx, argRegs, argTypeStrs,
             dynParamFuncs, enableDynBoxing, enableFloatPromotion,
             floatParamFuncNames, floatParamParamIdxs)
 

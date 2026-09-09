@@ -1,0 +1,43 @@
+import core.result.{Result}
+import aggregate_argument_support.{CrossModuleBits,
+    crossModuleBitsResult, readCrossModuleBits}
+
+@repr(C)
+@trivially_copyable
+class LocalBits {
+    var bits: UInt16
+}
+
+class LocalBitsError {
+    var code: Int
+}
+
+fun readLocalBits(value: LocalBits) r: Int {
+    return value.bits as Int
+}
+
+fun localBitsResult(bits: UInt16) r: Result<LocalBits, LocalBitsError> {
+    let value = LocalBits{ bits: bits }
+    return Ok<LocalBits, LocalBitsError>(value)
+}
+
+fun main() r: Int {
+    if readLocalBits(LocalBits{ bits: 11 as UInt16 }) != 11 { return 1 }
+    let local = LocalBits{ bits: 22 as UInt16 }
+    if readLocalBits(local) != 22 { return 2 }
+    let localResult = localBitsResult(33 as UInt16)
+    if not localResult.isOkay() { return 3 }
+    if readLocalBits(localResult.unwrap()) != 33 { return 4 }
+
+    if readCrossModuleBits(CrossModuleBits{ bits: 44 as UInt16 }) != 44 {
+        return 5
+    }
+    let cross = CrossModuleBits{ bits: 55 as UInt16 }
+    if readCrossModuleBits(cross) != 55 { return 6 }
+    let crossResult = crossModuleBitsResult(66 as UInt16)
+    if not crossResult.isOkay() { return 7 }
+    if readCrossModuleBits(crossResult.unwrap()) != 66 { return 8 }
+    return 0
+}
+
+main()

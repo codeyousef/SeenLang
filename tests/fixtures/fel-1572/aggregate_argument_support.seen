@@ -1,0 +1,22 @@
+import core.result.{Result}
+
+@repr(C)
+@trivially_copyable
+class CrossModuleBits {
+    var bits: UInt16
+}
+
+class CrossModuleBitsError {
+    var code: Int
+}
+
+fun readCrossModuleBits(value: CrossModuleBits) r: Int {
+    return value.bits as Int
+}
+
+fun crossModuleBitsResult(bits: UInt16)
+    r: Result<CrossModuleBits, CrossModuleBitsError> {
+
+    let value = CrossModuleBits{ bits: bits }
+    return Ok<CrossModuleBits, CrossModuleBitsError>(value)
+}

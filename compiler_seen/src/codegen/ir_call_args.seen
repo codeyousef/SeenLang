@@ -130,10 +130,24 @@ Int-to-Float promotion. Appends the lowered argument directly to the
 output argRegs/argTypeStrs arrays.
 ///
 fun appendPreparedCallArgImpl(output: StringBuilder, regBox: Array<Int>,
-    funcName: String, argReg: String, argType: String, argLlvmType: String, argIdx: Int,
+    funcName: String, argReg: String, argType: String, argLlvmType: String,
+    argKind: String, argIsReprCData: Bool, argIdx: Int,
     argRegs: Array<String>, argTypeStrs: Array<String>, dynParamFuncs: String,
     enableDynBoxing: Bool, enableFloatPromotion: Bool,
     floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Void {
+
+    // Struct literals are materialized in temporary storage so their fields can
+    // be initialized independently. A repr(C) parameter, however, has a concrete
+    // aggregate ABI and must receive the value held in that storage. Other
+    // repr(C) expressions (locals, calls, and Result payloads) are already values.
+    if argIsReprCData and argKind == "StructLiteral" {
+        let loadedReg = getNextRegFn(regBox)
+        output.append("  " + loadedReg + " = load " + argLlvmType +
+            ", ptr " + argReg + " ; repr(C) literal call argument\n")
+        argRegs.push(loadedReg)
+        argTypeStrs.push(argLlvmType)
+        return
+    }
 
     if isDataTypeImpl(argType) == 1 {
         let allocaReg = getNextRegFn(regBox)

@@ -3,6 +3,7 @@ import json.strict.{StrictJsonLimits, parseStrictJson}
 import json.parser.{destroyJsonParseResult}
 import accelerator.cuda.mod.{CudaStreamLaunchToken}
 import accelerator.cuda.error.{CudaNativeStatus}
+import inference.scalars.{BFloat16}
 
 @repr(C)
 @trivially_copyable
@@ -16,6 +17,10 @@ fun installedPointerView(address: *const UInt8) r: InstalledPointerView {
         data: address,
         byteLength: 32 as UInt64
     }
+}
+
+fun installedBFloat16Bits(value: BFloat16) r: Int {
+    return value.bits as Int
 }
 
 fun require(condition: Bool, message: String) r: Void {
@@ -56,6 +61,8 @@ fun main() r: Int {
     let pointerView = installedPointerView(null as *const UInt8)
     require((pointerView.data as Int) + 9 == 9,
         "installed repr(C) pointer-field integer cast")
+    require(installedBFloat16Bits(BFloat16{ bits: 17 as UInt16 }) == 17,
+        "installed repr(C) aggregate literal call argument")
     println("PASS: installed release standard-library payload")
     return 0
 }

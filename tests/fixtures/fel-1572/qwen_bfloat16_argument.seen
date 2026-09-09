@@ -1,0 +1,12 @@
+import inference.scalars.{BFloat16}
+
+fun readBits(value: BFloat16) r: Int {
+    return value.bits as Int
+}
+
+fun main() r: Int {
+    if readBits(BFloat16{ bits: 1 as UInt16 }) != 1 { return 1 }
+    return 0
+}
+
+main()
