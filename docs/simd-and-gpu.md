@@ -1,6 +1,6 @@
 # SIMD and GPU
 
-Seen 0.20.5 has native LLVM vector values for CPU SIMD and an experimental
+Seen 0.20.6 has native LLVM vector values for CPU SIMD and an experimental
 Vulkan compute path. The two paths are independent.
 
 ## Native SIMD vectors

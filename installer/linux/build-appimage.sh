@@ -72,7 +72,7 @@ Seen Language AppImage Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 0.20.5)
+  version              Version number (e.g., 0.20.6)
   architecture         Target architecture (x86_64, aarch64, riscv64)
 
 Options:
@@ -84,7 +84,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 0.20.5 x86_64
+  $0 0.20.6 x86_64
   $0 1.2.3 x86_64 --steam-runtime --bundle-vulkan
   $0 1.2.3 aarch64 --verbose
 

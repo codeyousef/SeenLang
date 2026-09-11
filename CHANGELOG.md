@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.6] - 2026-09-11
+
+### Fixed
+
+- Fixed FEL-1575 lowering for addresses of nested fixed-width `@repr(C)`
+  aggregate fields passed to C pointer parameters. Nested member paths now
+  preserve field storage addresses across class-handle transitions instead of
+  loading the aggregate or treating its first bytes as another object handle.
+- Added same-module and cross-module, const and mutable pointer, direct and
+  multi-level member, fast, release/ThinLTO, generated-IR, and exact Qwen
+  projection-selection regressions.
+
 ## [0.20.5] - 2026-09-11
 
 ### Fixed

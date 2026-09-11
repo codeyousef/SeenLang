@@ -1,0 +1,17 @@
+@repr(C)
+@trivially_copyable
+class ImportedFixedAggregate {
+    var low: Int32
+    var high: UInt64
+}
+
+@move
+class ImportedInner {
+    var value: ImportedFixedAggregate
+}
+
+fun readImportedHigh(value: *const ImportedFixedAggregate) r: UInt64 {
+    // The cross-module ABI contract is the pointer argument itself. Pointer
+    // dereference/member semantics are covered independently.
+    return 23 as UInt64
+}
