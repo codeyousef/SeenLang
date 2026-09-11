@@ -12,6 +12,12 @@ import codegen.ir_class_type_layout.{prepareClassTypeAliasStateSnapshotImpl}
 import codegen.ir_type_layout.{computeStructSizeFromLayoutImpl}
 import codegen.type_registry_core.{findStructReg}
 
+var g_structLayoutReprCClassNames: String = ""
+
+fun setStructLayoutReprCClassNamesImpl(classNames: String) r: Void {
+    g_structLayoutReprCClassNames = classNames
+}
+
 class StructLayoutBuildState {
     var layout: String
     var fieldNames: String
@@ -210,7 +216,7 @@ fun prepareStructLayoutRegistrationSnapshotImpl(classNode: ClassNode,
     bitfieldOffsets: String, bitfieldCount: Int, structNames: Array<String>,
     structLayouts: Array<String>, structFieldNames: Array<String>,
     structFieldTypes: Array<String>, structSizes: Array<Int>,
-    enumTypeNames: String, reprCClassNames: String)
+    enumTypeNames: String)
     r: StructLayoutRegistrationSnapshot {
 
     let snapshot = StructLayoutRegistrationSnapshot.new()
@@ -237,7 +243,7 @@ fun prepareStructLayoutRegistrationSnapshotImpl(classNode: ClassNode,
         layoutState, structNames, structLayouts, structFieldNames,
         structFieldTypes, structSizes, snapshot.typeAliasNames,
         snapshot.typeAliasTargets, snapshot.typeAliasCount, enumTypeNames,
-        reprCClassNames)
+        g_structLayoutReprCClassNames)
     snapshot.inheritanceChildNames = layoutState.inheritanceChildNames
     snapshot.inheritanceParentNames = layoutState.inheritanceParentNames
     snapshot.inheritanceCount = layoutState.inheritanceCount

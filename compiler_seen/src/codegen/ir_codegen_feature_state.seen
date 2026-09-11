@@ -17,7 +17,7 @@ import codegen.ir_enum_lookup.{lookupEnumParentImpl, isEnumVariantImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_class_type_decorators.{ClassTypeDecoratorScanSnapshot, prepareClassTypeDecoratorScanSnapshotImpl}
 import codegen.ir_class_type_layout.{ClassTypeAliasStateSnapshot, prepareClassTypeAliasStateSnapshotImpl, emitClassTypeFieldsImpl}
-import codegen.ir_struct_layout_build.{StructLayoutRegistrationSnapshot, prepareStructLayoutRegistrationSnapshotImpl}
+import codegen.ir_struct_layout_build.{StructLayoutRegistrationSnapshot, prepareStructLayoutRegistrationSnapshotImpl, setStructLayoutReprCClassNamesImpl}
 import codegen.ir_comptime_eval.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl, lookupComptimeVarImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_module_emit.{emitTraitVtableConstantsImpl, emitGeneratedClosuresImpl, emitGlobalConstructorsImpl, emitTBAAMetadataImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
@@ -526,14 +526,14 @@ fun prepareStructLayoutRegistrationWithFeatureStateImpl(classNode: ClassNode,
     structFieldNames: Array<String>, structFieldTypes: Array<String>,
     structSizes: Array<Int>) r: StructLayoutRegistrationSnapshot {
 
+    setStructLayoutReprCClassNamesImpl(g_reprCClassNames)
     let layoutSnapshot = prepareStructLayoutRegistrationSnapshotImpl(
         classNode, g_constGenericNames, g_constGenericValues,
         g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,
         g_inheritanceChildNames, g_inheritanceParentNames,
         g_inheritanceCount, g_bitfieldKeys, g_bitfieldWidths,
         g_bitfieldOffsets, g_bitfieldCount, structNames, structLayouts,
-        structFieldNames, structFieldTypes, structSizes, g_enumTypeNames,
-        g_reprCClassNames)
+        structFieldNames, structFieldTypes, structSizes, g_enumTypeNames)
     g_constGenericNames = layoutSnapshot.constGenericNames
     g_constGenericValues = layoutSnapshot.constGenericValues
     g_typeAliasNames = layoutSnapshot.typeAliasNames
