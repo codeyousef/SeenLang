@@ -17,7 +17,7 @@ import codegen.ir_enum_lookup.{lookupEnumParentImpl, isEnumVariantImpl}
 import codegen.ir_trait_registry.{appendDynTraitNameImpl}
 import codegen.ir_class_type_decorators.{ClassTypeDecoratorScanSnapshot, prepareClassTypeDecoratorScanSnapshotImpl}
 import codegen.ir_class_type_layout.{ClassTypeAliasStateSnapshot, prepareClassTypeAliasStateSnapshotImpl, emitClassTypeFieldsImpl}
-import codegen.ir_struct_layout_build.{StructLayoutRegistrationSnapshot, prepareStructLayoutRegistrationSnapshotImpl}
+import codegen.ir_struct_layout_build.{StructLayoutRegistrationSnapshot, prepareStructLayoutRegistrationSnapshotImpl, setStructLayoutReprCClassNamesImpl}
 import codegen.ir_comptime_eval.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl, lookupComptimeVarImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_module_emit.{emitTraitVtableConstantsImpl, emitGeneratedClosuresImpl, emitGlobalConstructorsImpl, emitTBAAMetadataImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
@@ -446,6 +446,21 @@ fun preRegisterClassAbiDecoratorsWithFeatureStateImpl(
     }
 }
 
+fun registerImportedReprCClassesWithFeatureStateImpl(
+    classNames: Array<String>) r: Void {
+
+    var idx = 0
+    while idx < classNames.length() {
+        let className = classNames[idx]
+        if className != "" and
+            not g_reprCClassNames.contains(className + "|") {
+
+            g_reprCClassNames = g_reprCClassNames + className + "|"
+        }
+        idx = idx + 1
+    }
+}
+
 fun prepareClassTypeDecoratorScanWithFeatureStateImpl(output: StringBuilder,
     classNode: ClassNode, structNames: Array<String>,
     structLayouts: Array<String>, structSizes: Array<Int>)
@@ -511,6 +526,7 @@ fun prepareStructLayoutRegistrationWithFeatureStateImpl(classNode: ClassNode,
     structFieldNames: Array<String>, structFieldTypes: Array<String>,
     structSizes: Array<Int>) r: StructLayoutRegistrationSnapshot {
 
+    setStructLayoutReprCClassNamesImpl(g_reprCClassNames)
     let layoutSnapshot = prepareStructLayoutRegistrationSnapshotImpl(
         classNode, g_constGenericNames, g_constGenericValues,
         g_typeAliasNames, g_typeAliasTargets, g_typeAliasCount,

@@ -29,11 +29,13 @@ fun scanTypeHeaderIntoRegistryImpl(headerContent: String,
     structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
     structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
     moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
-    moduleConstantValues: Array<String>) r: Bool {
+    moduleConstantValues: Array<String>,
+    importedReprCClassNames: Array<String>) r: Bool {
 
     var currentStruct = ""
     var lineStart = 0
     var pos = 0
+    var pendingReprC = false
     while pos <= headerContent.length() {
         var atEnd = false
         var c = '\0'
@@ -52,10 +54,21 @@ fun scanTypeHeaderIntoRegistryImpl(headerContent: String,
             if trimmedLine.startsWith("; End of auto-generated type declarations") {
                 return false
             }
+            if trimmedLine.startsWith("; @repr(C)") {
+                pendingReprC = true
+            }
             currentStruct = applyTypeHeaderStructLineReg(trimmedLine,
                 currentStruct, structNames, structLayouts, structFieldNames,
                 structFieldTypes, structLlvmFieldTypes, structSizes,
                 structMethodNames, structMethodRetTypes)
+            if pendingReprC and trimmedLine.startsWith("%") and
+                trimmedLine.contains("= type") {
+
+                if currentStruct != "" {
+                    importedReprCClassNames.push(currentStruct)
+                }
+                pendingReprC = false
+            }
             appendParsedHeaderModuleConstantImpl(trimmedLine,
                 moduleConstantNames, moduleConstantTypes, moduleConstantValues)
             lineStart = pos + 1
@@ -71,7 +84,8 @@ fun tryLoadTypeHeaderIntoOutputImpl(output: StringBuilder, typeHeaderPath: Strin
     structLlvmFieldTypes: Array<String>, structSizes: Array<Int>,
     structMethodNames: Array<String>, structMethodRetTypes: Array<String>,
     moduleConstantNames: Array<String>, moduleConstantTypes: Array<String>,
-    moduleConstantValues: Array<String>) r: TypeHeaderLoadResult {
+    moduleConstantValues: Array<String>,
+    importedReprCClassNames: Array<String>) r: TypeHeaderLoadResult {
 
     if typeHeaderPath == "" or not exists(typeHeaderPath) {
         return TypeHeaderLoadResult.new(false, false)
@@ -90,7 +104,7 @@ fun tryLoadTypeHeaderIntoOutputImpl(output: StringBuilder, typeHeaderPath: Strin
         structNames, structLayouts, structFieldNames, structFieldTypes,
         structLlvmFieldTypes, structSizes, structMethodNames,
         structMethodRetTypes, moduleConstantNames, moduleConstantTypes,
-        moduleConstantValues)
+        moduleConstantValues, importedReprCClassNames)
     if not runtimeDeclsLoaded and
         headerContent.contains("; Runtime Function Declarations") {
         runtimeDeclsLoaded = true

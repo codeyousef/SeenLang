@@ -177,15 +177,19 @@ fun emitClassConstructorArgumentStoresState(
         let ctorStorePlan = planConstructorFieldStoreImpl(
             ctorTypePlan.fieldSeenType, ctorTypePlan.nextTypePos,
             ctorByteOffset, ctorFieldOffset, ctorFieldByteSize)
-        let ctorIsDataField =
+        var ctorIsDataField =
             isDataTypeState(ctorStorePlan.fieldSeenType)
+        if isReprCConstructorTypeWithFeatureStateImpl(
+            ctorStorePlan.fieldSeenType) {
+
+            ctorIsDataField = true
+        }
         var ctorStoreLlvmType = mapTypeState(ctorStorePlan.fieldSeenType)
         var ctorMemcpySize = 0
         if ctorIsDataField {
             ctorStoreLlvmType = "%" + ctorStorePlan.fieldSeenType
             if ctorArgExpr.kind == "StructLiteral" {
-                ctorMemcpySize =
-                    getDataTypeSizeState(ctorStorePlan.fieldSeenType)
+                ctorMemcpySize = ctorFieldByteSize
             }
         }
         var ctorStoreReg = ctorArgReg

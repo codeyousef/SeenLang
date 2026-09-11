@@ -1,0 +1,15 @@
+@repr(C)
+@trivially_copyable
+class ImportedFieldRecord {
+    var code: Int32
+    var generation: UInt64
+}
+
+fun importedRecord(code: Int32, generation: UInt64)
+    r: ImportedFieldRecord {
+
+    return ImportedFieldRecord{
+        code: code,
+        generation: generation
+    }
+}

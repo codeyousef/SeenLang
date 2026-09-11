@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.5] - 2026-09-11
+
+### Fixed
+
+- Fixed FEL-1574 lowering for fixed-width `@repr(C)` aggregate literals
+  assigned to aggregate-typed class fields. Imported ABI identity now survives
+  type-header loading, class layout registration retains concrete aggregate
+  fields, and literal storage is loaded before by-value assignment.
+- Added same-module and cross-module constructor, assignment, repeated-reset,
+  readback, fast, release/ThinLTO, generated-IR, and source-only installed
+  payload regressions, including the packaged CUDA `CudaAlgorithm` shape.
+
 ## [0.20.4] - 2026-09-09
 
 ### Fixed
