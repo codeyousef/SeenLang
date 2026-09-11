@@ -45,6 +45,7 @@ bash -n \
     tests/misc_root_tests/seen_pointer_field_cast_contract.sh \
     tests/misc_root_tests/seen_repr_c_aggregate_argument_contract.sh \
     tests/misc_root_tests/seen_result_repr_c_literal_contract.sh \
+    tests/misc_root_tests/seen_repr_c_aggregate_field_assignment_contract.sh \
     tests/misc_root_tests/seen_async_structured_contract.sh \
     tests/misc_root_tests/seen_stdlib_component_payload.sh \
     tests/misc_root_tests/seen_mapped_close_ownership.sh \

@@ -205,6 +205,12 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
     if isDataTypeImpl(fieldTypes[1]) == 1 {
         isDataField = 1
     }
+    let fieldBaseType = getBaseTypeNameImpl(fieldTypes[1])
+    if reprCClassNames != "" and
+        reprCClassNames.contains(fieldBaseType + "|") {
+
+        isDataField = 1
+    }
     var coercedValueReg = coerceOptionStoreValueCoreImpl(output, regBox,
         fieldTypes[1], valueSeenType, valueReg, structNames)
     var coercedValueSeenType = valueSeenType
@@ -505,7 +511,9 @@ fun emitFieldStoreImpl(output: StringBuilder, regBox: Array<Int>,
     // For inline data types from struct literals, valueReg is a ptr - need to load
     if isDataField == 1 and valueIsStructLiteral == 1 {
         let loadedVal = getNextRegFn(regBox)
-        output.append("  " + loadedVal + " = load " + llvmFieldType + ", ptr " + valueReg + "\n")
+        output.append("  " + loadedVal + " = load " + llvmFieldType +
+            ", ptr " + valueReg +
+            " ; inline aggregate literal field assignment\n")
         actualValueReg = loadedVal
     }
 

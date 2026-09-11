@@ -126,7 +126,7 @@ fun appendInheritedStructLayoutPrefixImpl(parentFieldNames: String,
     totalSizeBox: Array<Int>, structNames: Array<String>,
     structSizes: Array<Int>, typeAliasNames: String,
     typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String) r: Int {
+    enumTypeNames: String, reprCClassNames: String) r: Int {
 
     if parentFieldNames == "" {
         return 0
@@ -150,8 +150,13 @@ fun appendInheritedStructLayoutPrefixImpl(parentFieldNames: String,
         }
         let parentFieldName = parentFieldNames.substring(nameStart, nameEnd)
         let parentFieldType: String = pipeGet(parentFieldTypes, parentFieldIdx)
-        let parentLlvmType = mapTypeImpl(parentFieldType, structNames,
+        var parentLlvmType = mapTypeImpl(parentFieldType, structNames,
             typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+        if reprCClassNames != "" and
+            reprCClassNames.contains(parentFieldType + "|") {
+
+            parentLlvmType = "%" + parentFieldType
+        }
         if parentFieldIdx > 0 {
             layoutBox[0] = layoutBox[0] + ", "
             fieldNamesBox[0] = fieldNamesBox[0] + ","
@@ -215,7 +220,7 @@ fun appendOwnStructLayoutFieldImpl(fieldName: String, fieldType: String,
     structNames: Array<String>, structLayouts: Array<String>,
     structSizes: Array<Int>, typeAliasNames: String,
     typeAliasTargets: String, typeAliasCount: Int,
-    enumTypeNames: String) r: Void {
+    enumTypeNames: String, reprCClassNames: String) r: Void {
 
     if fieldIdx > 0 {
         layoutBox[0] = layoutBox[0] + ", "
@@ -223,8 +228,11 @@ fun appendOwnStructLayoutFieldImpl(fieldName: String, fieldType: String,
         fieldTypesBox[0] = fieldTypesBox[0] + "|"
     }
 
-    let llvmType = mapTypeImpl(fieldType, structNames, typeAliasNames,
+    var llvmType = mapTypeImpl(fieldType, structNames, typeAliasNames,
         typeAliasTargets, typeAliasCount, enumTypeNames)
+    if reprCClassNames != "" and reprCClassNames.contains(fieldType + "|") {
+        llvmType = "%" + fieldType
+    }
     layoutBox[0] = layoutBox[0] + llvmType
     fieldNamesBox[0] = fieldNamesBox[0] + fieldName
     fieldTypesBox[0] = fieldTypesBox[0] + fieldType

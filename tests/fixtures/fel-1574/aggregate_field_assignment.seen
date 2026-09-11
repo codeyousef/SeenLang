@@ -1,0 +1,51 @@
+import aggregate_field_support.{ImportedFieldRecord, importedRecord}
+
+@repr(C)
+@trivially_copyable
+class LocalFieldRecord {
+    var code: Int32
+    var generation: UInt64
+}
+
+class AggregateOwner {
+    var imported: ImportedFieldRecord
+    var local: LocalFieldRecord
+
+    fun reset(code: Int32, generation: UInt64) {
+        this.imported = ImportedFieldRecord{
+            code: code,
+            generation: generation
+        }
+        this.local = LocalFieldRecord{
+            code: code + (1 as Int32),
+            generation: generation + (1 as UInt64)
+        }
+    }
+}
+
+fun main() r: Int {
+    let owner = AggregateOwner{
+        imported: importedRecord(3 as Int32, 5 as UInt64),
+        local: LocalFieldRecord{
+            code: 4 as Int32,
+            generation: 6 as UInt64
+        }
+    }
+    if owner.imported.code != (3 as Int32) { return 1 }
+    if owner.local.generation != (6 as UInt64) { return 2 }
+
+    owner.reset(7 as Int32, 11 as UInt64)
+    if owner.imported.code != (7 as Int32) { return 3 }
+    if owner.imported.generation != (11 as UInt64) { return 4 }
+    if owner.local.code != (8 as Int32) { return 5 }
+    if owner.local.generation != (12 as UInt64) { return 6 }
+
+    owner.reset(13 as Int32, 17 as UInt64)
+    if owner.imported.code != (13 as Int32) { return 7 }
+    if owner.imported.generation != (17 as UInt64) { return 8 }
+    if owner.local.code != (14 as Int32) { return 9 }
+    if owner.local.generation != (18 as UInt64) { return 10 }
+    return 0
+}
+
+main()

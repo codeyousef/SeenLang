@@ -13,7 +13,7 @@ import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl}
 import codegen.ir_function_gen.{resolveImplementationFunctionNameImpl, hasFunctionDecoratorGenImpl, prepareExternFunctionGenerationImpl}
 import codegen.ir_function_snapshots.{FunctionGenerationIdentitySnapshot}
 import codegen.ir_function_usage.{hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
-import codegen.ir_codegen_feature_state.{getDynTraitNamesStateImpl, getTraitImplRegistryStateImpl, getTraitImplCountStateImpl, applyTraitImplStateImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureReprCClassNamesImpl}
+import codegen.ir_codegen_feature_state.{getDynTraitNamesStateImpl, getTraitImplRegistryStateImpl, getTraitImplCountStateImpl, applyTraitImplStateImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureReprCClassNamesImpl, registerImportedReprCClassesWithFeatureStateImpl}
 import codegen.ir_function_param_meta.{mapFunctionParameterTypeImpl}
 import codegen.ir_declarations.{emitExternDeclImpl}
 import codegen.ir_codegen_target_state.{emitTargetModuleHeaderImpl}
@@ -239,12 +239,15 @@ fun resetGlobalModuleScratchStateImpl() r: Void {
 fun emitModulePrologueWithGlobalStateImpl(output: StringBuilder) r: Void {
     emitTargetModuleHeaderImpl(output)
 
+    let importedReprCClassNames = Array<String>()
     let headerLoadResult = tryLoadTypeHeaderIntoOutputImpl(output,
         typeHeaderPath, structNames, structLayouts, structFieldNames,
         structFieldTypes, structLlvmFieldTypes, structSizes,
         structMethodNames, structMethodRetTypes, moduleConstantNames,
-        moduleConstantTypes, moduleConstantValues)
+        moduleConstantTypes, moduleConstantValues, importedReprCClassNames)
     if headerLoadResult.loaded {
+        registerImportedReprCClassesWithFeatureStateImpl(
+            importedReprCClassNames)
         typesLoadedFromHeader = true
         runtimeDeclsLoaded = headerLoadResult.runtimeDeclsLoaded
         return

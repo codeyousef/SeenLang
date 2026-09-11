@@ -446,6 +446,21 @@ fun preRegisterClassAbiDecoratorsWithFeatureStateImpl(
     }
 }
 
+fun registerImportedReprCClassesWithFeatureStateImpl(
+    classNames: Array<String>) r: Void {
+
+    var idx = 0
+    while idx < classNames.length() {
+        let className = classNames[idx]
+        if className != "" and
+            not g_reprCClassNames.contains(className + "|") {
+
+            g_reprCClassNames = g_reprCClassNames + className + "|"
+        }
+        idx = idx + 1
+    }
+}
+
 fun prepareClassTypeDecoratorScanWithFeatureStateImpl(output: StringBuilder,
     classNode: ClassNode, structNames: Array<String>,
     structLayouts: Array<String>, structSizes: Array<Int>)
@@ -517,7 +532,8 @@ fun prepareStructLayoutRegistrationWithFeatureStateImpl(classNode: ClassNode,
         g_inheritanceChildNames, g_inheritanceParentNames,
         g_inheritanceCount, g_bitfieldKeys, g_bitfieldWidths,
         g_bitfieldOffsets, g_bitfieldCount, structNames, structLayouts,
-        structFieldNames, structFieldTypes, structSizes, g_enumTypeNames)
+        structFieldNames, structFieldTypes, structSizes, g_enumTypeNames,
+        g_reprCClassNames)
     g_constGenericNames = layoutSnapshot.constGenericNames
     g_constGenericValues = layoutSnapshot.constGenericValues
     g_typeAliasNames = layoutSnapshot.typeAliasNames

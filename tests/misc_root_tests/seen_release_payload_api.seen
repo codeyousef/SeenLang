@@ -1,7 +1,7 @@
 import crypto.sha256.{sha256}
 import json.strict.{StrictJsonLimits, parseStrictJson}
 import json.parser.{destroyJsonParseResult}
-import accelerator.cuda.mod.{CudaStreamLaunchToken}
+import accelerator.cuda.mod.{CudaAlgorithm, CudaStreamLaunchToken}
 import accelerator.cuda.error.{CudaNativeStatus}
 import inference.scalars.{BFloat16}
 import core.result.{Result, Ok}
@@ -26,6 +26,23 @@ fun installedBFloat16Bits(value: BFloat16) r: Int {
 
 fun installedBFloat16Result() r: Result<BFloat16, Int> {
     return Ok<BFloat16, Int>(BFloat16{ bits: 23 as UInt16 })
+}
+
+class InstalledAggregateOwner {
+    var bits: BFloat16
+    var algorithm: CudaAlgorithm
+
+    fun reset(value: UInt16) {
+        this.bits = BFloat16{ bits: value }
+        this.algorithm = CudaAlgorithm{
+            algorithmId: 7 as Int32,
+            tileId: 11 as Int32,
+            splitK: 13 as Int32,
+            reductionScheme: 17 as Int32,
+            workspaceBytes: 19 as UInt64,
+            cacheIdentity: 23 as UInt64
+        }
+    }
 }
 
 fun require(condition: Bool, message: String) r: Void {
@@ -72,6 +89,23 @@ fun main() r: Int {
     require(bitsResult.isOkay() and
         bitsResult.unwrap().bits == (23 as UInt16),
         "installed repr(C) aggregate Result literal")
+    let aggregateOwner = InstalledAggregateOwner{
+        bits: BFloat16{ bits: 31 as UInt16 },
+        algorithm: CudaAlgorithm{
+            algorithmId: 1 as Int32,
+            tileId: 2 as Int32,
+            splitK: 3 as Int32,
+            reductionScheme: 4 as Int32,
+            workspaceBytes: 5 as UInt64,
+            cacheIdentity: 6 as UInt64
+        }
+    }
+    aggregateOwner.reset(37 as UInt16)
+    require(aggregateOwner.bits.bits == (37 as UInt16),
+        "installed repr(C) aggregate class-field assignment")
+    require(aggregateOwner.algorithm.algorithmId == (7 as Int32) and
+        aggregateOwner.algorithm.cacheIdentity == (23 as UInt64),
+        "installed CUDA aggregate class-field assignment")
     println("PASS: installed release standard-library payload")
     return 0
 }
