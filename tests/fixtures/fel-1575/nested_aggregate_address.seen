@@ -1,0 +1,107 @@
+import nested_aggregate_address_support.{ImportedFixedAggregate,
+    ImportedInner, readImportedHigh}
+
+@repr(C)
+@trivially_copyable
+class LocalFixedAggregate {
+    var low: Int32
+    var high: UInt64
+}
+
+extern "C" fun memcmp(left: *const LocalFixedAggregate,
+    right: *const LocalFixedAggregate, count: UInt64) r: Int32
+extern "C" fun memcpy(destination: *LocalFixedAggregate,
+    source: *const LocalFixedAggregate, count: UInt64) r: *Void
+
+@move
+class LocalInner {
+    var value: LocalFixedAggregate
+}
+
+@move
+class SingleLevelOwner {
+    var value: LocalFixedAggregate
+
+    fun compare(expected: *const LocalFixedAggregate) r: Int32 {
+        return memcmp(&this.value, expected, 4 as UInt64)
+    }
+}
+
+@move
+class LocalMiddle {
+    var inner: LocalInner
+}
+
+@move
+class LocalOwner {
+    var middle: LocalMiddle
+
+    fun compare(expected: *const LocalFixedAggregate) r: Int32 {
+        return memcmp(&this.middle.inner.value, expected, 4 as UInt64)
+    }
+
+    fun overwrite(source: *const LocalFixedAggregate) {
+        memcpy(&this.middle.inner.value, source, 16 as UInt64)
+    }
+}
+
+@move
+class GateSelection {
+    var algorithm: LocalFixedAggregate
+}
+
+@move
+class ProjectionSelectionPlan {
+    var gateSelection: GateSelection
+
+    fun compareAlgorithm(expected: *const LocalFixedAggregate) r: Int32 {
+        return memcmp(&this.gateSelection.algorithm, expected, 4 as UInt64)
+    }
+}
+
+@move
+class ImportedOwner {
+    var inner: ImportedInner
+
+    fun high() r: UInt64 {
+        return readImportedHigh(&this.inner.value)
+    }
+}
+
+fun main() r: Int {
+    let first = LocalFixedAggregate{
+        low: 7 as Int32,
+        high: 11 as UInt64
+    }
+    let second = LocalFixedAggregate{
+        low: 13 as Int32,
+        high: 17 as UInt64
+    }
+    let owner = LocalOwner{
+        middle: LocalMiddle{
+            inner: LocalInner{value: first}
+        }
+    }
+    if owner.compare(&first) != (0 as Int32) { return 1 }
+    let single = SingleLevelOwner{value: first}
+    if single.compare(&first) != (0 as Int32) { return 2 }
+    let projection = ProjectionSelectionPlan{
+        gateSelection: GateSelection{algorithm: first}
+    }
+    if projection.compareAlgorithm(&first) != (0 as Int32) { return 3 }
+    owner.overwrite(&second)
+    if owner.compare(&second) != (0 as Int32) { return 4 }
+
+    let imported = ImportedOwner{
+        inner: ImportedInner{
+            value: ImportedFixedAggregate{
+                low: 19 as Int32,
+                high: 23 as UInt64
+            }
+        }
+    }
+    if imported.high() != (23 as UInt64) { return 5 }
+    return 0
+}
+
+main()

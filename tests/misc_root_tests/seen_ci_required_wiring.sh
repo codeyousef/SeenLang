@@ -249,6 +249,10 @@ grep -Fq 'seen_result_repr_c_literal_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1573 Result aggregate literal regression"
 grep -Fq 'seen_repr_c_aggregate_field_assignment_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1574 aggregate field regression"
+grep -Fq 'seen_nested_repr_c_aggregate_address_contract.sh' "$REQUIRED" ||
+    fail "required CI omits FEL-1575 nested aggregate address regression"
+grep -Fq 'seen_nested_repr_c_aggregate_address_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1575 nested aggregate address regression"
 grep -Fq 'repr(C) pointer field' \
     "$ROOT_DIR/compiler_seen/src/codegen/ir_field_layout.seen" ||
     fail "repr(C) pointer-field loads omit the canonical handle conversion"

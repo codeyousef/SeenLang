@@ -13,7 +13,7 @@ import codegen.ir_type_mapping.{mapTypeImpl, isClassHandleLikeTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, splitChainedPathImpl}
 import codegen.type_registry_core.{getFieldInfoReg, isClassTypeReg}
-import codegen.ir_string_collect.{extractStructFieldTypesImpl}
+import codegen.ir_string_collect.{extractStructFieldTypesImpl, getBaseTypeNameImpl}
 
 ///
 resolveFieldAccessLayoutImpl — resolve the LLVM layout string plus field index
@@ -414,7 +414,15 @@ fun resolveMemberAccessFieldReceiverPtrImpl(output: StringBuilder,
     typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
-    if isClassHandleLikeTypeImpl(fieldType, structNames) == 1 {
+    let fieldBaseType = getBaseTypeNameImpl(fieldType)
+    var fieldIsReprCValue = false
+    if reprCClassNames != "" and
+        reprCClassNames.contains(fieldBaseType + "|") {
+
+        fieldIsReprCValue = true
+    }
+    if not fieldIsReprCValue and
+        isClassHandleLikeTypeImpl(fieldType, structNames) == 1 {
         var fieldLlvmType = mapTypeImpl(fieldType, structNames,
             typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
         if not isClassTypeReg(fieldType, structNames) {
