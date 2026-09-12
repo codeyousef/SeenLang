@@ -66,7 +66,7 @@ Seen Language RPM Package Builder
 Usage: $0 <version> <architecture> [options]
 
 Arguments:
-  version              Version number (e.g., 0.20.7)
+  version              Version number (e.g., 0.20.8)
   architecture         Target architecture (x86_64, aarch64, riscv64)
 
 Options:
@@ -77,7 +77,7 @@ Options:
   --help               Show this help message
 
 Examples:
-  $0 0.20.7 x86_64
+  $0 0.20.8 x86_64
   $0 1.2.3 aarch64 --verbose
   $0 2.0.0 x86_64 --release 2
 

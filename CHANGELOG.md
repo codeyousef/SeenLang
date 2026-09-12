@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.8] - 2026-09-12
+
+### Fixed
+
+- Fixed FEL-1577 right-shift lowering so unsigned fixed-width integers use
+  logical zero-fill while signed integers retain arithmetic sign extension.
+- Defined shift counts modulo the declared left-hand width and added fast plus
+  release/ThinLTO coverage for every integer width, cross-module and container
+  use, and the deterministic Qwen RNG stream.
+
 ## [0.20.7] - 2026-09-12
 
 ### Fixed
