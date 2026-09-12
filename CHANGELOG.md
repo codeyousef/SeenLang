@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.7] - 2026-09-12
+
+### Fixed
+
+- Fixed FEL-1576 static lowering for `String.fromCString` so packaged CUDA
+  diagnostic conversion calls the shipped `seen_cstr_to_str` runtime ABI and
+  never emits an undefined `String_fromCString` symbol.
+- Added null-safe CUDA diagnostic conversion, explicit paired C-string cleanup,
+  and fast plus release/ThinLTO executable coverage for `cudaError` and
+  `cudaErrorAt` with real native strings.
+
 ## [0.20.6] - 2026-09-11
 
 ### Fixed
