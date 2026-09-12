@@ -13,6 +13,8 @@ utilities used with `extern fun` and `seen import-c`.
 
 For an actual native string boundary, use a reviewed shim or the runtime
 `seen_str_to_cstr`/`seen_cstr_to_str` helpers and document who owns any allocated
-copy. A Seen `String` is the `{ length, data }` `SeenString` representation.
+copy. Release a pointer returned by `seen_str_to_cstr` exactly once with
+`seen_cstr_free`; `seen_cstr_to_str` returns a borrowed view. A Seen `String` is
+the `{ length, data }` `SeenString` representation.
 
 Related guide: [Foreign Function Interface](../ffi.md).

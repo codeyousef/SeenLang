@@ -1,5 +1,8 @@
 import accelerator.cuda.mod.{CudaStreamLaunchToken}
-import accelerator.cuda.error.{CudaNativeStatus}
+import accelerator.cuda.error.{CudaNativeStatus, cudaError, cudaErrorAt,
+    CudaSourceLocation}
+
+extern "C" fun seen_cstr_free(ptr: *Void) r: Void
 
 fun validateCudaSurface(token: CudaStreamLaunchToken,
     status: CudaNativeStatus) r: Int {
@@ -10,6 +13,8 @@ fun validateCudaSurface(token: CudaStreamLaunchToken,
 }
 
 fun main() r: Int {
+    let operation = str_to_cstr("launch-kernel")
+    let message = str_to_cstr("invalid launch configuration")
     let token = CudaStreamLaunchToken{
         abiVersion: 1 as UInt32,
         flags: 0 as UInt32,
@@ -23,10 +28,38 @@ fun main() r: Int {
         nativeCode: 0 as Int32,
         deviceOrdinal: 0 as Int32,
         maturity: 0 as Int32,
+        operation: operation as *const Char,
+        message: message as *const Char
+    }
+    let surfaceStatus = validateCudaSurface(token, status)
+    if surfaceStatus != 0 { return surfaceStatus }
+
+    let error = cudaError(status)
+    if error.code != (0 as Int32) { return 4 }
+    if error.operation != "launch-kernel" { return 5 }
+    if error.message != "invalid launch configuration" { return 6 }
+
+    let located = cudaErrorAt(status, CudaSourceLocation{
+        file: "cuda_stdlib_surface.seen", line: 41, column: 9
+    })
+    if located.operation != "launch-kernel" { return 7 }
+    if located.message != "invalid launch configuration" { return 8 }
+    if located.sourceLine != 41 or located.sourceColumn != 9 { return 9 }
+
+    seen_cstr_free(operation as *Void)
+    seen_cstr_free(message as *Void)
+
+    let emptyStatus = CudaNativeStatus{
+        code: 1 as Int32,
+        nativeCode: 0 as Int32,
+        deviceOrdinal: 0 as Int32,
+        maturity: 0 as Int32,
         operation: null as *const Char,
         message: null as *const Char
     }
-    return validateCudaSurface(token, status)
+    let emptyError = cudaError(emptyStatus)
+    if emptyError.operation != "" or emptyError.message != "" { return 10 }
+    return 0
 }
 
 main()

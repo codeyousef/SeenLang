@@ -12,6 +12,15 @@
       "production": false
     },
     {
+      "id": "c-string-conversion-memory",
+      "subsystem": "runtime.ffi",
+      "purpose": "Explicit C-string conversion ownership boundary. Converting a Seen string to a C string allocates a NUL-terminated copy that Seen code releases exactly once through the paired free symbol; converting a C string to Seen produces a borrowed view and never takes ownership. Exercised by packaged standard-library executable tests with non-null CUDA diagnostic strings and deterministic cleanup.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_cstr_free", "seen_cstr_to_str", "seen_str_to_cstr"],
+      "production": true
+    },
+    {
       "id": "deterministic-process-input-adapter",
       "subsystem": "stdlib.determinism",
       "purpose": "Bounded process-start snapshots, Linux process replacement after validated deterministic CLI activation, and symlink-aware path containment. Native Seen owns grants, policy, context identity, diagnostics, and observable values. The runtime captures inputs before user code, re-execs without PATH lookup when the flag activates the mode, and canonicalizes existing paths through the OS. Unsupported process replacement and Windows path policy fail closed.",

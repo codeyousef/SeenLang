@@ -3989,6 +3989,10 @@ char* seen_str_to_cstr(SeenString s) {
     return buf;
 }
 
+void seen_cstr_free(void* value) {
+    free(value);
+}
+
 int64_t seen_str_length(SeenString s) {
     return s.len;
 }

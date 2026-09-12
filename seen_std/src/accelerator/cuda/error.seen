@@ -39,14 +39,19 @@ fun cudaError(status: CudaNativeStatus) r: CudaError {
     })
 }
 
+fun cudaStatusText(value: *const Char) r: String {
+    if value == null { return "" }
+    return String.fromCString(value)
+}
+
 fun cudaErrorAt(status: CudaNativeStatus, location: CudaSourceLocation)
     r: CudaError {
     // Native strings are fixed diagnostics owned by the subsystem and contain
     // neither user paths nor model data.
     return CudaError{ code: status.code, nativeCode: status.nativeCode,
         deviceOrdinal: status.deviceOrdinal, maturity: status.maturity,
-        operation: String.fromCString(status.operation),
-        message: String.fromCString(status.message),
+        operation: cudaStatusText(status.operation),
+        message: cudaStatusText(status.message),
         sourceFile: location.file, sourceLine: location.line,
         sourceColumn: location.column }
 }

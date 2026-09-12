@@ -443,6 +443,11 @@ fun emitPreparedStaticMethodCallImpl(output: StringBuilder, regBox: Array<Int>,
         return emitStringFromCharCodeCallImpl(output, regBox, argRegs,
             argTypeStrs)
     }
+    if potentialClassName == "String" and methodName == "fromCString" and
+        argRegs.length() > 0 {
+        return emitCStrConversionImpl(output, regBox, "cstr_to_str",
+            argRegs[0])
+    }
     if potentialClassName == "Int" and methodName == "max" {
         return "9223372036854775807"
     }

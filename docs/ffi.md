@@ -178,6 +178,10 @@ NUL-terminated `char *`. At a real C boundary, use the reviewed runtime
 conversion helpers (`seen_str_to_cstr` returns an allocated copy) or a native
 shim with an explicit ownership contract.
 
+Release every non-null pointer returned by `seen_str_to_cstr` exactly once with
+`seen_cstr_free`. `seen_cstr_to_str` creates a borrowed view and does not take
+ownership of its input.
+
 Type mapping helpers:
 
 ```seen

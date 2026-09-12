@@ -80,6 +80,9 @@ SeenString seen_cstr_to_str(const char* s);
 // Convert SeenString to null-terminated C string (malloc'd copy)
 char* seen_str_to_cstr(SeenString s);
 
+// Release a C string returned by seen_str_to_cstr. Null is accepted.
+void seen_cstr_free(void* value);
+
 // Create SeenString with copy
 static inline SeenString seen_str_copy(const char* s) {
     size_t len = strlen(s);

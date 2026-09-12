@@ -138,7 +138,8 @@ fun shouldRecordStaticMethodLateDeclareImpl(potentialClassName: String,
     if potentialClassName == "StringBuilder" and methodName == "new" {
         return false
     }
-    if potentialClassName == "String" and methodName == "fromCharCode" {
+    if potentialClassName == "String" and
+        (methodName == "fromCharCode" or methodName == "fromCString") {
         return false
     }
     if potentialClassName == "Int" and

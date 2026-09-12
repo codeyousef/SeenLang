@@ -88,10 +88,14 @@ fi
 CUDA_IR="$WORK_DIR/cuda.ll"
 find "$WORK_DIR/ir-cuda_stdlib_surface-release" -maxdepth 1 -type f \
     -name '*.ll' -print0 | sort -z | xargs -0 cat >"$CUDA_IR"
-grep -Eq 'call %SeenString @String_fromCString\(i64 ' "$CUDA_IR"
+grep -Eq 'call %SeenString @seen_cstr_to_str\(ptr ' "$CUDA_IR"
+if grep -Eq '(call|declare) %SeenString @String_fromCString\(' "$CUDA_IR"; then
+    echo "FAIL: CUDA error conversion emitted an undefined static-method symbol" >&2
+    exit 1
+fi
 if grep -Eq '(call|declare) % @String_fromCString\(' "$CUDA_IR"; then
-    echo "FAIL: CUDA standard-library import emitted an empty String ABI" >&2
+    echo "FAIL: CUDA error conversion emitted an empty String ABI" >&2
     exit 1
 fi
 
-echo "PASS: FEL-1570 aggregate return and packaged CUDA standard-library contract"
+echo "PASS: FEL-1570/FEL-1576 aggregate return and packaged CUDA executable contract"
