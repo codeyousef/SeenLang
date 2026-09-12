@@ -28,6 +28,10 @@ fun installedBFloat16Result() r: Result<BFloat16, Int> {
     return Ok<BFloat16, Int>(BFloat16{ bits: 23 as UInt16 })
 }
 
+fun installedUnsignedRightShift(value: UInt64, count: Int) r: UInt64 {
+    return value >> count
+}
+
 class InstalledAggregateOwner {
     var bits: BFloat16
     var algorithm: CudaAlgorithm
@@ -50,6 +54,9 @@ fun require(condition: Bool, message: String) r: Void {
 }
 
 fun main() r: Int {
+    require(installedUnsignedRightShift(0x8000000000000000 as UInt64, 1) ==
+        (0x4000000000000000 as UInt64),
+        "installed UInt64 logical right shift")
     let digest = sha256("abc")
     require(digest.isOkay() and digest.unwrap() ==
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",

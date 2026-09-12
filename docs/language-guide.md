@@ -609,6 +609,11 @@ ByteBuffer, primitive buffers, sort/search helpers, priority queues, and more.
 
 `&`, `|`, `^`, `~`, `<<`, `>>`
 
+Right shift follows the declared type of its left operand: unsigned integer
+types use logical zero-filling shift, while signed integer types use arithmetic
+sign-extending shift. The shift count is reduced modulo the left operand's bit
+width, so every integer count has deterministic behavior.
+
 ### Compound assignment
 
 `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`

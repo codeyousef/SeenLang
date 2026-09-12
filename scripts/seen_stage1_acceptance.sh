@@ -475,6 +475,8 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_nested_repr_c_aggregate_address_contract.sh"
 COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_unsigned_right_shift_contract.sh"
+COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_async_structured_contract.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_open_issue_regressions.sh"
@@ -892,6 +894,8 @@ run_fixture nullable-class-primitive-runtime \
     "$REPO_ROOT/compiler_seen/tests/nullable_class_primitive_runtime.seen"
 run_fixture array-bool-push-codegen \
     "$REPO_ROOT/compiler_seen/tests/array_bool_push_codegen.seen"
+run_fixture unsigned-right-shift-codegen \
+    "$REPO_ROOT/compiler_seen/tests/unsigned_right_shift_codegen.seen"
 run_fixture structured-async-example \
     "$REPO_ROOT/seen_std/examples/structured_async.seen"
 "$REPO_ROOT/tests/misc_root_tests/seen_extern_runtime_declaration_dedup.sh"

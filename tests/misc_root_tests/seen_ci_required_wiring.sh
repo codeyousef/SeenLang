@@ -253,6 +253,10 @@ grep -Fq 'seen_nested_repr_c_aggregate_address_contract.sh' "$REQUIRED" ||
     fail "required CI omits FEL-1575 nested aggregate address regression"
 grep -Fq 'seen_nested_repr_c_aggregate_address_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1575 nested aggregate address regression"
+grep -Fq 'seen_unsigned_right_shift_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1577 unsigned-shift regression"
+grep -Fq 'unsigned_right_shift_codegen.seen' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1577 lowering-plan regression"
 grep -Fq 'repr(C) pointer field' \
     "$ROOT_DIR/compiler_seen/src/codegen/ir_field_layout.seen" ||
     fail "repr(C) pointer-field loads omit the canonical handle conversion"
@@ -271,6 +275,9 @@ grep -Fq 'CudaStreamLaunchToken' \
 grep -Fq 'CudaNativeStatus' \
     "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
     fail "installed release payload omits the packaged CUDA error API"
+grep -Fq 'installedUnsignedRightShift' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
+    fail "installed release payload omits FEL-1577 unsigned-shift coverage"
 grep -Fq 'seen_async_structured_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits structured async regressions"
 grep -Fq 'structured_async.seen' "$STAGE1" ||

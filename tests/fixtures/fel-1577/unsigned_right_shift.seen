@@ -1,0 +1,76 @@
+import core.option.{Option, Some}
+import core.result.{Result, Ok}
+import shift_support.{importedLogicalShift}
+
+class ShiftHolder {
+    var value: UInt64
+}
+
+fun requireShift(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun next24(state: UInt64) r: UInt64 {
+    var value = state
+    value = value ^ (value >> 12)
+    value = value ^ (value << 25)
+    value = value ^ (value >> 27)
+    return (value * (0x2545F4914F6CDD1D as UInt64)) >> 40
+}
+
+fun main() r: Int {
+    requireShift(((0x80 as UInt8) >> 1) == (0x40 as UInt8),
+        "UInt8 logical right shift")
+    requireShift(((0x8000 as UInt16) >> 1) == (0x4000 as UInt16),
+        "UInt16 logical right shift")
+    requireShift(((0x80000000 as UInt32) >> 1) == (0x40000000 as UInt32),
+        "UInt32 logical right shift")
+    requireShift(((0x8000000000000000 as UInt64) >> 1) ==
+        (0x4000000000000000 as UInt64), "UInt64 logical right shift")
+    requireShift(((0xFFFFFFFFFFFFFFFF as UInt64) >> 63) == (1 as UInt64),
+        "UInt64 maximum boundary")
+    requireShift(((0 as UInt64) >> 0) == (0 as UInt64),
+        "zero and zero-count boundary")
+    requireShift(((0x8000000000000000 as UInt64) >> 64) ==
+        (0x8000000000000000 as UInt64), "count wraps at width")
+    requireShift(((0x8000000000000000 as UInt64) >> 65) ==
+        (0x4000000000000000 as UInt64), "out-of-range count is modulo width")
+    requireShift(((-2 as Int64) >> 1) == (-1 as Int64),
+        "signed right shift remains arithmetic")
+
+    requireShift(importedLogicalShift(0x8000000000000000 as UInt64, 1) ==
+        (0x4000000000000000 as UInt64), "cross-module logical shift")
+    let holder = ShiftHolder{ value: 0x8000000000000000 as UInt64 }
+    requireShift((holder.value >> 1) == (0x4000000000000000 as UInt64),
+        "class-field logical shift")
+    let result: Result<UInt64, Int> = Ok<UInt64, Int>(holder.value >> 1)
+    requireShift(result.unwrap() == (0x4000000000000000 as UInt64),
+        "Result-contained logical shift")
+    let optional: Option<UInt64> = Some<UInt64>(
+        (0x8000000000000000 as UInt64) >> 1)
+    requireShift(optional.unwrap() == (0x4000000000000000 as UInt64),
+        "Option-contained logical shift")
+    let values = Array<UInt16>()
+    values.push((0x8000 as UInt16) >> 1)
+    requireShift(values[0] == (0x4000 as UInt16),
+        "Array-contained logical shift")
+    values.free()
+
+    var state = 20260827 as UInt64
+    let first = next24(state)
+    state = state ^ (state >> 12)
+    state = state ^ (state << 25)
+    state = state ^ (state >> 27)
+    let second = next24(state)
+    state = state ^ (state >> 12)
+    state = state ^ (state << 25)
+    state = state ^ (state >> 27)
+    let third = next24(state)
+    requireShift(first == (12895245 as UInt64) and
+        second == (5889182 as UInt64) and third == (7097424 as UInt64),
+        "locked xorshift64-star stream")
+    println("PASS: unsigned right shifts preserve logical semantics")
+    return 0
+}
+
+main()

@@ -1,0 +1,3 @@
+pub fun importedLogicalShift(value: UInt64, count: Int) r: UInt64 {
+    return value >> count
+}

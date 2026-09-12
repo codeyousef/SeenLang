@@ -157,6 +157,22 @@ fun shouldWidenIntegerBinaryOperandsForI64Impl(operator: String,
     return false
 }
 
+fun rightShiftOpcodeForSeenTypeImpl(leftType: String) r: String {
+    if leftType == "UInt8" or leftType == "UInt16" or
+        leftType == "UInt32" or leftType == "UInt64" {
+
+        return "lshr"
+    }
+    return "ashr"
+}
+
+fun rightShiftCountMaskForSeenTypeImpl(leftType: String) r: Int {
+    if leftType == "Int8" or leftType == "UInt8" { return 7 }
+    if leftType == "Int16" or leftType == "UInt16" { return 15 }
+    if leftType == "Int32" or leftType == "UInt32" { return 31 }
+    return 63
+}
+
 fun shouldUseBinaryCseGateImpl(leftType: String, rightType: String,
     operator: String) r: Bool {
 

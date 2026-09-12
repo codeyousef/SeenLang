@@ -1,0 +1,31 @@
+import codegen.ir_binary_plan.{rightShiftOpcodeForSeenTypeImpl,
+    rightShiftCountMaskForSeenTypeImpl}
+
+fun expectShift(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    expectShift(rightShiftOpcodeForSeenTypeImpl("UInt8") == "lshr",
+        "UInt8 right shift must be logical")
+    expectShift(rightShiftOpcodeForSeenTypeImpl("UInt16") == "lshr",
+        "UInt16 right shift must be logical")
+    expectShift(rightShiftOpcodeForSeenTypeImpl("UInt32") == "lshr",
+        "UInt32 right shift must be logical")
+    expectShift(rightShiftOpcodeForSeenTypeImpl("UInt64") == "lshr",
+        "UInt64 right shift must be logical")
+    expectShift(rightShiftOpcodeForSeenTypeImpl("Int8") == "ashr" and
+        rightShiftOpcodeForSeenTypeImpl("Int16") == "ashr" and
+        rightShiftOpcodeForSeenTypeImpl("Int32") == "ashr" and
+        rightShiftOpcodeForSeenTypeImpl("Int64") == "ashr" and
+        rightShiftOpcodeForSeenTypeImpl("Int") == "ashr",
+        "signed right shifts must remain arithmetic")
+    expectShift(rightShiftCountMaskForSeenTypeImpl("UInt8") == 7 and
+        rightShiftCountMaskForSeenTypeImpl("UInt16") == 15 and
+        rightShiftCountMaskForSeenTypeImpl("UInt32") == 31 and
+        rightShiftCountMaskForSeenTypeImpl("UInt64") == 63,
+        "right-shift counts must normalize to the declared width")
+    return 0
+}
+
+main()

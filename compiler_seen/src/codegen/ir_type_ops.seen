@@ -7,6 +7,8 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_ops_comparison.{emitComparisonBinaryOpImpl}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
+import codegen.ir_binary_plan.{rightShiftOpcodeForSeenTypeImpl,
+    rightShiftCountMaskForSeenTypeImpl}
 
 ///
 ============================================================
@@ -425,8 +427,18 @@ fun emitBinaryOpImpl(output: StringBuilder, regBox: Array<Int>, boundsLabelBox: 
         opHandled = true
     }
     if not opHandled and operator == ">>" {
-        output.append("  " + resultReg + " = ashr i64 " + leftReg + ", " + rightReg + "\n")
-        opHandled = true
+        // Integer operands are widened to i64 before this shared emitter.
+        // Preserve the declared left-hand signedness and normalize the count
+        // to that type's width so LLVM never receives a poison-producing
+        // out-of-range shift count.
+        let shiftMask = rightShiftCountMaskForSeenTypeImpl(leftType)
+        output.append("  " + resultReg + " = and i64 " + rightReg +
+            ", " + shiftMask.toString() + "\n")
+        let shiftResultReg = getNextRegFn(regBox)
+        let shiftOpcode = rightShiftOpcodeForSeenTypeImpl(leftType)
+        output.append("  " + shiftResultReg + " = " + shiftOpcode +
+            " i64 " + leftReg + ", " + resultReg + "\n")
+        return shiftResultReg
     }
     if not opHandled and operator == "&" {
         output.append("  " + resultReg + " = and i64 " + leftReg + ", " + rightReg + "\n")
