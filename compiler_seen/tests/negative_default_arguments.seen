@@ -1,0 +1,55 @@
+import bootstrap.frontend.{run_frontend}
+import codegen.ir_call_args.{fillDefaultParamsImpl}
+import str.string.{StringBuilder}
+
+fun requireDefault(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let source =
+        "fun narrow(a: Int8 = -1 as Int8, b: Int16 = -2 as Int16, " +
+        "c: Int32 = -3 as Int32, d: Int64 = -4 as Int64, " +
+        "e: Int = -5) r: Int { return e }"
+    let frontend = run_frontend(source, "negative_defaults", "en")
+    requireDefault(frontend.success, "negative defaults parse")
+    let params = frontend.program.items[0].function.params
+    requireDefault(params.length() == 5, "all default parameters retained")
+    requireDefault(params[0].paramType.typeName == "Int8~default~-1",
+        "Int8 unary minus retained")
+    requireDefault(params[1].paramType.typeName == "Int16~default~-2",
+        "Int16 unary minus retained")
+    requireDefault(params[2].paramType.typeName == "Int32~default~-3",
+        "Int32 unary minus retained")
+    requireDefault(params[3].paramType.typeName == "Int64~default~-4",
+        "Int64 unary minus retained")
+    requireDefault(params[4].paramType.typeName == "Int~default~-5",
+        "machine Int unary minus retained")
+
+    let output = StringBuilder.new()
+    let regBox = Array<Int>()
+    regBox.push(0)
+    let argRegs = Array<String>()
+    let argTypes = Array<String>()
+    let strings = Array<String>()
+    fillDefaultParamsImpl(output, regBox, "narrow", argRegs, argTypes,
+        "narrow:5|",
+        "narrow:0:-1:Int8|narrow:1:-2:Int16|narrow:2:-3:Int32|" +
+        "narrow:3:-4:Int64|narrow:4:-5:Int|", "negative-defaults-",
+        strings)
+    requireDefault(argRegs.length() == 5 and argTypes.length() == 5,
+        "all omitted defaults lowered")
+    requireDefault(argRegs[0] == "-1" and argTypes[0] == "i8",
+        "Int8 default uses i8 ABI")
+    requireDefault(argRegs[1] == "-2" and argTypes[1] == "i16",
+        "Int16 default uses i16 ABI")
+    requireDefault(argRegs[2] == "-3" and argTypes[2] == "i32",
+        "Int32 default uses i32 ABI")
+    requireDefault(argRegs[3] == "-4" and argTypes[3] == "i64",
+        "Int64 default uses i64 ABI")
+    requireDefault(argRegs[4] == "-5" and argTypes[4] == "i64",
+        "Int default uses i64 ABI")
+    return 0
+}
+
+main()

@@ -1,0 +1,19 @@
+pub fun importedInt8(value: Int8 = -6 as Int8) r: Int8 {
+    return value
+}
+
+pub fun importedInt16(value: Int16 = -7 as Int16) r: Int16 {
+    return value
+}
+
+pub fun importedInt32(value: Int32 = -8 as Int32) r: Int32 {
+    return value
+}
+
+pub fun importedInt64(value: Int64 = -9 as Int64) r: Int64 {
+    return value
+}
+
+pub fun importedInt(value: Int = -10) r: Int {
+    return value
+}

@@ -1,0 +1,50 @@
+import default_support.{importedInt8, importedInt16, importedInt32,
+    importedInt64, importedInt}
+
+fun requireDefault(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun sameInt8(value: Int8 = -1 as Int8) r: Int8 { return value }
+fun sameInt16(value: Int16 = -2 as Int16) r: Int16 { return value }
+fun sameInt32(value: Int32 = -3 as Int32) r: Int32 { return value }
+fun sameInt64(value: Int64 = -4 as Int64) r: Int64 { return value }
+fun sameInt(value: Int = -5) r: Int { return value }
+
+fun main() r: Int {
+    requireDefault(sameInt8() == (-1 as Int8),
+        "same-module Int8 default")
+    requireDefault(sameInt16() == (-2 as Int16),
+        "same-module Int16 default")
+    requireDefault(sameInt32() == (-3 as Int32),
+        "same-module Int32 default")
+    requireDefault(sameInt64() == (-4 as Int64),
+        "same-module Int64 default")
+    requireDefault(sameInt() == -5, "same-module Int default")
+
+    requireDefault(importedInt8() == (-6 as Int8),
+        "imported Int8 default")
+    requireDefault(importedInt16() == (-7 as Int16),
+        "imported Int16 default")
+    requireDefault(importedInt32() == (-8 as Int32),
+        "imported Int32 default")
+    requireDefault(importedInt64() == (-9 as Int64),
+        "imported Int64 default")
+    requireDefault(importedInt() == -10, "imported Int default")
+
+    requireDefault(sameInt8(-11 as Int8) == (-11 as Int8),
+        "explicit Int8 argument")
+    requireDefault(sameInt16(-12 as Int16) == (-12 as Int16),
+        "explicit Int16 argument")
+    requireDefault(sameInt32(-13 as Int32) == (-13 as Int32),
+        "explicit Int32 argument")
+    requireDefault(sameInt64(-14 as Int64) == (-14 as Int64),
+        "explicit Int64 argument")
+    requireDefault(sameInt(-15) == -15, "explicit Int argument")
+    requireDefault(importedInt32(-16 as Int32) == (-16 as Int32),
+        "explicit imported argument")
+    println("PASS: negative fixed-width defaults preserve value and ABI width")
+    return 0
+}
+
+main()

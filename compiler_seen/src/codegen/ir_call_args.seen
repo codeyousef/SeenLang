@@ -5,7 +5,8 @@ from constructor/static dispatch and final call emission.
 ///
 
 import codegen.ir_optimization.{getNextRegFn, parseIntManual}
-import codegen.ir_type_mapping.{isDataTypeImpl}
+import codegen.ir_type_mapping.{isDataTypeImpl,
+    getFixedWidthScalarLlvmTypeImpl}
 import str.string.{StringBuilder}
 
 ///
@@ -73,7 +74,13 @@ fun fillDefaultParamsImpl(output: StringBuilder, regBox: Array<Int>, funcName: S
                             argTypeStrs.push("double")
                         } else {
                             argRegs.push(dfValue)
-                            argTypeStrs.push("i64")
+                            let fixedWidthType =
+                                getFixedWidthScalarLlvmTypeImpl(dfType)
+                            if fixedWidthType != "" {
+                                argTypeStrs.push(fixedWidthType)
+                            } else {
+                                argTypeStrs.push("i64")
+                            }
                         }
                     }
                 }

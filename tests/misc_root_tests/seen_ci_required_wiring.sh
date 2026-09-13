@@ -257,6 +257,10 @@ grep -Fq 'seen_unsigned_right_shift_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1577 unsigned-shift regression"
 grep -Fq 'unsigned_right_shift_codegen.seen' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1577 lowering-plan regression"
+grep -Fq 'seen_negative_default_arguments_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1578 default-argument regression"
+grep -Fq 'negative_default_arguments.seen' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1578 parser/lowering regression"
 grep -Fq 'repr(C) pointer field' \
     "$ROOT_DIR/compiler_seen/src/codegen/ir_field_layout.seen" ||
     fail "repr(C) pointer-field loads omit the canonical handle conversion"
@@ -278,6 +282,9 @@ grep -Fq 'CudaNativeStatus' \
 grep -Fq 'installedUnsignedRightShift' \
     "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
     fail "installed release payload omits FEL-1577 unsigned-shift coverage"
+grep -Fq 'installedNegativeInt32Default' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
+    fail "installed release payload omits FEL-1578 default-argument coverage"
 grep -Fq 'seen_async_structured_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits structured async regressions"
 grep -Fq 'structured_async.seen' "$STAGE1" ||

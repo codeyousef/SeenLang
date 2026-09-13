@@ -6,12 +6,14 @@ TMP_DIR="/tmp/seen_ir_call_shape_preflight"
 GOOD_IR="$TMP_DIR/good.ll"
 BAD_IR="$TMP_DIR/bad.ll"
 BAD_PTR_ZERO_IR="$TMP_DIR/bad_ptr_zero.ll"
+BAD_DEFAULT_WIDTH_IR="$TMP_DIR/bad_default_width.ll"
 MISSING_IMPL_A_IR="$TMP_DIR/missing_impl_a.ll"
 MISSING_IMPL_B_IR="$TMP_DIR/missing_impl_b.ll"
 MISSING_DYN_A_IR="$TMP_DIR/missing_dyn_a.ll"
 MISSING_DYN_B_IR="$TMP_DIR/missing_dyn_b.ll"
 BAD_LOG="$TMP_DIR/bad.log"
 BAD_PTR_ZERO_LOG="$TMP_DIR/bad_ptr_zero.log"
+BAD_DEFAULT_WIDTH_LOG="$TMP_DIR/bad_default_width.log"
 MISSING_IMPL_LOG="$TMP_DIR/missing_impl.log"
 MISSING_DYN_LOG="$TMP_DIR/missing_dyn.log"
 
@@ -134,6 +136,26 @@ grep -q 'call to @returns_string returns i64, declaration returns %SeenString' "
 grep -q 'call to @returns_i64 returns %SeenString, declaration returns i64' "$BAD_LOG"
 grep -q 'call to @takes_two has 1 args, declaration has 2' "$BAD_LOG"
 grep -q '@Int_append is declared and called but has no definition' "$BAD_LOG"
+
+cat >"$BAD_DEFAULT_WIDTH_IR" <<'IR'
+declare i32 @defaultDevice(i32)
+
+define i32 @bad_default_width() {
+entry:
+  %0 = call i32 @defaultDevice(i64 -1)
+  ret i32 %0
+}
+IR
+
+if python3 "$ROOT_DIR/scripts/verify_ir_call_shapes.py" \
+    "$BAD_DEFAULT_WIDTH_IR" >"$BAD_DEFAULT_WIDTH_LOG" 2>&1; then
+    echo "FAIL: fixed-width default call mismatch was accepted"
+    cat "$BAD_DEFAULT_WIDTH_LOG"
+    exit 1
+fi
+
+grep -q 'call to @defaultDevice arg 1 is i64, declaration expects i32' \
+    "$BAD_DEFAULT_WIDTH_LOG"
 
 cat >"$BAD_PTR_ZERO_IR" <<'IR'
 @.embedded_ir = private unnamed_addr constant [41 x i8] c"  call void @takes_ptr(ptr 0)\0A\00"

@@ -775,6 +775,28 @@ class RealParser {
         }
     }
 
+    ///
+    /// Capture the scalar spelling used by the legacy default-parameter
+    /// metadata suffix, then consume the complete default expression. Unary
+    /// minus is a separate lexer token, so retaining only peek().getValue()
+    /// would record a bare `-` and later produce malformed LLVM at an omitted
+    /// call site. The declared parameter type remains the authority for casts
+    /// such as `-1 as Int32`.
+    ///
+    fun captureDefaultParameterValue() r: String {
+        var prefix = ""
+        if checkToken(SeenTokenType.Minus) {
+            advance()
+            prefix = "-"
+        }
+        if isAtEnd() {
+            return prefix
+        }
+        let value = peek().getValue()
+        skipExpression()
+        return prefix + value
+    }
+
     fun joinSegments(values: Array<String>, separator: String) r: String {
         if values.length() == 0 {
             return ""
@@ -2729,9 +2751,8 @@ class RealParser {
                             paramTypeName = "comptime:Int"
                         }
                         if matchTokenStr(SeenTokenType.Equal) {
-                            let defVal = peek().getValue()
+                            let defVal = captureDefaultParameterValue()
                             paramTypeName = paramTypeName + "~default~" + defVal
-                            skipExpression()
                         }
                         this.lastParsedTypeName = paramTypeName
                         this.lastParsedTypeNullable = paramTypeNullable
@@ -2762,9 +2783,8 @@ class RealParser {
                     }
                     // Handle default parameter values: encode in type name suffix
                     if matchTokenStr(SeenTokenType.Equal) {
-                        let defVal = peek().getValue()
+                        let defVal = captureDefaultParameterValue()
                         paramTypeName = paramTypeName + "~default~" + defVal
-                        skipExpression()
                     }
                     this.lastParsedTypeName = paramTypeName
                     this.lastParsedTypeNullable = paramTypeNullable
@@ -3866,9 +3886,8 @@ class RealParser {
 
         // Capture default values in type name suffix
         if matchTokenStr(SeenTokenType.Equal) {
-            let defVal = peek().getValue()
+            let defVal = captureDefaultParameterValue()
             paramTypeName = paramTypeName + "~default~" + defVal
-            skipExpression()
         }
 
         param.paramType = typeNodeWithName(parsedParamType, paramTypeName)
