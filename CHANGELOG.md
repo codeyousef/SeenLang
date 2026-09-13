@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.9] - 2026-09-13
+
+### Fixed
+
+- Fixed FEL-1578 default-argument parsing so negative scalar defaults retain
+  their numeric operand instead of producing a bare minus token in LLVM IR.
+- Preserved the declared ABI width for omitted `Int8`, `Int16`, `Int32`,
+  `Int64`, and machine-`Int` defaults in same-module and imported calls, with
+  fast, release/ThinLTO, pre-optimization call-shape, and installed-payload
+  regressions.
+
 ## [0.20.8] - 2026-09-12
 
 ### Fixed
