@@ -50,6 +50,7 @@ bash -n \
     tests/misc_root_tests/seen_unsigned_right_shift_contract.sh \
     tests/misc_root_tests/seen_negative_default_arguments_contract.sh \
     tests/misc_root_tests/seen_bundled_cuda_link.sh \
+    tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh \
     tests/misc_root_tests/seen_async_structured_contract.sh \
     tests/misc_root_tests/seen_stdlib_component_payload.sh \
     tests/misc_root_tests/seen_mapped_close_ownership.sh \

@@ -478,6 +478,8 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_unsigned_right_shift_contract.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_negative_default_arguments_contract.sh"
+SEEN_BIN="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_async_structured_contract.sh"
 COMPILER="$REAL_COMPILER" \

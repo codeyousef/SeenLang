@@ -261,6 +261,16 @@ grep -Fq 'seen_negative_default_arguments_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1578 default-argument regression"
 grep -Fq 'negative_default_arguments.seen' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1578 parser/lowering regression"
+grep -Fq 'seen_cuda_after_bounded_array_release.sh' "$REQUIRED" ||
+    fail "required CI omits FEL-1581 CUDA-after-array-release regression"
+grep -Fq 'seen_cuda_after_bounded_array_release.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1581 CUDA-after-array-release regression"
+grep -Fq 'seen_arr_free(ptr ' \
+    "$ROOT_DIR/compiler_seen/src/codegen/ir_method_array_mutator_emit.seen" ||
+    fail "Array.free lowering bypasses budgeted runtime release"
+grep -Fq 'fnName == "remove"' \
+    "$ROOT_DIR/compiler_seen/src/codegen/ir_function_entry_exit.seen" ||
+    fail "env.remove lacks native-symbol interposition protection"
 grep -Fq 'repr(C) pointer field' \
     "$ROOT_DIR/compiler_seen/src/codegen/ir_field_layout.seen" ||
     fail "repr(C) pointer-field loads omit the canonical handle conversion"

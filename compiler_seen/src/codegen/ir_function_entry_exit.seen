@@ -103,6 +103,13 @@ fun buildFunctionSignaturePrefixImpl(fn: FunctionNode, fnName: String,
     returnType: String) r: String {
 
     var fnLinkagePrefix = "define "
+    // env.remove is a public Seen source name, not the C remove(3) ABI. CUDA's
+    // driver references the latter during initialization. Keep the Seen symbol
+    // link-visible across program modules but hidden from ELF interposition;
+    // an explicit @export remains authoritative below.
+    if fnName == "remove" {
+        fnLinkagePrefix = "define hidden "
+    }
     var fnRetAttrs = ""
     if returnType == "i64" or returnType == "double" or returnType == "i1" {
         fnRetAttrs = "noundef "

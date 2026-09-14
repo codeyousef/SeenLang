@@ -21,15 +21,12 @@ fun emitArrayFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
     if arrayPtrReg == "" {
         return ""
     }
-    let dataPtrPtrReg = getNextRegFn(regBox)
-    output.append("  " + dataPtrPtrReg +
-        " = getelementptr inbounds %SeenArray, ptr " + arrayPtrReg +
-        ", i32 0, i32 3\n")
-    let dataPtrReg = getNextRegFn(regBox)
-    output.append("  " + dataPtrReg + " = load ptr, ptr " + dataPtrPtrReg +
-        "\n")
-    output.append("  call void @free(ptr " + dataPtrReg + ")\n")
-    output.append("  call void @free(ptr " + arrayPtrReg + ")\n")
+    // Array storage is allocated through the runtime's budgeted aligned
+    // allocator.  Releasing it through libc free() physically freed the bytes
+    // but left the runtime reservation live forever.  Long-running bounded
+    // readers therefore accumulated impossible live-byte totals.  Keep the
+    // allocation and release sides paired in the runtime.
+    output.append("  call void @seen_arr_free(ptr " + arrayPtrReg + ")\n")
     return "0"
 }
 

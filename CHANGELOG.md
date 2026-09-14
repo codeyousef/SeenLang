@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.11] - 2026-09-14
+
+### Fixed
+
+- Fixed FEL-1581 so `Array.free()` releases both physical storage and Seen's
+  allocator reservation, preventing chunked large-file validation from
+  accumulating impossible live-byte totals before accelerator startup.
+- Hid the Seen `env.remove` implementation from native ELF interposition so
+  CUDA's libc `remove(3)` call cannot enter a mismatched SeenString ABI, with
+  fast and release/ThinLTO RTX 4090 coverage after repeated bounded allocation.
+
 ## [0.20.10] - 2026-09-14
 
 ### Fixed

@@ -1,0 +1,44 @@
+import accelerator.cuda.mod.{CudaDevice}
+import env.env.{remove}
+import memory.allocation.{memoryStats}
+
+fun requireContract(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun exerciseBoundedArrayWorkload() r: Void {
+    let before = memoryStats()
+    var iteration = 0
+    while iteration < 128 {
+        let bytes = Array<Int>()
+        var index = 0
+        while index < 65536 {
+            bytes.push((iteration + index) % 256)
+            index = index + 1
+        }
+        requireContract(bytes[0] == iteration % 256,
+            "bounded array contents were corrupted")
+        bytes.free()
+        iteration = iteration + 1
+    }
+    let after = memoryStats()
+    requireContract(after.usedBytes == before.usedBytes,
+        "freed array storage remained in allocator accounting")
+}
+
+fun main() r: Int {
+    exerciseBoundedArrayWorkload()
+
+    let opened = CudaDevice.open(0 as Int32)
+    requireContract(not opened.isErr(),
+        "CUDA initialization failed after bounded array workload")
+
+    // Keep env.remove in the linked program. Its Seen ABI must remain hidden
+    // from native dependencies that call the unrelated libc remove symbol.
+    requireContract(remove("__seen_fel_1581_absent__"),
+        "environment cleanup failed")
+    println("PASS: CUDA initialized after bounded array allocation and release")
+    return 0
+}
+
+main()
