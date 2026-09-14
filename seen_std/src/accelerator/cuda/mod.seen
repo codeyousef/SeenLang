@@ -1,5 +1,7 @@
 /// Explicitly linked CUDA resource ABI. Importing declarations never discovers
-/// or links a CUDA SDK; projects opt in to libseen_cuda separately.
+/// or links a CUDA SDK. Native Linux x86-64 projects opt in to the matching
+/// packaged runtime with `seen_cuda = { bundled = true }` under
+/// `[native.dependencies]`.
 
 import accelerator.cuda.error.{CudaNativeStatus, CudaError, cudaSucceeded, cudaError}
 import core.result.{Result, Ok, Err}

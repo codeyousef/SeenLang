@@ -47,7 +47,7 @@ Example:
 ```toml
 [project]
 name = "seen_compiler"
-version = "0.20.9"
+version = "0.20.10"
 language = "en"
 visibility = "caps"
 description = "Self-hosted Seen compiler"
@@ -77,7 +77,7 @@ modules = [
 
 ## [dependencies] Section
 
-Seen 0.20.9 uses package aliases from `[dependencies]` as local import roots.
+Seen 0.20.10 uses package aliases from `[dependencies]` as local import roots.
 Registry identity, registry origin, version requirement, and import alias remain
 separate values.
 
@@ -211,6 +211,7 @@ dependency alias without placing generated consumer state inside the package.
 [native.dependencies]
 sdl3 = { path = "native/lib" }
 vulkan = {}
+seen_cuda = { bundled = true }
 ```
 
 `[native.dependencies]` controls linker-facing native libraries. For
@@ -222,6 +223,15 @@ the output can run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH` wrappers.
 
 Legacy `system = true` entries inside `[dependencies]` are still accepted for
 backward compatibility, but new manifests should prefer `[native.dependencies]`.
+
+`seen_cuda = { bundled = true }` is the explicit opt-in for the packaged CUDA
+resource runtime. On native Linux x86-64, Seen builds that immutable packaged
+source into a signature-keyed project-local cache and links it with a matching
+runtime search path. The cache identity covers the runtime sources, ABI header,
+target, CMake, and CUDA compiler. Missing sources, an incompatible ABI, or a
+failed CUDA build stops compilation without publishing an executable. Projects
+that omit this declaration never probe for or link a CUDA SDK, even when they
+import CUDA value types for compile-only use.
 
 ## [build] Section
 

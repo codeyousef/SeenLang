@@ -550,6 +550,92 @@ fun runtimeSourceSignatureForCache() r: String {
     return input
 }
 
+fun bundledCudaRuntimeBuildSignature(runtimeRoot: String,
+    effectiveTarget: String) r: String {
+
+    var input = "bundled-seen-cuda-v1|object-cache-abi=" +
+        compilerObjectCacheAbiIdentity() + "|target=" + effectiveTarget
+    input = hashString(input + "\n" +
+        loadFileContent(runtimeRoot + "/CMakeLists.txt"))
+    input = hashString(input + "\n" +
+        loadFileContent(runtimeRoot + "/include/seen_cuda.h"))
+    input = hashString(input + "\n" +
+        loadFileContent(runtimeRoot + "/src/seen_cuda.cu"))
+    input = hashString(input + "\ncmake=" +
+        buildToolVersionForCache("cmake"))
+    input = hashString(input + "\nnvcc=" +
+        buildToolVersionForCache("nvcc"))
+    return input
+}
+
+fun bundledCudaRuntimeAbiIsCompatible(runtimeRoot: String) r: Bool {
+    if not exists(runtimeRoot + "/CMakeLists.txt") or
+        not exists(runtimeRoot + "/include/seen_cuda.h") or
+        not exists(runtimeRoot + "/src/seen_cuda.cu") {
+
+        return false
+    }
+    let header = loadFileContent(runtimeRoot + "/include/seen_cuda.h")
+    return header.contains("#define SEEN_CUDA_ABI_VERSION 1u")
+}
+
+fun bundledCudaRuntimeCacheDir(signature: String) r: String {
+    if signature == "" { return "" }
+    let cacheRoot = compilerArtifactPath("native-dependencies/seen_cuda")
+    if cacheRoot == "" or not ensureDirectory(cacheRoot) or
+        not compilerArtifactTreeIsSafe(cacheRoot) {
+
+        return ""
+    }
+    let cacheDir = cacheRoot + "/" + signature
+    if not ensureDirectory(cacheDir) or
+        not compilerArtifactTreeIsSafe(cacheDir) {
+
+        return ""
+    }
+    return cacheDir
+}
+
+fun buildBundledCudaRuntime(cacheDir: String, signature: String,
+    runtimeRoot: String) r: Bool {
+
+    if cacheDir == "" or signature == "" or runtimeRoot == "" or
+        not compilerArtifactTreeIsSafe(cacheDir) {
+
+        return false
+    }
+    let libraryPath = cacheDir + "/libseen_cuda.so"
+    if runtimeObjectIsFresh(libraryPath, signature) and
+        exists(cacheDir + "/libseen_cuda.so.1") {
+
+        return true
+    }
+    let configure = runCommand("cmake -S " +
+        mainCompilerShellQuote(runtimeRoot) + " -B " +
+        mainCompilerShellQuote(cacheDir) +
+        " -DSEEN_ENABLE_CUDA=ON -DCMAKE_BUILD_TYPE=Release" +
+        " -DCMAKE_CUDA_ARCHITECTURES=89" +
+        " -DCMAKE_BUILD_PARALLEL_LEVEL=1 2>&1")
+    if not commandWasSuccessful(configure) {
+        println(configure.output)
+        return false
+    }
+    let build = runCommand("cmake --build " +
+        mainCompilerShellQuote(cacheDir) +
+        " --target seen_cuda --parallel 1 2>&1")
+    if not commandWasSuccessful(build) {
+        println(build.output)
+        return false
+    }
+    if not exists(libraryPath) or
+        not exists(cacheDir + "/libseen_cuda.so.1") {
+
+        return false
+    }
+    return writeRuntimeObjectSignature(libraryPath, signature) and
+        runtimeObjectIsFresh(libraryPath, signature)
+}
+
 fun runtimeObjectBuildSignature(name: String, sourcePath: String,
     clangMarch: String, picFlag: String, sanitizerFlags: String,
     pgoFlags: String, effectiveTarget: String, extraFlags: String,
@@ -1550,7 +1636,7 @@ fun removePathIfExists(path: String) r: Void {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.20.9"
+    return "0.20.10"
 }
 
 fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
@@ -13852,6 +13938,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     ///
     var tomlExtraLinkFlags = ""
     var tomlAssetShaders = ""
+    var tomlBundledCudaRuntime = false
     let tomlPath = findNearestSeenTomlForInput(resolvedInput)
     let tomlContent = loadFileContent(tomlPath)
     if tomlContent != "" {
@@ -13893,12 +13980,28 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                                     extractTomlInlineBooleanField(tomlVal, "system") == 1
                                 let isNativeDepSection = tomlSection == "native.dependencies"
                                 if isLegacySystemDep or isNativeDepSection {
-                                    tomlExtraLinkFlags = tomlExtraLinkFlags + " -l" + tomlKey
-                                    if tomlDepPath != "" {
+                                    let isBundled = extractTomlInlineBooleanField(
+                                        tomlVal, "bundled") == 1
+                                    if isBundled and tomlKey != "seen_cuda" {
+                                        println("  Error: unsupported bundled native dependency '" +
+                                            tomlKey + "'")
+                                        return 1
+                                    }
+                                    if isBundled and tomlKey == "seen_cuda" {
+                                        if tomlDepPath != "" {
+                                            println("  Error: bundled seen_cuda cannot also declare path")
+                                            return 1
+                                        }
+                                        tomlBundledCudaRuntime = true
+                                        println("    dep: seen_cuda (bundled runtime)")
+                                    } else {
+                                        tomlExtraLinkFlags = tomlExtraLinkFlags + " -l" + tomlKey
+                                    }
+                                    if not isBundled and tomlDepPath != "" {
                                         let resolvedDepPath = resolveProjectPath(projectRoot, tomlDepPath)
                                         tomlExtraLinkFlags = tomlExtraLinkFlags + buildLocalLibrarySearchFlags(resolvedDepPath, effectiveTarget, normalizedCrossTarget)
                                         println("    dep: " + tomlKey + " (system path: " + resolvedDepPath + ")")
-                                    } else {
+                                    } else if not isBundled {
                                         println("    dep: " + tomlKey + " (system)")
                                     }
                                 }
@@ -16199,6 +16302,32 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         platformShimArg = " " + mainCompilerShellQuote(platformShimOut)
     }
+    var bundledCudaArg = ""
+    if tomlBundledCudaRuntime {
+        if normalizedCrossTarget != "" or effectiveTarget != "linux-x86_64" {
+            println("    Error: bundled seen_cuda currently requires a native Linux x86-64 target")
+            return 1
+        }
+        let cudaRuntimeRoot = rtPrefix + "/cuda"
+        if not bundledCudaRuntimeAbiIsCompatible(cudaRuntimeRoot) {
+            println("    Error: packaged seen_cuda runtime is missing or has an incompatible ABI")
+            return 1
+        }
+        let cudaSignature = bundledCudaRuntimeBuildSignature(cudaRuntimeRoot,
+            effectiveTarget)
+        let cudaCacheDir = bundledCudaRuntimeCacheDir(cudaSignature)
+        if cudaCacheDir == "" or not buildBundledCudaRuntime(cudaCacheDir,
+            cudaSignature, cudaRuntimeRoot) {
+
+            println("    Error: bundled seen_cuda runtime build failed")
+            return 1
+        }
+        let cudaLibrary = cudaCacheDir + "/libseen_cuda.so"
+        bundledCudaArg = " " + mainCompilerShellQuote(cudaLibrary) + " " +
+            mainCompilerShellQuote("-Wl,-rpath," + cudaCacheDir)
+        buildTraceEmit("native dependency cache", "ready", 0,
+            "seen_cuda")
+    }
     var linkLibs = buildTargetLinkLibraries(effectiveTarget, hasGpuRuntime)
     if needsHotReloadRuntime {
         if effectiveTarget == "linux-x86_64" or
@@ -16232,6 +16361,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     let outputTemporaryPath = outputTemporaryResult.output.trim()
     linkCmd = linkCmd + runtimeArg + regionArg + gpuArg + hotReloadArg +
+        bundledCudaArg +
         platformShimArg + " -o " +
         mainCompilerShellQuote(outputTemporaryPath) + linkLibs +
         teeRuntimeLinkFlags + platformShimLinkFlags + tomlExtraLinkFlags +
@@ -16308,6 +16438,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         return 0
     }
 
+    if linkResult.output.contains("seen_cuda_") and
+        not tomlBundledCudaRuntime {
+
+        println("Error: [seen.cuda.link] packaged CUDA runtime is not enabled")
+        println("Hint: add `seen_cuda = { bundled = true }` under [native.dependencies] in Seen.toml")
+    }
     println("Linking failed")
     println(linkResult.output)
     let _ = deleteFile(outputTemporaryPath)
@@ -16853,7 +16989,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.20.9"
+    return "0.20.10"
 }
 
 fun printVersion() r: Void {

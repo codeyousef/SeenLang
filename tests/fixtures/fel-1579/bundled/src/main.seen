@@ -1,0 +1,29 @@
+import accelerator.cuda.mod.{CudaDevice, CudaAllocation, CudaStream}
+
+fun main() r: Int {
+    let opened = CudaDevice.open(0 as Int32)
+    if opened.isErr() { return 1 }
+    let device = opened.unwrap()
+
+    let allocated = CudaAllocation.allocate(device.ordinal, 4096 as UInt64)
+    if allocated.isErr() { return 2 }
+    let allocation = allocated.unwrap()
+
+    let streamed = CudaStream.create(device.ordinal)
+    if streamed.isErr() {
+        let _ = allocation.close()
+        return 3
+    }
+    let stream = streamed.unwrap()
+    let streamClosed = stream.close()
+    if streamClosed.isErr() or not streamClosed.unwrap() {
+        let _ = allocation.close()
+        return 4
+    }
+    let allocationClosed = allocation.close()
+    if allocationClosed.isErr() or not allocationClosed.unwrap() { return 5 }
+    println("PASS: packaged Seen CUDA runtime linked and executed")
+    return 0
+}
+
+main()

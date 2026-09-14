@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.10] - 2026-09-14
+
+### Fixed
+
+- Fixed FEL-1579 so native Linux x86-64 projects can explicitly declare the
+  packaged `seen_cuda` resource runtime and link it from a signature-keyed,
+  project-local cache without system installation or source copying.
+- Kept CUDA SDK discovery behind the manifest opt-in, rejected missing or
+  incompatible packaged runtimes before output publication, and added fast,
+  release/ThinLTO, installed-layout, and real RTX 4090 ownership coverage.
+
 ## [0.20.9] - 2026-09-13
 
 ### Fixed

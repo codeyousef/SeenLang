@@ -1,0 +1,7 @@
+manifest-version = 1
+
+[project]
+name = "fel_1579_missing_cuda"
+version = "0.20.10"
+language = "en"
+modules = ["src/main.seen"]

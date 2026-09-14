@@ -76,7 +76,7 @@ cmp -s "$WORK_DIR/prefix/bin/compatibility-manifest.json" \
     "$ROOT_DIR/releases/compatibility-manifest.json"
 test -f "$WORK_DIR/prefix/lib/seen/std/json/strict.seen"
 test -f "$WORK_DIR/prefix/lib/seen/std/crypto/sha256.seen"
-"$WORK_DIR/prefix/bin/seen-pkg" --expect-version 0.20.9 version >/dev/null
+"$WORK_DIR/prefix/bin/seen-pkg" --expect-version 0.20.10 version >/dev/null
 cp "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" \
     "$WORK_DIR/source/main.seen"
 mkdir -p "$WORK_DIR/source/.seen/agent-tools"
@@ -103,6 +103,18 @@ for mode in fast release; do
         "$output"
     done
 done
+
+# Hardware execution is optional on generic CI hosts, but when the explicit
+# CUDA compiler and a device are available the installed-layout compiler must
+# prove the packaged resource owners in both fast and release/ThinLTO modes.
+if command -v nvcc >/dev/null 2>&1 && command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null |
+       grep -Fxq '8.9'; then
+    SEEN_BIN="$WORK_DIR/prefix/bin/seen" \
+        "$ROOT_DIR/tests/misc_root_tests/seen_bundled_cuda_link.sh"
+else
+    echo "SKIP: installed bundled CUDA execution requires nvcc and an sm_89 GPU"
+fi
 
 find "$WORK_DIR/source/.seen/agent-tools" -type f \
     -path '*/runtime-objects/*/*.o' \
@@ -161,4 +173,4 @@ PREFIX_DIGEST_AFTER=$(prefix_digest)
     echo "FAIL: installed source payload changed during compilation" >&2
     exit 1
 }
-echo "PASS: installed layout provides a self-contained Seen 0.20.9 payload"
+echo "PASS: installed layout provides a self-contained Seen 0.20.10 payload"

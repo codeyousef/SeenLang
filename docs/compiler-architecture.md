@@ -589,6 +589,13 @@ Consequently the default compiler, runtime, and standard-library build remains
 CPU-only and has no CUDA/cuBLAS linkage.
 
 The `seen_cuda_*` resource ABI is versioned separately from compiler lowering.
+Native Linux x86-64 projects opt in with
+`seen_cuda = { bundled = true }` under `[native.dependencies]`. The compiler
+then builds only the packaged runtime source into its project-local,
+digest-verified native-dependency cache and links that exact library; it never
+searches for a system `libseen_cuda` or accepts an incompatible cached
+artifact. Without the manifest opt-in, imports remain compile-only and CUDA SDK
+discovery is forbidden.
 It provides fixed-width statuses and opaque owned handles; scheduling,
 allocation bounds, fallback, graph policy, algorithm caching, and model
 semantics remain native Seen behavior. Version 0.14 ships Linux x86-64 `sm_89`

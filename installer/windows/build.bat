@@ -89,7 +89,7 @@ echo.
 echo Usage: %~nx0 ^<version^> [platform] [options]
 echo.
 echo Arguments:
-echo   version              Version number (e.g., 0.20.9)
+echo   version              Version number (e.g., 0.20.10)
 echo   platform             Target platform: x64 (default) or arm64
 echo.
 echo Options:
@@ -98,9 +98,9 @@ echo   --verbose            Enable verbose output
 echo   --help               Show this help message
 echo.
 echo Examples:
-echo   %~nx0 0.20.9
-echo   %~nx0 0.20.9 x64 --verbose
-echo   %~nx0 0.20.9 arm64 --source-dir C:\Build\seen-0.20.9-windows-x64
+echo   %~nx0 0.20.10
+echo   %~nx0 0.20.10 x64 --verbose
+echo   %~nx0 0.20.10 arm64 --source-dir C:\Build\seen-0.20.10-windows-x64
 echo.
 echo For Linux builds, use: scripts/build_windows_installer.sh
 echo.

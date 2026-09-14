@@ -1,10 +1,10 @@
 manifest-version = 1
 
 [project]
-name = "qwen_native_dependency_probe"
+name = "fel_1579_bundled_cuda"
 version = "0.20.10"
 language = "en"
 modules = ["src/main.seen"]
 
 [native.dependencies]
-qwen_probe = { path = "native/lib" }
+seen_cuda = { bundled = true }

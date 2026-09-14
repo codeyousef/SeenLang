@@ -1,0 +1,9 @@
+import accelerator.cuda.mod.{CudaDevice}
+
+fun main() r: Int {
+    let opened = CudaDevice.open(0 as Int32)
+    if opened.isErr() { return 1 }
+    return opened.unwrap().ordinal as Int
+}
+
+main()
