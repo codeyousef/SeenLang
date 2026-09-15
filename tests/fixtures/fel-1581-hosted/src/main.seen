@@ -1,0 +1,32 @@
+import env.env.{remove}
+import memory.allocation.{memoryStats}
+
+fun requireContract(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun main() r: Int {
+    let before = memoryStats()
+    var iteration = 0
+    while iteration < 128 {
+        let bytes = Array<Int>()
+        var index = 0
+        while index < 65536 {
+            bytes.push((iteration + index) % 256)
+            index = index + 1
+        }
+        requireContract(bytes[0] == iteration % 256,
+            "bounded array contents were corrupted")
+        bytes.free()
+        iteration = iteration + 1
+    }
+    let after = memoryStats()
+    requireContract(after.usedBytes == before.usedBytes,
+        "freed array storage remained in allocator accounting")
+    requireContract(remove("__seen_fel_1581_absent__"),
+        "environment cleanup failed")
+    println("PASS: bounded arrays released and env.remove stayed private")
+    return 0
+}
+
+main()

@@ -13,18 +13,19 @@ fi
 SEEN_BIN=${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}
 TEST_ROOT="${SEEN_ARTIFACT_ROOT:?}/fel-1581"
 mkdir -p "$TEST_ROOT"
-cp -R "$ROOT_DIR/tests/fixtures/fel-1581" "$TEST_ROOT/project"
+cp -R "$ROOT_DIR/tests/fixtures/fel-1581" "$TEST_ROOT/cuda-project"
+cp -R "$ROOT_DIR/tests/fixtures/fel-1581-hosted" "$TEST_ROOT/hosted-project"
 
-run_case() {
+check_ir_case() {
     local mode=$1
-    local output="$TEST_ROOT/fel-1581-$mode"
     local ir_dir="$TEST_ROOT/ir-$mode"
     shift
     (
-        cd "$TEST_ROOT/project"
-        "$SEEN_BIN" compile src/main.seen "$output" "$@" \
+        cd "$TEST_ROOT/cuda-project"
+        PATH="$ROOT_DIR/tests/fixtures/fel-1581/no-cuda-tools:$PATH" \
+        "$SEEN_BIN" compile src/main.seen "$TEST_ROOT/ir-only-$mode" "$@" \
             --target-cpu=x86-64 --no-cache --jobs 1 --opt-jobs 1 --no-fork \
-            --emit-module-ir-dir "$ir_dir"
+            --emit-module-ir-dir "$ir_dir" --stop-after-ir
     )
 
     grep -REq 'call void @seen_arr_free\(ptr ' "$ir_dir" || {
@@ -36,24 +37,56 @@ run_case() {
         exit 1
     }
 
+    test ! -e "$TEST_ROOT/ir-only-$mode"
+}
+
+check_hosted_executable() {
+    local mode=$1
+    local output="$TEST_ROOT/hosted-$mode"
+    shift
+    (
+        cd "$TEST_ROOT/hosted-project"
+        "$SEEN_BIN" compile src/main.seen "$output" "$@" \
+            --target-cpu=x86-64 --no-cache --jobs 1 --opt-jobs 1 --no-fork
+    )
+
     # Non-exported Seen functions must not satisfy same-named native ABI
     # references. libcuda calls libc remove(3); a defined dynamic `remove`
-    # here would reinterpret char* as SeenString and corrupt the allocator.
+    # would reinterpret char* as SeenString and corrupt the allocator.
     if readelf --dyn-syms --wide "$output" |
         awk '$7 != "UND" && $8 == "remove" { found = 1 } END { exit !found }'; then
         echo "FAIL: non-exported Seen remove function escaped into the dynamic ABI" >&2
         exit 1
     fi
-    if [ "${SEEN_FEL_1581_REQUIRE_CUDA:-0}" = 1 ]; then
-        "$output"
-    fi
+    "$output"
 }
 
-run_case fast
-run_case release --release --lto=thin
+run_cuda_case() {
+    local mode=$1
+    local output="$TEST_ROOT/cuda-$mode"
+    shift
+    (
+        cd "$TEST_ROOT/cuda-project"
+        "$SEEN_BIN" compile src/main.seen "$output" "$@" \
+            --target-cpu=x86-64 --no-cache --jobs 1 --opt-jobs 1 --no-fork
+    )
+    if readelf --dyn-syms --wide "$output" |
+        awk '$7 != "UND" && $8 == "remove" { found = 1 } END { exit !found }'; then
+        echo "FAIL: CUDA executable exported Seen env.remove" >&2
+        exit 1
+    fi
+    "$output"
+}
+
+check_ir_case fast
+check_ir_case release --release --lto=thin
+check_hosted_executable fast
+check_hosted_executable release --release --lto=thin
 
 if [ "${SEEN_FEL_1581_REQUIRE_CUDA:-0}" != 1 ]; then
-    echo "PASS: FEL-1581 compile-only (set SEEN_FEL_1581_REQUIRE_CUDA=1 for hardware execution)"
+    echo "PASS: FEL-1581 hosted IR, ELF, and allocator contracts (set SEEN_FEL_1581_REQUIRE_CUDA=1 for hardware execution)"
 else
+    run_cuda_case fast
+    run_cuda_case release --release --lto=thin
     echo "PASS: bounded array accounting and CUDA initialization in fast and release modes"
 fi

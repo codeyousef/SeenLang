@@ -265,6 +265,12 @@ grep -Fq 'seen_cuda_after_bounded_array_release.sh' "$REQUIRED" ||
     fail "required CI omits FEL-1581 CUDA-after-array-release regression"
 grep -Fq 'seen_cuda_after_bounded_array_release.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1581 CUDA-after-array-release regression"
+grep -Fq -- '--stop-after-ir' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh" ||
+    fail "hosted FEL-1581 coverage can attempt a native CUDA build"
+grep -Fq 'no-cuda-tools' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh" ||
+    fail "hosted FEL-1581 coverage lacks a CUDA-build trap"
 grep -Fq 'seen_arr_free(ptr ' \
     "$ROOT_DIR/compiler_seen/src/codegen/ir_method_array_mutator_emit.seen" ||
     fail "Array.free lowering bypasses budgeted runtime release"

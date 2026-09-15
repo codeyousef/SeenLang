@@ -1,0 +1,7 @@
+manifest-version = 1
+
+[project]
+name = "fel_1581_hosted_array_release"
+version = "0.20.11"
+language = "en"
+modules = ["src/main.seen"]

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "FAIL: hosted FEL-1581 IR contract attempted a native CUDA build" >&2
+exit 99
