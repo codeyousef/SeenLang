@@ -18,6 +18,16 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.type_registry_core.{findStructReg, getTypeSizeReg}
 
+fun resolveArrayConstructorElementSizeState(funcName: String,
+    elementType: String) r: Int {
+
+    if isDataTypeState(elementType) {
+        return getDataTypeSizeState(elementType)
+    }
+    return resolveArrayConstructorElementSizeImpl(funcName, elementType,
+        getGlobalStructNamesImpl(), getGlobalStructSizesImpl())
+}
+
 fun tryGenerateArrayConstructorCallState(ctx: CodegenLoweringContext,
     output: StringBuilder, expr: ParserExpressionNode,
     funcName: String) r: String {
@@ -51,16 +61,14 @@ fun tryGenerateArrayConstructorCallState(ctx: CodegenLoweringContext,
 
     if arrayCtorPlan.mode == 2 {
         let capReg = lowerExpression(ctx, expr.arguments[0])
-        let elemSz = resolveArrayConstructorElementSizeImpl(funcName,
-            arrayCtorPlan.elementType, getGlobalStructNamesImpl(),
-            getGlobalStructSizesImpl())
+        let elemSz = resolveArrayConstructorElementSizeState(funcName,
+            arrayCtorPlan.elementType)
         return emitArrayPreallocImpl(output, getFeatureRegBoxImpl(), capReg,
             elemSz)
     }
 
-    let elemSize = resolveArrayConstructorElementSizeImpl(funcName,
-        arrayCtorPlan.elementType, getGlobalStructNamesImpl(),
-        getGlobalStructSizesImpl())
+    let elemSize = resolveArrayConstructorElementSizeState(funcName,
+        arrayCtorPlan.elementType)
     return emitArrayInlineImpl(output, getFeatureRegBoxImpl(), elemSize,
         alignTo)
 }

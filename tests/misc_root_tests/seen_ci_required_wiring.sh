@@ -261,6 +261,10 @@ grep -Fq 'seen_transitive_repr_c_aggregate_layout_contract.sh' "$REQUIRED" ||
     fail "required CI omits FEL-1583 transitive aggregate layout regression"
 grep -Fq 'seen_transitive_repr_c_aggregate_layout_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1583 transitive aggregate layout regression"
+grep -Fq 'seen_repr_c_aggregate_array_push_contract.sh' "$REQUIRED" ||
+    fail "required CI omits FEL-1585 aggregate Array.push regression"
+grep -Fq 'seen_repr_c_aggregate_array_push_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1585 aggregate Array.push regression"
 grep -Fq 'seen_unsigned_right_shift_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1577 unsigned-shift regression"
 grep -Fq 'unsigned_right_shift_codegen.seen' "$STAGE1" ||

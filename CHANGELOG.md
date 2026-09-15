@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.14] - 2026-09-16
+
+### Fixed
+
+- Fixed FEL-1585 so `Array<T>` constructors retain the complete byte width of
+  fixed-width `@repr(C)` aggregate elements instead of defaulting to an
+  eight-byte pointer slot.
+- Lowered aggregate `Array.push` through bounded concrete-value scratch while
+  preserving ordinary class-handle arrays, with same-module, cross-module,
+  nested-layout, growth, indexing, borrowing, and cleanup coverage in fast and
+  release/ThinLTO builds.
+
 ## [0.20.13] - 2026-09-15
 
 ### Fixed

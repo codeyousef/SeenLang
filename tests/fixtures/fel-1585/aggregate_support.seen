@@ -1,0 +1,35 @@
+@repr(C)
+@trivially_copyable
+pub class BufferView {
+    var address: UInt64
+    var byteLength: UInt64
+}
+
+@repr(C)
+@trivially_copyable
+pub class ViewRange {
+    var start: UInt32
+    var count: UInt32
+}
+
+@repr(C)
+@trivially_copyable
+pub class NestedView {
+    var buffer: BufferView
+    var range: ViewRange
+    var ordinal: Int32
+}
+
+pub fun makeBufferView(address: UInt64, byteLength: UInt64) r: BufferView {
+    return BufferView{address: address, byteLength: byteLength}
+}
+
+pub fun makeNestedView(index: Int) r: NestedView {
+    return NestedView{
+        buffer: makeBufferView((4096 + index) as UInt64,
+            (512 + index) as UInt64),
+        range: ViewRange{start: index as UInt32,
+            count: (index + 1) as UInt32},
+        ordinal: index as Int32
+    }
+}

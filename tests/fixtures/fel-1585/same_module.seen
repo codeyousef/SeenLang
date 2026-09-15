@@ -1,0 +1,49 @@
+@repr(C)
+@trivially_copyable
+class BufferView {
+    var address: UInt64
+    var byteLength: UInt64
+}
+
+class RefCell {
+    var value: Int
+}
+
+fun makeView(address: UInt64, byteLength: UInt64) r: BufferView {
+    return BufferView{address: address, byteLength: byteLength}
+}
+
+fun main() r: Int {
+    let views = Array<BufferView>()
+    views.push(BufferView{address: 1024 as UInt64,
+        byteLength: 64 as UInt64})
+    var index = 1
+    while index < 20 {
+        views.push(makeView((1024 + index) as UInt64,
+            (64 + index) as UInt64))
+        index = index + 1
+    }
+    if views.length() != 20 { return 1 }
+    let first = views[0]
+    let middle = views[9]
+    let last = views[19]
+    if first.address != (1024 as UInt64) { return 2 }
+    if first.byteLength != (64 as UInt64) { return 3 }
+    if middle.address != (1033 as UInt64) { return 4 }
+    if middle.byteLength != (73 as UInt64) { return 5 }
+    if last.address != (1043 as UInt64) { return 6 }
+    if last.byteLength != (83 as UInt64) { return 7 }
+    let borrowed = views.data() as *BufferView
+    if borrowed == (null as *BufferView) { return 8 }
+
+    let cells = Array<RefCell>()
+    let cell = RefCell{value: 41}
+    cells.push(cell)
+    if cells.length() != 1 { return 9 }
+    if cells[0].value != 41 { return 10 }
+    cells.free()
+    views.free()
+    return 0
+}
+
+main()

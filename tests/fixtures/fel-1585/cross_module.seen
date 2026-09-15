@@ -1,0 +1,42 @@
+import aggregate_support.{BufferView, NestedView, makeBufferView,
+    makeNestedView}
+
+fun main() r: Int {
+    let buffers = Array<BufferView>()
+    buffers.push(BufferView{address: 2048 as UInt64,
+        byteLength: 128 as UInt64})
+    buffers.push(makeBufferView(4096 as UInt64, 512 as UInt64))
+    if buffers.length() != 2 { return 1 }
+    let literal = buffers[0]
+    let returned = buffers[1]
+    if literal.address != (2048 as UInt64) { return 2 }
+    if literal.byteLength != (128 as UInt64) { return 3 }
+    if returned.address != (4096 as UInt64) { return 4 }
+    if returned.byteLength != (512 as UInt64) { return 5 }
+
+    let nested = Array<NestedView>()
+    var index = 0
+    while index < 18 {
+        nested.push(makeNestedView(index))
+        index = index + 1
+    }
+    if nested.length() != 18 { return 6 }
+    let first = nested[0]
+    let last = nested[17]
+    if first.buffer.address != (4096 as UInt64) { return 7 }
+    if first.range.start != (0 as UInt32) { return 8 }
+    if first.range.count != (1 as UInt32) { return 9 }
+    if first.ordinal != (0 as Int32) { return 10 }
+    if last.buffer.address != (4113 as UInt64) { return 11 }
+    if last.buffer.byteLength != (529 as UInt64) { return 12 }
+    if last.range.start != (17 as UInt32) { return 13 }
+    if last.range.count != (18 as UInt32) { return 14 }
+    if last.ordinal != (17 as Int32) { return 15 }
+    if nested.data() == (null as *NestedView) { return 16 }
+
+    nested.free()
+    buffers.free()
+    return 0
+}
+
+main()

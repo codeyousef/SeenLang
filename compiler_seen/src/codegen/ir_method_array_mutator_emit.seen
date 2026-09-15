@@ -8,12 +8,14 @@ import codegen.ir_member_access_driver.{tryGenerateChainedReceiverMemberAccessSt
 import codegen.ir_method_call_plan.{isDottedArrayMutatorLiteralImpl, planArrayMutatorFreeTypeImpl, planArrayMutatorFreeEmitImpl, planArrayMutatorPushPointerImpl, planArrayMutatorFallbackPointerImpl, resolveArrayMutatorVariableNameImpl, resolveArrayReceiverElementTypeImpl, resolveArrayPushElementTypeImpl, shouldLoadLocalArrayMutatorPointerImpl, shouldResolveChainedArrayMutatorReceiverImpl, shouldUseImplicitThisArrayMutatorPointerImpl}
 import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_type_mapping.{isClassHandleLikeTypeImpl, isClassTypeImpl,
-    isFixedWidthScalarTypeImpl, getFixedWidthScalarLlvmTypeImpl}
+import codegen.ir_codegen_type_state.{isClassHandleLikeTypeState,
+    isClassTypeState, isDataTypeState}
+import codegen.ir_type_mapping.{isClassTypeImpl, isFixedWidthScalarTypeImpl,
+    getFixedWidthScalarLlvmTypeImpl}
 import codegen.ir_type_tables.{resolvePopElementTypeImpl}
 import codegen.ir_variable_gen.{emitLocalVariableLoadImpl, findActiveVariableIndexImpl}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
-import codegen.type_registry_core.{findStructReg, isDataTypeReg}
+import codegen.type_registry_core.{findStructReg}
 
 fun emitArrayFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
     arrayPtrReg: String) r: String {
@@ -218,12 +220,12 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
     if pushElemType != "String" and pushElemType != "Int" and
         pushElemType != "Float" and receiverType != "Array<Int>" and
         receiverType != "Array<Float>" {
-        if isDataTypeReg(pushElemType) {
+        if isDataTypeState(pushElemType) {
             let stackMarkerReg = getNextRegFn(regBox)
             output.append("  " + stackMarkerReg +
                 " = call ptr @llvm.stacksave()\n")
             var ptrArgReg = argReg
-            if isClassTypeImpl(pushElemType, structNames) == 1 {
+            if isClassTypeState(pushElemType) {
                 let tmpReg = getNextRegFn(regBox)
                 output.append("  " + tmpReg + " = alloca i64\n")
                 output.append("  store i64 " + argReg + ", ptr " + tmpReg +
@@ -263,9 +265,9 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
                 stackMarkerReg + ")\n")
             return resultReg
         }
-        if isClassTypeImpl(pushElemType, structNames) == 1 or
+        if isClassTypeState(pushElemType) or
             (pushElemType != "" and pushElemType != "Unknown" and
-                isClassHandleLikeTypeImpl(pushElemType, structNames) == 1) {
+                isClassHandleLikeTypeState(pushElemType)) {
 
             if argReg == "null" or argReg == "0" {
                 output.append("  call void @seen_arr_push_ptr(ptr " +
