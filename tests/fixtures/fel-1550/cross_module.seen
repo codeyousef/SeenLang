@@ -1,0 +1,36 @@
+import scalar_provider.{makeFloat, makeFloat32, makeInt32, makeUInt32}
+import scalar_provider.{makeInt16, makeUInt16, makeInt8, makeUInt8}
+import scalar_provider.{makeBool, makeBox, makeError, directFloatReturn}
+
+fun main() r: Int {
+    let floatResult = makeFloat(3.5)
+    if not floatResult.isOkay() { return 1 }
+    let floatValue: Float = floatResult.unwrap()
+    if floatValue != 3.5 { return 2 }
+    if makeFloat(4.5).unwrap() <= 0.0 { return 3 }
+    if directFloatReturn() != 6.25 { return 4 }
+
+    let float32Result = makeFloat32(1.5 as Float32)
+    if float32Result.unwrap() != (1.5 as Float32) { return 5 }
+
+    let int32Result = makeInt32(-123456 as Int32)
+    if int32Result.isErr() { return 6 }
+    let int32Value: Int32 = int32Result.unwrap()
+    if int32Value != (-123456 as Int32) { return 7 }
+    if makeUInt32(4294967295 as UInt32).unwrap() !=
+        (4294967295 as UInt32) { return 8 }
+    if makeInt16(-12345 as Int16).unwrap() != (-12345 as Int16) { return 9 }
+    if makeUInt16(65535 as UInt16).unwrap() != (65535 as UInt16) { return 10 }
+    if makeInt8(-101 as Int8).unwrap() != (-101 as Int8) { return 11 }
+    if makeUInt8(251 as UInt8).unwrap() != (251 as UInt8) { return 12 }
+    if not makeBool(true).unwrap() { return 13 }
+
+    let boxResult = makeBox(77)
+    if boxResult.unwrap().value != 77 { return 14 }
+    let errorResult = makeError(-9 as Int32)
+    if not errorResult.isErr() { return 15 }
+    if errorResult.unwrapErr().code != (-9 as Int32) { return 16 }
+    return 0
+}
+
+main()

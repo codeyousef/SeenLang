@@ -1,0 +1,57 @@
+import core.result.{Result, Ok, Err}
+
+pub class ScalarError {
+    var code: Int32
+}
+
+pub class ScalarBox {
+    var value: Int
+}
+
+pub fun makeFloat(value: Float) r: Result<Float, ScalarError> {
+    return Ok<Float, ScalarError>(value)
+}
+
+pub fun makeFloat32(value: Float32) r: Result<Float32, ScalarError> {
+    return Ok<Float32, ScalarError>(value)
+}
+
+pub fun makeInt32(value: Int32) r: Result<Int32, ScalarError> {
+    return Ok<Int32, ScalarError>(value)
+}
+
+pub fun makeUInt32(value: UInt32) r: Result<UInt32, ScalarError> {
+    return Ok<UInt32, ScalarError>(value)
+}
+
+pub fun makeInt16(value: Int16) r: Result<Int16, ScalarError> {
+    return Ok<Int16, ScalarError>(value)
+}
+
+pub fun makeUInt16(value: UInt16) r: Result<UInt16, ScalarError> {
+    return Ok<UInt16, ScalarError>(value)
+}
+
+pub fun makeInt8(value: Int8) r: Result<Int8, ScalarError> {
+    return Ok<Int8, ScalarError>(value)
+}
+
+pub fun makeUInt8(value: UInt8) r: Result<UInt8, ScalarError> {
+    return Ok<UInt8, ScalarError>(value)
+}
+
+pub fun makeBool(value: Bool) r: Result<Bool, ScalarError> {
+    return Ok<Bool, ScalarError>(value)
+}
+
+pub fun makeBox(value: Int) r: Result<ScalarBox, ScalarError> {
+    return Ok<ScalarBox, ScalarError>(ScalarBox{value: value})
+}
+
+pub fun makeError(code: Int32) r: Result<Int32, ScalarError> {
+    return Err<Int32, ScalarError>(ScalarError{code: code})
+}
+
+pub fun directFloatReturn() r: Float {
+    return makeFloat(6.25).unwrap()
+}

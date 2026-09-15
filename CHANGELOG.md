@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.13] - 2026-09-15
+
+### Fixed
+
+- Fixed FEL-1550 so generic `Result<T, E>` constructors explicitly preserve
+  `Float`, `Float32`, Boolean, and fixed-width integer payload bits in the
+  erased storage word instead of emitting mismatched LLVM call operands.
+- Corrected scalar unwrap reification, including the required 32-bit truncation
+  before `Float32` bitcasting, with same-module and cross-module fast plus
+  release/ThinLTO execution and IR coverage.
+
 ## [0.20.12] - 2026-09-15
 
 ### Fixed

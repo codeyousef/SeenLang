@@ -1,0 +1,31 @@
+import core.result.{Result, Ok}
+
+class LocalError {
+    var code: Int32
+}
+
+fun makeLocalFloat(value: Float) r: Result<Float, LocalError> {
+    return Ok<Float, LocalError>(value)
+}
+
+fun makeLocalInt32(value: Int32) r: Result<Int32, LocalError> {
+    return Ok<Int32, LocalError>(value)
+}
+
+fun returnLocalFloat() r: Float {
+    let result = makeLocalFloat(9.75)
+    if result.isErr() { return 0.0 }
+    return result.unwrap()
+}
+
+fun main() r: Int {
+    let value: Float = makeLocalFloat(2.25).unwrap()
+    if value != 2.25 { return 1 }
+    if returnLocalFloat() != 9.75 { return 2 }
+    let fixed = makeLocalInt32(-2147483647 as Int32)
+    if not fixed.isOkay() { return 3 }
+    if fixed.unwrap() != (-2147483647 as Int32) { return 4 }
+    return 0
+}
+
+main()

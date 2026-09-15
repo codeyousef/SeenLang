@@ -239,6 +239,10 @@ grep -Fq 'seen_v019_float_codegen_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits v0.19 float regressions"
 grep -Fq 'seen_result_aggregate_array_data_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1554/FEL-1555 regressions"
+grep -Fq 'seen_result_scalar_payload_contract.sh' "$REQUIRED" ||
+    fail "required CI omits FEL-1550 Result scalar regression"
+grep -Fq 'seen_result_scalar_payload_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1550 Result scalar regression"
 grep -Fq 'seen_aggregate_return_cuda_stdlib_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1570 aggregate/CUDA regression"
 grep -Fq 'seen_pointer_field_cast_contract.sh' "$STAGE1" ||

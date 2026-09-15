@@ -432,9 +432,12 @@ fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
         if payloadType == "Float32" {
             let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
                 regBox, methodName, receiverLlvmType, receiverReg, argRegs)
+            let bitsReg = getNextRegFn(regBox)
+            output.append("  " + bitsReg + " = trunc i64 " +
+                boxedPayloadReg + " to i32\n")
             let resultReg = getNextRegFn(regBox)
-            output.append("  " + resultReg + " = bitcast i64 " +
-                boxedPayloadReg + " to float\n")
+            output.append("  " + resultReg + " = bitcast i32 " +
+                bitsReg + " to float\n")
             return resultReg
         }
         if payloadType == "UInt32" or payloadType == "Int32" {
