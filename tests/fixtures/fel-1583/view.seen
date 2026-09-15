@@ -1,0 +1,17 @@
+@repr(C)
+@trivially_copyable
+pub class BufferView {
+    var abiVersion: UInt32
+    var deviceOrdinal: Int32
+    var address: UInt64
+    var byteLength: UInt64
+}
+
+pub fun makeBufferView(address: UInt64, byteLength: UInt64) r: BufferView {
+    return BufferView{
+        abiVersion: 1 as UInt32,
+        deviceOrdinal: 0 as Int32,
+        address: address,
+        byteLength: byteLength
+    }
+}

@@ -1,0 +1,33 @@
+import core.result.{Result, Ok}
+import view.{BufferView, makeBufferView}
+
+pub class ResidentTensor {
+    var name: String
+    var packed: BufferView
+    var scales: BufferView
+    var logicalElements: UInt64
+    var rowElements: UInt64
+}
+
+pub fun makeResidentTensor() r: ResidentTensor {
+    return ResidentTensor{
+        name: "weight",
+        packed: makeBufferView(100 as UInt64, 635699200 as UInt64),
+        scales: makeBufferView(200 as UInt64, 39731200 as UInt64),
+        logicalElements: 1271398400 as UInt64,
+        rowElements: 5120 as UInt64
+    }
+}
+
+@move
+pub class Store {
+    var tensorValue: ResidentTensor
+
+    fun tensor() r: Result<ResidentTensor, String> {
+        return Ok<ResidentTensor, String>(this.tensorValue)
+    }
+}
+
+pub fun makeStore() r: Store {
+    return Store{tensorValue: makeResidentTensor()}
+}

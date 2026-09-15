@@ -1,0 +1,33 @@
+import core.result.{Result, Ok}
+
+@repr(C)
+@trivially_copyable
+class LocalView {
+    var low: Int32
+    var high: UInt64
+}
+
+class LocalOwner {
+    var view: LocalView
+    var logicalElements: UInt64
+}
+
+fun makeLocalOwner() r: Result<LocalOwner, String> {
+    let owner = LocalOwner{
+        view: LocalView{low: 7 as Int32, high: 11 as UInt64},
+        logicalElements: 1271398400 as UInt64
+    }
+    return Ok<LocalOwner, String>(owner)
+}
+
+fun main() r: Int {
+    let made = makeLocalOwner()
+    if not made.isOkay() { return 1 }
+    let owner = made.unwrap()
+    if owner.view.low != (7 as Int32) { return 2 }
+    if owner.view.high != (11 as UInt64) { return 3 }
+    if owner.logicalElements != (1271398400 as UInt64) { return 4 }
+    return 0
+}
+
+main()

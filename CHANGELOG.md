@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.12] - 2026-09-15
+
+### Fixed
+
+- Fixed FEL-1583 so fixed-width `@repr(C)` aggregate decorators are registered
+  across the complete import graph before enclosing class layouts are frozen.
+- Preserved concrete nested aggregate layouts through same-module, direct, and
+  transitive imports, including `Result` construction and fast plus
+  release/ThinLTO execution of the Qwen resident-tensor geometry.
+
 ## [0.20.11] - 2026-09-14
 
 ### Fixed

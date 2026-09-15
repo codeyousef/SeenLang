@@ -253,6 +253,10 @@ grep -Fq 'seen_nested_repr_c_aggregate_address_contract.sh' "$REQUIRED" ||
     fail "required CI omits FEL-1575 nested aggregate address regression"
 grep -Fq 'seen_nested_repr_c_aggregate_address_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1575 nested aggregate address regression"
+grep -Fq 'seen_transitive_repr_c_aggregate_layout_contract.sh' "$REQUIRED" ||
+    fail "required CI omits FEL-1583 transitive aggregate layout regression"
+grep -Fq 'seen_transitive_repr_c_aggregate_layout_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1583 transitive aggregate layout regression"
 grep -Fq 'seen_unsigned_right_shift_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1577 unsigned-shift regression"
 grep -Fq 'unsigned_right_shift_codegen.seen' "$STAGE1" ||

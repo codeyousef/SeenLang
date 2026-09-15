@@ -1,0 +1,13 @@
+import model.{ResidentTensor, makeResidentTensor}
+import view.{BufferView}
+
+fun main() r: Int {
+    let tensor: ResidentTensor = makeResidentTensor()
+    if tensor.packed.byteLength != (635699200 as UInt64) { return 1 }
+    if tensor.scales.byteLength != (39731200 as UInt64) { return 2 }
+    if tensor.logicalElements != (1271398400 as UInt64) { return 3 }
+    if tensor.rowElements != (5120 as UInt64) { return 4 }
+    return 0
+}
+
+main()

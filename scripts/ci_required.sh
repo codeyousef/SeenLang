@@ -47,6 +47,7 @@ bash -n \
     tests/misc_root_tests/seen_result_repr_c_literal_contract.sh \
     tests/misc_root_tests/seen_repr_c_aggregate_field_assignment_contract.sh \
     tests/misc_root_tests/seen_nested_repr_c_aggregate_address_contract.sh \
+    tests/misc_root_tests/seen_transitive_repr_c_aggregate_layout_contract.sh \
     tests/misc_root_tests/seen_unsigned_right_shift_contract.sh \
     tests/misc_root_tests/seen_negative_default_arguments_contract.sh \
     tests/misc_root_tests/seen_bundled_cuda_link.sh \

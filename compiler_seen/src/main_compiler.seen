@@ -97,7 +97,8 @@ import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDecl
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl, finishDeclarationRegistrationPassImpl}
 import codegen.ir_decl_state_driver.{applyDeclarationPassState, captureLateUserDeclareState, applyLateUserDeclareState}
-import codegen.ir_decl_registration_driver.{registerDeclarationsState}
+import codegen.ir_decl_registration_driver.{registerDeclarationsState,
+    preRegisterProgramAbiDecoratorsState}
 import codegen.ir_decl_default_params.{collectDefaultParamStringConstantsImpl}
 import codegen.ir_decl_return_types.{resolveMethodReturnTypeImpl}
 import codegen.ir_return_type_driver.{resolveFunctionReturnTypeState}
@@ -1636,7 +1637,7 @@ fun removePathIfExists(path: String) r: Void {
 }
 
 fun packageClientExpectedVersion() r: String {
-    return "0.20.11"
+    return "0.20.12"
 }
 
 fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
@@ -14182,6 +14183,25 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let isolateCompileSemanticGate = modulePaths.length() > 48 and
         g_noFork == 0 and not isDeterministicProfile
     var passIdx = 0
+    // ABI decorators must be known before any enclosing class layout is
+    // registered. Module discovery is root-first, so a consumer can otherwise
+    // register a class containing a transitive @repr(C) field before the field's
+    // defining module is scanned and permanently collapse that field to i64.
+    // Keep the declaration ASTs bounded by doing a lightweight pre-scan rather
+    // than retaining every program until registration completes.
+    while passIdx < modulePaths.length() {
+        let abiPath = modulePaths[passIdx]
+        let abiFrontend = parseModuleDeclarations(abiPath, language)
+        if not abiFrontend.success {
+            printFrontendDiagnostics(abiFrontend)
+            println("    Error: Failed to pre-register ABI declarations: " +
+                abiPath)
+            return 1
+        }
+        preRegisterProgramAbiDecoratorsState(abiFrontend.program)
+        passIdx = passIdx + 1
+    }
+    passIdx = 0
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
         if g_generatedTestMainMode == 0 {
@@ -16821,6 +16841,17 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
 
     var passIdx = 0
     while passIdx < modulePaths.length() {
+        let abiPath = modulePaths[passIdx]
+        let abiFrontend = parseModuleDeclarations(abiPath, language)
+        if not abiFrontend.success {
+            printFrontendDiagnostics(abiFrontend)
+            return 1
+        }
+        preRegisterProgramAbiDecoratorsState(abiFrontend.program)
+        passIdx = passIdx + 1
+    }
+    passIdx = 0
+    while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
         let frontend = parseModuleDeclarations(path, language)
         if frontend.success {
@@ -16989,7 +17020,7 @@ fun runScriptCommand(inputFile: String, useAot: Bool, verbose: Bool,
 }
 
 fun seenCompilerVersion() r: String {
-    return "0.20.11"
+    return "0.20.12"
 }
 
 fun printVersion() r: Void {

@@ -1,0 +1,15 @@
+import model.{makeStore}
+
+fun main() r: Int {
+    let store = makeStore()
+    let result = store.tensor()
+    if not result.isOkay() { return 1 }
+    let tensor = result.unwrap()
+    println(tensor.logicalElements.toString() + "/" +
+        tensor.rowElements.toString())
+    if tensor.logicalElements != (1271398400 as UInt64) { return 2 }
+    if tensor.rowElements != (5120 as UInt64) { return 3 }
+    return 0
+}
+
+main()

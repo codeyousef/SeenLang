@@ -1,7 +1,7 @@
 version = 2
-manifest_sha256 = "2e08c12cbba1e292be2c2a46e475ae4c3a1a0408dea05f31d2ca671234a6840e"
+manifest_sha256 = "f14d013b31e34395b9c48794a54c0ffe35319f0121f03fe90afb3c7946668b45"
 
 [root]
 name = "seen_qwen_foundation"
-version = "0.20.11"
+version = "0.20.12"
 dependencies = []
