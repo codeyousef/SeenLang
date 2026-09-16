@@ -2,6 +2,6 @@ manifest-version = 1
 
 [project]
 name = "fel_1581_hosted_array_release"
-version = "0.20.15"
+version = "0.21.0"
 language = "en"
 modules = ["src/main.seen"]

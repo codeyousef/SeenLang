@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-09-16
+
+### Fixed
+
+- Released SHA-256 hexadecimal digests as owned strings without leaking
+  temporary builder parts, and added an explicit digest-result cleanup path.
+- Matched compiler-created array storage to the runtime's aligned resize and
+  release accounting so repeated narrow-array lifecycles return to their warm
+  allocator baseline.
+
 ## [0.20.15] - 2026-09-16
 
 ### Fixed
