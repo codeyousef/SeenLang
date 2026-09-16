@@ -465,6 +465,8 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_result_scalar_payload_contract.sh"
 COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_integer_string_width_contract.sh"
+COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_pointer_field_cast_contract.sh"

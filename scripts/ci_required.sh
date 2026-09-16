@@ -42,6 +42,7 @@ bash -n \
     tests/misc_root_tests/seen_v019_float_codegen_contract.sh \
     tests/misc_root_tests/seen_result_aggregate_array_data_contract.sh \
     tests/misc_root_tests/seen_result_scalar_payload_contract.sh \
+    tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \
     tests/misc_root_tests/seen_pointer_field_cast_contract.sh \
     tests/misc_root_tests/seen_repr_c_aggregate_argument_contract.sh \

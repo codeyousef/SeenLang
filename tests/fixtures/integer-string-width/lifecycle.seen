@@ -1,0 +1,34 @@
+fun requireValue(actual: String, expected: String) r: Void {
+    if actual != expected { abort("integer string conversion mismatch") }
+}
+
+fun main() r: Int {
+    let i8min: Int8 = -128 as Int8
+    let i8max: Int8 = 127 as Int8
+    let u8max: UInt8 = 255 as UInt8
+    let i16min: Int16 = -32768 as Int16
+    let i16max: Int16 = 32767 as Int16
+    let u16max: UInt16 = 65535 as UInt16
+    let i32min: Int32 = -2147483648 as Int32
+    let i32max: Int32 = 2147483647 as Int32
+    let u32max: UInt32 = 4294967295 as UInt32
+    let i64min: Int64 = (-9223372036854775807 as Int64) - (1 as Int64)
+    let i64max: Int64 = 9223372036854775807 as Int64
+    let u64max: UInt64 = 18446744073709551615 as UInt64
+    requireValue(i8min.toString(), "-128")
+    requireValue(i8max.toString(), "127")
+    requireValue(u8max.toString(), "255")
+    requireValue(i16min.toString(), "-32768")
+    requireValue(i16max.toString(), "32767")
+    requireValue(u16max.toString(), "65535")
+    requireValue(i32min.toString(), "-2147483648")
+    requireValue(i32max.toString(), "2147483647")
+    requireValue(u32max.toString(), "4294967295")
+    requireValue(i64min.toString(), "-9223372036854775808")
+    requireValue(i64max.toString(), "9223372036854775807")
+    requireValue(u64max.toString(), "18446744073709551615")
+    println("PASS: fixed-width integer string conversion")
+    return 0
+}
+
+main()

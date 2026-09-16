@@ -175,6 +175,7 @@ SeenString seen_substring(SeenString s, int64_t start, int64_t end);
 
 // Integer to string
 SeenString seen_int_to_string(int64_t n);
+SeenString seen_uint_to_string(uint64_t n);
 
 // Bool to string
 SeenString seen_bool_to_string(bool b);

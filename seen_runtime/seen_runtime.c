@@ -4127,6 +4127,14 @@ static SeenString seen_char_to_str_with_allocator(int64_t c, bool pool_owned) {
     return result;
 }
 
+SeenString seen_uint_to_string(uint64_t n) {
+    char* buf = (char*)seen_pool_alloc(32);
+    if (!buf) seen_oom_abort("seen_uint_to_string", 32);
+    sprintf(buf, "%" PRIu64, n);
+    SeenString result = { strlen(buf), buf };
+    return result;
+}
+
 SeenString seen_char_to_str(int64_t c) {
     return seen_char_to_str_with_allocator(c, false);
 }
