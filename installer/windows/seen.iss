@@ -5,7 +5,7 @@
 ; Prerequisites: Run package_windows.sh first to create the staging directory.
 
 #ifndef Version
-  #define Version "0.20.14"
+  #define Version "0.20.15"
 #endif
 #ifndef SourceDir
   ; Use forward slashes for Wine compatibility on Linux; Inno Setup accepts both

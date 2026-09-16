@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.15] - 2026-09-16
+
+### Fixed
+
+- Matched compiler-generated class destruction to accounted allocation and
+  corrected allocation/array-release memory effects so repeated class and
+  strict-JSON lifecycles return precisely to their warm allocator baseline,
+  including optimized builds.
+- Extended fixed-width signed and unsigned integer receivers correctly for
+  string conversion, including the full `UInt64` range.
+
 ## [0.20.14] - 2026-09-16
 
 ### Fixed

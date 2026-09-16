@@ -2,6 +2,6 @@ manifest-version = 1
 
 [project]
 name = "fel_1579_missing_cuda"
-version = "0.20.14"
+version = "0.20.15"
 language = "en"
 modules = ["src/main.seen"]

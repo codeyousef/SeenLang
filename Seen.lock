@@ -1,7 +1,7 @@
 version = 2
-manifest_sha256 = "403aa24e3d0ac9d1501dd264f78745b94d4884859645fd83d7199c733ee8c30e"
+manifest_sha256 = "c648bd73008a7a4cda3a4a5a98bb056f13037f55cd808a72f7b7ae251120bb0d"
 
 [root]
 name = "seenlang"
-version = "0.20.14"
+version = "0.20.15"
 dependencies = []
