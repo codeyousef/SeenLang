@@ -7,7 +7,7 @@ import (
 
 func TestDecodeRequest(t *testing.T) {
 	t.Parallel()
-	request := "SEENPKG1\n3\n16\n--expect-version\n7\n0.21.0\n5\nfetch\n"
+	request := "SEENPKG1\n3\n16\n--expect-version\n6\n0.21.0\n5\nfetch\n"
 	arguments, err := DecodeRequest(strings.NewReader(request))
 	if err != nil {
 		t.Fatal(err)
