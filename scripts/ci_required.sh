@@ -50,6 +50,7 @@ bash -n \
     tests/misc_root_tests/seen_nested_repr_c_aggregate_address_contract.sh \
     tests/misc_root_tests/seen_transitive_repr_c_aggregate_layout_contract.sh \
     tests/misc_root_tests/seen_repr_c_aggregate_array_push_contract.sh \
+    tests/misc_root_tests/seen_class_destruction_accounting_contract.sh \
     tests/misc_root_tests/seen_unsigned_right_shift_contract.sh \
     tests/misc_root_tests/seen_negative_default_arguments_contract.sh \
     tests/misc_root_tests/seen_bundled_cuda_link.sh \

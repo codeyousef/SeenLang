@@ -373,10 +373,16 @@ fun emitPoolFreeFromValueSlotImpl(output: StringBuilder, regBox: Array<Int>,
 fun emitClassFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
     valueSlotReg: String, classSize: Int) r: String {
 
-    if classSize > 0 and classSize <= 80 {
+    // Class constructors allocate through seen_pool_alloc for small objects
+    // and seen_checked_malloc for larger objects.  seen_pool_free is the
+    // matching size-aware release entrypoint for both cases: it returns small
+    // objects to their pool and releases allocator accounting before freeing
+    // larger objects.  Calling libc free directly for the latter physically
+    // released the allocation but permanently left classSize bytes charged.
+    if classSize > 0 {
         emitPoolFreeFromValueSlotImpl(output, regBox, valueSlotReg, classSize)
     }
-    if classSize == 0 or classSize > 80 {
+    if classSize == 0 {
         let valReg = getNextRegFn(regBox)
         output.append("  " + valReg + " = load i64, ptr " + valueSlotReg + "\n")
         let ptrReg = getNextRegFn(regBox)

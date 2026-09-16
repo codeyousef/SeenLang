@@ -1,0 +1,173 @@
+import json.parser.{destroyJsonParseResult, parseJsonWithStrictLimits}
+import json.value.{JsonValue_destroy, JsonValue_emptyArray, JsonValue_nullValue}
+import memory.allocation.{memoryStats}
+
+class LargeAccountedValue {
+    var field00: Int
+    var field01: Int
+    var field02: Int
+    var field03: Int
+    var field04: Int
+    var field05: Int
+    var field06: Int
+    var field07: Int
+    var field08: Int
+    var field09: Int
+    var field10: Int
+}
+
+fun requireContract(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun exerciseOrdinaryClass() r: Void {
+    let warm = LargeAccountedValue()
+    warm.free()
+
+    let before = memoryStats()
+    var iteration = 0
+    while iteration < 10 {
+        let value = LargeAccountedValue()
+        value.field00 = iteration
+        requireContract(value.field00 == iteration,
+            "ordinary class contents were corrupted")
+        value.free()
+        iteration = iteration + 1
+    }
+    let after = memoryStats()
+    println("ordinary class lifecycle=" + before.usedBytes.toString() +
+        "/" + after.usedBytes.toString())
+    requireContract(after.usedBytes == before.usedBytes,
+        "ordinary class destruction did not restore allocator baseline")
+    requireContract(after.allocationFailures == before.allocationFailures,
+        "ordinary class lifecycle changed allocation-failure accounting")
+}
+
+fun exerciseJsonNull() r: Void {
+    let warm = JsonValue_nullValue()
+    JsonValue_destroy(warm)
+
+    let before = memoryStats()
+    var iteration = 0
+    while iteration < 10 {
+        let value = JsonValue_nullValue()
+        JsonValue_destroy(value)
+        iteration = iteration + 1
+    }
+    let after = memoryStats()
+    println("json null lifecycle=" + before.usedBytes.toString() +
+        "/" + after.usedBytes.toString())
+    requireContract(after.usedBytes == before.usedBytes,
+        "JsonValue null destruction did not restore allocator baseline")
+    requireContract(after.allocationFailures == before.allocationFailures,
+        "JsonValue lifecycle changed allocation-failure accounting")
+}
+
+fun parseAndDestroy(input: String) r: Void {
+    let parsed = parseJsonWithStrictLimits(input, 1024, 32, 64, 1024)
+    requireContract(parsed.success == 1, "strict JSON fixture did not parse")
+    destroyJsonParseResult(parsed, true)
+}
+
+fun exerciseStrictJson() r: Void {
+    let directBefore = memoryStats()
+    let direct = JsonValue_emptyArray()
+    let directCreated = memoryStats()
+    JsonValue_destroy(direct)
+    let directAfter = memoryStats()
+    println("direct array lifecycle=" + directBefore.usedBytes.toString() +
+        "/" + directCreated.usedBytes.toString() +
+        "/" + directAfter.usedBytes.toString())
+    requireContract(directAfter.usedBytes == directBefore.usedBytes,
+        "direct array destruction underflowed allocator accounting")
+
+    parseAndDestroy("null")
+    let nullBefore = memoryStats()
+    var iteration = 0
+    while iteration < 10 {
+        parseAndDestroy("null")
+        iteration = iteration + 1
+    }
+    let nullAfter = memoryStats()
+    println("parsed null lifecycle=" + nullBefore.usedBytes.toString() +
+        "/" + nullAfter.usedBytes.toString())
+    requireContract(nullAfter.usedBytes == nullBefore.usedBytes,
+        "parsed null destruction did not restore allocator baseline")
+
+    parseAndDestroy("[]")
+    let arrayBefore = memoryStats()
+    iteration = 0
+    while iteration < 10 {
+        parseAndDestroy("[]")
+        iteration = iteration + 1
+    }
+    let arrayAfter = memoryStats()
+    println("empty array lifecycle=" + arrayBefore.usedBytes.toString() +
+        "/" + arrayAfter.usedBytes.toString())
+    requireContract(arrayAfter.usedBytes == arrayBefore.usedBytes,
+        "empty array destruction underflowed allocator accounting")
+
+    parseAndDestroy("{}")
+    let objectBefore = memoryStats()
+    iteration = 0
+    while iteration < 10 {
+        parseAndDestroy("{}")
+        iteration = iteration + 1
+    }
+    let objectAfter = memoryStats()
+    println("empty object lifecycle=" + objectBefore.usedBytes.toString() +
+        "/" + objectAfter.usedBytes.toString())
+    requireContract(objectAfter.usedBytes == objectBefore.usedBytes,
+        "empty object destruction did not restore allocator baseline")
+
+    parseAndDestroy("[null]")
+    let childArrayBefore = memoryStats()
+    iteration = 0
+    while iteration < 10 {
+        parseAndDestroy("[null]")
+        iteration = iteration + 1
+    }
+    let childArrayAfter = memoryStats()
+    println("child array lifecycle=" + childArrayBefore.usedBytes.toString() +
+        "/" + childArrayAfter.usedBytes.toString())
+    requireContract(childArrayAfter.usedBytes == childArrayBefore.usedBytes,
+        "child array destruction underflowed allocator accounting")
+
+    parseAndDestroy("{\"a\":null}")
+    let childObjectBefore = memoryStats()
+    iteration = 0
+    while iteration < 10 {
+        parseAndDestroy("{\"a\":null}")
+        iteration = iteration + 1
+    }
+    let childObjectAfter = memoryStats()
+    println("child object lifecycle=" + childObjectBefore.usedBytes.toString() +
+        "/" + childObjectAfter.usedBytes.toString())
+    requireContract(childObjectAfter.usedBytes == childObjectBefore.usedBytes,
+        "child object destruction did not restore allocator baseline")
+
+    parseAndDestroy("{\"outer\":[null,{\"nested\":1}]}")
+    let nestedBefore = memoryStats()
+    iteration = 0
+    while iteration < 10 {
+        parseAndDestroy("{\"outer\":[null,{\"nested\":1}]}")
+        iteration = iteration + 1
+    }
+    let nestedAfter = memoryStats()
+    println("nested strict JSON lifecycle=" + nestedBefore.usedBytes.toString() +
+        "/" + nestedAfter.usedBytes.toString())
+    requireContract(nestedAfter.usedBytes == nestedBefore.usedBytes,
+        "nested JSON destruction did not restore allocator baseline")
+    requireContract(nestedAfter.allocationFailures == nestedBefore.allocationFailures,
+        "strict JSON lifecycle changed allocation-failure accounting")
+}
+
+fun main() r: Int {
+    exerciseOrdinaryClass()
+    exerciseJsonNull()
+    exerciseStrictJson()
+    println("PASS: compiler-generated class destruction restores accounting")
+    return 0
+}
+
+main()
