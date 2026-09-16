@@ -44,6 +44,14 @@ class Result<T, E> {
         return not this.isOk
     }
 
+    // Release the container exactly once after its payload has been moved or
+    // explicitly destroyed. This does not destroy a borrowed payload.
+    fun releaseContainer() r: Void {
+        this.okStorage.free()
+        this.errStorage.free()
+        this.free()
+    }
+
     fun unwrap() r: T {
         if not this.isOk or this.okStorage.length() == 0 {
             abort("called unwrap() on Err result")

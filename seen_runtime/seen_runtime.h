@@ -142,6 +142,7 @@ void* seen_checked_realloc(void* old, int64_t old_size, int64_t new_size);
 void* seen_checked_aligned_alloc(int64_t alignment, int64_t size);
 void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size, int64_t alignment);
 void seen_aligned_buffer_free(void* ptr, int64_t size, int64_t alignment);
+void seen_result_release_boxed_string_ok(void* result);
 
 // String equality (SeenString == char*)
 static inline bool seen_str_eq(SeenString a, const char* b) {

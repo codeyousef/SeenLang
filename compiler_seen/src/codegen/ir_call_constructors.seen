@@ -353,11 +353,7 @@ fun emitArrayBulkInitImpl(output: StringBuilder, regBox: Array<Int>, blockLabelB
     if alignToVal > 0 {
             output.append("  " + dataReg + " = call noalias ptr @seen_checked_aligned_alloc(i64 " + alignToVal.toString() + ", i64 " + byteSizeReg + ") ; @align_to\n")
     } else {
-        if elementType == "Int" or elementType == "Float" {
-            output.append("  " + dataReg + " = call noalias ptr @seen_checked_aligned_alloc(i64 32, i64 " + byteSizeReg + ") ; aligned for SIMD\n")
-        } else {
-            output.append("  " + dataReg + " = call noalias ptr @seen_checked_malloc(i64 " + byteSizeReg + ")\n")
-        }
+        output.append("  " + dataReg + " = call noalias ptr @seen_checked_aligned_alloc(i64 32, i64 " + byteSizeReg + ") ; matches array resize and release accounting\n")
     }
     let lenPtr = getNextRegFn(regBox)
     output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
@@ -416,7 +412,7 @@ fun emitArrayPreallocImpl(output: StringBuilder, regBox: Array<Int>, capReg: Str
         output.append("  " + byteSizeReg + " = mul nsw i64 " + capReg + ", " + elemSize.toString() + "\n")
     }
     let dataReg = getNextRegFn(regBox)
-    output.append("  " + dataReg + " = call noalias ptr @seen_checked_malloc(i64 " + byteSizeReg + ")\n")
+    output.append("  " + dataReg + " = call noalias ptr @seen_checked_aligned_alloc(i64 32, i64 " + byteSizeReg + ") ; matches array resize and release accounting\n")
     let lenPtr = getNextRegFn(regBox)
     output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")
     output.append("  store i64 0, ptr " + lenPtr + ", align 8\n")
@@ -446,7 +442,7 @@ fun emitArrayInlineImpl(output: StringBuilder, regBox: Array<Int>, elemSize: Int
     if alignToVal > 0 {
         output.append("  " + dataReg + " = call noalias ptr @seen_checked_aligned_alloc(i64 " + alignToVal.toString() + ", i64 " + initBytes.toString() + ") ; @align_to\n")
     } else {
-        output.append("  " + dataReg + " = call noalias ptr @seen_checked_malloc(i64 " + initBytes.toString() + ")\n")
+        output.append("  " + dataReg + " = call noalias ptr @seen_checked_aligned_alloc(i64 32, i64 " + initBytes.toString() + ") ; matches array resize and release accounting\n")
     }
     let lenPtr = getNextRegFn(regBox)
     output.append("  " + lenPtr + " = getelementptr inbounds %SeenArray, ptr " + arrReg + ", i32 0, i32 0\n")

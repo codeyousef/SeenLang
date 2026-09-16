@@ -6102,6 +6102,24 @@ typedef struct {
     SeenArray* errStorage;
 } SeenResult;
 
+void seen_result_release_boxed_string_ok(void* value) {
+    SeenResult* result = (SeenResult*)value;
+    if (!result || !result->isOk || !result->okStorage ||
+        result->okStorage->len != 1 ||
+        result->okStorage->element_size != (int64_t)sizeof(void*) ||
+        !result->okStorage->data) {
+        fprintf(stderr, "seen_result_release_boxed_string_ok: invalid boxed result\n");
+        abort();
+    }
+    void** slot = (void**)result->okStorage->data;
+    if (!slot[0]) {
+        fprintf(stderr, "seen_result_release_boxed_string_ok: box was already released\n");
+        abort();
+    }
+    seen_runtime_free_budgeted(slot[0], (int64_t)sizeof(SeenString));
+    slot[0] = NULL;
+}
+
 typedef struct {
     int64_t requestedBytes;
     int64_t limitBytes;

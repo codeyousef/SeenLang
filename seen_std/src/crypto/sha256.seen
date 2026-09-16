@@ -1,9 +1,13 @@
 /// Streaming SHA-256 with bounded file reads and canonical digest encoding.
 
 import collections.vec.{Vec}
-import str.string.{StringBuilder}
 import io.file.{FsFile}
 import core.result.{Result, Ok, Err}
+
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+extern "C" fun seen_string_clone_owned(value: String) r: String
+extern "C" fun seen_string_release_owned(value: String) r: Void
+extern "C" fun seen_result_release_boxed_string_ok(value: *Void) r: Void
 
 class Sha256Error {
     var code: String
@@ -160,24 +164,36 @@ class Sha256 {
         }
         this.compress()
         this.finalized = true
-        let builder = StringBuilder.new()
-        let digits = "0123456789abcdef"
+        // Compression is complete: reuse the block as a bounded hex buffer.
+        // The returned digest must own its bytes independently of this state.
         var wordIndex = 0
+        var outputIndex = 0
         while wordIndex < 8 {
             var nibble = 7
             while nibble >= 0 {
                 let value = (this.state[wordIndex] >>
                     ((nibble * 4) as UInt32)) & (15 as UInt32)
-                builder.appendChar(digits.charAt(value as Int))
+                var digit = (value as Int) + 48
+                if value >= (10 as UInt32) { digit = (value as Int) + 87 }
+                this.block[outputIndex] = digit as UInt8
+                outputIndex = outputIndex + 1
                 nibble = nibble - 1
             }
             wordIndex = wordIndex + 1
         }
-        let digest = builder.toString()
+        let digest = seen_string_clone_owned(
+            seen_string_view_bytes(this.block.data(), 64 as Int64))
         this.state.free()
         this.block.free()
         return Ok<String, Sha256Error>(digest)
     }
+}
+
+fun releaseSha256DigestResult(result: Result<String, Sha256Error>) r: Void {
+    if result.isErr() { abort("releaseSha256DigestResult requires a digest") }
+    seen_string_release_owned(result.unwrap())
+    seen_result_release_boxed_string_ok(result as *Void)
+    result.releaseContainer()
 }
 
 fun sha256Constants() r: Array<UInt32> {
@@ -220,8 +236,18 @@ fun sha256Constants() r: Array<UInt32> {
 fun sha256(text: String) r: Result<String, Sha256Error> {
     let state = Sha256.new()
     let updated = state.updateString(text)
-    if updated.isErr() { return Err<String, Sha256Error>(updated.unwrapErr()) }
-    return state.finalizeHex()
+    if updated.isErr() {
+        let error = updated.unwrapErr()
+        updated.releaseContainer()
+        state.state.free()
+        state.block.free()
+        state.free()
+        return Err<String, Sha256Error>(error)
+    }
+    updated.releaseContainer()
+    let digest = state.finalizeHex()
+    state.free()
+    return digest
 }
 
 fun sha256File(path: String, chunkBytes: Int = 1048576)
@@ -241,6 +267,9 @@ fun sha256File(path: String, chunkBytes: Int = 1048576)
     let measuredSize = file.size()
     if measuredSize.isErr() {
         let _ = file.closeFile()
+        state.state.free()
+        state.block.free()
+        state.free()
         return Err<String, Sha256Error>(sha256Error("sha256.size",
             "failed to determine digest input size"))
     }
@@ -257,15 +286,21 @@ fun sha256File(path: String, chunkBytes: Int = 1048576)
             let updated = state.updateBytes(chunkBytesValue)
             chunkBytesValue.free()
             if updated.isErr() { failed = true }
+            updated.releaseContainer()
         }
         remaining = remaining - wanted
     }
     let closed = file.closeFile()
     if failed or closed.isErr() {
+        state.state.free()
+        state.block.free()
+        state.free()
         return Err<String, Sha256Error>(sha256Error("sha256.read",
             "failed while streaming digest input"))
     }
-    return state.finalizeHex()
+    let digest = state.finalizeHex()
+    state.free()
+    return digest
 }
 
 fun parseSha256Digest(text: String) r: Result<Array<UInt8>, Sha256Error> {

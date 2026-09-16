@@ -111,6 +111,15 @@
       "production": true
     },
     {
+      "id": "result-boxed-ownership",
+      "subsystem": "stdlib.core",
+      "purpose": "Release the compiler-owned SeenString box inside an erased Result after native Seen code releases the digest payload. The runtime adapter validates the box layout and performs one fixed-size accounted free; Seen owns the release decision and container lifetime.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_result_release_boxed_string_ok"],
+      "production": true
+    },
+    {
       "id": "synchronization-os-adapter",
       "subsystem": "stdlib.sync",
       "purpose": "Narrow generation-checked OS synchronization adapter for atomics, mutexes, conditions, reader/writer locks, and native thread identity. Native Seen owns Send and Share legality, ownership, capacity, cancellation, deadlines, channels, poisoning, lock ranks, deadlock diagnostics, scheduling, and cleanup. Exercised by native, UBSan, ASan, stale-handle, timeout, contention, cross-platform compile, and zero-live-resource contracts.",

@@ -1,0 +1,61 @@
+import crypto.sha256.{Sha256, sha256, releaseSha256DigestResult}
+import memory.allocation.{memoryStats}
+
+fun digestOnce() r: Void {
+    let state = Sha256.new()
+    let bytes = Array<Int>()
+    bytes.push(65)
+    let updated = state.updateBytes(bytes)
+    bytes.free()
+    if updated.isErr() { abort("SHA-256 update failed") }
+    updated.releaseContainer()
+    let digest = state.finalizeHex()
+    if digest.isErr() { abort("SHA-256 finalization failed") }
+    if digest.unwrap() !=
+        "559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd" {
+        abort("SHA-256 digest changed")
+    }
+    releaseSha256DigestResult(digest)
+    state.free()
+}
+
+fun oneShotOnce() r: Void {
+    let digest = sha256("A")
+    if digest.isErr() { abort("one-shot SHA-256 failed") }
+    if digest.unwrap() !=
+        "559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd" {
+        abort("one-shot SHA-256 digest changed")
+    }
+    releaseSha256DigestResult(digest)
+}
+
+fun main() r: Int {
+    var warm = 0
+    while warm < 10 {
+        digestOnce()
+        oneShotOnce()
+        warm = warm + 1
+    }
+    let baseline = memoryStats().usedBytes
+    var cycle = 0
+    while cycle < 10 {
+        digestOnce()
+        cycle = cycle + 1
+    }
+    let afterDirect = memoryStats().usedBytes
+    cycle = 0
+    while cycle < 10 {
+        oneShotOnce()
+        cycle = cycle + 1
+    }
+    let after = memoryStats().usedBytes
+    if after != baseline {
+        println("SHA-256 allocator baseline: " + baseline.toString() +
+            "/" + afterDirect.toString() + "/" + after.toString())
+        return 1
+    }
+    println("PASS: SHA-256 allocator baseline")
+    return 0
+}
+
+main()

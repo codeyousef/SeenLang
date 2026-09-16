@@ -455,6 +455,7 @@ COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_imported_functi
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_nested_array_batch_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_safetensors_slot_return_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_json_tiny_object_regression.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_sha256_finalize_ownership.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_stdlib_string_io_cycle.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_core_004e_deterministic_context.sh"
