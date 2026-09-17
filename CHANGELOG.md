@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-09-17
+
+### Fixed
+
+- Released nested successful canonical-JSON results and owned numeric text so
+  repeated serialization returns to its warmed allocator baseline.
+- Lowered indexed class `.free()` through the accounted class-release path
+  instead of emitting an undefined class method symbol.
+
 ## [0.21.0] - 2026-09-16
 
 ### Fixed

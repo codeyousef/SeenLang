@@ -1,8 +1,8 @@
 /// Deterministic RFC 8785-style JSON serialization for strict manifest trees.
 
 import json.value.{JsonValue}
-import json.builder.{jsonAppendBorrowedPart, jsonAppendEscapedString,
-    jsonFinishOwned}
+import json.builder.{jsonAppendBorrowedPart, jsonAppendOwnedPart,
+    jsonAppendEscapedString, jsonFinishOwned, releaseJsonText}
 import str.string.{StringBuilder}
 import core.result.{Result, Ok, Err}
 
@@ -77,14 +77,19 @@ fun appendCanonicalJson(builder: StringBuilder, ownership: Array<Bool>,
     }
     if value.isNumber() {
         let number = value.getNumber()
-        let encoded = if number == 0.0 { "0" } else { number.toString() }
+        if number == 0.0 {
+            jsonAppendBorrowedPart(builder, ownership, "0")
+            return Ok(true)
+        }
+        let encoded = number.toString()
         if encoded == "nan" or encoded == "NaN" or encoded == "inf" or
             encoded == "Infinity" or encoded == "-inf" or
             encoded == "-Infinity" {
+            releaseJsonText(encoded)
             return Err<Bool, CanonicalJsonError>(canonicalJsonError(
                 "json.jcs_number", "JCS rejects non-finite numbers"))
         }
-        jsonAppendBorrowedPart(builder, ownership, encoded)
+        jsonAppendOwnedPart(builder, ownership, encoded)
         return Ok(true)
     }
     if value.isString() {
@@ -98,6 +103,7 @@ fun appendCanonicalJson(builder: StringBuilder, ownership: Array<Bool>,
             if index > 0 { jsonAppendBorrowedPart(builder, ownership, ",") }
             let appended = appendCanonicalJson(builder, ownership, values[index])
             if appended.isErr() { return appended }
+            appended.releaseContainer()
             index = index + 1
         }
         jsonAppendBorrowedPart(builder, ownership, "]")
@@ -128,6 +134,7 @@ fun appendCanonicalJson(builder: StringBuilder, ownership: Array<Bool>,
             let appended = appendCanonicalJson(builder, ownership,
                 value.get(keys[index]).unwrap())
             if appended.isErr() { keys.free(); return appended }
+            appended.releaseContainer()
             index = index + 1
         }
         keys.free(); jsonAppendBorrowedPart(builder, ownership, "}")
@@ -141,8 +148,11 @@ fun canonicalizeJson(value: JsonValue) r: Result<String, CanonicalJsonError> {
     let builder = StringBuilder.new(); let ownership = Array<Bool>()
     let appended = appendCanonicalJson(builder, ownership, value)
     if appended.isErr() {
+        let error = appended.unwrapErr()
+        appended.releaseContainer()
         ownership.free(); builder.parts.free(); builder.free()
-        return Err<String, CanonicalJsonError>(appended.unwrapErr())
+        return Err<String, CanonicalJsonError>(error)
     }
+    appended.releaseContainer()
     return Ok<String, CanonicalJsonError>(jsonFinishOwned(builder, ownership))
 }

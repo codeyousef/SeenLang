@@ -1,0 +1,42 @@
+import json.canonical.{canonicalizeJson}
+import json.parser.{parseJsonWithStrictLimits, destroyJsonParseResult}
+import json.value.{JsonValue}
+import memory.allocation.{memoryStats}
+
+extern "C" fun seen_string_release_owned(value: String) r: Void
+extern "C" fun seen_result_release_boxed_string_ok(value: *Void) r: Void
+
+fun canonicalOnce(root: JsonValue, expected: String) r: Void {
+    let canonical = canonicalizeJson(root)
+    if canonical.isErr() { abort("canonical JSON failed") }
+    if canonical.unwrap() != expected { abort("canonical JSON changed") }
+    seen_string_release_owned(canonical.unwrap())
+    seen_result_release_boxed_string_ok(canonical as *Void)
+    canonical.releaseContainer()
+}
+
+fun checkLifecycle(input: String, expected: String) r: Void {
+    let parsed = parseJsonWithStrictLimits(input, 4096, 32, 128, 1024)
+    if parsed.success != 1 { abort("strict JSON parse failed") }
+    let root = parsed.value.unwrap()
+    canonicalOnce(root, expected)
+    let baseline = memoryStats().usedBytes
+    var index = 0
+    while index < 100 {
+        canonicalOnce(root, expected)
+        index = index + 1
+    }
+    let after = memoryStats().usedBytes
+    if after != baseline { abort("canonical JSON retained allocations") }
+    destroyJsonParseResult(parsed, true)
+}
+
+fun main() r: Int {
+    checkLifecycle("{}", "{}")
+    checkLifecycle("{\"b\":[1,2.5,\"é\",{\"x\":null}],\"a\":0}",
+        "{\"a\":0,\"b\":[1,2.5,\"é\",{\"x\":null}]}" )
+    println("PASS: canonical JSON allocator baseline")
+    return 0
+}
+
+main()

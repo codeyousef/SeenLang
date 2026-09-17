@@ -1,0 +1,39 @@
+import memory.allocation.{memoryStats}
+
+class ProbeOwner {
+    var value: Int
+}
+
+fun oneCycle() r: Void {
+    let direct = ProbeOwner{ value: 11 }
+    direct.free()
+    let owners = Array<ProbeOwner>()
+    owners.push(ProbeOwner{ value: 7 })
+    owners.push(ProbeOwner{ value: 9 })
+    if owners[0].value != 7 or owners[1].value != 9 {
+        abort("indexed class value changed")
+    }
+    var index = 0
+    while index < 2 {
+        owners[index].free()
+        index = index + 1
+    }
+    owners.free()
+}
+
+fun main() r: Int {
+    oneCycle()
+    let baseline = memoryStats().usedBytes
+    var index = 0
+    while index < 100 {
+        oneCycle()
+        index = index + 1
+    }
+    if memoryStats().usedBytes != baseline {
+        abort("indexed class free retained allocations")
+    }
+    println("PASS: indexed class free restores accounting")
+    return 0
+}
+
+main()

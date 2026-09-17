@@ -392,6 +392,19 @@ fun emitClassFreeMutationImpl(output: StringBuilder, regBox: Array<Int>,
     return "0"
 }
 
+fun emitIndexedClassFreeMutationImpl(output: StringBuilder,
+    regBox: Array<Int>, valueReg: String, classSize: Int) r: String {
+
+    // Index access yields the class handle itself, not a local variable slot.
+    // Dispatching to Class_free otherwise declares a nonexistent method.
+    let ptrReg = getNextRegFn(regBox)
+    output.append("  " + ptrReg + " = inttoptr i64 " + valueReg +
+        " to ptr\n")
+    output.append("  call void @seen_pool_free(ptr " + ptrReg + ", i64 " +
+        classSize.toString() + ")\n")
+    return "0"
+}
+
 fun emitPreparedArrayFreeMutatorImpl(output: StringBuilder,
     regBox: Array<Int>, arrayPtrReg: String) r: String {
 
@@ -479,19 +492,23 @@ fun emitPreparedArrayFreeMutatorMethodStateImpl(output: StringBuilder,
     let classFreePlan = planArrayMutatorFreeEmitImpl(isArrayType, "",
         literalValue, isClassTypeImpl(freeReceiverType, structNames) == 1)
     if classFreePlan.shouldEmitClassFree {
+        let baseType = getBaseTypeNameImpl(freeReceiverType)
+        let sIdx = findStructReg(baseType, structNames)
+        var sSize = 0
+        if sIdx >= 0 {
+            sSize = structSizes[sIdx]
+        }
         let freeVarName = resolveArrayMutatorVariableNameImpl(literalValue,
             variableName)
         let freeVarIdx = findActiveVariableIndexImpl(varNames,
             activeVarCount, freeVarName)
         if freeVarIdx >= 0 {
-            let baseType = getBaseTypeNameImpl(freeReceiverType)
-            let sIdx = findStructReg(baseType, structNames)
-            var sSize = 0
-            if sIdx >= 0 {
-                sSize = structSizes[sIdx]
-            }
             return emitPreparedClassFreeMutatorImpl(output, regBox,
                 varRegs[freeVarIdx], sSize)
+        }
+        if freePtrReg != "" and sSize > 0 {
+            return emitIndexedClassFreeMutationImpl(output, regBox,
+                freePtrReg, sSize)
         }
     }
     return ""
