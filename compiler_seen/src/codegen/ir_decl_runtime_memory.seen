@@ -71,6 +71,7 @@ fun emitMemoryRuntimeDecls(output: StringBuilder) r: Void {
     output.append("declare void @llvm.memset.p0.i64(ptr, i8, i64, i1) nounwind\n")
     output.append("declare ptr @llvm.stacksave() nounwind\n")
     output.append("declare void @llvm.stackrestore(ptr) nounwind\n")
+    output.append("declare void @seen_result_release_boxed_aggregate(ptr, i64, i64) nounwind\n")
 
     // LLVM Coroutine intrinsics for async/await
     output.append("declare token @llvm.coro.id(i32, ptr, ptr, ptr)\n")

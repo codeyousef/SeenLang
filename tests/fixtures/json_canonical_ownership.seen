@@ -27,7 +27,11 @@ fun checkLifecycle(input: String, expected: String) r: Void {
         index = index + 1
     }
     let after = memoryStats().usedBytes
-    if after != baseline { abort("canonical JSON retained allocations") }
+    if after != baseline {
+        println("canonical JSON live before/after=" + baseline.toString() +
+            "/" + after.toString())
+        abort("canonical JSON retained allocations")
+    }
     destroyJsonParseResult(parsed, true)
 }
 

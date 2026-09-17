@@ -65,6 +65,14 @@ typedef struct {
     int64_t allocationFailures;
 } SeenMemoryStats;
 
+typedef struct {
+    int64_t limitBytes;
+    int64_t usedBytes;
+    int64_t peakBytes;
+    int64_t remainingBytes;
+    int64_t allocationFailures;
+} SeenMemorySnapshot;
+
 void* seen_checked_malloc(int64_t size);
 
 // Forward declarations for generator types
@@ -128,12 +136,16 @@ SeenString seen_str_concat_ss(SeenString a, SeenString b);
 void seen_memory_set_limit_bytes(int64_t bytes);
 int64_t seen_memory_limit_bytes(void);
 int64_t seen_memory_used_bytes(void);
+int64_t seen_memory_reserved_bytes(void);
 int64_t seen_memory_peak_bytes(void);
 int64_t seen_memory_allocation_failures(void);
 int64_t seen_memory_remaining_bytes(void);
 int64_t seen_memory_try_reserve_bytes(int64_t size);
 void seen_memory_release_bytes(int64_t size);
 SeenMemoryStats seen_memory_stats(void);
+SeenMemorySnapshot seen_memory_snapshot(void);
+void seen_result_release_boxed_aggregate(void* result, int64_t ok_size,
+    int64_t err_size);
 void* seen_try_malloc(int64_t size);
 void* seen_try_calloc(int64_t count, int64_t size);
 void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size);

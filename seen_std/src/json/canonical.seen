@@ -110,34 +110,41 @@ fun appendCanonicalJson(builder: StringBuilder, ownership: Array<Bool>,
         return Ok(true)
     }
     if value.isObject() {
-        let keys = Array<String>(); let sourceKeys = value.keys()
+        // Sort indices, not copies of borrowed keys. Indexed values share the
+        // source object's lifetime and avoid an allocating Option wrapper for
+        // every get(key) on production-scale manifests.
+        let order = Array<Int>(); let sourceKeys = value.keys()
         var keyIndex = 0
         while keyIndex < sourceKeys.length() {
-            keys.push(sourceKeys[keyIndex]); keyIndex = keyIndex + 1
+            order.push(keyIndex); keyIndex = keyIndex + 1
         }
         var index = 1
-        while index < keys.length() {
+        while index < order.length() {
             var position = index
             while position > 0 and
-                jsonUtf16Compare(keys[position], keys[position - 1]) < 0 {
-                let swap = keys[position - 1]
-                keys[position - 1] = keys[position]; keys[position] = swap
+                jsonUtf16Compare(sourceKeys[order[position]],
+                    sourceKeys[order[position - 1]]) < 0 {
+                let swap = order[position - 1]
+                order[position - 1] = order[position]
+                order[position] = swap
                 position = position - 1
             }
             index = index + 1
         }
         jsonAppendBorrowedPart(builder, ownership, "{"); index = 0
-        while index < keys.length() {
+        while index < order.length() {
             if index > 0 { jsonAppendBorrowedPart(builder, ownership, ",") }
-            jsonAppendEscapedString(builder, ownership, keys[index])
+            let sourceIndex = order[index]
+            jsonAppendEscapedString(builder, ownership,
+                sourceKeys[sourceIndex])
             jsonAppendBorrowedPart(builder, ownership, ":")
             let appended = appendCanonicalJson(builder, ownership,
-                value.get(keys[index]).unwrap())
-            if appended.isErr() { keys.free(); return appended }
+                value.objectValues[sourceIndex])
+            if appended.isErr() { order.free(); return appended }
             appended.releaseContainer()
             index = index + 1
         }
-        keys.free(); jsonAppendBorrowedPart(builder, ownership, "}")
+        order.free(); jsonAppendBorrowedPart(builder, ownership, "}")
         return Ok(true)
     }
     return Err<Bool, CanonicalJsonError>(canonicalJsonError(

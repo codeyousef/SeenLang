@@ -594,7 +594,11 @@ fun inferCallExprTypeImpl(callee: String) r: String {
     }
     // Result constructors
     if callee.startsWith("Err<") or callee.startsWith("Ok<") {
-        return "Result"
+        // Keep the concrete payloads through local inference. Erasing them
+        // here makes a later unwrap() return the declaration placeholder T,
+        // which in turn emits a nonexistent T_free for the payload.
+        let open = callee.indexOf("<", 0)
+        return "Result" + callee.substring(open, callee.length())
     }
     // FEL-1551: transmute<T>(x) yields type T. Without this the call was
     // typed as its argument, so assigning the result to a T variable re-coerced

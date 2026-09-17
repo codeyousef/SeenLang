@@ -489,6 +489,11 @@ fun emitPreparedArrayFreeMutatorMethodStateImpl(output: StringBuilder,
         }
     }
 
+    // A repr(C) data value is an aggregate, not a heap handle. Its local
+    // .free() cannot interpret the first field as a pointer to the value.
+    // The owning Result container releases any boxed aggregate separately.
+    if isDataTypeState(freeReceiverType) { return "0" }
+
     let classFreePlan = planArrayMutatorFreeEmitImpl(isArrayType, "",
         literalValue, isClassTypeImpl(freeReceiverType, structNames) == 1)
     if classFreePlan.shouldEmitClassFree {

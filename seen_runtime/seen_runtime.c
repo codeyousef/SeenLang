@@ -107,6 +107,11 @@ typedef struct PoolSlab {
 
 static void *pool_freelists[POOL_NUM_CLASSES]; // per-class free lists
 static PoolSlab *pool_slabs[POOL_NUM_CLASSES]; // per-class slab chains
+// Physical slab capacity remains charged against the allocation budget, but
+// only checked-out slots are live user allocations. Both counters are updated
+// together with the freelist (the current allocator is not thread-safe).
+static int64_t pool_committed_bytes = 0;
+static int64_t pool_live_bytes = 0;
 
 static inline int pool_class(size_t size) {
     return (int)((size + 7) / 8) - 1; // 8->0, 16->1, ..., 80->9
@@ -126,6 +131,7 @@ void *seen_pool_alloc(int64_t size) {
         pool_freelists[cls] = next;
         // Prefetch next free-list entry for the NEXT allocation of this size class
         __builtin_prefetch(next, 1, 3);
+        pool_live_bytes += (int64_t)slot;
         return p;
     }
 
@@ -143,9 +149,11 @@ void *seen_pool_alloc(int64_t size) {
         slab->used = 0;
         slab->next = pool_slabs[cls];
         pool_slabs[cls] = slab;
+        pool_committed_bytes += (int64_t)(POOL_SLAB_SIZE + sizeof(PoolSlab));
     }
     p = slab->base + slab->used;
     slab->used += slot;
+    pool_live_bytes += (int64_t)slot;
     return p;
 }
 
@@ -157,6 +165,7 @@ void seen_pool_free(void *ptr, int64_t size) {
         free(ptr); return;
     }
     int cls = pool_class((size_t)size);
+    pool_live_bytes -= (int64_t)(cls + 1) * 8;
     *(void **)ptr = pool_freelists[cls];
     pool_freelists[cls] = ptr;
 }
@@ -508,7 +517,12 @@ int64_t seen_memory_limit_bytes(void) {
 
 int64_t seen_memory_used_bytes(void) {
     seen_memory_init_from_env_once();
-    return g_seen_memory_used_bytes;
+    return g_seen_memory_used_bytes - pool_committed_bytes + pool_live_bytes;
+}
+
+int64_t seen_memory_reserved_bytes(void) {
+    seen_memory_init_from_env_once();
+    return pool_committed_bytes - pool_live_bytes;
 }
 
 int64_t seen_memory_peak_bytes(void) {
@@ -546,6 +560,17 @@ SeenMemoryStats seen_memory_stats(void) {
         seen_memory_allocation_failures()
     };
     return stats;
+}
+
+SeenMemorySnapshot seen_memory_snapshot(void) {
+    SeenMemorySnapshot snapshot = {
+        seen_memory_limit_bytes(),
+        seen_memory_used_bytes(),
+        seen_memory_peak_bytes(),
+        seen_memory_remaining_bytes(),
+        seen_memory_allocation_failures()
+    };
+    return snapshot;
 }
 
 void* seen_try_malloc(int64_t size) {
@@ -4073,16 +4098,26 @@ SeenString seen_str_concat_ss(SeenString a, SeenString b) {
 }
 
 SeenString seen_int_to_string(int64_t n) {
-    char* buf = (char*)seen_pool_alloc(32);
-    sprintf(buf, "%" PRId64, n);
-    SeenString result = { strlen(buf), buf };
+    char local[32];
+    int length = snprintf(local, sizeof(local), "%" PRId64, n);
+    if (length < 0 || length >= (int)sizeof(local)) {
+        seen_oom_abort("seen_int_to_string formatting", length);
+    }
+    char* buf = seen_runtime_alloc_pool_chars(length, "seen_int_to_string");
+    memcpy(buf, local, (size_t)length + 1);
+    SeenString result = { length, buf };
     return result;
 }
 
 SeenString seen_float_to_string(double f) {
-    char* buf = (char*)seen_pool_alloc(32);
-    sprintf(buf, "%.6g", f);
-    SeenString result = { strlen(buf), buf };
+    char local[64];
+    int length = snprintf(local, sizeof(local), "%.6g", f);
+    if (length < 0 || length >= (int)sizeof(local)) {
+        seen_oom_abort("seen_float_to_string formatting", length);
+    }
+    char* buf = seen_runtime_alloc_pool_chars(length, "seen_float_to_string");
+    memcpy(buf, local, (size_t)length + 1);
+    SeenString result = { length, buf };
     return result;
 }
 
@@ -4099,9 +4134,8 @@ SeenString seen_bool_to_string(bool b) {
 static SeenString seen_char_to_str_with_allocator(int64_t c, bool pool_owned) {
     // Convert a Unicode code point to a UTF-8 string while preserving the
     // public heap-allocation contract unless explicit pool ownership is asked.
-    char* buf = pool_owned
-        ? seen_runtime_alloc_pool_chars(7, "seen_char_to_owned_string")
-        : seen_runtime_alloc_chars(7, "seen_char_to_str");
+    char local[8];
+    char* buf = local;
     int len = 0;
     if (c < 0x80) {
         buf[0] = (char)c;
@@ -4123,15 +4157,23 @@ static SeenString seen_char_to_str_with_allocator(int64_t c, bool pool_owned) {
         len = 4;
     }
     buf[len] = '\0';
-    SeenString result = { len, buf };
+    char* owned = pool_owned
+        ? seen_runtime_alloc_pool_chars(len, "seen_char_to_owned_string")
+        : seen_runtime_alloc_chars(7, "seen_char_to_str");
+    memcpy(owned, local, (size_t)len + 1);
+    SeenString result = { len, owned };
     return result;
 }
 
 SeenString seen_uint_to_string(uint64_t n) {
-    char* buf = (char*)seen_pool_alloc(32);
-    if (!buf) seen_oom_abort("seen_uint_to_string", 32);
-    sprintf(buf, "%" PRIu64, n);
-    SeenString result = { strlen(buf), buf };
+    char local[32];
+    int length = snprintf(local, sizeof(local), "%" PRIu64, n);
+    if (length < 0 || length >= (int)sizeof(local)) {
+        seen_oom_abort("seen_uint_to_string formatting", length);
+    }
+    char* buf = seen_runtime_alloc_pool_chars(length, "seen_uint_to_string");
+    memcpy(buf, local, (size_t)length + 1);
+    SeenString result = { length, buf };
     return result;
 }
 
@@ -4917,8 +4959,11 @@ int64_t StringBuilder_appendFloat(void* s, double f) {
 // Fused append int — fast itoa + pool alloc + direct push
 int64_t StringBuilder_appendInt(void* s, int64_t n) {
     StringBuilder* sb = (StringBuilder*)s;
-    char* buf = (char*)seen_pool_alloc(32);
-    int len = fast_i64_to_buf(buf, n);
+    char local[32];
+    int len = fast_i64_to_buf(local, n);
+    char* buf = seen_runtime_alloc_pool_chars(len,
+        "StringBuilder_appendInt");
+    memcpy(buf, local, (size_t)len + 1);
     SeenString str = { len, buf };
     sb->totalLength += len;
     seen_arr_push_str_fast(sb->parts, str);
@@ -6101,6 +6146,27 @@ typedef struct {
     SeenArray* okStorage;
     SeenArray* errStorage;
 } SeenResult;
+
+void seen_result_release_boxed_aggregate(void* value,
+    int64_t ok_size, int64_t err_size) {
+    SeenResult* result = (SeenResult*)value;
+    if (!result) return;
+    SeenArray* storage = result->isOk ? result->okStorage : result->errStorage;
+    int64_t size = result->isOk ? ok_size : err_size;
+    if (size <= 0) return;
+    if (!storage || storage->len != 1 ||
+        storage->element_size != (int64_t)sizeof(void*) || !storage->data) {
+        fprintf(stderr, "seen_result_release_boxed_aggregate: invalid payload\n");
+        abort();
+    }
+    void** slot = (void**)storage->data;
+    if (!slot[0]) {
+        fprintf(stderr, "seen_result_release_boxed_aggregate: already released\n");
+        abort();
+    }
+    seen_runtime_free_budgeted(slot[0], size);
+    slot[0] = NULL;
+}
 
 void seen_result_release_boxed_string_ok(void* value) {
     SeenResult* result = (SeenResult*)value;

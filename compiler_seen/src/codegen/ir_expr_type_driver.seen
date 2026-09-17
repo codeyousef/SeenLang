@@ -121,6 +121,16 @@ fun inferMethodCallExprTypeLocalState(expr: ParserExpressionNode,
         receiverType = resolveMethodCallReceiverTypeState(expr, varNames,
             varTypes, stringConstants)
     }
+    // A generic method registry records the declaration's return type (T/E),
+    // not the concrete instantiation. Reify Result payload accessors before
+    // consulting that registry so later calls on the result use the real type.
+    if receiverType.startsWith("Result<") {
+        let payloadType = tryInferBuiltinReceiverMethodCallType(expr,
+            receiverType)
+        if payloadType != "" {
+            return payloadType
+        }
+    }
     if methodInferPlan.shouldTryReceiverRegistry {
         let receiverRegistryType =
             tryInferReceiverRegistryMethodCallType(expr, receiverType)

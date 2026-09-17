@@ -1,0 +1,45 @@
+import json.parser.{parseJsonWithStrictLimits, destroyJsonParseResult}
+import crypto.sha256.{sha256, releaseSha256DigestResult}
+import memory.allocation.{memoryStats, memoryReservedBytes}
+
+fun cycle() r: Void {
+    let parsed = parseJsonWithStrictLimits("{}", 4096, 32,
+        128, 1024)
+    if parsed.success != 1 { abort("strict JSON failed") }
+    destroyJsonParseResult(parsed, true)
+    let digest = sha256("A")
+    if digest.isErr() { abort("SHA-256 failed") }
+    releaseSha256DigestResult(digest)
+}
+
+fun main() r: Int {
+    let cold = memoryStats().usedBytes
+    cycle()
+    let afterCold = memoryStats().usedBytes
+    let reserved = memoryReservedBytes()
+    if afterCold != cold { abort("cold JSON/SHA cycle retained live bytes") }
+    if reserved <= 0 { abort("expected recyclable pool reserve") }
+    // The next parse may initialize one-time parser state. Require the warm
+    // process to remain stable while still counting that state as live.
+    cycle()
+    let warmBaseline = memoryStats().usedBytes
+    let failures = memoryStats().allocationFailures
+    var index = 0
+    while index < 100 {
+        cycle()
+        index = index + 1
+    }
+    if memoryStats().usedBytes != warmBaseline {
+        abort("warm JSON/SHA cycle retained live bytes")
+    }
+    if memoryReservedBytes() < reserved {
+        abort("pool reserve unexpectedly decreased")
+    }
+    if memoryStats().allocationFailures != failures {
+        abort("JSON/SHA cycle changed failure counter")
+    }
+    println("PASS: cold and warm JSON/SHA live usage excludes reserve")
+    return 0
+}
+
+main()

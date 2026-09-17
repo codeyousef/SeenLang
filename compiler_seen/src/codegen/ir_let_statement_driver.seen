@@ -4,7 +4,7 @@ import parser.real_parser.{StatementNode}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl, prepareLetStatementPlanWithGlobalStateImpl, resolveLetPreAllocatedRegWithGlobalStateImpl, getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getGlobalStructNamesImpl}
-import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState}
+import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, getDataTypeSizeState}
 import codegen.ir_type_mapping.{normalizeDeclaredTypeNodeImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
@@ -44,6 +44,7 @@ fun emitLetStatementInitializerState(ctx: CodegenLoweringContext,
         setPendingArrayLiteralTypeWithGlobalStateImpl(varType)
     }
     var valueReg = lowerExpression(ctx, stmt.initializer)
+    let literalStorageReg = valueReg
     setPendingArrayLiteralTypeWithGlobalStateImpl(savedPendingType)
     let initializerType = inferLoweredExpressionType(ctx, stmt.initializer)
     if stmt.initializer.kind == "StructLiteral" and
@@ -80,6 +81,15 @@ fun emitLetStatementInitializerState(ctx: CodegenLoweringContext,
     }
     emitDeclarationInitializerStoreImpl(output, llvmType, storedValueReg,
         reg)
+    if stmt.initializer.kind == "StructLiteral" and
+        llvmType.startsWith("%") and isDataTypeState(initializerType) {
+        let literalSize = getDataTypeSizeState(initializerType)
+        if literalSize > 0 {
+            output.append("  call void @seen_pool_free(ptr " +
+                literalStorageReg + ", i64 " + literalSize.toString() +
+                ")\n")
+        }
+    }
 }
 
 fun generateLetStatementState(ctx: CodegenLoweringContext,

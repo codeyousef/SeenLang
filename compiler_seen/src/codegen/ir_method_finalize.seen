@@ -8,7 +8,7 @@ import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl, emitUserMethodCallImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
-import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, isClassHandleLikeTypeState}
+import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, isClassHandleLikeTypeState, getDataTypeSizeState}
 import codegen.ir_decl_registry.{LateUserDeclareState, recordLateUserDeclareIntoStateImpl}
 import codegen.ir_infer_type.{extractResultInnerType, extractResultErrorType}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
@@ -342,6 +342,23 @@ fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
 
     if methodName == "unwrap" and instanceTypeName == "String" {
         return receiverReg
+    }
+
+    if instanceTypeName == "Result" and methodName == "releaseContainer" {
+        let okType = extractResultInnerType(receiverType)
+        let errType = extractResultErrorType(receiverType)
+        var okSize = 0
+        var errSize = 0
+        if isDataTypeState(okType) { okSize = getDataTypeSizeState(okType) }
+        if isDataTypeState(errType) { errSize = getDataTypeSizeState(errType) }
+        if okSize > 0 or errSize > 0 {
+            output.append("  call void @seen_result_release_boxed_aggregate(ptr " +
+                receiverReg + ", i64 " + okSize.toString() + ", i64 " +
+                errSize.toString() + ")\n")
+        }
+        output.append("  call void @Result_releaseContainer(ptr " +
+            receiverReg + ")\n")
+        return "0"
     }
 
     if instanceTypeName == "HashMap" and

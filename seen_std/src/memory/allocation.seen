@@ -1,9 +1,12 @@
 ///
-Allocation failure contract for Seen 0.21.1.
+Allocation failure contract for Seen 0.22.0.
 
-The runtime owns the raw budget counters. Stdlib APIs expose those counters in
-Seen terms so allocation-heavy code can choose Result paths instead of
-depending on process OOM behavior.
+usedBytes measures live allocations, including checked-out pool slots, but
+excludes recyclable pool capacity. memoryReservedBytes() reports the retained
+pool capacity (including slab headers) not currently checked out. The memory
+limit and remainingBytes conservatively apply to committed bytes, including
+that reserve; peakBytes is the peak committed byte count. Releasing a slot
+restores the live baseline without pretending its slab has returned to the OS.
 ///
 
 import core.result.{Result, Ok, Err}
@@ -12,9 +15,11 @@ import core.unit.{Unit}
 extern fun seen_memory_set_limit_bytes(bytes: Int) r: Void
 extern fun seen_memory_limit_bytes() r: Int
 extern fun seen_memory_used_bytes() r: Int
+extern fun seen_memory_reserved_bytes() r: Int
 extern fun seen_memory_peak_bytes() r: Int
 extern fun seen_memory_remaining_bytes() r: Int
 extern fun seen_memory_allocation_failures() r: Int
+extern "C" fun seen_memory_snapshot() r: MemoryStats
 extern "C" fun seen_arr_release_i64(values: Array<Int>) r: Void
 extern "C" fun seen_arr_release_f64(values: Array<Float>) r: Void
 extern "C" fun seen_arr_release_str(values: Array<String>) r: Void
@@ -35,6 +40,8 @@ class AllocError {
     }
 }
 
+@repr(C)
+@trivially_copyable
 class MemoryStats {
     var limitBytes: Int
     var usedBytes: Int
@@ -43,13 +50,7 @@ class MemoryStats {
     var allocationFailures: Int
 
     static fun current() r: MemoryStats {
-        return MemoryStats {
-            limitBytes: seen_memory_limit_bytes(),
-            usedBytes: seen_memory_used_bytes(),
-            peakBytes: seen_memory_peak_bytes(),
-            remainingBytes: seen_memory_remaining_bytes(),
-            allocationFailures: seen_memory_allocation_failures()
-        }
+        return seen_memory_snapshot()
     }
 }
 
@@ -63,6 +64,10 @@ fun memoryStats() r: MemoryStats {
 
 fun memoryRemainingBytes() r: Int {
     return seen_memory_remaining_bytes()
+}
+
+fun memoryReservedBytes() r: Int {
+    return seen_memory_reserved_bytes()
 }
 
 fun ensureAllocationBudget(bytes: Int) r: Result<Unit, AllocError> {

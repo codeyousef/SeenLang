@@ -1,0 +1,20 @@
+import core.result.{Result, Ok}
+
+@repr(C)
+@trivially_copyable
+class ImportedPayloadView {
+    var data: *const UInt8
+    var byteLength: UInt64
+    var logicalElements: UInt64
+    var codec: UInt16
+}
+
+fun makeImportedPayloadView() r: Result<ImportedPayloadView, Int> {
+    let view = ImportedPayloadView{
+        data: null as *const UInt8,
+        byteLength: 64 as UInt64,
+        logicalElements: 32 as UInt64,
+        codec: 3 as UInt16
+    }
+    return Ok<ImportedPayloadView, Int>(view)
+}

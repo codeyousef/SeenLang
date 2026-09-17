@@ -1,0 +1,82 @@
+import core.result.{Ok}
+import memory.allocation.{memoryStats}
+import result_generic_payload_support.{makeImportedPayloadView}
+
+@repr(C)
+@trivially_copyable
+class PayloadView {
+    var data: *const UInt8
+    var byteLength: UInt64
+    var logicalElements: UInt64
+    var codec: UInt16
+}
+
+class ProbeError {
+    var code: Int
+}
+
+fun releaseArray() r: Void {
+    let values = Array<Int>()
+    values.push(7)
+    let result = Ok<Array<Int>, ProbeError>(values)
+    let borrowed = result.unwrap()
+    if borrowed[0] != 7 { abort("Result array payload changed") }
+    borrowed.free()
+    result.releaseContainer()
+}
+
+fun releaseView() r: Void {
+    let view = PayloadView{
+        data: null as *const UInt8,
+        byteLength: 64 as UInt64,
+        logicalElements: 32 as UInt64,
+        codec: 3 as UInt16
+    }
+    let result = Ok<PayloadView, Int>(view)
+    let borrowed = result.unwrap()
+    if borrowed.byteLength != 64 as UInt64 {
+        abort("Result aggregate payload changed")
+    }
+    borrowed.free()
+    result.releaseContainer()
+}
+
+fun releaseImportedView() r: Void {
+    let result = makeImportedPayloadView()
+    let borrowed = result.unwrap()
+    if borrowed.byteLength != 64 as UInt64 or
+        borrowed.logicalElements != 32 as UInt64 or
+        borrowed.codec != 3 as UInt16 {
+        abort("cross-module Result aggregate payload changed")
+    }
+    borrowed.free()
+    result.releaseContainer()
+}
+
+fun main() r: Int {
+    releaseArray()
+    releaseView()
+    releaseImportedView()
+    let baseline = memoryStats().usedBytes
+    let failures = memoryStats().allocationFailures
+    var i = 0
+    while i < 100 {
+        releaseArray()
+        releaseView()
+        releaseImportedView()
+        i = i + 1
+    }
+    let after = memoryStats().usedBytes
+    if after != baseline {
+        println("Result live before/after=" + baseline.toString() +
+            "/" + after.toString())
+        abort("Result payload release retained live allocations")
+    }
+    if memoryStats().allocationFailures != failures {
+        abort("Result payload release changed failure counter")
+    }
+    println("PASS: concrete generic Result payload release")
+    return 0
+}
+
+main()
