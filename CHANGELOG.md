@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-17
+
+### Added
+
+- Exposed recyclable small-object slab capacity through
+  `memoryReservedBytes()` while `memoryStats().usedBytes` reports only live
+  allocations; the memory limit and remaining budget still charge retained
+  physical slabs.
+
+### Fixed
+
+- Reified generic `Result` payload types for `.free()` and released boxed
+  repr(C) aggregate storage when its container closes, preserving imported
+  aggregate layouts and exact allocator cleanup.
+- Matched owned integer, floating-point, and Unicode text allocations to
+  their release size classes, and avoided allocating temporary canonical-JSON
+  key/value wrappers during indexed traversal.
+
 ## [0.21.1] - 2026-09-17
 
 ### Fixed
