@@ -5442,8 +5442,22 @@
       ]
     },
     {
+      "name": "seen_memory_reserved_bytes",
+      "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
       "name": "seen_memory_set_limit_bytes",
       "abi": "Seen",
+      "sources": [
+        "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_snapshot",
+      "abi": "C",
       "sources": [
         "seen_std/src/memory/allocation.seen"
       ]

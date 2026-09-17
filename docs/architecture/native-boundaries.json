@@ -84,6 +84,15 @@
       "production": true
     },
     {
+      "id": "memory-pool-accounting",
+      "subsystem": "stdlib.memory",
+      "purpose": "Read live checked-out allocation bytes independently from recyclable slab reserve without changing the physical memory limit or swap policy. The runtime reports a nonallocating fixed-layout snapshot and retained slab capacity; native Seen owns resource lifetime, failure policy, and cleanup tests.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_memory_reserved_bytes", "seen_memory_snapshot"],
+      "production": true
+    },
+    {
       "id": "parallel-worker-os-adapter",
       "subsystem": "compiler.parallel_for",
       "purpose": "Compiler-lowered bounded worker dispatch adapter. Native Seen/compiler semantics prove captures, select the fixed worker bound, preserve the environment lifetime, and fail closed on every nonzero result; the runtime mechanically partitions the supplied finite range, creates and joins OS threads, and reports the lowest body error or a stable resource status without sequential fallback.",
@@ -113,10 +122,10 @@
     {
       "id": "result-boxed-ownership",
       "subsystem": "stdlib.core",
-      "purpose": "Release the compiler-owned SeenString box inside an erased Result after native Seen code releases the digest payload. The runtime adapter validates the box layout and performs one fixed-size accounted free; Seen owns the release decision and container lifetime.",
+      "purpose": "Release compiler-owned string and repr(C) aggregate boxes inside erased Result containers. The runtime adapter validates the storage layout and performs one size-aware accounted free; native Seen owns the payload semantics, release decision, and container lifetime.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
-      "symbols": ["seen_result_release_boxed_string_ok"],
+      "symbols": ["seen_result_release_boxed_aggregate", "seen_result_release_boxed_string_ok"],
       "production": true
     },
     {
