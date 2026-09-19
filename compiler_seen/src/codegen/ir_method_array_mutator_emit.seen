@@ -500,8 +500,20 @@ fun emitPreparedArrayFreeMutatorMethodStateImpl(output: StringBuilder,
         let baseType = getBaseTypeNameImpl(freeReceiverType)
         let sIdx = findStructReg(baseType, structNames)
         var sSize = 0
-        if sIdx >= 0 {
-            sSize = structSizes[sIdx]
+        // Nullable T? is a boxed Option<T>, not a T allocation. Looking up
+        // the stripped payload name made String? release 16 bytes even though
+        // Some(String) allocated the padded 24-byte Option box. Resolve every
+        // optional spelling to the stable Option heap ABI before consulting
+        // the payload/class registry.
+        if freeReceiverType == "Option" or
+            freeReceiverType.startsWith("Option<") or
+            freeReceiverType.startsWith("Optional<") or
+            freeReceiverType.endsWith("?") {
+            sSize = 24
+        } else {
+            if sIdx >= 0 {
+                sSize = structSizes[sIdx]
+            }
         }
         let freeVarName = resolveArrayMutatorVariableNameImpl(literalValue,
             variableName)

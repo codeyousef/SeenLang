@@ -1,0 +1,57 @@
+import memory.allocation.{memoryStats}
+
+class Borrower {
+    var value: String
+
+    fun borrow() r: String? {
+        return this.value
+    }
+}
+
+class Pair {
+    var first: Int
+    var second: Int
+}
+
+fun main() r: Int {
+    let owner = Borrower{value: "x"}
+    let baseline = memoryStats().usedBytes
+    var index = 0
+    while index < 1000 {
+        let text = owner.borrow()
+        if text.isNone() { abort("borrow failed") }
+        text.free()
+
+        let number = Some(index)
+        if number.isNone() { abort("number missing") }
+        number.free()
+
+        let flag = Some(true)
+        if flag.isNone() { abort("flag missing") }
+        flag.free()
+
+        let absent: Option<Int> = None<Int>()
+        if absent.isSome() { abort("unexpected value") }
+        absent.free()
+
+        // Exercise a neighboring 16-byte class after every Option release.
+        // A wrongly classified 24-byte Option slot must never enter this pool.
+        let pair = Pair{first: index, second: index + 1}
+        if pair.first != index or pair.second != index + 1 {
+            abort("allocator size-class corruption")
+        }
+        pair.free()
+        index = index + 1
+    }
+    let after = memoryStats().usedBytes
+    if after != baseline {
+        println("same-module Option baseline/after=" + baseline.toString() +
+            "/" + after.toString())
+        abort("Option boxes retained live bytes")
+    }
+    owner.free()
+    println("PASS: same-module Option heap-box layout")
+    return 0
+}
+
+main()

@@ -1,0 +1,55 @@
+import json.parser.{parseJsonWithStrictLimits, destroyJsonParseResult}
+import memory.allocation.{memoryStats}
+
+fun main() r: Int {
+    let text = "{\"items\":[{\"name\":\"x\",\"n\":\"1\"}]}"
+    let baseline = memoryStats().usedBytes
+    let parsed = parseJsonWithStrictLimits(text, 128, 8, 32, 32)
+    if parsed.success != 1 { abort("parse failed") }
+    let root = parsed.value.unwrap()
+    let itemsOption = root.valueAt(0)
+    if itemsOption.isNone() { abort("items missing") }
+    let items = itemsOption.unwrap()
+    itemsOption.free()
+    let objectOption = items.getAt(0)
+    if objectOption.isNone() { abort("object missing") }
+    let object = objectOption.unwrap()
+    objectOption.free()
+    let prepared = memoryStats().usedBytes
+
+    var index = 0
+    while index < 1000 {
+        let key = object.keyAt(0)
+        if key.isNone() { abort("key missing") }
+        key.free()
+        index = index + 1
+    }
+    let afterKeys = memoryStats().usedBytes
+    index = 0
+    while index < 1000 {
+        let value = object.valueAt(0)
+        if value.isNone() { abort("value missing") }
+        value.free()
+        index = index + 1
+    }
+    let afterValues = memoryStats().usedBytes
+    index = 0
+    while index < 1000 {
+        let item = items.getAt(0)
+        if item.isNone() { abort("item missing") }
+        item.free()
+        index = index + 1
+    }
+    let afterItems = memoryStats().usedBytes
+    if afterKeys != prepared or afterValues != prepared or
+        afterItems != prepared {
+        abort("indexed JSON Option traversal retained live bytes")
+    }
+    destroyJsonParseResult(parsed, true)
+    let closed = memoryStats().usedBytes
+    if closed != baseline { abort("indexed JSON cleanup missed baseline") }
+    println("PASS: indexed JSON Option lifecycle")
+    return 0
+}
+
+main()

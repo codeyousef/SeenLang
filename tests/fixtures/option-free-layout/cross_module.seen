@@ -1,0 +1,25 @@
+import option_support.{CrossModuleBorrower, makeBorrower}
+import memory.allocation.{memoryStats}
+
+fun main() r: Int {
+    let owner = makeBorrower()
+    let baseline = memoryStats().usedBytes
+    var index = 0
+    while index < 1000 {
+        let item = owner.borrow()
+        if item.isNone() { abort("cross-module borrow failed") }
+        item.free()
+        index = index + 1
+    }
+    let after = memoryStats().usedBytes
+    if after != baseline {
+        println("cross-module Option baseline/after=" +
+            baseline.toString() + "/" + after.toString())
+        abort("cross-module Option boxes retained live bytes")
+    }
+    owner.free()
+    println("PASS: cross-module Option heap-box layout")
+    return 0
+}
+
+main()

@@ -368,13 +368,15 @@ fun registerKnownDataTypesImpl(structNames: Array<String>, structLayouts: Array<
     structMethodNames.push("pushFront,pushBack,popFront,popBack,peekFront,peekBack,size,len,isEmpty,clear")
     structMethodRetTypes.push("Void|Void|Option<T>|Option<T>|Option<T>|Option<T>|Int|Int|Bool|Void")
 
-    // Option<T> { hasValue: Bool, value: T } - generic value lowered via i64 ABI slot
+    // Option<T> uses one 24-byte heap-box ABI. Generic values use an i64 slot;
+    // String uses the same box with its wider %SeenString payload. A uniform
+    // allocation size keeps generic .free() in the matching pool size class.
     structNames.push("Option")
     structLayouts.push("{ i1, i64 }")
     structFieldNames.push("hasValue,value")
     structFieldTypes.push("Bool|T")
     structLlvmFieldTypes.push("i1|i64")
-    structSizes.push(16)
+    structSizes.push(24)
     structMethodNames.push("isSome,isNone,IsSome,IsNone,unwrap,Unwrap,unwrapOr,UnwrapOr,expect,Expect,Store,Replace,Clear")
     structMethodRetTypes.push("Bool|Bool|Bool|Bool|T|T|T|T|T|T|Void|Option<T>|Void")
 }

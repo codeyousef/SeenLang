@@ -187,7 +187,7 @@ fun emitSomeConstructorImpl(output: StringBuilder, regBox: Array<Int>,
     }
 
     if not someArgHandled and argType == "Bool" {
-        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 2) ; alloc-sinkable Option<Bool>\n")
+        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 24) ; alloc-sinkable Option<Bool>\n")
         let hasValuePtrReg = getNextRegFn(regBox)
         output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i1 }, ptr " + allocReg + ", i32 0, i32 0\n")
         output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
@@ -198,7 +198,7 @@ fun emitSomeConstructorImpl(output: StringBuilder, regBox: Array<Int>,
     }
 
     if not someArgHandled and argType == "Float" {
-        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 16) ; alloc-sinkable Option<Float>\n")
+        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 24) ; alloc-sinkable Option<Float>\n")
         let hasValuePtrReg = getNextRegFn(regBox)
         output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, double }, ptr " + allocReg + ", i32 0, i32 0\n")
         output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
@@ -209,7 +209,7 @@ fun emitSomeConstructorImpl(output: StringBuilder, regBox: Array<Int>,
     }
 
     if not someArgHandled {
-        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 16) ; alloc-sinkable Option<i64>\n")
+        output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 24) ; alloc-sinkable Option<i64>\n")
         let hasValuePtrReg = getNextRegFn(regBox)
         output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 0\n")
         output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
@@ -225,9 +225,13 @@ fun emitSomeConstructorImpl(output: StringBuilder, regBox: Array<Int>,
 }
 
 fun emitNoneConstructorImpl(output: StringBuilder, regBox: Array<Int>) r: String {
-    // Allocate Option struct on heap (pool for 16 bytes) ; alloc-sinkable
+    // Option<T> has one stable heap-box ABI. String is the widest built-in
+    // payload ({ptr, i64}), so every Some/None box uses its padded 24-byte
+    // layout. Keeping one concrete size is required because generic .free()
+    // is lowered from the erased Option registry type and must return the
+    // allocation to the same pool size class that created it.
     let allocReg = getNextRegFn(regBox)
-    output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 16) ; alloc-sinkable\n")
+    output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 24) ; alloc-sinkable Option<None>\n")
     // Set hasValue = false
     let hasValuePtrReg = getNextRegFn(regBox)
     output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 0\n")

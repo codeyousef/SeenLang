@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-09-19
+
+### Fixed
+
+- Standardized every generic `Option<T>` heap box on a 24-byte ABI and made
+  nullable `.free()` lowering release that same concrete size, preventing
+  `Option<String>` and indexed JSON traversal from retaining eight bytes per
+  call or returning 24-byte slots to the 16-byte allocator size class.
+
 ## [0.22.1] - 2026-09-19
 
 ### Fixed

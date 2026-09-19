@@ -1,0 +1,11 @@
+class CrossModuleBorrower {
+    var value: String
+
+    pub fun borrow() r: String? {
+        return this.value
+    }
+}
+
+pub fun makeBorrower() r: CrossModuleBorrower {
+    return CrossModuleBorrower{value: "cross-module"}
+}
