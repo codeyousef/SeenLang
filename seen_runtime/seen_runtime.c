@@ -823,6 +823,19 @@ static char* seen_runtime_cstring(SeenString s, const char* context) {
     return data;
 }
 
+// Native C-string adapters are short-lived system-heap allocations. Releasing
+// them must retire both the physical buffer and its exact Seen memory-budget
+// charge; routing them through the small-object pool would leave recyclable
+// reserve behind after otherwise allocation-neutral runtime calls.
+static void seen_runtime_cstring_free(char* value, SeenString source) {
+    if (!value) return;
+    if (source.len < 0 || source.len >= INT64_MAX) {
+        fprintf(stderr, "seen_runtime_cstring_free: invalid source length\n");
+        abort();
+    }
+    seen_runtime_free_budgeted(value, source.len + 1);
+}
+
 static SeenString seen_runtime_copy_string_slice(const char* src, int64_t len,
     const char* context) {
     char* data = seen_runtime_alloc_chars(len, context);
@@ -844,8 +857,8 @@ int64_t __OpenFile(SeenString path, SeenString mode) {
     char* cmode = seen_runtime_cstring(mode, "__OpenFile mode");
 
     FILE* f = fopen(cpath, cmode);
-    free(cpath);
-    free(cmode);
+    seen_runtime_cstring_free(cpath, path);
+    seen_runtime_cstring_free(cmode, mode);
 
     if (!f) {
         return -1;
@@ -970,7 +983,7 @@ SeenArray* __ReadFileBytesPath(SeenString path) {
     char* cpath = seen_runtime_cstring(path, "__ReadFileBytesPath path");
 
     FILE* f = fopen(cpath, "rb");
-    free(cpath);
+    seen_runtime_cstring_free(cpath, path);
 
     SeenArray* arr = seen_read_file_bytes_from_stream(f, -1);
     if (f) fclose(f);
@@ -1033,7 +1046,7 @@ bool __FileExists(SeenString path) {
     char* cpath = seen_runtime_cstring(path, "__FileExists path");
 
     FILE* f = fopen(cpath, "r");
-    free(cpath);
+    seen_runtime_cstring_free(cpath, path);
     if (f) {
         fclose(f);
         return true;
@@ -1053,7 +1066,7 @@ bool __DeleteFile(SeenString path) {
 #else
     int result = unlink(cpath);
 #endif
-    free(cpath);
+    seen_runtime_cstring_free(cpath, path);
     return result == 0;
 }
 
@@ -1066,7 +1079,7 @@ bool __CreateDirectory(SeenString path) {
 #else
     int result = mkdir(cpath, 0755);
 #endif
-    free(cpath);
+    seen_runtime_cstring_free(cpath, path);
     return result == 0;
 }
 
@@ -1144,8 +1157,8 @@ bool seen_replace_file(SeenString source, SeenString destination) {
     char* cdestination = seen_runtime_cstring(destination,
         "seen_replace_file destination");
     int status = rename(csource, cdestination);
-    free(csource);
-    free(cdestination);
+    seen_runtime_cstring_free(csource, source);
+    seen_runtime_cstring_free(cdestination, destination);
     return status == 0;
 #endif
 }
@@ -1159,7 +1172,7 @@ int64_t __ExecuteProgram(SeenString path) {
     char* cpath = seen_runtime_cstring(path, "__ExecuteProgram path");
 
     int status = system(cpath);
-    free(cpath);
+    seen_runtime_cstring_free(cpath, path);
     return (int64_t)status;
 }
 #else
@@ -1173,7 +1186,7 @@ int64_t __ExecuteProgram(SeenString path) {
 
 #if defined(__ANDROID__)
     int status = system(cpath);
-    free(cpath);
+    seen_runtime_cstring_free(cpath, path);
     return (int64_t)status;
 #else
 
@@ -1181,13 +1194,13 @@ int64_t __ExecuteProgram(SeenString path) {
     char *argv[] = {"/bin/sh", "-c", cpath, NULL};
     int err = posix_spawn(&pid, "/bin/sh", NULL, NULL, argv, environ);
     if (err != 0) {
-        free(cpath);
+        seen_runtime_cstring_free(cpath, path);
         return 127;
     }
 
     int status = 0;
     waitpid(pid, &status, 0);
-    free(cpath);
+    seen_runtime_cstring_free(cpath, path);
 
     if (WIFEXITED(status)) return (int64_t)WEXITSTATUS(status);
     if (WIFSIGNALED(status)) return (int64_t)(128 + WTERMSIG(status));
@@ -1221,16 +1234,16 @@ int64_t __ExecuteProgramRequest(SeenString path, SeenString request_path) {
     char* crequest = seen_runtime_cstring(request_path,
         "__ExecuteProgramRequest request path");
     if (!cpath || !crequest) {
-        free(cpath);
-        free(crequest);
+        seen_runtime_cstring_free(cpath, path);
+        seen_runtime_cstring_free(crequest, request_path);
         return 127;
     }
 
     pid_t pid;
     char* argv[] = {cpath, "--request", crequest, NULL};
     int err = posix_spawn(&pid, cpath, NULL, NULL, argv, environ);
-    free(cpath);
-    free(crequest);
+    seen_runtime_cstring_free(cpath, path);
+    seen_runtime_cstring_free(crequest, request_path);
     if (err != 0) return 127;
 
     int status = 0;
@@ -2564,7 +2577,7 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
 
 #ifdef _WIN32
     FILE* pipe = popen(ccmd, "r");
-    free(ccmd);
+    seen_runtime_cstring_free(ccmd, cmd);
     if (!pipe) return result;
 #else
     // popen() is normally implemented with fork(). Forking a compiler whose
@@ -2575,14 +2588,14 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
     extern char **environ;
     int output_pipe[2];
     if (pipe(output_pipe) != 0) {
-        free(ccmd);
+        seen_runtime_cstring_free(ccmd, cmd);
         return result;
     }
     posix_spawn_file_actions_t actions;
     if (posix_spawn_file_actions_init(&actions) != 0) {
         close(output_pipe[0]);
         close(output_pipe[1]);
-        free(ccmd);
+        seen_runtime_cstring_free(ccmd, cmd);
         return result;
     }
     int actions_ok =
@@ -2598,7 +2611,7 @@ SeenCommandResult* __ExecuteCommand(SeenString cmd) {
         : EINVAL;
     posix_spawn_file_actions_destroy(&actions);
     close(output_pipe[1]);
-    free(ccmd);
+    seen_runtime_cstring_free(ccmd, cmd);
     if (spawn_status != 0) {
         close(output_pipe[0]);
         return result;
@@ -2736,7 +2749,7 @@ bool __HasEnv(SeenString name) {
     char* cname = seen_runtime_cstring(name, "__HasEnv name");
     const char* val = g_seen_deterministic_inputs.enabled
         ? seen_deterministic_snapshot_env(cname) : getenv(cname);
-    free(cname);
+    seen_runtime_cstring_free(cname, name);
     return val != NULL;
 }
 
@@ -2745,7 +2758,7 @@ SeenString __GetEnv(SeenString name) {
     char* cname = seen_runtime_cstring(name, "__GetEnv name");
     const char* val = g_seen_deterministic_inputs.enabled
         ? seen_deterministic_snapshot_env(cname) : getenv(cname);
-    free(cname);
+    seen_runtime_cstring_free(cname, name);
 
     if (val) {
         return seen_str_copy(val);
@@ -2765,8 +2778,8 @@ bool __SetEnv(SeenString name, SeenString value) {
 #else
     int result = setenv(cname, cvalue, 1);
 #endif
-    free(cname);
-    free(cvalue);
+    seen_runtime_cstring_free(cname, name);
+    seen_runtime_cstring_free(cvalue, value);
     return result == 0;
 }
 
@@ -2782,11 +2795,11 @@ bool __RemoveEnv(SeenString name) {
     buf[name.len] = '=';
     buf[name.len + 1] = 0;
     int result = _putenv(buf);
-    free(buf);
+    seen_runtime_free_budgeted(buf, name.len + 2);
 #else
     int result = unsetenv(cname);
 #endif
-    free(cname);
+    seen_runtime_cstring_free(cname, name);
     return result == 0;
 }
 
@@ -4863,8 +4876,7 @@ bool StringBuilder_writeToFile_impl(void* s, SeenString path) {
     cpath[path.len] = 0;
 
     FILE* f = fopen(cpath, "w");
-    free(cpath);
-    seen_memory_release_reservation(path.len + 1);
+    seen_runtime_free_budgeted(cpath, path.len + 1);
     if (!f) return false;
 
     for (int64_t i = 0; i < sb->parts->len; i++) {
@@ -6100,8 +6112,8 @@ int32_t seen_deterministic_path_beneath(SeenString root_value,
         "deterministic filesystem path");
     char *root = realpath(root_input, NULL);
     char *path = realpath(path_input, NULL);
-    free(root_input);
-    free(path_input);
+    seen_runtime_cstring_free(root_input, root_value);
+    seen_runtime_cstring_free(path_input, path_value);
     if (!root || !path) {
         free(root);
         free(path);

@@ -1,0 +1,46 @@
+import io.file.{readText}
+import memory.allocation.{memoryStats, memoryReservedBytes}
+
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
+fun main() r: Int {
+    let baseline = memoryStats().usedBytes
+    let reserveBaseline = memoryReservedBytes()
+    let iteration = 0
+    while iteration < 11 {
+        let text = readText(
+            "runtime-cstring-évidence/locked_q4_manifest.json")
+        if text.length() != 530577 {
+            abort("readText returned an unexpected length")
+        }
+        seen_string_release_owned(text)
+        if memoryStats().usedBytes != baseline {
+            abort("readText retained live allocator usage")
+        }
+        if memoryReservedBytes() != reserveBaseline {
+            abort("readText changed recyclable reserve")
+        }
+        iteration = iteration + 1
+    }
+
+    let missing = readText("runtime-cstring-évidence/missing.json")
+    if missing.length() != 0 {
+        abort("missing readText path unexpectedly succeeded")
+    }
+    if memoryStats().usedBytes != baseline {
+        abort("failing readText retained live allocator usage")
+    }
+    if memoryReservedBytes() != reserveBaseline {
+        abort("failing readText changed recyclable reserve")
+    }
+
+    let after = memoryStats().usedBytes
+    let reserveAfter = memoryReservedBytes()
+    println("readText live/reserve baseline/after=" +
+        baseline.toString() + "/" + after.toString() +
+        "/" + reserveBaseline.toString() + "/" +
+        reserveAfter.toString())
+    return 0
+}
+
+main()

@@ -1,5 +1,5 @@
 ///
-Allocation failure contract for Seen 0.22.0.
+Allocation failure contract for Seen 0.22.1.
 
 usedBytes measures live allocations, including checked-out pool slots, but
 excludes recyclable pool capacity. memoryReservedBytes() reports the retained

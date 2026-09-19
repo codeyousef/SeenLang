@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "fel_1581_cuda_after_bounded_arrays"
-version = "0.22.0"
+version = "0.22.1"
 language = "en"
 modules = ["src/main.seen"]
 

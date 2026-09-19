@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-09-19
+
+### Fixed
+
+- Released every temporary native C-string adapter through the matching
+  budget-aware runtime path, so file, path, directory, process, environment,
+  and deterministic-path operations restore exact live allocator usage on
+  both successful and failing calls.
+
 ## [0.22.0] - 2026-09-17
 
 ### Added
