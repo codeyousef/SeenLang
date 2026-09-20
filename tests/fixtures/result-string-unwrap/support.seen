@@ -1,0 +1,5 @@
+import core.result.{Result, Ok}
+
+fun importedText() r: Result<String, Int> {
+    return Ok<String, Int>("imported-string")
+}

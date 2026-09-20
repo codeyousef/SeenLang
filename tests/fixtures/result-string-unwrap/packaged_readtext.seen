@@ -1,0 +1,11 @@
+import io.file.{readText}
+
+fun main() r: Int {
+    let loaded = readText("input.json")
+    if loaded.isErr() { return 2 }
+    let text = loaded.unwrap()
+    if text.length() != 2 { return 3 }
+    return 0
+}
+
+main()

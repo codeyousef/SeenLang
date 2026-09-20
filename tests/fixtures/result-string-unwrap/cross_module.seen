@@ -1,0 +1,13 @@
+import core.result.{Result}
+import support.{importedText}
+
+fun main() r: Int {
+    let loaded = importedText()
+    if loaded.isErr() { return 2 }
+    let text = loaded.unwrap()
+    if text.length() != 15 { return 3 }
+    loaded.releaseContainer()
+    return 0
+}
+
+main()

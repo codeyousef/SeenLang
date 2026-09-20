@@ -61,6 +61,13 @@ fun tryInferUnwrapMethodTypeState(methodName: String, receiverType: String,
     if methodName != "unwrap" {
         return ""
     }
+    // The frozen scalar readText ABI returns String directly. Its historical
+    // unwrap compatibility operation is an identity, so keep the concrete
+    // SeenString type instead of degrading the local to ptr.
+    if receiverType == "String" or receiverType == "SeenString" or
+        receiverType == "%SeenString" {
+        return "String"
+    }
     let unwrapResult = resolveUnwrapTypeImpl(receiverType, isClassInner)
     if unwrapResult != "" {
         return unwrapResult

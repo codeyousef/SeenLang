@@ -29,6 +29,13 @@ class MethodDispatchTargetState {
 fun shouldUseScalarReceiverFinalFallbackState(receiverType: String,
     methodName: String) r: Bool {
 
+    // String.unwrap() is a frozen scalar-ABI identity specialization. Let the
+    // typed final dispatcher preserve %SeenString rather than substituting a
+    // null scalar fallback that later manufactures ptr_length.
+    if (receiverType == "String" or receiverType == "SeenString" or
+        receiverType == "%SeenString") and methodName == "unwrap" {
+        return false
+    }
     return isScalarFieldChainTerminalTypeImpl(receiverType) and
         shouldUseScalarReceiverFallbackImpl(methodName,
         isNumericReceiverMethodImpl(methodName))

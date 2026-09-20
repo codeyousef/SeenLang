@@ -459,6 +459,7 @@ COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_sha256_fin
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_json_canonical_indexed_free_ownership.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_result_payload_pool_live_contract.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_option_free_layout_contract.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_result_string_unwrap_contract.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_runtime_cstring_accounting.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_stdlib_string_io_cycle.sh"
 COMPILER="$REAL_COMPILER" \

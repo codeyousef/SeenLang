@@ -1,0 +1,16 @@
+import core.result.{Result, Ok}
+
+fun localText() r: Result<String, Int> {
+    return Ok<String, Int>("local-string")
+}
+
+fun main() r: Int {
+    let loaded = localText()
+    if loaded.isErr() { return 2 }
+    let text = loaded.unwrap()
+    if text.length() != 12 { return 3 }
+    loaded.releaseContainer()
+    return 0
+}
+
+main()

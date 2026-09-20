@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.3] - 2026-09-20
+
+### Fixed
+
+- Preserved the concrete `String` ABI through `unwrap()` compatibility
+  dispatch, so packaged `readText()` consumers and genuine
+  `Result<String, E>` payloads lower `String.length()` to `seen_length`
+  instead of emitting an undefined `ptr_length` symbol.
+
 ## [0.22.2] - 2026-09-19
 
 ### Fixed

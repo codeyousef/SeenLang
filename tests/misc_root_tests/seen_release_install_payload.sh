@@ -76,7 +76,7 @@ cmp -s "$WORK_DIR/prefix/bin/compatibility-manifest.json" \
     "$ROOT_DIR/releases/compatibility-manifest.json"
 test -f "$WORK_DIR/prefix/lib/seen/std/json/strict.seen"
 test -f "$WORK_DIR/prefix/lib/seen/std/crypto/sha256.seen"
-"$WORK_DIR/prefix/bin/seen-pkg" --expect-version 0.22.2 version >/dev/null
+"$WORK_DIR/prefix/bin/seen-pkg" --expect-version 0.22.3 version >/dev/null
 cp "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" \
     "$WORK_DIR/source/main.seen"
 mkdir -p "$WORK_DIR/source/.seen/agent-tools"
@@ -102,6 +102,43 @@ for mode in fast release; do
             "${compile_flags[@]}")
         "$output"
     done
+done
+
+# The frozen scalar readText ABI retains its historical unwrap identity at the
+# installed boundary. Prove the packaged compiler preserves %SeenString rather
+# than manufacturing an undefined ptr_length call.
+cp "$ROOT_DIR/tests/fixtures/result-string-unwrap/packaged_readtext.seen" \
+    "$WORK_DIR/source/readtext.seen"
+printf '{}' > "$WORK_DIR/source/input.json"
+(cd "$WORK_DIR/source" && env -u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT \
+    SEEN_PROJECT_ROOT="$WORK_DIR/source" \
+    SEEN_ARTIFACT_ROOT="$WORK_DIR/source/.seen/agent-tools" \
+    "$WORK_DIR/prefix/bin/seen" check readtext.seen)
+for mode in fast release; do
+    output="$WORK_DIR/source/readtext-$mode"
+    ir_dir="$WORK_DIR/source/readtext-$mode-ir"
+    compile_flags=(--no-fork --jobs 1 --opt-jobs 1 --target-cpu x86-64 \
+        --emit-module-ir-dir "$ir_dir")
+    if [ "$mode" = fast ]; then
+        compile_flags+=(--fast)
+    else
+        compile_flags+=(--release --lto thin)
+    fi
+    (cd "$WORK_DIR/source" && \
+        env -u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT \
+        SEEN_PROJECT_ROOT="$WORK_DIR/source" \
+        SEEN_ARTIFACT_ROOT="$WORK_DIR/source/.seen/agent-tools" \
+        "$WORK_DIR/prefix/bin/seen" compile readtext.seen "$output" \
+        "${compile_flags[@]}")
+    (cd "$WORK_DIR/source" && "$output")
+    if rg --no-ignore -q '@ptr_length' "$ir_dir"; then
+        echo "FAIL: installed readText $mode emitted ptr_length" >&2
+        exit 1
+    fi
+    rg --no-ignore -q 'call i64 @seen_length\(%SeenString ' "$ir_dir" || {
+        echo "FAIL: installed readText $mode omitted typed String.length" >&2
+        exit 1
+    }
 done
 
 # Hardware execution is optional on generic CI hosts, but when the explicit
@@ -173,4 +210,4 @@ PREFIX_DIGEST_AFTER=$(prefix_digest)
     echo "FAIL: installed source payload changed during compilation" >&2
     exit 1
 }
-echo "PASS: installed layout provides a self-contained Seen 0.22.2 payload"
+echo "PASS: installed layout provides a self-contained Seen 0.22.3 payload"
