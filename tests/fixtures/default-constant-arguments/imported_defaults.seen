@@ -1,0 +1,10 @@
+pub let IMPORTED_EXIT_CODE: Int = 13
+pub let IMPORTED_ENABLED: Bool = true
+
+pub fun importedChoose(code: Int = IMPORTED_EXIT_CODE) r: Int {
+    return code
+}
+
+pub fun importedBool(value: Bool = IMPORTED_ENABLED) r: Bool {
+    return value
+}

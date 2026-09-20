@@ -32,11 +32,15 @@ fun main() r: Int {
     let argRegs = Array<String>()
     let argTypes = Array<String>()
     let strings = Array<String>()
+    let moduleConstantNames = Array<String>()
+    let moduleConstantValues = Array<String>()
+    let moduleConstantTypes = Array<String>()
     fillDefaultParamsImpl(output, regBox, "narrow", argRegs, argTypes,
         "narrow:5|",
         "narrow:0:-1:Int8|narrow:1:-2:Int16|narrow:2:-3:Int32|" +
         "narrow:3:-4:Int64|narrow:4:-5:Int|", "negative-defaults-",
-        strings)
+        strings, moduleConstantNames, moduleConstantValues,
+        moduleConstantTypes)
     requireDefault(argRegs.length() == 5 and argTypes.length() == 5,
         "all omitted defaults lowered")
     requireDefault(argRegs[0] == "-1" and argTypes[0] == "i8",

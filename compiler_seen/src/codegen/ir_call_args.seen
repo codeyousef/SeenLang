@@ -7,6 +7,7 @@ from constructor/static dispatch and final call emission.
 import codegen.ir_optimization.{getNextRegFn, parseIntManual}
 import codegen.ir_type_mapping.{isDataTypeImpl,
     getFixedWidthScalarLlvmTypeImpl}
+import codegen.ir_char_codes.{charToCodeStrImpl}
 import str.string.{StringBuilder}
 
 ///
@@ -18,7 +19,40 @@ funcDefaultsArr: pipe-delimited "funcName:paramIdx:value:type|" registry
 strConstPrefix: string constant prefix for this module (for String defaults)
 stringConstants: the module's string constant table (for looking up String default indices)
 ///
-fun fillDefaultParamsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, funcParamCountArr: String, funcDefaultsArr: String, strConstPrefix: String, stringConstants: Array<String>) r: Void {
+fun resolveScalarDefaultConstantImpl(value: String,
+    moduleConstantNames: Array<String>, moduleConstantValues: Array<String>,
+    moduleConstantTypes: Array<String>) r: String {
+
+    var index = moduleConstantNames.length() - 1
+    while index >= 0 {
+        if moduleConstantNames[index] == value and
+            index < moduleConstantValues.length() and
+            index < moduleConstantTypes.length() {
+
+            let resolved = moduleConstantValues[index]
+            let llvmType = moduleConstantTypes[index]
+            if resolved != "" and (llvmType == "i1" or llvmType == "i8" or
+                llvmType == "i16" or llvmType == "i32" or
+                llvmType == "i64" or llvmType == "float" or
+                llvmType == "double") {
+
+                return resolved
+            }
+            return ""
+        }
+        index = index - 1
+    }
+    return ""
+}
+
+fun defaultValueStartsLikeIdentifierImpl(value: String) r: Bool {
+    if value == "" { return false }
+    let first = value.byteAt(0)
+    return (first >= 65 and first <= 90) or
+        (first >= 97 and first <= 122) or first == 95
+}
+
+fun fillDefaultParamsImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argRegs: Array<String>, argTypeStrs: Array<String>, funcParamCountArr: String, funcDefaultsArr: String, strConstPrefix: String, stringConstants: Array<String>, moduleConstantNames: Array<String>, moduleConstantValues: Array<String>, moduleConstantTypes: Array<String>) r: Void {
     if funcDefaultsArr == "" { return }
     var dfFuncLookup = funcName + ":"
     var dfPcPos = funcParamCountArr.indexOf(dfFuncLookup, 0)
@@ -41,6 +75,23 @@ fun fillDefaultParamsImpl(output: StringBuilder, regBox: Array<Int>, funcName: S
             if dfColon > 0 {
                 var dfValue = dfEntry.substring(0, dfColon)
                 var dfType = dfEntry.substring(dfColon + 1, dfEntry.length())
+                if dfType != "String" and
+                    defaultValueStartsLikeIdentifierImpl(dfValue) and
+                    dfValue != "true" and dfValue != "false" {
+
+                    if dfType == "Char" {
+                        abort("Char module constants are not supported as " +
+                            "default arguments for '" + funcName + "'")
+                    }
+                    let resolvedDefault = resolveScalarDefaultConstantImpl(
+                        dfValue, moduleConstantNames, moduleConstantValues,
+                        moduleConstantTypes)
+                    if resolvedDefault == "" {
+                        abort("unresolved or non-scalar default constant '" +
+                            dfValue + "' for '" + funcName + "'")
+                    }
+                    dfValue = resolvedDefault
+                }
                 if dfType == "String" {
                     var dfStrIdx = -1
                     var dfSCi = 0
@@ -63,11 +114,16 @@ fun fillDefaultParamsImpl(output: StringBuilder, regBox: Array<Int>, funcName: S
                         argTypeStrs.push("%SeenString")
                     }
                 } else {
-                    if dfType == "Bool" {
-                        var dfBoolVal = "0"
-                        if dfValue == "true" { dfBoolVal = "1" }
-                        argRegs.push(dfBoolVal)
+                    if dfType == "Char" {
+                        argRegs.push(charToCodeStrImpl(dfValue))
                         argTypeStrs.push("i64")
+                    } else if dfType == "Bool" {
+                        var dfBoolVal = "0"
+                        if dfValue == "true" or dfValue == "1" {
+                            dfBoolVal = "1"
+                        }
+                        argRegs.push(dfBoolVal)
+                        argTypeStrs.push("i1")
                     } else {
                         if dfType == "Float" {
                             argRegs.push(dfValue)

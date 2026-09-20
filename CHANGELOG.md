@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.4] - 2026-09-20
+
+### Fixed
+
+- Resolved immutable module constants used by omitted default arguments during
+  declaration registration, so same-module and imported calls emit typed
+  scalar values instead of unresolved source identifiers. The compiler now
+  covers fixed-width signed and unsigned integers, Boolean and floating-point
+  constants, methods, and explicit-argument overrides, while rejecting
+  mutable, compound, and unsupported defaults during semantic checking.
+
 ## [0.22.3] - 2026-09-20
 
 ### Fixed

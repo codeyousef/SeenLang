@@ -1,0 +1,9 @@
+pub var MUTABLE_EXIT_CODE: Int = 2
+
+fun choose(code: Int = MUTABLE_EXIT_CODE) r: Int {
+    return code
+}
+
+fun main() r: Int { return choose() }
+
+main()

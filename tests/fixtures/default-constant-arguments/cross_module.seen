@@ -1,0 +1,11 @@
+import imported_defaults.{importedChoose, importedBool}
+
+fun main() r: Int {
+    if importedChoose() != 13 { return 1 }
+    if not importedBool() { return 2 }
+    if importedChoose(29) != 29 { return 3 }
+    println(importedChoose())
+    return 0
+}
+
+main()

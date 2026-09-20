@@ -9,6 +9,7 @@ inference pass; this module never invents an Int fallback for them.
 import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode,
     StatementNode}
 import parser.real_parser.{ParserExpressionNode, TypeNode, AnnotationNode}
+import parser.real_parser.{ParamNode}
 import parser.real_parser.{genericParameterCount, genericParameterNameAt}
 import parser.real_parser.{genericParameterModifierAt}
 import typechecker.type_ref.{TypeRef, parseTypeRef}
@@ -1199,6 +1200,192 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
     bindings.endScope()
 }
 
+fun semanticDefaultParameterType(rawType: String) r: String {
+    var normalized = rawType
+    if normalized.startsWith("move:") {
+        normalized = normalized.substring(5, normalized.length())
+    } else if normalized.startsWith("borrow:") {
+        normalized = normalized.substring(7, normalized.length())
+    } else if normalized.startsWith("ref:") {
+        normalized = normalized.substring(4, normalized.length())
+    } else if normalized.startsWith("own:") {
+        normalized = normalized.substring(4, normalized.length())
+    } else if normalized.startsWith("comptime:") {
+        normalized = normalized.substring(9, normalized.length())
+    }
+    let marker = normalized.indexOf("~default~", 0)
+    if marker >= 0 {
+        return normalized.substring(0, marker)
+    }
+    return normalized
+}
+
+fun semanticDefaultParameterValue(rawType: String) r: String {
+    let marker = rawType.indexOf("~default~", 0)
+    if marker < 0 { return "" }
+    return rawType.substring(marker + 9, rawType.length())
+}
+
+fun semanticGlobalEncodedValue(encoded: String) r: String {
+    var i = 0
+    while i < encoded.length() {
+        if encoded.byteAt(i) == 58 {
+            return encoded.substring(i + 1, encoded.length())
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fun semanticIsIntegerDefaultLiteral(value: String) r: Bool {
+    if value == "" { return false }
+    var i = 0
+    if value.byteAt(0) == 45 {
+        if value.length() == 1 { return false }
+        i = 1
+    }
+    if i + 1 < value.length() and value.byteAt(i) == 48 and
+        (value.byteAt(i + 1) == 120 or value.byteAt(i + 1) == 88) {
+
+        i = i + 2
+        if i >= value.length() { return false }
+        while i < value.length() {
+            let b = value.byteAt(i)
+            let digit = b >= 48 and b <= 57
+            let lower = b >= 97 and b <= 102
+            let upper = b >= 65 and b <= 70
+            if not digit and not lower and not upper { return false }
+            i = i + 1
+        }
+        return true
+    }
+    while i < value.length() {
+        let b = value.byteAt(i)
+        if b < 48 or b > 57 { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fun semanticIsFloatDefaultLiteral(value: String) r: Bool {
+    if value == "" { return false }
+    var i = 0
+    var dots = 0
+    if value.byteAt(0) == 45 {
+        if value.length() == 1 { return false }
+        i = 1
+    }
+    while i < value.length() {
+        let b = value.byteAt(i)
+        if b == 46 {
+            dots = dots + 1
+            if dots > 1 { return false }
+        } else if b < 48 or b > 57 {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fun semanticDefaultStartsLikeIdentifier(value: String) r: Bool {
+    if value == "" { return false }
+    let first = value.byteAt(0)
+    return (first >= 65 and first <= 90) or
+        (first >= 97 and first <= 122) or first == 95
+}
+
+fun semanticIsIntegerDefaultType(typeName: String) r: Bool {
+    return typeName == "Int" or typeName == "Int8" or
+        typeName == "UInt8" or typeName == "Int16" or
+        typeName == "UInt16" or typeName == "Int32" or
+        typeName == "UInt32" or typeName == "Int64" or
+        typeName == "UInt64"
+}
+
+fun semanticIsFloatDefaultType(typeName: String) r: Bool {
+    return typeName == "Float" or typeName == "Float32" or
+        typeName == "Float64"
+}
+
+fun semanticDefaultConstantTypesCompatible(parameterType: String,
+    constantType: String) r: Bool {
+
+    if parameterType == "Char" { return false }
+    return parameterType == constantType
+}
+
+fun semanticDefaultConstantValueIsScalar(constantType: String,
+    constantValue: String) r: Bool {
+
+    if constantType == "Bool" {
+        return constantValue == "true" or constantValue == "false"
+    }
+    if semanticIsIntegerDefaultType(constantType) {
+        return semanticIsIntegerDefaultLiteral(constantValue)
+    }
+    if semanticIsFloatDefaultType(constantType) {
+        return semanticIsFloatDefaultLiteral(constantValue)
+    }
+    return false
+}
+
+fun semanticValidateDefaultParameter(result: LexicalSemanticResult,
+    parameter: ParamNode, moduleName: String, file: String) r: Void {
+
+    let rawType = parameter.paramType.typeName
+    if not rawType.contains("~default~") { return }
+    let value = semanticDefaultParameterValue(rawType)
+    let parameterType = semanticDefaultParameterType(rawType)
+    if value == "__seen_invalid_default_expression__" {
+        result.addError("E_DEFAULT_NOT_CONSTANT",
+            "default value for parameter '" + parameter.name +
+            "' must be a scalar literal or immutable module constant",
+            file, parameter.line, parameter.column)
+        return
+    }
+    if parameterType == "String" { return }
+    if parameterType == "Char" and
+        not semanticDefaultStartsLikeIdentifier(value) { return }
+    if parameterType == "Bool" and (value == "true" or value == "false") {
+        return
+    }
+    if semanticIsIntegerDefaultType(parameterType) and
+        semanticIsIntegerDefaultLiteral(value) {
+
+        return
+    }
+    if semanticIsFloatDefaultType(parameterType) and
+        semanticIsFloatDefaultLiteral(value) {
+
+        return
+    }
+    if value == "null" and parameterType.contains("Option<") { return }
+
+    let declarationIndex = result.registry.lookupIndex(moduleName, value)
+    if declarationIndex >= 0 and
+        declarationIndex < result.registry.kinds.length() and
+        declarationIndex < result.registry.declarationDetails.length() and
+        result.registry.kinds[declarationIndex] == "Global" {
+
+        let detail = result.registry.declarationDetails[declarationIndex]
+        let constantType = semanticGlobalEncodedType(detail)
+        let constantValue = semanticGlobalEncodedValue(detail)
+        if detail.startsWith("L") and
+            semanticDefaultConstantValueIsScalar(constantType,
+                constantValue) and
+            semanticDefaultConstantTypesCompatible(parameterType,
+                constantType) {
+
+            return
+        }
+    }
+    result.addError("E_DEFAULT_NOT_CONSTANT",
+        "default value '" + value + "' for parameter '" + parameter.name +
+        "' is not a compatible immutable scalar module constant",
+        file, parameter.line, parameter.column)
+}
+
 fun semanticCheckFunction(result: LexicalSemanticResult,
     function: FunctionNode, moduleName: String, file: String,
     ownerType: String, genericNames: Array<String>) r: Void {
@@ -1239,6 +1426,7 @@ fun semanticCheckFunction(result: LexicalSemanticResult,
     var i = 0
     while i < function.params.length() {
         let parameter = function.params[i]
+        semanticValidateDefaultParameter(result, parameter, moduleName, file)
         let identity = resolveSemanticTypeNode(result, parameter.paramType,
             file, parameter.line, parameter.column, moduleName,
             functionOwner, functionGenericNames)

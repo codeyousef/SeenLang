@@ -1,0 +1,11 @@
+fun computeExitCode() r: Int { return 2 }
+
+pub let COMPUTED_EXIT_CODE: Int = computeExitCode()
+
+fun choose(code: Int = COMPUTED_EXIT_CODE) r: Int {
+    return code
+}
+
+fun main() r: Int { return choose() }
+
+main()

@@ -792,8 +792,39 @@ class RealParser {
         if isAtEnd() {
             return prefix
         }
-        let value = peek().getValue()
+        let value = advance().getValue()
+        var unsupported = false
+        if not isAtEnd() and not checkToken(getCommaType()) and
+            not checkToken(getRightParenType()) and
+            not checkToken(getSemicolonType()) {
+
+            if peek().getValue() == "as" {
+                advance()
+                if not isAtEnd() and not checkToken(getCommaType()) and
+                    not checkToken(getRightParenType()) and
+                    not checkToken(getSemicolonType()) {
+
+                    // The declared parameter type is authoritative. Consume a
+                    // simple scalar cast, but do not encode it into the legacy
+                    // default-value metadata.
+                    advance()
+                } else {
+                    unsupported = true
+                }
+            } else {
+                unsupported = true
+            }
+        }
+        if not isAtEnd() and not checkToken(getCommaType()) and
+            not checkToken(getRightParenType()) and
+            not checkToken(getSemicolonType()) {
+
+            unsupported = true
+        }
         skipExpression()
+        if unsupported {
+            return "__seen_invalid_default_expression__"
+        }
         return prefix + value
     }
 

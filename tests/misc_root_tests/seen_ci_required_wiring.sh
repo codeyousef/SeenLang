@@ -273,6 +273,14 @@ grep -Fq 'seen_negative_default_arguments_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1578 default-argument regression"
 grep -Fq 'negative_default_arguments.seen' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1578 parser/lowering regression"
+grep -Fq 'seen_default_constant_arguments_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits module-constant default regression"
+grep -Fq 'E_DEFAULT_NOT_CONSTANT' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_default_constant_arguments_contract.sh" ||
+    fail "module-constant default regression omits semantic rejection coverage"
+grep -Fq 'stdlib_bytes' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_default_constant_arguments_contract.sh" ||
+    fail "module-constant default regression omits existing stdlib coverage"
 grep -Fq 'seen_cuda_after_bounded_array_release.sh' "$REQUIRED" ||
     fail "required CI omits FEL-1581 CUDA-after-array-release regression"
 grep -Fq 'seen_cuda_after_bounded_array_release.sh' "$STAGE1" ||
@@ -313,6 +321,9 @@ grep -Fq 'installedUnsignedRightShift' \
 grep -Fq 'installedNegativeInt32Default' \
     "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
     fail "installed release payload omits FEL-1578 default-argument coverage"
+grep -Fq 'installedModuleConstantDefault' \
+    "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" ||
+    fail "installed release payload omits module-constant default coverage"
 grep -Fq 'seen_async_structured_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits structured async regressions"
 grep -Fq 'structured_async.seen' "$STAGE1" ||

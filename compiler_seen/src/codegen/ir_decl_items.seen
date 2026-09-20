@@ -1,7 +1,7 @@
 // Declaration-item registration helpers.
 // Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen.
 
-import parser.real_parser.{FunctionNode, ItemNode, ParamNode}
+import parser.real_parser.{ProgramNode, FunctionNode, ItemNode, ParamNode}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, isClassTypeImpl,
     normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
@@ -23,6 +23,8 @@ class DeclarationItemContext {
     var funcNames: Array<String>
     var funcRetTypes: Array<String>
     var state: DeclarationPassState
+    var defaultConstantNames: Array<String>
+    var defaultConstantValues: Array<String>
 
     static fun new(structNames: Array<String>, typeAliasNames: String,
         typeAliasTargets: String, typeAliasCount: Int,
@@ -41,9 +43,46 @@ class DeclarationItemContext {
             floatParamParamIdxs: floatParamParamIdxs,
             funcNames: funcNames,
             funcRetTypes: funcRetTypes,
-            state: state
+            state: state,
+            defaultConstantNames: Array<String>(),
+            defaultConstantValues: Array<String>()
         }
     }
+}
+
+fun collectDefaultConstantMetadataIntoContextImpl(program: ProgramNode,
+    ctx: DeclarationItemContext) r: Void {
+
+    ctx.defaultConstantNames = Array<String>()
+    ctx.defaultConstantValues = Array<String>()
+    var itemIdx = 0
+    while itemIdx < program.items.length() {
+        let item = program.items[itemIdx]
+        if item.itemType == "GlobalVar" and item.visibility.startsWith("L") {
+            let separator = item.visibility.indexOf(":", 0)
+            if separator > 1 and separator + 1 < item.visibility.length() {
+                ctx.defaultConstantNames.push(item.name)
+                ctx.defaultConstantValues.push(item.visibility.substring(
+                    separator + 1, item.visibility.length()))
+            }
+        }
+        itemIdx = itemIdx + 1
+    }
+}
+
+fun resolveRegisteredDefaultConstantImpl(value: String,
+    ctx: DeclarationItemContext) r: String {
+
+    var index = ctx.defaultConstantNames.length() - 1
+    while index >= 0 {
+        if ctx.defaultConstantNames[index] == value and
+            index < ctx.defaultConstantValues.length() {
+
+            return ctx.defaultConstantValues[index]
+        }
+        index = index - 1
+    }
+    return value
 }
 
 class PreparedDeclarationItem {
@@ -112,7 +151,7 @@ fun registerFloatParamMetadataImpl(funcName: String, params: Array<ParamNode>,
 }
 
 fun registerDefaultParamMetadataIntoStateImpl(implFuncName: String,
-    paramIdx: Int, rawTypeName: String, state: DeclarationPassState)
+    paramIdx: Int, rawTypeName: String, ctx: DeclarationItemContext)
     r: Void {
 
     if not rawTypeName.contains("~default~") {
@@ -120,26 +159,30 @@ fun registerDefaultParamMetadataIntoStateImpl(implFuncName: String,
     }
 
     let defSepPos = rawTypeName.indexOf("~default~", 0)
-    let defValue = rawTypeName.substring(defSepPos + 9,
+    let rawDefaultValue = rawTypeName.substring(defSepPos + 9,
         rawTypeName.length())
     let defTypeName = normalizeSeenTypeNameImpl(rawTypeName.substring(0,
         defSepPos))
-    state.funcDefaultsArr = state.funcDefaultsArr + implFuncName + ":" +
+    var defValue = rawDefaultValue
+    if defTypeName != "String" and defTypeName != "Char" {
+        defValue = resolveRegisteredDefaultConstantImpl(rawDefaultValue, ctx)
+    }
+    ctx.state.funcDefaultsArr = ctx.state.funcDefaultsArr + implFuncName + ":" +
         paramIdx.toString() + ":" + defValue + ":" + defTypeName + "|"
 }
 
 fun registerFunctionParamDefaultMetadataIntoStateImpl(fn: FunctionNode,
-    implFuncName: String, state: DeclarationPassState) r: Void {
+    implFuncName: String, ctx: DeclarationItemContext) r: Void {
 
     var paramIdx = 0
     while paramIdx < fn.params.length() {
         registerDefaultParamMetadataIntoStateImpl(implFuncName, paramIdx,
-            fn.params[paramIdx].paramType.typeName, state)
+            fn.params[paramIdx].paramType.typeName, ctx)
         paramIdx = paramIdx + 1
     }
 
     if fn.params.length() > 0 {
-        state.funcParamCountArr = state.funcParamCountArr + implFuncName +
+        ctx.state.funcParamCountArr = ctx.state.funcParamCountArr + implFuncName +
             ":" + fn.params.length().toString() + "|"
     }
 }
@@ -250,7 +293,7 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
         registerFloatParamMetadataImpl(mangledName, method.params,
             ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
         registerFunctionParamDefaultMetadataIntoStateImpl(method, mangledName,
-            ctx.state)
+            ctx)
         registerFunctionBorrowMetadataIntoStateImpl(method, mangledName,
             ctx.state)
 
@@ -296,7 +339,7 @@ fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
     registerFloatParamMetadataImpl(floatRegistryFuncName, funcObj.params,
         ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
     registerFunctionParamDefaultMetadataIntoStateImpl(funcObj, funcObj.name,
-        ctx.state)
+        ctx)
     registerFunctionBorrowMetadataIntoStateImpl(funcObj, funcObj.name,
         ctx.state)
 
