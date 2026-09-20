@@ -1,0 +1,12 @@
+import io.bytes.{tryByteBufferWithCapacity}
+
+fun main() r: Int {
+    let allocated = tryByteBufferWithCapacity(8)
+    if allocated.isErr() { return 1 }
+    let buffer = allocated.unwrap()
+    if buffer.owner.alignment != 32 { return 2 }
+    println(buffer.owner.alignment)
+    return 0
+}
+
+main()

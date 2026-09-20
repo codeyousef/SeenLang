@@ -1,0 +1,54 @@
+pub let EXIT_CODE: Int = 2
+pub let SMALL_SIGNED: Int8 = 3
+pub let SMALL_UNSIGNED: UInt8 = 4
+pub let MEDIUM_SIGNED: Int16 = 5
+pub let MEDIUM_UNSIGNED: UInt16 = 6
+pub let WIDE_SIGNED: Int32 = 7
+pub let WIDE_UNSIGNED: UInt32 = 8
+pub let LARGE_SIGNED: Int64 = 9
+pub let LARGE_UNSIGNED: UInt64 = 10
+pub let ENABLED: Bool = true
+pub let ENUM_LIKE_MODE: Int = 11
+pub let RATIO: Float = 1.25
+
+fun chooseExit(code: Int = EXIT_CODE) r: Int { return code }
+fun chooseI8(value: Int8 = SMALL_SIGNED) r: Int8 { return value }
+fun chooseU8(value: UInt8 = SMALL_UNSIGNED) r: UInt8 { return value }
+fun chooseI16(value: Int16 = MEDIUM_SIGNED) r: Int16 { return value }
+fun chooseU16(value: UInt16 = MEDIUM_UNSIGNED) r: UInt16 { return value }
+fun chooseI32(value: Int32 = WIDE_SIGNED) r: Int32 { return value }
+fun chooseU32(value: UInt32 = WIDE_UNSIGNED) r: UInt32 { return value }
+fun chooseI64(value: Int64 = LARGE_SIGNED) r: Int64 { return value }
+fun chooseU64(value: UInt64 = LARGE_UNSIGNED) r: UInt64 { return value }
+fun chooseBool(value: Bool = ENABLED) r: Bool { return value }
+fun chooseMode(value: Int = ENUM_LIKE_MODE) r: Int { return value }
+fun chooseFloat(value: Float = RATIO) r: Float { return value }
+fun chooseLiteralString(value: String = "EXIT_CODE") r: String { return value }
+
+class DefaultChooser {
+    fun choose(value: Int = EXIT_CODE) r: Int { return value }
+}
+
+fun main() r: Int {
+    if chooseExit() != 2 { return 1 }
+    if chooseI8() != (3 as Int8) { return 2 }
+    if chooseU8() != (4 as UInt8) { return 3 }
+    if chooseI16() != (5 as Int16) { return 4 }
+    if chooseU16() != (6 as UInt16) { return 5 }
+    if chooseI32() != (7 as Int32) { return 6 }
+    if chooseU32() != (8 as UInt32) { return 7 }
+    if chooseI64() != (9 as Int64) { return 8 }
+    if chooseU64() != (10 as UInt64) { return 9 }
+    if not chooseBool() { return 10 }
+    if chooseMode() != 11 { return 11 }
+    if chooseExit(23) != 23 { return 12 }
+    let chooser = DefaultChooser{}
+    if chooser.choose() != 2 { return 13 }
+    if chooser.choose(31) != 31 { return 14 }
+    if chooseFloat() != 1.25 { return 15 }
+    if chooseLiteralString() != "EXIT_CODE" { return 16 }
+    println(chooseExit())
+    return 0
+}
+
+main()

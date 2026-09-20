@@ -330,6 +330,18 @@ fun getModuleConstantTypeWithGlobalStateImpl(idx: Int) r: String {
     return moduleConstantTypes[idx]
 }
 
+fun getModuleConstantNamesWithGlobalStateImpl() r: Array<String> {
+    return moduleConstantNames
+}
+
+fun getModuleConstantValuesWithGlobalStateImpl() r: Array<String> {
+    return moduleConstantValues
+}
+
+fun getModuleConstantTypesWithGlobalStateImpl() r: Array<String> {
+    return moduleConstantTypes
+}
+
 fun tryInferModuleConstantVariableTypeWithGlobalStateImpl(name: String,
     moduleConstMutable: String, moduleConstSeenTypes: String,
     xmConstNames: String, xmConstTypes: String, xmConstMutable: String,

@@ -36,6 +36,12 @@ fun installedNegativeInt32Default(value: Int32 = -1 as Int32) r: Int32 {
     return value
 }
 
+pub let INSTALLED_DEFAULT_CODE: Int = 41
+
+fun installedModuleConstantDefault(value: Int = INSTALLED_DEFAULT_CODE) r: Int {
+    return value
+}
+
 class InstalledAggregateOwner {
     var bits: BFloat16
     var algorithm: CudaAlgorithm
@@ -60,6 +66,9 @@ fun require(condition: Bool, message: String) r: Void {
 fun main() r: Int {
     require(installedNegativeInt32Default() == (-1 as Int32),
         "installed negative Int32 default")
+    require(installedModuleConstantDefault() == 41 and
+        installedModuleConstantDefault(43) == 43,
+        "installed module-constant default")
     require(installedUnsignedRightShift(0x8000000000000000 as UInt64, 1) ==
         (0x4000000000000000 as UInt64),
         "installed UInt64 logical right shift")

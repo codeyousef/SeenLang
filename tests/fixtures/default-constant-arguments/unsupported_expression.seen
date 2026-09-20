@@ -1,0 +1,9 @@
+pub let BASE_EXIT_CODE: Int = 2
+
+fun choose(code: Int = BASE_EXIT_CODE + 1) r: Int {
+    return code
+}
+
+fun main() r: Int { return choose() }
+
+main()

@@ -1,0 +1,9 @@
+pub let SEPARATOR: Char = ':'
+
+fun choose(value: Char = SEPARATOR) r: Char {
+    return value
+}
+
+fun main() r: Int { return choose() as Int }
+
+main()
