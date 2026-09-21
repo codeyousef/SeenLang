@@ -57,6 +57,7 @@ class SafeTensorMetadata {
     var tensors: Array<TensorBytes>
     var dataStart: UInt64
     var fileLength: UInt64
+    var closed: Bool
 
     fun tensor(name: String) r: Result<TensorBytes, SafeTensorError> {
         var index = 0
@@ -71,11 +72,14 @@ class SafeTensorMetadata {
     }
 
     fun close() r: Void {
+        if this.closed { return }
+        this.closed = true
         var index = 0
         while index < this.names.length() {
             seen_string_release_owned(this.names[index])
             seen_string_release_owned(this.tensors[index].dtype)
             this.tensors[index].shape.free()
+            this.tensors[index].free()
             index = index + 1
         }
         this.names.free()
@@ -92,22 +96,34 @@ class SafeTensorFile {
         r: Result<SafeTensorFile, SafeTensorError> {
         let opened = MappedFile.openReadonly(path)
         if opened.isErr() {
+            opened.unwrapErr().free()
+            opened.releaseContainer()
             return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
                 "safetensors.open", "", "failed to open tensor file"))
         }
         let file = opened.unwrap()
+        opened.releaseContainer()
         if file.length < (8 as UInt64) {
             let closeTruncated = file.close()
+            if closeTruncated.isErr() { closeTruncated.unwrapErr().free() }
+            closeTruncated.releaseContainer()
+            file.free()
             return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
                 "safetensors.truncated", "", "file has no metadata length"))
         }
         let prefixResult = file.window(0 as UInt64, 8 as UInt64)
         if prefixResult.isErr() {
+            prefixResult.unwrapErr().free()
+            prefixResult.releaseContainer()
             let closePrefixFailure = file.close()
+            if closePrefixFailure.isErr() { closePrefixFailure.unwrapErr().free() }
+            closePrefixFailure.releaseContainer()
+            file.free()
             return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
                 "safetensors.map", "", "failed to map metadata length"))
         }
         let prefix = prefixResult.unwrap()
+        prefixResult.releaseContainer()
         let prefixBytes = seen_string_view_bytes(prefix.data, 8 as Int64)
         var headerLength: UInt64 = 0 as UInt64
         var byteIndex = 0
@@ -117,29 +133,50 @@ class SafeTensorFile {
             byteIndex = byteIndex + 1
         }
         let closePrefix = prefix.close()
+        if closePrefix.isErr() { closePrefix.unwrapErr().free() }
+        closePrefix.releaseContainer()
+        prefix.free()
         if headerLength == (0 as UInt64) or headerLength > policy.maxHeaderBytes or
             headerLength > file.length - (8 as UInt64) {
             let closeHeaderLimit = file.close()
+            if closeHeaderLimit.isErr() { closeHeaderLimit.unwrapErr().free() }
+            closeHeaderLimit.releaseContainer()
+            file.free()
             return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
                 "safetensors.header_limit", "", "metadata length is invalid"))
         }
         let headerResult = file.window(8 as UInt64, headerLength)
         if headerResult.isErr() {
+            headerResult.unwrapErr().free()
+            headerResult.releaseContainer()
             let closeHeaderMapFailure = file.close()
+            if closeHeaderMapFailure.isErr() { closeHeaderMapFailure.unwrapErr().free() }
+            closeHeaderMapFailure.releaseContainer()
+            file.free()
             return Err<SafeTensorFile, SafeTensorError>(safeTensorError(
                 "safetensors.map", "", "failed to map metadata"))
         }
         let headerWindow = headerResult.unwrap()
+        headerResult.releaseContainer()
         let header = seen_string_view_bytes(headerWindow.data, headerLength as Int64)
         let parsed = parseSafeTensorHeader(header, file.length, policy)
         let closeHeader = headerWindow.close()
+        if closeHeader.isErr() { closeHeader.unwrapErr().free() }
+        closeHeader.releaseContainer()
+        headerWindow.free()
         if parsed.isErr() {
             let error = parsed.unwrapErr()
+            parsed.releaseContainer()
             let closeParseFailure = file.close()
+            if closeParseFailure.isErr() { closeParseFailure.unwrapErr().free() }
+            closeParseFailure.releaseContainer()
+            file.free()
             return Err<SafeTensorFile, SafeTensorError>(error)
         }
+        let metadata = parsed.unwrap()
+        parsed.releaseContainer()
         return Ok<SafeTensorFile, SafeTensorError>(SafeTensorFile{
-            file: file, metadata: parsed.unwrap()
+            file: file, metadata: metadata
         })
     }
 
@@ -161,10 +198,14 @@ class SafeTensorFile {
         this.metadata.close()
         let closed = this.file.close()
         if closed.isErr() {
+            closed.unwrapErr().free()
+            closed.releaseContainer()
             return Err<Bool, SafeTensorError>(safeTensorError(
                 "safetensors.close", "", "failed to close tensor file"))
         }
-        return Ok<Bool, SafeTensorError>(closed.unwrap())
+        let didClose = closed.unwrap()
+        closed.releaseContainer()
+        return Ok<Bool, SafeTensorError>(didClose)
     }
 }
 
@@ -229,6 +270,7 @@ fun parseSafeTensorShardIndex(indexText: String, maxBytes: UInt64 =
         maxDepth: 16, maxValues: (maxTensors * (4 as UInt64)) as Int,
         maxStringBytes: 4096 }
     let strict = parseStrictJson(indexText, limits)
+    limits.free()
     if strict.isErr() {
         return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
             "safetensors.index_json", "", strict.unwrapErr().message))
@@ -504,6 +546,7 @@ fun destroySafeTensorParts(names: Array<String>, tensors: Array<TensorBytes>)
         seen_string_release_owned(names[index])
         seen_string_release_owned(tensors[index].dtype)
         tensors[index].shape.free()
+        tensors[index].free()
         index = index + 1
     }
     names.free()
@@ -561,11 +604,17 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
         maxDepth: 32, maxValues: (policy.maxTensors * (16 as UInt64)) as Int,
         maxStringBytes: 16777216 }
     let strict = parseStrictJson(header, limits)
+    limits.free()
     if strict.isErr() {
-        return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
-            "safetensors.json", "", strict.unwrapErr().message))
+        let strictError = strict.unwrapErr()
+        let error = safeTensorError(
+            "safetensors.json", "", strictError.message)
+        strictError.free()
+        strict.releaseContainer()
+        return Err<SafeTensorMetadata, SafeTensorError>(error)
     }
     let result = strict.unwrap()
+    strict.releaseContainer()
     let names = Array<String>()
     let tensors = Array<TensorBytes>()
     let root = result.value.unwrap()
@@ -588,6 +637,8 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
         let nameOption = root.keyAt(keyIndex)
         let entryOption = root.valueAt(keyIndex)
         if nameOption.isNone() or entryOption.isNone() {
+            nameOption.free()
+            entryOption.free()
             destroySafeTensorParts(names, tensors)
             destroyJsonParseResult(result, true)
             return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
@@ -595,6 +646,9 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
                 "metadata indexed traversal is inconsistent"))
         }
         let name = nameOption.unwrap()
+        let entry = entryOption.unwrap()
+        nameOption.free()
+        entryOption.free()
         if name != "__metadata__" {
             if (names.length() as UInt64) >= policy.maxTensors or
                 not safeTensorNameAllowed(name, policy) {
@@ -604,7 +658,6 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
                     "safetensors.policy", name,
                     "tensor count or name policy rejected metadata"))
             }
-            let entry = entryOption.unwrap()
             if not entry.isObject() {
                 destroySafeTensorParts(names, tensors)
                 destroyJsonParseResult(result, true)
@@ -618,12 +671,15 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
                 JSON_UNKNOWN_FIELDS_REJECT)
             entryFields.free()
             if entryShape.isErr() {
+                entryShape.unwrapErr().free()
+                entryShape.releaseContainer()
                 destroySafeTensorParts(names, tensors)
                 destroyJsonParseResult(result, true)
                 return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
                     "safetensors.unknown_field", name,
                     "tensor entry contains an unknown field"))
             }
+            entryShape.releaseContainer()
             let dtypeValue = entry.get("dtype")
             let shapeValue = entry.get("shape")
             let offsetsValue = entry.get("data_offsets")
@@ -632,34 +688,49 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
                 not shapeValue.unwrap().isArray() or
                 not offsetsValue.unwrap().isArray() or
                 offsetsValue.unwrap().length() != 2 {
+                dtypeValue.free()
+                shapeValue.free()
+                offsetsValue.free()
                 destroySafeTensorParts(names, tensors)
                 destroyJsonParseResult(result, true)
                 return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
                     "safetensors.fields", name,
                     "dtype, shape, and two data offsets are required"))
             }
-            let dtype = dtypeValue.unwrap().getString()
+            let dtypeJson = dtypeValue.unwrap()
+            let shapeJson = shapeValue.unwrap()
+            let offsetsJson = offsetsValue.unwrap()
+            dtypeValue.free()
+            shapeValue.free()
+            offsetsValue.free()
+            let dtype = dtypeJson.getString()
             let elementBytes = safeTensorDtypeBytes(dtype)
             if elementBytes.isNone() {
+                elementBytes.free()
                 destroySafeTensorParts(names, tensors)
                 destroyJsonParseResult(result, true)
                 return Err<SafeTensorMetadata, SafeTensorError>(safeTensorError(
                     "safetensors.dtype", name, "unsupported tensor dtype"))
             }
+            let elementByteCount = elementBytes.unwrap()
+            elementBytes.free()
             let shape = Array<UInt64>()
             var elementCount: UInt64 = 1 as UInt64
-            let shapeValues = shapeValue.unwrap().getArray()
+            let shapeValues = shapeJson.getArray()
             var dimensionIndex = 0
             while dimensionIndex < shapeValues.length() {
                 let dimensionResult = safeTensorExactUInt(shapeValues[dimensionIndex],
                     name, "shape")
                 if dimensionResult.isErr() {
+                    let dimensionError = dimensionResult.unwrapErr()
+                    dimensionResult.releaseContainer()
                     shape.free()
                     destroySafeTensorParts(names, tensors)
                     destroyJsonParseResult(result, true)
-                    return Err<SafeTensorMetadata, SafeTensorError>(dimensionResult.unwrapErr())
+                    return Err<SafeTensorMetadata, SafeTensorError>(dimensionError)
                 }
                 let dimension = dimensionResult.unwrap()
+                dimensionResult.releaseContainer()
                 if dimension != (0 as UInt64) and
                     elementCount > (0x7FFFFFFFFFFFFFFF as UInt64) / dimension {
                     shape.free()
@@ -672,10 +743,14 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
                 shape.push(dimension)
                 dimensionIndex = dimensionIndex + 1
             }
-            let offsets = offsetsValue.unwrap().getArray()
+            let offsets = offsetsJson.getArray()
             let startResult = safeTensorExactUInt(offsets[0], name, "data_offsets[0]")
             let endResult = safeTensorExactUInt(offsets[1], name, "data_offsets[1]")
             if startResult.isErr() or endResult.isErr() {
+                if startResult.isErr() { startResult.unwrapErr().free() }
+                if endResult.isErr() { endResult.unwrapErr().free() }
+                startResult.releaseContainer()
+                endResult.releaseContainer()
                 shape.free()
                 destroySafeTensorParts(names, tensors)
                 destroyJsonParseResult(result, true)
@@ -683,7 +758,8 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
                     "safetensors.offset", name, "invalid tensor data offsets"))
             }
             let start = startResult.unwrap(); let end = endResult.unwrap()
-            let byteCount = elementCount * elementBytes.unwrap()
+            startResult.releaseContainer(); endResult.releaseContainer()
+            let byteCount = elementCount * elementByteCount
             if end < start or end - start != byteCount or
                 start > fileLength - dataStart or
                 end > fileLength - dataStart {
@@ -713,7 +789,7 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
             names.push(ownedName)
             tensors.push(TensorBytes{ dataOffset: dataStart + start,
                 dataLength: byteCount, elementCount: elementCount,
-                elementBytes: elementBytes.unwrap(), dtype: ownedDtype,
+                elementBytes: elementByteCount, dtype: ownedDtype,
                 shape: shape })
         }
         keyIndex = keyIndex + 1
@@ -737,6 +813,6 @@ fun parseSafeTensorHeader(header: String, fileLength: UInt64,
     destroyJsonParseResult(result, true)
     return Ok<SafeTensorMetadata, SafeTensorError>(SafeTensorMetadata{
         names: names, tensors: tensors, dataStart: dataStart,
-        fileLength: fileLength
+        fileLength: fileLength, closed: false
     })
 }
