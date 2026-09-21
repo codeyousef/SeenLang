@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.5] - 2026-09-21
+
+### Fixed
+
+- Closed every owned container and heap object created while opening, parsing,
+  and closing Safetensors files, including mapped-file results, indexed JSON
+  options, tensor metadata, shapes, dtype values, and strict-JSON limits.
+- Made Safetensors metadata cleanup idempotent and completed strict-JSON UTF-8
+  validation-result cleanup, so successful, repeated, and rejected lifecycles
+  restore exact allocator live usage while recyclable reserve remains separately
+  observable.
+
 ## [0.22.4] - 2026-09-20
 
 ### Fixed

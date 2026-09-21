@@ -98,8 +98,11 @@ fun parseStrictJson(input: String, limits: StrictJsonLimits)
     }
     let utf8 = validateJsonUtf8(input)
     if utf8.isErr() {
-        return Err<JsonParseResult, StrictJsonError>(utf8.unwrapErr())
+        let error = utf8.unwrapErr()
+        utf8.releaseContainer()
+        return Err<JsonParseResult, StrictJsonError>(error)
     }
+    utf8.releaseContainer()
     let parsed = parseJsonWithStrictLimits(input, limits.maxInputBytes,
         limits.maxDepth, limits.maxValues, limits.maxStringBytes)
     if parsed.success != 1 {

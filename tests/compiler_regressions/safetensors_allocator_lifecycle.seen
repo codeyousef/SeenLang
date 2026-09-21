@@ -1,0 +1,129 @@
+import env.env.{get}
+import formats.safetensors.{SafeTensorFile, SafeTensorPolicy,
+    closeSafeTensorPolicy}
+import memory.allocation.{memoryStats, memoryReservedBytes}
+
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
+fun closeValid(path: String, policy: SafeTensorPolicy) r: Bool {
+    let opened = SafeTensorFile.open(path, policy)
+    if opened.isErr() {
+        opened.unwrapErr().free()
+        opened.releaseContainer()
+        return false
+    }
+    let file = opened.unwrap()
+    opened.releaseContainer()
+
+    let tensor = file.metadata.tensor("x")
+    if tensor.isErr() {
+        tensor.unwrapErr().free()
+        tensor.releaseContainer()
+        return false
+    }
+    let geometry = tensor.unwrap()
+    let valid = geometry.dtype == "F32" and
+        geometry.dataLength == (4 as UInt64) and
+        geometry.shape.length() == 1 and
+        geometry.shape[0] == (1 as UInt64)
+    tensor.releaseContainer()
+
+    let closed = file.close()
+    if closed.isErr() {
+        closed.unwrapErr().free()
+        closed.releaseContainer()
+        return false
+    }
+    closed.releaseContainer()
+
+    // A second close must be deterministic and must not debit live usage.
+    let closedAgain = file.close()
+    if closedAgain.isErr() {
+        closedAgain.unwrapErr().free()
+        closedAgain.releaseContainer()
+        return false
+    }
+    closedAgain.releaseContainer()
+    file.metadata.free()
+    file.file.free()
+    file.free()
+    return valid
+}
+
+fun rejectMalformed(path: String, policy: SafeTensorPolicy) r: Bool {
+    let opened = SafeTensorFile.open(path, policy)
+    if opened.isOkay() {
+        let file = opened.unwrap()
+        opened.releaseContainer()
+        let closed = file.close()
+        if closed.isErr() { closed.unwrapErr().free() }
+        closed.releaseContainer()
+        file.metadata.free()
+        file.file.free()
+        file.free()
+        return false
+    }
+    let error = opened.unwrapErr()
+    let rejected = error.code == "safetensors.unknown_field"
+    error.free()
+    opened.releaseContainer()
+    return rejected
+}
+
+fun main() r: Int {
+    let root = get("SEEN_SAFETENSORS_LIFECYCLE_ROOT")
+    if root.length() == 0 { return 2 }
+    let validPath = root + "/valid.safetensors"
+    let malformedPath = root + "/malformed.safetensors"
+    let policy = SafeTensorPolicy.modelWeights()
+    policy.maxHeaderBytes = 1048576 as UInt64
+    policy.maxTensors = 8 as UInt64
+
+    let coldBaseline = memoryStats()
+    let coldReserve = memoryReservedBytes()
+    if not closeValid(validPath, policy) { return 3 }
+    let coldAfter = memoryStats()
+    let coldReserveAfter = memoryReservedBytes()
+    println("safetensors lifecycle cold live/reserve")
+    println(coldBaseline.usedBytes); println(coldAfter.usedBytes)
+    println(coldReserve); println(coldReserveAfter)
+    if coldAfter.usedBytes != coldBaseline.usedBytes { return 4 }
+
+    var repetition = 0
+    let warmBaseline = memoryStats()
+    let warmReserve = memoryReservedBytes()
+    while repetition < 32 {
+        if not closeValid(validPath, policy) { return 5 }
+        repetition = repetition + 1
+    }
+    let warmAfter = memoryStats()
+    let warmReserveAfter = memoryReservedBytes()
+    println("safetensors lifecycle warm live/reserve")
+    println(warmBaseline.usedBytes); println(warmAfter.usedBytes)
+    println(warmReserve); println(warmReserveAfter)
+    if warmAfter.usedBytes != warmBaseline.usedBytes { return 6 }
+
+    repetition = 0
+    let rejectBaseline = memoryStats()
+    let rejectReserve = memoryReservedBytes()
+    while repetition < 32 {
+        if not rejectMalformed(malformedPath, policy) { return 7 }
+        repetition = repetition + 1
+    }
+    let rejectAfter = memoryStats()
+    let rejectReserveAfter = memoryReservedBytes()
+    println("safetensors lifecycle rejected live/reserve")
+    println(rejectBaseline.usedBytes); println(rejectAfter.usedBytes)
+    println(rejectReserve); println(rejectReserveAfter)
+    if rejectAfter.usedBytes != rejectBaseline.usedBytes { return 8 }
+
+    closeSafeTensorPolicy(policy)
+    policy.free()
+    seen_string_release_owned(validPath)
+    seen_string_release_owned(malformedPath)
+    seen_string_release_owned(root)
+    println("PASS: Safetensors allocator lifecycle")
+    return 0
+}
+
+main()
