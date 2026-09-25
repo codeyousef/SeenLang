@@ -53,6 +53,7 @@ bash -n \
     tests/misc_root_tests/seen_repr_c_aggregate_array_push_contract.sh \
     tests/misc_root_tests/seen_class_destruction_accounting_contract.sh \
     tests/misc_root_tests/seen_option_free_layout_contract.sh \
+    tests/misc_root_tests/seen_option_payload_width_contract.sh \
     tests/misc_root_tests/seen_result_string_unwrap_contract.sh \
     tests/misc_root_tests/seen_result_payload_pool_live_contract.sh \
     tests/misc_root_tests/seen_runtime_cstring_accounting.sh \

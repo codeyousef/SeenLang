@@ -12,7 +12,7 @@ import (
 
 const (
 	ProtocolVersion  = "SEENPKG1"
-	SidecarVersion   = "0.22.5"
+	SidecarVersion   = "0.22.6"
 	maxRequestBytes  = 8 << 20
 	maxRequestArgs   = 4096
 	maxArgumentBytes = 1 << 20

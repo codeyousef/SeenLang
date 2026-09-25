@@ -1,0 +1,5 @@
+import core.option.{Option, Some}
+
+pub fun importedNativeCode(result: Int32) r: Option<Int64> {
+    return Some<Int64>(result)
+}

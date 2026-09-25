@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.6] - 2026-09-25
+
+### Fixed
+
+- Widened signed and unsigned fixed-width integers before storing them in
+  `Option<T>` payloads. Vulkan readback now emits valid LLVM for an `Int32`
+  result passed to `Some<Int64>`.
+
 ## [0.22.5] - 2026-09-21
 
 ### Fixed
