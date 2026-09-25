@@ -1,0 +1,45 @@
+import core.result.{Result}
+import memory.allocation.{memoryStats}
+
+fun borrowedResult(value: String, fail: Bool) r: Result<String, String> {
+    if fail { return Err<String, String>(value) }
+    return Ok<String, String>(value)
+}
+
+fun main() r: Int {
+    let values = Array<String>()
+    values.push("borrowed")
+    let baseline = memoryStats().usedBytes
+    let failures = memoryStats().allocationFailures
+    var index = 0
+    while index < 100000 {
+        let success = borrowedResult(values[0], false)
+        if success.isErr() { abort("Result success changed") }
+        let borrowedSuccess = success.unwrap()
+        success.releaseContainer()
+        if borrowedSuccess != "borrowed" {
+            abort("borrowed success String was released")
+        }
+
+        let failure = borrowedResult(values[0], true)
+        if not failure.isErr() { abort("Result error changed") }
+        let borrowedError = failure.unwrapErr()
+        failure.releaseContainer()
+        if borrowedError != "borrowed" {
+            abort("borrowed error String was released")
+        }
+        index = index + 1
+    }
+    let after = memoryStats().usedBytes
+    if after != baseline {
+        abort("String Result containers retained allocations")
+    }
+    if memoryStats().allocationFailures != failures {
+        abort("String Result cleanup changed allocation failures")
+    }
+    values.free()
+    println("PASS: borrowed String Result containers return to baseline")
+    return 0
+}
+
+main()

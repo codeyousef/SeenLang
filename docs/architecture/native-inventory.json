@@ -5827,13 +5827,6 @@
       ]
     },
     {
-      "name": "seen_result_release_boxed_string_ok",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/crypto/sha256.seen"
-      ]
-    },
-    {
       "name": "seen_set_thread_affinity",
       "abi": "Seen",
       "sources": [

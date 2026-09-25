@@ -41,7 +41,7 @@ for profile in fast release; do
     else
         flags+=(--release --lto=thin)
     fi
-    for fixture in result_generic_payload_free pool_live_reserve_lifecycle; do
+    for fixture in result_generic_payload_free result_string_container_release pool_live_reserve_lifecycle; do
         source="$ROOT_DIR/tests/fixtures/$fixture.seen"
         binary="$WORK/$fixture-$profile"
         ir_dir="$WORK/$fixture-$profile-ir"
@@ -69,8 +69,15 @@ for profile in fast release; do
     done
     grep -Fq 'PASS: concrete generic Result payload release' \
         "$WORK/result_generic_payload_free-$profile.log"
+    grep -Fq 'PASS: borrowed String Result containers return to baseline' \
+        "$WORK/result_string_container_release-$profile.log"
     grep -Fq 'PASS: cold and warm JSON/SHA live usage excludes reserve' \
         "$WORK/pool_live_reserve_lifecycle-$profile.log"
+    rg --no-ignore -q 'call void @seen_result_release_boxed_aggregate\(ptr .*i64 16, i64 16\)' \
+        "$WORK/result_string_container_release-$profile-ir" || {
+        echo 'FAIL: String Result container omitted concrete box release widths' >&2
+        exit 1
+    }
     if rg --no-ignore -q '@T_free' \
         "$WORK/result_generic_payload_free-$profile-ir"; then
         echo 'FAIL: unresolved generic T_free remained in emitted IR' >&2

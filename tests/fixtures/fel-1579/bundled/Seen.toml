@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "fel_1579_bundled_cuda"
-version = "0.22.6"
+version = "0.22.7"
 language = "en"
 modules = ["src/main.seen"]
 
