@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.7] - 2026-09-25
+
+### Fixed
+
+- Released the owned 16-byte success or error box when a
+  `Result<String, E>` container is released, while preserving the borrowed
+  string value. Repeated success and error lifecycles now return to the exact
+  allocator baseline in fast and release/ThinLTO builds.
+- Removed redundant manual String-box releases from SHA-256 and canonical-JSON
+  cleanup paths now covered by `Result.releaseContainer()`.
+
 ## [0.22.6] - 2026-09-25
 
 ### Fixed

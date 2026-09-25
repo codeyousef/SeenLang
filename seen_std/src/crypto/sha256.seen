@@ -7,7 +7,6 @@ import core.result.{Result, Ok, Err}
 extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
 extern "C" fun seen_string_clone_owned(value: String) r: String
 extern "C" fun seen_string_release_owned(value: String) r: Void
-extern "C" fun seen_result_release_boxed_string_ok(value: *Void) r: Void
 
 class Sha256Error {
     var code: String
@@ -192,7 +191,6 @@ class Sha256 {
 fun releaseSha256DigestResult(result: Result<String, Sha256Error>) r: Void {
     if result.isErr() { abort("releaseSha256DigestResult requires a digest") }
     seen_string_release_owned(result.unwrap())
-    seen_result_release_boxed_string_ok(result as *Void)
     result.releaseContainer()
 }
 
