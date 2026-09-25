@@ -243,6 +243,10 @@ grep -Fq 'seen_result_scalar_payload_contract.sh' "$REQUIRED" ||
     fail "required CI omits FEL-1550 Result scalar regression"
 grep -Fq 'seen_result_scalar_payload_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1550 Result scalar regression"
+grep -Fq 'seen_option_payload_width_contract.sh' "$REQUIRED" ||
+    fail "required CI omits FEL-1586 Option payload regression"
+grep -Fq 'seen_option_payload_width_contract.sh' "$STAGE1" ||
+    fail "fresh-compiler acceptance omits FEL-1586 Option payload regression"
 grep -Fq 'seen_aggregate_return_cuda_stdlib_contract.sh' "$STAGE1" ||
     fail "fresh-compiler acceptance omits FEL-1570 aggregate/CUDA regression"
 grep -Fq 'seen_pointer_field_cast_contract.sh' "$STAGE1" ||

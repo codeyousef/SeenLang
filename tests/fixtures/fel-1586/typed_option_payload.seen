@@ -1,0 +1,29 @@
+import core.option.{Option, Some}
+import core.result.{Result, Ok}
+import core.error.{SeenError}
+import option_payload_support.{importedNativeCode}
+
+fun nativeFailureCode(result: Int32) r: Result<Int, SeenError> {
+    let nativeCode: Option<Int64> = Some<Int64>(result)
+    if nativeCode.unwrap() != (-7 as Int64) {
+        return Ok(1)
+    }
+    return Ok(0)
+}
+
+fun main() r: Int {
+    let outcome = nativeFailureCode(-7 as Int32)
+    if outcome.isErr() { return 2 }
+    let code = outcome.unwrap()
+    if code != 0 { return 3 }
+
+    let unsignedCode: Option<UInt64> = Some<UInt64>(
+        0xFFFFFFFF as UInt32)
+    if unsignedCode.unwrap() != (0xFFFFFFFF as UInt64) { return 4 }
+    let importedCode = importedNativeCode(-9 as Int32)
+    if importedCode.unwrap() != (-9 as Int64) { return 5 }
+    println("PASS: typed Option payload conversions")
+    return 0
+}
+
+main()

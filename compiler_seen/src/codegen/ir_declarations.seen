@@ -9,6 +9,8 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_info.{findStructIdx}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import codegen.ir_decl_late_declares.{moduleBuilderAlreadyDeclaresFunctionCoreImpl}
+import codegen.ir_type_mapping.{getFixedWidthScalarLlvmTypeImpl}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 
 // Check if a function name is defined in the current module
 fun isFuncDefinedInModule(name: String, definedFuncs: Array<String>) r: Bool {
@@ -210,12 +212,23 @@ fun emitSomeConstructorImpl(output: StringBuilder, regBox: Array<Int>,
 
     if not someArgHandled {
         output.append("  " + allocReg + " = call ptr @seen_pool_alloc(i64 24) ; alloc-sinkable Option<i64>\n")
+        var payloadReg = argReg
+        let scalarLlvmType = getFixedWidthScalarLlvmTypeImpl(argType)
+        if scalarLlvmType == "i8" or scalarLlvmType == "i16" or
+            scalarLlvmType == "i32" {
+
+            // Option's erased integer payload is an i64 slot. Preserve the
+            // source integer's signedness while widening its concrete SSA
+            // value before emitting the store.
+            payloadReg = coerceValueForLlvmTargetImpl(output, regBox,
+                "i64", argType, scalarLlvmType, argReg)
+        }
         let hasValuePtrReg = getNextRegFn(regBox)
         output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 0\n")
         output.append("  store i1 true, ptr " + hasValuePtrReg + "\n")
         let valuePtrReg = getNextRegFn(regBox)
         output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + allocReg + ", i32 0, i32 1\n")
-        output.append("  store i64 " + argReg + ", ptr " + valuePtrReg + "\n")
+        output.append("  store i64 " + payloadReg + ", ptr " + valuePtrReg + "\n")
     }
 
     // Convert to i64 (class types stored as pointer-as-int)
