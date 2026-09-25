@@ -282,7 +282,7 @@ MISMATCH_DIR="$TMP_DIR/version-mismatch"
 mkdir -p "$MISMATCH_DIR"
 tar -xzf "$TARBALL" -C "$MISMATCH_DIR"
 MISMATCH_PACKAGE="$MISMATCH_DIR/seen-0.22.7-linux-x64"
-sed -i 's/Seen 0\.22\.6/Seen 9.9.9/' "$MISMATCH_PACKAGE/bin/seen"
+sed -i 's/Seen 0\.22\.7/Seen 9.9.9/' "$MISMATCH_PACKAGE/bin/seen"
 MISMATCH_TARBALL="$TMP_DIR/seen-version-mismatch.tar.gz"
 tar -czf "$MISMATCH_TARBALL" -C "$MISMATCH_DIR" "$(basename "$MISMATCH_PACKAGE")"
 set +e

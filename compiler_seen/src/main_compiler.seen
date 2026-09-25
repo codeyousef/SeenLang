@@ -6814,6 +6814,7 @@ fun appendCompilerInternalSupportModules(paths: Array<String>, processedPaths: A
     modules.push("json.parser")
     modules.push("release.compatibility")
     modules.push("core.error")
+    modules.push("core.result")
     modules.push("core.operation_context")
     modules.push("trace")
     modules.push("io.file")
@@ -8815,6 +8816,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("release.build_instrumentation")
         modules.push("release.release_optimization")
         modules.push("core.error")
+        modules.push("core.result")
         modules.push("core.operation_context")
         modules.push("testing.categories")
         modules.push("testing.discovery")
@@ -15932,7 +15934,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if serialLinkerRequired and (effectiveTarget == "linux-x86_64" or
         effectiveTarget == "linux-arm64" or
         effectiveTarget == "linux-riscv64" or
-        effectiveTarget == "android-arm64") {
+        effectiveTarget == "android-arm64" or
+        effectiveTarget == "windows-x86_64" or
+        (normalizedCrossTarget != "" and
+            (effectiveTarget == "macos-arm64" or
+             effectiveTarget == "macos-x86_64"))) {
 
         // A serial build is a process-topology contract, not just a module
         // scheduler hint. Bound LLD and its ThinLTO backend as well so an

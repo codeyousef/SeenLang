@@ -36,6 +36,7 @@ esac
 # Exercise the real package and CPU-baseline verification path before making
 # the certified compiler transferable. Dry-run mode cannot sign, tag, or upload.
 SEEN_RELEASE_DRY_RUN=1 SEEN_RELEASE_CLEAN_DIST=1 \
+SEEN_RELEASE_SKIP_OPTIONAL_CROSS_BUILDS=1 \
     "$ROOT_DIR/scripts/run_release_upload.sh" "$version"
 
 python3 "$ARCHIVE_TOOL" create --root "$ROOT_DIR" --output "$OUTPUT" \

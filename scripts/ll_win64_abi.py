@@ -155,6 +155,13 @@ def transform_ll_for_win64(content):
             if signature and ret_struct_type in byval_types:
                 ret_type = ret_struct_type
                 sret_functions.add(func_name)
+                # A value return can be readonly, but the Windows sret ABI
+                # writes through its new pointer argument. Retaining a source
+                # memory attribute lets LLVM erase that write and load an
+                # uninitialized aggregate at the caller (notably String).
+                attrs = re.sub(r'\b(?:readonly|readnone|writeonly|argmemonly|inaccessiblememonly)\b', '', attrs)
+                attrs = re.sub(r'\bmemory\([^)]*\)', '', attrs)
+                attrs = re.sub(r'\s+', ' ', attrs).rstrip()
 
                 # For define: the sret param needs a name
                 sret_param_name = '%_sret_out'

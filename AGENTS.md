@@ -9,6 +9,7 @@
 
 - Do not run project builds or rebuild scripts without an explicit memory limit derived from current system memory.
 - Prefer capped serial or low-memory rebuild paths when available.
+- For releases, follow `docs/releasing-three-platforms.md`; Linux x64, macOS arm64, and Windows x64 are one required asset set. Do not publish a partial release.
 
 ## Repository hygiene
 

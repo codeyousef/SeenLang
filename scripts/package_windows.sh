@@ -134,6 +134,7 @@ windows_package_artifact_key() {
     {
         printf 'windows-package-v1\n'
         printf 'version=%s\n' "$VERSION"
+        printf 'source_commit=%s\n' "$(git -C "$PROJECT_DIR" rev-parse HEAD)"
         printf 'exe=%s\n' "$exe_hash"
         printf 'payload=%s\n' "$payload_hash"
         printf 'toolchain=%s\n' "$toolchain_hash"
@@ -210,6 +211,18 @@ cp "$WIN_DIR/seen.exe" "$PACKAGE_DIR/bin/"
 echo "  bin/seen.exe"
 cp "$PACKAGE_CLIENT_BIN" "$PACKAGE_DIR/bin/seen-pkg.exe"
 echo "  bin/seen-pkg.exe"
+COMPATIBILITY_MANIFEST="$PROJECT_DIR/releases/compatibility-manifest.json"
+python3 "$SCRIPT_DIR/check_compatibility_manifest.py" "$COMPATIBILITY_MANIFEST" >/dev/null || {
+    echo "ERROR: invalid Windows compatibility manifest" >&2
+    exit 1
+}
+[[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["release_version"])' \
+    "$COMPATIBILITY_MANIFEST")" == "$VERSION" ]] || {
+    echo "ERROR: Windows compatibility manifest version mismatch" >&2
+    exit 1
+}
+cp "$COMPATIBILITY_MANIFEST" "$PACKAGE_DIR/bin/compatibility-manifest.json"
+echo "  bin/compatibility-manifest.json"
 
 cat > "$PACKAGE_DIR/bin/seen-env.cmd" << 'CMD_EOF'
 @echo off
@@ -347,6 +360,15 @@ if [ -f "$PROJECT_DIR/LICENSE" ]; then
     cp "$PROJECT_DIR/LICENSE" "$PACKAGE_DIR/LICENSE.txt"
 fi
 
+# Bind the portable ZIP and installer input to the exact source checkout. The
+# release staging verifier rejects archives built before the release commit.
+mkdir -p "$PACKAGE_DIR/share/seen"
+printf 'release_version=%s\nsource_commit=%s\nplatform=windows-x64\ncompiler_sha256=%s\npackage_client_sha256=%s\n' \
+    "$VERSION" "$(git -C "$PROJECT_DIR" rev-parse HEAD)" \
+    "$(sha256sum "$WIN_DIR/seen.exe" | awk '{print $1}')" \
+    "$(sha256sum "$PACKAGE_CLIENT_BIN" | awk '{print $1}')" \
+    > "$PACKAGE_DIR/share/seen/release-provenance.env"
+
 # --- Create ZIP ---
 cd "$WIN_DIR"
 ZIPFILE="seen-${VERSION}-windows-x64.zip"
@@ -354,6 +376,11 @@ rm -f "$ZIPFILE"
 
 if command -v zip &>/dev/null; then
     zip -r -q "$ZIPFILE" "seen-${VERSION}-windows-x64/"
+    unzip -p "$ZIPFILE" "seen-${VERSION}-windows-x64/bin/compatibility-manifest.json" |
+        cmp -s - "$COMPATIBILITY_MANIFEST" || {
+            echo "ERROR: Windows ZIP lost or altered compatibility manifest" >&2
+            exit 1
+        }
 elif command -v 7z &>/dev/null; then
     7z a -mx=9 "$ZIPFILE" "seen-${VERSION}-windows-x64/"
 else

@@ -11573,6 +11573,24 @@ int32_t seen_fs_preallocate(uint64_t handle, uint64_t offset, uint64_t length) {
     int result = fallocate(file->fd, 0, (off_t)offset, (off_t)length);
     return result == 0 ? SEEN_FS_OK :
         seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+#elif defined(__APPLE__)
+    /* F_PREALLOCATE reserves storage without changing the logical file size.
+       Match POSIX fallocate by extending the file after a successful reserve. */
+    off_t end = (off_t)(offset + length);
+    struct stat current;
+    if (fstat(file->fd, &current) != 0)
+        return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    if (current.st_size >= end) return SEEN_FS_OK;
+    fstore_t store = {0};
+    store.fst_flags = F_ALLOCATEALL;
+    store.fst_posmode = F_PEOFPOSMODE;
+    store.fst_offset = 0;
+    store.fst_length = end - current.st_size;
+    if (fcntl(file->fd, F_PREALLOCATE, &store) != 0)
+        return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    if (ftruncate(file->fd, end) != 0)
+        return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    return SEEN_FS_OK;
 #elif !defined(_WIN32)
     int result = posix_fallocate(file->fd, (off_t)offset, (off_t)length);
     return result == 0 ? SEEN_FS_OK :

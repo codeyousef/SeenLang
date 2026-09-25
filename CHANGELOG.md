@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.22.7] - 2026-09-25
 
+### Release
+
+- Require one exact-source Linux x64, macOS arm64, and Windows x64 asset set
+  before publishing; stage cross-built inputs in a draft, sign the combined
+  checksums, and publish only after downloading and comparing every asset.
+- Repair the macOS arm64 runtime cross-build and Windows compiler ABI transform
+  so the packaged compiler and version-matched package client can be built for
+  those hosts.
+- Include the exact version-coupled compatibility manifest beside the Windows
+  compiler and verify it survives ZIP and installer creation; the installer now
+  retains source-only runtime files and release provenance.
+
 ### Fixed
 
 - Released the owned 16-byte success or error box when a

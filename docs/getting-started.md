@@ -2,7 +2,7 @@
 
 ## Install a Release
 
-The Linux and Windows release packages are built to include the compiler and
+The Linux x64, macOS arm64, and Windows x64 release packages include the compiler and
 the toolchain pieces needed by normal users, including LLVM tools where the
 package format supports bundling them. After installation, verify the compiler
 is on your PATH:

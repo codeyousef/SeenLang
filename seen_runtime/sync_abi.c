@@ -631,7 +631,7 @@ int32_t seen_sync_condition_create(uint64_t *out_handle) {
         seen_sync_abandon_slot(index, out_handle);
         return SEEN_SYNC_UNAVAILABLE;
     }
-#if defined(CLOCK_MONOTONIC)
+#if defined(CLOCK_MONOTONIC) && !defined(__APPLE__)
     (void)pthread_condattr_setclock(&attributes, CLOCK_MONOTONIC);
 #endif
     int result = pthread_cond_init(&slot->storage.condition.native,
@@ -698,12 +698,32 @@ int32_t seen_sync_condition_wait_until(uint64_t condition_handle,
     } else if (deadline_nanoseconds < 0) {
         result = ETIMEDOUT;
     } else {
+#if defined(__APPLE__)
+        /* Darwin condition variables use the realtime clock and cannot select
+           CLOCK_MONOTONIC. Convert our monotonic absolute deadline to a
+           relative wait to preserve the public deadline contract. */
+        int64_t now = seen_sync_monotonic_nanoseconds();
+        if (now < 0) {
+            result = EINVAL;
+        } else if (now >= deadline_nanoseconds) {
+            result = ETIMEDOUT;
+        } else {
+            int64_t remaining = deadline_nanoseconds - now;
+            struct timespec interval = {
+                (time_t)(remaining / INT64_C(1000000000)),
+                (long)(remaining % INT64_C(1000000000))
+            };
+            result = pthread_cond_timedwait_relative_np(&condition->native,
+                &mutex->native, &interval);
+        }
+#else
         struct timespec deadline = {
             (time_t)(deadline_nanoseconds / INT64_C(1000000000)),
             (long)(deadline_nanoseconds % INT64_C(1000000000))
         };
         result = pthread_cond_timedwait(&condition->native, &mutex->native,
                                         &deadline);
+#endif
     }
     int32_t status = result == 0 ? SEEN_SYNC_OK :
         result == ETIMEDOUT ? SEEN_SYNC_TIMEOUT :

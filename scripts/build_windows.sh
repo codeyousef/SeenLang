@@ -27,8 +27,15 @@ LLC=$(command -v llc-20 2>/dev/null || command -v llc 2>/dev/null || true)
 CLANG=$(command -v clang-20 2>/dev/null || command -v clang 2>/dev/null || true)
 MINGW_GCC=$(command -v x86_64-w64-mingw32-gcc 2>/dev/null || true)
 
-# Detect frozen compiler
-if [ -f "${PROJECT_DIR}/compiler_seen/target/seen" ]; then
+# Select an explicitly supplied, same-tree compiler when certifying a fresh
+# cross-target bootstrap. The default remains the normal release compiler.
+if [ -n "${SEEN_WINDOWS_COMPILER_BIN:-}" ]; then
+    if [ ! -f "$SEEN_WINDOWS_COMPILER_BIN" ] || [ ! -x "$SEEN_WINDOWS_COMPILER_BIN" ]; then
+        echo "ERROR: SEEN_WINDOWS_COMPILER_BIN is not an executable file" >&2
+        exit 1
+    fi
+    SEEN="$SEEN_WINDOWS_COMPILER_BIN"
+elif [ -f "${PROJECT_DIR}/compiler_seen/target/seen" ]; then
     SEEN="${PROJECT_DIR}/compiler_seen/target/seen"
 elif [ -f "${PROJECT_DIR}/bootstrap/stage1_frozen_v3" ]; then
     SEEN="${PROJECT_DIR}/bootstrap/stage1_frozen_v3"

@@ -83,6 +83,7 @@ if PATH="$WORK/bin:$PATH" "$ROOT/scripts/verify_release.sh" --key "$WORK/test.pu
 
 mkdir -p "$WORK/keyless"
 for role in compiler runtime stdlib package-client; do printf 'keyless-%s\n' "$role" >"$WORK/keyless/$role"; done
+printf '%s\n' 'staged-mac-and-windows-archive-digests' > "$WORK/keyless/SHA256SUMS"
 EXACT_IDENTITY='^https://github\.com/codeyousef/SeenLang/\.github/workflows/release\.yml@refs/tags/v0\.10\.1$'
 EXACT_ISSUER='https://token.actions.githubusercontent.com'
 if PATH="$WORK/bin:$PATH" "$ROOT/scripts/sign_release.sh" --keyless \
@@ -97,9 +98,18 @@ EXPECTED_COSIGN_IDENTITY="$EXACT_IDENTITY" EXPECTED_COSIGN_ISSUER="$EXACT_ISSUER
     --version 0.10.1 --source-commit "$(printf '1%.0s' {1..40})" \
     --source-digest "$(printf '2%.0s' {1..64})" --manifest "$WORK/keyless/manifest.json" \
     --signer-identity "$EXACT_IDENTITY" --signer-issuer "$EXACT_ISSUER" \
+    --checksum-list "$WORK/keyless/SHA256SUMS" \
     --artifact compiler="$WORK/keyless/compiler" --artifact runtime="$WORK/keyless/runtime" \
     --artifact stdlib="$WORK/keyless/stdlib" --artifact package-client="$WORK/keyless/package-client" \
     >/dev/null || fail exact-keyless-sign-verify
+[[ -s "$WORK/keyless/SHA256SUMS.bundle" && -s "$WORK/keyless/SHA256SUMS.sha256" ]] ||
+    fail signed-three-platform-checksums
+EXPECTED_COSIGN_IDENTITY="$EXACT_IDENTITY" EXPECTED_COSIGN_ISSUER="$EXACT_ISSUER" \
+    PATH="$WORK/bin:$PATH" cosign verify-blob \
+    --bundle "$WORK/keyless/SHA256SUMS.bundle" \
+    --certificate-identity-regexp "$EXACT_IDENTITY" \
+    --certificate-oidc-issuer "$EXACT_ISSUER" \
+    "$WORK/keyless/SHA256SUMS" >/dev/null || fail verified-three-platform-checksums
 python3 -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); assert value["signer"] == {"identity": sys.argv[2], "issuer": sys.argv[3], "mode": "keyless"}' \
     "$WORK/keyless/manifest.json" "$EXACT_IDENTITY" "$EXACT_ISSUER" || fail keyless-manifest-policy
 EXPECTED_COSIGN_IDENTITY="$EXACT_IDENTITY" EXPECTED_COSIGN_ISSUER="$EXACT_ISSUER" \
