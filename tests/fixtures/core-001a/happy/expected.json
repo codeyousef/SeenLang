@@ -20,8 +20,8 @@
   "platforms": {
     "linux-arm64": "static-policy",
     "linux-x86_64": "required",
-    "macos": "static-policy",
-    "windows": "static-policy"
+    "macos-arm64": "release-required-input",
+    "windows-x86_64": "release-required-input"
   },
   "release_checkout_ref": "explicit-event-commit-sha",
   "release_ci_attestation": "scripts/verify_release_ci_run.sh",
@@ -29,6 +29,7 @@
   "release_cpu_baseline": "x86-64",
   "release_signing": "github-oidc-keyless",
   "release_toolchain_artifact": "exact-main-run",
+  "release_windows_runner": "windows-2025-native-smoke-required",
   "release_workflow": ".github/workflows/release.yml",
   "required_check": "CI / required",
   "runner": "ubuntu-24.04",
@@ -36,5 +37,5 @@
   "timeout_minutes": 210,
   "trigger": "push-main-or-explicit-manual",
   "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-  "version": 7
+  "version": 9
 }

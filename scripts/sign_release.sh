@@ -13,6 +13,7 @@ TARGET="linux-x86_64"
 MANIFEST=""
 IDENTITY=""
 ISSUER=""
+CHECKSUM_LIST=""
 ARTIFACTS=()
 
 die() { echo "core.004b.invalid: $*" >&2; exit 1; }
@@ -23,6 +24,7 @@ Usage: sign_release.sh (--keyless | --key PATH | --kms URI)
        --manifest PATH --signer-identity TEXT --signer-issuer TEXT
        --artifact compiler=PATH --artifact runtime=PATH
        --artifact stdlib=PATH --artifact package-client=PATH
+       [--checksum-list PATH]
 
 Every artifact is checksummed, signed, and verified. The canonical manifest is
 then generated, checksummed, signed, and verified. No verification bypass exists.
@@ -43,6 +45,7 @@ while [[ $# -gt 0 ]]; do
         --manifest) [[ $# -ge 2 ]] || usage; MANIFEST="$2"; shift 2 ;;
         --signer-identity) [[ $# -ge 2 ]] || usage; IDENTITY="$2"; shift 2 ;;
         --signer-issuer) [[ $# -ge 2 ]] || usage; ISSUER="$2"; shift 2 ;;
+        --checksum-list) [[ $# -ge 2 ]] || usage; CHECKSUM_LIST="$2"; shift 2 ;;
         --artifact) [[ $# -ge 2 ]] || usage; ARTIFACTS+=("$2"); shift 2 ;;
         -h|--help) usage ;;
         *) die "unknown option: $1" ;;
@@ -165,4 +168,15 @@ case "$MODE" in
     kms) VERIFY_MODE+=(--key "$KMS_URI") ;;
 esac
 "$SCRIPT_DIR/verify_release.sh" "${VERIFY_MODE[@]}" --manifest "$MANIFEST" --artifact-dir "$(dirname "${PATHS[0]}")"
+if [[ -n "$CHECKSUM_LIST" ]]; then
+    [[ -f "$CHECKSUM_LIST" && ! -L "$CHECKSUM_LIST" && -s "$CHECKSUM_LIST" ]] ||
+        die "checksum list is missing, empty, or unsafe"
+    sha256sum "$CHECKSUM_LIST" | awk '{print $1}' > "$CHECKSUM_LIST.sha256"
+    make_sign_args "$CHECKSUM_LIST"
+    sign_blob_with_retry "$CHECKSUM_LIST" "$(basename "$CHECKSUM_LIST")" ||
+        die "checksum-list signing failed"
+    make_verify_args "$CHECKSUM_LIST"
+    cosign "${VERIFY_ARGS[@]}" >/dev/null 2>&1 ||
+        die "checksum-list post-sign verification failed"
+fi
 echo "PASS: signed and pinned compiler, runtime, stdlib, and package-client artifacts"

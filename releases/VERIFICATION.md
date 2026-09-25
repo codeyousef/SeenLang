@@ -84,3 +84,12 @@ Each release includes a canonical `seen-<version>-release-artifacts.json` with
 the exact component pins. The manifest itself is checksummed, signed, and
 verified before upload. Installer archives may be additional release assets;
 they never replace the four component trust anchors.
+
+For releases requiring Linux x64, macOS arm64, and Windows x64, also download
+`SHA256SUMS` and `SHA256SUMS.bundle`. Verify the checksum list using the same
+exact release-workflow certificate identity and GitHub Actions OIDC issuer,
+then run `sha256sum -c SHA256SUMS` with the three platform archives and every
+listed Linux artifact present. The signed checksum list binds the macOS and
+Windows archives to the signed release; the four Linux components and canonical
+manifest additionally have individual bundles. A draft, tag, or checksum list
+without all three required archives is not a complete release.

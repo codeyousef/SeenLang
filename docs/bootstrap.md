@@ -1,5 +1,9 @@
 # Bootstrap System
 
+The Linux-contained cross-host build and signed publication sequence is in
+[Three-platform release procedure](releasing-three-platforms.md). Do not infer
+that a native macOS build has the Linux hard-scope controls described below.
+
 Seen is self-hosted: a known-good Seen compiler builds the next compiler, then
 that compiler builds the compiler again. The rebuild is accepted only when the
 new stages verify correctly.

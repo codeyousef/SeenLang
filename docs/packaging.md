@@ -353,6 +353,17 @@ ambiguous absence check, or a concurrent create causes the upload to fail
 closed. Release creation also requires the already-published tag at mutation
 time; ordinary release runs never create tags or overwrite existing assets.
 
+For three-platform releases, use
+[the staged release procedure](releasing-three-platforms.md). The release
+workflow is dispatched once on the certified annotated tag after macOS arm64
+and Windows x64 inputs have been staged in an unpublished draft. It refuses
+missing, stale, or wrong-commit platform inputs. The draft is published only
+after Linux packaging/signing and a byte-for-byte re-download of the complete
+asset set. The combined `SHA256SUMS` is signed and covers all three platforms;
+the four Linux components retain their individual signed manifest. The old
+single-platform uploader mode remains for fixture compatibility, not the
+production release workflow.
+
 Keyless signatures use the exact anchored and regex-escaped certificate
 identity for `.github/workflows/release.yml` at the version tag being released,
 plus the GitHub Actions OIDC issuer. Broad identity overrides are rejected by

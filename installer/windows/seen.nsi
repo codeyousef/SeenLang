@@ -70,7 +70,10 @@ Section "!Seen Compiler (required)" SEC_COMPILER
   SetOutPath "$INSTDIR\bin"
   File "${SOURCE_DIR}/bin/seen.exe"
   File "${SOURCE_DIR}/bin/seen-pkg.exe"
+  File "${SOURCE_DIR}/bin/compatibility-manifest.json"
   File /nonfatal "${SOURCE_DIR}/bin/seen-env.cmd"
+  SetOutPath "$INSTDIR\share\seen"
+  File "${SOURCE_DIR}/share/seen/release-provenance.env"
   SetOutPath "$INSTDIR"
   File "${SOURCE_DIR}/README.txt"
   File /oname=LICENSE.txt "../../LICENSE"
@@ -137,9 +140,9 @@ Section "Add to system PATH" SEC_PATH
   SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=500
 SectionEnd
 
-Section "Runtime Headers" SEC_RUNTIME
+Section "Runtime Sources and Headers" SEC_RUNTIME
   SetOutPath "$INSTDIR\lib\seen\runtime"
-  File /nonfatal "${SOURCE_DIR}/lib/seen/runtime/*.h"
+  File /r "${SOURCE_DIR}/lib/seen/runtime/*.*"
 SectionEnd
 
 Section "Standard Library" SEC_STDLIB

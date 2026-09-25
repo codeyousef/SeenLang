@@ -62,8 +62,12 @@ jobs:
 EXPECTED_RELEASE_WORKFLOW = """name: Release
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact staged version without the v prefix'
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -75,8 +79,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  windows-smoke:
+    name: windows-smoke
+    runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Verify staged Windows compiler on Windows
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: ./scripts/verify_windows_release_draft.ps1 -Version $env:RELEASE_VERSION
   release:
     name: signed-release
+    needs: windows-smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
@@ -93,6 +117,13 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+      - name: Verify dispatch is on the exact version tag
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]
+          [[ "$GITHUB_REF_TYPE" == tag ]]
+          [[ "$GITHUB_REF_NAME" == "v$RELEASE_VERSION" ]]
       - name: Verify successful main certification
         run: scripts/verify_release_ci_run.sh
       - name: Set up pinned Go
@@ -106,8 +137,15 @@ jobs:
           cosign-release: 'v3.1.3'
       - name: Provision required isolation and search tools
         run: scripts/provision_ci_host.sh
+      - name: Fetch and verify staged macOS and Windows inputs
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: scripts/fetch_release_platform_inputs.sh "$RELEASE_VERSION"
       - name: Build sign and upload release
-        run: scripts/build_and_upload_release.sh "${GITHUB_REF_NAME#v}"
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SEEN_RELEASE_REQUIRE_THREE_PLATFORMS: '1'
+        run: scripts/build_and_upload_release.sh "$RELEASE_VERSION"
 """.encode("utf-8")
 
 
@@ -229,8 +267,8 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "platforms": {
             "linux-arm64": "static-policy",
             "linux-x86_64": "required",
-            "macos": "static-policy",
-            "windows": "static-policy",
+            "macos-arm64": "release-required-input",
+            "windows-x86_64": "release-required-input",
         },
         "required_check": "CI / required",
         "release_cosign": "v3.1.3",
@@ -238,13 +276,14 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_checkout_ref": "explicit-event-commit-sha",
         "release_cpu_baseline": "x86-64",
         "release_signing": "github-oidc-keyless",
+        "release_windows_runner": "windows-2025-native-smoke-required",
         "release_toolchain_artifact": "exact-main-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
         "timeout_minutes": 210,
         "trigger": "push-main-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 7,
+        "version": 9,
     }
 
 

@@ -64,7 +64,10 @@ bash -n \
     tests/misc_root_tests/seen_async_structured_contract.sh \
     tests/misc_root_tests/seen_stdlib_component_payload.sh \
     tests/misc_root_tests/seen_mapped_close_ownership.sh \
-    tests/misc_root_tests/seen_open_issue_regressions.sh
+    tests/misc_root_tests/seen_open_issue_regressions.sh \
+    tests/misc_root_tests/seen_windows_abi_transform.sh \
+    tests/misc_root_tests/seen_macos_package_client_packaging.sh \
+    tests/misc_root_tests/test_release_packaging.sh
 tests/misc_root_tests/seen_program_artifacts_contract.sh
 SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh
@@ -124,6 +127,7 @@ python3 -m py_compile \
     scripts/check_ci_workflows.py \
     scripts/check_release_ci_run.py \
     scripts/release_toolchain_artifact.py \
+    scripts/release_platform_inputs.py \
     scripts/check_ci_containment.py \
     scripts/check_gate0_certification.py \
     scripts/check_qwen_contracts.py \
@@ -131,10 +135,12 @@ python3 -m py_compile \
     scripts/measure_gate0_certification_coverage.py \
     tests/runner/test_gate0_certification_unit.py \
     tests/runner/test_release_ci_run_unit.py \
-    tests/runner/test_release_toolchain_artifact_unit.py
+    tests/runner/test_release_toolchain_artifact_unit.py \
+    tests/runner/test_release_platform_inputs_unit.py
 python3 -m unittest \
     tests.runner.test_release_ci_run_unit \
-    tests.runner.test_release_toolchain_artifact_unit
+    tests.runner.test_release_toolchain_artifact_unit \
+    tests.runner.test_release_platform_inputs_unit
 python3 -m py_compile \
     scripts/check_release_artifact_manifest.py \
     scripts/benchmark_release_artifact_manifest.py \
@@ -179,6 +185,9 @@ tests/misc_root_tests/seen_release_artifact_pins_contract.sh
 tests/misc_root_tests/seen_stdlib_component_payload.sh
 tests/misc_root_tests/seen_compiler_provenance_contract.sh
 tests/misc_root_tests/seen_release_upload_artifact_scope.sh
+tests/misc_root_tests/seen_windows_abi_transform.sh
+tests/misc_root_tests/seen_macos_package_client_packaging.sh
+tests/misc_root_tests/test_release_packaging.sh
 tests/misc_root_tests/seen_gate0_certification_contract.sh
 python3 scripts/benchmark_compatibility_runtime.py \
     releases/compatibility-manifest.json \

@@ -57,6 +57,9 @@ SEEN_PACKAGE_CLIENT_BIN="${SEEN_PACKAGE_CLIENT_BIN:-$(dirname "$LINUX_X64_COMPIL
 export SEEN_PACKAGE_CLIENT_BIN
 DIST_DIR="$ROOT_DIR/dist"  # absolute path required — build_release.sh cd's into subshells
 MACOS_INPUT_DIR="${SEEN_RELEASE_MACOS_INPUT_DIR:-}"
+THREE_PLATFORMS="${SEEN_RELEASE_REQUIRE_THREE_PLATFORMS:-0}"
+SKIP_OPTIONAL_CROSS_BUILDS="${SEEN_RELEASE_SKIP_OPTIONAL_CROSS_BUILDS:-0}"
+PLATFORM_INPUT_DIR="$ROOT_DIR/.seen/agent-tools/release-platform-inputs/$VERSION"
 SIGN_MODE="${SEEN_RELEASE_SIGN_MODE:-}"
 DRY_RUN="${SEEN_RELEASE_DRY_RUN:-0}"
 SIGN_IDENTITY="${SEEN_RELEASE_SIGN_IDENTITY:-}"
@@ -100,6 +103,16 @@ assert_release_absent() {
 
         die "Could not prove that release $TAG is absent"
     fi
+}
+
+assert_staged_draft() {
+    local state
+    state="$(gh release view "$TAG" --repo "$RELEASE_REPOSITORY" --json isDraft --jq .isDraft)" ||
+        die "Could not inspect staged release $TAG"
+    [[ "$state" == true ]] || die "Release $TAG is not an unpublished draft"
+    python3 "$SCRIPT_DIR/release_platform_inputs.py" verify --root "$ROOT_DIR" \
+        --version "$VERSION" --input-dir "$PLATFORM_INPUT_DIR" ||
+        die "Staged platform inputs do not match this exact source commit"
 }
 
 require_artifacts() {
@@ -157,6 +170,15 @@ write_sidecar_checksum() {
 # --- Preflight checks ---
 
 case "$DRY_RUN" in 0|1) ;; *) die "SEEN_RELEASE_DRY_RUN must be 0 or 1" ;; esac
+case "$THREE_PLATFORMS" in 0|1) ;; *) die "SEEN_RELEASE_REQUIRE_THREE_PLATFORMS must be 0 or 1" ;; esac
+case "$SKIP_OPTIONAL_CROSS_BUILDS" in 0|1) ;; *) die "SEEN_RELEASE_SKIP_OPTIONAL_CROSS_BUILDS must be 0 or 1" ;; esac
+if [[ "$THREE_PLATFORMS" == 1 ]]; then
+    [[ -z "$MACOS_INPUT_DIR" ]] || die "explicit macOS input conflicts with three-platform draft mode"
+    MACOS_INPUT_DIR="$PLATFORM_INPUT_DIR"
+    python3 "$SCRIPT_DIR/release_platform_inputs.py" verify --root "$ROOT_DIR" \
+        --version "$VERSION" --input-dir "$PLATFORM_INPUT_DIR" ||
+        die "Required macOS and Windows inputs are missing"
+fi
 if [[ "$DRY_RUN" == "0" ]]; then
     if ! command -v gh &>/dev/null; then
         die "gh CLI not found. Install from https://cli.github.com/"
@@ -168,6 +190,9 @@ if [[ "$DRY_RUN" == "0" ]]; then
         keyless|key|kms) ;;
         *) die "SEEN_RELEASE_SIGN_MODE must be keyless, key, or kms; unsigned uploads are forbidden" ;;
     esac
+    if [[ "$THREE_PLATFORMS" == 1 && "$SIGN_MODE" != keyless ]]; then
+        die "three-platform publication requires the exact keyless workflow identity"
+    fi
     [ -f "$TAG_POLICY" ] && [ ! -L "$TAG_POLICY" ] ||
         die "release tag policy is missing or unsafe"
     HEAD_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)" ||
@@ -177,7 +202,11 @@ if [[ "$DRY_RUN" == "0" ]]; then
     seen_release_verify_published_tag \
         "$ROOT_DIR" "$TAG" "$HEAD_COMMIT" "$RELEASE_REPOSITORY" ||
         die "release tag did not satisfy the published-tag policy"
-    assert_release_absent
+    if [[ "$THREE_PLATFORMS" == 1 ]]; then
+        assert_staged_draft
+    else
+        assert_release_absent
+    fi
 fi
 
 if [[ ! -x "$LINUX_X64_COMPILER" ]]; then
@@ -235,6 +264,7 @@ if [[ -n "$MACOS_INPUT_DIR" ]]; then
             ;;
     esac
 fi
+
 if [[ "${SEEN_RELEASE_CLEAN_DIST:-0}" == "1" ]]; then
     rm -rf "$DIST_DIR"
 fi
@@ -274,7 +304,14 @@ VERSION_OUTPUTS=(
     "$DIST_DIR"/seen-"$VERSION"-macos-*.tar.gz
 )
 shopt -u nullglob
-rm -f -- "${VERSION_OUTPUTS[@]}" "$DIST_DIR/SHA256SUMS" "$DIST_DIR/seen-lang.rb"
+rm -f -- "${VERSION_OUTPUTS[@]}" "$DIST_DIR/SHA256SUMS" \
+    "$DIST_DIR/SHA256SUMS.sha256" "$DIST_DIR/SHA256SUMS.bundle" \
+    "$DIST_DIR/seen-lang.rb"
+
+if [[ "$THREE_PLATFORMS" == 1 ]]; then
+    cp -- "$PLATFORM_INPUT_DIR/seen-$VERSION-windows-x64.zip" \
+        "$PLATFORM_INPUT_DIR/Seen-$VERSION-windows-x64-setup.exe" "$DIST_DIR/"
+fi
 
 if [[ -n "$MACOS_INPUT_DIR" ]]; then
     shopt -s nullglob
@@ -311,7 +348,9 @@ fi
 
 # --- Windows cross-build ---
 
-if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
+if [[ "$THREE_PLATFORMS" == 1 ]]; then
+    echo "Using exact-commit Windows ZIP and installer from the staged draft."
+elif [[ "$SKIP_OPTIONAL_CROSS_BUILDS" == 0 ]] && command -v x86_64-w64-mingw32-gcc &>/dev/null; then
     echo ""
     echo "=== Building Windows packages (v$VERSION)... ==="
 
@@ -366,7 +405,9 @@ fi
 HOMEBREW_FORMULA=""
 if [[ -f "$ROOT_DIR/installer/homebrew/generate-formula.sh" ]]; then
     echo ""
-    if [[ "${SEEN_RELEASE_GENERATE_HOMEBREW:-0}" == "1" ]] ||
+    if [[ "$THREE_PLATFORMS" == 1 ]]; then
+        echo "Skipping Homebrew formula: no macOS x64 archive is certified."
+    elif [[ "${SEEN_RELEASE_GENERATE_HOMEBREW:-0}" == "1" ]] ||
         compgen -G "$DIST_DIR/seen-$VERSION-macos-*.tar.gz" >/dev/null; then
         echo "=== Generating macOS Homebrew formula (v$VERSION)... ==="
         if bash "$ROOT_DIR/installer/homebrew/generate-formula.sh" \
@@ -386,7 +427,10 @@ fi
 
 # --- macOS native binary (requires osxcross) ---
 
-if command -v o64-clang &>/dev/null || command -v x86_64-apple-darwin-clang &>/dev/null; then
+if [[ "$THREE_PLATFORMS" == 1 ]]; then
+    echo "macOS arm64 archive supplied by exact-commit staged draft."
+elif [[ "$SKIP_OPTIONAL_CROSS_BUILDS" == 0 ]] &&
+    (command -v o64-clang &>/dev/null || command -v x86_64-apple-darwin-clang &>/dev/null); then
     echo ""
     echo "=== Cross-compiling macOS binary (v$VERSION)... ==="
     echo "  osxcross detected, building macOS binary..."
@@ -429,11 +473,20 @@ if command -v appimagetool &>/dev/null; then
     EXPECTED_ARTIFACTS+=("$DIST_DIR/SeenLanguage-$VERSION-x86_64.AppImage")
 fi
 
-if command -v x86_64-w64-mingw32-gcc &>/dev/null && [[ -f "$ROOT_DIR/target-windows/seen.exe" ]]; then
+if [[ "$THREE_PLATFORMS" != 1 && "$SKIP_OPTIONAL_CROSS_BUILDS" == 0 ]] &&
+    command -v x86_64-w64-mingw32-gcc &>/dev/null &&
+    [[ -f "$ROOT_DIR/target-windows/seen.exe" ]]; then
     EXPECTED_ARTIFACTS+=("$DIST_DIR/seen-$VERSION-windows-x64.zip")
     if command -v makensis &>/dev/null; then
         EXPECTED_ARTIFACTS+=("$DIST_DIR/Seen-$VERSION-windows-x64-setup.exe")
     fi
+fi
+if [[ "$THREE_PLATFORMS" == 1 ]]; then
+    EXPECTED_ARTIFACTS+=(
+        "$DIST_DIR/seen-$VERSION-macos-arm64.tar.gz"
+        "$DIST_DIR/seen-$VERSION-windows-x64.zip"
+        "$DIST_DIR/Seen-$VERSION-windows-x64-setup.exe"
+    )
 fi
 
 require_artifacts "${EXPECTED_ARTIFACTS[@]}"
@@ -501,6 +554,9 @@ case "$SIGN_MODE" in
         SIGN_ARGS+=(--kms "$SEEN_COSIGN_KMS_URI")
         ;;
 esac
+if [[ "$THREE_PLATFORMS" == 1 ]]; then
+    SIGN_ARGS+=(--checksum-list "$DIST_DIR/SHA256SUMS")
+fi
 "$SCRIPT_DIR/sign_release.sh" "${SIGN_ARGS[@]}" --version "$VERSION" \
     --source-commit "$SOURCE_COMMIT" --source-digest "$SOURCE_DIGEST" \
     --manifest "$MANIFEST" --signer-identity "$SIGN_IDENTITY" --signer-issuer "$SIGN_ISSUER" \
@@ -512,6 +568,12 @@ for artifact in "${COMPONENT_ARTIFACTS[@]}"; do
     RELEASE_ARTIFACTS+=("$artifact.sha256" "$artifact.bundle")
 done
 RELEASE_ARTIFACTS+=("$MANIFEST" "$MANIFEST.sha256" "$MANIFEST.bundle")
+
+if [[ "$THREE_PLATFORMS" == 1 ]]; then
+    # The four components and the cross-platform checksum list all use the
+    # same bounded signing/retry/verification path.
+    RELEASE_ARTIFACTS+=("$DIST_DIR/SHA256SUMS.sha256" "$DIST_DIR/SHA256SUMS.bundle")
+fi
 
 echo ""
 echo "Artifacts:"
@@ -531,16 +593,9 @@ NOTES="## Seen Language $VERSION
 
 ### Highlights
 
-- Makes generated programs terminate promptly and predictably after allocator
-  exhaustion instead of leaving a failed process alive.
-- Stabilizes imported-function name resolution, package-qualified test imports,
-  nested arrays, and Array-backed class returns, with semantic rejection before
-  invalid calls can reach LLVM optimization.
-- Hardens tiny, nested, and malformed JSON handling and removes the historical
-  \`str.string\`/\`io.file\` cycle for external standard-library consumers.
-- Adds release-blocking tracked regressions, ownership/adverse-input stress,
-  sanitizer execution, bounded diagnostics, and portable fail-closed systemd
-  OOM-group setup under the existing memory-contained serial release gate.
+- See CHANGELOG.md for the exact compiler and runtime changes in this version.
+- The Linux x64, macOS arm64, and Windows x64 archives are bound to the same
+  source commit. SHA256SUMS is signed by the release workflow identity.
 
 ### Installation
 
@@ -548,13 +603,13 @@ NOTES="## Seen Language $VERSION
 \`\`\`bash
 curl -sSL https://github.com/codeyousef/SeenLang/releases/download/$TAG/seen-${VERSION}-linux-x64.tar.gz | tar xz
 cd seen-${VERSION}-linux-x64
-sudo ./install.sh
+pkexec ./install.sh
 \`\`\`
 
 \`linux-x64\` is the portable x86-64 baseline. Use \`seen-${VERSION}-linux-x64-v3.tar.gz\` only on x86-64-v3/AVX2-class machines.
 
-Windows and macOS artifacts, when produced for this release, are listed below.
-Otherwise use the platform bootstrap instructions in the repository.
+The macOS arm64 archive and Windows x64 ZIP/installer are required assets.
+The Homebrew formula is omitted until a macOS x64 archive is certified.
 
 ### Checksums
 
@@ -569,13 +624,48 @@ CURRENT_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)" ||
 seen_release_verify_published_tag \
     "$ROOT_DIR" "$TAG" "$CURRENT_COMMIT" "$RELEASE_REPOSITORY" ||
     die "release tag changed or remote main advanced during release preparation"
-assert_release_absent
-gh release create "$TAG" "${RELEASE_ARTIFACTS[@]}" \
-    --repo "$RELEASE_REPOSITORY" \
-    --verify-tag \
-    --title "Seen Language $VERSION" \
-    --notes "$NOTES" \
-    $PRERELEASE_FLAG
+if [[ "$THREE_PLATFORMS" == 1 ]]; then
+    assert_staged_draft
+    UPLOAD_ARTIFACTS=()
+    for artifact in "${RELEASE_ARTIFACTS[@]}"; do
+        case "$(basename "$artifact")" in
+            "seen-$VERSION-macos-arm64.tar.gz"|\
+            "seen-$VERSION-windows-x64.zip"|\
+            "Seen-$VERSION-windows-x64-setup.exe") continue ;;
+        esac
+        UPLOAD_ARTIFACTS+=("$artifact")
+    done
+    gh release upload "$TAG" "${UPLOAD_ARTIFACTS[@]}" --repo "$RELEASE_REPOSITORY"
+    audit_dir="$ROOT_DIR/.seen/agent-tools/release-draft-audit/$VERSION"
+    [[ ! -e "$audit_dir" ]] || die "draft audit directory already exists"
+    mkdir -p "$audit_dir"
+    gh release download "$TAG" --repo "$RELEASE_REPOSITORY" --dir "$audit_dir"
+    expected_names=("seen-$VERSION-platform-inputs.json")
+    for artifact in "${RELEASE_ARTIFACTS[@]}"; do
+        expected_names+=("$(basename "$artifact")")
+    done
+    mapfile -t actual_names < <(find "$audit_dir" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+    mapfile -t sorted_expected_names < <(printf '%s\n' "${expected_names[@]}" | LC_ALL=C sort -u)
+    [[ "${actual_names[*]}" == "${sorted_expected_names[*]}" ]] ||
+        die "draft release asset set differs from the complete required set"
+    cmp -- "$PLATFORM_INPUT_DIR/seen-$VERSION-platform-inputs.json" \
+        "$audit_dir/seen-$VERSION-platform-inputs.json" || die "draft provenance manifest changed"
+    for artifact in "${RELEASE_ARTIFACTS[@]}"; do
+        cmp -- "$artifact" "$audit_dir/$(basename "$artifact")" ||
+            die "draft asset changed: $(basename "$artifact")"
+    done
+    gh release edit "$TAG" --repo "$RELEASE_REPOSITORY" \
+        --title "Seen Language $VERSION" --notes "$NOTES" \
+        --draft=false $PRERELEASE_FLAG
+else
+    assert_release_absent
+    gh release create "$TAG" "${RELEASE_ARTIFACTS[@]}" \
+        --repo "$RELEASE_REPOSITORY" \
+        --verify-tag \
+        --title "Seen Language $VERSION" \
+        --notes "$NOTES" \
+        $PRERELEASE_FLAG
+fi
 
 echo ""
 echo "=== Done! ==="
