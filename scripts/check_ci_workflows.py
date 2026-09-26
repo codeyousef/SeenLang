@@ -68,6 +68,15 @@ on:
         description: 'Exact staged version without the v prefix'
         required: true
         type: string
+      draft_release_id:
+        description: 'Numeric unpublished draft release ID'
+        required: true
+        type: string
+      probe_only:
+        description: 'Read-only draft access check before tag remediation'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -94,13 +103,23 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
       - name: Verify staged Windows compiler on Windows
+        if: ${{ !inputs.probe_only }}
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ inputs.version }}
-        run: ./scripts/verify_windows_release_draft.ps1 -Version $env:RELEASE_VERSION
+          SEEN_RELEASE_DRAFT_ID: ${{ inputs.draft_release_id }}
+        run: ./scripts/verify_windows_release_draft.ps1 -Version $env:RELEASE_VERSION -ReleaseId $env:SEEN_RELEASE_DRAFT_ID
+      - name: Prove runner-token draft access without publishing
+        if: ${{ inputs.probe_only }}
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SEEN_RELEASE_DRAFT_ID: ${{ inputs.draft_release_id }}
+        run: python scripts/release_draft_api.py probe --version $env:RELEASE_VERSION --release-id $env:SEEN_RELEASE_DRAFT_ID
   release:
     name: signed-release
     needs: windows-smoke
+    if: ${{ !inputs.probe_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
@@ -111,6 +130,7 @@ jobs:
       SEEN_OPT_JOBS: 1
       SEEN_RELEASE_CPU_BASELINE: x86-64
       SEEN_RELEASE_SIGN_MODE: keyless
+      SEEN_RELEASE_DRAFT_ID: ${{ inputs.draft_release_id }}
     steps:
       - name: Checkout tag
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

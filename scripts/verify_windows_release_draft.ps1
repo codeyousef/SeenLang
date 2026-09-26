@@ -1,33 +1,21 @@
 # Run only bounded version/protocol smoke on the real Windows release runner.
-param([Parameter(Mandatory = $true)][string]$Version)
+param(
+    [Parameter(Mandatory = $true)][string]$Version,
+    [Parameter(Mandatory = $true)][string]$ReleaseId
+)
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid release version' }
+if ($ReleaseId -notmatch '^[1-9][0-9]*$') { throw 'Invalid numeric draft release ID' }
 if ($env:GITHUB_REF_TYPE -ne 'tag' -or $env:GITHUB_REF_NAME -ne "v$Version") {
     throw 'Windows smoke must run on the exact release tag'
 }
-$tag = "v$Version"
-$repository = 'codeyousef/SeenLang'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $inputDir = Join-Path $env:RUNNER_TEMP "seen-platform-inputs-$Version"
 if (Test-Path $inputDir) { throw 'Stale platform input directory exists' }
 New-Item -ItemType Directory -Path $inputDir | Out-Null
-$release = gh release view $tag --repo $repository --json isDraft,assets | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or -not $release.isDraft) { throw 'Release is not an unpublished draft' }
-$names = @(
-    "seen-$Version-macos-arm64.tar.gz",
-    "seen-$Version-windows-x64.zip",
-    "Seen-$Version-windows-x64-setup.exe",
-    "seen-$Version-platform-inputs.json"
-)
-$actual = @($release.assets | ForEach-Object { $_.name } | Sort-Object)
-$expected = @($names | Sort-Object)
-if (@(Compare-Object $actual $expected).Count -ne 0) {
-    throw 'Draft asset set is incomplete or unexpected'
-}
-foreach ($name in $names) {
-    gh release download $tag --repo $repository --pattern $name --dir $inputDir
-    if ($LASTEXITCODE -ne 0) { throw "Could not download $name" }
-}
+python "$root/scripts/release_draft_api.py" download-inputs `
+    --version $Version --release-id $ReleaseId --output-dir $inputDir
+if ($LASTEXITCODE -ne 0) { throw 'Could not verify and download draft platform inputs' }
 python "$root/scripts/release_platform_inputs.py" verify `
     --root $root --version $Version --input-dir $inputDir
 if ($LASTEXITCODE -ne 0) { throw 'Cross-platform source/hash validation failed' }

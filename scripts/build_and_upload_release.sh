@@ -65,6 +65,7 @@ DRY_RUN="${SEEN_RELEASE_DRY_RUN:-0}"
 SIGN_IDENTITY="${SEEN_RELEASE_SIGN_IDENTITY:-}"
 SIGN_ISSUER="${SEEN_RELEASE_SIGN_ISSUER:-https://token.actions.githubusercontent.com}"
 RELEASE_REPOSITORY="${GITHUB_REPOSITORY:-codeyousef/SeenLang}"
+RELEASE_DRAFT_ID="${SEEN_RELEASE_DRAFT_ID:-}"
 
 die() {
     echo "Error: $*" >&2
@@ -106,10 +107,15 @@ assert_release_absent() {
 }
 
 assert_staged_draft() {
-    local state
-    state="$(gh release view "$TAG" --repo "$RELEASE_REPOSITORY" --json isDraft --jq .isDraft)" ||
-        die "Could not inspect staged release $TAG"
-    [[ "$state" == true ]] || die "Release $TAG is not an unpublished draft"
+    [[ "$RELEASE_DRAFT_ID" =~ ^[1-9][0-9]*$ ]] ||
+        die "SEEN_RELEASE_DRAFT_ID must identify the numeric unpublished draft"
+    python3 "$SCRIPT_DIR/release_draft_api.py" assert-draft \
+        --version "$VERSION" --release-id "$RELEASE_DRAFT_ID" \
+        --expected-name "seen-$VERSION-macos-arm64.tar.gz" \
+        --expected-name "seen-$VERSION-windows-x64.zip" \
+        --expected-name "Seen-$VERSION-windows-x64-setup.exe" \
+        --expected-name "seen-$VERSION-platform-inputs.json" ||
+        die "Could not inspect the exact staged release $TAG"
     python3 "$SCRIPT_DIR/release_platform_inputs.py" verify --root "$ROOT_DIR" \
         --version "$VERSION" --input-dir "$PLATFORM_INPUT_DIR" ||
         die "Staged platform inputs do not match this exact source commit"
@@ -635,17 +641,33 @@ if [[ "$THREE_PLATFORMS" == 1 ]]; then
         esac
         UPLOAD_ARTIFACTS+=("$artifact")
     done
-    gh release upload "$TAG" "${UPLOAD_ARTIFACTS[@]}" --repo "$RELEASE_REPOSITORY"
+    upload_args=()
+    for artifact in "${UPLOAD_ARTIFACTS[@]}"; do
+        upload_args+=(--file "$artifact")
+    done
+    python3 "$SCRIPT_DIR/release_draft_api.py" upload \
+        --version "$VERSION" --release-id "$RELEASE_DRAFT_ID" \
+        "${upload_args[@]}" || die "Could not upload the exact signed release artifacts"
     audit_dir="$ROOT_DIR/.seen/agent-tools/release-draft-audit/$VERSION"
     [[ ! -e "$audit_dir" ]] || die "draft audit directory already exists"
     mkdir -p "$audit_dir"
-    gh release download "$TAG" --repo "$RELEASE_REPOSITORY" --dir "$audit_dir"
     expected_names=("seen-$VERSION-platform-inputs.json")
+    expected_names+=("seen-$VERSION-macos-arm64.tar.gz")
+    expected_names+=("seen-$VERSION-windows-x64.zip")
+    expected_names+=("Seen-$VERSION-windows-x64-setup.exe")
     for artifact in "${RELEASE_ARTIFACTS[@]}"; do
         expected_names+=("$(basename "$artifact")")
     done
-    mapfile -t actual_names < <(find "$audit_dir" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
     mapfile -t sorted_expected_names < <(printf '%s\n' "${expected_names[@]}" | LC_ALL=C sort -u)
+    audit_args=()
+    for name in "${sorted_expected_names[@]}"; do
+        audit_args+=(--expected-name "$name")
+    done
+    python3 "$SCRIPT_DIR/release_draft_api.py" download-all \
+        --version "$VERSION" --release-id "$RELEASE_DRAFT_ID" \
+        --output-dir "$audit_dir" "${audit_args[@]}" ||
+        die "Could not download and verify the complete staged release"
+    mapfile -t actual_names < <(find "$audit_dir" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
     [[ "${actual_names[*]}" == "${sorted_expected_names[*]}" ]] ||
         die "draft release asset set differs from the complete required set"
     cmp -- "$PLATFORM_INPUT_DIR/seen-$VERSION-platform-inputs.json" \
@@ -654,9 +676,11 @@ if [[ "$THREE_PLATFORMS" == 1 ]]; then
         cmp -- "$artifact" "$audit_dir/$(basename "$artifact")" ||
             die "draft asset changed: $(basename "$artifact")"
     done
-    gh release edit "$TAG" --repo "$RELEASE_REPOSITORY" \
-        --title "Seen Language $VERSION" --notes "$NOTES" \
-        --draft=false $PRERELEASE_FLAG
+    python3 "$SCRIPT_DIR/release_draft_api.py" publish \
+        --version "$VERSION" --release-id "$RELEASE_DRAFT_ID" \
+        "${audit_args[@]}" --title "Seen Language $VERSION" \
+        --notes "$NOTES" $PRERELEASE_FLAG ||
+        die "Could not publish the fully audited three-platform draft"
 else
     assert_release_absent
     gh release create "$TAG" "${RELEASE_ARTIFACTS[@]}" \

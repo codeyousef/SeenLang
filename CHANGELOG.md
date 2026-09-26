@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Include the exact version-coupled compatibility manifest beside the Windows
   compiler and verify it survives ZIP and installer creation; the installer now
   retains source-only runtime files and release provenance.
+- Transfer unpublished draft assets by validated numeric release and asset IDs
+  under the release runner token, with a read-only access probe before dispatch.
 
 ### Fixed
 

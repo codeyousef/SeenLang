@@ -128,6 +128,7 @@ python3 -m py_compile \
     scripts/check_release_ci_run.py \
     scripts/release_toolchain_artifact.py \
     scripts/release_platform_inputs.py \
+    scripts/release_draft_api.py \
     scripts/check_ci_containment.py \
     scripts/check_gate0_certification.py \
     scripts/check_qwen_contracts.py \
@@ -136,11 +137,13 @@ python3 -m py_compile \
     tests/runner/test_gate0_certification_unit.py \
     tests/runner/test_release_ci_run_unit.py \
     tests/runner/test_release_toolchain_artifact_unit.py \
-    tests/runner/test_release_platform_inputs_unit.py
+    tests/runner/test_release_platform_inputs_unit.py \
+    tests/runner/test_release_draft_api_unit.py
 python3 -m unittest \
     tests.runner.test_release_ci_run_unit \
     tests.runner.test_release_toolchain_artifact_unit \
-    tests.runner.test_release_platform_inputs_unit
+    tests.runner.test_release_platform_inputs_unit \
+    tests.runner.test_release_draft_api_unit
 python3 -m py_compile \
     scripts/check_release_artifact_manifest.py \
     scripts/benchmark_release_artifact_manifest.py \

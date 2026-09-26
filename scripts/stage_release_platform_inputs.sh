@@ -41,4 +41,13 @@ gh release create "$tag" --repo codeyousef/SeenLang --verify-tag --draft \
     echo 'staged release is not a draft' >&2
     exit 1
 }
-echo "PASS: staged $tag platform inputs in a draft release"
+release_id="$(gh api 'repos/codeyousef/SeenLang/releases?per_page=100' \
+    --jq ".[] | select(.tag_name == \"$tag\" and .draft == true) | .id")" || {
+    echo 'could not resolve the numeric staged draft release ID' >&2
+    exit 1
+}
+[[ "$release_id" =~ ^[1-9][0-9]*$ ]] || {
+    echo 'draft release ID is absent or ambiguous' >&2
+    exit 1
+}
+echo "PASS: staged $tag platform inputs in draft release ID $release_id"
