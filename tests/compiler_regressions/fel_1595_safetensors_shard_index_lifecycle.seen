@@ -1,0 +1,102 @@
+import formats.safetensors.{parseSafeTensorShardIndex}
+import memory.allocation.{memoryStats, memoryReservedBytes}
+
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
+fun parseAndClose(text: String, expectedCount: Int) r: Bool {
+    let parsed = parseSafeTensorShardIndex(text)
+    if parsed.isErr() {
+        parsed.unwrapErr().free()
+        parsed.releaseContainer()
+        return false
+    }
+    let index = parsed.unwrap()
+    parsed.releaseContainer()
+    if index.tensorNames.length() != expectedCount or
+        index.shardNames.length() != expectedCount {
+        index.close()
+        index.free()
+        return false
+    }
+    let valid = index.tensorNames[0] == "a" and index.tensorNames[1] == "b" and
+        index.shardNames[0] == "model-00001-of-00002.safetensors" and
+        index.shardNames[1] == "model-00002-of-00002.safetensors"
+    index.close()
+    index.free()
+    return valid
+}
+
+fun rejectAndClose(text: String, maxTensors: UInt64,
+    expectedCode: String) r: Bool {
+    let parsed = parseSafeTensorShardIndex(text,
+        104857600 as UInt64, maxTensors)
+    if parsed.isOkay() {
+        let index = parsed.unwrap()
+        parsed.releaseContainer()
+        index.close()
+        index.free()
+        return false
+    }
+    let error = parsed.unwrapErr()
+    let valid = error.code == expectedCode
+    error.free()
+    parsed.releaseContainer()
+    return valid
+}
+
+fun main() r: Int {
+    let valid = "{\"weight_map\":{\"b\":\"model-00002-of-00002.safetensors\",\"a\":\"model-00001-of-00002.safetensors\"}" + "}"
+    let baseline = memoryStats().usedBytes
+    let reserve = memoryReservedBytes()
+    var repetition = 0
+    while repetition < 10000 {
+        if not parseAndClose(valid, 2) { return 2 }
+        repetition = repetition + 1
+    }
+    let after = memoryStats().usedBytes
+    println("safetensor index success live baseline/after")
+    println(baseline)
+    println(after)
+    println("safetensor index success reserve baseline/after")
+    println(reserve)
+    println(memoryReservedBytes())
+    if after != baseline { return 5 }
+
+    let malformed = "{\"weight_map\":"
+    let wrongRoot = "[]"
+    let missingMap = "{}"
+    let wrongMap = "{\"weight_map\":[]}"
+    let badShard = "{\"weight_map\":{\"a\":\"../escape.safetensors\"}" + "}"
+    let badType = "{\"weight_map\":{\"a\":123}" + "}"
+    let rejectedBaseline = memoryStats().usedBytes
+    repetition = 0
+    while repetition < 100 {
+        if not rejectAndClose(malformed, 2 as UInt64,
+            "safetensors.index_json") { return 6 }
+        if not rejectAndClose(wrongRoot, 2 as UInt64,
+            "safetensors.index_root") { return 7 }
+        if not rejectAndClose(missingMap, 2 as UInt64,
+            "safetensors.index_root") { return 8 }
+        if not rejectAndClose(wrongMap, 2 as UInt64,
+            "safetensors.index_root") { return 9 }
+        if not rejectAndClose(valid, 1 as UInt64,
+            "safetensors.index_limit") { return 10 }
+        if not rejectAndClose(badShard, 2 as UInt64,
+            "safetensors.index_shard") { return 11 }
+        if not rejectAndClose(badType, 2 as UInt64,
+            "safetensors.index_shard") { return 12 }
+        repetition = repetition + 1
+    }
+    let rejectedAfter = memoryStats().usedBytes
+    println("safetensor index rejected live baseline/after")
+    println(rejectedBaseline)
+    println(rejectedAfter)
+    if rejectedAfter != rejectedBaseline { return 13 }
+    seen_string_release_owned(valid)
+    seen_string_release_owned(badShard)
+    seen_string_release_owned(badType)
+    println("PASS: FEL-1595 shard index allocator lifecycle")
+    return 0
+}
+
+main()

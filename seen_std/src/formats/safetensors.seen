@@ -272,10 +272,15 @@ fun parseSafeTensorShardIndex(indexText: String, maxBytes: UInt64 =
     let strict = parseStrictJson(indexText, limits)
     limits.free()
     if strict.isErr() {
-        return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
-            "safetensors.index_json", "", strict.unwrapErr().message))
+        let strictError = strict.unwrapErr()
+        let error = safeTensorError(
+            "safetensors.index_json", "", strictError.message)
+        strictError.free()
+        strict.releaseContainer()
+        return Err<SafeTensorShardIndex, SafeTensorError>(error)
     }
     let parsed = strict.unwrap()
+    strict.releaseContainer()
     let names = Array<String>(); let shards = Array<String>()
     let root = parsed.value.unwrap()
     if not root.isObject() {
@@ -286,12 +291,14 @@ fun parseSafeTensorShardIndex(indexText: String, maxBytes: UInt64 =
     }
     let weightMap = root.get("weight_map")
     if weightMap.isNone() or not weightMap.unwrap().isObject() {
+        weightMap.free()
         destroySafeTensorShardParts(names, shards)
         destroyJsonParseResult(parsed, true)
         return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
             "safetensors.index_root", "", "weight_map object is required"))
     }
     let weightMapValue = weightMap.unwrap()
+    weightMap.free()
     let weightCount = weightMapValue.length()
     if (weightCount as UInt64) > maxTensors {
         destroySafeTensorShardParts(names, shards)
@@ -304,6 +311,8 @@ fun parseSafeTensorShardIndex(indexText: String, maxBytes: UInt64 =
         let nameOption = weightMapValue.keyAt(keyIndex)
         let shardOption = weightMapValue.valueAt(keyIndex)
         if nameOption.isNone() or shardOption.isNone() {
+            nameOption.free()
+            shardOption.free()
             destroySafeTensorShardParts(names, shards)
             destroyJsonParseResult(parsed, true)
             return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
@@ -314,14 +323,19 @@ fun parseSafeTensorShardIndex(indexText: String, maxBytes: UInt64 =
         let shardValue = shardOption.unwrap()
         if not shardValue.isString() or
             not safeTensorShardNameAllowed(shardValue.getString()) {
+            nameOption.free()
+            shardOption.free()
             destroySafeTensorShardParts(names, shards)
             destroyJsonParseResult(parsed, true)
+            // The indexed name was borrowed from the destroyed JSON document.
             return Err<SafeTensorShardIndex, SafeTensorError>(safeTensorError(
-                "safetensors.index_shard", name,
+                "safetensors.index_shard", "weight_map",
                 "shard must be a bounded local safetensors filename"))
         }
         names.push(seen_string_clone_owned(name))
         shards.push(seen_string_clone_owned(shardValue.getString()))
+        nameOption.free()
+        shardOption.free()
         keyIndex = keyIndex + 1
     }
     var index = 1

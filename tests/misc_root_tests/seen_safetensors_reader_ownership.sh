@@ -5,6 +5,7 @@ ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
 FIXTURE="$ROOT_DIR/tests/compiler_regressions/fel_1538_safetensors_reader.seen"
 LIFECYCLE_FIXTURE="$ROOT_DIR/tests/compiler_regressions/safetensors_allocator_lifecycle.seen"
+INDEX_LIFECYCLE_FIXTURE="$ROOT_DIR/tests/compiler_regressions/fel_1595_safetensors_shard_index_lifecycle.seen"
 HEADER="$ROOT_DIR/tests/fixtures/fel-1538/qwn-023b-header.zlib.b64"
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 ASAN_RUNNER="$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh"
@@ -206,16 +207,19 @@ compile_and_run undefined --fast --sanitize undefined
 compile_and_run address --fast --sanitize address
 
 compile_lifecycle_and_run() {
-    local label=$1
-    shift
-    local binary="$WORK_DIR/bin/safetensors-lifecycle-$label"
-    local compile_log="$WORK_DIR/logs/lifecycle-$label-compile.log"
-    local run_log="$WORK_DIR/logs/lifecycle-$label-run.log"
+    local test_name=$1
+    local label=$2
+    local fixture=$3
+    local expected_pass=$4
+    shift 4
+    local binary="$WORK_DIR/bin/safetensors-lifecycle-$test_name-$label"
+    local compile_log="$WORK_DIR/logs/lifecycle-$test_name-$label-compile.log"
+    local run_log="$WORK_DIR/logs/lifecycle-$test_name-$label-run.log"
     local compile_status=0
     local run_status=0
 
     timeout --foreground --kill-after=10s 900s \
-        bash "$ATTESTED_SEEN" "$COMPILER" compile "$LIFECYCLE_FIXTURE" \
+        bash "$ATTESTED_SEEN" "$COMPILER" compile "$fixture" \
             "$binary" --no-cache "$@" >"$compile_log" 2>&1 || compile_status=$?
     if [ "$compile_status" -ne 0 ]; then
         tail -c 32768 -- "$compile_log" >&2 || true
@@ -242,12 +246,26 @@ compile_lifecycle_and_run() {
         tail -c 32768 -- "$run_log" >&2 || true
         return "$run_status"
     fi
-    grep -Fq 'PASS: Safetensors allocator lifecycle' "$run_log"
+    grep -Fq "$expected_pass" "$run_log"
 }
 
-compile_lifecycle_and_run fast --fast
-compile_lifecycle_and_run release --release --lto thin --target-cpu=x86-64
-compile_lifecycle_and_run undefined --fast --sanitize undefined
-compile_lifecycle_and_run address --fast --sanitize address
+compile_lifecycle_and_run reader fast "$LIFECYCLE_FIXTURE" \
+    'PASS: Safetensors allocator lifecycle' --fast
+compile_lifecycle_and_run reader release "$LIFECYCLE_FIXTURE" \
+    'PASS: Safetensors allocator lifecycle' --release --lto thin --target-cpu=x86-64
+compile_lifecycle_and_run reader undefined "$LIFECYCLE_FIXTURE" \
+    'PASS: Safetensors allocator lifecycle' --fast --sanitize undefined
+compile_lifecycle_and_run reader address "$LIFECYCLE_FIXTURE" \
+    'PASS: Safetensors allocator lifecycle' --fast --sanitize address
+
+compile_lifecycle_and_run shard-index fast "$INDEX_LIFECYCLE_FIXTURE" \
+    'PASS: FEL-1595 shard index allocator lifecycle' --fast
+compile_lifecycle_and_run shard-index release "$INDEX_LIFECYCLE_FIXTURE" \
+    'PASS: FEL-1595 shard index allocator lifecycle' --release --lto thin \
+    --target-cpu=x86-64
+compile_lifecycle_and_run shard-index undefined "$INDEX_LIFECYCLE_FIXTURE" \
+    'PASS: FEL-1595 shard index allocator lifecycle' --fast --sanitize undefined
+compile_lifecycle_and_run shard-index address "$INDEX_LIFECYCLE_FIXTURE" \
+    'PASS: FEL-1595 shard index allocator lifecycle' --fast --sanitize address
 
 echo "PASS: FEL-1538 Safetensors reader regression"
