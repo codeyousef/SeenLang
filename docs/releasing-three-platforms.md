@@ -55,6 +55,8 @@ success followed by optional uploads.
    `.github/workflows/release.yml` on `main` with `probe_only=true`, the exact
    `version`, and `draft_release_id`. Require its read-only Windows runner-token
    access job to succeed; the signed-release job must be skipped.
+   The probe makes no release changes, but its job needs `contents: write`:
+   GitHub rejects read-scoped workflow tokens for unpublished draft access.
 
    ```bash
    gh workflow run release.yml --ref main \

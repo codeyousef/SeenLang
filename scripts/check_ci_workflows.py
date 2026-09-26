@@ -93,7 +93,8 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 15
     permissions:
-      contents: read
+      # Unpublished draft metadata and assets require write-scoped access.
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
     steps:

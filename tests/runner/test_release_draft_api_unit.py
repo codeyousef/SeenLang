@@ -119,5 +119,14 @@ class DraftTransportTest(unittest.TestCase):
         self.assertEqual(fake.open.call_count, 1)
 
 
+class DraftWorkflowPermissionTest(unittest.TestCase):
+    def test_windows_probe_can_read_unpublished_draft(self) -> None:
+        workflow = (Path(__file__).resolve().parents[2] /
+                    ".github/workflows/release.yml").read_text(encoding="utf-8")
+        windows_job = workflow.split("  windows-smoke:\n", 1)[1].split("  release:\n", 1)[0]
+        self.assertRegex(windows_job, r"(?m)^    permissions:\n(?:      #.*\n)*      contents: write$")
+        self.assertIn("if: ${{ inputs.probe_only }}", windows_job)
+
+
 if __name__ == "__main__":
     unittest.main()
