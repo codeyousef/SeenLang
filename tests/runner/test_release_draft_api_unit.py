@@ -20,7 +20,7 @@ class DraftTransportTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.version = "0.22.7"
+        self.version = "0.22.8"
         self.blobs = {}
         self.assets = []
         for number, name in enumerate(draft.initial_names(self.version), 1):
@@ -81,7 +81,7 @@ class DraftTransportTest(unittest.TestCase):
         self.assertFalse((self.root / indexed["name"]).exists())
 
     def test_upload_audit_and_publish_exact_set(self) -> None:
-        upload = self.root / "seen-0.22.7-linux-x64.tar.gz"
+        upload = self.root / "seen-0.22.8-linux-x64.tar.gz"
         upload.write_bytes(b"linux archive")
         self.run_mode("upload", "--file", str(upload))
         names = draft.initial_names(self.version) + [upload.name]
@@ -90,7 +90,7 @@ class DraftTransportTest(unittest.TestCase):
         audit.mkdir()
         self.run_mode("download-all", "--output-dir", str(audit), *arguments)
         self.assertEqual((audit / upload.name).read_bytes(), upload.read_bytes())
-        self.run_mode("publish", *arguments, "--title", "Seen Language 0.22.7", "--notes", "Complete")
+        self.run_mode("publish", *arguments, "--title", "Seen Language 0.22.8", "--notes", "Complete")
         self.assertFalse(self.draft)
         with self.assertRaises(draft.DraftError):
             self.run_mode("probe")

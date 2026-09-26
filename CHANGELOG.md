@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.8] - 2026-09-26
+
+### Fixed
+
+- Released temporary strict-JSON `Result` and indexed `Option` containers while
+  parsing Safetensors shard indexes. Repeated successful and rejected parses
+  now return allocator live usage exactly to its baseline without invalidating
+  names and shard values borrowed from the parsed document.
+
 ## [0.22.7] - 2026-09-25
 
 ### Release
