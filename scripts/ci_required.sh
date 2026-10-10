@@ -144,6 +144,7 @@ python3 -m unittest \
     tests.runner.test_release_toolchain_artifact_unit \
     tests.runner.test_release_platform_inputs_unit \
     tests.runner.test_release_draft_api_unit
+python3 -m unittest tests.runner.test_repair_frozen_coro_ir_unit
 python3 -m py_compile \
     scripts/check_release_artifact_manifest.py \
     scripts/benchmark_release_artifact_manifest.py \

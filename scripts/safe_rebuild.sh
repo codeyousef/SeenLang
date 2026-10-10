@@ -3669,6 +3669,12 @@ if count > 0:
         # declares for cross-module functions (emitIncludeStrImpl, etc.) that ARE called
         # from the module via ThinLTO. The awk dedup + fix_ir.py handle the critical cases.
 
+        # The frozen builder predates LLVM 22's void-returning coro.end ABI.
+        # Rewrite only its unused declaration; reject a live old-ABI call.
+        if ! python3 "$SCRIPT_DIR/repair_frozen_coro_ir.py" "$REAL_OPT" "\$arg"; then
+            exit 1
+        fi
+
         # IR Validation: run llvm-as structural check on the fixed .ll file
         if ! llvm-as "\$arg" -o /dev/null 2>/tmp/seen_verify_err.txt; then
             echo "IR VERIFY WARNING: \$arg (retrying fixups)" >&2
