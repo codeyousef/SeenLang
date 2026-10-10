@@ -1,5 +1,5 @@
 version = 2
-manifest_sha256 = "ae5e362fb3e0246b8274b404d9f1d125062138e86cfe16682e0ce2fd8dc1f27b"
+manifest_sha256 = "60ec5a46511a0d0d209f9d50238ed59d4f1dca1167265592a808ce792da6cd22"
 
 [root]
 name = "seen_compiler"
