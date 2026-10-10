@@ -456,6 +456,7 @@ COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_nested_array_ba
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_safetensors_slot_return_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_json_tiny_object_regression.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_sha256_finalize_ownership.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_sha256_file_ownership.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_json_canonical_indexed_free_ownership.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_result_payload_pool_live_contract.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_option_free_layout_contract.sh"

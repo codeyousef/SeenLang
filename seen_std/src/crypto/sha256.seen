@@ -2,6 +2,7 @@
 
 import collections.vec.{Vec}
 import io.file.{FsFile}
+import core.error.{SeenError}
 import core.result.{Result, Ok, Err}
 
 extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
@@ -248,6 +249,18 @@ fun sha256(text: String) r: Result<String, Sha256Error> {
     return digest
 }
 
+// FsFile errors are created by fileFailure with an owned code and empty causes.
+// Their other strings refer to static literals and must not be released.
+fun releaseSha256FileError(error: SeenError) r: Void {
+    seen_string_release_owned(error.code.value)
+    error.code.free()
+    error.subsystem.free()
+    error.operation.free()
+    error.causes.free()
+    error.nativeCode.free()
+    error.free()
+}
+
 fun sha256File(path: String, chunkBytes: Int = 1048576)
     r: Result<String, Sha256Error> {
     if chunkBytes < 1 or chunkBytes > 16777216 {
@@ -256,15 +269,27 @@ fun sha256File(path: String, chunkBytes: Int = 1048576)
     }
     let opened = FsFile.open(path)
     if opened.isErr() {
+        releaseSha256FileError(opened.unwrapErr())
+        opened.releaseContainer()
         return Err<String, Sha256Error>(sha256Error("sha256.open",
             "failed to open digest input"))
     }
     let file = opened.unwrap()
+    opened.releaseContainer()
     let state = Sha256.new()
     var failed = false
     let measuredSize = file.size()
     if measuredSize.isErr() {
-        let _ = file.closeFile()
+        releaseSha256FileError(measuredSize.unwrapErr())
+        measuredSize.releaseContainer()
+        let closedAfterSizeFailure = file.closeFile()
+        if closedAfterSizeFailure.isErr() {
+            releaseSha256FileError(closedAfterSizeFailure.unwrapErr())
+        } else {
+            closedAfterSizeFailure.unwrap().free()
+        }
+        closedAfterSizeFailure.releaseContainer()
+        file.free()
         state.state.free()
         state.block.free()
         state.free()
@@ -272,24 +297,44 @@ fun sha256File(path: String, chunkBytes: Int = 1048576)
             "failed to determine digest input size"))
     }
     var remaining = measuredSize.unwrap()
+    measuredSize.releaseContainer()
     while remaining > 0 and not failed {
         var wanted = chunkBytes
         if remaining < wanted { wanted = remaining }
         let chunk = file.read_bytes(wanted)
-        if chunk.isErr() or chunk.unwrap().length() != wanted {
-            if chunk.isOkay() { chunk.unwrap().free() }
+        if chunk.isErr() {
+            releaseSha256FileError(chunk.unwrapErr())
+            chunk.releaseContainer()
             failed = true
         } else {
             let chunkBytesValue = chunk.unwrap()
-            let updated = state.updateBytes(chunkBytesValue)
-            chunkBytesValue.free()
-            if updated.isErr() { failed = true }
-            updated.releaseContainer()
+            if chunkBytesValue.length() != wanted {
+                chunkBytesValue.free()
+                chunk.releaseContainer()
+                failed = true
+            } else {
+                let updated = state.updateBytes(chunkBytesValue)
+                chunkBytesValue.free()
+                chunk.releaseContainer()
+                if updated.isErr() {
+                    updated.unwrapErr().free()
+                    failed = true
+                }
+                updated.releaseContainer()
+            }
         }
         remaining = remaining - wanted
     }
     let closed = file.closeFile()
-    if failed or closed.isErr() {
+    if closed.isErr() {
+        releaseSha256FileError(closed.unwrapErr())
+    } else {
+        closed.unwrap().free()
+    }
+    let closeFailed = closed.isErr()
+    closed.releaseContainer()
+    file.free()
+    if failed or closeFailed {
         state.state.free()
         state.block.free()
         state.free()

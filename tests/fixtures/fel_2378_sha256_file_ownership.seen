@@ -1,0 +1,74 @@
+import crypto.sha256.{sha256, sha256File, releaseSha256DigestResult}
+import env.env.{args}
+import memory.allocation.{memoryStats}
+
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
+fun releaseArguments(arguments: Array<String>) r: Void {
+    var index = 0
+    while index < arguments.length() {
+        seen_string_release_owned(arguments[index])
+        index = index + 1
+    }
+    arguments.free()
+}
+
+fun hashFile(path: String, chunkBytes: Int) r: Void {
+    let digest = sha256File(path, chunkBytes)
+    if digest.isErr() { abort("SHA-256 file digest failed") }
+    if digest.unwrap() !=
+        "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb" {
+        abort("SHA-256 file digest changed")
+    }
+    releaseSha256DigestResult(digest)
+}
+
+fun rejectFile(path: String, chunkBytes: Int) r: Void {
+    let rejected = sha256File(path, chunkBytes)
+    if not rejected.isErr() { abort("SHA-256 file rejection is missing") }
+    rejected.unwrapErr().free()
+    rejected.releaseContainer()
+}
+
+fun hashText() r: Void {
+    let digest = sha256("abc")
+    if digest.isErr() { abort("SHA-256 text digest failed") }
+    releaseSha256DigestResult(digest)
+}
+
+fun main() r: Int {
+    let arguments = args()
+    if arguments.length() != 3 { releaseArguments(arguments); return 2 }
+    let path = arguments[1]
+    let missingPath = arguments[2]
+    hashFile(path, 1)
+    hashFile(path, 2)
+    hashFile(path, 1048576)
+    rejectFile(missingPath, 2)
+    rejectFile(path, 0)
+    rejectFile(path, 16777217)
+    hashText()
+    let baseline = memoryStats().usedBytes
+    var iteration = 0
+    while iteration < 100 {
+        hashFile(path, 1)
+        hashFile(path, 2)
+        hashFile(path, 1048576)
+        rejectFile(missingPath, 2)
+        rejectFile(path, 0)
+        rejectFile(path, 16777217)
+        hashText()
+        iteration = iteration + 1
+    }
+    let after = memoryStats().usedBytes
+    releaseArguments(arguments)
+    if baseline != after {
+        println("SHA-256 file allocator baseline: " + baseline.toString() +
+            "/" + after.toString())
+        return 1
+    }
+    println("PASS: FEL-2378 SHA-256 file allocator baseline")
+    return 0
+}
+
+main()
