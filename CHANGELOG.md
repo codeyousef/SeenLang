@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.9] - 2026-10-10
+
+### Fixed
+
+- Released file, read, update, close, and error-result owners in
+  `sha256File()`. Repeated file hashing now returns allocator live usage to
+  baseline in fast and release/ThinLTO builds while preserving the digest.
+
 ## [0.22.8] - 2026-09-26
 
 ### Fixed
