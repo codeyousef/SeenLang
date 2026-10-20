@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Serialized pool allocation and memory-budget transactions across threads,
   made runtime error storage thread-local, and released temporary structured
   async context-validation owners.
+- Defined the Seen portable SIMD IR v1 contract with checked vector/mask
+  geometry, packed-operation metadata and explicit x86/ARM/scalar planning.
+- Added 512-bit vector spellings, lane-mask comparisons, checked constructors
+  and machine-readable representation information in `--simd-report`.
 
 ## [0.22.9] - 2026-10-10
 

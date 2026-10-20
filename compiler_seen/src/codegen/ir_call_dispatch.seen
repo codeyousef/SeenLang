@@ -1,3 +1,4 @@
+import simd.ir_types.{simdBuiltinLlvmType}
 ///
 ir_call_dispatch.seen — general call dispatch and non-constructor helpers
 Extracted from llvm_ir_gen.seen to follow SRP.
@@ -12,6 +13,8 @@ import str.string.{StringBuilder}
 
 // Simple LLVM type mapping for common Seen types (no struct registry needed)
 fun simpleMapType(seenType: String) r: String {
+    let vector = simdBuiltinLlvmType(seenType)
+    if vector != "" { return vector }
     if seenType == "Int" or seenType == "Char" { return "i64" }
     if seenType == "Float" { return "double" }
     if seenType == "Bool" { return "i1" }
