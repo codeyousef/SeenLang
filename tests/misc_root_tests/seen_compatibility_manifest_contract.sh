@@ -119,7 +119,7 @@ grep -Fq 'compiler_seen/tests/compatibility_manifest.seen' \
 
 for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
     seen-prebuilt-package-v2 seen-package-interface-v2 \
-    seen-package-object-manifest-v2 runtime-v7 SEENPKG1 \
+    seen-package-object-manifest-v2 SEENPKG1 \
     seen-deterministic-context-v1 seen-program-build-input-v1 \
     seen-object-cache-record-v1 seen-release-lto-cache-record-v1 \
     seen-program-artifacts-v1 seen-program-reproducibility-v1; do
@@ -127,6 +127,26 @@ for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
     grep -Fq "$identity" "$PRODUCTION" ||
         fail "production manifest omitted current identity $identity"
 done
+python3 - "$PRODUCTION" "$COMPILER_ENTRY" "$ROOT_DIR/seen_std/Seen.toml" "$ROOT_DIR/scripts/build_windows.sh" <<'PY_CURRENT' || fail "current compatibility identity agreement"
+import json
+from pathlib import Path
+import re
+import sys
+import tomllib
+manifest = json.loads(Path(sys.argv[1]).read_text())
+compiler = Path(sys.argv[2]).read_text()
+stdlib = tomllib.loads(Path(sys.argv[3]).read_text())
+for field, expected in (
+    ("runtimeAbi", manifest["components"]["runtime"]["abi"]),
+    ("standardLibraryVersion", manifest["components"]["standard_library"]["version"]),
+):
+    actual = re.findall(r'\b' + field + r':\s*"([^"\n]+)"', compiler)
+    assert actual == [expected], (field, actual, expected)
+assert stdlib["project"]["version"] == manifest["components"]["standard_library"]["version"]
+windows = Path(sys.argv[4]).read_text()
+assert '"$PROJECT_DIR/releases/compatibility-manifest.json"' in windows
+assert not re.search(r'"runtime-v[0-9]+"', windows)
+PY_CURRENT
 python3 - "$PRODUCTION" <<'PY' || fail "deterministic certification policy"
 import json
 import sys
