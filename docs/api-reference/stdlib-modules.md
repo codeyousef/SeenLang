@@ -337,3 +337,53 @@ not authorize retention, synchronization, destruction, or device changes.
 
 - `uww/fixed`
 - `uww/mod`
+
+## Additional runtime and completion modules
+
+- `async/barrier`
+- `async/completion_io`
+- `async/deadline_heap`
+- `async/dns`
+- `async/dns_wire`
+- `async/event_loop`
+- `async/executor_core`
+- `async/executor_native`
+- `async/io_lease`
+- `async/io_wakeup`
+- `async/join_report`
+- `async/mod`
+- `async/multithread`
+- `async/owned_strings`
+- `async/pool_placement`
+- `async/pools`
+- `async/process_arguments`
+- `async/process_native`
+- `async/processes`
+- `async/queue`
+- `async/readiness_native`
+- `async/reduction`
+- `async/sockets`
+- `async/streams`
+- `async/structured`
+- `async/sync_domain`
+- `async/task_diagnostics`
+- `async/task_group`
+- `async/wait_group`
+- `core/error`
+- `core/operation_context`
+- `core/ownership`
+- `core/secret`
+- `determinism/context`
+- `determinism/policy`
+- `io/completion_queue`
+- `io/completion_types`
+- `memory/mapped_file`
+- `operation_context`
+- `secret`
+- `simd/dispatch_plan`
+- `simd/ir_types`
+- `sync/arc`
+- `sync/contracts`
+- `sync/lock_order`
+- `sync/mod`
+- `testing/categories`

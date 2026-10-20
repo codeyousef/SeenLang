@@ -59,3 +59,13 @@ class OwnedBuffer<T> {
         return true
     }
 }
+
+/// Borrow-only byte admission shared by SIMD operations. Geometry and work
+/// ceilings belong to callers; this helper checks storage and address wrap.
+fun ownedBufferByteRangeValid<T>(borrow buffer: OwnedBuffer<T>, offset: UInt64,
+    bytes: UInt64) r: Bool {
+    if buffer.data == (null as *T) or offset > buffer.byteLength or
+        bytes > buffer.byteLength - offset { return false }
+    let address = buffer.data as UInt64
+    return address <= (18446744073709551615 as UInt64) - offset - bytes
+}

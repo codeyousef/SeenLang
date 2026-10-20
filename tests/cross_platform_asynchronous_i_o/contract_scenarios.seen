@@ -1,0 +1,48 @@
+import io.completion_types.{IoQueueLimits, IoRegistration, IoRejectedSubmission, IoCompletion, IoSubmissionView}
+import io.completion_queue.{IoQueue}
+import async.structured.{AsyncOperationContext}
+import fixture_support.{ioMust, ioRequire, ioErrorIs, ioFixtureRequest, ioTake}
+fun ioRound(context: AsyncOperationContext) r: Void {
+    let limits = IoQueueLimits{depth: 2, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 128 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let queue: IoQueue = ioMust(IoQueue.create(limits)); limits.free()
+    let first: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    let second: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    ioRequire(queue.active == 2 and queue.ownedBytes == (128 as UInt64))
+    let excess = queue.reserve(ioFixtureRequest(context)); ioRequire(excess.isErr())
+    let rejection: IoRejectedSubmission = excess.unwrapErr(); excess.releaseContainer()
+    ioRequire(rejection.error.code == "async.limit" and rejection.request.resources.buffer.byteLength == (64 as UInt64))
+    ioMust(rejection.release())
+    let firstView: IoSubmissionView = ioMust(queue.submission(first.token))
+    ioRequire(firstView.bytes == (16 as UInt64)); firstView.buffer[0] = 73 as UInt8; firstView.free()
+    ioRequire(ioErrorIs(queue.submission(first.token), "async.invalid"))
+    let secondView: IoSubmissionView = ioMust(queue.submission(second.token)); secondView.free()
+    ioMust(queue.submitted(first.token)); ioMust(queue.submitted(second.token))
+    ioRequire(queue.nativeActive == 2)
+    ioRequire(ioErrorIs(queue.complete(first.token, 0 as UInt64, 8 as Int32, 0 as Int64), "async.invalid"))
+    ioRequire(ioErrorIs(queue.complete(first.token, 17 as UInt64, 0 as Int32, 0 as Int64), "async.invalid"))
+    ioRequire(queue.nativeActive == 2)
+    ioMust(queue.complete(first.token, 4 as UInt64, 0 as Int32, 0 as Int64))
+    ioRequire(ioErrorIs(queue.complete(first.token, 4 as UInt64, 0 as Int32, 0 as Int64), "async.invalid"))
+    ioMust(queue.cancel(second.token))
+    let action = queue.nextCancellation(); ioRequire(action.isSome())
+    let cancel: IoRegistration = action.unwrap(); ioRequire(cancel.token == second.token); cancel.free(); action.free()
+    let repeated = queue.nextCancellation(); ioRequire(repeated.isNone()); repeated.free()
+    // Cancellation does not acknowledge a kernel borrow. Owners and budget
+    // remain live until explicit terminal completion and delivery.
+    ioRequire(queue.nativeActive == 1 and queue.ownedBytes == (128 as UInt64))
+    ioMust(queue.complete(second.token, 2 as UInt64, 0 as Int32, 0 as Int64))
+    let completed = ioTake(queue); ioRequire(completed.token == first.token and completed.partial())
+    ioRequire(completed.request.resources.buffer.data[0] == (73 as UInt8))
+    ioRequire(ioMust(completed.outcome()) == (4 as UInt64)); ioMust(completed.release())
+    let cancelled = ioTake(queue); ioRequire(cancelled.token == second.token and cancelled.partial())
+    let outcome = cancelled.outcome(); ioRequire(outcome.isErr())
+    let error = outcome.unwrapErr(); outcome.releaseContainer()
+    ioRequire(error.code == "async.cancelled" and error.progress == (2 as UInt64) and not error.retryable)
+    error.free(); ioMust(cancelled.release())
+    ioRequire(queue.active == 0 and queue.nativeActive == 0 and queue.ownedBytes == (0 as UInt64))
+    let reused: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    ioRequire(reused.token != first.token and reused.token != second.token)
+    ioRequire(ioErrorIs(queue.cancel(first.token), "async.invalid"))
+    ioMust(queue.cancel(reused.token)); let pending = ioTake(queue); ioMust(pending.release())
+    first.free(); second.free(); reused.free(); ioMust(queue.release())
+}
