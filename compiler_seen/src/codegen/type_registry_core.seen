@@ -1,7 +1,7 @@
 // type_registry_core.seen - Array-backed type-registry operations.
 
 import trace.{traceGen}
-import codegen.ir_type_info.{getKnownLspFieldIndexImpl}
+import codegen.ir_type_info.{getKnownLspFieldIndexImpl, findStructDeclarationIdx}
 import codegen.ir_type_mapping.{isDataTypeImpl, isClassTypeImpl,
     isFixedWidthScalarTypeImpl, getFixedWidthScalarSizeImpl}
 import codegen.ir_type_tables.{registerKnownDataTypesImpl}
@@ -13,29 +13,9 @@ fun findStructReg(name: String, structNames: Array<String>) r: Int {
     if cached >= 0 {
         return cached
     }
-    var i = structNames.length() - 1
-    while i >= 0 {
-        if structNames[i] == name {
-            cacheStructIndex(name, i, structNames)
-            return i
-        }
-        i = i - 1
-    }
-    if name.contains("<") {
-        let ltIdx = name.indexOf("<", 0)
-        if ltIdx > 0 {
-            let baseName = name.substring(0, ltIdx)
-            var j = structNames.length() - 1
-            while j >= 0 {
-                if structNames[j] == baseName {
-                    cacheStructIndex(name, j, structNames)
-                    return j
-                }
-                j = j - 1
-            }
-        }
-    }
-    return -1
+    let found = findStructDeclarationIdx(structNames, name)
+    if found >= 0 { cacheStructIndex(name, found, structNames) }
+    return found
 }
 
 fun ensureStructEntryReg(name: String, structNames: Array<String>, structLayouts: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>, structLlvmFieldTypes: Array<String>, structSizes: Array<Int>, structMethodNames: Array<String>, structMethodRetTypes: Array<String>) r: Int {
