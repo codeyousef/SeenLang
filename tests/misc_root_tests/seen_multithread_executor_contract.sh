@@ -43,6 +43,7 @@ compile_case() {
 }
 
 for profile in fast release; do
+    compile_case "$profile" pointer-index "$ROOT_DIR/tests/compiler_regressions/typed_pointer_index.seen"
     compile_case "$profile" generic-array "$ROOT_DIR/tests/fixtures/async/generic_array_field_cleanup.seen"
     compile_case "$profile" generic-send "$ROOT_DIR/tests/fixtures/async/generic_send_registry.seen"
     compile_case "$profile" pool-release "$ROOT_DIR/tests/fixtures/async/pool_release_pointer_abi.seen"
