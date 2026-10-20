@@ -82,6 +82,7 @@ class MacPositionalQueue {
             bytes: submission.view.bytes, offset: submission.view.fileOffset, write: write, outcome: submission.outcome}
         submission.release(); return this.worker.submit(token, job)
     }
+    fun deviceRemoved(nativeResult: Int64) r: UInt64 { return this.worker.deviceRemoved(nativeResult) }
     fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.worker.cancel(token) }
     fun publishCancellation() r: Result<Bool, AsyncError> { return this.worker.publishCancellation() }
     fun reap(maximum: Int) r: Result<UInt64, AsyncError> { return this.worker.reap(maximum) }

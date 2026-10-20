@@ -1,10 +1,13 @@
 /// Backend-neutral completion ownership. These types never submit native I/O.
 import core.result.{Result, Ok, Err}
+import core.option.{Option, None}
 import async.structured.{AsyncError, AsyncOperationContext, asyncStatusCode, asyncFailure}
 import async.executor_core.{executorReleaseSnapshot}
 import async.completion_io.{CompletedFileIo}
 import memory.aligned_buffer.{OwnedBuffer}
 import reactor.reactor.{OwnedHandle}
+
+let IO_DEVICE_REMOVED_STATUS: Int32 = 10 as Int32
 
 enum IoOperation { Read, Write }
 class IoQueueLimits {
@@ -29,6 +32,7 @@ class IoRequest {
     var bytes: UInt64
     var context: AsyncOperationContext
     var contextOwned: Bool
+    var nativeEvent: Option<Int64>
     // Own descriptor/buffer immediately; context remains borrowed until the
     // queue validates it and creates its own bounded snapshot on admission.
     static fun create(descriptor: OwnedHandle, buffer: OwnedBuffer<UInt8>,
@@ -37,14 +41,14 @@ class IoRequest {
         return IoRequest{resources: CompletedFileIo{descriptor: descriptor, buffer: buffer,
             progress: 0 as UInt64, status: 0 as Int32, nativeResult: 0 as Int64},
             operation: operation, fileOffset: fileOffset, bytes: bytes,
-            context: context, contextOwned: false}
+            context: context, contextOwned: false, nativeEvent: None<Int64>()}
     }
     fun release() r: Result<Bool, AsyncError> {
         let released = this.resources.release()
         if released.isErr() { return released }
         released.releaseContainer()
         if this.contextOwned { executorReleaseSnapshot(this.context) }
-        this.free(); return Ok<Bool, AsyncError>(true)
+        this.nativeEvent.free(); this.free(); return Ok<Bool, AsyncError>(true)
     }
 }
 
@@ -92,6 +96,10 @@ class IoSubmissionView {
     var deadline: Int64
 }
 fun ioQueueFailure(status: Int32, operation: String, progress: UInt64) r: AsyncError {
+    if status == IO_DEVICE_REMOVED_STATUS {
+        return asyncFailure("io.device_removed", operation, "completion device or backend was removed",
+            false, progress, "completion-io")
+    }
     return asyncFailure(asyncStatusCode(status), operation, "bounded completion I/O operation rejected",
         false, progress, "completion-io")
 }
@@ -103,5 +111,5 @@ fun ioQueueStableError(error: AsyncError) r: AsyncError {
 fun ioCompletionStatusValid(status: Int32) r: Bool {
     return status == (0 as Int32) or status == (1 as Int32) or status == (2 as Int32) or
         status == (3 as Int32) or status == (4 as Int32) or status == (5 as Int32) or
-        status == (7 as Int32) or status == (9 as Int32)
+        status == (7 as Int32) or status == (9 as Int32) or status == IO_DEVICE_REMOVED_STATUS
 }

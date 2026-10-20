@@ -7,7 +7,7 @@ import async.io_lease.{AsyncIoLease, AsyncIoLeaseCounter}
 import memory.aligned_buffer.{OwnedBuffer}
 import reactor.reactor.{OwnedHandle}
 import io.completion_queue.{IoQueue}
-import io.completion_types.{IoQueueLimits, IoRegistration, IoRequest, IoRejectedSubmission,
+import io.completion_types.{IO_DEVICE_REMOVED_STATUS, IoQueueLimits, IoRegistration, IoRequest, IoRejectedSubmission,
     IoCompletion, IoSubmissionView, ioQueueFailure}
 import io.uring_layout.{UringLayout, uringDistance, uringStatus, uringEncodeRequest, uringEncodeCancellation}
 import io.uring_native.{seen_uring_setup, seen_uring_enter, seen_uring_register,
@@ -167,6 +167,7 @@ class LinuxUringQueue {
         seen_uring_store_release(this.sqField(1), ((tail + (1 as UInt64)) % (4294967296 as UInt64)) as UInt32)
     }
     fun reserve(request: IoRequest) r: Result<IoRegistration, IoRejectedSubmission> {
+        if this.core.deviceLost { return this.core.reject(request, ioQueueFailure(IO_DEVICE_REMOVED_STATUS, "io.uring.reserve.device", 0 as UInt64)) }
         if not this.available() {
             return this.core.reject(request, ioQueueFailure(3 as Int32, "io.uring.reserve", 0 as UInt64))
         }
@@ -193,6 +194,7 @@ class LinuxUringQueue {
         // Ownership becomes irrevocable before release-publishing the SQ tail.
         this.publish(tail); return Ok<Bool, AsyncError>(true)
     }
+    fun deviceRemoved(nativeResult: Int64) r: UInt64 { return this.core.deviceRemoved(nativeResult) }
     fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.core.cancel(token) }
     fun publishCancellation() r: Result<Bool, AsyncError> {
         if not this.available() { return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.uring.cancel", 0 as UInt64)) }

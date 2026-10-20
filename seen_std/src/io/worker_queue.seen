@@ -93,6 +93,7 @@ class WorkerCompletionQueue<T: Send + ExecutorJob> {
         }
         return this.core.rejectSubmission(token, status, nativeCode)
     }
+    fun deviceRemoved(nativeResult: Int64) r: UInt64 { return this.core.deviceRemoved(nativeResult) }
     fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.core.cancel(token) }
     fun publishCancellation() r: Result<Bool, AsyncError> {
         if this.closed { return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.worker.cancel", 0 as UInt64)) }

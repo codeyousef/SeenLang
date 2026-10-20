@@ -1,8 +1,10 @@
+import io.completion_types.{IO_DEVICE_REMOVED_STATUS}
 /// Windows x64 ABI normalization and OVERLAPPED encoding, in Seen.
 import io.completion_bytes.{completionWrite64}
 
 fun iocpStatus(code: UInt32) r: Int32 {
     if code == (0 as UInt32) or code == (38 as UInt32) { return 0 as Int32 }
+    if code == (1167 as UInt32) or code == (55 as UInt32) or code == (433 as UInt32) { return IO_DEVICE_REMOVED_STATUS }
     if code == (50 as UInt32) or code == (120 as UInt32) { return 4 as Int32 }
     if code == (8 as UInt32) or code == (14 as UInt32) or code == (1450 as UInt32) or code == (1816 as UInt32) { return 2 as Int32 }
     if code == (87 as UInt32) or code == (6 as UInt32) or code == (1113 as UInt32) { return 1 as Int32 }

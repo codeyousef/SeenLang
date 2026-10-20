@@ -6,7 +6,7 @@ import reactor.reactor.{OwnedHandle}
 import fs.types.{OpenOptions}
 import memory.aligned_buffer.{OwnedBuffer}
 import io.completion_queue.{IoQueue, ioQueuePreflight}
-import io.completion_types.{IoQueueLimits, IoRequest, IoRegistration, IoRejectedSubmission, IoCompletion, IoOperation, IoSubmissionView, ioQueueFailure}
+import io.completion_types.{IO_DEVICE_REMOVED_STATUS, IoQueueLimits, IoRequest, IoRegistration, IoRejectedSubmission, IoCompletion, IoOperation, IoSubmissionView, ioQueueFailure}
 import io.completion_bytes.{completionByteAddress}
 import io.iocp_layout.{iocpStatus, iocpEncodeOverlapped}
 import io.iocp_file.{iocpOpenHandle, IocpOpenFailure}
@@ -71,6 +71,9 @@ class WindowsIocpQueue {
     // request generation safely, so arbitrary raw handles are not admitted.
     fun reserveFile(path: String, borrow options: OpenOptions, buffer: OwnedBuffer<UInt8>,
         operation: IoOperation, offset: Int64, bytes: UInt64, context: AsyncOperationContext) r: Result<IoRegistration, IoRejectedSubmission> {
+        if this.core.deviceLost {
+            return this.rejectBuffer(buffer, operation, offset, bytes, context, ioQueueFailure(IO_DEVICE_REMOVED_STATUS, "io.iocp.reserve.device", 0 as UInt64))
+        }
         if not this.available() {
             return this.rejectBuffer(buffer, operation, offset, bytes, context, ioQueueFailure(3 as Int32, "io.iocp.reserve", 0 as UInt64))
         }
@@ -152,6 +155,7 @@ class WindowsIocpQueue {
         }
         return Ok<UInt64, AsyncError>(count)
     }
+    fun deviceRemoved(nativeResult: Int64) r: UInt64 { return this.core.deviceRemoved(nativeResult) }
     fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.core.cancel(token) }
     fun publishCancellation() r: Result<Bool, AsyncError> {
         if not this.available() { return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.iocp.cancel", 0 as UInt64)) }

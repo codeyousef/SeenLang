@@ -528,3 +528,58 @@ Completion-boundary errors use the static `completion-io` trace tag when a
 dependency error would otherwise borrow a context string. Those errors can
 outlive released snapshots; request trace/resource identities remain in the
 owned admitted context until completion release.
+
+## Shared adverse completion and device removal
+
+Standard library 0.15.0 adds `IO_DEVICE_REMOVED_STATUS` and the stable
+`io.device_removed` error without changing runtime ABI `runtime-v12`. Linux and
+Darwin ENODEV/ENXIO and Windows ERROR_DEVICE_NOT_CONNECTED/ERROR_DEV_NOT_EXIST/
+ERROR_NO_SUCH_DEVICE normalize to that status in Seen. Generic I/O errors,
+access denial and interrupted calls remain distinct unavailable/invalid results;
+they do not prove removal. Native error numbers are interpreted only in their
+own backend vocabulary, and no adapter chooses retry or fallback policy.
+
+`deviceRemoved(nativeResult)` on a queue is an explicit caller/backend-session
+notification. It permanently stops new admission and marks active requests.
+Use it only when the whole queue's device/session is known to be lost; one
+request's native device error does not automatically invalidate unrelated files
+on other devices. Tokens belong to their original queue and cannot be moved to
+a replacement queue. Repeated notifications are idempotent. A replacement
+backend/device requires a fresh queue.
+
+Queued requests terminate immediately because no adapter borrow exists.
+Preparing/submitted requests retain descriptors, buffers, budgets and context
+snapshots. The event is a request to stop, never an invented native
+acknowledgement. Preparing adapters must release their view and reject or call
+`submitted`; a pending stop makes `submitted` terminate without publication.
+Native/kernel borrows still require their own completion record or synchronous
+worker join. Close remains busy until acknowledgement and terminal delivery.
+A lost device/driver that never acknowledges remains quarantined with its
+owners; neither timeout nor shutdown frees memory that could still be borrowed.
+
+The first **observed** stop reason wins. An already recorded cancellation or
+deadline remains authoritative if removal follows. Removal observed first stays
+`io.device_removed` if cancellation or late success follows. A previously
+terminal result is immutable. Merely having an expired clock is not an observed
+queue event until submission, cancellation polling or completion checks it.
+Successful short reads and EOF are explicit partial successes, never retries.
+Errors and late successes preserve exact trusted byte progress, including a
+full transfer followed by an adverse result. Invalid progress or duplicate
+acknowledgements leave ownership unchanged.
+
+`IoRequest.nativeEvent: Option<Int64>` retains explicit removal evidence
+separately from the terminal backend `resources.nativeResult`. `Some(0)` is a
+recorded event with a zero native result and is distinct from `None`. Both
+survive terminal delivery in the owned completion. Each request owns and frees
+its event wrapper. Typed errors are nonretryable by default: callers must use
+progress and their own idempotency/device policy before choosing another action.
+
+`tests/misc_root_tests/seen_async_io_e.sh` runs the cross-backend error matrix
+and adverse lifecycle in fast/release/UBSan/ASan plus 60 seconds of seeded mixed
+queued/preparing/submitted removal fuzz. Queue invariants are shared with the
+ordinary transition fuzz. Coverage includes first-reason ordering, partial/EOF,
+zero-valued event evidence, blocked new admission, late/duplicate acknowledgements,
+retained budgets and repeated live-allocation baselines. `seen-io-adverse-v1`
+records model execution separately from physical device hot-unplug, which
+remains unverified until designated hardware testing. No hardware fault or
+platform certification is inferred from source/frontend validation.
