@@ -18,8 +18,8 @@ import async.io_wakeup.{AsyncIoWakeHandle}
 import async.io_lease.{AsyncIoLeaseCounter}
 
 trait AsyncIoJob {
-    fun onEvent(event: AsyncIoEvent, descriptor: Int64, context: ExecutorTaskContext) r: Bool
-    fun release() r: Bool
+    fun onEvent(this: AsyncIoJob, event: AsyncIoEvent, descriptor: Int64, context: ExecutorTaskContext) r: Bool
+    fun release(this: AsyncIoJob) r: Bool
 }
 
 @send
