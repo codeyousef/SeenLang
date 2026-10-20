@@ -333,3 +333,11 @@ Linux descriptor close errors consume ownership even when delayed I/O errors are
 reported. The shared `OwnedHandle` marks such descriptors invalid before returning
 the error, so a retry cannot close a descriptor number reused by another owner.
 The typed owner remains available to finish metadata cleanup.
+
+
+`async.completion_io.completionFileHandle(file)` borrows an open
+`fs.file.File` with required direct I/O and returns an independently owned,
+close-on-exec duplicate descriptor. Close the source File normally after this
+call; the completion owner remains valid. Buffered files return
+`async.unsupported_platform`. The filesystem's opaque wrapper is never treated
+as a raw descriptor number.

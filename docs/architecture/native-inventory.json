@@ -3438,6 +3438,13 @@
       ]
     },
     {
+      "name": "seen_async_completion_duplicate_file",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
       "name": "seen_async_completion_reap",
       "abi": "C",
       "sources": [
