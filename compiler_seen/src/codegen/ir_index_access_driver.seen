@@ -1,3 +1,4 @@
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 // ir_index_access_driver.seen - prepared index access lowering leaves.
 
 import str.string.{StringBuilder}
@@ -7,8 +8,8 @@ import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getFunctionReturnTypeWithGlobalStateImpl, getGlobalStructNamesImpl}
 import codegen.ir_codegen_metrics_state.{cseClear}
 import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState, mapTypeState}
-import codegen.ir_index_access_gen.{emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
-import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, planTypedIndexAccessImpl}
+import codegen.ir_index_access_gen.{emitPointerIndexAddressImpl, emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
+import codegen.ir_index_access_plan.{pointerIndexElementTypeImpl, shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, planTypedIndexAccessImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_member_access_driver.{generateFieldAccessState}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
@@ -82,11 +83,32 @@ fun emitTypedIndexAccessState(output: StringBuilder, arrayType: String,
         isDataElement, isClassElement)
 }
 
+fun pointerIndexElementLlvmTypeState(pointerType: String) r: String {
+    let element = pointerIndexElementTypeImpl(pointerType)
+    // Seen exposes raw addresses as integer handles, including pointer slots.
+    if element.startsWith("*") { return "i64" }
+    let mapped = mapTypeState(element)
+    if mapped == "ptr" and not element.startsWith("Array<") and not element.startsWith("List<") and
+        element != "Array" and element != "List" { return "i64" }
+    return mapped
+}
+
 fun emitPreparedIndexAssignmentState(output: StringBuilder, arrayReg: String,
     indexReg: String, valueReg: String, arrayType: String,
     valueKind: String, valueSeenType: String, boundsCheckEnabled: Int,
     boundsCheckCount: Int) r: Int {
 
+    if shouldUsePointerIndexAccessImpl(arrayType) {
+        if arrayType.startsWith("*const ") { abort("Error: [E_POINTER_CONST] cannot write through a const pointer") }
+        let elementLlvm = pointerIndexElementLlvmTypeState(arrayType)
+        var sourceLlvm = mapTypeState(valueSeenType)
+        if valueSeenType.startsWith("*") { sourceLlvm = "i64" }
+        let stored = coerceValueForLlvmTargetImpl(output, getFeatureRegBoxImpl(),
+            elementLlvm, valueSeenType, sourceLlvm, valueReg)
+        let address = emitPointerIndexAddressImpl(output, getFeatureRegBoxImpl(), arrayReg, indexReg, elementLlvm)
+        output.append("  store " + elementLlvm + " " + stored + ", ptr " + address + ", align 1 ; typed ptr[i] assignment\n")
+        return boundsCheckCount
+    }
     var nextBoundsCount = boundsCheckCount
     if boundsCheckEnabled == 1 {
         let labelSuffix = nextBoundsCount.toString()
@@ -124,7 +146,7 @@ fun generateIndexAccessState(ctx: CodegenLoweringContext,
         let piaIdxReg = lowerExpression(ctx, expr.operands[1])
         return IndexAccessResult.new(
             emitPreparedPointerIndexAccessImpl(output, getFeatureRegBoxImpl(),
-            piaBaseReg, piaIdxReg), boundsCheckLabelCount)
+            piaBaseReg, piaIdxReg, pointerIndexElementLlvmTypeState(idxBaseType)), boundsCheckLabelCount)
     }
 
     if shouldTryOperatorIndexAccessImpl(idxBaseType) {

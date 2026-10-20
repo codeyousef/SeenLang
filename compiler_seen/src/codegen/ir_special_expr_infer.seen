@@ -1,9 +1,11 @@
+import codegen.ir_index_access_plan.{pointerIndexElementTypeImpl}
 ///
 ir_special_expr_infer.seen — Shared special-expression inference helpers
 Extracted from llvm_ir_gen.seen to keep inferExpressionType dispatch thin.
 ///
 
 fun inferIndexAccessExprTypeImpl(arrayType: String, indexedElementType: String) r: String {
+    if arrayType.startsWith("*") { return pointerIndexElementTypeImpl(arrayType) }
     if indexedElementType != "" {
         return indexedElementType
     }
