@@ -3,7 +3,18 @@ extern "C" fun seen_memory_used_bytes() r: Int64
 class ArrayOwner {
     var values: Vec<Int>
 }
+class GenericOwner<T> {
+    var value: T
+    fun read() r: T { return this.value }
+}
+class NumberValue { var number: Int }
 fun round() r: Void {
+    let number = NumberValue{number: 19}
+    let generic = GenericOwner<NumberValue>{value: number}
+    let read = generic.read()
+    if read.number != 19 { abort("generic handle field load failed") }
+    generic.free()
+    number.free()
     let values = Vec<Int>.new()
     values.push(7)
     let owner = ArrayOwner{values: values}
