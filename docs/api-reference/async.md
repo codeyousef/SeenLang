@@ -78,6 +78,9 @@ Ownership follows these rules:
   or mutate an admitted task through an alias.
 - Successful `join(context)` consumes the join operation and transfers the
   concrete task back to the caller. The caller then releases it once.
+- Worker cancellation observation includes the immutable task deadline. A late
+  successful return after expiry becomes `async.timeout` and releases the job
+  exactly once; running jobs must cooperate by checking `isCancelled()`.
 - A terminal job failure or task cancellation consumes the join operation
   and calls the task's `release` once. A cancelled/timed-out wait retains
   running work and its join handle for retry.

@@ -1,7 +1,8 @@
 import core.result.{Result}
 import core.error.{AsciiString}
 import core.operation_context.{OperationContext, OperationLimits}
-import async.structured.{AsyncError, AsyncLimits, AsyncOperationContext}
+import async.structured.{AsyncError, AsyncLimits, AsyncOperationContext,
+    seen_time_monotonic_nanos}
 import async.multithread.{MultithreadExecutor, ExecutorLimits, ExecutorJob,
     ExecutorTaskContext, ExecutorJoinHandle, spawnExecutorTask}
 import async.executor_core.{executorReleaseContext}
@@ -68,7 +69,7 @@ impl ExecutorJob for ExecutorProbe {
             child.free()
             return true
         }
-        if this.mode == 2 {
+        if this.mode == 2 or this.mode == 4 {
             while not context.isCancelled() { __ThreadYield() }
             return true
         }
@@ -169,6 +170,17 @@ fun cancellationAndCleanup(context: AsyncOperationContext) r: Bool {
         result: 0, releases: counter}, context))
     if not hasError(failed.join(context), "async.unavailable") { return false }
     failed.free()
+    let deadlineContext = poolContext()
+    let now = seen_time_monotonic_nanos()
+    if now < (0 as Int64) or now > ((9223372036854775807 - 1000000000) as Int64) {
+        return false
+    }
+    deadlineContext.operation.monotonicDeadline = now + (1000000000 as Int64)
+    let timed = must(pool.spawn(ExecutorProbe{mode: 4, number: 0,
+        result: 0, releases: counter}, deadlineContext))
+    if not hasError(timed.join(context), "async.timeout") { return false }
+    timed.free()
+    executorReleaseContext(deadlineContext)
     let abandoned = must(pool.spawn(ExecutorProbe{mode: 0, number: 3,
         result: 0, releases: counter}, context))
     must(pool.shutdown(false))
@@ -181,7 +193,7 @@ fun cancellationAndCleanup(context: AsyncOperationContext) r: Bool {
         return false
     }
     if seen_sync_atomic_destroy(&counter) != (0 as Int32) { return false }
-    return released == (3 as Int64)
+    return released == (4 as Int64)
 }
 
 fun main() r: Int {

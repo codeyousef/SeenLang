@@ -7,7 +7,7 @@ import core.result.{Result, Ok, Err}
 import core.error.{AsciiString}
 import core.operation_context.{OperationContext, OperationLimits}
 import async.structured.{AsyncError, AsyncOperationContext, asyncFailure,
-    AsyncLimits, validateAsyncContext}
+    AsyncLimits, validateAsyncContext, asyncDeadlineStatus}
 import sync.contracts.{Send}
 
 import async.executor_native.{seen_sync_mutex_create, seen_sync_mutex_lock_until, seen_sync_mutex_unlock,
@@ -226,6 +226,13 @@ class ExecutorCore {
                 error.free()
             }
             checked.releaseContainer()
+        }
+        // A late return retains executor ownership and is reaped as timeout,
+        // even when user code returned success after its deadline.
+        let deadlineStatus = asyncDeadlineStatus(ticket.operation)
+        if deadlineStatus != (0 as Int32) {
+            succeeded = false
+            failure = deadlineStatus
         }
         seen_executor_swap_task(previousTask)
         context.free()
@@ -496,6 +503,10 @@ class ExecutorTaskContext {
     var depth: Int
     var operation: AsyncOperationContext
 
-    fun isCancelled() r: Bool { return this.core.isCancelled(this.slot, this.id) }
+    fun isCancelled() r: Bool {
+        return this.core.isCancelled(this.slot, this.id) or
+            this.operation.operation.cancellation or
+            asyncDeadlineStatus(this.operation) != (0 as Int32)
+    }
 }
 
