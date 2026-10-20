@@ -156,6 +156,43 @@ fun simdX86TargetFeatures(variant: String) r: String {
     return ""
 }
 
+fun simdKnownTarget(variant: String) r: Bool {
+    return simdX86TargetFeatures(variant) != "" or variant == "portable128" or
+        variant == "neon" or variant == "sve"
+}
+fun simdTargetFeatures(variant: String, architecture: String) r: String {
+    if architecture == "x86_64" {
+        if variant == "portable128" { return simdX86TargetFeatures("scalar") }
+        return simdX86TargetFeatures(variant)
+    }
+    if architecture == "aarch64" {
+        if variant == "scalar" or variant == "portable128" or variant == "neon" {
+            return "+neon,-sve"
+        }
+        if variant == "sve" { return "+neon,+sve" }
+    }
+    return ""
+}
+fun simdArmBlockType(name: String) r: String {
+    if name == "simd_unsafe_arm_neon_u8s8" or name == "simd_unsafe_arm_sve_u8s8" { return "Int64" }
+    if name == "simd_unsafe_arm_neon_bf16" or name == "simd_unsafe_arm_sve_bf16" or
+        name == "simd_unsafe_arm_sve_f32" { return "Float32" }
+    return ""
+}
+fun simdArmBlockArity(name: String) r: Int {
+    if simdArmBlockType(name) == "" { return 0 }
+    if name == "simd_unsafe_arm_neon_u8s8" or name == "simd_unsafe_arm_neon_bf16" { return 2 }
+    return 3
+}
+fun simdArmBlockSymbol(name: String) r: String {
+    if name == "simd_unsafe_arm_neon_u8s8" { return "__seen_arm_neon_u8s8" }
+    if name == "simd_unsafe_arm_neon_bf16" { return "__seen_arm_neon_bf16" }
+    if name == "simd_unsafe_arm_sve_u8s8" { return "__seen_arm_sve_u8s8" }
+    if name == "simd_unsafe_arm_sve_bf16" { return "__seen_arm_sve_bf16" }
+    if name == "simd_unsafe_arm_sve_f32" { return "__seen_arm_sve_f32" }
+    return ""
+}
+
 fun simdBuiltinLanes(name: String) r: Int {
     if name == "f32x4" or name == "i32x4" or name == "f64x4" { return 4 }
     if name == "f32x8" or name == "i32x8" or name == "f64x8" { return 8 }

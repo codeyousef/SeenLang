@@ -12,6 +12,22 @@
       "production": false
     },
     {
+      "id": "arm-sve-thread-state",
+      "subsystem": "runtime.cpu",
+      "purpose": "Per-call Linux PR_SVE_GET_VL normalization copies the calling thread vector length into a borrowed UInt64 output and clears it on failure. No allocations or retained pointers. Seen validates lengths, discovers capabilities, chooses fallback, computes kernels and owns progress. Other platforms return unsupported. Covered by changing-length/errno/null-output mocks, metadata fuzz and SIMD fixtures. Permanent OS ABI until direct compiler normalization preserves these rules.",
+      "abi": "OS prctl C",
+      "platforms": [
+        "linux-x86_64",
+        "linux-aarch64",
+        "macos",
+        "windows"
+      ],
+      "symbols": [
+        "seen_arm_sve_vector_bytes"
+      ],
+      "production": true
+    },
+    {
       "id": "c-string-conversion-memory",
       "subsystem": "runtime.ffi",
       "purpose": "Explicit C-string conversion ownership boundary. Converting a Seen string to a C string allocates a NUL-terminated copy that Seen code releases exactly once through the paired free symbol; converting a C string to Seen produces a borrowed view and never takes ownership. Exercised by packaged standard-library executable tests with non-null CUDA diagnostic strings and deterministic cleanup.",

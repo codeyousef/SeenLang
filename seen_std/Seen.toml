@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seen_std"
-version = "0.5.0"
+version = "0.8.0"
 language = "en"
 visibility = "explicit"
 description = "Core Seen standard library modules used by the self-hosted compiler"
@@ -97,9 +97,14 @@ modules = [
     # Portable SIMD representation and dispatch planning
     "src/simd/ir_types.seen",
     "src/simd/dispatch_plan.seen",
+    "src/simd/dot_contract.seen",
+    "src/simd/dot_scalar.seen",
     "src/simd/x86_dispatch.seen",
     "src/simd/x86_blocks.seen",
     "src/simd/x86_kernels.seen",
+    "src/simd/arm_dispatch.seen",
+    "src/simd/arm_blocks.seen",
+    "src/simd/arm_kernels.seen",
 
     # Math
     "src/math/math.seen",

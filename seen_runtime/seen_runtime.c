@@ -88,6 +88,7 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 
 #include "reactor_abi.c"
 #include "sync_abi.c"
+#include "src/arm_vector_abi.c"
 
 static inline size_t seen_align_up(size_t n, size_t align);
 
@@ -8001,7 +8002,7 @@ static void seen_cpu_detect_impl(void) {
     g_cpu_features.detected = 1;
 
     unsigned long hwcap = getauxval(AT_HWCAP);
-    g_cpu_features.neon = 1; // Always available on AArch64
+    g_cpu_features.neon = (hwcap & HWCAP_ASIMD) ? 1 : 0; // OS-advertised register state
     g_cpu_features.sve  = (hwcap & HWCAP_SVE) ? 1 : 0;
 }
 #elif defined(__APPLE__)
@@ -8015,7 +8016,7 @@ static void seen_cpu_detect_impl(void) {
 static void seen_cpu_detect_impl(void) {
     if (g_cpu_features.detected) return;
     g_cpu_features.detected = 1;
-    g_cpu_features.neon = 1;  // Assume NEON on generic AArch64
+    g_cpu_features.neon = 0;  // Unknown OS ABI must not grant vector state
 }
 #endif
 

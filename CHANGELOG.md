@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added NEON and scalable SVE dot lowering with per-thread OS vector-state
+  discovery, explicit fallback and compile-only cross-target fixtures. Shared
+  dot contracts, scalar references and fixture tooling now serve both x86 and
+  ARM. Standard-library compatibility advances to 0.8.0 and runtime-v9 adds the
+  narrow SVE length query; hardware/platform certification remains separate.
+
 - Added checked Seen x86 Float32, unsigned-byte/signed-byte VNNI and BF16 dot
   dispatch with explicit scalar fallback, fixed target-function isolation,
   bounded input geometry, deadline/cancellation progress and owning fixtures.

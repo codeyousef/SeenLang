@@ -1,0 +1,94 @@
+import memory.aligned_buffer.{OwnedBuffer}
+import simd.dot_contract.{DotBackend, DotClock, DotOperation, DotProgress, NativeDotClock, executeDotWithBackend}
+import core.result.{Result}
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import simd.ir_types.{SimdIrError}
+fun must<T, E>(value: Result<T, E>) r: T {
+    if value.isErr() { abort("x86 SIMD fixture failed") }
+    let result = value.unwrap(); value.releaseContainer(); return result
+}
+
+fun errorIs<T>(value: Result<T, SimdIrError>, expected: String) r: Bool {
+    if value.isOkay() { value.releaseContainer(); return false }
+    let error = value.unwrapErr(); value.releaseContainer()
+    let matches = error.code == expected; error.free(); return matches
+}
+
+fun context() r: OperationContext {
+    return OperationContext{cancellation: false, monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128, maxVersionBytes: 128,
+            maxManifestBytes: 4096, maxPathBytes: 4095, maxGraphModules: 8,
+            maxGraphEdges: 16, maxGraphDepth: 4}, traceId: AsciiString{value: "simd-b"}}
+}
+
+fun parity<B: DotBackend>(borrow backend: B, operation: DotOperation, context: OperationContext,
+    borrow left: OwnedBuffer<UInt8>, borrow right: OwnedBuffer<UInt8>,
+    reference: DotProgress, actual: DotProgress) r: Void {
+    let clock = NativeDotClock{reserved: 0}
+    let policies = Array<String>(); policies.push("auto")
+    if backend.target() == "x86_64" {
+        if operation == DotOperation.Float32 { policies.push("avx2"); policies.push("avx512") }
+        else if operation == DotOperation.UnsignedSignedByte { policies.push("vnni") }
+        else { policies.push("bf16") }
+    } else { policies.push("neon"); policies.push("sve") }
+    var width = 4
+    if operation == DotOperation.UnsignedSignedByte { width = 1 }
+    if operation == DotOperation.BFloat16 { width = 2 }
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 66 {
+            let a = (left.data as UInt64) + (offset as UInt64)
+            let b = (right.data as UInt64) + (offset as UInt64)
+            if operation == DotOperation.Float32 {
+                let ap = a as *Float32; let bp = b as *Float32
+                ap[i] = ((i % 7) - 3) as Float32; bp[i] = ((i % 5) - 2) as Float32
+            } else if operation == DotOperation.UnsignedSignedByte {
+                let ap = a as *UInt8; let bp = b as *Int8
+                ap[i] = 255 as UInt8; bp[i] = -128 as Int8
+            } else {
+                let ap = a as *UInt16; let bp = b as *UInt16
+                ap[i] = 16256 as UInt16; bp[i] = 49152 as UInt16
+            }
+            i = i + 1
+        }
+        var count = 0; var expected = 0.0 as Float32
+        while count <= 65 {
+            must(executeDotWithBackend(left, offset as UInt64, right, offset as UInt64,
+                count as UInt64, operation, "scalar", false, false, context, reference, clock, backend))
+            if operation == DotOperation.UnsignedSignedByte {
+                if reference.integer != (-32640 as Int64) * (count as Int64) {
+                    abort("scalar signed-byte oracle failed")
+                }
+            } else if reference.floating != expected { abort("scalar floating oracle failed") }
+            var selected = 0
+            while selected < policies.length() {
+                must(executeDotWithBackend(left, offset as UInt64, right, offset as UInt64,
+                    count as UInt64, operation, policies[selected], true, false, context, actual, clock, backend))
+                if actual.completed != (count as UInt64) or reference.completed != actual.completed or
+                    actual.floating != reference.floating or actual.integer != reference.integer {
+                    abort("native/scalar tail or alignment mismatch")
+                }
+                selected = selected + 1
+            }
+            if operation == DotOperation.Float32 {
+                expected = expected + (((count % 7) - 3) * ((count % 5) - 2)) as Float32
+            } else if operation == DotOperation.BFloat16 { expected = expected - (2.0 as Float32) }
+            count = count + 1
+        }
+        offset = offset + width
+    }
+    policies.free(); clock.free()
+}
+
+class ProbeDotClock {
+    var reads: Int
+    var reverse: Bool
+    fun now() r: Int64 {
+        this.reads = this.reads + 1
+        if this.reads <= 2 { return 100 as Int64 }
+        if this.reverse { return 99 as Int64 }
+        return 201 as Int64
+    }
+}

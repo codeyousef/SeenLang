@@ -3382,6 +3382,13 @@
       ]
     },
     {
+      "name": "seen_arm_sve_vector_bytes",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/simd/arm_dispatch.seen"
+      ]
+    },
+    {
       "name": "seen_arr_free",
       "abi": "C",
       "sources": [
@@ -3791,6 +3798,7 @@
       "name": "seen_cpu_has_feature",
       "abi": "C",
       "sources": [
+        "seen_std/src/simd/arm_dispatch.seen",
         "seen_std/src/simd/x86_dispatch.seen"
       ]
     },
@@ -6180,7 +6188,7 @@
       "sources": [
         "seen_std/src/async/structured.seen",
         "seen_std/src/determinism/policy.seen",
-        "seen_std/src/simd/x86_kernels.seen",
+        "seen_std/src/simd/dot_contract.seen",
         "seen_std/src/sync/contracts.seen"
       ]
     },
@@ -7545,6 +7553,13 @@
   ],
   "backends": [
     {
+      "name": "armdot",
+      "status": "source-only",
+      "sources": [
+        "seen_std/src/simd/arm_kernels.seen"
+      ]
+    },
+    {
       "name": "c",
       "status": "source-only",
       "sources": [
@@ -7574,6 +7589,13 @@
       "sources": [
         "compiler_seen/src/codegen/generator.seen",
         "compiler_seen/src/codegen/interfaces.seen"
+      ]
+    },
+    {
+      "name": "x86dot",
+      "status": "source-only",
+      "sources": [
+        "seen_std/src/simd/x86_kernels.seen"
       ]
     }
   ]

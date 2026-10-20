@@ -1,0 +1,68 @@
+/// Seen capability validation and explicit per-thread ARM selection.
+import core.result.{Result, Ok, Err}
+import simd.ir_types.{SimdIrError, simdIrFailure}
+extern "C" fun seen_cpu_has_feature(name: String) r: Int64
+extern "C" fun seen_arm_sve_vector_bytes(bytes: *UInt64) r: Int32
+
+class ArmSimdCapabilities {
+    var neon: Bool
+    var sve: Bool
+    var vectorBytes: UInt64
+
+    fun valid() r: Bool {
+        if not this.sve { return this.vectorBytes == (0 as UInt64) }
+        return this.neon and this.vectorBytes >= (16 as UInt64) and
+            this.vectorBytes <= (256 as UInt64) and this.vectorBytes % (16 as UInt64) == (0 as UInt64)
+    }
+    static fun current() r: Result<ArmSimdCapabilities, SimdIrError> {
+        let neon = seen_cpu_has_feature("neon") != (0 as Int64)
+        let sve = seen_cpu_has_feature("sve") != (0 as Int64)
+        var bytes = 0 as UInt64
+        var status = 0 as Int32
+        if sve { status = seen_arm_sve_vector_bytes(&bytes) }
+        return ArmSimdCapabilities.fromProbe(neon, sve, status, bytes)
+    }
+    static fun fromProbe(neon: Bool, hardwareSve: Bool, status: Int32, bytes: UInt64)
+        r: Result<ArmSimdCapabilities, SimdIrError> {
+        if hardwareSve and not neon {
+            return Err<ArmSimdCapabilities, SimdIrError>(armCapabilityFailure())
+        }
+        if status == (3 as Int32) {
+            return Err<ArmSimdCapabilities, SimdIrError>(simdIrFailure("simd.unavailable",
+                "aarch64", "vector-state", "dispatch", "current", "thread vector state unavailable"))
+        }
+        if status != (0 as Int32) and status != (4 as Int32) {
+            return Err<ArmSimdCapabilities, SimdIrError>(armCapabilityFailure())
+        }
+        let sve = hardwareSve and status == (0 as Int32)
+        let value = ArmSimdCapabilities{neon: neon, sve: sve, vectorBytes: bytes}
+        if not value.valid() {
+            value.free(); return Err<ArmSimdCapabilities, SimdIrError>(armCapabilityFailure())
+        }
+        return Ok<ArmSimdCapabilities, SimdIrError>(value)
+    }
+}
+fun armCapabilityFailure() r: SimdIrError {
+    return simdIrFailure("simd.invalid_capability", "aarch64", "vector-state",
+        "dispatch", "select", "invalid ARM vector state or length")
+}
+// 0 scalar, 1 fixed-width NEON, 2 SVE using the executing thread's vscale.
+fun selectArmVariant(caps: ArmSimdCapabilities, policy: String,
+    allowScalarFallback: Bool, deterministic: Bool) r: Result<Int, SimdIrError> {
+    if not caps.valid() { return Err<Int, SimdIrError>(armCapabilityFailure()) }
+    if policy != "auto" and policy != "scalar" and policy != "neon" and policy != "sve" {
+        return Err<Int, SimdIrError>(simdIrFailure("simd.invalid_policy", "aarch64",
+            "policy", "dispatch", "select", "unsupported ARM policy"))
+    }
+    if policy == "scalar" { return Ok<Int, SimdIrError>(0) }
+    if deterministic {
+        if allowScalarFallback { return Ok<Int, SimdIrError>(0) }
+        return Err<Int, SimdIrError>(simdIrFailure("simd.scalar_required", "aarch64",
+            "determinism", "dispatch", "select", "scalar permission required"))
+    }
+    if (policy == "auto" or policy == "sve") and caps.sve { return Ok<Int, SimdIrError>(2) }
+    if (policy == "auto" or policy == "neon") and caps.neon { return Ok<Int, SimdIrError>(1) }
+    if allowScalarFallback { return Ok<Int, SimdIrError>(0) }
+    return Err<Int, SimdIrError>(simdIrFailure("simd.unsupported_capability", "aarch64",
+        "vector-state", "dispatch", "select", "requested ARM variant unavailable"))
+}

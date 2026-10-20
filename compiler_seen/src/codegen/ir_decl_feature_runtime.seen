@@ -1,3 +1,4 @@
+import codegen.ir_comptime_target.{getComptimeTargetName, comptimeTargetIsAarch64}
 import simd.ir_types.{simdBuiltinLlvmType}
 import codegen.ir_simd_type_helpers.{simdScalarTypeImpl, simdLlvmSuffixImpl}
 // ir_decl_feature_runtime.seen - Runtime declarations for feature support.
@@ -7,6 +8,7 @@ import codegen.ir_declarations.{isFuncDefinedInModule}
 
 // Emit P0-P3 feature declarations (concurrency, safety, SIMD, GPU, derive, etc.)
 fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void {
+    emitArmDotHelpers(output)
     // Profiling runtime functions (for @profile decorator)
     output.append("; Profiling runtime functions\n")
     output.append("declare void @__seen_profile_enter(ptr) nounwind\n")
@@ -383,4 +385,35 @@ fun emitPortableSimdReductionDecls(output: StringBuilder, name: String) r: Void 
         output.append("declare " + scalar + " @llvm.vector.reduce.smax." + suffix +
             "(" + vector + ") nounwind readnone\n")
     }
+}
+
+fun emitArmDotHelpers(output: StringBuilder) r: Void {
+    let arm = comptimeTargetIsAarch64(getComptimeTargetName())
+    var attributes = " noinline"
+    if arm { attributes = attributes + " \"target-features\"=\"+neon,-sve\"" }
+    output.append("define internal i64 @__seen_arm_neon_u8s8(i64 %la, i64 %ra)" + attributes + " {\nentry:\n  %lp = inttoptr i64 %la to ptr\n  %rp = inttoptr i64 %ra to ptr\n  %a = load <16 x i8>, ptr %lp, align 1\n  %b = load <16 x i8>, ptr %rp, align 1\n  %au = zext <16 x i8> %a to <16 x i32>\n  %bs = sext <16 x i8> %b to <16 x i32>\n  %products = mul <16 x i32> %au, %bs\n  %sum = call i32 @llvm.vector.reduce.add.v16i32(<16 x i32> %products)\n  %wide = sext i32 %sum to i64\n  ret i64 %wide\n}\ndefine internal float @__seen_arm_neon_bf16(i64 %la, i64 %ra)" + attributes + " {\nentry:\n  %lp = inttoptr i64 %la to ptr\n  %rp = inttoptr i64 %ra to ptr\n  %a = load <4 x i16>, ptr %lp, align 1\n  %b = load <4 x i16>, ptr %rp, align 1\n  %au = zext <4 x i16> %a to <4 x i32>\n  %bu = zext <4 x i16> %b to <4 x i32>\n  %abits = shl <4 x i32> %au, <i32 16, i32 16, i32 16, i32 16>\n  %bbits = shl <4 x i32> %bu, <i32 16, i32 16, i32 16, i32 16>\n  %af = bitcast <4 x i32> %abits to <4 x float>\n  %bf = bitcast <4 x i32> %bbits to <4 x float>\n  %products = fmul <4 x float> %af, %bf\n  %sum = call float @llvm.vector.reduce.fadd.v4f32(float 0.0, <4 x float> %products)\n  ret float %sum\n}\n")
+    if not arm {
+        output.append("declare void @llvm.trap() cold noreturn nounwind\ndefine internal float @__seen_arm_sve_f32(i64 %la, i64 %ra, i64 %count) noinline {\nentry:\n  call void @llvm.trap()\n  unreachable\n}\ndefine internal i64 @__seen_arm_sve_u8s8(i64 %la, i64 %ra, i64 %count) noinline {\nentry:\n  call void @llvm.trap()\n  unreachable\n}\ndefine internal float @__seen_arm_sve_bf16(i64 %la, i64 %ra, i64 %count) noinline {\nentry:\n  call void @llvm.trap()\n  unreachable\n}\n")
+        return
+    }
+    output.append("declare i64 @llvm.vscale.i64() nounwind readnone\ndeclare <vscale x 4 x i1> @llvm.get.active.lane.mask.nxv4i1.i64(i64, i64) nounwind readnone\ndeclare <vscale x 4 x float> @llvm.masked.load.nxv4f32.p0(ptr, i32 immarg, <vscale x 4 x i1>, <vscale x 4 x float>) nounwind readonly\ndeclare <vscale x 4 x i8> @llvm.masked.load.nxv4i8.p0(ptr, i32 immarg, <vscale x 4 x i1>, <vscale x 4 x i8>) nounwind readonly\ndeclare <vscale x 4 x i16> @llvm.masked.load.nxv4i16.p0(ptr, i32 immarg, <vscale x 4 x i1>, <vscale x 4 x i16>) nounwind readonly\ndeclare float @llvm.vector.reduce.fadd.nxv4f32(float, <vscale x 4 x float>) nounwind readnone\ndeclare i32 @llvm.vector.reduce.add.nxv4i32(<vscale x 4 x i32>) nounwind readnone\n")
+    emitArmSveDotDefinition(output, "f32")
+    emitArmSveDotDefinition(output, "u8s8")
+    emitArmSveDotDefinition(output, "bf16")
+}
+
+fun emitArmSveDotDefinition(output: StringBuilder, kind: String) r: Void {
+    var resultType = "float"; var elementType = "float"
+    var vectorType = "<vscale x 4 x float>"; var suffix = "f32"; var zero = "0.0"
+    if kind == "u8s8" { resultType = "i64"; elementType = "i8"; vectorType = "<vscale x 4 x i8>"; suffix = "i8"; zero = "0" }
+    if kind == "bf16" { elementType = "i16"; vectorType = "<vscale x 4 x i16>"; suffix = "i16" }
+    output.append("define internal " + resultType + " @__seen_arm_sve_" + kind + "(i64 %la, i64 %ra, i64 %count) noinline \"target-features\"=\"+neon,+sve\" {\n")
+    output.append("entry:\n  %lp = inttoptr i64 %la to ptr\n  %rp = inttoptr i64 %ra to ptr\n  %scale = call i64 @llvm.vscale.i64()\n  %stride = mul i64 %scale, 4\n  %empty = icmp eq i64 %count, 0\n  br i1 %empty, label %zero, label %loop\nzero:\n")
+    output.append("  ret " + resultType + " " + zero + "\nloop:\n  %i = phi i64 [0, %entry], [%next, %loop]\n  %acc = phi " + resultType + " [" + zero + ", %entry], [%sum, %loop]\n")
+    output.append("  %mask = call <vscale x 4 x i1> @llvm.get.active.lane.mask.nxv4i1.i64(i64 %i, i64 %count)\n  %ap = getelementptr " + elementType + ", ptr %lp, i64 %i\n  %bp = getelementptr " + elementType + ", ptr %rp, i64 %i\n")
+    output.append("  %a = call " + vectorType + " @llvm.masked.load.nxv4" + suffix + ".p0(ptr %ap, i32 1, <vscale x 4 x i1> %mask, " + vectorType + " zeroinitializer)\n  %b = call " + vectorType + " @llvm.masked.load.nxv4" + suffix + ".p0(ptr %bp, i32 1, <vscale x 4 x i1> %mask, " + vectorType + " zeroinitializer)\n")
+    if kind == "u8s8" { output.append("  %au = zext <vscale x 4 x i8> %a to <vscale x 4 x i32>\n  %bs = sext <vscale x 4 x i8> %b to <vscale x 4 x i32>\n  %products = mul <vscale x 4 x i32> %au, %bs\n  %reduced = call i32 @llvm.vector.reduce.add.nxv4i32(<vscale x 4 x i32> %products)\n  %wide = sext i32 %reduced to i64\n  %sum = add i64 %acc, %wide\n") }
+    else if kind == "bf16" { output.append("  %au = zext <vscale x 4 x i16> %a to <vscale x 4 x i32>\n  %bu = zext <vscale x 4 x i16> %b to <vscale x 4 x i32>\n  %seed = insertelement <vscale x 4 x i32> poison, i32 16, i64 0\n  %shift = shufflevector <vscale x 4 x i32> %seed, <vscale x 4 x i32> poison, <vscale x 4 x i32> zeroinitializer\n  %abits = shl <vscale x 4 x i32> %au, %shift\n  %bbits = shl <vscale x 4 x i32> %bu, %shift\n  %af = bitcast <vscale x 4 x i32> %abits to <vscale x 4 x float>\n  %bf = bitcast <vscale x 4 x i32> %bbits to <vscale x 4 x float>\n  %products = fmul <vscale x 4 x float> %af, %bf\n  %sum = call float @llvm.vector.reduce.fadd.nxv4f32(float %acc, <vscale x 4 x float> %products)\n") }
+    else { output.append("  %products = fmul <vscale x 4 x float> %a, %b\n  %sum = call float @llvm.vector.reduce.fadd.nxv4f32(float %acc, <vscale x 4 x float> %products)\n") }
+    output.append("  %next = add i64 %i, %stride\n  %more = icmp ult i64 %next, %count\n  br i1 %more, label %loop, label %exit\nexit:\n  ret " + resultType + " %sum\n}\n")
 }

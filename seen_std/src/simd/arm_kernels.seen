@@ -1,0 +1,62 @@
+/// ARM adapter to the common validated dot driver. SVE state is per-call.
+import core.result.{Result, Err}
+import core.operation_context.{OperationContext}
+import memory.aligned_buffer.{OwnedBuffer}
+import simd.ir_types.{SimdIrError}
+import simd.dot_contract.{DotOperation, DotProgress, DotClock, NativeDotClock,
+    executeDotWithBackend}
+import simd.arm_dispatch.{ArmSimdCapabilities, selectArmVariant}
+import simd.arm_blocks.{dotF32Neon, dotU8S8Neon, dotBf16Neon,
+    dotF32Sve, dotU8S8Sve, dotBf16Sve}
+import simd.dot_scalar.{dotF32Scalar, dotU8S8Scalar, dotBf16Scalar}
+class ArmDotBackend {
+    var reserved: Int
+    fun target() r: String { return "aarch64" }
+    fun select(operation: DotOperation, policy: String, allowScalarFallback: Bool,
+        deterministic: Bool) r: Result<Int, SimdIrError> {
+        let discovered = ArmSimdCapabilities.current()
+        if discovered.isErr() {
+            let error = discovered.unwrapErr(); discovered.releaseContainer()
+            return Err<Int, SimdIrError>(error)
+        }
+        let host = discovered.unwrap(); discovered.releaseContainer()
+        let result = selectArmVariant(host, policy, allowScalarFallback, deterministic)
+        host.free(); return result
+    }
+    fun floatBlock(variant: Int, a: UInt64, b: UInt64, count: UInt64,
+        operation: DotOperation) r: Float32 {
+        if operation == DotOperation.Float32 {
+            if variant == 2 { return dotF32Sve(a, b, count) }
+            if variant == 1 { return dotF32Neon(a as *Float32, b as *Float32, count) }
+            return dotF32Scalar(a as *Float32, b as *Float32, count)
+        }
+        if variant == 2 { return dotBf16Sve(a, b, count) }
+        if variant == 1 { return dotBf16Neon(a as *UInt16, b as *UInt16, count) }
+        return dotBf16Scalar(a as *UInt16, b as *UInt16, count)
+    }
+    fun integerBlock(variant: Int, a: UInt64, b: UInt64, count: UInt64) r: Int64 {
+        if variant == 2 { return dotU8S8Sve(a, b, count) }
+        if variant == 1 { return dotU8S8Neon(a as *UInt8, b as *Int8, count) }
+        return dotU8S8Scalar(a as *UInt8, b as *Int8, count)
+    }
+}
+fun executeArmDot(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64,
+    borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64, count: UInt64,
+    operation: DotOperation, policy: String, allowScalarFallback: Bool,
+    deterministic: Bool, context: OperationContext, borrow progress: DotProgress)
+    r: Result<Bool, SimdIrError> {
+    let clock = NativeDotClock{reserved: 0}
+    let result = executeArmDotWithClock(left, leftOffset, right, rightOffset, count,
+        operation, policy, allowScalarFallback, deterministic, context, progress, clock)
+    clock.free(); return result
+}
+fun executeArmDotWithClock<C: DotClock>(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64,
+    borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64, count: UInt64,
+    operation: DotOperation, policy: String, allowScalarFallback: Bool,
+    deterministic: Bool, context: OperationContext, borrow progress: DotProgress,
+    borrow clock: C) r: Result<Bool, SimdIrError> {
+    let backend = ArmDotBackend{reserved: 0}
+    let result = executeDotWithBackend(left, leftOffset, right, rightOffset, count,
+        operation, policy, allowScalarFallback, deterministic, context, progress, clock, backend)
+    backend.free(); return result
+}

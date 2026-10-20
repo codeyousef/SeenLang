@@ -12,7 +12,7 @@ import parser.real_parser.{ParserExpressionNode, TypeNode, AnnotationNode}
 import parser.real_parser.{ParamNode}
 import simd.ir_types.{simdBuiltinLanes, simdMaskLanes,
     simdComparisonMaskName, simdIsComparisonOperator, simdConstructorLaneSupported,
-    simdX86DotType, simdX86TargetFeatures}
+    simdX86DotType, simdKnownTarget, simdArmBlockArity}
 import parser.real_parser.{genericParameterCount, genericParameterNameAt}
 import parser.real_parser.{genericParameterModifierAt}
 import typechecker.type_ref.{TypeRef, parseTypeRef}
@@ -773,6 +773,10 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
     ownerType: String) r: Void {
 
     if expression.kind == "Call" {
+        let armArity = simdArmBlockArity(expression.callee)
+        if armArity > 0 and expression.arguments.length() != armArity {
+            result.addError("E_SIMD_ARITY", "ARM block requires exact pointer/count arguments", file, line, column)
+        }
         let dotType = simdX86DotType(expression.callee)
         if dotType != "" {
             if expression.arguments.length() != 3 {
@@ -1477,7 +1481,7 @@ fun semanticCheckFunction(result: LexicalSemanticResult,
             if targetCount > 1 or decorator.arguments.length() != 1 {
                 result.addError("E_SIMD_TARGET", "exactly one explicit SIMD target is required",
                     file, function.line, function.column)
-            } else if simdX86TargetFeatures(decorator.arguments[0]) == "" {
+            } else if not simdKnownTarget(decorator.arguments[0]) {
                 result.addError("E_SIMD_TARGET", "unsupported explicit SIMD target",
                     file, function.line, function.column)
             }

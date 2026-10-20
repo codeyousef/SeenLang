@@ -120,8 +120,8 @@ assert stable live-memory accounting after all returned owners are released.
 `simd.x86_kernels.executeX86Dot(left, leftOffset, right, rightOffset, count,
 operation, policy, allowScalarFallback, deterministic, context, progress)`
 borrows two `OwnedBuffer<UInt8>` inputs and an exclusively owned
-`X86DotProgress`. It returns `Result<Bool, SimdIrError>` without retaining any
-borrow. `X86DotOperation` selects Float32, UnsignedSignedByte (u8 by i8) or
+`DotProgress`. It returns `Result<Bool, SimdIrError>` without retaining any
+borrow. `DotOperation` selects Float32, UnsignedSignedByte (u8 by i8) or
 BFloat16. Progress contains `floating` or `integer`, `completed` elements and
 `variant` (0 scalar, 1 AVX2, 2 AVX-512, 3 VNNI, 4 BF16). Both buffers may alias
 for read-only inputs; callers must exclude concurrent mutation and keep their
@@ -146,8 +146,9 @@ requires opmask/ZMM state. AVX2 Float32 additionally requires FMA; the AVX-512
 variant requires F/BW/DQ/VL plus FMA. Packed variants require their separate
 VNNI/BF16 bits. CPUID/XGETBV normalization is the existing narrow runtime ABI;
 selection, bounds, scheduling of chunks, fallback and arithmetic live in Seen.
-The runtime ABI stays runtime-v4: new feature-name queries are additive and an
-older runtime returns false for unknown features. No new native symbol is added.
+The x86 feature-name queries are additive: an older runtime returns false for
+unknown features. They add no native symbol; the ARM section describes the
+separate runtime-v9 SVE query.
 
 `selectX86Variant` accepts synthetic capabilities for planning/tests only.
 Executable calls always discover the executing host and never trust a synthetic
@@ -159,7 +160,7 @@ the ISA's fused arithmetic/subnormal rules. Choose deterministic scalar when
 those differences are unacceptable. Integer byte products accumulate exactly
 into Int64 under the checked count/chunk ceilings.
 
-`executeX86DotWithClock<C: X86DotClock>` borrows an explicit Seen clock provider
+`executeX86DotWithClock<C: DotClock>` borrows an explicit Seen clock provider
 for deterministic execution. The default API uses the native monotonic clock.
 Negative or backwards provider readings return `simd.unavailable` while
 retaining already completed progress. Providers grant no additional authority.
@@ -189,3 +190,75 @@ allocation checks. Default output is observation, not certification. Set
 ceiling and require an available native variant. Keep hardware, compiler commit,
 command, cgroup read-backs and the benchmark output together. Allocator peak
 bytes are reported separately from RSS; no RSS or hardware result is invented.
+
+### ARM NEON and SVE dot dispatch
+
+`simd.arm_kernels.executeArmDot` and `executeArmDotWithClock` have the same
+checked inputs and progress contract as the x86 entry points. Both use
+`simd.dot_contract.{DotOperation, DotProgress, DotClock, DotBackend}` and one
+shared driver for geometry, ownership, bounded chunks, cancellation, deadlines,
+clock monotonicity and partial results. Scalar reference blocks and the
+conformance/performance fixtures are shared as well. This alpha API advances
+the standard library to 0.8.0; callers import the shared Dot types directly.
+There are no alternate names retained for architecture-specific progress types.
+
+`ArmSimdCapabilities.current()` discovers NEON and SVE availability for the
+executing host and queries SVE length for the calling thread on every admission.
+Linux NEON requires the kernel's ASIMD capability; SVE also requires a successful
+`PR_SVE_GET_VL` query. Legal lengths are 16..256 bytes in multiples of 16.
+Interrupted/unavailable probes return `simd.unavailable` without retry. An
+unsupported SVE thread state never grants SVE execution. Caller-supplied
+snapshots and `fromProbe` are validation/planning inputs; executable APIs always
+rediscover actual state. Metadata snapshots must not be mutated concurrently.
+
+Policies are scalar, auto, neon and sve. Auto selects SVE, then NEON; an
+unavailable explicitly requested variant fails unless scalar fallback is
+permitted. Deterministic mode requires explicit scalar permission. ARM progress
+variants are 0 scalar, 1 NEON and 2 SVE. Errors and returned diagnostics use the
+shared stable `simd.*` codes and public literal text. Capability errors do not
+retain untrusted policies or clock/provider storage. Context cancellation and
+deadlines are observed before discovery, after discovery and after each chunk.
+
+NEON lowers fixed-width Float32, u8-by-i8 and expanded-BF16 products/reductions
+without requiring optional dot-product or native BF16 extensions. SVE uses
+scalable vector predicates, masked loads, widening products and reductions.
+Inactive tail lanes cannot read outside their checked range. Each SVE block
+uses the thread's actual `vscale`; no vector length or native vector value is
+retained between calls. Float32/BF16 native reductions may use a different
+rounding order; deterministic scalar preserves the reference order within the
+fixed chunk schedule. Caller code keeps the floating-point environment stable.
+
+Low-level `simd_unsafe_arm_*` builtins accept explicit pointer/count words and
+require already validated storage, host state and a chunk of at most 4096
+elements. They are not checked buffer APIs. Incorrect arity/types fail with
+`E_SIMD_ARITY`/`E_SIMD_LANE`. SVE helpers trap on non-AArch64 targets if called
+through this unchecked interface; the public dispatcher returns typed
+unsupported errors or explicitly permitted scalar fallback before reaching it.
+`@simd_target("portable128")` selects the architecture's baseline 128-bit
+features; `scalar` also maps to the current architecture. Explicit neon/sve
+requirements on other architectures fail with `E_SIMD_TARGET`.
+
+The only added foreign ABI is
+`seen_arm_sve_vector_bytes(UInt64*) -> Int32`, bound by runtime-v9. It copies a
+single OS-reported length into caller-owned storage, clears it on failure,
+normalizes errno and allocates nothing. It owns no policy, fallback, arithmetic,
+thread pool or scheduling. Non-Linux platforms return unsupported; macOS ARM
+uses its existing NEON capability and does not claim SVE support. The export
+exists on other platforms so unsupported behavior is explicit. Runtime cache
+and program-build identities include both adapter source/header files.
+
+Run `bash tests/misc_root_tests/seen_inf_simd_c.sh` in the existing capped
+scope. It covers all vector-length boundaries, policies, all tails through 65
+elements and lane-legal alignments, scalar/native oracles, partial deadlines,
+clock failures, allocation stability, OS-state mocks and metadata fuzzing for
+60 seconds with seed 1101. Fast/release/UBSan/ASan are included. Cross-target
+IR and objects cover Linux arm64, macOS arm64, Windows x86-64 and macOS x86-64;
+each is recorded as compile-only and is never substituted for execution.
+Fixture JSON separates an executing host's verified software paths from
+unsupported paths and always sets hardware_certified:false. Physical ARM
+execution and platform certification remain deferred until actually run.
+
+The shared five-warmup/thirty-sample paired benchmark observes native/scalar
+performance and live allocations. `SEEN_REQUIRE_ARM_PERF=1` enables the 1.05
+ceiling on a designated ARM machine and requires an available native variant.
+The default CI run does not invent a designated machine or RSS measurement.

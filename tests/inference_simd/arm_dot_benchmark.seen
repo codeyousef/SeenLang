@@ -1,0 +1,7 @@
+import simd.arm_kernels.{ArmDotBackend}
+import dot_benchmark_support.{runDotBenchmark}
+fun main() r: Int {
+    let backend = ArmDotBackend{reserved: 0}
+    let result = runDotBenchmark(backend)
+    backend.free(); return result
+}
