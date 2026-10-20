@@ -1,45 +1,105 @@
 /// Structural generic call binding over the compiler's parsed type model.
-/// Declaration nodes are borrowed for the declaration pass lifetime.
+/// Owned signature snapshots outlive the streamed declaration ASTs.
 import parser.real_parser.{FunctionNode, genericParameterCount, genericParameterNameAt}
 import typechecker.type_ref.{TypeRef, parseTypeRef, typeRefSubstitute}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
 
-var g_genericCallNames: Array<String> = Array<String>()
-var g_genericCallDeclarations: Array<FunctionNode> = Array<FunctionNode>()
-fun resetGenericCallTypesImpl() r: Void {
-    g_genericCallNames.free(); g_genericCallDeclarations.free()
-    g_genericCallNames = Array<String>(); g_genericCallDeclarations = Array<FunctionNode>()
-}
-fun registerGenericCallTypeImpl(borrow function: FunctionNode) r: Void {
-    if genericParameterCount(function.decorators) > 64 { abort("generic parameter limit exceeded") }
-    var i = 0
-    while i < g_genericCallNames.length() {
-        if g_genericCallNames[i] == function.name { g_genericCallDeclarations[i] = function; return }
-        i = i + 1
+class GenericCallSignature {
+    var name: String
+    var genericNames: Array<String>
+    var parameters: Array<String>
+    var returned: String
+    var isAsync: Bool
+    var ownedBytes: Int
+    static fun create(borrow function: FunctionNode, available: Bool) r: GenericCallSignature {
+        let name = seen_string_clone_owned(function.name)
+        let names = Array<String>(); let parameters = Array<String>(); var returned = ""
+        var bytes = name.length(); var i = 0
+        if available {
+            while i < genericParameterCount(function.decorators) {
+                let text = seen_string_clone_owned(genericParameterNameAt(function.decorators, i))
+                names.push(text); bytes = bytes + text.length(); i = i + 1
+            }
+            i = 0
+            while i < function.params.length() {
+                let text = seen_string_clone_owned(function.params[i].paramType.typeName)
+                parameters.push(text); bytes = bytes + text.length(); i = i + 1
+            }
+            returned = seen_string_clone_owned(function.returnType.typeName)
+            bytes = bytes + returned.length()
+        }
+        return GenericCallSignature{name: name, genericNames: names, parameters: parameters,
+            returned: returned, isAsync: function.isAsync, ownedBytes: bytes}
     }
-    if genericParameterCount(function.decorators) == 0 { return }
-    if g_genericCallNames.length() >= 65536 { abort("generic declaration registry limit exceeded") }
-    g_genericCallNames.push(function.name); g_genericCallDeclarations.push(function)
+    fun release() r: Void {
+        var i = 0
+        while i < this.genericNames.length() { seen_string_release_owned(this.genericNames[i]); i = i + 1 }
+        i = 0
+        while i < this.parameters.length() { seen_string_release_owned(this.parameters[i]); i = i + 1 }
+        this.genericNames.free(); this.parameters.free()
+        seen_string_release_owned(this.returned); seen_string_release_owned(this.name); this.free()
+    }
+}
+var g_genericCallNames: Array<String> = Array<String>()
+var g_genericCallDeclarations: Array<GenericCallSignature> = Array<GenericCallSignature>()
+var g_genericCallMetadataBytes = 0
+fun resetGenericCallTypesImpl() r: Void {
+    var i = 0
+    while i < g_genericCallDeclarations.length() { g_genericCallDeclarations[i].release(); i = i + 1 }
+    g_genericCallNames.free(); g_genericCallDeclarations.free()
+    g_genericCallNames = Array<String>(); g_genericCallDeclarations = Array<GenericCallSignature>()
+    g_genericCallMetadataBytes = 0
 }
 fun findGenericCallTypeImpl(name: String) r: Int {
     var i = g_genericCallNames.length() - 1
     while i >= 0 { if g_genericCallNames[i] == name { return i }; i = i - 1 }
     return -1
 }
-fun genericCallDeclarationImpl(index: Int) r: FunctionNode { return g_genericCallDeclarations[index] }
+fun registerGenericCallTypeImpl(borrow function: FunctionNode) r: Void {
+    let index = findGenericCallTypeImpl(function.name)
+    let count = genericParameterCount(function.decorators)
+    if count == 0 and index < 0 { return }
+    if function.name.length() > 4096 { return }
+    var available = count > 0 and count <= 64 and function.params.length() <= 64 and
+        genericCallTypeWithinLimitImpl(function.returnType.typeName)
+    var i = 0
+    while i < count and available {
+        let name = genericParameterNameAt(function.decorators, i)
+        available = name.length() > 0 and name.length() <= 4096; i = i + 1
+    }
+    i = 0
+    while i < function.params.length() and available {
+        available = genericCallTypeWithinLimitImpl(function.params[i].paramType.typeName); i = i + 1
+    }
+    let signature = GenericCallSignature.create(function, available)
+    var oldBytes = 0
+    if index >= 0 { oldBytes = g_genericCallDeclarations[index].ownedBytes }
+    if g_genericCallMetadataBytes - oldBytes + signature.ownedBytes > 8388608 or
+        (index < 0 and g_genericCallNames.length() >= 65536) {
+        signature.release(); abort("Error: [E_GENERIC_LIMIT] generic signature metadata ceiling exceeded")
+    }
+    g_genericCallMetadataBytes = g_genericCallMetadataBytes - oldBytes + signature.ownedBytes
+    if index >= 0 {
+        g_genericCallDeclarations[index].release()
+        g_genericCallDeclarations[index] = signature; g_genericCallNames[index] = signature.name
+    } else { g_genericCallNames.push(signature.name); g_genericCallDeclarations.push(signature) }
+}
+fun genericCallDeclarationImpl(index: Int) r: GenericCallSignature { return g_genericCallDeclarations[index] }
 fun genericCallWordTypeNameImpl(name: String, parameter: Int) r: String {
     let index = findGenericCallTypeImpl(name)
     if index < 0 { return "" }
-    let function = genericCallDeclarationImpl(index)
-    var spelling = function.returnType.typeName
+    let signature = genericCallDeclarationImpl(index)
+    if signature.genericNames.length() == 0 { return "" }
+    var spelling = signature.returned
     if parameter >= 0 {
-        if parameter >= function.params.length() { return "" }
-        spelling = function.params[parameter].paramType.typeName
+        if parameter >= signature.parameters.length() { return "" }
+        spelling = signature.parameters[parameter]
     }
     let parsed = parseTypeRef(spelling)
     if not parsed.valid or parsed.arguments.length() != 0 { return "" }
     var i = 0
-    while i < genericParameterCount(function.decorators) {
-        if parsed.base == genericParameterNameAt(function.decorators, i) { return parsed.base }
+    while i < signature.genericNames.length() {
+        if parsed.base == signature.genericNames[i] { return parsed.base }
         i = i + 1
     }
     return ""
@@ -77,14 +137,14 @@ fun bindGenericCallTypeImpl(borrow pattern: TypeRef, borrow actual: TypeRef,
     }
     return true
 }
-fun specializeGenericCallReturnImpl(borrow function: FunctionNode,
+fun specializeGenericCallReturnImpl(borrow signature: GenericCallSignature,
     arguments: Array<String>, explicitArguments: Array<String>, declared: String) r: String {
-    let count = genericParameterCount(function.decorators)
-    if count <= 0 or count > 64 or function.params.length() > 64 or arguments.length() != function.params.length() { return declared }
+    let count = signature.genericNames.length()
+    if count <= 0 or count > 64 or arguments.length() != signature.parameters.length() { return declared }
     if explicitArguments.length() != 0 and explicitArguments.length() != count { return declared }
     let names = Array<String>(); let values = Array<TypeRef>(); var i = 0
     while i < count {
-        names.push(genericParameterNameAt(function.decorators, i))
+        names.push(signature.genericNames[i])
         if explicitArguments.length() != 0 {
             if not genericCallTypeWithinLimitImpl(explicitArguments[i]) { names.free(); values.free(); return declared }
             values.push(parseTypeRef(explicitArguments[i]))
@@ -94,9 +154,9 @@ fun specializeGenericCallReturnImpl(borrow function: FunctionNode,
     }
     let visited = [0]; var matched = true; i = 0
     while i < arguments.length() and matched {
-        if not genericCallTypeWithinLimitImpl(arguments[i]) or not genericCallTypeWithinLimitImpl(function.params[i].paramType.typeName) { matched = false }
+        if not genericCallTypeWithinLimitImpl(arguments[i]) or not genericCallTypeWithinLimitImpl(signature.parameters[i]) { matched = false }
         else {
-            let pattern = parseTypeRef(function.params[i].paramType.typeName)
+            let pattern = parseTypeRef(signature.parameters[i])
             let actual = parseTypeRef(arguments[i])
             matched = bindGenericCallTypeImpl(pattern, actual, names, values, 0, visited)
         }
