@@ -1,3 +1,5 @@
+// Bootstrap discovers direct imports before its curated module list.
+import simd.ir_types.{PortableVectorShape, SimdIrError}
 import simd.dispatch_plan.{portableSimdContractReport}
 ///
 =============================================================================
@@ -8799,6 +8801,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
             println("    Bootstrap mode: adding compiler modules...")
         }
         let modules = Array<String>()
+        modules.push("simd.ir_types")
+        modules.push("simd.dispatch_plan")
         ///
         Keep direct stdlib dependencies explicit for bootstrap binaries run
         outside compiler_seen/target, where root-based import discovery is fragile.
