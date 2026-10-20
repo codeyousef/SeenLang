@@ -15,7 +15,7 @@ import async.executor_native.{seen_sync_mutex_create, seen_sync_mutex_lock_until
     seen_sync_condition_notify_all, seen_sync_condition_destroy, seen_executor_thread_create,
     seen_executor_thread_join, seen_executor_current_owner, seen_executor_current_task,
     seen_executor_swap_task, seen_executor_live_threads, seen_pool_free,
-    seen_string_clone_owned}
+    seen_string_clone_owned, seen_string_release_owned}
 
 let EXECUTOR_PENDING: Int = 0
 let EXECUTOR_RUNNING: Int = 1
@@ -113,8 +113,8 @@ fun executorReleaseContext(context: AsyncOperationContext) r: Void {
 // Only snapshots created by executorCopyContext own their string storage.
 // Caller-created contexts may borrow literals and use executorReleaseContext.
 fun executorReleaseSnapshot(context: AsyncOperationContext) r: Void {
-    context.operation.traceId.value.free()
-    context.resourceId.free()
+    seen_string_release_owned(context.operation.traceId.value)
+    seen_string_release_owned(context.resourceId)
     executorReleaseContext(context)
 }
 

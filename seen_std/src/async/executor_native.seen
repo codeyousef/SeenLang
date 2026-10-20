@@ -20,3 +20,5 @@ extern "C" fun seen_pool_free(value: *Void, bytes: Int64) r: Void
 
 
 extern "C" fun seen_string_clone_owned(value: String) r: String
+
+extern "C" fun seen_string_release_owned(value: String) r: Void
