@@ -7917,6 +7917,8 @@ typedef struct {
     int avx512bw;
     int avx512dq;
     int avx512vl;
+    int avx512vnni;
+    int avx512bf16;
     int neon;
     int sve;
     int riscv64;
@@ -7931,11 +7933,25 @@ static SeenCPUFeatures g_cpu_features = {0};
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
 #include <cpuid.h>
 
+static void seen_cpu_normalize_x86_state(uint64_t xcr0) {
+    /* Normalize instruction availability against the OS ABI register state.
+       Selection, permitted fallback and kernel policy remain in Seen. */
+    if ((xcr0 & 6u) != 6u || !g_cpu_features.avx) {
+        g_cpu_features.avx = 0; g_cpu_features.avx2 = 0; g_cpu_features.fma = 0;
+    }
+    if ((xcr0 & 230u) != 230u || !g_cpu_features.avx) {
+        g_cpu_features.avx512f = 0; g_cpu_features.avx512bw = 0;
+        g_cpu_features.avx512dq = 0; g_cpu_features.avx512vl = 0;
+        g_cpu_features.avx512vnni = 0; g_cpu_features.avx512bf16 = 0;
+    }
+}
+
 static void seen_cpu_detect_impl(void) {
     if (g_cpu_features.detected) return;
     g_cpu_features.detected = 1;
 
     unsigned int eax, ebx, ecx, edx;
+    uint64_t xcr0 = 0;
 
     // Basic features (leaf 1)
     if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
@@ -7946,6 +7962,12 @@ static void seen_cpu_detect_impl(void) {
         g_cpu_features.sse42 = (ecx >> 20) & 1;
         g_cpu_features.avx   = (ecx >> 28) & 1;
         g_cpu_features.fma   = (ecx >> 12) & 1;
+        /* XGETBV is legal only when hardware and OS both enabled XSAVE. */
+        if ((ecx & ((1u << 26) | (1u << 27))) == ((1u << 26) | (1u << 27))) {
+            uint32_t low, high;
+            __asm__ volatile("xgetbv" : "=a"(low), "=d"(high) : "c"(0));
+            xcr0 = ((uint64_t)high << 32) | low;
+        }
     }
 
     // Extended features (leaf 7, subleaf 0)
@@ -7957,13 +7979,16 @@ static void seen_cpu_detect_impl(void) {
         g_cpu_features.avx512bw = (ebx >> 30) & 1;
         g_cpu_features.avx512dq = (ebx >> 17) & 1;
         g_cpu_features.avx512vl = (ebx >> 31) & 1;
+        g_cpu_features.avx512vnni = (ecx >> 11) & 1;
     }
 
     // Extended features (leaf 7, subleaf 1) — APX and AVX10
     if (__get_cpuid_count(7, 1, &eax, &ebx, &ecx, &edx)) {
         g_cpu_features.avx10 = (edx >> 19) & 1;
         g_cpu_features.apx   = (edx >> 21) & 1;
+        g_cpu_features.avx512bf16 = (eax >> 5) & 1;
     }
+    seen_cpu_normalize_x86_state(xcr0);
 }
 
 #elif defined(__aarch64__)
@@ -8042,6 +8067,8 @@ int64_t seen_cpu_has_feature(SeenString name) {
     if (name.len == 8 && memcmp(name.data, "avx512bw", 8) == 0) return g_cpu_features.avx512bw;
     if (name.len == 8 && memcmp(name.data, "avx512dq", 8) == 0) return g_cpu_features.avx512dq;
     if (name.len == 8 && memcmp(name.data, "avx512vl", 8) == 0) return g_cpu_features.avx512vl;
+    if (name.len == 10 && memcmp(name.data, "avx512vnni", 10) == 0) return g_cpu_features.avx512vnni;
+    if (name.len == 10 && memcmp(name.data, "avx512bf16", 10) == 0) return g_cpu_features.avx512bf16;
     if (name.len == 4 && memcmp(name.data, "neon", 4) == 0) return g_cpu_features.neon;
     if (name.len == 3 && memcmp(name.data, "sve", 3) == 0) return g_cpu_features.sve;
     if (name.len == 7 && memcmp(name.data, "riscv64", 7) == 0) return g_cpu_features.riscv64;
@@ -8594,7 +8621,7 @@ static double seen_simd_reduce_sum_avx2(float* data, int64_t len) {
 
 double seen_simd_reduce_sum(void* arr_data, int64_t len) {
     float* data = (float*)arr_data;
-    if (g_cpu_features.avx2 && len >= 8) {
+    if (g_cpu_features.avx2 && g_cpu_features.fma && len >= 8) {
         return seen_simd_reduce_sum_avx2(data, len);
     }
     double sum = 0.0;
@@ -8627,7 +8654,7 @@ static double seen_simd_dot_product_avx2(float* a, float* b, int64_t len) {
 double seen_simd_dot_product(void* a_data, void* b_data, int64_t len) {
     float* a = (float*)a_data;
     float* b = (float*)b_data;
-    if (g_cpu_features.avx2 && len >= 8) {
+    if (g_cpu_features.avx2 && g_cpu_features.fma && len >= 8) {
         return seen_simd_dot_product_avx2(a, b, len);
     }
     double sum = 0.0;

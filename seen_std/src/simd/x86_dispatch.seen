@@ -1,0 +1,78 @@
+/// Explicit, bounded selection after OS-normalized CPU discovery.
+/// Caller-supplied capabilities are planning data. Executable callers must
+/// discover the executing host before entering a target-specific function.
+import core.result.{Result, Ok, Err}
+import simd.ir_types.{SimdIrError, simdIrFailure, simdX86TargetFeatures}
+extern "C" fun seen_cpu_has_feature(name: String) r: Int64
+
+class X86SimdCapabilities {
+    var avx2: Bool
+    var fma: Bool
+    var avx512: Bool
+    var vnni: Bool
+    var bf16: Bool
+
+    static fun host() r: X86SimdCapabilities {
+        let avx2 = seen_cpu_has_feature("avx2") != (0 as Int64)
+        let fma = seen_cpu_has_feature("fma") != (0 as Int64)
+        let avx512 = avx2 and seen_cpu_has_feature("avx512f") != (0 as Int64) and
+            seen_cpu_has_feature("avx512bw") != (0 as Int64) and
+            seen_cpu_has_feature("avx512dq") != (0 as Int64) and
+            seen_cpu_has_feature("avx512vl") != (0 as Int64)
+        return X86SimdCapabilities{avx2: avx2, fma: fma, avx512: avx512,
+            vnni: avx512 and seen_cpu_has_feature("avx512vnni") != (0 as Int64),
+            bf16: avx512 and seen_cpu_has_feature("avx512bf16") != (0 as Int64)}
+    }
+    fun valid() r: Bool {
+        return (not this.avx512 or this.avx2) and
+            (not this.vnni or this.avx512) and (not this.bf16 or this.avx512)
+    }
+}
+
+// Stable integer variants keep the per-call dispatch decision allocation-free.
+// 0 scalar, 1 AVX2, 2 AVX-512, 3 unsigned-byte/signed-byte VNNI,
+// 4 packed BF16 accumulation. No inference operation implies another operation.
+fun selectX86Variant(capabilities: X86SimdCapabilities, operation: String,
+    policy: String, allowScalarFallback: Bool, deterministic: Bool)
+    r: Result<Int, SimdIrError> {
+    if not capabilities.valid() {
+        return Err<Int, SimdIrError>(simdIrFailure("simd.invalid_capability",
+            "x86_64", "cpu-state", "dispatch", "select", "inconsistent x86 capabilities"))
+    }
+    if operation != "dot-f32" and operation != "dot-u8s8" and operation != "dot-bf16" {
+        return Err<Int, SimdIrError>(simdIrFailure("simd.invalid_operation",
+            "x86_64", "operation", "dispatch", "select", "unsupported x86 operation"))
+    }
+    if policy != "auto" and policy != "scalar" and policy != "avx2" and
+        policy != "avx512" and policy != "vnni" and policy != "bf16" {
+        return Err<Int, SimdIrError>(simdIrFailure("simd.invalid_policy",
+            "x86_64", "policy", "dispatch", "select", "unsupported x86 policy"))
+    }
+    if policy == "scalar" { return Ok<Int, SimdIrError>(0) }
+    if deterministic {
+        if allowScalarFallback { return Ok<Int, SimdIrError>(0) }
+        return Err<Int, SimdIrError>(simdIrFailure("simd.scalar_required",
+            "x86_64", "determinism", "dispatch", "select", "scalar permission required"))
+    }
+    if operation == "dot-f32" {
+        if (policy == "auto" or policy == "avx512") and capabilities.avx512 and capabilities.fma {
+            return Ok<Int, SimdIrError>(2)
+        }
+        if (policy == "auto" or policy == "avx2") and capabilities.avx2 and capabilities.fma {
+            return Ok<Int, SimdIrError>(1)
+        }
+    }
+    if operation == "dot-u8s8" and (policy == "auto" or policy == "vnni") and capabilities.vnni {
+        return Ok<Int, SimdIrError>(3)
+    }
+    if operation == "dot-bf16" and (policy == "auto" or policy == "bf16") and capabilities.bf16 {
+        return Ok<Int, SimdIrError>(4)
+    }
+    if allowScalarFallback { return Ok<Int, SimdIrError>(0) }
+    return Err<Int, SimdIrError>(simdIrFailure("simd.unsupported_capability",
+        "x86_64", "vector-state", "dispatch", "select", "requested x86 variant unavailable"))
+}
+
+fun x86TargetFeatures(variant: String) r: String {
+    return simdX86TargetFeatures(variant)
+}

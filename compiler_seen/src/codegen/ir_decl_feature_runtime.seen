@@ -117,6 +117,8 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
 
     // SIMD reduction intrinsics
     output.append("; SIMD vector reduction intrinsics\n")
+    output.append("declare <16 x i32> @llvm.x86.avx512.vpdpbusd.512(<16 x i32>, <16 x i32>, <16 x i32>) nounwind readnone\n")
+    output.append("declare <16 x float> @llvm.x86.avx512bf16.dpbf16ps.512(<16 x float>, <16 x i32>, <16 x i32>) nounwind readnone\n")
     emitPortableSimdReductionDecls(output, "f32x4")
     emitPortableSimdReductionDecls(output, "f32x8")
     emitPortableSimdReductionDecls(output, "f32x16")

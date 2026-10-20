@@ -3788,6 +3788,13 @@
       ]
     },
     {
+      "name": "seen_cpu_has_feature",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/simd/x86_dispatch.seen"
+      ]
+    },
+    {
       "name": "seen_cstr_to_str",
       "abi": "Seen",
       "sources": [

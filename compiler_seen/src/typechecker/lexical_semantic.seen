@@ -11,7 +11,8 @@ import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode,
 import parser.real_parser.{ParserExpressionNode, TypeNode, AnnotationNode}
 import parser.real_parser.{ParamNode}
 import simd.ir_types.{simdBuiltinLanes, simdMaskLanes,
-    simdComparisonMaskName, simdIsComparisonOperator, simdConstructorLaneSupported}
+    simdComparisonMaskName, simdIsComparisonOperator, simdConstructorLaneSupported,
+    simdX86DotType, simdX86TargetFeatures}
 import parser.real_parser.{genericParameterCount, genericParameterNameAt}
 import parser.real_parser.{genericParameterModifierAt}
 import typechecker.type_ref.{TypeRef, parseTypeRef}
@@ -772,6 +773,26 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
     ownerType: String) r: Void {
 
     if expression.kind == "Call" {
+        let dotType = simdX86DotType(expression.callee)
+        if dotType != "" {
+            if expression.arguments.length() != 3 {
+                result.addError("E_SIMD_ARITY", "x86 dot requires accumulator and two packed inputs",
+                    file, line, column)
+            } else {
+                var dotIndex = 0
+                while dotIndex < 3 {
+                    var expected = "i32x16"
+                    if dotIndex == 0 { expected = dotType }
+                    let actual = semanticExpressionBindingIdentity(result,
+                        expression.arguments[dotIndex], bindings, moduleName)
+                    if actual != "" and actual != "Unknown" and actual != expected {
+                        result.addError("E_SIMD_LANE", "x86 dot requires exact packed lane types",
+                            file, line, column)
+                    }
+                    dotIndex = dotIndex + 1
+                }
+            }
+        }
         let lanes = simdBuiltinLanes(expression.callee) +
             simdMaskLanes(expression.callee)
         if lanes > 0 and expression.arguments.length() != lanes {
@@ -1447,6 +1468,22 @@ fun semanticValidateDefaultParameter(result: LexicalSemanticResult,
 fun semanticCheckFunction(result: LexicalSemanticResult,
     function: FunctionNode, moduleName: String, file: String,
     ownerType: String, genericNames: Array<String>) r: Void {
+
+    var targetCount = 0; var targetIndex = 0
+    while targetIndex < function.decorators.length() {
+        let decorator = function.decorators[targetIndex]
+        if decorator.name == "simd_target" {
+            targetCount = targetCount + 1
+            if targetCount > 1 or decorator.arguments.length() != 1 {
+                result.addError("E_SIMD_TARGET", "exactly one explicit SIMD target is required",
+                    file, function.line, function.column)
+            } else if simdX86TargetFeatures(decorator.arguments[0]) == "" {
+                result.addError("E_SIMD_TARGET", "unsupported explicit SIMD target",
+                    file, function.line, function.column)
+            }
+        }
+        targetIndex = targetIndex + 1
+    }
 
     let functionGenericNames = semanticDecoratorGenericNames(
         function.decorators, genericNames)
