@@ -1,0 +1,5 @@
+fun main() r: Int {
+    let text: String = "invalid"
+    let invalid = f32x4(text, text, text, text)
+    return 0
+}
