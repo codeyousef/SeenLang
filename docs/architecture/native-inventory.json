@@ -6221,6 +6221,7 @@
       "name": "seen_string_release_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen",
         "seen_std/src/io/file.seen",
