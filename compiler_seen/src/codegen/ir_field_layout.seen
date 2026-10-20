@@ -112,8 +112,8 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
                 bitfieldWidth)
         }
     }
-    // Only confirmed Array/List values use native pointers. Unknown generic
-    // fields can map to ptr provisionally but still carry integer handles.
+    // Pointer expressions use native pointers even when the declaration stores
+    // their bits in an erased i64 slot. Unknown generic values remain handles.
     if pointerValue and effectiveFieldType == "i64" {
         let pointer = getNextRegFn(regBox)
         output.append("  " + pointer + " = inttoptr i64 " + resultReg + " to ptr\n")
@@ -421,7 +421,8 @@ fun isNativePointerFieldValueImpl(structType: String, fieldName: String,
 }
 
 fun isNativePointerFieldTypeImpl(fieldType: String) r: Bool {
-    return fieldType.startsWith("Array<") or fieldType == "Array" or
+    return fieldType.startsWith("*") or
+        fieldType.startsWith("Array<") or fieldType == "Array" or
         fieldType.startsWith("List<") or fieldType == "List"
 }
 
