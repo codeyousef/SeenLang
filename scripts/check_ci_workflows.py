@@ -58,6 +58,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+      - name: Retain failed-gate frontend diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: seen-failed-frontend-${{ github.sha }}
+          path: |
+            .seen/agent-tools/safe-rebuild/run.*/stage2_safe_rebuild
+            .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild
+            .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild_recovery
+            releases/compatibility-manifest.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 3
+          compression-level: 6
 """.encode("utf-8")
 EXPECTED_RELEASE_WORKFLOW = """name: Release
 
