@@ -36,8 +36,9 @@ class GenericCallSignature {
         while i < this.genericNames.length() { seen_string_release_owned(this.genericNames[i]); i = i + 1 }
         i = 0
         while i < this.parameters.length() { seen_string_release_owned(this.parameters[i]); i = i + 1 }
+        if this.genericNames.length() > 0 { seen_string_release_owned(this.returned) }
         this.genericNames.free(); this.parameters.free()
-        seen_string_release_owned(this.returned); seen_string_release_owned(this.name); this.free()
+        seen_string_release_owned(this.name); this.free()
     }
 }
 var g_genericCallNames: Array<String> = Array<String>()
