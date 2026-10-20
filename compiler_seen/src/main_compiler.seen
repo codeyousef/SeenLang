@@ -6,10 +6,8 @@ import codegen.ir_bounds_proof_state.{enterBoundsProof, consumeBoundsProof, leav
 import simd.ir_types.{PortableVectorShape, SimdIrError}
 import simd.dispatch_plan.{portableSimdContractReport}
 ///
-=============================================================================
-main_compiler.seen -- Bootstrap compiler driver (Stage 5 orchestrator)
-=============================================================================
-
+======================================================================main_compiler.seen -- Bootstrap compiler driver (Stage 5 orchestrator)
+======================================================================
 This is the entry point for the "compile" subcommand used during bootstrap
 and production builds. It orchestrates the full compilation pipeline:
 
@@ -99,6 +97,7 @@ import codegen.ir_string_concat_emit.{coerceStringConcatPieceRegImpl}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
 import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getMethodReturnTypeState}
+import codegen.ir_generic_type_specialize.{specializeGenericTypeImpl}
 import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
@@ -9035,6 +9034,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_bounds_proof")
         modules.push("codegen.ir_bounds_proof_state")
         modules.push("codegen.simd_report")
+        modules.push("codegen.ir_generic_type_specialize")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_struct_literal_driver")
         modules.push("codegen.ir_struct_layout_build")
@@ -13951,10 +13951,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     generator.setTypeHeaderPath(headerArg)
 
     ///
-    ============================================================
-    : Dependency management -- parse Seen.toml if present
-    ============================================================
-    Reads [native.dependencies] (and legacy system=true entries inside
+    =====================================================    : Dependency management -- parse Seen.toml if present
+    =====================================================    Reads [native.dependencies] (and legacy system=true entries inside
     [dependencies]) for native library link flags, [features] for
     compile-time feature flags, and [assets] for shader files to compile
     with glslc before linking.
@@ -14084,10 +14082,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    Circular dependency detection
-    ============================================================
-    Build import graph and run DFS cycle detection before committing to
+    =====================================================    Circular dependency detection
+    =====================================================    Build import graph and run DFS cycle detection before committing to
     compilation. Circular imports would cause the module collector to loop
     and the IR generator to emit incomplete forward references. Catching
     this early gives a clear diagnostic instead of a cryptic linker error.
@@ -14185,10 +14181,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    PASS 1: Collect module paths and register all declarations
-    ============================================================
-    Why a separate declaration pass? The IR generator uses a three-pass approach
+    =====================================================    PASS 1: Collect module paths and register all declarations
+    =====================================================    Why a separate declaration pass? The IR generator uses a three-pass approach
     (signatures -> types -> implementations). Pass 1 here feeds all module ASTs
     into registerDeclarations() so every function signature, class layout, and
     enum variant is known before any IR is generated. Without this, cross-module
@@ -14323,10 +14317,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    CACHE: Compute global hash for incremental compilation
-    ============================================================
-    The source-level cache (.seen_cache/) uses a global registryHash to detect
+    =====================================================    CACHE: Compute global hash for incremental compilation
+    =====================================================    The source-level cache (.seen_cache/) uses a global registryHash to detect
     declaration-level ABI changes without tying every cache entry to every
     module body. Cache entries are namespaced by the effective compilation
     signature so cross-target, toolchain, profile, sanitizer, LTO, PIC, PGO,
@@ -14367,10 +14359,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    PASS 2: Stream compile each module (one AST at a time)
-    ============================================================
-    Per-module LLVM temp files live under a process-unique directory so two
+    =====================================================    PASS 2: Stream compile each module (one AST at a time)
+    =====================================================    Per-module LLVM temp files live under a process-unique directory so two
     independent compiler invocations cannot remove or overwrite each other's
     raw IR, optimized IR, status, log, script, or object files.
     ///
@@ -14773,10 +14763,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    PASS 2B: Run opt + object emission for all uncached modules
-    ============================================================
-    Why a generated shell script? LLVM opt is an external process, and we need
+    =====================================================    PASS 2B: Run opt + object emission for all uncached modules
+    =====================================================    Why a generated shell script? LLVM opt is an external process, and we need
     to run N instances with either backgrounded jobs (default) or serially when
     --no-fork requests the lower-memory bootstrap path. Generating a shell script
     is simpler and more portable than managing N fork+exec pairs from Seen code.
@@ -15304,10 +15292,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    RELEASE MODE: Cross-module LTO merge
-    ============================================================
-    Why a separate release path? Full module merging unlocks whole-program
+    =====================================================    RELEASE MODE: Cross-module LTO merge
+    =====================================================    Why a separate release path? Full module merging unlocks whole-program
     optimization and keeps release performance strong, but it loads every
     module into one LLVM module. Memory-constrained callers select --lto=thin
     to stay on the bounded per-module ThinLTO path.
@@ -15460,10 +15446,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    LINKING: Combine all object files
-    ============================================================
-    Release builds keep the merged cross-module LTO path by default for
+    =====================================================    LINKING: Combine all object files
+    =====================================================    Release builds keep the merged cross-module LTO path by default for
     throughput. Users can choose --lto=thin to keep per-module
     objects and lower peak memory. Non-release and opt-out release builds link
     the bounded object set produced above.
@@ -18347,10 +18331,8 @@ fun main() r: Int {
 }
 
 ///
-============================================================================
-macOS App Bundle / Code Signing / Notarization Commands
-============================================================================
-///
+=====================================================================macOS App Bundle / Code Signing / Notarization Commands
+=====================================================================///
 
 ///
 Create a macOS .app bundle from a compiled executable. Generates the standard
@@ -18522,10 +18504,8 @@ fun notarizeCommand(argv: Array<String>) r: Int {
 }
 
 ///
-============================================================================
-Universal Binary (lipo) Command
-============================================================================
-///
+=====================================================================Universal Binary (lipo) Command
+=====================================================================///
 
 ///
 Create a macOS universal binary (fat binary) containing both x86_64 and arm64
@@ -18667,10 +18647,8 @@ fun lipoCommand(argv: Array<String>, requestedFromSource: Bool) r: Int {
 }
 
 ///
-============================================================================
-iOS IPA Builder Command
-============================================================================
-///
+=====================================================================iOS IPA Builder Command
+=====================================================================///
 
 ///
 Build an iOS .ipa archive from a pre-built arm64 executable or from source.
@@ -18946,10 +18924,8 @@ fun ipaCommand(argv: Array<String>, requestedFromSource: Bool) r: Int {
 }
 
 ///
-============================================================================
-Translate Command
-============================================================================
-///
+=====================================================================Translate Command
+=====================================================================///
 
 // Check if a language code is supported. Returns 1 for valid, 0 for invalid.
 fun isValidTranslateLanguage(lang: String) r: Int {
