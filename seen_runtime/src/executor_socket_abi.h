@@ -16,4 +16,9 @@ int32_t seen_async_socket_read(int64_t handle, void *data, uint64_t length,
 int32_t seen_async_socket_write(int64_t handle, const void *data, uint64_t length,
     uint64_t *completed);
 int32_t seen_async_socket_bound_port(int64_t handle, uint16_t *port);
+int32_t seen_async_datagram_open(const uint8_t *address, uint64_t length,
+    uint16_t port, int64_t *descriptor);
+int32_t seen_async_datagram_receive(int64_t descriptor, void *buffer,
+    uint64_t capacity, uint64_t *completed);
+int32_t seen_async_datagram_nonce(uint16_t *value);
 #endif

@@ -16,7 +16,7 @@
       "version": "0.22.9"
     },
     "runtime": {
-      "abi": "runtime-v7"
+      "abi": "runtime-v8"
     },
     "standard_library": {
       "module_manifest_version": 1,

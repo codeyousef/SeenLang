@@ -99,7 +99,7 @@ WRAPPER_EOF
 compile_runtime() {
     local runtime_key runtime_cache_dir runtime_cache_obj
     runtime_key=$(windows_hash_key \
-        "runtime-v7" \
+        "runtime-v8" \
         "$RUNTIME_DIR/seen_runtime.c" \
         "$RUNTIME_DIR/seen_runtime.h" \
         "$RUNTIME_DIR/src/executor_abi.c" \
@@ -110,6 +110,10 @@ compile_runtime() {
         "$RUNTIME_DIR/src/executor_completion_abi.h" \
         "$RUNTIME_DIR/src/executor_readiness_abi.c" \
         "$RUNTIME_DIR/src/executor_readiness_abi.h" \
+        "$RUNTIME_DIR/src/executor_process_abi.c" \
+        "$RUNTIME_DIR/src/executor_process_abi.h" \
+        "$RUNTIME_DIR/src/executor_stream_abi.c" \
+        "$RUNTIME_DIR/src/executor_stream_abi.h" \
         "$RUNTIME_DIR/seen_region.c" \
         "$RUNTIME_DIR/seen_region.h" \
         "$RUNTIME_DIR/seen_tee_common.c" \

@@ -3452,6 +3452,76 @@
       ]
     },
     {
+      "name": "seen_async_datagram_nonce",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/dns.seen"
+      ]
+    },
+    {
+      "name": "seen_async_datagram_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/dns.seen"
+      ]
+    },
+    {
+      "name": "seen_async_datagram_receive",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/dns.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_kill_unreaped",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_live_children",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_pidfd",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_pipe",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_signal",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_spawn",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_wait",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
       "name": "seen_async_readiness_close",
       "abi": "C",
       "sources": [
@@ -3575,6 +3645,27 @@
       "abi": "C",
       "sources": [
         "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_stream_read",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/streams.seen"
+      ]
+    },
+    {
+      "name": "seen_async_stream_validate",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/streams.seen"
+      ]
+    },
+    {
+      "name": "seen_async_stream_write",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/streams.seen"
       ]
     },
     {
@@ -6090,6 +6181,7 @@
       "name": "seen_string_clone_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/dns_wire.seen",
         "seen_std/src/async/executor_native.seen",
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen",
@@ -6148,6 +6240,7 @@
       "name": "seen_string_view_bytes",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/dns_wire.seen",
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen"
       ]

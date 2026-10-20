@@ -1,0 +1,307 @@
+// Bounded DNS wire policy in Seen. Native code never parses names or records.
+import core.result.{Result, Ok, Err}
+import core.option.{Option, Some, None}
+import async.structured.{AsyncError}
+import async.executor_core.{executorFailure}
+import memory.aligned_buffer.{OwnedBuffer}
+import async.sockets.{SocketAddress}
+
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+extern "C" fun seen_string_clone_owned(value: String) r: String
+
+fun dnsLabelByte(value: Int) r: Bool {
+    return (value >= 65 and value <= 90) or (value >= 97 and value <= 122) or
+        (value >= 48 and value <= 57) or value == 45
+}
+fun dnsLower(value: Int) r: Int {
+    if value >= 65 and value <= 90 { return value + 32 }
+    return value
+}
+fun dnsInvalid<T>(operation: String) r: Result<T, AsyncError> {
+    return Err<T, AsyncError>(executorFailure(1 as Int32, operation, 0 as UInt64))
+}
+
+@send
+@move
+class DnsWire {
+    var storage: OwnedBuffer<UInt8>
+    var length: Int
+    fun byte(index: Int) r: Int {
+        if index < 0 or index >= this.length { abort("DNS parser checked-range invariant") }
+        return (ptr_deref_i8((this.storage.data as Int) + index) as Int) & 255
+    }
+    fun word(index: Int) r: Int { return this.byte(index) * 256 + this.byte(index + 1) }
+    fun put(index: Int, value: Int) r: Void {
+        if index < 0 or index >= this.length { abort("DNS encoder checked-range invariant") }
+        ptr_store_i8((this.storage.data as Int) + index, value as Int8)
+    }
+    fun release() r: Bool { this.storage.close(); this.storage.free(); this.free(); return true }
+}
+class DnsDecodedName {
+    var value: String
+    var next: Int
+}
+fun dnsNameFailure(buffer: OwnedBuffer<UInt8>) r: Result<DnsDecodedName, AsyncError> {
+    buffer.close(); buffer.free(); return dnsInvalid<DnsDecodedName>("dns.name")
+}
+fun decodeDnsName(wire: DnsWire, offset: Int) r: Result<DnsDecodedName, AsyncError> {
+    if wire.storage.data == (null as *UInt8) or wire.length < 12 or wire.length > 4096 or
+        (wire.length as UInt64) > wire.storage.byteLength or offset < 12 or offset >= wire.length { return dnsInvalid<DnsDecodedName>("dns.name") }
+    let allocated = OwnedBuffer<UInt8>.allocate(256 as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() {
+        allocated.unwrapErr().free(); allocated.releaseContainer()
+        return Err<DnsDecodedName, AsyncError>(executorFailure(2 as Int32, "dns.name", 0 as UInt64))
+    }
+    let output = allocated.unwrap(); allocated.releaseContainer()
+    var cursor = offset; var next = -1; var used = 0; var expanded = 1; var steps = 0
+    while steps < 128 {
+        if cursor < 12 or cursor >= wire.length { return dnsNameFailure(output) }
+        let size = wire.byte(cursor)
+        if size == 0 {
+            if next < 0 { next = cursor + 1 }
+            let view = seen_string_view_bytes(output.data as *const UInt8, used as Int64)
+            let value = seen_string_clone_owned(view)
+            output.close(); output.free()
+            return Ok<DnsDecodedName, AsyncError>(DnsDecodedName{value: value, next: next})
+        }
+        if (size & 192) == 192 {
+            if cursor + 1 >= wire.length { return dnsNameFailure(output) }
+            let target = (size & 63) * 256 + wire.byte(cursor + 1)
+            if target < 12 or target >= cursor { return dnsNameFailure(output) }
+            if next < 0 { next = cursor + 2 }
+            cursor = target
+        } else {
+            if size > 63 or size > wire.length - cursor - 1 or expanded > 255 - size - 1 {
+                return dnsNameFailure(output)
+            }
+            expanded = expanded + size + 1
+            if used > 0 { ptr_store_i8((output.data as Int) + used, 46 as Int8); used = used + 1 }
+            if size > 253 - used { return dnsNameFailure(output) }
+            var i = 0
+            while i < size {
+                let value = wire.byte(cursor + 1 + i)
+                if not dnsLabelByte(value) { return dnsNameFailure(output) }
+                ptr_store_i8((output.data as Int) + used, dnsLower(value) as Int8)
+                used = used + 1; i = i + 1
+            }
+            cursor = cursor + size + 1
+        }
+        steps = steps + 1
+    }
+    return dnsNameFailure(output)
+}
+
+@send
+@move
+class DnsQuestion {
+    var wire: DnsWire
+    var name: String
+    var id: Int
+    var kind: Int
+
+    static fun create(name: String, kind: Int, id: Int) r: Result<DnsQuestion, AsyncError> {
+        if name.length() == 0 or name.length() > 254 or id < 0 or id > 65535 or
+            (kind != 1 and kind != 28) { return dnsInvalid<DnsQuestion>("dns.question") }
+        var length = name.length()
+        if name.byteAt(length - 1) == 46 { length = length - 1 }
+        if length == 0 or length > 253 { return dnsInvalid<DnsQuestion>("dns.question") }
+        var start = 0; var i = 0
+        while i <= length {
+            if i == length or name.byteAt(i) == 46 {
+                let size = i - start
+                if size <= 0 or size > 63 or name.byteAt(start) == 45 or name.byteAt(i - 1) == 45 {
+                    return dnsInvalid<DnsQuestion>("dns.question")
+                }
+                start = i + 1
+            } else {
+                if not dnsLabelByte(name.byteAt(i)) { return dnsInvalid<DnsQuestion>("dns.question") }
+            }
+            i = i + 1
+        }
+        let allocated = OwnedBuffer<UInt8>.allocate((length + 18) as UInt64, 1 as UInt64, 16 as UInt64)
+        if allocated.isErr() {
+            allocated.unwrapErr().free(); allocated.releaseContainer()
+            return Err<DnsQuestion, AsyncError>(executorFailure(2 as Int32, "dns.question", 0 as UInt64))
+        }
+        let wire = DnsWire{storage: allocated.unwrap(), length: length + 18}; allocated.releaseContainer()
+        i = 0
+        while i < 12 { wire.put(i, 0); i = i + 1 }
+        wire.put(0, id / 256); wire.put(1, id % 256); wire.put(2, 1); wire.put(5, 1)
+        start = 0; i = 0; var at = 12
+        while i <= length {
+            if i == length or name.byteAt(i) == 46 {
+                wire.put(at, i - start); at = at + 1
+                var j = start
+                while j < i { wire.put(at, dnsLower(name.byteAt(j))); at = at + 1; j = j + 1 }
+                start = i + 1
+            }
+            i = i + 1
+        }
+        wire.put(at, 0); at = at + 1
+        wire.put(at, 0); wire.put(at + 1, kind); wire.put(at + 2, 0); wire.put(at + 3, 1)
+        wire.length = at + 4
+        let decoded = decodeDnsName(wire, 12)
+        if decoded.isErr() {
+            let error = decoded.unwrapErr(); decoded.releaseContainer(); wire.release()
+            return Err<DnsQuestion, AsyncError>(error)
+        }
+        let canonical = decoded.unwrap(); decoded.releaseContainer()
+        let ownedName = canonical.value; canonical.free()
+        return Ok<DnsQuestion, AsyncError>(DnsQuestion{wire: wire, name: ownedName, id: id, kind: kind})
+    }
+    fun release() r: Bool { this.wire.release(); this.name.free(); this.free(); return true }
+}
+class DnsAddress {
+    var bytes: Array<Int>
+    var ttl: UInt64
+    fun socketAddress(port: Int) r: Result<SocketAddress, AsyncError> {
+        return SocketAddress.fromBytes(this.bytes, port)
+    }
+    fun release() r: Void { this.bytes.free(); this.free() }
+}
+@move
+class DnsResponse {
+    var addresses: Array<DnsAddress>
+    var canonicalName: String
+    fun release() r: Void {
+        var i = 0
+        while i < this.addresses.length() { this.addresses[i].release(); i = i + 1 }
+        this.addresses.free(); this.canonicalName.free(); this.free()
+    }
+}
+class DnsResourceRecord {
+    var owner: String
+    var kind: Int
+    var data: Int
+    var length: Int
+    var ttl: UInt64
+    var canonical: Option<String>
+}
+fun releaseDnsRecords(records: Array<DnsResourceRecord>) r: Void {
+    var i = 0
+    while i < records.length() {
+        let record = records[i]
+        if record.canonical.isSome() { record.canonical.unwrap().free() }
+        record.canonical.free(); record.owner.free(); record.free(); i = i + 1
+    }
+    records.free()
+}
+fun dnsRecordFailure(records: Array<DnsResourceRecord>, status: Int32) r: Result<DnsResponse, AsyncError> {
+    releaseDnsRecords(records)
+    return Err<DnsResponse, AsyncError>(executorFailure(status, "dns.response", 0 as UInt64))
+}
+
+fun decodeDnsResponse(wire: DnsWire, question: DnsQuestion, maxAnswers: Int) r: Result<DnsResponse, AsyncError> {
+    if wire.storage.data == (null as *UInt8) or wire.length < 12 or wire.length > 4096 or wire.length > (wire.storage.byteLength as Int) or
+        maxAnswers <= 0 or maxAnswers > 128 { return dnsInvalid<DnsResponse>("dns.response") }
+    if wire.word(0) != question.id or (wire.byte(2) & 128) == 0 or (wire.byte(2) & 120) != 0 or
+        wire.word(4) != 1 { return dnsInvalid<DnsResponse>("dns.response") }
+    if (wire.byte(2) & 2) != 0 {
+        return Err<DnsResponse, AsyncError>(executorFailure(4 as Int32, "dns.truncated", 0 as UInt64))
+    }
+    let rcode = wire.byte(3) & 15
+    if rcode != 0 {
+        let error = executorFailure(3 as Int32, "dns.response", 0 as UInt64)
+        error.retryable = rcode == 2; return Err<DnsResponse, AsyncError>(error)
+    }
+    let count = wire.word(6); let total = count + wire.word(8) + wire.word(10)
+    if total > 128 { return Err<DnsResponse, AsyncError>(executorFailure(2 as Int32, "dns.records", 0 as UInt64)) }
+    let decoded = decodeDnsName(wire, 12)
+    if decoded.isErr() {
+        let error = decoded.unwrapErr(); decoded.releaseContainer(); return Err<DnsResponse, AsyncError>(error)
+    }
+    let name = decoded.unwrap(); decoded.releaseContainer(); var at = name.next
+    let matches = name.value == question.name
+    name.value.free(); name.free()
+    if not matches or at > wire.length - 4 { return dnsInvalid<DnsResponse>("dns.question") }
+    if wire.word(at) != question.kind or wire.word(at + 2) != 1 { return dnsInvalid<DnsResponse>("dns.question") }
+    at = at + 4
+    let records = Array<DnsResourceRecord>(); var index = 0
+    while index < total {
+        let decodedOwner = decodeDnsName(wire, at)
+        if decodedOwner.isErr() {
+            decodedOwner.unwrapErr().free(); decodedOwner.releaseContainer(); return dnsRecordFailure(records, 1 as Int32)
+        }
+        let owner = decodedOwner.unwrap(); decodedOwner.releaseContainer(); at = owner.next
+        if at > wire.length - 10 {
+            owner.value.free(); owner.free(); return dnsRecordFailure(records, 1 as Int32)
+        }
+        let kind = wire.word(at); let classNumber = wire.word(at + 2)
+        let ttl = (wire.word(at + 4) as UInt64) * (65536 as UInt64) + (wire.word(at + 6) as UInt64)
+        let length = wire.word(at + 8); at = at + 10
+        if length > wire.length - at {
+            owner.value.free(); owner.free(); return dnsRecordFailure(records, 1 as Int32)
+        }
+        var canonical = None<String>()
+        if kind == 5 and classNumber == 1 {
+            let target = decodeDnsName(wire, at)
+            if target.isErr() {
+                target.unwrapErr().free(); target.releaseContainer(); owner.value.free(); owner.free()
+                canonical.free(); return dnsRecordFailure(records, 1 as Int32)
+            }
+            let value = target.unwrap(); target.releaseContainer()
+            if value.next != at + length {
+                value.value.free(); value.free(); owner.value.free(); owner.free(); canonical.free()
+                return dnsRecordFailure(records, 1 as Int32)
+            }
+            canonical.free(); canonical = Some<String>(value.value); value.free()
+        }
+        if index < count and classNumber == 1 {
+            records.push(DnsResourceRecord{owner: owner.value, kind: kind, data: at,
+                length: length, ttl: ttl, canonical: canonical})
+        } else {
+            owner.value.free()
+            if canonical.isSome() { canonical.unwrap().free() }
+            canonical.free()
+        }
+        owner.free(); at = at + length; index = index + 1
+    }
+    if at != wire.length { return dnsRecordFailure(records, 1 as Int32) }
+    var current = question.name; var hops = 0; var changed = true
+    var chainTtl = 4294967295 as UInt64
+    let visited = Array<String>()
+    while changed and hops < 8 {
+        visited.push(current); changed = false; index = 0
+        while index < records.length() {
+            let record = records[index]
+            if record.owner == current and record.kind == 5 and record.canonical.isSome() {
+                let target = record.canonical.unwrap(); var seen = 0
+                while seen < visited.length() {
+                    if visited[seen] == target {
+                        visited.free(); return dnsRecordFailure(records, 1 as Int32)
+                    }
+                    seen = seen + 1
+                }
+                if record.ttl < chainTtl { chainTtl = record.ttl }
+                current = target; changed = true; break
+            }
+            index = index + 1
+        }
+        hops = hops + 1
+    }
+    visited.free()
+    if changed { return dnsRecordFailure(records, 2 as Int32) }
+    let response = DnsResponse{addresses: Array<DnsAddress>(), canonicalName: seen_string_clone_owned(current)}
+    index = 0
+    while index < records.length() {
+        let record = records[index]
+        if record.owner == current and record.kind == question.kind {
+            var expected = 4
+            if question.kind == 28 { expected = 16 }
+            if record.length != expected {
+                response.release(); return dnsRecordFailure(records, 1 as Int32)
+            }
+            if response.addresses.length() >= maxAnswers {
+                response.release(); return dnsRecordFailure(records, 2 as Int32)
+            }
+            let bytes = Array<Int>(); var i = 0
+            while i < expected { bytes.push(wire.byte(record.data + i)); i = i + 1 }
+            var ttl = record.ttl
+            if chainTtl < ttl { ttl = chainTtl }
+            response.addresses.push(DnsAddress{bytes: bytes, ttl: ttl})
+        }
+        index = index + 1
+    }
+    releaseDnsRecords(records)
+    return Ok<DnsResponse, AsyncError>(response)
+}

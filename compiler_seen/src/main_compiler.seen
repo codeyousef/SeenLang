@@ -547,6 +547,10 @@ fun runtimeSourceSignatureForCache() r: String {
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_completion_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_readiness_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_readiness_abi.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_process_abi.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_process_abi.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_stream_abi.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_stream_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_gpu.c"))
@@ -1708,7 +1712,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                 packageObjectManifestSchema:
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
-            runtimeAbi: "runtime-v7",
+            runtimeAbi: "runtime-v8",
             standardLibraryVersion: "0.6.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
@@ -8489,6 +8493,10 @@ fun programRuntimeInputIdentity() r: String {
     names.push("src/executor_completion_abi.h")
     names.push("src/executor_readiness_abi.c")
     names.push("src/executor_readiness_abi.h")
+    names.push("src/executor_process_abi.c")
+    names.push("src/executor_process_abi.h")
+    names.push("src/executor_stream_abi.c")
+    names.push("src/executor_stream_abi.h")
     names.push("seen_region.c")
     names.push("seen_region.h")
     names.push("seen_gpu.c")
