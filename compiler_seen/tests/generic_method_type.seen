@@ -1,5 +1,5 @@
-import codegen.ir_field_lookup_state.{genericTypeArgumentsImpl,
-    replaceGenericTypeIdentifierImpl, specializeGenericMethodReturnTypeImpl}
+import codegen.ir_generic_type_specialize.{genericTypeArgumentsImpl,
+    replaceGenericTypeIdentifierImpl, specializeGenericTypeImpl}
 
 fun main() r: Int {
     let one = genericTypeArgumentsImpl("Arc<Int>")
@@ -8,13 +8,13 @@ fun main() r: Int {
         "Map<String, Result<Array<Int>, SyncError>>")
     if nested.length() != 2 or nested[0] != "String" or
         nested[1] != "Result<Array<Int>, SyncError>" { return 2 }
-    let arc = specializeGenericMethodReturnTypeImpl("Arc<Int>", "Arc",
+    let arc = specializeGenericTypeImpl("Arc<Int>", "Arc",
         "Result<Arc<T>, SyncError>")
     if arc != "Result<Arc<Int>, SyncError>" { return 3 }
-    let borrow = specializeGenericMethodReturnTypeImpl("Arc<String>", "Arc",
+    let borrow = specializeGenericTypeImpl("Arc<String>", "Arc",
         "Result<T, SyncError>")
     if borrow != "Result<String, SyncError>" { return 4 }
-    let map = specializeGenericMethodReturnTypeImpl("Map<String, Int>",
+    let map = specializeGenericTypeImpl("Map<String, Int>",
         "Map", "Result<V, MapError<K>>")
     if map != "Result<Int, MapError<String>>" { return 5 }
     let untouched = replaceGenericTypeIdentifierImpl("SyncError", "T",

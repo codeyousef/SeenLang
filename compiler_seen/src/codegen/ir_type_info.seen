@@ -126,6 +126,22 @@ fun findStructIdx(structNames: Array<String>, name: String) r: Int {
     return -1
 }
 
+/// Resolve an instantiated class through the same declaration as its layout.
+/// Compare the prefix without allocating a temporary cache key.
+fun findStructDeclarationIdx(structNames: Array<String>, name: String) r: Int {
+    let exact = findStructIdx(structNames, name)
+    if exact >= 0 { return exact }
+    let opening = name.indexOf("<", 0)
+    if opening <= 0 { return -1 }
+    var i = structNames.length() - 1
+    while i >= 0 {
+        let declaration = structNames[i]
+        if declaration.length() == opening and name.startsWith(declaration) { return i }
+        i = i - 1
+    }
+    return -1
+}
+
 fun cacheTypeInfoStructIdx(name: String, idx: Int,
     structNames: Array<String>) r: Void {
 

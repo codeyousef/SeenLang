@@ -340,7 +340,7 @@ fun emitImplicitThisMemberAssignmentImpl(output: StringBuilder,
         isClassHandleLikeTypeImpl(firstFieldType, structNames) == 1 {
         let firstFieldValReg = emitResolvedFieldAccessLoadImpl(output, regBox,
             thisPtrReg, thisType, receiverName, firstFieldTypes[0],
-            structNames, structLayouts, structFieldNames, 0, "", "")
+            structNames, structLayouts, structFieldNames, 0, "", "", false)
         let ptrConvReg = getNextRegFn(regBox)
         output.append("  " + ptrConvReg + " = inttoptr i64 " +
             firstFieldValReg + " to ptr\n")

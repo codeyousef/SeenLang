@@ -1,0 +1,20 @@
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
+import codegen.ir_method_receiver.{getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl}
+import codegen.ir_member_access.{inferMemberFieldTypeImpl}
+fun requireFieldType(value: Bool) r: Void { if not value { abort("generic field type lookup disagrees") } }
+fun main() r: Int {
+    let names = ["OwnedBuffer", "Owner"]
+    let fields = ["data|byteLength", "value"]
+    let types = ["*T|UInt64", "T"]
+    let methods = ["", ""]
+    requireFieldType(getSeenFieldTypeImpl("OwnedBuffer<UInt8>", "data", names, fields, types) == "*UInt8")
+    requireFieldType(getSemanticFieldTypeImpl("OwnedBuffer<UInt8>", "data", names, fields, types) == "*UInt8")
+    requireFieldType(inferMemberFieldTypeImpl("OwnedBuffer<UInt8>", "data", names, fields, types) == "*UInt8")
+    requireFieldType(resolveMethodFieldPathTypeImpl("OwnedBuffer<UInt16>", "data", names, fields, types, methods, methods) == "*UInt16")
+    requireFieldType(getSemanticFieldTypeImpl("Owner<Array<Int>>", "value", names, fields, types) == "Array<Int>")
+    requireFieldType(getSemanticFieldTypeImpl("Owner<NumberValue>", "value", names, fields, types) == "NumberValue")
+    requireFieldType(getSemanticFieldTypeImpl("OwnedBuffer", "data", names, fields, types) == "*T")
+    names.free(); fields.free(); types.free(); methods.free()
+    println("PASS: semantic and emitted generic field types agree")
+    return 0
+}
