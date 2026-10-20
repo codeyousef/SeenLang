@@ -73,7 +73,7 @@ fun pipeRound(borrow loop: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationCon
         must(loop.cancel(registration))
         if not errorIs(loop.cancel(registration), "async.invalid") { abort("stale I/O generation accepted") }
     } else {
-        let bytes = must(OwnedBuffer<UInt8>.allocate(1 as UInt64, 1 as UInt64, 8 as UInt64))
+        let bytes = must(OwnedBuffer<UInt8>.allocate(1 as UInt64, 1 as UInt64, 16 as UInt64))
         bytes.data[0] = 42 as UInt8
         let span = must(AsyncByteSpan.take(bytes, 0 as UInt64, 1 as UInt64))
         let progress = must(writer.write(span, ctx))
