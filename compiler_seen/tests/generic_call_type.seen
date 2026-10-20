@@ -1,7 +1,7 @@
 import lexer.lexer.{newSeenLexerCompat}
 import parser.real_parser.{newRealParserCompat}
 import codegen.ir_generic_call_type.{registerGenericCallTypeImpl, resetGenericCallTypesImpl,
-    findGenericCallTypeImpl, genericCallWordTypeNameImpl, specializeGenericCallReturnImpl}
+    findGenericCallTypeImpl, genericCallDeclarationImpl, genericCallWordTypeNameImpl, specializeGenericCallReturnImpl}
 fun requireGenericCall(value: Bool) r: Void { if not value { abort("generic call type binding failed") } }
 fun main() r: Int {
     let source = "fun extract<T,E>(value: Result<T,E>) r: T { return value.unwrap() } " +
@@ -16,18 +16,21 @@ fun main() r: Int {
     requireGenericCall(genericCallWordTypeNameImpl("extract", -1) == "T")
     requireGenericCall(genericCallWordTypeNameImpl("extract", 0) == "")
     requireGenericCall(genericCallWordTypeNameImpl("wrap", -1) == "")
+    program.items[0].function.name = "changed-after-registration"
+    program.items[0].function.params[0].paramType.typeName = "Int"
+    requireGenericCall(findGenericCallTypeImpl("extract") == 0)
     let empty = Array<String>(); let actual = ["Result<Array<Int>, Error>"]
-    requireGenericCall(specializeGenericCallReturnImpl(program.items[0].function, actual, empty, "T") == "Array<Int>")
+    requireGenericCall(specializeGenericCallReturnImpl(genericCallDeclarationImpl(0), actual, empty, "T") == "Array<Int>")
     let explicit = ["Array<Int>", "Error"]
-    requireGenericCall(specializeGenericCallReturnImpl(program.items[0].function, actual, explicit, "T") == "Array<Int>")
+    requireGenericCall(specializeGenericCallReturnImpl(genericCallDeclarationImpl(0), actual, explicit, "T") == "Array<Int>")
     let inconsistent = ["Array<Float>", "Error"]
-    requireGenericCall(specializeGenericCallReturnImpl(program.items[0].function, actual, inconsistent, "T") == "T")
+    requireGenericCall(specializeGenericCallReturnImpl(genericCallDeclarationImpl(0), actual, inconsistent, "T") == "T")
     let conflicting = ["Int", "Float"]
-    requireGenericCall(specializeGenericCallReturnImpl(program.items[1].function, conflicting, empty, "T") == "T")
+    requireGenericCall(specializeGenericCallReturnImpl(genericCallDeclarationImpl(1), conflicting, empty, "T") == "T")
     let nested = ["Array<OwnedBuffer<UInt8>>"]
-    requireGenericCall(specializeGenericCallReturnImpl(program.items[2].function, nested, empty, "Result<Payload,Error>") == "Result<OwnedBuffer<UInt8>,Error>")
+    requireGenericCall(specializeGenericCallReturnImpl(genericCallDeclarationImpl(2), nested, empty, "Result<Payload,Error>") == "Result<OwnedBuffer<UInt8>,Error>")
     let malformed = ["Result<Array<Int>, Error"]
-    requireGenericCall(specializeGenericCallReturnImpl(program.items[0].function, malformed, empty, "T") == "T")
+    requireGenericCall(specializeGenericCallReturnImpl(genericCallDeclarationImpl(0), malformed, empty, "T") == "T")
     resetGenericCallTypesImpl(); requireGenericCall(findGenericCallTypeImpl("extract") == -1)
     println("PASS: structural generic return binding rejects inconsistent arguments")
     return 0
