@@ -22,15 +22,21 @@ cleanup() {
     exit "$status"
 }
 trap cleanup EXIT
-compile_case() {
+compile_fixture() {
     local profile=$1 name=$2 source=$3
-    shift 3
     local flags=(--fast)
     if [ "$profile" = release ]; then flags=(--release --lto=thin); fi
     if [ "$profile" = undefined ] || [ "$profile" = address ]; then flags+=("--sanitize=$profile"); fi
     local log="$TMP_DIR/00-active.log"
     run_compiler compile "$source" "$TMP_DIR/$name-$profile" --no-cache --frozen \
         --target-cpu="${FIXTURE_TARGET_CPU:-x86-64}" --emit-module-ir-dir "$TMP_DIR/$name-$profile-ir" "${flags[@]}" "${FIXTURE_COMPILE_FLAGS[@]}" >"$log" 2>&1
+    cp -- "$log" "$TMP_DIR/$name-$profile.log"
+}
+run_fixture() {
+    local profile=$1 name=$2
+    shift 2
+    local log="$TMP_DIR/00-active.log"
+    cp -- "$TMP_DIR/$name-$profile.log" "$log"
     if [ "$profile" = address ]; then
         timeout --foreground --kill-after=5s "${FIXTURE_RUN_SECONDS}s" bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
             --target-root "$TMP_DIR" --compile-log "$log" -- "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
@@ -39,4 +45,10 @@ compile_case() {
             timeout --foreground --kill-after=5s "${FIXTURE_RUN_SECONDS}s" "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
     fi
     cp -- "$log" "$TMP_DIR/$name-$profile.log"
+}
+compile_case() {
+    local profile=$1 name=$2 source=$3
+    shift 3
+    compile_fixture "$profile" "$name" "$source"
+    run_fixture "$profile" "$name" "$@"
 }

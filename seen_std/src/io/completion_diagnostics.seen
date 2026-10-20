@@ -1,0 +1,64 @@
+/// Coordinator-owned fixed-size counters. Saturation is explicit, never wrap.
+import io.completion_types.{IO_DEVICE_REMOVED_STATUS}
+
+@move
+class IoQueueDiagnostics {
+    var acceptedCount: UInt64
+    var rejectedCount: UInt64
+    var submittedCount: UInt64
+    var terminalCount: UInt64
+    var deliveredCount: UInt64
+    var transferredBytes: UInt64
+    var cancelledCount: UInt64
+    var timeoutCount: UInt64
+    var deviceRemovedCount: UInt64
+    var failureCount: UInt64
+    var concurrentSubmissionCount: UInt64
+    var peakActive: Int
+    var peakSubmitted: Int
+    var peakOwnedBytes: UInt64
+    var peakMetadataBytes: UInt64
+    var saturated: Bool
+    static fun create() r: IoQueueDiagnostics {
+        return IoQueueDiagnostics{acceptedCount: 0 as UInt64, rejectedCount: 0 as UInt64,
+            submittedCount: 0 as UInt64, terminalCount: 0 as UInt64, deliveredCount: 0 as UInt64,
+            transferredBytes: 0 as UInt64, cancelledCount: 0 as UInt64, timeoutCount: 0 as UInt64,
+            deviceRemovedCount: 0 as UInt64, failureCount: 0 as UInt64, concurrentSubmissionCount: 0 as UInt64,
+            peakActive: 0, peakSubmitted: 0, peakOwnedBytes: 0 as UInt64, peakMetadataBytes: 0 as UInt64, saturated: false}
+    }
+    fun add(value: UInt64, amount: UInt64) r: UInt64 {
+        if value > (18446744073709551615 as UInt64) - amount {
+            this.saturated = true; return 18446744073709551615 as UInt64
+        }
+        return value + amount
+    }
+    fun recordAdmission(active: Int, bytes: UInt64, metadata: UInt64) r: Void {
+        this.acceptedCount = this.add(this.acceptedCount, 1 as UInt64)
+        if active > this.peakActive { this.peakActive = active }
+        if bytes > this.peakOwnedBytes { this.peakOwnedBytes = bytes }
+        if metadata > this.peakMetadataBytes { this.peakMetadataBytes = metadata }
+    }
+    fun recordRejection() r: Void { this.rejectedCount = this.add(this.rejectedCount, 1 as UInt64) }
+    fun recordSubmission(submitted: Int) r: Void {
+        this.submittedCount = this.add(this.submittedCount, 1 as UInt64)
+        if submitted > this.peakSubmitted { this.peakSubmitted = submitted }
+        if submitted > 1 { this.concurrentSubmissionCount = this.add(this.concurrentSubmissionCount, 1 as UInt64) }
+    }
+    fun recordTerminal(bytes: UInt64, status: Int32) r: Void {
+        this.terminalCount = this.add(this.terminalCount, 1 as UInt64)
+        this.transferredBytes = this.add(this.transferredBytes, bytes)
+        if status == (9 as Int32) { this.cancelledCount = this.add(this.cancelledCount, 1 as UInt64) }
+        else if status == (7 as Int32) { this.timeoutCount = this.add(this.timeoutCount, 1 as UInt64) }
+        else if status == IO_DEVICE_REMOVED_STATUS { this.deviceRemovedCount = this.add(this.deviceRemovedCount, 1 as UInt64) }
+        else if status != (0 as Int32) { this.failureCount = this.add(this.failureCount, 1 as UInt64) }
+    }
+    fun recordDelivery() r: Void { this.deliveredCount = this.add(this.deliveredCount, 1 as UInt64) }
+    fun snapshot() r: IoQueueDiagnostics {
+        return IoQueueDiagnostics{acceptedCount: this.acceptedCount, rejectedCount: this.rejectedCount,
+            submittedCount: this.submittedCount, terminalCount: this.terminalCount, deliveredCount: this.deliveredCount,
+            transferredBytes: this.transferredBytes, cancelledCount: this.cancelledCount, timeoutCount: this.timeoutCount,
+            deviceRemovedCount: this.deviceRemovedCount, failureCount: this.failureCount, concurrentSubmissionCount: this.concurrentSubmissionCount,
+            peakActive: this.peakActive, peakSubmitted: this.peakSubmitted, peakOwnedBytes: this.peakOwnedBytes,
+            peakMetadataBytes: this.peakMetadataBytes, saturated: this.saturated}
+    }
+}

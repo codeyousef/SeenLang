@@ -583,3 +583,50 @@ retained budgets and repeated live-allocation baselines. `seen-io-adverse-v1`
 records model execution separately from physical device hot-unplug, which
 remains unverified until designated hardware testing. No hardware fault or
 platform certification is inferred from source/frontend validation.
+
+## Completion diagnostics and overlap evidence
+
+Standard library 0.16.0 adds coordinator-owned `IoQueue.diagnostics` without
+changing runtime ABI `runtime-v12`. `IoQueueDiagnostics` has fixed-size scalar
+counters for accepted/rejected requests, committed submissions, terminal results,
+delivered owners, bytes and adverse outcomes. Peaks track active/submitted
+requests, owned buffer bytes and metadata. `concurrentSubmissionCount` counts
+submissions made while another adapter borrow remains outstanding; it measures
+queue concurrency and cannot establish physical I/O overlap.
+
+All counters saturate at UInt64 maximum and set `saturated`, rather than wrapping.
+Saturated counters cannot certify exact lifecycle accounting. `snapshot()` returns
+an independent owned record; the caller frees it, and it may outlive the queue.
+Only the serialized coordinator reads or updates diagnostics. Worker jobs never
+touch them. Diagnostics retain no tokens, strings or per-request history and
+consume constant memory. Releasing the queue frees its diagnostic record.
+
+`tests/misc_root_tests/seen_async_io_f.sh` tests snapshot lifetime, overflow and
+exact cleanup in fast/release/UBSan/ASan, then compiles a Seen overlap witness.
+Two fixed worker jobs enter actual blocking Linux pipe reads. A supervising
+collector observes both read syscalls through `/proc`, acknowledges the
+checkpoint, and lets the coordinator perform a PID-seeded CPU calculation.
+The collector observes both reads still blocked after the calculation before
+allowing the coordinator to write the payloads. Only joined workers' intervals
+are read, and both intervals must bracket the calculation and kernel observations.
+Payload checks and unique completion tokens verify both results exactly once.
+
+Seven acknowledged checkpoints capture managed bytes, process RSS/high-water
+RSS, descriptor counts and queue peaks. Ten thousand further two-request rounds
+must return to the live-allocation baseline after every round. Final descriptor
+and managed allocation counts return to their original baselines. RSS high-water
+growth is limited to 64 MiB (512 MiB under ASan), further capped to one eighth of
+the actual aggregate memory limit. The existing hard-scope wrapper verifies the
+transient cgroup; the collector independently reads finite memory/pid limits,
+zero swap, group OOM handling and identical child membership. Execution has a
+120-second ceiling and bounded output. Missing `/proc` permissions or kernel
+observations fail certification explicitly.
+
+`seen-io-overlap-v1` reports retain source commit, source/executable/compiler
+hashes, command, machine identity, containment readback, syscall observations and
+resource samples. `scripts/io_overlap_evidence.py` validates their strict schema,
+checksum, lifecycle, intervals and resource bounds. CI retains validated reports
+for 14 days. This witness classifies Linux kernel-pipe I/O/compute overlap only;
+`storage_overlap_verified` is always false. Native file/accelerator overlap and
+other operating systems require their own execution evidence. These interval
+checks are correctness witnesses, not throughput benchmarks or storage results.
