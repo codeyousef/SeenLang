@@ -5988,7 +5988,8 @@
         "seen_std/src/io/file.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/parser.seen",
-        "seen_std/src/json/value.seen"
+        "seen_std/src/json/value.seen",
+        "seen_std/src/simd/ir_types.seen"
       ]
     },
     {
