@@ -64,7 +64,7 @@ grep -Fq 'seen-structured-async-v1' "$ROOT_DIR/CHANGELOG.md" || {
 
 for symbol in OperationContext CancellationSource ReadyQueue 'JoinHandle<T>' \
     'Scope<T>' 'DeterministicExecutor<T>' selectTaskId timeoutJoin \
-    boundedFanOut AsyncWaitGroup AsyncBarrier deterministicReduceSum \
+    boundedFanOut DeterministicWaitGroup DeterministicBarrier deterministicReduceSum \
     async.invalid async.limit async.cancelled async.timeout async.unavailable \
     async.unsupported_platform; do
     rg -Fq "$symbol" "$ASYNC_ROOT" || {

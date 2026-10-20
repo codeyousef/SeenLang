@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seen_std"
-version = "0.5.0"
+version = "0.6.0"
 language = "en"
 visibility = "explicit"
 description = "Core Seen standard library modules used by the self-hosted compiler"
@@ -61,6 +61,12 @@ modules = [
     "src/time/timer.seen",
     "src/async/structured.seen",
     "src/async/multithread.seen",
+    "src/async/sync_domain.seen",
+    "src/async/wait_group.seen",
+    "src/async/barrier.seen",
+    "src/async/queue.seen",
+    "src/async/reduction.seen",
+    "src/async/task_group.seen",
     "src/async/executor_core.seen",
     "src/async/executor_native.seen",
     "src/async/mod.seen",

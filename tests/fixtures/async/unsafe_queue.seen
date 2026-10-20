@@ -1,0 +1,7 @@
+import async.queue.{AsyncQueue}
+import async.executor_core.{ExecutorCore}
+fun unsafeQueue(core: ExecutorCore) r: Int {
+    let queue = AsyncQueue<*Void>.create(core, 1)
+    return 0
+}
+fun main() r: Int { return 0 }

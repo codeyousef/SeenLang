@@ -135,7 +135,8 @@ class MultithreadExecutor<T: Send + ExecutorJob> {
             freeSlots: freeSlots, freeCount: limits.tasks,
             queue: queue, head: 0, tail: 0, queued: 0, outstanding: 0,
             running: 0, nextId: 1, completed: 0 as UInt64,
-            stopping: false, stopped: false, closed: false}
+            stopping: false, stopped: false, closed: false,
+            syncOwners: 0, syncWaiters: 0}
         var mutex = 0 as UInt64
         var changed = 0 as UInt64
         var status = seen_sync_mutex_create(&mutex)
