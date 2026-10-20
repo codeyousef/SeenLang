@@ -1,0 +1,286 @@
+import core.result.{Result}
+import memory.aligned_buffer.{OwnedBuffer}
+fun take<T, E>(result: Result<T, E>) r: T {
+    if result.isErr() { abort("typed pointer fixture allocation failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun requirePointer(value: Bool) r: Void { if not value { abort("typed pointer index mismatch") } }
+fun checkUInt8(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *UInt8
+        i = 0; while i < 4 { pointer[i] = 249 as UInt8; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (249 as UInt8)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 4 {
+                expected = 0
+                if (i - offset) % 1 == 0 { expected = 249 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkInt8(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *Int8
+        i = 0; while i < 4 { pointer[i] = -7 as Int8; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (-7 as Int8)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 4 {
+                expected = 0
+                if (i - offset) % 1 == 0 { expected = 249 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkUInt16(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *UInt16
+        i = 0; while i < 4 { pointer[i] = 249 as UInt16; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (249 as UInt16)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 8 {
+                expected = 0
+                if (i - offset) % 2 == 0 { expected = 249 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkInt16(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *Int16
+        i = 0; while i < 4 { pointer[i] = -7 as Int16; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (-7 as Int16)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 8 {
+                expected = 0
+                if (i - offset) % 2 == 0 { expected = 249 }
+                if (i - offset) % 2 == 1 { expected = 255 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkUInt32(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *UInt32
+        i = 0; while i < 4 { pointer[i] = 249 as UInt32; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (249 as UInt32)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 16 {
+                expected = 0
+                if (i - offset) % 4 == 0 { expected = 249 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkInt32(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *Int32
+        i = 0; while i < 4 { pointer[i] = -7 as Int32; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (-7 as Int32)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 16 {
+                expected = 0
+                if (i - offset) % 4 == 0 { expected = 249 }
+                if (i - offset) % 4 == 1 { expected = 255 }
+                if (i - offset) % 4 == 2 { expected = 255 }
+                if (i - offset) % 4 == 3 { expected = 255 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkUInt64(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *UInt64
+        i = 0; while i < 4 { pointer[i] = 249 as UInt64; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (249 as UInt64)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 32 {
+                expected = 0
+                if (i - offset) % 8 == 0 { expected = 249 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkInt64(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *Int64
+        i = 0; while i < 4 { pointer[i] = -7 as Int64; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (-7 as Int64)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 32 {
+                expected = 0
+                if (i - offset) % 8 == 0 { expected = 249 }
+                if (i - offset) % 8 == 1 { expected = 255 }
+                if (i - offset) % 8 == 2 { expected = 255 }
+                if (i - offset) % 8 == 3 { expected = 255 }
+                if (i - offset) % 8 == 4 { expected = 255 }
+                if (i - offset) % 8 == 5 { expected = 255 }
+                if (i - offset) % 8 == 6 { expected = 255 }
+                if (i - offset) % 8 == 7 { expected = 255 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkInt(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *Int
+        i = 0; while i < 4 { pointer[i] = -7 as Int; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (-7 as Int)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 32 {
+                expected = 0
+                if (i - offset) % 8 == 0 { expected = 249 }
+                if (i - offset) % 8 == 1 { expected = 255 }
+                if (i - offset) % 8 == 2 { expected = 255 }
+                if (i - offset) % 8 == 3 { expected = 255 }
+                if (i - offset) % 8 == 4 { expected = 255 }
+                if (i - offset) % 8 == 5 { expected = 255 }
+                if (i - offset) % 8 == 6 { expected = 255 }
+                if (i - offset) % 8 == 7 { expected = 255 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkFloat32(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *Float32
+        i = 0; while i < 4 { pointer[i] = 1.25 as Float32; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (1.25 as Float32)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 16 {
+                expected = 0
+                if (i - offset) % 4 == 2 { expected = 160 }
+                if (i - offset) % 4 == 3 { expected = 63 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkFloat64(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *Float64
+        i = 0; while i < 4 { pointer[i] = 1.25 as Float64; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (1.25 as Float64)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 32 {
+                expected = 0
+                if (i - offset) % 8 == 6 { expected = 244 }
+                if (i - offset) % 8 == 7 { expected = 63 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkFloat(borrow storage: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 16 {
+        var i = 0
+        while i < 128 { storage.data[i] = 165 as UInt8; i = i + 1 }
+        let pointer = ((storage.data as UInt64) + (offset as UInt64)) as *Float
+        i = 0; while i < 4 { pointer[i] = 1.25 as Float; i = i + 1 }
+        i = 0; while i < 4 { requirePointer(pointer[i] == (1.25 as Float)); i = i + 1 }
+        i = 0
+        while i < 128 {
+            var expected = 165
+            if i >= offset and i < offset + 32 {
+                expected = 0
+                if (i - offset) % 8 == 6 { expected = 244 }
+                if (i - offset) % 8 == 7 { expected = 63 }
+            }
+            requirePointer(storage.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun main() r: Int {
+    let storage = take(OwnedBuffer<UInt8>.allocate(128 as UInt64, 1 as UInt64, 64 as UInt64))
+    checkUInt8(storage)
+    checkInt8(storage)
+    checkUInt16(storage)
+    checkInt16(storage)
+    checkUInt32(storage)
+    checkInt32(storage)
+    checkUInt64(storage)
+    checkInt64(storage)
+    checkInt(storage)
+    checkFloat32(storage)
+    checkFloat64(storage)
+    checkFloat(storage)
+    requirePointer(storage.close()); storage.free()
+    println("PASS: typed pointer indices use pointee widths and preserve sentinels")
+    return 0
+}
