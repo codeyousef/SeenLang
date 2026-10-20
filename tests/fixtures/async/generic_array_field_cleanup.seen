@@ -15,9 +15,16 @@ fun round() r: Void {
     if read.number != 19 { abort("generic handle field load failed") }
     generic.free()
     number.free()
+    let array = Array<Int>(); array.push(23)
+    let boxed = GenericOwner<Array<Int>>{value: array}
+    let returned = boxed.read()
+    if returned[0] != 23 { abort("generic pointer-valued field load failed") }
+    returned.free(); boxed.free()
     let values = Vec<Int>.new()
     values.push(7)
     let owner = ArrayOwner{values: values}
+    let data = owner.values.data
+    if data[0] != 7 { abort("generic array field alias load failed") }
     if owner.values.data[0] != 7 { abort("generic array field load failed") }
     owner.values.data.free()
     owner.values.free()
