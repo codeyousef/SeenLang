@@ -45,6 +45,7 @@ for profile in fast release; do
     compile_case "$profile" generic-fields "$ROOT_DIR/compiler_seen/tests/generic_field_type.seen"
 done
 for profile in fast release undefined address; do
+    compile_case "$profile" trait-scalars "$ROOT_DIR/tests/compiler_regressions/dyn_fixed_width_returns.seen"
     compile_case "$profile" pointer-index "$ROOT_DIR/tests/compiler_regressions/typed_pointer_index.seen"
     compile_case "$profile" contract "$ROOT_DIR/tests/inference_simd/x86_dot_contract.seen"
     for name in happy partial invalid limit cancel cleanup; do
