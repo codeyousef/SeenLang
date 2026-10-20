@@ -4,8 +4,10 @@
 seen_report_fixture_failure_logs() {
     local fixture_dir=$1
     local fixture_log fixture_count=0
+    local fixture_root="${SEEN_ARTIFACT_ROOT:-}"
+    [ -n "$fixture_root" ] || return 0
     case "$fixture_dir" in
-        "${SEEN_ARTIFACT_ROOT:?}"/*) ;;
+        "$fixture_root"/*) ;;
         *) return 0 ;;
     esac
     [ -d "$fixture_dir" ] && [ ! -L "$fixture_dir" ] || return 0
