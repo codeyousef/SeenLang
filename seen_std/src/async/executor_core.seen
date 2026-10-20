@@ -219,7 +219,7 @@ class ExecutorCore {
         if not context.isCancelled() {
             let checked = validateAsyncContext(ticket.operation,
                 "executor.run", 0 as UInt64)
-            if checked.isOk() { succeeded = ticket.job.run(context) }
+            if checked.isOkay() { succeeded = ticket.job.run(context) }
             else {
                 let error = checked.unwrapErr()
                 failure = executorErrorStatus(error)

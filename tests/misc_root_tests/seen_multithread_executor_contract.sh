@@ -31,12 +31,11 @@ compile_case() {
     local name=$2
     local source=$3
     local flags=(--fast)
-    flags=(--fast)
     if [ "$profile" = release ]; then flags=(--release --lto=thin); fi
     local log="$WORK_DIR/$name-$profile.log"
     bash "$ATTESTED_SEEN" "$COMPILER" compile \
         "$source" "$WORK_DIR/$name-$profile" \
-        --no-cache --frozen --target-cpu=x86-64 --jobs 1 --opt-jobs 1 \
+        --no-cache --frozen --target-cpu=x86-64 \
         "${flags[@]}" >"$log" 2>&1
     timeout --foreground --kill-after=5s 120s "$WORK_DIR/$name-$profile" >>"$log" 2>&1
 }

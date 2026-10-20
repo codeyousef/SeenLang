@@ -25,7 +25,7 @@ fun must<T>(result: Result<T, AsyncError>) r: T {
 }
 
 fun hasError<T>(result: Result<T, AsyncError>, expected: String) r: Bool {
-    if result.isOk() { result.releaseContainer(); return false }
+    if result.isOkay() { result.releaseContainer(); return false }
     let error = result.unwrapErr()
     let matches = error.code == expected
     error.free()
