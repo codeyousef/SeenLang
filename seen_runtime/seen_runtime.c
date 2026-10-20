@@ -91,6 +91,7 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 #include "src/executor_abi.c"
 #include "src/executor_socket_abi.c"
 #include "src/executor_completion_abi.c"
+#include "src/io_uring_abi.c"
 #include "src/executor_readiness_abi.c"
 #include "src/executor_process_abi.c"
 #include "src/executor_stream_abi.c"
@@ -11287,6 +11288,18 @@ typedef struct SeenFsFile {
 
 // Duplicate one explicitly direct-I/O file descriptor for an independent
 // completion owner. Seen retains all queue, buffer and cancellation policy.
+int64_t seen_uring_duplicate_file(uint64_t source) {
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+    if (!source) return -EBADF;
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)source;
+    if (file->fd < 0) return -EBADF;
+    int result = fcntl(file->fd, F_DUPFD_CLOEXEC, 3);
+    return result < 0 ? -(int64_t)errno : (int64_t)result;
+#else
+    (void)source; return -38;
+#endif
+}
+
 int32_t seen_async_completion_duplicate_file(uint64_t source, int64_t *descriptor) {
 #if defined(__linux__) && defined(__x86_64__)
     if (!source || !descriptor || *descriptor != -1) return 1;

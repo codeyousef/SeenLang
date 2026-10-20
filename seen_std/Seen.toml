@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seen_std"
-version = "0.11.0"
+version = "0.12.0"
 language = "en"
 visibility = "explicit"
 description = "Core Seen standard library modules used by the self-hosted compiler"
@@ -45,6 +45,10 @@ modules = [
     "src/io/direct.seen",
     "src/io/completion_types.seen",
     "src/io/completion_queue.seen",
+    "src/io/uring_native.seen",
+    "src/io/uring_layout.seen",
+    "src/io/linux_uring.seen",
+    "src/io/uring_file.seen",
     "src/fs/types.seen",
     "src/fs/file.seen",
     "src/fs/operations.seen",

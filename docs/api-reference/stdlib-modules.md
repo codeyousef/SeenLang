@@ -387,3 +387,10 @@ not authorize retention, synchronization, destruction, or device changes.
 - `sync/lock_order`
 - `sync/mod`
 - `testing/categories`
+
+## Linux completion backend modules
+
+- `io/uring_native`
+- `io/uring_layout`
+- `io/linux_uring`
+- `io/uring_file`

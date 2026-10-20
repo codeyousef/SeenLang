@@ -269,3 +269,87 @@ let dir = dirname(full)       // "home/user/docs"
 let file = basename(full)     // "file.txt"
 let ext = pathExtension(full) // "txt"
 ```
+
+## Linux io_uring adapter
+
+`io.linux_uring.LinuxUringQueue.create(limits, maxMappedBytes, maxWorkers)`
+adds an explicit Linux adapter to the completion contracts. The standard
+library version is 0.12.0 with runtime ABI `runtime-v10`. It accepts queue depth
+1–32,768, mapping budget 1 byte–8 MiB, and 1–64 workers in each kernel io-wq
+worker category. The core transfer, descriptor, buffer and metadata ceilings
+still apply. The kernel's returned queue sizes and every head/tail, mask, entry,
+array and completion offset are validated before ring access. Mapping budgets
+include the actual base page rounding, with supported page sizes 4–64 KiB.
+Overlapping structures, invalid ring distances, changed masks, dropped SQEs,
+CQ overflow, multishot flags and invalid acknowledgements fail closed.
+
+The constructor requires `IORING_FEAT_NODROP`, an ordinary 64-byte SQE / 16-byte
+CQE layout, and successful kernel worker-limit registration. Eventfd registration
+provides reactor readiness notification through `notificationLease`; deregister
+that borrower and release its lease before close. File descriptors and buffers
+remain ordinary independently owned request resources. They are not pinned in
+a permanent registered-file/buffer table, because their ownership returns at
+each terminal delivery. Only eventfd is registered for the queue lifetime.
+
+`io.uring_file.uringFileHandle` borrows a production `fs.file.File` and returns
+an independently owned, close-on-exec duplicate. Buffered files and explicitly
+direct files are supported; the adapter never changes the file's direct-I/O
+policy. Kernel errors such as direct-I/O alignment failures are reported with
+no buffered retry. The source `File` can close after duplication.
+
+A successful `reserve` transfers ownership to `core`; `submit(token)` encodes
+one SQE and marks the request submitted before release-publishing the tail.
+`flush` invokes `io_uring_enter` without waiting for completions. Its returned
+count may be partial. A failed or interrupted enter retains every published
+owner, and callers explicitly choose whether to flush again, cancel or drain.
+There is no automatic resubmission. `reap(maximum)` retires at most twice the
+core depth, using acquire/release ring atomics and exact checked progress.
+`poll` then delivers the core's terminal FIFO.
+
+`cancel` records the request; `publishCancellation` publishes at most one native
+action, also observing deadlines through the core. On SQ or cancellation-record
+saturation, the pending action remains owned for a subsequent explicit call.
+Cancellation acknowledgements use reserved user token zero and never release
+the target request's resources. Only the target's own CQE ends that borrow.
+`lastCancellationResult` preserves the latest raw Linux cancellation result,
+including completion races such as `-ENOENT`. It does not trigger a retry.
+Original generation tokens always remain nonzero, including at wraparound.
+
+The adapter is single-coordinator. Native/kernel producers only update their
+UAPI ring fields. All ring encoding, geometry, queue policy, cancellation,
+deadlines, worker ceilings and ownership live in Seen. The native boundary
+contains direct syscalls, mapping, descriptor duplication, eventfd, base page
+size and 32-bit acquire/release operations. It introduces no liburing dependency.
+`io.uring_native` is internal ABI; its results use negative **Linux** errno on
+every platform. `lastNativeResult` and stable `io.uring.*` error operations
+provide bounded diagnostic evidence. A disabled/denied kernel, unsupported
+architecture, missing no-drop feature or unavailable worker-limit registration
+is an explicit unsupported capability. There is no worker/AIO fallback.
+
+Creation returns `UringCreateFailure` on error. Its optional `partial` queue
+owns every successfully created resource, including mappings after partial
+construction. Call `release` on that failure or recover the partial owner;
+a failed cleanup retains it for retry. Shutdown stops admission and records
+cancellation but does not wait or detach. Continue publishing/flush/reap/poll,
+release notification leases, then close. Close also waits for cancellation CQEs
+and published SQEs. It closes OS handles before unmapping, and retains each
+unreleased mapping on error. Successful close is idempotent; release destroys
+the empty core and lease counter. Malformed kernel evidence poisons the adapter
+and preserves outstanding owners; it never fabricates acknowledgements or
+frees memory that might still be borrowed.
+
+`tests/misc_root_tests/seen_async_io_b.sh` runs mocked ring contracts in
+fast/release/UBSan/ASan, a 60-second layout fuzz, and real Linux positional
+writes/reads, cancellation races, eventfd leases and repeated cleanup when the
+host permits io_uring. The `seen-io-uring-v1` JSON record distinguishes
+`unsupported` from `verified` file-contract execution. Set
+`SEEN_REQUIRE_IO_URING=1` to require native execution on a designated runner.
+Two requests are published before the first enter/retirement; this is submission
+overlap evidence. Physical storage execution overlap remains unmeasured and
+`native_overlap_verified` stays false. No throughput claim is made.
+
+Linux x86-64 is the executable fixture target. Linux arm64 has the UAPI/syscall
+implementation but still requires platform execution evidence. Windows and
+macOS explicitly reject this backend; their own adapters are separate APIs.
+Frontend and C syntax checks are source validation and do not certify any
+platform's execution or hardware behavior.
