@@ -21,6 +21,24 @@
       "production": false
     },
     {
+      "id": "async-file-completion-os-adapter",
+      "subsystem": "stdlib.async",
+      "purpose": "Linux kernel AIO request struct normalization, io_setup/submit/cancel/getevents/destroy and semaphore eventfd calls. Seen owns fixed request slots, buffer/descriptor/request storage, alignment and transfer budgets, generation tokens, cancellation state, completion progress, leases and cleanup. Only explicit O_DIRECT descriptors are accepted; unsupported kernels/targets fail explicitly.",
+      "abi": "Linux AIO C",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "seen_async_completion_cancel",
+        "seen_async_completion_close",
+        "seen_async_completion_create",
+        "seen_async_completion_drain_notification",
+        "seen_async_completion_reap",
+        "seen_async_completion_submit"
+      ],
+      "production": false
+    },
+    {
       "id": "async-socket-os-adapter",
       "subsystem": "stdlib.async",
       "purpose": "Nonblocking TCP socket OS calls and packed IPv4/IPv6 sockaddr normalization. Seen owns address validation, bounded transfers, partial progress, event-loop admission, timer heap, descriptor ownership, cancellation and worker dispatch. Linux x86-64 only; other targets return unsupported. No DNS, protocol, retry loop or scheduler in this adapter.",

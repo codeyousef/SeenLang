@@ -14,7 +14,7 @@ class AlignedBufferError {
 }
 
 fun isSupportedAlignment(alignment: UInt64) r: Bool {
-    if alignment < (16 as UInt64) or alignment > (256 as UInt64) { return false }
+    if alignment < (16 as UInt64) or alignment > (4096 as UInt64) { return false }
     return (alignment & (alignment - (1 as UInt64))) == (0 as UInt64)
 }
 

@@ -1,0 +1,294 @@
+// Linux direct-file completion ownership. The kernel borrows request storage,
+// descriptor and buffer until cancel confirms completion or reap returns it.
+import core.result.{Result, Ok, Err}
+import core.option.{Option, Some, None}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext, asyncDeadlineStatus}
+import async.executor_core.{executorFailure, executorCopyContext, executorReleaseSnapshot}
+import async.io_lease.{AsyncIoLeaseCounter, AsyncIoLease}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{OwnedHandle, seen_reactor_native_handle_close}
+
+extern "C" fun seen_async_completion_create(capacity: UInt64, context: *UInt64,
+    notification: *Int64) r: Int32
+extern "C" fun seen_async_completion_submit(context: UInt64, notification: Int64,
+    request: *Void, requestBytes: UInt64, descriptor: Int64, buffer: *Void,
+    bytes: UInt64, offset: Int64, write: Int32, token: UInt64) r: Int32
+extern "C" fun seen_async_completion_cancel(context: UInt64, request: *Void,
+    token: *UInt64, result: *Int64) r: Int32
+extern "C" fun seen_async_completion_reap(context: UInt64, token: *UInt64, result: *Int64) r: Int32
+extern "C" fun seen_async_completion_drain_notification(notification: Int64) r: Int32
+extern "C" fun seen_async_completion_close(context: *UInt64) r: Int32
+
+class FileIoRegistration {
+    var slot: Int
+    var generation: UInt64
+}
+
+@move
+class CompletedFileIo {
+    var descriptor: OwnedHandle
+    var buffer: OwnedBuffer<UInt8>
+    var progress: UInt64
+    var status: Int32
+    var nativeResult: Int64
+
+    fun outcome() r: Result<UInt64, AsyncError> {
+        if this.status != (0 as Int32) {
+            let error = executorFailure(this.status, "io.completion", this.progress)
+            if this.nativeResult < (0 as Int64) and this.nativeResult != (-11 as Int64) and
+                this.nativeResult != (-4 as Int64) { error.retryable = false }
+            return Err<UInt64, AsyncError>(error)
+        }
+        return Ok<UInt64, AsyncError>(this.progress)
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.descriptor.close()
+        if closed.isErr() {
+            closed.unwrapErr().free(); closed.releaseContainer()
+            return Err<Bool, AsyncError>(executorFailure(3 as Int32, "io.completion.close", this.progress))
+        }
+        closed.releaseContainer(); this.descriptor.free()
+        this.buffer.close(); this.buffer.free(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}
+
+class PendingFileIo {
+    var descriptor: OwnedHandle
+    var buffer: OwnedBuffer<UInt8>
+    var request: OwnedBuffer<UInt8>
+    var context: AsyncOperationContext
+    var requested: UInt64
+    var cancellation: Int32
+}
+
+@move
+class AsyncFileCompletionQueue {
+    var native: UInt64
+    var notification: Int64
+    var leases: AsyncIoLeaseCounter
+    var capacity: Int
+    var maxTransferBytes: UInt64
+    var entries: Array<Option<PendingFileIo>>
+    var generations: Array<UInt64>
+    var freeSlots: Array<Int>
+    var freeCount: Int
+    var active: Int
+    var closed: Bool
+
+    static fun create(capacity: Int, maxTransferBytes: UInt64)
+        r: Result<AsyncFileCompletionQueue, AsyncError> {
+        if capacity <= 0 or capacity > 1048576 or maxTransferBytes == (0 as UInt64) or
+            maxTransferBytes > (16777216 as UInt64) {
+            return Err<AsyncFileCompletionQueue, AsyncError>(executorFailure(2 as Int32, "io.completion.create", 0 as UInt64))
+        }
+        let created = AsyncIoLeaseCounter.create(capacity)
+        if created.isErr() {
+            let error = created.unwrapErr(); created.releaseContainer()
+            return Err<AsyncFileCompletionQueue, AsyncError>(error)
+        }
+        let leases = created.unwrap(); created.releaseContainer()
+        let entries = Array<Option<PendingFileIo>>()
+        let generations = Array<UInt64>(); let freeSlots = Array<Int>()
+        var i = 0
+        while i < capacity {
+            entries.push(None<PendingFileIo>()); generations.push(0 as UInt64)
+            freeSlots.push(capacity - i - 1); i = i + 1
+        }
+        var native = 0 as UInt64; var notification = -1 as Int64
+        let status = seen_async_completion_create(capacity as UInt64, &native, &notification)
+        if status != (0 as Int32) {
+            i = 0
+            while i < capacity { entries[i].free(); i = i + 1 }
+            entries.free(); generations.free(); freeSlots.free()
+            let released = leases.release()
+            return Err<AsyncFileCompletionQueue, AsyncError>(executorFailure(status, "io.completion.create", 0 as UInt64))
+        }
+        return Ok<AsyncFileCompletionQueue, AsyncError>(AsyncFileCompletionQueue{native: native,
+            notification: notification, leases: leases, capacity: capacity, maxTransferBytes: maxTransferBytes,
+            entries: entries, generations: generations, freeSlots: freeSlots,
+            freeCount: capacity, active: 0, closed: false})
+    }
+
+    // The returned lease must outlive every borrowed registration of its fd.
+    // Store it in the callback job so job cleanup precedes queue destruction.
+    fun notificationLease() r: Result<AsyncIoLease, AsyncError> {
+        if this.closed {
+            return Err<AsyncIoLease, AsyncError>(executorFailure(1 as Int32, "io.completion.notification", 0 as UInt64))
+        }
+        return this.leases.acquire(this.notification as UInt64)
+    }
+
+    fun matches(registration: FileIoRegistration) r: Bool {
+        let slot = registration.slot
+        if this.closed or slot < 0 or slot >= this.capacity { return false }
+        return this.entries[slot].isSome() and this.generations[slot] == registration.generation
+    }
+
+    // Requires an explicit O_DIRECT descriptor. Rejection retains both owners.
+    // Alignment is checked before request allocation or kernel submission.
+    fun submit(descriptor: OwnedHandle, buffer: OwnedBuffer<UInt8>, bytes: UInt64,
+        offset: Int64, write: Bool, context: AsyncOperationContext)
+        r: Result<FileIoRegistration, AsyncError> {
+        let valid = validateAsyncContext(context, "io.completion.submit", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<FileIoRegistration, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        if this.closed or not descriptor.valid or not descriptor.owned or buffer.data == (null as *UInt8) or
+            bytes == (0 as UInt64) or bytes > buffer.byteLength or bytes > this.maxTransferBytes or
+            bytes % (512 as UInt64) != (0 as UInt64) or (buffer.data as UInt64) % (512 as UInt64) != (0 as UInt64) or
+            offset < (0 as Int64) or offset % (512 as Int64) != (0 as Int64) or
+            bytes > ((9223372036854775807 as Int64) - offset) as UInt64 {
+            return Err<FileIoRegistration, AsyncError>(executorFailure(1 as Int32, "io.completion.submit", 0 as UInt64))
+        }
+        if this.freeCount == 0 {
+            return Err<FileIoRegistration, AsyncError>(executorFailure(2 as Int32, "io.completion.submit", 0 as UInt64))
+        }
+        let allocated = OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64)
+        if allocated.isErr() {
+            allocated.unwrapErr().free(); allocated.releaseContainer()
+            return Err<FileIoRegistration, AsyncError>(executorFailure(2 as Int32, "io.completion.submit", 0 as UInt64))
+        }
+        let request = allocated.unwrap(); allocated.releaseContainer()
+        let snapshot = executorCopyContext(context)
+        let slot = this.freeSlots[this.freeCount - 1]
+        let generation = this.generations[slot] + (1 as UInt64)
+        let token = generation * (4294967296 as UInt64) + ((slot + 1) as UInt64)
+        var writeNumber = 0 as Int32
+        if write { writeNumber = 1 as Int32 }
+        let status = seen_async_completion_submit(this.native, this.notification, request.data as *Void,
+            64 as UInt64, descriptor.native, buffer.data as *Void, bytes, offset, writeNumber, token)
+        if status != (0 as Int32) {
+            request.close(); request.free(); executorReleaseSnapshot(snapshot)
+            return Err<FileIoRegistration, AsyncError>(executorFailure(status, "io.completion.submit", 0 as UInt64))
+        }
+        this.entries[slot].free(); this.entries[slot] = Some<PendingFileIo>(PendingFileIo{
+            descriptor: descriptor, buffer: buffer, request: request, context: snapshot,
+            requested: bytes, cancellation: 0 as Int32})
+        this.generations[slot] = generation; this.freeCount = this.freeCount - 1; this.active = this.active + 1
+        return Ok<FileIoRegistration, AsyncError>(FileIoRegistration{slot: slot, generation: generation})
+    }
+
+    fun complete(token: UInt64, nativeResult: Int64) r: Result<CompletedFileIo, AsyncError> {
+        let identity = token % (4294967296 as UInt64)
+        let generation = token / (4294967296 as UInt64)
+        if identity == (0 as UInt64) or identity > (this.capacity as UInt64) {
+            return Err<CompletedFileIo, AsyncError>(executorFailure(1 as Int32, "io.completion.token", 0 as UInt64))
+        }
+        let slot = (identity as Int) - 1
+        if this.entries[slot].isNone() or this.generations[slot] != generation {
+            return Err<CompletedFileIo, AsyncError>(executorFailure(1 as Int32, "io.completion.token", 0 as UInt64))
+        }
+        let entry = this.entries[slot].unwrap()
+        var progress = 0 as UInt64; var status = entry.cancellation
+        if nativeResult >= (0 as Int64) {
+            progress = nativeResult as UInt64
+            if progress > entry.requested { abort("kernel completion exceeds borrowed buffer") }
+        } else {
+            if status == (0 as Int32) {
+                status = 3 as Int32
+                if nativeResult == (-22 as Int64) or nativeResult == (-9 as Int64) or
+                    nativeResult == (-14 as Int64) { status = 1 as Int32 }
+                if nativeResult == (-95 as Int64) or nativeResult == (-38 as Int64) { status = 4 as Int32 }
+                if nativeResult == (-125 as Int64) { status = 9 as Int32 }
+            }
+        }
+        if status == (0 as Int32) { status = asyncDeadlineStatus(entry.context) }
+        let completed = CompletedFileIo{descriptor: entry.descriptor, buffer: entry.buffer,
+            progress: progress, status: status, nativeResult: nativeResult}
+        entry.request.close(); entry.request.free(); executorReleaseSnapshot(entry.context); entry.free()
+        this.entries[slot].free(); this.entries[slot] = None<PendingFileIo>()
+        this.active = this.active - 1
+        if generation < (4294967295 as UInt64) {
+            this.freeSlots[this.freeCount] = slot; this.freeCount = this.freeCount + 1
+        }
+        return Ok<CompletedFileIo, AsyncError>(completed)
+    }
+
+    // None means the kernel still borrows request/buffer/descriptor storage.
+    // The coordinator must continue waiting on the notification and reaping.
+    fun cancel(registration: FileIoRegistration) r: Result<Option<CompletedFileIo>, AsyncError> {
+        if not this.matches(registration) {
+            return Err<Option<CompletedFileIo>, AsyncError>(executorFailure(1 as Int32, "io.completion.cancel", 0 as UInt64))
+        }
+        let entry = this.entries[registration.slot].unwrap()
+        entry.cancellation = 9 as Int32
+        var token = 0 as UInt64; var nativeResult = 0 as Int64
+        let status = seen_async_completion_cancel(this.native, entry.request.data as *Void, &token, &nativeResult)
+        if status == (8 as Int32) { return Ok<Option<CompletedFileIo>, AsyncError>(None<CompletedFileIo>()) }
+        if status != (0 as Int32) {
+            return Err<Option<CompletedFileIo>, AsyncError>(executorFailure(status, "io.completion.cancel", 0 as UInt64))
+        }
+        let completed = this.complete(token, nativeResult)
+        if completed.isErr() {
+            let error = completed.unwrapErr(); completed.releaseContainer()
+            return Err<Option<CompletedFileIo>, AsyncError>(error)
+        }
+        let value = completed.unwrap(); completed.releaseContainer()
+        return Ok<Option<CompletedFileIo>, AsyncError>(Some<CompletedFileIo>(value))
+    }
+
+    fun reap() r: Result<Option<CompletedFileIo>, AsyncError> {
+        if this.closed {
+            return Err<Option<CompletedFileIo>, AsyncError>(executorFailure(1 as Int32, "io.completion.reap", 0 as UInt64))
+        }
+        var token = 0 as UInt64; var nativeResult = 0 as Int64
+        var status = seen_async_completion_reap(this.native, &token, &nativeResult)
+        let drainedBeforeReap = status == (8 as Int32)
+        if status == (8 as Int32) {
+            // Drain a possible stale cancellation signal, then recheck the
+            // kernel queue. This ordering cannot consume a racing completion's
+            // sole wake without also observing that completion.
+            let drained = seen_async_completion_drain_notification(this.notification)
+            status = seen_async_completion_reap(this.native, &token, &nativeResult)
+        }
+        if status != (0 as Int32) and status != (8 as Int32) {
+            return Err<Option<CompletedFileIo>, AsyncError>(executorFailure(status, "io.completion.reap", 0 as UInt64))
+        }
+        // Semaphore eventfd consumes at most one notification, preserving
+        // readiness when a bounded caller leaves other completions queued.
+        if status == (8 as Int32) { return Ok<Option<CompletedFileIo>, AsyncError>(None<CompletedFileIo>()) }
+        if not drainedBeforeReap {
+            let drained = seen_async_completion_drain_notification(this.notification)
+        }
+        let completed = this.complete(token, nativeResult)
+        if completed.isErr() {
+            let error = completed.unwrapErr(); completed.releaseContainer()
+            return Err<Option<CompletedFileIo>, AsyncError>(error)
+        }
+        let value = completed.unwrap(); completed.releaseContainer()
+        return Ok<Option<CompletedFileIo>, AsyncError>(Some<CompletedFileIo>(value))
+    }
+
+    fun close() r: Result<Bool, AsyncError> {
+        if this.closed { return Ok<Bool, AsyncError>(true) }
+        let leaseStatus = this.leases.idleStatus()
+        if this.active != 0 or leaseStatus != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(3 as Int32, "io.completion.close", this.active as UInt64))
+        }
+        var status = seen_async_completion_close(&this.native)
+        if status == (0 as Int32) and this.notification >= (0 as Int64) {
+            status = seen_reactor_native_handle_close(this.notification)
+            if status == (0 as Int32) { this.notification = -1 as Int64 }
+        }
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "io.completion.close", 0 as UInt64))
+        }
+        status = this.leases.release()
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "io.completion.close", 0 as UInt64))
+        }
+        this.closed = true; return Ok<Bool, AsyncError>(true)
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer()
+        var i = 0
+        while i < this.capacity { this.entries[i].free(); i = i + 1 }
+        this.entries.free(); this.generations.free(); this.freeSlots.free(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

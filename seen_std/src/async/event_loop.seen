@@ -13,6 +13,8 @@ import reactor.reactor.{OwnedHandle, Interest, interestFlags, seen_reactor_creat
     seen_reactor_register, seen_reactor_deregister, seen_reactor_poll,
     seen_reactor_event, seen_reactor_wakeup, seen_reactor_close}
 import time.time.{Instant}
+import async.io_wakeup.{AsyncIoWakeHandle}
+import async.io_lease.{AsyncIoLeaseCounter}
 
 trait AsyncIoJob {
     fun onEvent(event: AsyncIoEvent, descriptor: Int64, context: ExecutorTaskContext) r: Bool
@@ -67,6 +69,7 @@ class AsyncIoEntry<T: Send + AsyncIoJob> {
 class AsyncEventLoop<T: Send + AsyncIoJob> {
     var executor: MultithreadExecutor<ReadyIoJob<T>>
     var native: UInt64
+    var wakeLeases: AsyncIoLeaseCounter
     var capacity: Int
     var entries: Array<Option<AsyncIoEntry<T>>>
     var generations: Array<UInt64>
@@ -104,15 +107,28 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         if status == (0 as Int32) and backend != (1 as Int32) {
             let ignored = seen_reactor_close(&native); status = 4 as Int32
         }
-        if status != (0 as Int32) {
+        let leaseResult = AsyncIoLeaseCounter.create(capacity)
+        if leaseResult.isErr() {
+            let error = leaseResult.unwrapErr(); leaseResult.releaseContainer()
+            if native != (0 as UInt64) { let closed = seen_reactor_close(&native) }
             i = 0
             while i < entries.length() { entries[i].free(); i = i + 1 }
             entries.free(); generations.free(); freeSlots.free(); deadlines.release()
             asyncSyncDetach(executor.core)
+            return Err<AsyncEventLoop<T>, AsyncError>(error)
+        }
+        let wakeLeases = leaseResult.unwrap(); leaseResult.releaseContainer()
+        if status != (0 as Int32) {
+            if native != (0 as UInt64) { let closed = seen_reactor_close(&native) }
+            i = 0
+            while i < entries.length() { entries[i].free(); i = i + 1 }
+            entries.free(); generations.free(); freeSlots.free(); deadlines.release()
+            let released = wakeLeases.release()
+            asyncSyncDetach(executor.core)
             return Err<AsyncEventLoop<T>, AsyncError>(executorFailure(status, "io.create", 0 as UInt64))
         }
         return Ok<AsyncEventLoop<T>, AsyncError>(AsyncEventLoop<T>{executor: executor,
-            native: native, capacity: capacity, entries: entries, generations: generations,
+            native: native, wakeLeases: wakeLeases, capacity: capacity, entries: entries, generations: generations,
             freeSlots: freeSlots, freeCount: capacity, deadlines: deadlines,
             readyHead: -1, readyTail: -1, active: 0, closed: false})
     }
@@ -232,6 +248,19 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
 
     // Readiness includes sockets, eventfd completion queues and device fds.
     // External producers wake through the native eventfd; no dormant scan.
+    fun wakeHandle() r: Result<AsyncIoWakeHandle, AsyncError> {
+        if this.closed {
+            return Err<AsyncIoWakeHandle, AsyncError>(executorFailure(1 as Int32, "io.wakeHandle", 0 as UInt64))
+        }
+        let acquired = this.wakeLeases.acquire(this.native)
+        if acquired.isErr() {
+            let error = acquired.unwrapErr(); acquired.releaseContainer()
+            return Err<AsyncIoWakeHandle, AsyncError>(error)
+        }
+        let lease = acquired.unwrap(); acquired.releaseContainer()
+        return Ok<AsyncIoWakeHandle, AsyncError>(AsyncIoWakeHandle{lease: lease})
+    }
+
     fun wakeup() r: Result<Bool, AsyncError> {
         if this.closed {
             return Err<Bool, AsyncError>(executorFailure(1 as Int32, "io.wakeup", 0 as UInt64))
@@ -336,6 +365,10 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
 
     fun close() r: Result<Bool, AsyncError> {
         if this.closed { return Ok<Bool, AsyncError>(true) }
+        let leaseStatus = this.wakeLeases.idleStatus()
+        if leaseStatus != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(leaseStatus, "io.close.wakeLeases", 0 as UInt64))
+        }
         // Shutdown is the only capacity scan. Normal poll/admission/cancel
         // operate on ready events, indexed slots and the deadline heap.
         var i = 0
@@ -352,6 +385,10 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         let status = seen_reactor_close(&this.native)
         if status != (0 as Int32) {
             return Err<Bool, AsyncError>(executorFailure(status, "io.close", 0 as UInt64))
+        }
+        let destroyed = this.wakeLeases.release()
+        if destroyed != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(destroyed, "io.close.wakeLeases", 0 as UInt64))
         }
         asyncSyncDetach(this.executor.core); this.closed = true
         return Ok<Bool, AsyncError>(true)

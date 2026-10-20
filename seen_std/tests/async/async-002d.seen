@@ -7,8 +7,11 @@ import async.multithread.{MultithreadExecutor}
 import async.event_loop.{AsyncIoJob, AsyncIoEvent, ReadyIoJob, AsyncEventLoop}
 import async.deadline_heap.{AsyncDeadlineHeap}
 import async.sockets.{AsyncTcpSocket, SocketAddress}
+import async.completion_io.{AsyncFileCompletionQueue}
 import reactor.reactor.{OwnedHandle, Interest}
 import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_reactor_live_handles() r: UInt64
+extern "C" fun seen_sync_live_atomics() r: UInt64
 extern "C" fun seen_executor_live_threads() r: UInt64
 extern "C" fun seen_sync_live_mutexes() r: UInt64
 extern "C" fun seen_sync_live_conditions() r: UInt64
@@ -66,6 +69,7 @@ fun emptyHandle() r: OwnedHandle {
 }
 fun probe(releases: UInt64) r: IoProbe { return IoProbe{releases: releases, observed: false} }
 fun main() r: Int {
+    let reactors = seen_reactor_live_handles(); let atomics = seen_sync_live_atomics()
     let threads = seen_executor_live_threads()
     let mutexes = seen_sync_live_mutexes(); let conditions = seen_sync_live_conditions()
     let ctx = context(); let config = limits()
@@ -73,6 +77,10 @@ fun main() r: Int {
     config.free()
     if not errorIs(AsyncEventLoop<IoProbe>.create(executor, 0), "async.limit") { return 1 }
     let loop = must(AsyncEventLoop<IoProbe>.create(executor, 2))
+    let wake = must(loop.wakeHandle())
+    must(wake.wakeup())
+    if not errorIs(loop.close(), "async.unavailable") { return 18 }
+    wake.release()
     var releases = 0 as UInt64
     if seen_sync_atomic_create(0 as Int64, &releases) != (0 as Int32) { return 2 }
     let first = must(loop.register(probe(releases), emptyHandle(), Interest.Readable, 0 as Int64, ctx))
@@ -97,6 +105,19 @@ fun main() r: Int {
     if must(socket.boundPort()) <= 0 { return 8 }
     if not errorIs(socket.accept(ctx), "async.unavailable") { return 9 }
     must(socket.release()); address.release()
+    // Kernel queue/lease construction is software-only; native mock probes
+    // cover in-flight storage, partial completion and deferred cancellation.
+    let completion = must(AsyncFileCompletionQueue.create(2, 4096 as UInt64))
+    let notification = must(completion.notificationLease())
+    if not errorIs(completion.close(), "async.unavailable") { return 19 }
+    notification.release()
+    let aligned = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 4096 as UInt64))
+    if (aligned.data as UInt64) % (4096 as UInt64) != (0 as UInt64) { return 20 }
+    let noFile = emptyHandle()
+    if not errorIs(completion.submit(noFile, aligned, 4096 as UInt64, 0 as Int64,
+        false, ctx), "async.invalid") { return 21 }
+    noFile.free(); aligned.close(); aligned.free()
+    must(completion.close()); must(completion.close()); must(completion.release())
     println("PASS: ASYNC-002D_partial")
 
     let invalidTask = probe(releases); let invalidDescriptor = emptyHandle()
@@ -131,6 +152,7 @@ fun main() r: Int {
     if atomicValue(releases) != (7 as Int64) { return 15 }
     if seen_sync_atomic_destroy(&releases) != (0 as Int32) { return 16 }
     executorReleaseContext(ctx)
+    if seen_reactor_live_handles() != reactors or seen_sync_live_atomics() != atomics { return 22 }
     if seen_executor_live_threads() != threads or seen_sync_live_mutexes() != mutexes or
         seen_sync_live_conditions() != conditions { return 17 }
     println("PASS: ASYNC-002D_cleanup")

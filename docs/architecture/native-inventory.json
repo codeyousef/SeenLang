@@ -3410,6 +3410,48 @@
       ]
     },
     {
+      "name": "seen_async_completion_cancel",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_drain_notification",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_reap",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_submit",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
       "name": "seen_async_socket_accept",
       "abi": "C",
       "sources": [
