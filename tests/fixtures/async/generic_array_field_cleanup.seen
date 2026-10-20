@@ -1,0 +1,25 @@
+import collections.vec.{Vec}
+extern "C" fun seen_memory_used_bytes() r: Int64
+class ArrayOwner {
+    var values: Vec<Int>
+}
+fun round() r: Void {
+    let values = Vec<Int>.new()
+    values.push(7)
+    let owner = ArrayOwner{values: values}
+    if owner.values.data[0] != 7 { abort("generic array field load failed") }
+    owner.values.data.free()
+    owner.values.free()
+    owner.free()
+}
+fun main() r: Int {
+    round()
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 1000 {
+        round()
+        if seen_memory_used_bytes() != baseline { return 1 }
+        i = i + 1
+    }
+    println("PASS: chained generic array field cleanup preserves pointer ABI")
+    return 0
+}
