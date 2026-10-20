@@ -12,6 +12,7 @@ bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
 COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/multithread-executor.XXXXXX")"
+source "$ROOT_DIR/scripts/report_fixture_failure_logs.sh"
 cleanup() {
     local status=$?
     if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
@@ -21,6 +22,7 @@ cleanup() {
         esac
     else
         echo "Preserved executor artifacts: $TMP_DIR" >&2
+        seen_report_fixture_failure_logs "$TMP_DIR"
     fi
     exit "$status"
 }
