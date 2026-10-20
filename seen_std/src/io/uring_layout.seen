@@ -1,26 +1,9 @@
 /// Checked Linux little-endian UAPI geometry and entry encoding, in Seen.
+import io.completion_bytes.{completionByteAddress, completionRead32, completionRead64, completionWrite32, completionWrite64}
 import core.result.{Result, Ok, Err}
 import async.structured.{AsyncError}
 import io.completion_types.{IoSubmissionView, IoOperation, ioQueueFailure}
 
-// Use explicit byte addresses; no dependence on an implicit pointee stride.
-fun uringByteAddress(bytes: *UInt8, offset: UInt64) r: *UInt8 {
-    return ((bytes as UInt64) + offset) as *UInt8
-}
-fun uringRead32(bytes: *UInt8, offset: Int) r: UInt64 {
-    return (bytes[offset] as UInt64) | ((bytes[offset + 1] as UInt64) << 8) |
-        ((bytes[offset + 2] as UInt64) << 16) | ((bytes[offset + 3] as UInt64) << 24)
-}
-fun uringRead64(bytes: *UInt8, offset: Int) r: UInt64 {
-    return uringRead32(bytes, offset) | (uringRead32(bytes, offset + 4) << 32)
-}
-fun uringWrite32(bytes: *UInt8, offset: Int, value: UInt64) r: Void {
-    var index = 0
-    while index < 4 { bytes[offset + index] = ((value >> (index * 8)) & (255 as UInt64)) as UInt8; index = index + 1 }
-}
-fun uringWrite64(bytes: *UInt8, offset: Int, value: UInt64) r: Void {
-    uringWrite32(bytes, offset, value); uringWrite32(bytes, offset + 4, value >> 32)
-}
 fun uringDistance(tail: UInt64, head: UInt64) r: UInt64 {
     return (tail + (4294967296 as UInt64) - head) % (4294967296 as UInt64)
 }
@@ -84,9 +67,9 @@ class UringLayout {
             (pageBytes & (pageBytes - (1 as UInt64))) != (0 as UInt64) {
             return Err<UringLayout, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.parameters", 0 as UInt64))
         }
-        let sq = uringRead32(parameters, 0); let cq = uringRead32(parameters, 4)
-        let features = uringRead32(parameters, 20)
-        if uringRead32(parameters, 8) != (0 as UInt64) or (features & (2 as UInt64)) == (0 as UInt64) {
+        let sq = completionRead32(parameters, 0); let cq = completionRead32(parameters, 4)
+        let features = completionRead32(parameters, 20)
+        if completionRead32(parameters, 8) != (0 as UInt64) or (features & (2 as UInt64)) == (0 as UInt64) {
             return Err<UringLayout, AsyncError>(ioQueueFailure(4 as Int32, "io.uring.features.nodrop", 0 as UInt64))
         }
         if sq < (depth as UInt64) or sq > (32768 as UInt64) or (sq & (sq - (1 as UInt64))) != (0 as UInt64) or
@@ -94,10 +77,10 @@ class UringLayout {
             return Err<UringLayout, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.entries", 0 as UInt64))
         }
         let sqOffsets = Array<UInt64>(); let cqOffsets = Array<UInt64>(); var index = 0
-        while index < 6 { sqOffsets.push(uringRead32(parameters, 40 + index * 4)); index = index + 1 }
+        while index < 6 { sqOffsets.push(completionRead32(parameters, 40 + index * 4)); index = index + 1 }
         index = 0
-        while index < 5 { cqOffsets.push(uringRead32(parameters, 80 + index * 4)); index = index + 1 }
-        let sqArray = uringRead32(parameters, 64); let cqData = uringRead32(parameters, 100)
+        while index < 5 { cqOffsets.push(completionRead32(parameters, 80 + index * 4)); index = index + 1 }
+        let sqArray = completionRead32(parameters, 64); let cqData = completionRead32(parameters, 100)
         if not uringHeaderValid(sqOffsets, sqArray, 4 as UInt64) or not uringHeaderValid(cqOffsets, cqData, 8 as UInt64) {
             sqOffsets.free(); cqOffsets.free()
             return Err<UringLayout, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.offsets", 0 as UInt64))
@@ -128,16 +111,16 @@ fun uringEncodeRequest(entry: *UInt8, borrow view: IoSubmissionView) r: Void {
     var index = 0; while index < 64 { entry[index] = 0 as UInt8; index = index + 1 }
     entry[0] = 22 as UInt8
     if view.operation == IoOperation.Write { entry[0] = 23 as UInt8 }
-    uringWrite32(entry, 4, view.descriptor as UInt64)
-    uringWrite64(entry, 8, view.fileOffset as UInt64)
-    uringWrite64(entry, 16, view.buffer as UInt64)
-    uringWrite32(entry, 24, view.bytes); uringWrite64(entry, 32, view.token)
+    completionWrite32(entry, 4, view.descriptor as UInt64)
+    completionWrite64(entry, 8, view.fileOffset as UInt64)
+    completionWrite64(entry, 16, view.buffer as UInt64)
+    completionWrite32(entry, 24, view.bytes); completionWrite64(entry, 32, view.token)
 }
 fun uringEncodeCancellation(entry: *UInt8, token: UInt64) r: Void {
     var index = 0; while index < 64 { entry[index] = 0 as UInt8; index = index + 1 }
     entry[0] = 14 as UInt8
-    uringWrite32(entry, 4, 4294967295 as UInt64)
-    uringWrite64(entry, 16, token)
+    completionWrite32(entry, 4, 4294967295 as UInt64)
+    completionWrite64(entry, 16, token)
     // User token zero is reserved for cancellation acknowledgements, which
     // never acknowledge the original request's buffer/descriptor borrow.
 }

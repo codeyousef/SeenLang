@@ -179,6 +179,25 @@
       "production": false
     },
     {
+      "id": "io-windows-overlapped-abi",
+      "subsystem": "stdlib.io",
+      "purpose": "Direct Win32 IOCP creation/association/dequeue, overlapped ReadFile/WriteFile, CancelIoEx, UTF-8 to UTF-16 ABI normalization and CreateFileW. Seen owns bounded OVERLAPPED storage, generation keys, fresh file ownership, admission, error classification, cancellation and drain ordering. Non-Windows targets fail explicitly. No scheduler, allocation policy or fallback. Contract/fuzz/native fixtures cover the permanent OS boundary; Windows execution certification remains separate.",
+      "abi": "Win32 C",
+      "platforms": [
+        "windows"
+      ],
+      "symbols": [
+        "seen_iocp_associate",
+        "seen_iocp_cancel",
+        "seen_iocp_create",
+        "seen_iocp_dequeue",
+        "seen_iocp_open",
+        "seen_iocp_transfer",
+        "seen_iocp_utf"
+      ],
+      "production": false
+    },
+    {
       "id": "json-number-range-parser",
       "subsystem": "stdlib.json",
       "purpose": "Bounded C-library decimal-to-binary conversion after native Seen JSON syntax validation. No storage escapes; invalid bounds, incomplete conversion, overflow, and underflow return NaN, which the Seen parser maps to a stable range error. Exercised by FEL-507 malformed-number sanitizer and soak cases. Permanent until native Seen supplies a correctly rounded bounded conversion; migrate parser and symbol together.",

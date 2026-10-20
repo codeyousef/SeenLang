@@ -5113,6 +5113,55 @@
       ]
     },
     {
+      "name": "seen_iocp_associate",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_cancel",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_dequeue",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_transfer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_utf16",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
       "name": "seen_lua_close",
       "abi": "Seen",
       "sources": [

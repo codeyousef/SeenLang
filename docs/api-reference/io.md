@@ -353,3 +353,83 @@ implementation but still requires platform execution evidence. Windows and
 macOS explicitly reject this backend; their own adapters are separate APIs.
 Frontend and C syntax checks are source validation and do not certify any
 platform's execution or hardware behavior.
+
+## Windows overlapped completion adapter
+
+`io.windows_iocp.WindowsIocpQueue.create(limits, maxOverlappedBytes)` uses the
+same bounded `IoQueue` transitions and owner-returning rejections. Standard
+library 0.13.0 requires runtime ABI `runtime-v11`. Depth is 1–65,536; one
+32-byte, 16-byte-aligned OVERLAPPED record per slot is preallocated inside an
+explicit budget of at most 2 MiB. Core buffer, transfer and metadata limits
+apply independently. The IOCP concurrency hint is one, and Seen mutations
+belong to one serialized coordinator. The adapter spawns no worker threads.
+
+`reserveFile(path, options, buffer, operation, offset, bytes, context)` consumes
+the buffer on both success and failure. It validates shared admission geometry,
+contexts, aliases, quotas and deadlines before opening the file, then obtains a
+fresh overlapped file object for that request. Queued admission accepts existing
+files only; creation, truncation, append and directory operations are rejected.
+For explicit file preparation, `io.iocp_file.iocpOpenHandle` accepts the supported
+`fs.types.OpenOptions` modes and returns an independently owned handle to close.
+No direct-I/O or blocking fallback is selected. Paths are bounded to 4,095 UTF-8
+bytes, reject embedded NUL and undergo strict Win32 UTF-16 normalization into
+Seen-owned bounded temporary storage. Sharing allows read/write/delete; no-follow
+options request `FILE_FLAG_OPEN_REPARSE_POINT` explicitly.
+
+Each request owns a fresh `CreateFileW` file object. The adapter deliberately
+does not admit arbitrary or duplicated raw handles: an IOCP association's key
+is immutable and duplicate handles can share that association. A fresh object
+can carry the full core generation token as its completion key. Both that key
+and the exact slot's OVERLAPPED address must match before any acknowledgement.
+Reusing a record address for a later generation therefore does not authorize a
+stale packet. Returned `IoRejectedSubmission` objects own every acquired handle
+and buffer, including failures after opening but before core admission.
+
+`submit` encodes the checked 64-bit offset, leaves `hEvent` zero, associates the
+fresh file with the port, and marks the core submitted before calling
+`ReadFile`/`WriteFile`. Both immediate success and `ERROR_IO_PENDING` retain the
+record, handle and buffer until the target completion packet. `ERROR_MORE_DATA`
+also retains that packet ownership. Other immediate failures have no pending
+borrow: a terminal result is queued and the submit call returns the typed error.
+Immediate EOF produces an explicit zero-byte partial success. Even when submit
+returns an error, drain the queued completion to reclaim its owner.
+
+`reap(maximum)` consumes at most one core depth of records without blocking.
+A wait timeout with no OVERLAPPED is empty readiness, rather than a fabricated
+completion. Failed packets with an OVERLAPPED preserve their Win32 status and
+partial bytes. Unknown generation keys, wrong pointers, duplicate packets,
+pending/timeout pseudo-statuses or oversized progress poison the adapter and
+retain any outstanding owners. `lastNativeResult` retains Win32 evidence;
+`iocpStatus` translates only the Windows vocabulary into stable `async.*`
+codes and `io.iocp.*` operations. Non-Windows targets return explicit
+`ERROR_NOT_SUPPORTED`; an errno is never interpreted as a Win32 status.
+
+`cancel` records intent. `publishCancellation` issues at most one `CancelIoEx`
+action, including deadline actions. A cancellation success or `ERROR_NOT_FOUND`
+completion race does not acknowledge the original request. Its own packet is
+still required before record or buffer reuse. The latest raw cancellation
+result is exposed, and failed actions remain owned for explicit caller retry.
+There is no automatic retry. The first observed cancellation/deadline reason
+and exact progress remain in the core completion even if a late packet succeeds.
+
+`shutdown` stops admission and records cancellation. Continue cancellation,
+reap and poll until all owners are delivered, then close. A busy close returns
+`async.limit`; the OVERLAPPED pool stays live. Close the port before freeing
+that pool, retain it on a close error, and use `release` after successful drain.
+Successful close is idempotent. Creation failures contain a typed error and raw
+Win32 result; all construction prefixes are released before returning them.
+The `completion_bytes` helpers and borrow-only `ioQueuePreflight` are shared by
+the Linux/Windows adapters to keep byte encoding and admission in one place.
+
+`tests/misc_root_tests/seen_async_io_c.sh` runs Linux-hosted mocked contracts in
+fast/release/UBSan/ASan, a 60-second completion fuzz, and an explicit unsupported
+native probe on other operating systems. `iocp_windows.seen` additionally tests
+real overlapped writes/reads, EOF, cancellation races and repeated cleanup on a
+Windows runner. Its `seen-io-iocp-v1` JSON distinguishes unsupported from verified
+file-contract execution. `SEEN_REQUIRE_IOCP=1` requires native verification.
+Windows runs should invoke the native fixture with a fresh path in their ignored
+artifact directory. The Linux mock uses pipe-owned handles and does not certify
+Windows execution. Two outstanding submissions are recorded separately from
+unmeasured physical-storage overlap; `native_overlap_verified` remains false.
+Linux arm64/macOS/Windows platform execution still requires its own evidence;
+syntax and frontend checks alone are compile-only source validation.

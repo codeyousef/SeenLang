@@ -1,0 +1,59 @@
+/// Fresh overlapped file objects give each request its own immutable IOCP key.
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError}
+import fs.types.{OpenOptions}
+import reactor.reactor.{OwnedHandle}
+import memory.aligned_buffer.{OwnedBuffer}
+import io.completion_types.{IoOperation, ioQueueFailure}
+import io.iocp_layout.{iocpStatus}
+import io.iocp_native.{seen_iocp_utf16, seen_iocp_open}
+
+class IocpOpenFailure { var error: AsyncError; var nativeResult: UInt32 }
+fun iocpFileFailure(code: UInt32, operation: String) r: IocpOpenFailure {
+    return IocpOpenFailure{error: ioQueueFailure(iocpStatus(code), operation, 0 as UInt64), nativeResult: code}
+}
+fun iocpOpenHandle(path: String, borrow options: OpenOptions, operation: IoOperation) r: Result<OwnedHandle, IocpOpenFailure> {
+    if path.length() <= 0 or path.length() > 4095 or options.directory or options.append or
+        (not options.read and not options.write) or (options.exclusive and not options.create) or
+        (options.truncate and not options.write) or
+        (operation == IoOperation.Read and not options.read) or (operation == IoOperation.Write and not options.write) {
+        return Err<OwnedHandle, IocpOpenFailure>(iocpFileFailure(87 as UInt32, "io.iocp.open.options"))
+    }
+    var index = 0
+    while index < path.length() {
+        if path.byteAt(index) == 0 { return Err<OwnedHandle, IocpOpenFailure>(iocpFileFailure(87 as UInt32, "io.iocp.open.path")) }
+        index = index + 1
+    }
+    let inputResult = OwnedBuffer<UInt8>.allocate(path.length() as UInt64, 1 as UInt64, 16 as UInt64)
+    if inputResult.isErr() { inputResult.unwrapErr().free(); inputResult.releaseContainer(); return Err<OwnedHandle, IocpOpenFailure>(iocpFileFailure(8 as UInt32, "io.iocp.open.utf8")) }
+    let input: OwnedBuffer<UInt8> = inputResult.unwrap(); inputResult.releaseContainer()
+    let outputResult = OwnedBuffer<UInt16>.allocate((path.length() + 1) as UInt64, 2 as UInt64, 16 as UInt64)
+    if outputResult.isErr() {
+        outputResult.unwrapErr().free(); outputResult.releaseContainer(); input.close(); input.free()
+        return Err<OwnedHandle, IocpOpenFailure>(iocpFileFailure(8 as UInt32, "io.iocp.open.utf16"))
+    }
+    let output: OwnedBuffer<UInt16> = outputResult.unwrap(); outputResult.releaseContainer(); index = 0
+    while index < path.length() { input.data[index] = path.byteAt(index) as UInt8; index = index + 1 }
+    let converted = seen_iocp_utf16(input.data, path.length() as UInt32, output.data, path.length() as UInt32)
+    input.close(); input.free()
+    if converted <= (0 as Int64) or converted > (path.length() as Int64) {
+        output.close(); output.free(); var code = 87 as UInt32
+        if converted < (0 as Int64) { code = (0 - converted) as UInt32 }
+        return Err<OwnedHandle, IocpOpenFailure>(iocpFileFailure(code, "io.iocp.open.encoding"))
+    }
+    output.data[converted as Int] = 0 as UInt16
+    var access = 0 as UInt32
+    if options.read { access = access | (2147483648 as UInt32) }
+    if options.write { access = access | (1073741824 as UInt32) }
+    var creation = 3 as UInt32
+    if options.create {
+        creation = 4 as UInt32; if options.truncate { creation = 2 as UInt32 }; if options.exclusive { creation = 1 as UInt32 }
+    } else if options.truncate { creation = 5 as UInt32 }
+    var flags = 1073741824 as UInt32
+    if options.noFollow { flags = flags | (2097152 as UInt32) }
+    var file = -1 as Int64
+    let status = seen_iocp_open(output.data, access, 7 as UInt32, creation, flags, &file)
+    output.close(); output.free()
+    if status != (0 as UInt32) { return Err<OwnedHandle, IocpOpenFailure>(iocpFileFailure(status, "io.iocp.open.native")) }
+    return Ok<OwnedHandle, IocpOpenFailure>(OwnedHandle{native: file, owned: true, valid: true})
+}
