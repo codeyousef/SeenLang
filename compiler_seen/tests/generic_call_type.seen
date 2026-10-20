@@ -31,6 +31,11 @@ fun main() r: Int {
     requireGenericCall(specializeGenericCallReturnImpl(genericCallDeclarationImpl(2), nested, empty, "Result<Payload,Error>") == "Result<OwnedBuffer<UInt8>,Error>")
     let malformed = ["Result<Array<Int>, Error"]
     requireGenericCall(specializeGenericCallReturnImpl(genericCallDeclarationImpl(0), malformed, empty, "T") == "T")
+    let replacementLexer = newSeenLexerCompat("fun pair(left: Int, right: Int) r: Int { return left }", 1, "en")
+    let replacementParser = newRealParserCompat(replacementLexer.tokenize())
+    let replacement = replacementParser.parse()
+    registerGenericCallTypeImpl(replacement.items[0].function)
+    requireGenericCall(genericCallWordTypeNameImpl("pair", -1) == "")
     resetGenericCallTypesImpl(); requireGenericCall(findGenericCallTypeImpl("extract") == -1)
     println("PASS: structural generic return binding rejects inconsistent arguments")
     return 0
