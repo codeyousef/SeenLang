@@ -4,6 +4,27 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
+/// Restore scalar/pointer bit patterns from the generic single-word ABI.
+/// This is representation conversion, rather than numeric conversion.
+fun reifyErasedWordImpl(output: StringBuilder, regBox: Array<Int>,
+    target: String, word: String) r: String {
+    if target == "i64" { return word }
+    if target == "float" {
+        let bits = getNextRegFn(regBox)
+        output.append("  " + bits + " = trunc i64 " + word + " to i32\n")
+        let result = getNextRegFn(regBox)
+        output.append("  " + result + " = bitcast i32 " + bits + " to float\n"); return result
+    }
+    if target != "ptr" and target != "double" and target != "i1" and target != "i8" and target != "i16" and target != "i32" { return word }
+    let result = getNextRegFn(regBox)
+    if target == "ptr" { output.append("  " + result + " = inttoptr i64 " + word + " to ptr\n"); return result }
+    if target == "double" { output.append("  " + result + " = bitcast i64 " + word + " to double\n"); return result }
+    if target == "i1" or target == "i8" or target == "i16" or target == "i32" {
+        output.append("  " + result + " = trunc i64 " + word + " to " + target + "\n"); return result
+    }
+    return word
+}
+
 fun coerceValueForLlvmTargetImpl(output: StringBuilder, regBox: Array<Int>,
     targetLlvmType: String, sourceSeenType: String, sourceLlvmType: String,
     valueReg: String) r: String {
