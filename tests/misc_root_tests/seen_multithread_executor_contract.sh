@@ -46,6 +46,7 @@ for profile in fast release; do
     compile_case "$profile" pointer-index "$ROOT_DIR/tests/compiler_regressions/typed_pointer_index.seen"
     compile_case "$profile" generic-array "$ROOT_DIR/tests/fixtures/async/generic_array_field_cleanup.seen"
     compile_case "$profile" generic-send "$ROOT_DIR/tests/fixtures/async/generic_send_registry.seen"
+    compile_case "$profile" generic-call-ownership "$ROOT_DIR/tests/fixtures/async/generic_call_ownership.seen"
     compile_case "$profile" pool-release "$ROOT_DIR/tests/fixtures/async/pool_release_pointer_abi.seen"
     compile_case "$profile" lifecycle "$ROOT_DIR/seen_std/tests/async/async-002a.seen"
     compile_case "$profile" imported "$ROOT_DIR/tests/fixtures/async/cross_module.seen"
@@ -61,3 +62,10 @@ if bash "$ATTESTED_SEEN" "$COMPILER" check \
 fi
 rg -Fq E_TYPE_BOUND "$TMP_DIR/unsafe.log"
 echo "PASS: fixed-worker typed execution in fast and release/ThinLTO"
+
+if bash "$ATTESTED_SEEN" "$COMPILER" check \
+    "$ROOT_DIR/tests/fixtures/async/generic_move_rejected.seen" >"$TMP_DIR/generic-move.log" 2>&1; then
+    echo "FAIL: generic consuming call retained its caller owner" >&2
+    exit 1
+fi
+rg -Fq E_OWNERSHIP_USE_AFTER_MOVE "$TMP_DIR/generic-move.log"
