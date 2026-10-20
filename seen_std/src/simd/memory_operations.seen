@@ -44,6 +44,17 @@ fun simdMemoryStatusFailure(status: Int) r: SimdIrError {
     if status == 2 { return simdMemoryFailure("simd.timeout", "deadline") }
     return simdMemoryFailure("simd.unavailable", "clock")
 }
+fun beginSimdMemoryOperation(context: OperationContext, borrow progress: SimdMemoryProgress) r: Int {
+    progress.completed = 0 as UInt64; progress.previousTime = 0 as Int64
+    return simdMemoryStatus(context, progress)
+}
+fun completeSimdMemoryOperation(context: OperationContext, borrow progress: SimdMemoryProgress,
+    completed: UInt64) r: Result<Bool, SimdIrError> {
+    progress.completed = completed
+    let status = simdMemoryStatus(context, progress)
+    if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
+    return Ok<Bool, SimdIrError>(true)
+}
 fun simdPackingBitsValid(bits: Int) r: Bool { return bits == 2 or bits == 3 or bits == 4 or bits == 8 }
 
 // The complete source is checked before any write. Invalid packing values do
@@ -65,8 +76,7 @@ fun transformPackedSimdBytes(borrow source: OwnedBuffer<UInt8>, sourceOffset: UI
     if not simdRangesDisjoint(source, sourceOffset, sourceBytes, destination, destinationOffset, destinationBytes) {
         return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_alias", "overlap"))
     }
-    progress.completed = 0 as UInt64; progress.previousTime = 0 as Int64
-    var status = simdMemoryStatus(context, progress)
+    var status = beginSimdMemoryOperation(context, progress)
     if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
     let input = ((source.data as UInt64) + sourceOffset) as *UInt8
     let output = ((destination.data as UInt64) + destinationOffset) as *UInt8
@@ -103,9 +113,7 @@ fun transformPackedSimdBytes(borrow source: OwnedBuffer<UInt8>, sourceOffset: UI
         }
         i = i + (1 as UInt64); progress.completed = i
     }
-    status = simdMemoryStatus(context, progress)
-    if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
-    return Ok<Bool, SimdIrError>(true)
+    return completeSimdMemoryOperation(context, progress, count)
 }
 
 // Copy preserves lane bit patterns, including NaNs. All currently supported
@@ -126,8 +134,7 @@ fun copyMaskedSimd(borrow source: OwnedBuffer<UInt8>, sourceOffset: UInt64,
     if not simdRangesDisjoint(source, sourceOffset, bytes, destination, destinationOffset, bytes) {
         return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_alias", "overlap"))
     }
-    progress.completed = 0 as UInt64; progress.previousTime = 0 as Int64
-    let status = simdMemoryStatus(context, progress)
+    let status = beginSimdMemoryOperation(context, progress)
     if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
     let input = ((source.data as UInt64) + sourceOffset) as Int
     let output = ((destination.data as UInt64) + destinationOffset) as Int
@@ -148,10 +155,7 @@ fun copyMaskedSimd(borrow source: OwnedBuffer<UInt8>, sourceOffset: UInt64,
         let value: i32x16 = simd_unsafe_masked_load_i32x16(input, mask, i32x16(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
         simd_unsafe_masked_store_i32x16(value, output, mask)
     }
-    progress.completed = active as UInt64
-    let completedStatus = simdMemoryStatus(context, progress)
-    if completedStatus != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(completedStatus)) }
-    return Ok<Bool, SimdIrError>(true)
+    return completeSimdMemoryOperation(context, progress, active as UInt64)
 }
 
 // A hint covers one admitted byte in an owned allocation; it never promises
@@ -164,16 +168,12 @@ fun prefetchSimdBlock(borrow buffer: OwnedBuffer<UInt8>, offset: UInt64, localit
     if not simdByteRangeValid(buffer, offset, 1 as UInt64) {
         return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_shape", "prefetch-range"))
     }
-    progress.completed = 0 as UInt64; progress.previousTime = 0 as Int64
-    let status = simdMemoryStatus(context, progress)
+    let status = beginSimdMemoryOperation(context, progress)
     if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
     let address = ((buffer.data as UInt64) + offset) as Int
     if locality == 0 { simd_unsafe_prefetch_read_0(address) }
     if locality == 1 { simd_unsafe_prefetch_read_1(address) }
     if locality == 2 { simd_unsafe_prefetch_read_2(address) }
     if locality == 3 { simd_unsafe_prefetch_read_3(address) }
-    progress.completed = 1 as UInt64
-    let completedStatus = simdMemoryStatus(context, progress)
-    if completedStatus != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(completedStatus)) }
-    return Ok<Bool, SimdIrError>(true)
+    return completeSimdMemoryOperation(context, progress, 1 as UInt64)
 }

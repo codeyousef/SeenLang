@@ -1,5 +1,5 @@
 /// Closed operation metadata shared by diagnostics, inference and emission.
-import simd.ir_types.{simdBuiltinTypeAt}
+import simd.ir_types.{simdBuiltinTypeAt, simdBuiltinLanes, simdMaskLanes}
 
 fun simdOperationPrefix(name: String) r: String {
     if name.startsWith("simd_unsafe_masked_load_") { return "simd_unsafe_masked_load_" }
@@ -66,4 +66,17 @@ fun simdOperationArgument(name: String, index: Int) r: String {
     }
     if name.startsWith("simd_permute_") and index == 2 { return "indices" }
     return vector
+}
+
+/// Unknown semantic types are deferred by callers; known argument shapes use
+/// one rule in both early diagnostics and the defensive LLVM emission path.
+fun simdOperationArgumentValid(name: String, index: Int, actual: String) r: Bool {
+    let arity = simdOperationArity(name)
+    if index < 0 or index >= arity { return false }
+    let expected = simdOperationArgument(name, index)
+    if expected == "address" { return actual == "Int" or actual == "Int64" or actual == "UInt64" }
+    let vector = simdOperationVector(name)
+    if expected == "mask" { return simdMaskLanes(actual) == simdBuiltinLanes(vector) }
+    if expected == "indices" { return actual.startsWith("i32x") and simdBuiltinLanes(actual) == simdBuiltinLanes(vector) }
+    return actual == expected
 }

@@ -2,7 +2,7 @@
 /// the standard library owns admission, aliases and lifetime validation.
 import str.string.{StringBuilder}
 import simd.operation_types.{simdOperationVector, simdOperationArity,
-    simdOperationArgument, simdPrefetchLocality}
+    simdOperationArgumentValid, simdPrefetchLocality}
 import simd.ir_types.{simdBuiltinLanes, simdBuiltinLlvmType, simdBuiltinLane, simdLaneLlvmType}
 import codegen.ir_optimization.{getNextRegFn}
 
@@ -16,12 +16,9 @@ fun emitPortableSimdOperationImpl(output: StringBuilder, regs: Array<Int>, name:
     let laneText = lanes.toString()
     var i = 0
     while i < arity {
-        let expected = simdOperationArgument(name, i)
-        var valid = types[i] == expected
-        if expected == "address" { valid = types[i] == "Int" or types[i] == "Int64" or types[i] == "UInt64" }
-        if expected == "mask" { valid = types[i] == "mask" + laneText }
-        if expected == "indices" { valid = types[i] == "i32x" + laneText }
-        if not valid { abort("Error: [E_SIMD_LANE] portable SIMD operation has incompatible argument shape") }
+        if not simdOperationArgumentValid(name, i, types[i]) {
+            abort("Error: [E_SIMD_LANE] portable SIMD operation has incompatible argument shape")
+        }
         i = i + 1
     }
     let locality = simdPrefetchLocality(name)

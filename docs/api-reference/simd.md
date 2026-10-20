@@ -315,7 +315,7 @@ validation is shared with dot admission through
 to each operation.
 
 The caller creates and ultimately frees `SimdMemoryProgress`, which records the
-committed element count and the previous monotonic clock observation. Admission
+committed element count and the previous monotonic clock observation. Geometry/range admission
 errors preserve the previous progress. An admitted operation clears progress;
 cancellation/deadline checks occur before access, every 64 packing elements,
 and after completion. Errors are `simd.cancelled`, `simd.timeout`,

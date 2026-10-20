@@ -1,4 +1,4 @@
-import simd.operation_types.{simdOperationArity, simdOperationArgument, simdOperationVector, simdOperationPrefix}
+import simd.operation_types.{simdOperationArity, simdOperationArgumentValid, simdOperationPrefix}
 ///
 Stage-2 lexical semantic foundation executed after parsing and before LLVM
 lowering. It establishes shared identities, declaration metadata, and proved
@@ -795,18 +795,14 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
             if expression.arguments.length() != operationArity {
                 result.addError("E_SIMD_ARITY", "portable SIMD operation has incorrect arity", file, line, column)
             } else {
-                let vector = simdOperationVector(expression.callee)
                 var argument = 0
                 while argument < operationArity {
-                    let expected = simdOperationArgument(expression.callee, argument)
                     let actual = semanticExpressionBindingIdentity(result,
                         expression.arguments[argument], bindings, moduleName)
                     if actual != "" and actual != "Unknown" {
-                        var valid = actual == expected
-                        if expected == "address" { valid = actual == "Int" or actual == "Int64" or actual == "UInt64" }
-                        if expected == "mask" { valid = simdMaskLanes(actual) == simdBuiltinLanes(vector) }
-                        if expected == "indices" { valid = actual.startsWith("i32x") and simdBuiltinLanes(actual) == simdBuiltinLanes(vector) }
-                        if not valid { result.addError("E_SIMD_LANE", "portable SIMD operation has incompatible argument shape", file, line, column) }
+                        if not simdOperationArgumentValid(expression.callee, argument, actual) {
+                            result.addError("E_SIMD_LANE", "portable SIMD operation has incompatible argument shape", file, line, column)
+                        }
                     }
                     argument = argument + 1
                 }

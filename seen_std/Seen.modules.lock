@@ -146,8 +146,8 @@ hash = "bfef6900c90f5a13b2884b098fb7ca3d43344e0bea143db5f3371e75664970da"
 
 [[modules]]
 path = "src/simd/operation_types.seen"
-hash = "0ed807895fa454fb0548f710c592cb35021008e31cee4624752e990cf5442109"
+hash = "2b60bfc1046a240167779ff822f607cf4d239cebd8e63e8a60235e4ae1ad7033"
 
 [[modules]]
 path = "src/simd/memory_operations.seen"
-hash = "9b405a3fa2ea3a58f0fc491cde1d8f3d0d8758429ea6beb34c617cc0a839018e"
+hash = "8d05dffa6c61ff2b6e8c31d4b91f933b514a89f9e574dea7a6259a3215e3075b"
