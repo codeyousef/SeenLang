@@ -3,7 +3,7 @@ import core.result.{Result, Ok, Err}
 import sync.contracts.{Send}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
 import async.executor_core.{ExecutorCore, ExecutorJob, executorFailure,
-    executorCopyContext, executorReleaseContext, EXECUTOR_FOREVER}
+    executorCopyContext, executorReleaseSnapshot, EXECUTOR_FOREVER}
 import async.multithread.{ExecutorJoinHandle, executorSubmit}
 import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
 
@@ -175,7 +175,7 @@ class TaskGroup<T: Send + ExecutorJob> {
         var i = 0
         while i < this.handles.length() { this.handles[i].free(); i = i + 1 }
         this.handles.free()
-        executorReleaseContext(this.cleanup)
+        executorReleaseSnapshot(this.cleanup)
         asyncSyncDetach(this.core)
         this.free()
         return Ok<Bool, AsyncError>(true)

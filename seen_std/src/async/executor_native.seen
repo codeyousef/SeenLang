@@ -21,3 +21,4 @@ extern "C" fun seen_pool_free(value: *Void, bytes: Int64) r: Void
 
 extern "C" fun seen_executor_validate_placement(cpu: Int32, node: Int32) r: Int32
 extern "C" fun seen_executor_apply_placement(cpu: Int32, node: Int32) r: Int32
+extern "C" fun seen_string_clone_owned(value: String) r: String
