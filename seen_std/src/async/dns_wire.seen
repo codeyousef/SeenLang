@@ -8,6 +8,7 @@ import async.sockets.{SocketAddress}
 
 extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
 extern "C" fun seen_string_clone_owned(value: String) r: String
+extern "C" fun seen_string_release_owned(value: String) r: Void
 
 fun dnsLabelByte(value: Int) r: Bool {
     return (value >= 65 and value <= 90) or (value >= 97 and value <= 122) or
@@ -149,7 +150,7 @@ class DnsQuestion {
         let ownedName = canonical.value; canonical.free()
         return Ok<DnsQuestion, AsyncError>(DnsQuestion{wire: wire, name: ownedName, id: id, kind: kind})
     }
-    fun release() r: Bool { this.wire.release(); this.name.free(); this.free(); return true }
+    fun release() r: Bool { this.wire.release(); seen_string_release_owned(this.name); this.free(); return true }
 }
 class DnsAddress {
     var bytes: Array<Int>
@@ -166,7 +167,7 @@ class DnsResponse {
     fun release() r: Void {
         var i = 0
         while i < this.addresses.length() { this.addresses[i].release(); i = i + 1 }
-        this.addresses.free(); this.canonicalName.free(); this.free()
+        this.addresses.free(); seen_string_release_owned(this.canonicalName); this.free()
     }
 }
 class DnsResourceRecord {
@@ -181,8 +182,8 @@ fun releaseDnsRecords(records: Array<DnsResourceRecord>) r: Void {
     var i = 0
     while i < records.length() {
         let record = records[i]
-        if record.canonical.isSome() { record.canonical.unwrap().free() }
-        record.canonical.free(); record.owner.free(); record.free(); i = i + 1
+        if record.canonical.isSome() { seen_string_release_owned(record.canonical.unwrap()) }
+        record.canonical.free(); seen_string_release_owned(record.owner); record.free(); i = i + 1
     }
     records.free()
 }
@@ -212,7 +213,7 @@ fun decodeDnsResponse(wire: DnsWire, question: DnsQuestion, maxAnswers: Int) r: 
     }
     let name = decoded.unwrap(); decoded.releaseContainer(); var at = name.next
     let matches = name.value == question.name
-    name.value.free(); name.free()
+    seen_string_release_owned(name.value); name.free()
     if not matches or at > wire.length - 4 { return dnsInvalid<DnsResponse>("dns.question") }
     if wire.word(at) != question.kind or wire.word(at + 2) != 1 { return dnsInvalid<DnsResponse>("dns.question") }
     at = at + 4
@@ -224,24 +225,24 @@ fun decodeDnsResponse(wire: DnsWire, question: DnsQuestion, maxAnswers: Int) r: 
         }
         let owner = decodedOwner.unwrap(); decodedOwner.releaseContainer(); at = owner.next
         if at > wire.length - 10 {
-            owner.value.free(); owner.free(); return dnsRecordFailure(records, 1 as Int32)
+            seen_string_release_owned(owner.value); owner.free(); return dnsRecordFailure(records, 1 as Int32)
         }
         let kind = wire.word(at); let classNumber = wire.word(at + 2)
         let ttl = (wire.word(at + 4) as UInt64) * (65536 as UInt64) + (wire.word(at + 6) as UInt64)
         let length = wire.word(at + 8); at = at + 10
         if length > wire.length - at {
-            owner.value.free(); owner.free(); return dnsRecordFailure(records, 1 as Int32)
+            seen_string_release_owned(owner.value); owner.free(); return dnsRecordFailure(records, 1 as Int32)
         }
         var canonical = None<String>()
         if kind == 5 and classNumber == 1 {
             let target = decodeDnsName(wire, at)
             if target.isErr() {
-                target.unwrapErr().free(); target.releaseContainer(); owner.value.free(); owner.free()
+                target.unwrapErr().free(); target.releaseContainer(); seen_string_release_owned(owner.value); owner.free()
                 canonical.free(); return dnsRecordFailure(records, 1 as Int32)
             }
             let value = target.unwrap(); target.releaseContainer()
             if value.next != at + length {
-                value.value.free(); value.free(); owner.value.free(); owner.free(); canonical.free()
+                seen_string_release_owned(value.value); value.free(); seen_string_release_owned(owner.value); owner.free(); canonical.free()
                 return dnsRecordFailure(records, 1 as Int32)
             }
             canonical.free(); canonical = Some<String>(value.value); value.free()
@@ -250,8 +251,8 @@ fun decodeDnsResponse(wire: DnsWire, question: DnsQuestion, maxAnswers: Int) r: 
             records.push(DnsResourceRecord{owner: owner.value, kind: kind, data: at,
                 length: length, ttl: ttl, canonical: canonical})
         } else {
-            owner.value.free()
-            if canonical.isSome() { canonical.unwrap().free() }
+            seen_string_release_owned(owner.value)
+            if canonical.isSome() { seen_string_release_owned(canonical.unwrap()) }
             canonical.free()
         }
         owner.free(); at = at + length; index = index + 1
