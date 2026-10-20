@@ -25,7 +25,7 @@ fun capabilitiesMatrix() r: Void {
         "simd.invalid_capability") { abort("inconsistent ARM features accepted") }
     if not errorIs(ArmSimdCapabilities.fromProbe(true, true, 3 as Int32, 0 as UInt64),
         "simd.unavailable") { abort("interrupted state probe silently fell back") }
-    let denied = must(ArmSimdCapabilities.fromProbe(true, true, 4 as Int32, 0 as UInt64))
+    let denied: ArmSimdCapabilities = must(ArmSimdCapabilities.fromProbe(true, true, 4 as Int32, 0 as UInt64))
     if must(selectArmVariant(denied, "auto", false, false)) != 1 or
         not errorIs(selectArmVariant(denied, "sve", false, false), "simd.unsupported_capability") {
         abort("unsupported thread state granted SVE")
@@ -37,8 +37,8 @@ fun capabilitiesMatrix() r: Void {
 }
 fun main() r: Int {
     let ctx = context(); let backend = ArmDotBackend{reserved: 0}
-    let left = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
-    let right = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let left: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let right: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
     let reference = DotProgress.create(); let actual = DotProgress.create()
     capabilitiesMatrix()
     parity(backend, DotOperation.Float32, ctx, left, right, reference, actual)
@@ -77,7 +77,7 @@ fun main() r: Int {
         actual.completed != (4096 as UInt64) { return 6 }
     clock.free()
     println("PASS: SEEN-INF-002C_partial")
-    let caps = must(ArmSimdCapabilities.current())
+    let caps: ArmSimdCapabilities = must(ArmSimdCapabilities.current())
     if caps.neon {
         println("{\"target\":\"aarch64\",\"variant\":\"neon\",\"classification\":\"verified\",\"scope\":\"software-fixture\",\"hardware_certified\":false}")
     } else {
