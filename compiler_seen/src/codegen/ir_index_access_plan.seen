@@ -65,3 +65,10 @@ fun planTypedIndexAccessImpl(arrayType: String) r: TypedIndexAccessPlan {
     plan.elementType = resolveIndexAccessElementTypeImpl(arrayType)
     return plan
 }
+
+fun pointerIndexElementTypeImpl(pointerType: String) r: String {
+    if not pointerType.startsWith("*") { return "" }
+    var element = pointerType.substring(1, pointerType.length())
+    if element.startsWith("const ") { element = element.substring(6, element.length()) }
+    return element
+}
