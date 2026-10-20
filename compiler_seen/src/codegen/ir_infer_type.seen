@@ -1,3 +1,4 @@
+import simd.operation_types.{simdOperationResult}
 ///
 ir_infer_type.seen — Type inference helpers for inferExpressionType
 Extracted from llvm_ir_gen.seen to follow SRP
@@ -548,6 +549,8 @@ Array/SmallVec/HashMap/BTreeMap/LinkedList constructors, Result constructors
 Returns "" for callee names that require runtime lookup (getFunctionReturnType, isClassType, etc.)
 ///
 fun inferCallExprTypeImpl(callee: String) r: String {
+    let portable = simdOperationResult(callee)
+    if portable != "" { return portable }
     let armType = simdArmBlockType(callee)
     if armType != "" { return armType }
     let dot = simdX86DotType(callee)

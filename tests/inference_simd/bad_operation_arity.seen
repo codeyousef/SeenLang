@@ -1,0 +1,1 @@
+fun main() r: Int { let x = simd_fma_f32x4(f32x4(1, 2, 3, 4)); return 0 }

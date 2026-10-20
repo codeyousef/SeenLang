@@ -6189,6 +6189,7 @@
         "seen_std/src/async/structured.seen",
         "seen_std/src/determinism/policy.seen",
         "seen_std/src/simd/dot_contract.seen",
+        "seen_std/src/simd/memory_operations.seen",
         "seen_std/src/sync/contracts.seen"
       ]
     },

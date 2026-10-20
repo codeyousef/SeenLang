@@ -1,0 +1,179 @@
+/// Checked synchronous SIMD memory admission. Buffer owners remain borrowed;
+/// progress is caller-owned and cancellation commits at most one 64-lane block.
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import memory.aligned_buffer.{OwnedBuffer, ownedBufferByteRangeValid}
+import inference.span.{PackedView, MutablePackedView, packedGet, packedSet}
+import simd.ir_types.{SimdIrError, simdIrFailure, simdBuiltinLanes, simdBuiltinLane, simdLaneBits}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+class SimdMemoryProgress {
+    var completed: UInt64
+    var previousTime: Int64
+    static fun create() r: SimdMemoryProgress {
+        return SimdMemoryProgress{completed: 0 as UInt64, previousTime: 0 as Int64}
+    }
+}
+fun simdMemoryFailure(code: String, capability: String) r: SimdIrError {
+    return simdIrFailure(code, "portable", capability, "memory-operation", "buffer",
+        "SIMD memory operation rejected")
+}
+fun simdByteRangeValid(borrow buffer: OwnedBuffer<UInt8>, offset: UInt64, bytes: UInt64) r: Bool {
+    return bytes <= (65536 as UInt64) and ownedBufferByteRangeValid(buffer, offset, bytes)
+}
+fun simdRangesDisjoint(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64, leftBytes: UInt64,
+    borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64, rightBytes: UInt64) r: Bool {
+    // Call only after both ranges pass admission, so address sums cannot wrap.
+    let a = (left.data as UInt64) + leftOffset
+    let b = (right.data as UInt64) + rightOffset
+    return leftBytes == (0 as UInt64) or rightBytes == (0 as UInt64) or
+        a + leftBytes <= b or b + rightBytes <= a
+}
+fun simdMemoryStatus(context: OperationContext, borrow progress: SimdMemoryProgress) r: Int {
+    if context.cancellation { return 1 }
+    if context.monotonicDeadline < (0 as Int64) { return 2 }
+    if context.monotonicDeadline == (9223372036854775807 as Int64) { return 0 }
+    let now = seen_time_monotonic_nanos()
+    if now < (0 as Int64) or now < progress.previousTime { return 3 }
+    progress.previousTime = now
+    if now >= context.monotonicDeadline { return 2 }
+    return 0
+}
+fun simdMemoryStatusFailure(status: Int) r: SimdIrError {
+    if status == 1 { return simdMemoryFailure("simd.cancelled", "cancellation") }
+    if status == 2 { return simdMemoryFailure("simd.timeout", "deadline") }
+    return simdMemoryFailure("simd.unavailable", "clock")
+}
+fun simdPackingBitsValid(bits: Int) r: Bool { return bits == 2 or bits == 3 or bits == 4 or bits == 8 }
+
+// The complete source is checked before any write. Invalid packing values do
+// not mutate output. Cancellation may retain a committed prefix in progress.
+fun transformPackedSimdBytes(borrow source: OwnedBuffer<UInt8>, sourceOffset: UInt64,
+    borrow destination: OwnedBuffer<UInt8>, destinationOffset: UInt64,
+    count: UInt64, bits: Int, pack: Bool, context: OperationContext,
+    borrow progress: SimdMemoryProgress) r: Result<Bool, SimdIrError> {
+    if not simdPackingBitsValid(bits) or count > (4096 as UInt64) {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.limit", "packing-geometry"))
+    }
+    let packedBytes = (count * (bits as UInt64) + (7 as UInt64)) / (8 as UInt64)
+    var sourceBytes = packedBytes; var destinationBytes = count
+    if pack { sourceBytes = count; destinationBytes = packedBytes }
+    if not simdByteRangeValid(source, sourceOffset, sourceBytes) or
+        not simdByteRangeValid(destination, destinationOffset, destinationBytes) {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_shape", "range"))
+    }
+    if not simdRangesDisjoint(source, sourceOffset, sourceBytes, destination, destinationOffset, destinationBytes) {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_alias", "overlap"))
+    }
+    progress.completed = 0 as UInt64; progress.previousTime = 0 as Int64
+    var status = simdMemoryStatus(context, progress)
+    if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
+    let input = ((source.data as UInt64) + sourceOffset) as *UInt8
+    let output = ((destination.data as UInt64) + destinationOffset) as *UInt8
+    if pack {
+        let maximum = ((1 as UInt16) << bits) - (1 as UInt16)
+        var i = 0 as UInt64
+        while i < count {
+            if (input[i] as UInt16) > maximum {
+                return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_packing", "source-value"))
+            }
+            if i % (64 as UInt64) == (0 as UInt64) {
+                status = simdMemoryStatus(context, progress)
+                if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
+            }
+            i = i + (1 as UInt64)
+        }
+    }
+    let packedInput = PackedView{data: input as *const UInt8, elementCount: count,
+        byteCount: packedBytes, bitsPerElement: bits as UInt8}
+    let packedOutput = MutablePackedView{data: output, elementCount: count,
+        byteCount: packedBytes, bitsPerElement: bits as UInt8}
+    var i = 0 as UInt64
+    while i < count {
+        if i % (64 as UInt64) == (0 as UInt64) {
+            status = simdMemoryStatus(context, progress)
+            if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
+        }
+        if pack {
+            if not packedSet(packedOutput, i, input[i]) { abort("validated packed store failed") }
+        } else {
+            let value = packedGet(packedInput, i)
+            if value.isNone() { abort("validated packed load failed") }
+            output[i] = value.unwrap()
+        }
+        i = i + (1 as UInt64); progress.completed = i
+    }
+    status = simdMemoryStatus(context, progress)
+    if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
+    return Ok<Bool, SimdIrError>(true)
+}
+
+// Copy preserves lane bit patterns, including NaNs. All currently supported
+// lanes are 32 or 64 bits, so one integer lowering serves every value type.
+fun copyMaskedSimd(borrow source: OwnedBuffer<UInt8>, sourceOffset: UInt64,
+    borrow destination: OwnedBuffer<UInt8>, destinationOffset: UInt64, vector: String,
+    active: Int, context: OperationContext, borrow progress: SimdMemoryProgress) r: Result<Bool, SimdIrError> {
+    let lanes = simdBuiltinLanes(vector)
+    let scalarBytes = simdLaneBits(simdBuiltinLane(vector)) / 8
+    if lanes == 0 or active < 0 or active > lanes {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_mask", "active-lanes"))
+    }
+    let bytes = (active as UInt64) * (scalarBytes as UInt64)
+    if not simdByteRangeValid(source, sourceOffset, bytes) or
+        not simdByteRangeValid(destination, destinationOffset, bytes) {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_shape", "range"))
+    }
+    if not simdRangesDisjoint(source, sourceOffset, bytes, destination, destinationOffset, bytes) {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_alias", "overlap"))
+    }
+    progress.completed = 0 as UInt64; progress.previousTime = 0 as Int64
+    let status = simdMemoryStatus(context, progress)
+    if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
+    let input = ((source.data as UInt64) + sourceOffset) as Int
+    let output = ((destination.data as UInt64) + destinationOffset) as Int
+    let words = (bytes / (4 as UInt64)) as Int
+    let widthWords = lanes * scalarBytes / 4
+    if widthWords == 4 {
+        let mask = mask4(words > 0, words > 1, words > 2, words > 3)
+        let value: i32x4 = simd_unsafe_masked_load_i32x4(input, mask, i32x4(0, 0, 0, 0))
+        simd_unsafe_masked_store_i32x4(value, output, mask)
+    }
+    if widthWords == 8 {
+        let mask = mask8(words > 0, words > 1, words > 2, words > 3, words > 4, words > 5, words > 6, words > 7)
+        let value: i32x8 = simd_unsafe_masked_load_i32x8(input, mask, i32x8(0, 0, 0, 0, 0, 0, 0, 0))
+        simd_unsafe_masked_store_i32x8(value, output, mask)
+    }
+    if widthWords == 16 {
+        let mask = mask16(words > 0, words > 1, words > 2, words > 3, words > 4, words > 5, words > 6, words > 7, words > 8, words > 9, words > 10, words > 11, words > 12, words > 13, words > 14, words > 15)
+        let value: i32x16 = simd_unsafe_masked_load_i32x16(input, mask, i32x16(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+        simd_unsafe_masked_store_i32x16(value, output, mask)
+    }
+    progress.completed = active as UInt64
+    let completedStatus = simdMemoryStatus(context, progress)
+    if completedStatus != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(completedStatus)) }
+    return Ok<Bool, SimdIrError>(true)
+}
+
+// A hint covers one admitted byte in an owned allocation; it never promises
+// residency, completion, or timing. Locality is a closed caller policy.
+fun prefetchSimdBlock(borrow buffer: OwnedBuffer<UInt8>, offset: UInt64, locality: Int,
+    context: OperationContext, borrow progress: SimdMemoryProgress) r: Result<Bool, SimdIrError> {
+    if locality < 0 or locality > 3 {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_policy", "prefetch-locality"))
+    }
+    if not simdByteRangeValid(buffer, offset, 1 as UInt64) {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_shape", "prefetch-range"))
+    }
+    progress.completed = 0 as UInt64; progress.previousTime = 0 as Int64
+    let status = simdMemoryStatus(context, progress)
+    if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
+    let address = ((buffer.data as UInt64) + offset) as Int
+    if locality == 0 { simd_unsafe_prefetch_read_0(address) }
+    if locality == 1 { simd_unsafe_prefetch_read_1(address) }
+    if locality == 2 { simd_unsafe_prefetch_read_2(address) }
+    if locality == 3 { simd_unsafe_prefetch_read_3(address) }
+    progress.completed = 1 as UInt64
+    let completedStatus = simdMemoryStatus(context, progress)
+    if completedStatus != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(completedStatus)) }
+    return Ok<Bool, SimdIrError>(true)
+}

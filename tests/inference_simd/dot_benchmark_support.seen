@@ -1,3 +1,4 @@
+import benchmark_statistics.{metric, medianRatioPpm}
 import dot_fixture_support.{must, context}
 import env.env.{args}
 import memory.aligned_buffer.{OwnedBuffer}
@@ -22,10 +23,6 @@ fun sample<B: DotBackend>(borrow backend: B, borrow left: OwnedBuffer<UInt8>, bo
     clock.free(); ctx.limits.free(); ctx.traceId.free(); ctx.free()
     if elapsed <= (0 as Int64) or elapsed > (10000000000 as Int64) { abort("benchmark duration invalid") }
     return elapsed
-}
-fun metric(label: String, value: Int64) r: Void {
-    let number = value.toString(); let line = label + number
-    println(line); seen_string_release_owned(line); seen_string_release_owned(number)
 }
 fun runDotBenchmark<B: DotBackend>(borrow backend: B) r: Int {
     let argv = args()
@@ -58,13 +55,7 @@ fun runDotBenchmark<B: DotBackend>(borrow backend: B) r: Int {
         if seen_memory_used_bytes() != memory { return 2 }
         i = i + 1
     }
-    i = 1
-    while i < 30 {
-        let value = ratios[i]; var j = i
-        while j > 0 and ratios[j - 1] > value { ratios[j] = ratios[j - 1]; j = j - 1 }
-        ratios[j] = value; i = i + 1
-    }
-    let ratio = (ratios[14] + ratios[15]) / (2 as Int64)
+    let ratio = medianRatioPpm(ratios)
     println("BENCH: dot warmups=5 samples=30 control=scalar clock=monotonic paired=true")
     metric("BENCH: median_ratio_ppm=", ratio)
     metric("BENCH: allocator_peak_bytes=", seen_memory_peak_bytes())

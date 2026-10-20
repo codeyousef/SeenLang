@@ -1,3 +1,4 @@
+import codegen.ir_simd_operation_emit.{emitPortableSimdOperationImpl}
 import simd.ir_types.{simdMaskLanes, simdBuiltinWidthBits, simdConstructorLaneSupported, simdX86DotType,
     simdArmBlockType, simdArmBlockArity, simdArmBlockSymbol}
 ///
@@ -65,6 +66,9 @@ args/argTypes are pre-generated registers/types, constIndices for shuffle lane i
 fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     funcName: String, args: Array<String>, argCount: Int,
     argTypes: Array<String>, constIndices: Array<Int>, constIndexCount: Int) r: String {
+
+    let portable = emitPortableSimdOperationImpl(output, regBox, funcName, args, argTypes)
+    if portable != "" { return portable }
 
     let armType = simdArmBlockType(funcName)
     if armType != "" {
@@ -207,6 +211,17 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
             let shufVecType = argTypes[0]
             let shufVecLT = mapSimdBuiltinTypeImpl(shufVecType)
             let shufLanes = simdLaneCountImpl(shufVecType)
+            if argCount != 2 or constIndexCount != shufLanes or
+                isSimdVectorTypeImpl(shufVecType) != 1 or argTypes[1] != shufVecType {
+                abort("Error: [E_SIMD_ARITY] shuffle requires matching vectors and exact lane indices")
+            }
+            var checkedIndex = 0
+            while checkedIndex < constIndexCount {
+                if constIndices[checkedIndex] < 0 or constIndices[checkedIndex] >= shufLanes * 2 {
+                    abort("Error: [E_SIMD_INDEX] shuffle index is out of range")
+                }
+                checkedIndex = checkedIndex + 1
+            }
             var shufMask = "<"
             var shufI = 0
             while shufI < constIndexCount and shufI < shufLanes {

@@ -193,6 +193,20 @@ fun simdArmBlockSymbol(name: String) r: String {
     return ""
 }
 
+/// Enumerate implemented source vector spellings without allocating metadata.
+fun simdBuiltinTypeAt(index: Int) r: String {
+    if index == 0 { return "f32x4" }
+    if index == 1 { return "f32x8" }
+    if index == 2 { return "f32x16" }
+    if index == 3 { return "f64x2" }
+    if index == 4 { return "f64x4" }
+    if index == 5 { return "f64x8" }
+    if index == 6 { return "i32x4" }
+    if index == 7 { return "i32x8" }
+    if index == 8 { return "i32x16" }
+    return ""
+}
+
 fun simdBuiltinLanes(name: String) r: Int {
     if name == "f32x4" or name == "i32x4" or name == "f64x4" { return 4 }
     if name == "f32x8" or name == "i32x8" or name == "f64x8" { return 8 }

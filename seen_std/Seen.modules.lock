@@ -106,7 +106,7 @@ hash = "0822f44cfb57260b5db24248087686c7d31caffda4532f93e5b4d9dfadc6c4c3"
 
 [[modules]]
 path = "src/simd/ir_types.seen"
-hash = "49366017f76625a6b3e3957f35828c02831c6fa388463fbc03b080dc608011bf"
+hash = "b16d81c8303f103b22e79105e20d23044bd3c3250b92560baa3ca2e1542cb576"
 
 [[modules]]
 path = "src/simd/x86_dispatch.seen"
@@ -122,7 +122,7 @@ hash = "d9039d21e874a56d533e2118f3aa6c615e9d2280babdb32bf0751e3e9108c27e"
 
 [[modules]]
 path = "src/simd/dot_contract.seen"
-hash = "c04177caea1e8e0d212b4b95dd7c00acc8d867c4124409a14b051fde58c6ce2a"
+hash = "5c6f88140e46a950032c3ead2bb66b77e281ec6ab086c60da289368834939b67"
 
 [[modules]]
 path = "src/simd/dot_scalar.seen"
@@ -139,3 +139,15 @@ hash = "e45ee9cedcb39ad11e0dd2c183f6e0becdb6993d7fb0c18b185a23e43eddd695"
 [[modules]]
 path = "src/simd/arm_kernels.seen"
 hash = "91ceb1bef69b292d52b870b1e3cfd17e8817be6e93ea6079997fef067b1dff62"
+
+[[modules]]
+path = "src/memory/aligned_buffer.seen"
+hash = "bfef6900c90f5a13b2884b098fb7ca3d43344e0bea143db5f3371e75664970da"
+
+[[modules]]
+path = "src/simd/operation_types.seen"
+hash = "0ed807895fa454fb0548f710c592cb35021008e31cee4624752e990cf5442109"
+
+[[modules]]
+path = "src/simd/memory_operations.seen"
+hash = "9b405a3fa2ea3a58f0fc491cde1d8f3d0d8758429ea6beb34c617cc0a839018e"
