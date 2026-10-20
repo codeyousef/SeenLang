@@ -43,7 +43,7 @@ fun handle(fd: Int64, owned: Bool) r: OwnedHandle {
 fun probe(executed: UInt64, released: UInt64, lease: Option<AsyncIoLease>) r: IoStressProbe {
     return IoStressProbe{lease: lease, executed: executed, released: released, observed: false}
 }
-fun awaitDispatch(loop: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContext) r: Void {
+fun awaitDispatch(borrow loop: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContext) r: Void {
     // Bounded software wait: absence of readiness fails instead of busy spinning
     // forever. Each wait uses the existing wake-driven kernel poller.
     let polling = executorCopyContext(ctx)
@@ -62,7 +62,7 @@ fun awaitDispatch(loop: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContex
     }
     abort("I/O stress readiness deadline exceeded")
 }
-fun pipeRound(loop: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContext,
+fun pipeRound(borrow loop: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContext,
     executed: UInt64, released: UInt64, cancel: Bool) r: Void {
     var readFd = -1 as Int64; var writeFd = -1 as Int64
     if seen_async_process_pipe(1 as Int32, &readFd, &writeFd) != (0 as Int32) { abort("stress pipe failed") }
@@ -83,7 +83,7 @@ fun pipeRound(loop: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContext,
     if loop.matches(registration) { abort("completed I/O generation retained") }
     registration.free(); must(writer.release())
 }
-fun reap(queue: AsyncFileCompletionQueue) r: CompletedFileIo {
+fun reap(borrow queue: AsyncFileCompletionQueue) r: CompletedFileIo {
     let start = seen_time_monotonic_nanos()
     if start < (0 as Int64) or start > (9223372026854775807 as Int64) { abort("completion clock invalid") }
     while seen_time_monotonic_nanos() - start < (10000000000 as Int64) {
@@ -93,7 +93,7 @@ fun reap(queue: AsyncFileCompletionQueue) r: CompletedFileIo {
     }
     abort("kernel completion did not relinquish borrowed storage")
 }
-fun finishCancellation(queue: AsyncFileCompletionQueue, value: Option<CompletedFileIo>) r: CompletedFileIo {
+fun finishCancellation(borrow queue: AsyncFileCompletionQueue, value: Option<CompletedFileIo>) r: CompletedFileIo {
     if value.isSome() { return value.unwrap() }
     return reap(queue)
 }
