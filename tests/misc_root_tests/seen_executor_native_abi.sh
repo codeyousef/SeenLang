@@ -50,6 +50,10 @@ for sanitizer in '' undefined address; do
         -DSEEN_EXECUTOR_THREAD_SLOTS=4 \
         "$ROOT_DIR/tests/compiler_regressions/executor_abi_contract.c" \
         "$ROOT_DIR/seen_runtime/src/executor_abi.c" -Wl,--wrap=pthread_create
+    run_probe placement "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_placement_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_abi.c" \
+        -Wl,--wrap=sched_getaffinity -Wl,--wrap=sched_setaffinity -Wl,--wrap=syscall
     run_probe allocator "$sanitizer" \
         "$ROOT_DIR/tests/compiler_regressions/executor_allocator_contract.c" \
         "$ROOT_DIR/seen_runtime/seen_runtime.c"

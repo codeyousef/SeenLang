@@ -14,10 +14,10 @@
     {
       "id": "async-executor-thread-adapter",
       "subsystem": "stdlib.async",
-      "purpose": "Generation-checked OS thread creation/join and opaque TLS identity. Seen owns task-slot/depth encoding, fixed workers, typed admission, scheduling, task groups, bounded synchronization, reductions, cancellation and cleanup. Failed joins retain ownership. Linux x86-64 only; other targets fail explicitly. Native lifetime/allocator and Seen executor/synchronization suites cover this boundary.",
+      "purpose": "Generation-checked OS thread lifetime, explicit affinity/NUMA calls and opaque TLS identity. Seen owns task-slot/depth encoding, fixed workers, typed admission, scheduling, task groups, bounded synchronization, reductions, cancellation and cleanup. Failed joins retain ownership. Linux x86-64 only; other targets fail explicitly. Native lifetime/allocator and Seen executor/synchronization suites cover this boundary.",
       "abi": "OS thread C",
       "platforms": ["linux-x86_64"],
-      "symbols": ["seen_executor_current_owner", "seen_executor_current_task", "seen_executor_live_threads", "seen_executor_swap_task", "seen_executor_thread_create", "seen_executor_thread_join"],
+      "symbols": ["seen_executor_apply_placement", "seen_executor_current_owner", "seen_executor_current_task", "seen_executor_live_threads", "seen_executor_swap_task", "seen_executor_thread_create", "seen_executor_thread_join", "seen_executor_validate_placement"],
       "production": false
     },
     {

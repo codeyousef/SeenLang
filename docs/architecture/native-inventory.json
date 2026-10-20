@@ -4117,6 +4117,13 @@
       ]
     },
     {
+      "name": "seen_executor_apply_placement",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
       "name": "seen_executor_current_owner",
       "abi": "C",
       "sources": [
@@ -4153,6 +4160,13 @@
     },
     {
       "name": "seen_executor_thread_join",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_validate_placement",
       "abi": "C",
       "sources": [
         "seen_std/src/async/executor_native.seen"
