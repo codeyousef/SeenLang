@@ -3,7 +3,7 @@
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import sync.contracts.{Send}
-import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext, seen_time_monotonic_nanos}
 import async.executor_core.{ExecutorTaskContext, executorFailure, executorCopyContext,
     executorReleaseSnapshot, EXECUTOR_FOREVER}
 import async.multithread.{MultithreadExecutor, ExecutorJoinHandle}
@@ -14,7 +14,6 @@ import memory.aligned_buffer.{OwnedBuffer}
 import async.readiness_native.{seen_async_readiness_create, seen_async_readiness_register,
     seen_async_readiness_deregister, seen_async_readiness_poll, seen_async_readiness_event,
     seen_async_readiness_wakeup, seen_async_readiness_consume_wake, seen_async_readiness_close}
-import time.time.{Instant}
 import async.io_wakeup.{AsyncIoWakeHandle}
 import async.io_lease.{AsyncIoLeaseCounter}
 
@@ -299,7 +298,7 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         if this.closed or maxEvents <= 0 or maxEvents > this.capacity {
             return Err<Int, AsyncError>(executorFailure(2 as Int32, "io.poll", 0 as UInt64))
         }
-        let now = Instant.now().nanoseconds
+        let now = seen_time_monotonic_nanos()
         if now < (0 as Int64) {
             return Err<Int, AsyncError>(executorFailure(3 as Int32, "io.clock", 0 as UInt64))
         }
@@ -351,7 +350,7 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
             }
             i = i + (1 as UInt64)
         }
-        status = this.expire(Instant.now().nanoseconds)
+        status = this.expire(seen_time_monotonic_nanos())
         if status != (0 as Int32) {
             return Err<Int, AsyncError>(executorFailure(status, "io.poll", count))
         }
