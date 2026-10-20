@@ -1,0 +1,122 @@
+/// Explicit block layouts; names identify wire formats rather than bit widths.
+/// All multi-byte fields are little endian, independent of host alignment.
+import inference.iq3_xxs_codebook.{iq3XXSGridMagnitude}
+enum QuantizedFormat { Q8_0, Q4_0, Q4_K, Q2_K, MXFP4, FP8E4M3FN, IQ3_XXS }
+
+fun quantizedBlockElements(format: QuantizedFormat) r: Int {
+    if format == QuantizedFormat.Q8_0 or format == QuantizedFormat.Q4_0 or
+        format == QuantizedFormat.MXFP4 { return 32 }
+    if format == QuantizedFormat.Q4_K or format == QuantizedFormat.Q2_K or
+        format == QuantizedFormat.IQ3_XXS { return 256 }
+    if format == QuantizedFormat.FP8E4M3FN { return 1 }
+    return 0
+}
+fun quantizedBlockBytes(format: QuantizedFormat) r: Int {
+    if format == QuantizedFormat.Q8_0 { return 34 }
+    if format == QuantizedFormat.Q4_0 { return 18 }
+    if format == QuantizedFormat.Q4_K { return 144 }
+    if format == QuantizedFormat.Q2_K { return 84 }
+    if format == QuantizedFormat.MXFP4 { return 17 }
+    if format == QuantizedFormat.IQ3_XXS { return 98 }
+    if format == QuantizedFormat.FP8E4M3FN { return 1 }
+    return 0
+}
+fun quantizedPowerOfTwo(exponent: Int) r: Float32 {
+    if exponent < -149 or exponent > 127 { abort("quantized exponent outside finite decoder range") }
+    var value = 1.0 as Float32; var remaining = exponent
+    while remaining > 0 { value = value * (2.0 as Float32); remaining = remaining - 1 }
+    while remaining < 0 { value = value * (0.5 as Float32); remaining = remaining + 1 }
+    return value
+}
+fun quantizedLittleEndian16(data: *const UInt8, offset: Int) r: Int {
+    return (data[offset] as Int) | ((data[offset + 1] as Int) << 8)
+}
+fun quantizedFiniteHalf(bits: Int) r: Bool { return ((bits >> 10) & 31) != 31 }
+fun quantizedHalf(bits: Int) r: Float32 {
+    let exponent = (bits >> 10) & 31; let fraction = bits & 1023
+    var value = (fraction as Float32) * quantizedPowerOfTwo(-24)
+    if exponent != 0 {
+        value = ((1024 + fraction) as Float32) * quantizedPowerOfTwo(exponent - 25)
+    }
+    if (bits & 32768) != 0 { value = -value }
+    return value
+}
+fun quantizedE4M3FN(bits: Int) r: Float32 {
+    let exponent = (bits >> 3) & 15; let fraction = bits & 7
+    var value = (fraction as Float32) * (0.001953125 as Float32)
+    if exponent != 0 { value = ((8 + fraction) as Float32) * quantizedPowerOfTwo(exponent - 10) }
+    if (bits & 128) != 0 { value = -value }
+    return value
+}
+fun quantizedE2M1(bits: Int) r: Float32 {
+    let magnitude = bits & 7; var value = 0.0 as Float32
+    if magnitude == 1 { value = 0.5 as Float32 }
+    if magnitude == 2 { value = 1.0 as Float32 }
+    if magnitude == 3 { value = 1.5 as Float32 }
+    if magnitude == 4 { value = 2.0 as Float32 }
+    if magnitude == 5 { value = 3.0 as Float32 }
+    if magnitude == 6 { value = 4.0 as Float32 }
+    if magnitude == 7 { value = 6.0 as Float32 }
+    if (bits & 8) != 0 { value = -value }
+    return value
+}
+/// Six-bit scale/minimum fields in the twelve-byte Q4_K metadata header.
+fun quantizedQ4KScale(data: *const UInt8, group: Int, minimum: Bool) r: Int {
+    if group < 4 {
+        var offset = group
+        if minimum { offset = group + 4 }
+        return (data[4 + offset] as Int) & 63
+    }
+    let combined = data[8 + group] as Int
+    if minimum { return (combined >> 4) | (((data[4 + group] as Int) >> 6) << 4) }
+    return (combined & 15) | (((data[group] as Int) >> 6) << 4)
+}
+/// Internal scalar lane decoder. Callers must validate format, complete block,
+/// lane bounds and finite metadata before invoking it; no pointer escapes.
+fun quantizedLane(data: *const UInt8, format: QuantizedFormat, lane: Int,
+    scale: Float32, minimum: Float32) r: Float32 {
+    if format == QuantizedFormat.FP8E4M3FN { return quantizedE4M3FN(data[0] as Int) }
+    if format == QuantizedFormat.IQ3_XXS {
+        let group = lane / 32; let octet = (lane % 32) / 8; let axis = lane % 8
+        let position = 66 + group * 4
+        let metadata = quantizedLittleEndian16(data, position) |
+            (quantizedLittleEndian16(data, position + 2) << 16)
+        let signCode = (metadata >> (octet * 7)) & 127
+        var negative = ((signCode >> axis) & 1) != 0
+        if axis == 7 {
+            var bits = signCode; var parity = 0
+            while bits != 0 { parity = parity ^ (bits & 1); bits = bits >> 1 }
+            negative = parity != 0
+        }
+        let index = data[2 + group * 8 + octet * 2 + axis / 4] as Int
+        let magnitude = iq3XXSGridMagnitude(index, axis % 4)
+        var value = scale * (((metadata >> 28) * 2 + 1) as Float32) *
+            (0.25 as Float32) * (magnitude as Float32)
+        if negative { value = -value }; return value
+    }
+    if format == QuantizedFormat.Q8_0 {
+        var value = data[2 + lane] as Int
+        if value >= 128 { value = value - 256 }
+        return scale * (value as Float32)
+    }
+    if format == QuantizedFormat.Q4_0 or format == QuantizedFormat.MXFP4 {
+        var header = 2
+        if format == QuantizedFormat.MXFP4 { header = 1 }
+        let byte = data[header + lane % 16] as Int
+        var value = byte & 15
+        if lane >= 16 { value = byte >> 4 }
+        if format == QuantizedFormat.MXFP4 { return scale * quantizedE2M1(value) }
+        return scale * ((value - 8) as Float32)
+    }
+    if format == QuantizedFormat.Q4_K {
+        let group = lane / 32; let byte = data[16 + (lane / 64) * 32 + lane % 32] as Int
+        var value = byte & 15
+        if lane % 64 >= 32 { value = byte >> 4 }
+        return scale * (quantizedQ4KScale(data, group, false) as Float32) * (value as Float32) -
+            minimum * (quantizedQ4KScale(data, group, true) as Float32)
+    }
+    let group = lane / 16; let meta = data[group] as Int
+    let byte = data[16 + (lane / 128) * 32 + lane % 32] as Int
+    let value = (byte >> (2 * ((lane % 128) / 32))) & 3
+    return scale * ((meta & 15) as Float32) * (value as Float32) - minimum * ((meta >> 4) as Float32)
+}

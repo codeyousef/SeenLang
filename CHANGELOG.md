@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add checked Seen decoding and a scalar/vector-store parity corpus for named
+  Q8_0, Q4_0, Q4_K, Q2_K, IQ3_XXS, MXFP4 and finite E4M3FN layouts, with
+  bounded metadata checks, partial progress and explicit store width policy.
+  Standard-library compatibility advances to 0.10.0; hardware certification
+  and designated-machine performance enforcement remain separate.
+
 - Add conservative numeric tensor-loop bounds proofs and bounded JSON reports
   for applied frontend proofs and observed LLVM vectorization decisions. Checked
   builds retain unproved guards and refresh mutable array iteration bounds.

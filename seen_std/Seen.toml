@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seen_std"
-version = "0.9.0"
+version = "0.10.0"
 language = "en"
 visibility = "explicit"
 description = "Core Seen standard library modules used by the self-hosted compiler"
@@ -82,6 +82,9 @@ modules = [
     # Production inference foundations
     "src/inference/scalars.seen",
     "src/inference/span.seen",
+    "src/inference/iq3_xxs_codebook.seen",
+    "src/inference/quantized_formats.seen",
+    "src/simd/quantized_decode.seen",
     "src/memory/aligned_buffer.seen",
     "src/memory/mapped_file.seen",
     "src/crypto/sha256.seen",

@@ -6,7 +6,7 @@ hash = "da2740127024874f32b73acafd8301ebbca2722db7d9888c250640c5d385d106"
 
 [[modules]]
 path = "src/core/result.seen"
-hash = "c32b442210ecd691cd763005cc54b8e0a76d68d8e78e3bca31e6e698baa7a8de"
+hash = "b0202d789f76ee14f3d5ebe58cb62277da2c4da6f8f016a0cffec0d10ecf1959"
 
 [[modules]]
 path = "src/core/prelude.seen"
@@ -34,7 +34,7 @@ hash = "8aa1d4613f7a58ffbe11f418374c10758194c6198780f5a9e33ce8037fe6d1f3"
 
 [[modules]]
 path = "src/io/file.seen"
-hash = "0d05ce6ead70588da35997a2cff60d169034494b69a8471ed896a5ef0b7d6c46"
+hash = "4af6dec130f4d6686553a8a908da3050784a606f3ecccc02118e68cdd3c2dcfe"
 
 [[modules]]
 path = "src/io/direct.seen"
@@ -88,9 +88,6 @@ hash = "ebb57641c70ef230a0478b3faa2afd49baba2517b7fde5b6acd60e5dff05c490"
 path = "src/time/timer.seen"
 hash = "a8a1da1850bead5835929ddab499032f4409c906d7a50102e3c435a9ba069c1c"
 
-[[modules]]
-path = "src/async/runtime.seen"
-hash = "ab67aad7f93dd4190cda69711a72302acc29d2f833a5b09e4d190b91effc6895"
 
 [[modules]]
 path = "src/ffi/cinterop.seen"
@@ -151,3 +148,15 @@ hash = "2b60bfc1046a240167779ff822f607cf4d239cebd8e63e8a60235e4ae1ad7033"
 [[modules]]
 path = "src/simd/memory_operations.seen"
 hash = "8d05dffa6c61ff2b6e8c31d4b91f933b514a89f9e574dea7a6259a3215e3075b"
+
+[[modules]]
+path = "src/inference/iq3_xxs_codebook.seen"
+hash = "049ea96e396323548a116bcd6c1d45a142d8774d8b2f20cb690d7063ef147ff1"
+
+[[modules]]
+path = "src/inference/quantized_formats.seen"
+hash = "35d241a77160060116e7fe7e2a7869f88ac52de9fb4184de4cd9f3736a71e944"
+
+[[modules]]
+path = "src/simd/quantized_decode.seen"
+hash = "e05c0a89771049b038c91954ba0c7a27feea45806fe920dec15779c5976dc5c5"

@@ -12,8 +12,8 @@ COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/inf-simd-b.XXXXXX")"
-SEEN_SIMD_ARTIFACT_PREFIX=inf-simd-b
-source "$ROOT_DIR/scripts/simd_regression_support.sh"
+FIXTURE_ARTIFACT_PREFIX=inf-simd-b
+source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 for profile in fast release undefined address; do
     compile_case "$profile" pointer-index "$ROOT_DIR/tests/compiler_regressions/typed_pointer_index.seen"
     compile_case "$profile" contract "$ROOT_DIR/tests/inference_simd/x86_dot_contract.seen"

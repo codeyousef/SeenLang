@@ -1,0 +1,78 @@
+import inference.quantized_formats.{QuantizedFormat, quantizedBlockElements}
+import simd.quantized_decode.{decodeQuantizedBlock}
+import simd.memory_operations.{SimdMemoryProgress}
+import memory.aligned_buffer.{OwnedBuffer}
+import core.operation_context.{OperationContext}
+import dot_fixture_support.{must, context}
+import benchmark_statistics.{metric, medianRatioPpm}
+import quantized_fixture_support.{prepareQuantizedCorpus, corpusExpected, corpusFormat}
+import env.env.{args}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_peak_bytes() r: Int64
+@noinline
+fun quantizedSample(borrow source: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>,
+    format: QuantizedFormat, width: Int, ctx: OperationContext,
+    borrow progress: SimdMemoryProgress) r: Int64 {
+    let count = quantizedBlockElements(format); let start = seen_time_monotonic_nanos(); var i = 0
+    while i < 128 {
+        must(decodeQuantizedBlock(source, 0 as UInt64, output, 0 as UInt64, format, count, width, ctx, progress))
+        i = i + 1
+    }
+    let elapsed = seen_time_monotonic_nanos() - start
+    if elapsed <= (0 as Int64) or elapsed > (10000000000 as Int64) { abort("invalid quantized sample duration") }
+    let values = output.data as *Float32
+    if values[count - 1] != corpusExpected(format, count - 1, 0) or progress.completed != (count as UInt64) {
+        abort("quantized benchmark parity failed")
+    }
+    return elapsed
+}
+fun main() r: Int {
+    let argv = args(); var enforce = false
+    if argv.length() > 2 { return 1 }
+    if argv.length() == 2 { if argv[1] != "--enforce" { return 1 }; enforce = true }; argv.free()
+    let source: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 64 as UInt64))
+    let output: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 64 as UInt64))
+    let ctx = context(); let progress = SimdMemoryProgress.create()
+    let ratios = Array<Int64>(); var i = 0; while i < 30 { ratios.push(0 as Int64); i = i + 1 }
+    var kind = 0
+    while kind < 7 {
+        let format = corpusFormat(kind); prepareQuantizedCorpus(source.data, format, 0)
+        var mode = 0
+        while mode < 3 {
+            var width = 128; if mode == 1 { width = 256 }; if mode == 2 { width = 512 }
+            i = 0
+            while i < 5 {
+                let control = quantizedSample(source, output, format, 0, ctx, progress)
+                let candidate = quantizedSample(source, output, format, width, ctx, progress); i = i + 1
+            }
+            let baseline = seen_memory_used_bytes(); i = 0
+            while i < 30 {
+                var control = 0 as Int64; var candidate = 0 as Int64
+                if i % 2 == 0 {
+                    control = quantizedSample(source, output, format, 0, ctx, progress)
+                    candidate = quantizedSample(source, output, format, width, ctx, progress)
+                } else {
+                    candidate = quantizedSample(source, output, format, width, ctx, progress)
+                    control = quantizedSample(source, output, format, 0, ctx, progress)
+                }
+                ratios[i] = candidate * (1000000 as Int64) / control
+                if seen_memory_used_bytes() != baseline { return 2 }; i = i + 1
+            }
+            let ratio = medianRatioPpm(ratios)
+            println("BENCH: quantized-decode warmups=5 samples=30 paired=true control=scalar clock=monotonic blocks_per_sample=128")
+            metric("BENCH: corpus_format_index=", kind as Int64)
+            metric("BENCH: vector_bits=", width as Int64)
+            metric("BENCH: median_ratio_ppm=", ratio)
+            metric("BENCH: allocator_peak_bytes=", seen_memory_peak_bytes())
+            if enforce and ratio > (1050000 as Int64) { return 3 }
+            mode = mode + 1
+        }
+        kind = kind + 1
+    }
+    ratios.free(); progress.free(); ctx.limits.free(); ctx.traceId.free(); ctx.free()
+    source.close(); source.free(); output.close(); output.free()
+    println("PASS: quantized paired performance observation and live-allocation stability")
+    if not enforce { println("PENDING: quantized designated-machine performance enforcement") }
+    return 0
+}

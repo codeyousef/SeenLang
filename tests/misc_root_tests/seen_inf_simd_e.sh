@@ -12,9 +12,9 @@ COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/inf-simd-e.XXXXXX")"
-SEEN_SIMD_ARTIFACT_PREFIX=inf-simd-e
-source "$ROOT_DIR/scripts/simd_regression_support.sh"
-SIMD_COMPILE_FLAGS=(--bounds-check --simd-report=full)
+FIXTURE_ARTIFACT_PREFIX=inf-simd-e
+source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+FIXTURE_COMPILE_FLAGS=(--bounds-check --simd-report=full)
 for profile in fast release undefined address; do
     compile_case "$profile" proof "$ROOT_DIR/tests/inference_simd/bounds_proof_contract.seen"
     for name in happy invalid limit reports cleanup; do
