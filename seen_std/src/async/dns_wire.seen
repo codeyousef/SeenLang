@@ -45,7 +45,7 @@ class DnsDecodedName {
 fun dnsNameFailure(buffer: OwnedBuffer<UInt8>) r: Result<DnsDecodedName, AsyncError> {
     buffer.close(); buffer.free(); return dnsInvalid<DnsDecodedName>("dns.name")
 }
-fun decodeDnsName(wire: DnsWire, offset: Int) r: Result<DnsDecodedName, AsyncError> {
+fun decodeDnsName(borrow wire: DnsWire, offset: Int) r: Result<DnsDecodedName, AsyncError> {
     if wire.storage.data == (null as *UInt8) or wire.length < 12 or wire.length > 4096 or
         (wire.length as UInt64) > wire.storage.byteLength or offset < 12 or offset >= wire.length { return dnsInvalid<DnsDecodedName>("dns.name") }
     let allocated = OwnedBuffer<UInt8>.allocate(256 as UInt64, 1 as UInt64, 16 as UInt64)
@@ -192,7 +192,7 @@ fun dnsRecordFailure(records: Array<DnsResourceRecord>, status: Int32) r: Result
     return Err<DnsResponse, AsyncError>(executorFailure(status, "dns.response", 0 as UInt64))
 }
 
-fun decodeDnsResponse(wire: DnsWire, question: DnsQuestion, maxAnswers: Int) r: Result<DnsResponse, AsyncError> {
+fun decodeDnsResponse(borrow wire: DnsWire, borrow question: DnsQuestion, maxAnswers: Int) r: Result<DnsResponse, AsyncError> {
     if wire.storage.data == (null as *UInt8) or wire.length < 12 or wire.length > 4096 or wire.length > (wire.storage.byteLength as Int) or
         maxAnswers <= 0 or maxAnswers > 128 { return dnsInvalid<DnsResponse>("dns.response") }
     if wire.word(0) != question.id or (wire.byte(2) & 128) == 0 or (wire.byte(2) & 120) != 0 or
