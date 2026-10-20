@@ -469,3 +469,31 @@ close-on-exec duplicate descriptor. Close the source File normally after this
 call; the completion owner remains valid. Buffered files return
 `async.unsupported_platform`. The filesystem's opaque wrapper is never treated
 as a raw descriptor number.
+
+### Software stress evidence (ASYNC-002G)
+
+`seen_std/tests/async/async-002g.seen` submits 4,320 bounded jobs across
+five warmups, thirty measured batches and a hundred additional batches. Every
+job has an exactly-once counter and destructor count; workers remain fixed and
+live allocations return to the warmed baseline after every batch. The fixture
+also exercises nested worker helping, partial failures, queued cancellation,
+rejected admission and complete thread/synchronization cleanup. Sample timing is
+reported as observation; it does not substitute for a designated performance
+control or certify a five-percent regression threshold.
+
+`seen_std/tests/async/io_completion_stress.seen <new-file-path>` exercises a
+thousand pipe readiness/cancellation pairs, stale generations, real Linux direct
+file completions, notification leases and cancellation while the kernel borrows
+buffers. The source filesystem File closes before the independently owned
+completion descriptor is submitted. Rejected or pending cancellation never
+permits buffer/descriptor cleanup until completion returns those owners.
+
+Run both through `tests/misc_root_tests/seen_async_stress_contract.sh` inside
+the repository's capped regression scope. The harness runs fast, release with
+ThinLTO, UBSan, ASan and TSan, halting on sanitizer errors with no suppressions.
+ASan/TSan may reserve finite shadow virtual address space only after matching
+instrumentation is verified; the enclosing physical-memory, swap, process and
+worker caps remain in force. The JSON result explicitly sets `certified:false`:
+designated performance comparison, 7950X3D scaling and GPU completion remain
+separate deferred verification. This work adds no public API or native export;
+stdlib 0.7.0 and runtime-v8 compatibility identities remain unchanged.

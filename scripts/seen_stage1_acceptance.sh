@@ -511,6 +511,7 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_async_reactor_contract.sh"
     "$REPO_ROOT/tests/misc_root_tests/seen_async_streams_process_dns_contract.sh"
     "$REPO_ROOT/tests/misc_root_tests/seen_task_context_policy_contract.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_async_stress_contract.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_open_issue_regressions.sh"
 
