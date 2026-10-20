@@ -6,7 +6,7 @@ import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext
 import async.executor_core.{executorCopyContext}
 import memory.aligned_buffer.{OwnedBuffer, ownedBufferByteRangeValid}
 import io.completion_types.{IoQueueLimits, IoOperation, IoRegistration, IoRequest,
-    IoRejectedSubmission, IoCompletion, IoSubmissionView, ioQueueFailure, ioCompletionStatusValid}
+    IoRejectedSubmission, IoCompletion, IoSubmissionView, ioQueueFailure, ioQueueStableError, ioCompletionStatusValid}
 
 @move
 class IoQueue {
@@ -101,7 +101,10 @@ class IoQueue {
         let index = this.slot(token)
         if index < 0 or this.states[index] != 1 { return Err<IoSubmissionView, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.view", 0 as UInt64)) }
         let request = this.entries[index].unwrap(); let deadline = asyncDeadlineStatus(request.context)
-        if deadline != (0 as Int32) { return Err<IoSubmissionView, AsyncError>(ioQueueFailure(deadline, "io.queue.view", 0 as UInt64)) }
+        if deadline != (0 as Int32) {
+            this.terminal(index, 0 as UInt64, deadline, 0 as Int64)
+            return Err<IoSubmissionView, AsyncError>(ioQueueFailure(deadline, "io.queue.view", 0 as UInt64))
+        }
         this.states[index] = 4
         return Ok<IoSubmissionView, AsyncError>(IoSubmissionView{token: token, descriptor: request.resources.descriptor.native,
             buffer: request.resources.buffer.data, bytes: request.bytes, fileOffset: request.fileOffset,
@@ -153,6 +156,10 @@ class IoQueue {
     fun nextCancellation() r: Option<IoRegistration> {
         var index = 0
         while index < this.capacity {
+            if this.states[index] == 1 {
+                let deadline = asyncDeadlineStatus(this.entries[index].unwrap().context)
+                if deadline != (0 as Int32) { this.terminal(index, 0 as UInt64, deadline, 0 as Int64) }
+            }
             if this.states[index] == 2 or this.states[index] == 4 {
                 let deadline = asyncDeadlineStatus(this.entries[index].unwrap().context)
                 if deadline != (0 as Int32) and this.cancellation[index] == (0 as Int32) { this.cancellation[index] = deadline }
@@ -208,7 +215,7 @@ class IoQueue {
 fun ioQueuePreflight(borrow queue: IoQueue, borrow buffer: OwnedBuffer<UInt8>, operation: IoOperation,
     offset: Int64, bytes: UInt64, context: AsyncOperationContext, descriptor: Int64) r: Result<Bool, AsyncError> {
     let validation = validateAsyncContext(context, "io.queue.reserve", 0 as UInt64)
-    if validation.isErr() { let error = validation.unwrapErr(); validation.releaseContainer(); return Err<Bool, AsyncError>(error) }
+    if validation.isErr() { let error = validation.unwrapErr(); validation.releaseContainer(); return Err<Bool, AsyncError>(ioQueueStableError(error)) }
     validation.releaseContainer()
     if queue.closed or not queue.accepting or bytes == (0 as UInt64) or
         not ownedBufferByteRangeValid(buffer, 0 as UInt64, buffer.byteLength) or bytes > buffer.byteLength or

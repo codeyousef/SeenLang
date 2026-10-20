@@ -402,3 +402,11 @@ not authorize retention, synchronization, destruction, or device changes.
 - `io/iocp_layout`
 - `io/iocp_file`
 - `io/windows_iocp`
+
+## Positional worker completion modules
+
+- `io/worker_completion`
+- `io/worker_queue`
+- `io/macos_native`
+- `io/macos_file`
+- `io/macos_positional`

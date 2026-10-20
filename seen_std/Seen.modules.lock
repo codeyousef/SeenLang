@@ -107,11 +107,11 @@ hash = "9338033052c1558ad0b6dce1a482da3f66f44802fce81a7cde60d10a7622f8ab"
 
 [[modules]]
 path = "src/io/completion_types.seen"
-hash = "75ae1ef8367915ad61b2148e06829c806451630d530afdefb2f54e49f367b144"
+hash = "757fbd5f4ad4b66f69ca43bb3ce500c7f70cf6e175bbf5e3ada99a4d7fc8cdd2"
 
 [[modules]]
 path = "src/io/completion_queue.seen"
-hash = "8e10b30264b5c6ec94cdec04c2a42e1ac51931ef48a1ca4ff6293e965e1cbe75"
+hash = "a93e9a54c28e339a8e3c4ce5b1df5a9da3bd8215d0ef010e370f7c5bf6bc45ef"
 
 [[modules]]
 path = "src/io/uring_native.seen"
@@ -148,3 +148,23 @@ hash = "395b11dcefdec3a03a42a5e516f12767be2b46b114c93d0b6d60263a7b41aac1"
 [[modules]]
 path = "src/io/windows_iocp.seen"
 hash = "cbb5d9f1506b322c38217e11a08412ef8e6328c7617eee14af40689402482673"
+
+[[modules]]
+path = "src/io/worker_completion.seen"
+hash = "ba4777b7e23dae5ad6a8913541d432b923b0a36f4899fcb89300111b5bf31fb4"
+
+[[modules]]
+path = "src/io/worker_queue.seen"
+hash = "cfcfabc99379692461e404305f5fa98d846685172e3ed6925a544595f28c7a77"
+
+[[modules]]
+path = "src/io/macos_native.seen"
+hash = "94247edbef88b674d7c0e0bffd4e4f182f31d5ce670045d189557a016fe6b83a"
+
+[[modules]]
+path = "src/io/macos_file.seen"
+hash = "d00c78e5cb347aa8e6b536aec30c1e9b93a0313ee4ad5ae3e34ac3ccc69dd94c"
+
+[[modules]]
+path = "src/io/macos_positional.seen"
+hash = "7ee6c0043ae70020d3e18bb90a9580f3458e682a9eb8d3bd2af515edbd7b7ac1"

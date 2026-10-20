@@ -36,6 +36,7 @@ class PoolJoinHandle<T: Send + ExecutorJob> {
     var inner: ExecutorJoinHandle<PlacedJob<T>>
 
     fun cancel() r: Result<Bool, AsyncError> { return this.inner.cancel() }
+    fun isTerminal() r: Result<Bool, AsyncError> { return this.inner.isTerminal() }
 
     fun join(context: AsyncOperationContext) r: Result<T, AsyncError> {
         let joined = this.inner.join(context)

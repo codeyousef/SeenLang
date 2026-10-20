@@ -554,6 +554,8 @@ fun runtimeSourceSignatureForCache() r: String {
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/io_uring_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/iocp_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/iocp_abi.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/macos_io_abi.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/macos_io_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_readiness_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_readiness_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_process_abi.c"))
@@ -1721,8 +1723,8 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                 packageObjectManifestSchema:
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
-            runtimeAbi: "runtime-v11",
-            standardLibraryVersion: "0.13.0",
+            runtimeAbi: "runtime-v12",
+            standardLibraryVersion: "0.14.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
             packageClientProtocol: "SEENPKG1",
@@ -8504,6 +8506,8 @@ fun programRuntimeInputIdentity() r: String {
     names.push("src/io_uring_abi.h")
     names.push("src/iocp_abi.c")
     names.push("src/iocp_abi.h")
+    names.push("src/macos_io_abi.c")
+    names.push("src/macos_io_abi.h")
     names.push("src/executor_readiness_abi.c")
     names.push("src/executor_readiness_abi.h")
     names.push("src/executor_process_abi.c")

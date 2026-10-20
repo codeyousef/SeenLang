@@ -23,6 +23,9 @@
 // ============================================================================
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
 
 #include "seen_runtime.h"
 #include <errno.h>
@@ -93,6 +96,7 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 #include "src/executor_completion_abi.c"
 #include "src/io_uring_abi.c"
 #include "src/iocp_abi.c"
+#include "src/macos_io_abi.c"
 #include "src/executor_readiness_abi.c"
 #include "src/executor_process_abi.c"
 #include "src/executor_stream_abi.c"

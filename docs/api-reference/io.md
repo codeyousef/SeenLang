@@ -125,7 +125,8 @@ copy before validating the context and checking all budgets.
 
 `IoRequest.create` consumes one independently owned `OwnedHandle` and one
 `OwnedBuffer<UInt8>`. Its context is borrowed until admission, so the caller
-keeps that context alive until `reserve` returns. A successful reservation owns
+keeps that context alive until admission succeeds or the rejected request is
+released/rebound before retry. A successful reservation owns
 a bounded context snapshot. Cancellation is then requested through the queue;
 mutating the original context does not mutate the snapshot. Negative or
 overflowing file ranges, invalid owners, overlapping full buffer ranges, and
@@ -433,3 +434,97 @@ Windows execution. Two outstanding submissions are recorded separately from
 unmeasured physical-storage overlap; `native_overlap_verified` remains false.
 Linux arm64/macOS/Windows platform execution still requires its own evidence;
 syntax and frontend checks alone are compile-only source validation.
+
+## macOS positional workers and F_NOCACHE
+
+`io.macos_positional.MacPositionalQueue.create(limits, workers, stackBytes,
+context)` explicitly selects blocking positional I/O on bounded workers.
+Standard library 0.14.0 requires runtime ABI `runtime-v12`. This is a worker
+backend, not io_uring or kernel asynchronous file I/O. Non-macOS hosts return
+`async.unsupported_platform` before creating workers. The existing pthread
+adapter supports inherited placement on macOS x86-64/arm64; explicit Linux
+CPU/NUMA placement remains unsupported there.
+
+The shared `io.worker_queue.WorkerCompletionQueue` uses the existing typed
+blocking pool. Depth is capped at 65,536, workers at 16 and at queue depth,
+individual stacks at 80 KiB–8 MiB, and helper depth at one. Core transfer, buffer
+and request metadata ceilings still apply. One fixed joins/outcomes array per
+depth bounds coordinator storage. A separate owned drain context preserves at
+most 4,096 identity bytes and is used only to collect already terminal jobs.
+It ignores a request's expired wait context while retaining that request's
+cancellation/deadline result. The executor also owns one context snapshot per
+scheduled job; total request identity storage is therefore bounded by twice
+`maxMetadataBytes`, plus the 4,096-byte drain snapshot. Constructor prefixes release their owners on
+failure; no extra unbounded pool or background fallback is created.
+
+`reserveFile` consumes a buffer, opens an existing regular file under the shared
+borrow-only admission checks, and returns the same owner-carrying rejection
+contract as other adapters. Creation/truncation are separate explicit
+`io.macos_file.macosOpenHandle` operations. Paths retain their POSIX bytes,
+reject embedded NUL, and are bounded to 4,095 bytes. Fresh opens use CLOEXEC and
+NONBLOCK, respect no-follow options, and reject non-regular files. Each request
+gets an independent open file description: F_NOCACHE cannot change a borrowed
+source `File` or another request's cache policy.
+
+Choose `MacCachePolicy.Cached` or `UncachedRequired`. The latter must successfully
+set F_NOCACHE; failures retain the descriptor in the rejection owner and never
+retry in cached mode. F_NOCACHE requests bypass of the filesystem data cache;
+it does not establish O_DIRECT alignment guarantees or certify physical storage
+behavior. Darwin flag geometry is asserted against the platform SDK. The
+native boundary contains only open/fstat/fcntl/pread/pwrite and preserves
+negative Darwin errno even on unsupported targets. All admission, cache policy,
+worker scheduling, ownership, cancellation and result interpretation stay in Seen.
+
+A `MacPositionalJob` borrows only one checked descriptor/buffer range and invokes
+one positional syscall. Short results and EINTR are explicit results; neither
+is retried automatically. Queued cancellation can prevent work. Once a worker
+has entered a blocking syscall, cancellation/deadline observation is cooperative
+and cannot preempt the kernel call. The queue retains the descriptor, buffer
+and completion storage until that worker reaches terminal publication and is
+joined. Shutdown/drain may therefore depend on filesystem/device responsiveness;
+it never detaches the operation or claims a hard I/O latency bound.
+
+Worker outcome storage belongs to the coordinator independently of the job
+object. This preserves actual partial progress and raw native results even
+when the executor releases a cancelled/panicked job. Only the worker writes it
+while running; the coordinator reads it after the executor's terminal mutex
+publication and successful join. An unknown token, oversized progress or invalid
+status after a known synchronous join becomes a terminal unavailable result
+with zero trusted progress, retaining raw evidence and returning an explicit
+error. A successful join proves that the original borrow ended; it does not
+invent a driver acknowledgement for an unrelated request.
+
+`prepare`/`submit` are adapter support operations. A preparation view and outcome
+borrow must be released before `rejectPrepared` acknowledges it. Cancellation
+or shutdown retains preparation owners until that acknowledgement. A submitted
+job destructor consumes only its own storage, never queue-owned outcomes or
+borrowed request resources. Jobs must be synchronous and must not retain those
+borrows after returning. These low-level operations are for adapter authors;
+the macOS wrapper performs preparation/submission in one serialized call.
+
+`reap` scans at most one queue depth and collects only terminal jobs. Executor
+readiness briefly locks bookkeeping and never waits for user work to finish.
+`poll` transfers terminal owners and releases their independent outcome records.
+`shutdown` stops admission and records cancellation; continue cancellation,
+reap and poll before closing. A busy close retains every owner. Close joins
+workers before releasing their queue; successful close is idempotent. Release
+then destroys the pool, core, arrays and drain snapshot. Queued deadline expiry
+also becomes a terminal timeout without acquiring a worker/native borrow.
+
+`tests/misc_root_tests/seen_async_io_d.sh` adds fast/release/UBSan/ASan contracts,
+a 60-second worker fuzz, and a native macOS probe. Linux-hosted worker fixtures
+use real fixed workers and atomics to prove two jobs are simultaneously running,
+partial progress survives cancellation, preparation views survive shutdown,
+invalid joined results fail explicitly and repeated lifecycle allocations return
+to baseline. These jobs simulate file operations and do not certify Darwin I/O.
+On a Mac, `macos_positional.seen` exercises cached/F_NOCACHE positional writes,
+reads, cancellation and repeated cleanup. `seen-io-macos-v1` records distinguish
+unsupported from verified file-contract execution. Set
+`SEEN_REQUIRE_MACOS_POSITIONAL=1` on a designated runner to require the latter.
+Physical device overlap remains unmeasured. Linux/Windows syntax and Seen
+frontend checks are source validation, not a Darwin SDK or runtime certification.
+
+Completion-boundary errors use the static `completion-io` trace tag when a
+dependency error would otherwise borrow a context string. Those errors can
+outlive released snapshots; request trace/resource identities remain in the
+owned admitted context until completion release.

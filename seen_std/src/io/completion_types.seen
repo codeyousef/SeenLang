@@ -95,6 +95,11 @@ fun ioQueueFailure(status: Int32, operation: String, progress: UInt64) r: AsyncE
     return asyncFailure(asyncStatusCode(status), operation, "bounded completion I/O operation rejected",
         false, progress, "completion-io")
 }
+// Dependency validation/join errors can borrow a context's trace string.
+// Completion errors may outlive that context, so retain a bounded static tag.
+fun ioQueueStableError(error: AsyncError) r: AsyncError {
+    error.traceId = "completion-io"; return error
+}
 fun ioCompletionStatusValid(status: Int32) r: Bool {
     return status == (0 as Int32) or status == (1 as Int32) or status == (2 as Int32) or
         status == (3 as Int32) or status == (4 as Int32) or status == (5 as Int32) or

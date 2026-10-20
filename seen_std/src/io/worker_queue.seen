@@ -1,0 +1,178 @@
+/// Explicit fixed-worker adapter support; never selected as hidden fallback.
+import core.result.{Result, Ok, Err}
+import core.option.{Option, Some, None}
+import sync.contracts.{Send}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import async.executor_core.{ExecutorJob, ExecutorLimits, executorCopyContext, executorReleaseSnapshot, executorErrorStatus}
+import async.pools.{TypedWorkerPool, PoolJoinHandle}
+import async.pool_placement.{PoolPlacement}
+import io.completion_queue.{IoQueue}
+import io.completion_types.{IoQueueLimits, IoRequest, IoRegistration, IoRejectedSubmission, IoCompletion, IoSubmissionView, ioQueueFailure, ioQueueStableError, ioCompletionStatusValid}
+import io.worker_completion.{WorkerIoOutcome, WorkerIoSubmission}
+
+@move
+class WorkerCompletionQueue<T: Send + ExecutorJob> {
+    var core: IoQueue
+    var pool: TypedWorkerPool<T>
+    var joins: Array<Option<PoolJoinHandle<T>>>
+    var outcomes: Array<Option<WorkerIoOutcome>>
+    var drainContext: AsyncOperationContext
+    var workerCapacity: Int
+    var scanCursor: Int
+    var pendingCancellation: Option<IoRegistration>
+    var closed: Bool
+
+    static fun create(borrow limits: IoQueueLimits, workers: Int, stackBytes: UInt64,
+        context: AsyncOperationContext) r: Result<WorkerCompletionQueue<T>, AsyncError> {
+        let valid = validateAsyncContext(context, "io.worker.create", 0 as UInt64)
+        if valid.isErr() { let error = valid.unwrapErr(); valid.releaseContainer(); return Err<WorkerCompletionQueue<T>, AsyncError>(ioQueueStableError(error)) }
+        valid.releaseContainer()
+        if not limits.valid() or limits.depth > 65536 or workers <= 0 or workers > 16 or workers > limits.depth or
+            stackBytes < (81920 as UInt64) or stackBytes > (8388608 as UInt64) or
+            context.resourceId.length() + context.operation.traceId.value.length() > 4096 {
+            return Err<WorkerCompletionQueue<T>, AsyncError>(ioQueueFailure(2 as Int32, "io.worker.create.limit", 0 as UInt64))
+        }
+        let created = IoQueue.create(limits)
+        if created.isErr() { let error = created.unwrapErr(); created.releaseContainer(); return Err<WorkerCompletionQueue<T>, AsyncError>(ioQueueStableError(error)) }
+        let core: IoQueue = created.unwrap(); created.releaseContainer()
+        let poolLimits = ExecutorLimits{workers: workers, tasks: limits.depth, queued: limits.depth, helpDepth: 1, stackBytes: stackBytes}
+        let placement = PoolPlacement.inherited()
+        let started = TypedWorkerPool<T>.create("blocking", poolLimits, placement)
+        placement.release(); poolLimits.free()
+        if started.isErr() {
+            let error = started.unwrapErr(); started.releaseContainer(); let released = core.release(); released.releaseContainer()
+            return Err<WorkerCompletionQueue<T>, AsyncError>(ioQueueStableError(error))
+        }
+        let pool: TypedWorkerPool<T> = started.unwrap(); started.releaseContainer()
+        let joins = Array<Option<PoolJoinHandle<T>>>(); let outcomes = Array<Option<WorkerIoOutcome>>(); var index = 0
+        while index < limits.depth { joins.push(None<PoolJoinHandle<T>>()); outcomes.push(None<WorkerIoOutcome>()); index = index + 1 }
+        let drain = executorCopyContext(context)
+        drain.operation.cancellation = false; drain.operation.monotonicDeadline = 9223372036854775807 as Int64
+        drain.fallbackPolicy = 0
+        return Ok<WorkerCompletionQueue<T>, AsyncError>(WorkerCompletionQueue<T>{core: core, pool: pool,
+            joins: joins, outcomes: outcomes, drainContext: drain, workerCapacity: workers, scanCursor: 0,
+            pendingCancellation: None<IoRegistration>(), closed: false})
+    }
+    fun reserve(request: IoRequest) r: Result<IoRegistration, IoRejectedSubmission> { return this.core.reserve(request) }
+    fun prepare(token: UInt64) r: Result<WorkerIoSubmission, AsyncError> {
+        if this.closed { return Err<WorkerIoSubmission, AsyncError>(ioQueueFailure(1 as Int32, "io.worker.prepare", 0 as UInt64)) }
+        let result = this.core.submission(token)
+        if result.isErr() { let error = result.unwrapErr(); result.releaseContainer(); return Err<WorkerIoSubmission, AsyncError>(error) }
+        let view: IoSubmissionView = result.unwrap(); result.releaseContainer(); let index = this.core.slot(token)
+        let outcome = WorkerIoOutcome{token: token, progress: 0 as UInt64, status: 0 as Int32, nativeCode: 0 as Int64, finished: false}
+        this.outcomes[index].free(); this.outcomes[index] = Some<WorkerIoOutcome>(outcome)
+        return Ok<WorkerIoSubmission, AsyncError>(WorkerIoSubmission{view: view, outcome: outcome})
+    }
+    // Always consumes the job; its destructor must release only the job's own
+    // storage, never the queue-owned outcome or borrowed request resources.
+    fun submit(token: UInt64, task: T) r: Result<Bool, AsyncError> {
+        let index = this.core.slot(token)
+        if this.closed or index < 0 or this.core.states[index] != 4 or this.outcomes[index].isNone() {
+            if not task.release() { abort("worker I/O job destructor failed") }
+            return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.worker.submit", 0 as UInt64))
+        }
+        let submitted = this.core.submitted(token)
+        if submitted.isErr() { if not task.release() { abort("worker I/O job destructor failed") }; return submitted }
+        submitted.releaseContainer()
+        let scheduled = this.pool.submit(task, this.core.entries[index].unwrap().context)
+        if scheduled.isErr() {
+            let error = scheduled.unwrapErr(); scheduled.releaseContainer()
+            if not task.release() { abort("worker I/O job destructor failed") }
+            let outcome = this.outcomes[index].unwrap(); outcome.status = executorErrorStatus(error); outcome.finished = true
+            let completed = this.core.complete(token, 0 as UInt64, outcome.status, 0 as Int64); completed.releaseContainer()
+            return Err<Bool, AsyncError>(ioQueueStableError(error))
+        }
+        let handle: PoolJoinHandle<T> = scheduled.unwrap(); scheduled.releaseContainer()
+        this.joins[index].free(); this.joins[index] = Some<PoolJoinHandle<T>>(handle)
+        return Ok<Bool, AsyncError>(true)
+    }
+    fun rejectPrepared(token: UInt64, status: Int32, nativeCode: Int64) r: Result<Bool, AsyncError> {
+        let index = this.core.slot(token)
+        if index < 0 or this.core.states[index] != 4 {
+            return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.worker.reject.preparing", 0 as UInt64))
+        }
+        return this.core.rejectSubmission(token, status, nativeCode)
+    }
+    fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.core.cancel(token) }
+    fun publishCancellation() r: Result<Bool, AsyncError> {
+        if this.closed { return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.worker.cancel", 0 as UInt64)) }
+        if this.pendingCancellation.isNone() { this.pendingCancellation.free(); this.pendingCancellation = this.core.nextCancellation() }
+        if this.pendingCancellation.isNone() { return Ok<Bool, AsyncError>(false) }
+        let registration = this.pendingCancellation.unwrap(); let index = this.core.slot(registration.token)
+        if index >= 0 {
+            if this.core.states[index] == 4 {
+                // A prepare view may still be borrowed by the adapter. Only
+                // its explicit rejectPrepared acknowledgement can end that.
+                return Err<Bool, AsyncError>(ioQueueFailure(2 as Int32, "io.worker.cancel.preparing", 0 as UInt64))
+            } else if this.core.states[index] == 2 and this.joins[index].isSome() {
+                let cancelled = this.joins[index].unwrap().cancel()
+                if cancelled.isErr() { return cancelled }; cancelled.releaseContainer()
+            }
+        }
+        registration.free(); this.pendingCancellation.free(); this.pendingCancellation = None<IoRegistration>()
+        return Ok<Bool, AsyncError>(true)
+    }
+    fun reap(maximum: Int) r: Result<UInt64, AsyncError> {
+        if this.closed or maximum <= 0 or maximum > this.core.capacity {
+            return Err<UInt64, AsyncError>(ioQueueFailure(1 as Int32, "io.worker.reap", 0 as UInt64))
+        }
+        var examined = 0; var completedCount = 0 as UInt64
+        while examined < maximum {
+            let index = this.scanCursor; this.scanCursor = (this.scanCursor + 1) % this.core.capacity; examined = examined + 1
+            if this.joins[index].isSome() {
+                let handle = this.joins[index].unwrap(); let readiness = handle.isTerminal()
+                if readiness.isErr() { let error = readiness.unwrapErr(); readiness.releaseContainer(); return Err<UInt64, AsyncError>(ioQueueStableError(error)) }
+                let ready = readiness.unwrap(); readiness.releaseContainer()
+                if ready {
+                    let joined = handle.joinDetailed(this.drainContext)
+                    if joined.isErr() { let error = joined.unwrapErr(); joined.releaseContainer(); return Err<UInt64, AsyncError>(ioQueueStableError(error)) }
+                    let report = joined.unwrap(); joined.releaseContainer(); let outcome = this.outcomes[index].unwrap()
+                    var progress = outcome.progress; var status = outcome.status; var nativeCode = outcome.nativeCode
+                    if not outcome.finished { progress = report.progress; status = 3 as Int32; nativeCode = 0 as Int64 }
+                    if report.error.isSome() { status = executorErrorStatus(report.error.unwrap()) }
+                    // Terminal publication and join end every synchronous job
+                    // borrow, including failed/panicked/cancelled job objects.
+                    let token = this.core.token(index)
+                    let invalid = outcome.token != token or progress > this.core.entries[index].unwrap().bytes or not ioCompletionStatusValid(status)
+                    if invalid { progress = 0 as UInt64; status = 3 as Int32 }
+                    let acknowledged = this.core.complete(token, progress, status, nativeCode)
+                    if acknowledged.isErr() {
+                        report.release()
+                        let error = acknowledged.unwrapErr(); acknowledged.releaseContainer(); return Err<UInt64, AsyncError>(ioQueueStableError(error))
+                    }
+                    acknowledged.releaseContainer(); report.release()
+                    let released = handle.release()
+                    if released.isErr() { let error = released.unwrapErr(); released.releaseContainer(); return Err<UInt64, AsyncError>(ioQueueStableError(error)) }; released.releaseContainer()
+                    this.joins[index].free(); this.joins[index] = None<PoolJoinHandle<T>>(); completedCount = completedCount + (1 as UInt64)
+                    if invalid { return Err<UInt64, AsyncError>(ioQueueFailure(3 as Int32, "io.worker.outcome.invalid", 0 as UInt64)) }
+                }
+            }
+        }
+        return Ok<UInt64, AsyncError>(completedCount)
+    }
+    fun poll() r: Option<IoCompletion> {
+        let ready = this.core.poll()
+        if ready.isSome() {
+            let completion = ready.unwrap(); let index = ((completion.token % (4294967296 as UInt64)) as Int) - 1
+            if this.outcomes[index].isSome() { this.outcomes[index].unwrap().free() }
+            this.outcomes[index].free(); this.outcomes[index] = None<WorkerIoOutcome>()
+        }
+        return ready
+    }
+    fun shutdown() r: Void { this.core.shutdown() }
+    fun close() r: Result<Bool, AsyncError> {
+        if this.closed { return Ok<Bool, AsyncError>(true) }; this.shutdown()
+        if this.core.active != 0 { return Err<Bool, AsyncError>(ioQueueFailure(2 as Int32, "io.worker.close.busy", 0 as UInt64)) }
+        let closed = this.pool.close(); if closed.isErr() { return closed }; closed.releaseContainer()
+        this.closed = true; return Ok<Bool, AsyncError>(true)
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer()
+        let poolReleased = this.pool.release(); if poolReleased.isErr() { return poolReleased }; poolReleased.releaseContainer()
+        let coreReleased = this.core.release(); coreReleased.releaseContainer(); var index = 0
+        while index < this.joins.length() { this.joins[index].free(); this.outcomes[index].free(); index = index + 1 }
+        this.joins.free(); this.outcomes.free(); executorReleaseSnapshot(this.drainContext)
+        if this.pendingCancellation.isSome() { this.pendingCancellation.unwrap().free() }; this.pendingCancellation.free()
+        this.free(); return Ok<Bool, AsyncError>(true)
+    }
+}

@@ -1,0 +1,95 @@
+/// Explicit Darwin positional I/O on fixed blocking workers; not kernel AIO.
+import core.result.{Result, Ok, Err}
+import core.option.{Option}
+import async.structured.{AsyncError, AsyncOperationContext}
+import async.executor_core.{ExecutorTaskContext}
+import fs.types.{OpenOptions}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{OwnedHandle}
+import io.completion_queue.{ioQueuePreflight}
+import io.completion_types.{IoQueueLimits, IoOperation, IoRequest, IoRegistration, IoRejectedSubmission, IoCompletion, ioQueueFailure}
+import io.worker_completion.{WorkerIoOutcome, WorkerIoSubmission}
+import io.worker_queue.{WorkerCompletionQueue}
+import io.macos_native.{seen_macos_io_abi, seen_macos_io_transfer}
+import io.macos_file.{MacCachePolicy, MacOpenFailure, macosOpenHandle, macosIoStatus}
+
+@send
+class MacPositionalJob {
+    var descriptor: Int64
+    var bufferAddress: UInt64
+    var bytes: UInt64
+    var offset: Int64
+    var write: UInt32
+    var outcome: WorkerIoOutcome
+    fun run(context: ExecutorTaskContext) r: Bool {
+        if context.isCancelled() { this.outcome.status = 9 as Int32; this.outcome.finished = true; return true }
+        let result = seen_macos_io_transfer(this.descriptor, this.bufferAddress as *UInt8, this.bytes, this.offset, this.write)
+        this.outcome.nativeCode = result; this.outcome.status = macosIoStatus(result)
+        if result >= (0 as Int64) { this.outcome.progress = result as UInt64 }
+        this.outcome.finished = true
+        // Record actual syscall progress even if cancellation arrived during
+        // the blocking call; the core never frees the borrow before join.
+        let advanced = context.advanceProgress(this.outcome.progress)
+        if advanced.isErr() { advanced.unwrapErr().free() }; advanced.releaseContainer()
+        return true
+    }
+    fun release() r: Bool { this.free(); return true }
+}
+@move
+class MacPositionalQueue {
+    var worker: WorkerCompletionQueue<MacPositionalJob>
+    var lastNativeResult: Int64
+    static fun create(borrow limits: IoQueueLimits, workers: Int, stackBytes: UInt64,
+        context: AsyncOperationContext) r: Result<MacPositionalQueue, AsyncError> {
+        if seen_macos_io_abi() != (1 as UInt32) {
+            return Err<MacPositionalQueue, AsyncError>(ioQueueFailure(4 as Int32, "io.macos.backend", 0 as UInt64))
+        }
+        let created = WorkerCompletionQueue<MacPositionalJob>.create(limits, workers, stackBytes, context)
+        if created.isErr() { let error = created.unwrapErr(); created.releaseContainer(); return Err<MacPositionalQueue, AsyncError>(error) }
+        let worker: WorkerCompletionQueue<MacPositionalJob> = created.unwrap(); created.releaseContainer()
+        return Ok<MacPositionalQueue, AsyncError>(MacPositionalQueue{worker: worker, lastNativeResult: 0 as Int64})
+    }
+    fun reserveFile(path: String, borrow options: OpenOptions, buffer: OwnedBuffer<UInt8>,
+        operation: IoOperation, offset: Int64, bytes: UInt64, context: AsyncOperationContext,
+        policy: MacCachePolicy) r: Result<IoRegistration, IoRejectedSubmission> {
+        if options.create or options.truncate {
+            let error = ioQueueFailure(1 as Int32, "io.macos.reserve.open-existing", 0 as UInt64)
+            let descriptor = OwnedHandle{native: -1 as Int64, owned: true, valid: false}
+            return this.worker.core.reject(IoRequest.create(descriptor, buffer, operation, offset, bytes, context), error)
+        }
+        let preflight = ioQueuePreflight(this.worker.core, buffer, operation, offset, bytes, context, -1 as Int64)
+        if preflight.isErr() {
+            let failure = preflight.unwrapErr(); preflight.releaseContainer()
+            let descriptor = OwnedHandle{native: -1 as Int64, owned: true, valid: false}
+            return this.worker.core.reject(IoRequest.create(descriptor, buffer, operation, offset, bytes, context), failure)
+        }
+        preflight.releaseContainer(); let opened = macosOpenHandle(path, options, operation, policy)
+        if opened.isErr() {
+            let failure: MacOpenFailure = opened.unwrapErr(); opened.releaseContainer()
+            this.lastNativeResult = failure.nativeResult
+            let descriptor = failure.descriptor; let failureError = failure.error; failure.free()
+            return this.worker.core.reject(IoRequest.create(descriptor, buffer, operation, offset, bytes, context), failureError)
+        }
+        let descriptor: OwnedHandle = opened.unwrap(); opened.releaseContainer()
+        return this.worker.reserve(IoRequest.create(descriptor, buffer, operation, offset, bytes, context))
+    }
+    fun submit(token: UInt64) r: Result<Bool, AsyncError> {
+        let prepared = this.worker.prepare(token)
+        if prepared.isErr() { let error = prepared.unwrapErr(); prepared.releaseContainer(); return Err<Bool, AsyncError>(error) }
+        let submission: WorkerIoSubmission = prepared.unwrap(); prepared.releaseContainer(); var write = 0 as UInt32
+        if submission.view.operation == IoOperation.Write { write = 1 as UInt32 }
+        let job = MacPositionalJob{descriptor: submission.view.descriptor, bufferAddress: submission.view.buffer as UInt64,
+            bytes: submission.view.bytes, offset: submission.view.fileOffset, write: write, outcome: submission.outcome}
+        submission.release(); return this.worker.submit(token, job)
+    }
+    fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.worker.cancel(token) }
+    fun publishCancellation() r: Result<Bool, AsyncError> { return this.worker.publishCancellation() }
+    fun reap(maximum: Int) r: Result<UInt64, AsyncError> { return this.worker.reap(maximum) }
+    fun poll() r: Option<IoCompletion> { return this.worker.poll() }
+    fun shutdown() r: Void { this.worker.shutdown() }
+    fun close() r: Result<Bool, AsyncError> { return this.worker.close() }
+    fun release() r: Result<Bool, AsyncError> {
+        let released = this.worker.release(); if released.isErr() { return released }; released.releaseContainer()
+        this.free(); return Ok<Bool, AsyncError>(true)
+    }
+}

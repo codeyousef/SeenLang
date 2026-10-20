@@ -263,6 +263,19 @@ class ExecutorCore {
         this.unlock(); return 0 as Int32
     }
 
+    /// A readiness snapshot never waits for user work to finish. The short
+    /// bookkeeping lock also publishes worker writes to the coordinator.
+    fun isTerminal(slot: Int, id: Int) r: Result<Bool, AsyncError> {
+        if this.closed { return Err<Bool, AsyncError>(executorFailure(1 as Int32, "executor.ready", 0 as UInt64)) }
+        let locked = this.lock(EXECUTOR_FOREVER)
+        if locked != (0 as Int32) { return Err<Bool, AsyncError>(executorFailure(locked, "executor.ready", 0 as UInt64)) }
+        if not this.matches(slot, id) {
+            this.unlock(); return Err<Bool, AsyncError>(executorFailure(1 as Int32, "executor.ready", 0 as UInt64))
+        }
+        let ready = this.tickets[slot].unwrap().state >= EXECUTOR_READY
+        this.unlock(); return Ok<Bool, AsyncError>(ready)
+    }
+
     fun observe(slot: Int, id: Int, details: Bool) r: Result<ExecutorObservation, AsyncError> {
         if this.closed {
             return Err<ExecutorObservation, AsyncError>(executorFailure(1 as Int32, "executor.observe", 0 as UInt64))

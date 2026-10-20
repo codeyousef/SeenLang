@@ -38,6 +38,11 @@ class ExecutorJoinHandle<T: Send + ExecutorJob> {
         return Ok<Bool, AsyncError>(true)
     }
 
+    fun isTerminal() r: Result<Bool, AsyncError> {
+        if not this.active { return Err<Bool, AsyncError>(executorFailure(1 as Int32, "executor.ready", 0 as UInt64)) }
+        return this.core.isTerminal(this.slot, this.id)
+    }
+
     fun waitForTerminal(context: AsyncOperationContext) r: Result<Int32, AsyncError> {
         if not this.active {
             return Err<Int32, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))

@@ -1,0 +1,68 @@
+import io.completion_types.{IoQueueLimits, IoRegistration, IoCompletion}
+import io.worker_queue.{WorkerCompletionQueue}
+import io.worker_completion.{WorkerIoOutcome, WorkerIoSubmission}
+import async.structured.{AsyncOperationContext}
+import async.executor_core.{ExecutorTaskContext}
+import sync.atomic.{seen_sync_atomic_create, seen_sync_atomic_load, seen_sync_atomic_fetch_add}
+import fixture_support.{ioMust, ioRequire, ioFixtureRequest}
+import sync.contracts.{seen_time_monotonic_nanos}
+
+fun workerCounter() r: UInt64 {
+    var handle = 0 as UInt64; ioRequire(seen_sync_atomic_create(0 as Int64, &handle) == (0 as Int32)); return handle
+}
+fun workerCount(handle: UInt64) r: Int64 {
+    var value = 0 as Int64; ioRequire(seen_sync_atomic_load(handle, 4 as Int32, &value) == (0 as Int32)); return value
+}
+fun workerAdd(handle: UInt64) r: Void {
+    var previous = 0 as Int64; ioRequire(seen_sync_atomic_fetch_add(handle, 1 as Int64, 4 as Int32, &previous) == (0 as Int32))
+}
+fun workerWait(handle: UInt64, required: Int64) r: Void {
+    let start = seen_time_monotonic_nanos(); ioRequire(start >= (0 as Int64) and start <= (9223372031854775807 as Int64))
+    var now = start; let deadline = start + (5000000000 as Int64)
+    while workerCount(handle) < required { let next = seen_time_monotonic_nanos(); ioRequire(next >= now and next < deadline); now = next }
+}
+@send
+class WorkerMockJob {
+    var outcome: WorkerIoOutcome
+    var bufferAddress: UInt64
+    var started: UInt64
+    var released: UInt64
+    var progressValue: UInt64
+    var statusValue: Int32
+    fun run(context: ExecutorTaskContext) r: Bool {
+        workerAdd(this.started); workerWait(this.released, 1 as Int64)
+        let pointer = this.bufferAddress as *UInt8; var count = this.progressValue
+        if count > (16 as UInt64) { count = 16 as UInt64 }
+        var i = 0; while (i as UInt64) < count { pointer[i] = 73 as UInt8; i = i + 1 }
+        this.outcome.progress = this.progressValue; this.outcome.status = this.statusValue
+        this.outcome.nativeCode = this.progressValue as Int64; this.outcome.finished = true
+        let advanced = context.advanceProgress(this.progressValue)
+        if advanced.isErr() { advanced.unwrapErr().free() }; advanced.releaseContainer(); return true
+    }
+    fun release() r: Bool { this.free(); return true }
+}
+fun workerFixture(context: AsyncOperationContext) r: WorkerCompletionQueue<WorkerMockJob> {
+    let limits = IoQueueLimits{depth: 2, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 128 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let queue: WorkerCompletionQueue<WorkerMockJob> = ioMust(WorkerCompletionQueue<WorkerMockJob>.create(limits, 2, 262144 as UInt64, context))
+    limits.free(); return queue
+}
+fun workerFixtureSubmit(borrow queue: WorkerCompletionQueue<WorkerMockJob>, context: AsyncOperationContext,
+    started: UInt64, released: UInt64, progress: UInt64, status: Int32) r: IoRegistration {
+    let registration: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    let prepared: WorkerIoSubmission = ioMust(queue.prepare(registration.token))
+    let job = WorkerMockJob{outcome: prepared.outcome, bufferAddress: prepared.view.buffer as UInt64,
+        started: started, released: released, progressValue: progress, statusValue: status}
+    prepared.release(); ioMust(queue.submit(registration.token, job)); return registration
+}
+fun workerDrain(borrow queue: WorkerCompletionQueue<WorkerMockJob>, invalid: Bool) r: Void {
+    let start = seen_time_monotonic_nanos(); ioRequire(start >= (0 as Int64) and start <= (9223372031854775807 as Int64))
+    let deadline = start + (5000000000 as Int64); var now = start
+    while queue.core.nativeActive != 0 {
+        let result = queue.reap(2)
+        if result.isErr() { ioRequire(invalid and result.unwrapErr().operation == "io.worker.outcome.invalid"); result.unwrapErr().free() }
+        result.releaseContainer(); let next = seen_time_monotonic_nanos(); ioRequire(next >= now and next < deadline); now = next
+    }
+}
+fun workerTake(borrow queue: WorkerCompletionQueue<WorkerMockJob>) r: IoCompletion {
+    let ready = queue.poll(); ioRequire(ready.isSome()); let completion = ready.unwrap(); ready.free(); return completion
+}
