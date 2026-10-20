@@ -60,6 +60,13 @@ fun getSemanticFieldTypeImpl(structName: String, fieldName: String,
         if fieldNamesStr != "" and fieldTypesStr != "" {
             let semanticFieldType = getFieldTypeFromListsReg(fieldNamesStr, fieldTypesStr, fieldName)
             if semanticFieldType != "" {
+                // The registry stores the generic declaration spelling. Use
+                // the shared instantiated lookup before selecting index width
+                // or following a method receiver through this field.
+                if structName != structNames[structIdx] {
+                    return getSeenFieldTypeImpl(structName, fieldName,
+                        structNames, structFieldNames, structFieldTypes)
+                }
                 return semanticFieldType
             }
         }
