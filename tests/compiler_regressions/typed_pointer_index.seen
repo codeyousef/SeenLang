@@ -268,6 +268,16 @@ fun checkFloat(borrow storage: OwnedBuffer<UInt8>) r: Void {
 }
 fun main() r: Int {
     let storage: OwnedBuffer<UInt8> = take(OwnedBuffer<UInt8>.allocate(128 as UInt64, 1 as UInt64, 64 as UInt64))
+    let other: OwnedBuffer<UInt8> = take(OwnedBuffer<UInt8>.allocate(128 as UInt64, 1 as UInt64, 64 as UInt64))
+    // Copy through a generic pointer field, then restore the allocation owner.
+    // This exercises both the emitted pointer value and field-store coercion.
+    let original = other.data
+    other.data = storage.data
+    other.data[3] = 73 as UInt8
+    requirePointer(storage.data[3] == (73 as UInt8))
+    requirePointer((other.data as UInt64) == (storage.data as UInt64))
+    other.data = original
+    requirePointer(other.close()); other.free()
     println("POINTER CASE: UInt8")
     checkUInt8(storage)
     println("POINTER CASE: Int8")
