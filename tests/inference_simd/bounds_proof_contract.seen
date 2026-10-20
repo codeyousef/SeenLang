@@ -1,0 +1,91 @@
+import bounds_fixture_support.{BoundsFixture, proofFixtureNode}
+import parser.real_parser.{StatementNode, ParserExpressionNode}
+import codegen.ir_bounds_proof.{proveRangeArrayBounds}
+import codegen.ir_bounds_proof_state.{enterBoundsProof, leaveBoundsProof, consumeBoundsProof, boundsProofAccessCount}
+import codegen.simd_report.{renderBoundsLoopRecord, simdReportDecimalAfter, simdRemarkReason}
+import json.builder.{releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun proofRequire(condition: Bool) r: Void { if not condition { abort("bounds proof contract failed") } }
+fun main() r: Int {
+    let fixtureBaseline = seen_memory_used_bytes()
+    let fixture = BoundsFixture.create(); let names = fixture.names; let types = fixture.types
+    let data = fixture.data
+    let other = fixture.other
+    let index = fixture.index
+    let sum = fixture.sum
+    let unknownIndex = fixture.unknownIndex
+    let pointer = fixture.pointer
+    let zero = fixture.zero
+    let length = fixture.length
+    let access = fixture.access
+    let add = fixture.add
+    let assignment = fixture.assignment
+    let body = fixture.body
+    let rangeStatement = fixture.rangeStatement
+    let plan = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(plan.reason == "canonical-zero-to-stable-length")
+    let outer = enterBoundsProof(plan)
+    proofRequire(consumeBoundsProof(data, index)); proofRequire(boundsProofAccessCount() == 1)
+    proofRequire(not consumeBoundsProof(other, index)); proofRequire(not consumeBoundsProof(data, unknownIndex))
+    zero.literalValue = "-1"
+    let rejected = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(rejected.reason == "noncanonical-range")
+    let inner = enterBoundsProof(rejected); proofRequire(not consumeBoundsProof(data, index))
+    leaveBoundsProof(inner); proofRequire(boundsProofAccessCount() == 1)
+    proofRequire(consumeBoundsProof(data, index)); proofRequire(boundsProofAccessCount() == 2)
+    leaveBoundsProof(outer); proofRequire(not consumeBoundsProof(data, index))
+    zero.literalValue = "0"
+    println("PASS: SEEN-INF-002E_happy")
+    assignment.variableName = "i"
+    let modifiedIndex = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(modifiedIndex.reason == "effects-or-control"); modifiedIndex.free(); assignment.variableName = "sum"
+    let call = proofFixtureNode(fixture.nodes); call.kind = "MethodCall"; call.callee = "pop"; call.literalValue = "data"
+    body.expression = call
+    let effects = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(effects.reason == "effects-or-control"); effects.free(); body.expression = assignment
+    types[3] = "UnknownClass"
+    let overloaded = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(overloaded.reason == "effects-or-control"); overloaded.free(); types[3] = "Int"
+    types[0] = "List<Int>"
+    let wrongOwner = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(wrongOwner.reason == "unproved-owner-type"); wrongOwner.free(); types[0] = "Array<Int>"
+    assignment.variableName = "data"
+    let rebound = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(rebound.reason == "effects-or-control"); rebound.free(); assignment.variableName = "sum"
+    let store = proofFixtureNode(fixture.nodes); store.kind = "IndexAssignment"; store.operands.push(access); store.operands.push(zero)
+    body.expression = store
+    let numericStore = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(numericStore.reason == "canonical-zero-to-stable-length"); numericStore.free()
+    access.operands[0] = pointer
+    let rawStore = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(rawStore.reason == "effects-or-control"); rawStore.free()
+    access.operands[0] = data; body.expression = assignment
+    println("PASS: SEEN-INF-002E_invalid")
+    add.operands[0] = add
+    let cycle = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+    proofRequire(cycle.reason == "analysis-limit"); cycle.free(); add.operands[0] = sum
+    println("PASS: SEEN-INF-002E_limit")
+    proofRequire(simdReportDecimalAfter("vectorization width: 16, interleave: 2", "vectorization width: ") == 16)
+    proofRequire(simdReportDecimalAfter("vectorization width: -1", "vectorization width: ") == 0)
+    proofRequire(simdRemarkReason("rangeStatement not vectorized: unsafe memory dependence") == "memory-dependence")
+    let text = renderBoundsLoopRecord(202, 5, 9, "canonical-zero-to-stable-length", 2, 1)
+    proofRequire(text.contains("\"bounds\":\"proved\"")); proofRequire(text.contains("\"hardware_verified\":false"))
+    releaseJsonText(text)
+    let escaped = renderBoundsLoopRecord(202, 5, 9, "reason\"\n", 0, 1)
+    proofRequire(escaped.contains("reason\\\"\\n")); releaseJsonText(escaped)
+    let disabled = renderBoundsLoopRecord(202, 5, 9, "unknown", 0, 0)
+    proofRequire(disabled.contains("caller-disabled-checks")); releaseJsonText(disabled)
+    println("PASS: SEEN-INF-002E_reports")
+    let warm = proveRangeArrayBounds(rangeStatement, names, types, names.length()); warm.free()
+    let memory = seen_memory_used_bytes(); var i = 0
+    while i < 1000 {
+        let checked = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+        let report = renderBoundsLoopRecord(202, 5, 9, checked.reason, 1, 1)
+        releaseJsonText(report); checked.free()
+        proofRequire(seen_memory_used_bytes() == memory); i = i + 1
+    }
+    fixture.release()
+    proofRequire(seen_memory_used_bytes() == fixtureBaseline)
+    println("PASS: SEEN-INF-002E_cleanup")
+    return 0
+}

@@ -1,0 +1,126 @@
+/// Conservative source proof for canonical scalar Array tensor loops.
+/// Analysis is pure with respect to codegen: failure retains every check.
+import parser.real_parser.{StatementNode, ParserExpressionNode}
+import codegen.ir_type_mapping.{isFixedWidthScalarTypeImpl}
+import codegen.ir_variable_gen.{findActiveVariableTypeImpl, getExprVariableNameImpl}
+import simd.ir_types.{seen_string_release_owned}
+
+class BoundsProofPlan {
+    var arrayName: String
+    var indexName: String
+    var reason: String
+    var visited: Int
+    static fun create(index: String) r: BoundsProofPlan {
+        return BoundsProofPlan{arrayName: "", indexName: index, reason: "noncanonical-range", visited: 0}
+    }
+}
+fun boundsProofNumericType(typeName: String) r: Bool {
+    return typeName == "Int" or typeName == "Char" or typeName == "Bool" or
+        typeName == "Float" or isFixedWidthScalarTypeImpl(typeName)
+}
+fun boundsProofNumericArray(typeName: String) r: Bool {
+    if not typeName.startsWith("Array<") or not typeName.endsWith(">") { return false }
+    let element = typeName.substring(6, typeName.length() - 1)
+    let numeric = boundsProofNumericType(element)
+    seen_string_release_owned(element)
+    return numeric
+}
+fun boundsProofVariableName(borrow expression: ParserExpressionNode) r: String {
+    if expression.kind != "Variable" and expression.kind != "VarExpr" { return "" }
+    return getExprVariableNameImpl(expression.variableName, expression.literalValue)
+}
+fun boundsProofPairMatches(borrow array: ParserExpressionNode, borrow index: ParserExpressionNode,
+    arrayName: String, indexName: String) r: Bool {
+    return arrayName != "" and indexName != "" and
+        boundsProofVariableName(array) == arrayName and boundsProofVariableName(index) == indexName
+}
+fun boundsProofPureExpression(borrow expression: ParserExpressionNode, borrow plan: BoundsProofPlan,
+    names: Array<String>, types: Array<String>, active: Int, depth: Int) r: Bool {
+    plan.visited = plan.visited + 1
+    if depth > 32 or plan.visited > 1024 { plan.reason = "analysis-limit"; return false }
+    if expression.kind == "Literal" { return boundsProofNumericType(expression.literalType) }
+    let variable = boundsProofVariableName(expression)
+    if variable != "" {
+        return boundsProofNumericType(findActiveVariableTypeImpl(names, types, active, variable))
+    }
+    if expression.kind == "IndexAccess" and expression.operands.length() == 2 {
+        let receiver = boundsProofVariableName(expression.operands[0])
+        if receiver == "" or not boundsProofNumericArray(findActiveVariableTypeImpl(names, types, active, receiver)) { return false }
+        return boundsProofPureExpression(expression.operands[1], plan, names, types, active, depth + 1)
+    }
+    if expression.kind == "Cast" and expression.operands.length() == 1 {
+        return boundsProofNumericType(expression.literalValue) and
+            boundsProofPureExpression(expression.operands[0], plan, names, types, active, depth + 1)
+    }
+    if expression.kind == "Unary" and expression.operands.length() == 1 {
+        if expression.operator != "-" and expression.operator != "+" and
+            expression.operator != "not" and expression.operator != "!" and expression.operator != "~" { return false }
+        return boundsProofPureExpression(expression.operands[0], plan, names, types, active, depth + 1)
+    }
+    if expression.kind == "Binary" and expression.operands.length() == 2 {
+        let op = expression.operator
+        if op != "+" and op != "-" and op != "*" and op != "/" and op != "%" and
+            op != "&" and op != "|" and op != "^" and op != "<<" and op != ">>" and
+            op != "==" and op != "!=" and op != "<" and op != "<=" and op != ">" and
+            op != ">=" and op != "and" and op != "or" { return false }
+        return boundsProofPureExpression(expression.operands[0], plan, names, types, active, depth + 1) and
+            boundsProofPureExpression(expression.operands[1], plan, names, types, active, depth + 1)
+    }
+    // Calls, closures, member accesses, borrows and pointer operations can
+    // observe aliases or perform effects; no guessed purity annotation exists.
+    return false
+}
+fun boundsProofScalarAssignment(name: String, borrow value: ParserExpressionNode,
+    borrow plan: BoundsProofPlan, names: Array<String>, types: Array<String>, active: Int) r: Bool {
+    if name == "" or name == plan.arrayName or name == plan.indexName or
+        not boundsProofNumericType(findActiveVariableTypeImpl(names, types, active, name)) { return false }
+    return boundsProofPureExpression(value, plan, names, types, active, 0)
+}
+fun boundsProofStatement(borrow statement: StatementNode, borrow plan: BoundsProofPlan,
+    names: Array<String>, types: Array<String>, active: Int) r: Bool {
+    if statement.kind == "Assignment" {
+        return boundsProofScalarAssignment(statement.variableName, statement.initializer, plan, names, types, active)
+    }
+    if statement.kind != "Expression" { return false }
+    let expression = statement.expression
+    if expression.kind == "Assignment" and expression.operands.length() == 1 {
+        return boundsProofScalarAssignment(expression.variableName, expression.operands[0], plan, names, types, active)
+    }
+    if expression.kind == "IndexAssignment" and expression.operands.length() == 2 {
+        let access = expression.operands[0]
+        if access.kind != "IndexAccess" or access.operands.length() != 2 { return false }
+        let receiver = boundsProofVariableName(access.operands[0])
+        if receiver == "" or not boundsProofNumericArray(findActiveVariableTypeImpl(names, types, active, receiver)) { return false }
+        return boundsProofPureExpression(access.operands[1], plan, names, types, active, 0) and
+            boundsProofPureExpression(expression.operands[1], plan, names, types, active, 0)
+    }
+    return false
+}
+fun proveRangeArrayBounds(borrow statement: StatementNode, names: Array<String>,
+    types: Array<String>, active: Int) r: BoundsProofPlan {
+    let plan = BoundsProofPlan.create(statement.variableName)
+    if statement.kind != "ForIn" { return plan }
+    let range = statement.expression
+    if range.kind != "Range" or range.operands.length() != 2 or plan.indexName == "" { return plan }
+    let start = range.operands[0]; let end = range.operands[1]
+    if start.kind != "Literal" or start.literalType != "Int" or start.literalValue != "0" { return plan }
+    if end.kind != "MethodCall" or (end.callee != "length" and end.callee != "len") or
+        end.arguments.length() != 0 or end.operands.length() != 0 or end.literalValue == "" { return plan }
+    plan.arrayName = end.literalValue
+    if plan.arrayName == plan.indexName or not boundsProofNumericArray(
+        findActiveVariableTypeImpl(names, types, active, plan.arrayName)) {
+        plan.reason = "unproved-owner-type"; return plan
+    }
+    if findActiveVariableTypeImpl(names, types, active, plan.indexName) != "Int" {
+        plan.reason = "unproved-induction-type"; return plan
+    }
+    plan.reason = "effects-or-control"
+    if statement.loopBody.statements.length() > 128 { plan.reason = "analysis-limit"; return plan }
+    var i = 0
+    while i < statement.loopBody.statements.length() {
+        if not boundsProofStatement(statement.loopBody.statements[i], plan, names, types, active) { return plan }
+        i = i + 1
+    }
+    plan.reason = "canonical-zero-to-stable-length"
+    return plan
+}

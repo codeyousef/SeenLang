@@ -88,9 +88,11 @@ policy remain with the caller before or after a call. There are no detached
 operations or hidden retries.
 
 `--simd-report` adds a compact JSON record with the contract version,
-representation widths, mask limit and `hardware_verified: false`. The record
-is representation evidence; LLVM remarks and benchmark results remain
-separate evidence. Linux x86_64, Linux arm64, Windows x86_64 and macOS
+representation widths, mask limit and `hardware_verified: false`. The
+representation record does not certify execution. With reports enabled,
+the compiler also emits frontend bounds decisions and observed LLVM module
+vectorization remarks, as described below; benchmarks remain separate evidence.
+Linux x86_64, Linux arm64, Windows x86_64 and macOS
 x86_64/arm64 require their own execution results before being classified as
 verified. No platform or performance certification is implied here.
 
@@ -337,3 +339,43 @@ The benchmark uses five warmups and thirty paired, alternating scalar controls;
 gate. Host observations and allocator peak do not constitute RSS or hardware
 certification. Hardware/platform execution and designated performance evidence
 remain separately classified; compile-only results are never execution claims.
+
+
+## Tensor bounds proofs and compiler reports
+
+With `--bounds-check`, the compiler removes a check only for a direct numeric
+`Array<T>` access `values[i]` in a canonical `for i in 0..values.length()`
+loop. The body must contain only scalar numeric assignments and array element
+reads/writes. Calls, aliases through members or pointers, declarations,
+control flow, array rebinding, and induction-variable writes reject the proof.
+The analysis caps nesting at 32, visited expressions at 1024, and body
+statements at 128. Unsupported cases retain checks. Other subscripts, such as
+`values[i - 1]`, retain their own guards even inside an otherwise proved loop.
+Checked builds also retain guards for legacy bulk-loop transforms and refresh
+bounds before each mutable array iteration fetch. Unchecked compilation
+preserves the existing opt-out and reports `caller-disabled-checks`.
+
+`--simd-report=brief` emits bounded JSON summaries; `full` additionally emits
+source loop records and escaped LLVM diagnostics. Frontend records use
+`seen-simd-loop-v1`, with source line/column, a module-local loop ID, the bounds
+decision, reason, and count of checks actually removed. Full records carry the
+module index in a `seen-simd-module-record-v1` wrapper. The separate
+`llvm-module` phase records selected/rejected vectorization and observed
+widths, or an explicit unavailable/no-observation reason. These are module
+optimizer observations; they do not describe final LTO decisions or prove a
+runtime speedup. Reports disable object-cache reuse to observe this invocation.
+`seen-simd-policy-v1` records explicit policy rejection for `--simd=none`.
+
+Each module input is capped at 256 KiB and 4096 records; records are at most
+8192 bytes and full diagnostic details at most 2048 bytes. A summary exposes
+truncation. No report certifies hardware. The compiler process owns proof
+scopes and restores the previous scope after each lowered loop. Reports use
+the existing JSON builder's escaping and ownership rules. There are no new
+native symbols, retries, background work, or runtime owners in this feature.
+
+Run `bash tests/misc_root_tests/seen_inf_simd_e.sh` inside the repository's
+verified aggregate scope. The harness covers fast/release/UBSan/ASan execution,
+60 seconds of seeded AST fuzzing, stable live allocations, raw-IR proof and
+retained-guard checks, negative bounds traps, and observed JSON decisions.
+Cross-platform execution and designated-machine performance remain separate
+verification steps; source/IR inspection alone is compile-only evidence.

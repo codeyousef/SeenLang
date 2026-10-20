@@ -1,3 +1,7 @@
+import codegen.simd_report.{configureSimdReporting, emitCollectedSimdReports,
+    emitSimdObservationUnavailable, emitSimdPolicyRecord}
+import codegen.ir_bounds_proof.{BoundsProofPlan, proveRangeArrayBounds}
+import codegen.ir_bounds_proof_state.{enterBoundsProof, consumeBoundsProof, leaveBoundsProof}
 // Bootstrap discovers direct imports before its curated module list.
 import simd.ir_types.{PortableVectorShape, SimdIrError}
 import simd.dispatch_plan.{portableSimdContractReport}
@@ -9028,6 +9032,9 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_struct_layout_state")
         modules.push("codegen.ir_autofree_state")
         modules.push("codegen.ir_field_lookup_state")
+        modules.push("codegen.ir_bounds_proof")
+        modules.push("codegen.ir_bounds_proof_state")
+        modules.push("codegen.simd_report")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_struct_literal_driver")
         modules.push("codegen.ir_struct_layout_build")
@@ -12911,6 +12918,7 @@ var g_O2Mode = 0
 // CLI flags for safety checks (Int, not Bool -- Stage1 limitation)
 var g_panicOnOverflowCli = 0
 var g_boundsCheckCli = 0
+var g_simdReportFullCli = false
 var g_warnUnusedResultCli = 0
 // Emit GLSL flag for debugging shader generation
 var g_emitGlsl = 0
@@ -13665,7 +13673,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
         return 1
     }
-    if simdReport { println(portableSimdContractReport()) }
+    configureSimdReporting(simdReport)
+    if simdReport { println(portableSimdContractReport()); emitSimdPolicyRecord(simdPolicy, targetCpu) }
     println("Stage1 compiling (Two-Pass Memory Optimized)")
     let isDeterministicProfile = profile == "deterministic"
     let isDeterministicArtifactMode = g_deterministicArtifactCli == 1
@@ -13799,6 +13808,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             "|profile=" + hashString(loadFileContent(pgoPath))
     }
     var moduleCacheEnabled = useCache
+    // A report describes this invocation's optimizer decisions. Reusing a
+    // cached object would make selected/rejected loop evidence unavailable.
+    if simdReport { moduleCacheEnabled = false }
     if g_releaseMode and g_ltoMode == "full" {
         // Full LTO needs every raw IR input to prove a complete merge.
         moduleCacheEnabled = false
@@ -14875,6 +14887,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     " -pass-remarks-format=yaml"
             }
 
+            if simdReport and g_generatedTestMainMode == 0 and normalizedCrossTarget != "android-arm64" and
+                normalizedCrossTarget != "linux-riscv64" {
+                moduleOptCmd = moduleOptCmd + " -pass-remarks=loop-vectorize -pass-remarks-missed=loop-vectorize -pass-remarks-analysis=loop-vectorize"
+            }
+
             let statusFile = moduleTempPath(compileTempDir, midx,
                 ".opt.status")
             let logFile = moduleTempPath(compileTempDir, midx, ".opt.log")
@@ -15149,6 +15166,27 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         buildTraceFinish("opt object emission", pass2bStart, "ok",
             "uncached=" + uncachedIdxStrs.length().toString() +
             " mode=" + optExecutionMode)
+    }
+
+    if simdReport {
+        var reportIndex = 0
+        while reportIndex < uncachedIdxStrs.length() {
+            let moduleText = uncachedIdxStrs[reportIndex]
+            let rawFile = moduleTempPath(compileTempDir, moduleText, ".ll")
+            let frontendRows = runCommand("rg --no-heading --no-filename --color=never --max-count=4096 --max-columns=8192 '^; seen-simd-loop ' " +
+                mainCompilerShellQuote(rawFile) + " | head -c 262144")
+            emitCollectedSimdReports(frontendRows.output, moduleText.toInt(), true, g_simdReportFullCli)
+            if g_generatedTestMainMode != 0 {
+                emitSimdObservationUnavailable(moduleText.toInt(), "generated-test-main-pipeline")
+            } else if normalizedCrossTarget == "android-arm64" or normalizedCrossTarget == "linux-riscv64" {
+                emitSimdObservationUnavailable(moduleText.toInt(), "target-clang-pipeline")
+            } else {
+                let remarks = runCommand("tail -c 262144 " + mainCompilerShellQuote(
+                    moduleTempPath(compileTempDir, moduleText, ".opt.log")))
+                emitCollectedSimdReports(remarks.output, moduleText.toInt(), false, g_simdReportFullCli)
+            }
+            reportIndex = reportIndex + 1
+        }
     }
 
     if g_generatedTestMainMode == 0 {
@@ -17968,6 +18006,7 @@ fun main() r: Int {
             parsed.hasOption("--simd-report-level")
         if parsed.hasOption("--simd-report-level") {
             let reportLevel = parsed.valueOr("--simd-report-level", "")
+            g_simdReportFullCli = reportLevel == "full"
             if reportLevel != "brief" and reportLevel != "full" {
                 println("Error: invalid value '" + reportLevel + "' for --simd-report; expected brief or full")
                 return 1
