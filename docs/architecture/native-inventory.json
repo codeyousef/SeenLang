@@ -5624,6 +5624,13 @@
       ]
     },
     {
+      "name": "seen_pool_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/simd/dot_clock.seen"
+      ]
+    },
+    {
       "name": "seen_pool_region_alloc",
       "abi": "Seen",
       "sources": [
@@ -6180,7 +6187,7 @@
       "sources": [
         "seen_std/src/async/structured.seen",
         "seen_std/src/determinism/policy.seen",
-        "seen_std/src/simd/x86_kernels.seen",
+        "seen_std/src/simd/dot_clock.seen",
         "seen_std/src/sync/contracts.seen"
       ]
     },

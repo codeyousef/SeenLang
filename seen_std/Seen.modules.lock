@@ -118,4 +118,8 @@ hash = "2a733e271cc55fb1abc0a83ee8d50b11d40d1e24f51ede0ffad0877f0d750a69"
 
 [[modules]]
 path = "src/simd/x86_kernels.seen"
-hash = "82125745efa5902c389109752c886be2b6fd1a326082fab091616529a81cb4a9"
+hash = "4fc984a672fd7ac8785bad2de120a002973615fdf18f01ae92f4bf3df00ff393"
+
+[[modules]]
+path = "src/simd/dot_clock.seen"
+hash = "bfe37e4305d2c5fc306834e51ea7a67d6d6f7dabd43dbd9aa604c532c472eed5"

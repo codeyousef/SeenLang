@@ -100,6 +100,7 @@ modules = [
     "src/simd/x86_dispatch.seen",
     "src/simd/x86_blocks.seen",
     "src/simd/x86_kernels.seen",
+    "src/simd/dot_clock.seen",
 
     # Math
     "src/math/math.seen",

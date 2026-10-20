@@ -3,6 +3,7 @@ import core.operation_context.{OperationContext}
 import memory.aligned_buffer.{OwnedBuffer}
 import simd.x86_dispatch.{X86SimdCapabilities, selectX86Variant}
 import simd.x86_kernels.{X86DotOperation, X86DotProgress, executeX86Dot, executeX86DotWithClock}
+import simd.dot_clock.{DotClockHandle}
 extern "C" fun seen_memory_used_bytes() r: Int64
 class ProbeClock {
     var reads: Int
@@ -116,16 +117,17 @@ fun main() r: Int {
     let ap = left.data as *Float32; let bp = right.data as *Float32
     while i < 8192 { ap[i] = 1.0 as Float32; bp[i] = 2.0 as Float32; i = i + 1 }
     ctx.monotonicDeadline = 200 as Int64
-    let clock = ProbeClock{reads: 0, reverse: false}
+    let provider = ProbeClock{reads: 0, reverse: false}
+    let clock = DotClockHandle.create(provider)
     if not errorIs(executeX86DotWithClock(left, 0 as UInt64, right, 0 as UInt64,
         8192 as UInt64, X86DotOperation.Float32, "scalar", false, false, ctx,
         actual, clock), "simd.timeout") or actual.completed != (4096 as UInt64) or
         actual.floating != (8192.0 as Float32) { return 9 }
-    clock.reads = 0; clock.reverse = true
+    provider.reads = 0; provider.reverse = true
     if not errorIs(executeX86DotWithClock(left, 0 as UInt64, right, 0 as UInt64,
         8192 as UInt64, X86DotOperation.Float32, "scalar", false, false, ctx,
         actual, clock), "simd.unavailable") or actual.completed != (4096 as UInt64) { return 10 }
-    clock.free()
+    clock.release(); provider.free()
     println("PASS: SEEN-INF-002B_partial")
     reference.free(); actual.free(); left.close(); left.free(); right.close(); right.free()
     ctx.limits.free(); ctx.traceId.free(); ctx.free()
