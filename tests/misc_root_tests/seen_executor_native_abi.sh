@@ -8,16 +8,16 @@ if [ "${SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE:-0}" != 1 ]; then
     exec bash "$CAPPED_ENTRY" --platform "$SCOPE" -- bash "$0"
 fi
 bash "$CAPPED_ENTRY" --verify-platform-active "$SCOPE"
-WORK_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/executor-native.XXXXXX")"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/executor-native.XXXXXX")"
 cleanup() {
     local status=$?
     if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
-        case "$WORK_DIR" in
-            "$SEEN_ARTIFACT_ROOT"/executor-native.*) rm -rf -- "$WORK_DIR" ;;
+        case "$TMP_DIR" in
+            "$SEEN_ARTIFACT_ROOT"/executor-native.*) rm -rf -- "$TMP_DIR" ;;
             *) status=1 ;;
         esac
     else
-        echo "Preserved executor artifacts: $WORK_DIR" >&2
+        echo "Preserved executor artifacts: $TMP_DIR" >&2
     fi
     exit "$status"
 }
@@ -30,18 +30,18 @@ run_probe() {
     local flags=()
     if [ -n "$sanitizer" ]; then flags+=("-fsanitize=$sanitizer"); fi
     local label="${name}-${sanitizer:-native}"
-    local log="$WORK_DIR/$label.compile.log"
+    local log="$TMP_DIR/$label.compile.log"
     (
         set -x
         clang -std=c11 -O1 -g -pthread -ffunction-sections -fdata-sections \
             -I "$ROOT_DIR/seen_runtime" "${flags[@]}" "$@" \
-            -Wl,--gc-sections -lm -ldl -o "$WORK_DIR/$label"
+            -Wl,--gc-sections -lm -ldl -o "$TMP_DIR/$label"
     ) >"$log" 2>&1
     if [ "$sanitizer" = address ]; then
         bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
-            --target-root "$WORK_DIR" --compile-log "$log" -- "$WORK_DIR/$label"
+            --target-root "$TMP_DIR" --compile-log "$log" -- "$TMP_DIR/$label"
     else
-        timeout --foreground --kill-after=5s 120s "$WORK_DIR/$label"
+        timeout --foreground --kill-after=5s 120s "$TMP_DIR/$label"
     fi
 }
 
