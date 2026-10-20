@@ -1,0 +1,131 @@
+/// Architecture-neutral multiversion plan. CPU/OS discovery and executable
+/// x86/ARM dispatch are separate leaves; a plan is not hardware evidence.
+
+import core.result.{Result, Ok, Err}
+import simd.ir_types.{PortableVectorShape, SimdIrError, simdIrFailure}
+
+class SimdCapabilities {
+    var architecture: String
+    var sse2: Bool
+    var avx2: Bool
+    var avx512: Bool
+    var neon: Bool
+    var sve: Bool
+    var osVectorState: Bool
+    var sveBits: Int
+
+    fun valid() r: Bool {
+        if this.architecture != "x86_64" and this.architecture != "aarch64" {
+            return false
+        }
+        if this.sveBits < 0 or this.sveBits > 2048 or this.sveBits % 128 != 0 {
+            return false
+        }
+        if this.sve and this.sveBits == 0 { return false }
+        if not this.sve and this.sveBits != 0 { return false }
+        if this.architecture == "x86_64" {
+            return not this.neon and not this.sve and
+                (not this.avx512 or this.avx2) and (not this.avx2 or this.sse2)
+        }
+        return not this.sse2 and not this.avx2 and not this.avx512
+    }
+}
+
+class SimdDispatchPlan {
+    var contract: String
+    var architecture: String
+    var variant: String
+    var widthBits: Int
+    var lane: String
+    var lanes: Int
+    var packedBits: Int
+    var scalar: Bool
+    var fallbackUsed: Bool
+    var reason: String
+    var targetFeatures: String
+}
+
+fun simdPlan(architecture: String, variant: String, shape: PortableVectorShape,
+    fallbackUsed: Bool, reason: String, features: String) r: SimdDispatchPlan {
+    return SimdDispatchPlan{contract: "seen-portable-simd-ir-v1",
+        architecture: architecture, variant: variant, widthBits: shape.widthBits,
+        lane: shape.lane, lanes: shape.lanes, packedBits: shape.packedBits,
+        scalar: variant == "scalar", fallbackUsed: fallbackUsed,
+        reason: reason, targetFeatures: features}
+}
+
+fun planPortableSimd(shape: PortableVectorShape, capabilities: SimdCapabilities,
+    policy: String, allowScalarFallback: Bool, deterministic: Bool)
+    r: Result<SimdDispatchPlan, SimdIrError> {
+    if not shape.valid() {
+        return Err<SimdDispatchPlan, SimdIrError>(simdIrFailure("simd.invalid_shape",
+            "portable", "geometry", "dispatch", "dispatch", "invalid vector shape"))
+    }
+    if not capabilities.valid() {
+        return Err<SimdDispatchPlan, SimdIrError>(simdIrFailure("simd.invalid_capability",
+            "portable", "cpu-state", "dispatch", "dispatch", "invalid CPU capability set"))
+    }
+    if policy != "scalar" and policy != "auto" and policy != "sse2" and
+        policy != "avx2" and policy != "avx512" and policy != "neon" and policy != "sve" {
+        return Err<SimdDispatchPlan, SimdIrError>(simdIrFailure("simd.invalid_policy",
+            capabilities.architecture, "policy", "dispatch", "dispatch", "unknown SIMD policy"))
+    }
+    if policy == "scalar" {
+        return Ok<SimdDispatchPlan, SimdIrError>(simdPlan(capabilities.architecture,
+            "scalar", shape, false, "explicit-scalar", ""))
+    }
+    if deterministic {
+        if not allowScalarFallback {
+            return Err<SimdDispatchPlan, SimdIrError>(simdIrFailure("simd.scalar_required",
+                capabilities.architecture, "determinism", "dispatch", "dispatch",
+                "deterministic execution requires explicit scalar permission"))
+        }
+        return Ok<SimdDispatchPlan, SimdIrError>(simdPlan(capabilities.architecture,
+            "scalar", shape, true, "deterministic-scalar", ""))
+    }
+    var selected = ""
+    var features = ""
+    let nativeLane = shape.lane == "Float32" or shape.lane == "Float64" or
+        shape.lane == "Int32"
+    if capabilities.osVectorState and nativeLane {
+        if capabilities.architecture == "x86_64" {
+            if (policy == "auto" or policy == "sse2") and shape.widthBits == 128 and
+                capabilities.sse2 {
+                selected = "sse2"; features = "+sse2"
+            }
+            if (policy == "auto" or policy == "avx2") and shape.widthBits <= 256 and
+                capabilities.avx2 {
+                selected = "avx2"; features = "+avx2"
+            }
+            if (policy == "auto" or policy == "avx512") and capabilities.avx512 {
+                selected = "avx512"; features = "+avx512f"
+            }
+        } else {
+            if (policy == "auto" or policy == "neon") and shape.widthBits == 128 and
+                capabilities.neon {
+                selected = "neon"; features = "+neon"
+            }
+            if (policy == "auto" or policy == "sve") and capabilities.sve and
+                shape.widthBits <= capabilities.sveBits {
+                selected = "sve"; features = "+sve"
+            }
+        }
+    }
+    if selected != "" {
+        return Ok<SimdDispatchPlan, SimdIrError>(simdPlan(capabilities.architecture,
+            selected, shape, false, "capability-match", features))
+    }
+    if allowScalarFallback {
+        return Ok<SimdDispatchPlan, SimdIrError>(simdPlan(capabilities.architecture,
+            "scalar", shape, true, "explicit-fallback", ""))
+    }
+    return Err<SimdDispatchPlan, SimdIrError>(simdIrFailure("simd.unsupported_capability",
+        capabilities.architecture, "vector-state", "dispatch", "dispatch",
+        "requested SIMD width or target is unavailable and scalar fallback is forbidden"))
+}
+
+/// Machine-readable representation evidence. This describes compiler support,
+/// never an executed target or a discovered CPU capability.
+fun portableSimdContractReport() r: String {
+    return "{\"contract\":\"seen-portable-simd-ir-v1\",\"classification\":\"representation-only\",\"widths\":[128,256,512],\"mask_lane_limit\":64,\"targets\":[\"x86_64\",\"aarch64\"],\"scalar_fallback\":\"explicit\",\"hardware_verified\":false}"
+}

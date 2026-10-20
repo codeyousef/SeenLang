@@ -1,0 +1,7 @@
+fun main() r: Int {
+    let mask = mask2(true, false)
+    let yes = f32x4(1, 2, 3, 4)
+    let no = f32x4(5, 6, 7, 8)
+    let invalid = simd_select(mask, yes, no)
+    return 0
+}

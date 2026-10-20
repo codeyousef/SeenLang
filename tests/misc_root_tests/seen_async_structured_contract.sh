@@ -21,6 +21,7 @@ ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 ASYNC_ROOT="$ROOT_DIR/seen_std/src/async"
 TEST_ROOT="$ROOT_DIR/seen_std/tests/async"
 WORK_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/async-contract.XXXXXX")"
+source "$ROOT_DIR/scripts/report_fixture_failure_logs.sh"
 cleanup() {
     local status=$?
     if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
@@ -33,6 +34,7 @@ cleanup() {
         esac
     else
         echo "Preserved async artifacts: $WORK_DIR" >&2
+        seen_report_fixture_failure_logs "$WORK_DIR"
     fi
     exit "$status"
 }
