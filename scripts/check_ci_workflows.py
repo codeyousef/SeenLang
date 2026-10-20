@@ -67,6 +67,8 @@ jobs:
             .seen/agent-tools/safe-rebuild/run.*/stage2_safe_rebuild
             .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild
             .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild_recovery
+            .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/pointer-index-*-ir/*.ll
             releases/compatibility-manifest.json
           include-hidden-files: true
           if-no-files-found: ignore
