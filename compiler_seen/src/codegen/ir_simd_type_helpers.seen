@@ -3,34 +3,28 @@ SIMD type and swizzle helper functions
 Extracted from ir_type_mapping.seen
 ///
 
+import simd.ir_types.{simdBuiltinLanes, simdBuiltinLane,
+    simdLaneLlvmType, simdMaskLanes}
+
 fun isSimdVectorTypeImpl(t: String) r: Int {
-    if t == "f32x4" { return 1 }
-    if t == "f32x8" { return 1 }
-    if t == "i32x4" { return 1 }
-    if t == "i32x8" { return 1 }
-    if t == "f64x2" { return 1 }
-    if t == "f64x4" { return 1 }
+    if simdBuiltinLanes(t) > 0 { return 1 }
+    return 0
+}
+
+fun isSimdValueTypeImpl(t: String) r: Int {
+    if simdBuiltinLanes(t) > 0 or simdMaskLanes(t) > 0 { return 1 }
     return 0
 }
 
 fun simdScalarTypeImpl(t: String) r: String {
-    if t == "f32x4" { return "float" }
-    if t == "f32x8" { return "float" }
-    if t == "f64x2" { return "double" }
-    if t == "f64x4" { return "double" }
-    if t == "i32x4" { return "i32" }
-    if t == "i32x8" { return "i32" }
-    return "i64"
+    if simdMaskLanes(t) > 0 { return "i1" }
+    return simdLaneLlvmType(simdBuiltinLane(t))
 }
 
 fun simdLaneCountImpl(t: String) r: Int {
-    if t == "f32x4" { return 4 }
-    if t == "i32x4" { return 4 }
-    if t == "f32x8" { return 8 }
-    if t == "i32x8" { return 8 }
-    if t == "f64x2" { return 2 }
-    if t == "f64x4" { return 4 }
-    return 0
+    let masks = simdMaskLanes(t)
+    if masks > 0 { return masks }
+    return simdBuiltinLanes(t)
 }
 
 fun isSwizzlePatternImpl(s: String, lanes: Int) r: Int {
@@ -92,11 +86,7 @@ fun swizzleLaneIndexImpl(c: String) r: Int {
 }
 
 fun simdLlvmSuffixImpl(t: String) r: String {
-    if t == "f32x4" { return "v4f32" }
-    if t == "f32x8" { return "v8f32" }
-    if t == "i32x4" { return "v4i32" }
-    if t == "i32x8" { return "v8i32" }
-    if t == "f64x2" { return "v2f64" }
-    if t == "f64x4" { return "v4f64" }
-    return "v4f32"
+    let lanes = simdBuiltinLanes(t)
+    if lanes == 0 { return "" }
+    return "v" + lanes.toString() + t.substring(0, 3)
 }

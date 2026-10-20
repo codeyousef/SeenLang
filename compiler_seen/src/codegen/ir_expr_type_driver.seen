@@ -1,3 +1,4 @@
+import simd.ir_types.{simdComparisonMaskName, simdIsComparisonOperator}
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_codegen_feature_state.{getAsyncDeclaredRetTypeWithFeatureStateImpl, getEnumVariantCountWithFeatureStateImpl, isEnumVariantWithFeatureStateImpl, lookupEnumParentWithFeatureStateImpl}
 import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findActiveVariableIndexWithGlobalStateImpl}
@@ -76,6 +77,9 @@ fun inferBinaryExprTypeLocalState(expr: ParserExpressionNode,
             varTypes, stringConstants)
     }
     if isSimdVectorTypeImpl(leftType) == 1 {
+        if simdIsComparisonOperator(expr.operator) {
+            return simdComparisonMaskName(leftType)
+        }
         return leftType
     }
     if expr.operands.length() > 1 {

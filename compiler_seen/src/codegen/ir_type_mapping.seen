@@ -1,3 +1,4 @@
+import simd.ir_types.{simdBuiltinLlvmType}
 ///
 Type mapping and class/data type classification helpers
 Extracted from ir_type_info.seen
@@ -364,12 +365,8 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
         if c == "S" { return "i64" }
         if c == "U" { return "i64" }
     }
-    if baseType == "f32x4" { return "<4 x float>" }
-    if baseType == "f32x8" { return "<8 x float>" }
-    if baseType == "i32x4" { return "<4 x i32>" }
-    if baseType == "i32x8" { return "<8 x i32>" }
-    if baseType == "f64x2" { return "<2 x double>" }
-    if baseType == "f64x4" { return "<4 x double>" }
+    let simdType = simdBuiltinLlvmType(baseType)
+    if simdType != "" { return simdType }
     if baseType == "Int" {
         return "i64"
     }
