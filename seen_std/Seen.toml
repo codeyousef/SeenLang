@@ -118,6 +118,10 @@ modules = [
     "src/accelerator/cuda/error.seen",
     "src/accelerator/cuda/mod.seen",
 
+    # Portable SIMD representation and dispatch planning
+    "src/simd/ir_types.seen",
+    "src/simd/dispatch_plan.seen",
+
     # Math
     "src/math/math.seen",
 

@@ -1,3 +1,6 @@
+// Bootstrap discovers direct imports before its curated module list.
+import simd.ir_types.{PortableVectorShape, SimdIrError}
+import simd.dispatch_plan.{portableSimdContractReport}
 ///
 =============================================================================
 main_compiler.seen -- Bootstrap compiler driver (Stage 5 orchestrator)
@@ -162,7 +165,7 @@ import codegen.ir_collection_dispatch.{dispatchCollectionMethodImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.ir_comptime_target.{setComptimeTargetName}
 import codegen.ir_comptime_eval.{lookupComptimeStrVarImpl}
-import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, isSimdValueTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_type_ops_comparison.{emitComparisonBinaryOpImpl}
 import codegen.ir_type_ops.{emitBinaryOpImpl}
@@ -8822,6 +8825,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
             println("    Bootstrap mode: adding compiler modules...")
         }
         let modules = Array<String>()
+        modules.push("simd.ir_types")
+        modules.push("simd.dispatch_plan")
         ///
         Keep direct stdlib dependencies explicit for bootstrap binaries run
         outside compiler_seen/target, where root-based import discovery is fragile.
@@ -10624,7 +10629,7 @@ fun isKnownCompilerBuiltinCallName(callName: String) r: Bool {
         return true
     }
     if callName.startsWith("simd_") or callName.startsWith("Simd") or
-        isSimdVectorTypeImpl(callName) == 1 {
+        isSimdValueTypeImpl(callName) == 1 {
         return true
     }
     if isPtrBuiltinCallImpl(callName) == 1 {
@@ -11036,9 +11041,7 @@ fun checkedCallTypeHasKnownConcreteLowering(typeName: String) r: Bool {
         normalized.startsWith("LinkedList<") or
         normalized == "LinkedList" or normalized.startsWith("[") or
         (normalized.contains("[") and normalized.endsWith("]")) or
-        normalized == "f32x4" or normalized == "f32x8" or
-        normalized == "i32x4" or normalized == "i32x8" or
-        normalized == "f64x2" or normalized == "f64x4" {
+        isSimdValueTypeImpl(normalized) == 1 {
 
         return true
     }
@@ -13682,6 +13685,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
         return 1
     }
+    if simdReport { println(portableSimdContractReport()) }
     println("Stage1 compiling (Two-Pass Memory Optimized)")
     let isDeterministicProfile = profile == "deterministic"
     let isDeterministicArtifactMode = g_deterministicArtifactCli == 1

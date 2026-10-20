@@ -1,5 +1,5 @@
 version = 2
-manifest_sha256 = "416d8409018fc7d7356fa4e22050e849f92ba284c00dfbe5f4fa47ad08dea939"
+manifest_sha256 = "b6de86dda76cea74bf080ca0e9e9973e14e4ba548b160cffe8e8fcc66beb2ffb"
 
 [root]
 name = "seen_std"
