@@ -43,6 +43,7 @@ compile_case() {
 }
 
 for profile in fast release; do
+    compile_case "$profile" pool-release "$ROOT_DIR/tests/fixtures/async/pool_release_pointer_abi.seen"
     compile_case "$profile" lifecycle "$ROOT_DIR/seen_std/tests/async/async-002a.seen"
     compile_case "$profile" imported "$ROOT_DIR/tests/fixtures/async/cross_module.seen"
     for case_name in happy partial invalid limit cancel cleanup; do
