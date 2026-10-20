@@ -1,0 +1,116 @@
+/// Structural generic call binding over the compiler's parsed type model.
+/// Declaration nodes are borrowed for the declaration pass lifetime.
+import parser.real_parser.{FunctionNode, genericParameterCount, genericParameterNameAt}
+import typechecker.type_ref.{TypeRef, parseTypeRef, typeRefSubstitute}
+
+var g_genericCallNames: Array<String> = Array<String>()
+var g_genericCallDeclarations: Array<FunctionNode> = Array<FunctionNode>()
+fun resetGenericCallTypesImpl() r: Void {
+    g_genericCallNames.free(); g_genericCallDeclarations.free()
+    g_genericCallNames = Array<String>(); g_genericCallDeclarations = Array<FunctionNode>()
+}
+fun registerGenericCallTypeImpl(borrow function: FunctionNode) r: Void {
+    if genericParameterCount(function.decorators) > 64 { abort("generic parameter limit exceeded") }
+    var i = 0
+    while i < g_genericCallNames.length() {
+        if g_genericCallNames[i] == function.name { g_genericCallDeclarations[i] = function; return }
+        i = i + 1
+    }
+    if genericParameterCount(function.decorators) == 0 { return }
+    if g_genericCallNames.length() >= 65536 { abort("generic declaration registry limit exceeded") }
+    g_genericCallNames.push(function.name); g_genericCallDeclarations.push(function)
+}
+fun findGenericCallTypeImpl(name: String) r: Int {
+    var i = g_genericCallNames.length() - 1
+    while i >= 0 { if g_genericCallNames[i] == name { return i }; i = i - 1 }
+    return -1
+}
+fun genericCallDeclarationImpl(index: Int) r: FunctionNode { return g_genericCallDeclarations[index] }
+fun genericCallWordTypeNameImpl(name: String, parameter: Int) r: String {
+    let index = findGenericCallTypeImpl(name)
+    if index < 0 { return "" }
+    let function = genericCallDeclarationImpl(index)
+    var spelling = function.returnType.typeName
+    if parameter >= 0 {
+        if parameter >= function.params.length() { return "" }
+        spelling = function.params[parameter].paramType.typeName
+    }
+    let parsed = parseTypeRef(spelling)
+    if not parsed.valid or parsed.arguments.length() != 0 { return "" }
+    var i = 0
+    while i < genericParameterCount(function.decorators) {
+        if parsed.base == genericParameterNameAt(function.decorators, i) { return parsed.base }
+        i = i + 1
+    }
+    return ""
+}
+fun genericCallParameterIndexImpl(name: String, names: Array<String>) r: Int {
+    var i = 0
+    while i < names.length() { if names[i] == name { return i }; i = i + 1 }
+    return -1
+}
+fun genericCallTypeWithinLimitImpl(text: String) r: Bool {
+    if text.length() > 4096 { return false }
+    var depth = 0; var i = 0
+    while i < text.length() {
+        let byte = text.byteAt(i)
+        if byte == 60 { depth = depth + 1; if depth > 32 { return false } }
+        if byte == 62 { depth = depth - 1; if depth < 0 { return false } }
+        i = i + 1
+    }
+    return depth == 0
+}
+fun bindGenericCallTypeImpl(borrow pattern: TypeRef, borrow actual: TypeRef,
+    names: Array<String>, values: Array<TypeRef>, depth: Int, visited: Array<Int>) r: Bool {
+    visited[0] = visited[0] + 1
+    if depth > 32 or visited[0] > 1024 or not pattern.valid or not actual.valid { return false }
+    let generic = genericCallParameterIndexImpl(pattern.base, names)
+    if generic >= 0 and pattern.arguments.length() == 0 {
+        if values[generic].base != "Unknown" { return values[generic].canonical() == actual.canonical() }
+        values[generic] = actual; return true
+    }
+    if pattern.base != actual.base or pattern.arguments.length() != actual.arguments.length() { return false }
+    var i = 0
+    while i < pattern.arguments.length() {
+        if not bindGenericCallTypeImpl(pattern.arguments[i], actual.arguments[i], names, values, depth + 1, visited) { return false }
+        i = i + 1
+    }
+    return true
+}
+fun specializeGenericCallReturnImpl(borrow function: FunctionNode,
+    arguments: Array<String>, explicitArguments: Array<String>, declared: String) r: String {
+    let count = genericParameterCount(function.decorators)
+    if count <= 0 or count > 64 or function.params.length() > 64 or arguments.length() != function.params.length() { return declared }
+    if explicitArguments.length() != 0 and explicitArguments.length() != count { return declared }
+    let names = Array<String>(); let values = Array<TypeRef>(); var i = 0
+    while i < count {
+        names.push(genericParameterNameAt(function.decorators, i))
+        if explicitArguments.length() != 0 {
+            if not genericCallTypeWithinLimitImpl(explicitArguments[i]) { names.free(); values.free(); return declared }
+            values.push(parseTypeRef(explicitArguments[i]))
+        }
+        else { values.push(TypeRef.new()) }
+        i = i + 1
+    }
+    let visited = [0]; var matched = true; i = 0
+    while i < arguments.length() and matched {
+        if not genericCallTypeWithinLimitImpl(arguments[i]) or not genericCallTypeWithinLimitImpl(function.params[i].paramType.typeName) { matched = false }
+        else {
+            let pattern = parseTypeRef(function.params[i].paramType.typeName)
+            let actual = parseTypeRef(arguments[i])
+            matched = bindGenericCallTypeImpl(pattern, actual, names, values, 0, visited)
+        }
+        i = i + 1
+    }
+    var result = declared
+    if matched and genericCallTypeWithinLimitImpl(declared) {
+        let parsed = parseTypeRef(declared)
+        if parsed.valid {
+            let specialized = typeRefSubstitute(parsed, names, values)
+            if specialized.base != "Unknown" and not specialized.isOpen(names) { result = specialized.canonical() }
+        }
+    }
+    // Parsed TypeRefs share argument subtrees during substitution and retain
+    // the existing compiler parsed-type lifetime, independently of this index.
+    names.free(); values.free(); visited.free(); return result
+}

@@ -96,6 +96,7 @@ import codegen.ir_struct_layout_state.{registerStructLayoutState}
 import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getMethodReturnTypeState}
 import codegen.ir_generic_type_specialize.{specializeGenericTypeImpl}
+import codegen.ir_generic_call_type.{registerGenericCallTypeImpl, specializeGenericCallReturnImpl}
 import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
@@ -9050,6 +9051,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_autofree_state")
         modules.push("codegen.ir_field_lookup_state")
         modules.push("codegen.ir_generic_type_specialize")
+        modules.push("codegen.ir_generic_call_type")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_struct_literal_driver")
         modules.push("codegen.ir_struct_layout_build")

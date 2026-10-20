@@ -2,6 +2,7 @@
 // Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen.
 
 import parser.real_parser.{ProgramNode, FunctionNode, ItemNode, ParamNode}
+import codegen.ir_generic_call_type.{registerGenericCallTypeImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, isClassTypeImpl,
     normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
@@ -331,6 +332,7 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
 fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
     visibility: String, funcRetTypeName: String, ctx: DeclarationItemContext)
     r: Void {
+    registerGenericCallTypeImpl(funcObj)
 
     let isRuntimeStringCompat = isRuntimeBackedStringCompatFunctionImpl(
         funcObj.name)
