@@ -117,21 +117,21 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
             entries.push(None<AsyncIoEntry<T>>()); generations.push(0 as UInt64)
             freeSlots.push(capacity - i - 1); i = i + 1
         }
-        let loop = AsyncEventLoop<T>{executor: executor, native: -1 as Int64, wake: -1 as Int64,
+        let reactor = AsyncEventLoop<T>{executor: executor, native: -1 as Int64, wake: -1 as Int64,
             eventStorage: storage, wakeLeases: wakeLeases, capacity: capacity,
             entries: entries, generations: generations, freeSlots: freeSlots,
             freeCount: capacity, deadlines: deadlines, readyHead: -1, readyTail: -1,
             active: 0, closed: false}
         var native = -1 as Int64; var wake = -1 as Int64
         let status = seen_async_readiness_create(&native, &wake)
-        loop.native = native; loop.wake = wake
+        reactor.native = native; reactor.wake = wake
         if status != (0 as Int32) {
-            let released = loop.release()
+            let released = reactor.release()
             if released.isErr() { abort("I/O construction rollback failed") }
             released.releaseContainer()
             return Err<AsyncEventLoop<T>, AsyncError>(executorFailure(status, "io.create", 0 as UInt64))
         }
-        return Ok<AsyncEventLoop<T>, AsyncError>(loop)
+        return Ok<AsyncEventLoop<T>, AsyncError>(reactor)
     }
 
     fun matches(registration: AsyncIoRegistration) r: Bool {
