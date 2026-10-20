@@ -92,7 +92,9 @@ fun mapAssignmentSourceValueTypeCoreImpl(sourceSeenType: String,
         return ""
     }
     if sourceSeenType.startsWith("*") {
-        return "ptr"
+        // Raw pointer expressions already carry integer address handles.
+        // Native pointer conversion belongs to the destination storage ABI.
+        return "i64"
     }
     if sourceSeenType == "String" {
         return "%SeenString"

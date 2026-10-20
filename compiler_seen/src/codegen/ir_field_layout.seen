@@ -93,11 +93,16 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     }
     var effectiveFieldType = fieldType
     if pointerValue { effectiveFieldType = "ptr" }
+    var pointerStorageToWord = false
     let layoutFieldTypes = extractStructFieldTypesImpl(structLayout)
     if fieldIndex >= 0 and fieldIndex < layoutFieldTypes.length() {
         let layoutFieldType = layoutFieldTypes[fieldIndex]
         if effectiveFieldType == "ptr" and layoutFieldType == "i64" {
             effectiveFieldType = layoutFieldType
+        }
+        if effectiveFieldType == "i64" and layoutFieldType == "ptr" {
+            effectiveFieldType = "ptr"
+            pointerStorageToWord = not pointerValue
         }
     }
     let fieldPtrReg = emitResolvedFieldAccessPtrImpl(output, regBox, ptrReg,
@@ -112,8 +117,13 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
                 bitfieldWidth)
         }
     }
-    // Pointer expressions use native pointers even when the declaration stores
-    // their bits in an erased i64 slot. Unknown generic values remain handles.
+    // Array/List expressions use native pointers. Seen raw pointers and class
+    // handles retain the i64 expression ABI, independently of field storage.
+    if pointerStorageToWord {
+        let word = getNextRegFn(regBox)
+        output.append("  " + word + " = ptrtoint ptr " + resultReg + " to i64\n")
+        return word
+    }
     if pointerValue and effectiveFieldType == "i64" {
         let pointer = getNextRegFn(regBox)
         output.append("  " + pointer + " = inttoptr i64 " + resultReg + " to ptr\n")
@@ -176,8 +186,9 @@ fun emitSimpleFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
-    let llvmFieldType = mapTypeImpl(fieldSeenType, structNames,
+    var llvmFieldType = mapTypeImpl(fieldSeenType, structNames,
         typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    if fieldSeenType.startsWith("*") { llvmFieldType = "i64" }
     if reprCClassNames != "" and reprCClassNames.contains(structType + "|") {
         let fieldIdx = getFieldInfoReg(structType, fieldName, structNames,
             structFieldNames)
@@ -185,7 +196,7 @@ fun emitSimpleFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
             let resultReg = getNextRegFn(regBox)
             output.append("  " + resultReg + " = extractvalue %" + structType +
                 " " + ptrReg + ", " + fieldIdx.toString() + "\n")
-            if fieldSeenType.startsWith("*") and llvmFieldType == "ptr" {
+            if fieldSeenType.startsWith("*") {
                 let handleReg = getNextRegFn(regBox)
                 output.append("  " + handleReg + " = ptrtoint ptr " +
                     resultReg + " to i64 ; repr(C) pointer field\n")
@@ -421,8 +432,7 @@ fun isNativePointerFieldValueImpl(structType: String, fieldName: String,
 }
 
 fun isNativePointerFieldTypeImpl(fieldType: String) r: Bool {
-    return fieldType.startsWith("*") or
-        fieldType.startsWith("Array<") or fieldType == "Array" or
+    return fieldType.startsWith("Array<") or fieldType == "Array" or
         fieldType.startsWith("List<") or fieldType == "List"
 }
 

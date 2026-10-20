@@ -3,6 +3,7 @@ import codegen.ir_method_receiver.{getSemanticFieldTypeImpl, resolveMethodFieldP
 import codegen.ir_member_access.{inferMemberFieldTypeImpl}
 import codegen.ir_field_layout.{emitResolvedFieldAccessLoadImpl, isNativePointerFieldTypeImpl}
 import str.string.{StringBuilder}
+import codegen.ir_assignment_coerce.{mapAssignmentSourceValueTypeCoreImpl}
 
 fun requirePointerFieldLoad(layout: String, expectedLoad: String, expectedConversion: Bool) r: Void {
     let output = StringBuilder.new()
@@ -11,9 +12,9 @@ fun requirePointerFieldLoad(layout: String, expectedLoad: String, expectedConver
     let layouts = [layout]
     let fields = ["data"]
     let value = emitResolvedFieldAccessLoadImpl(output, registers, "%owner", "PointerOwner", "data", "i64",
-        names, layouts, fields, 0, "", "", isNativePointerFieldTypeImpl("*UInt8"))
+        names, layouts, fields, 0, "", "", false)
     let ir = output.toString()
-    if value == "" or not ir.contains(expectedLoad) or ir.contains("inttoptr i64") != expectedConversion {
+    if value == "" or not ir.contains(expectedLoad) or ir.contains("ptrtoint ptr") != expectedConversion or ir.contains("inttoptr i64") {
         println(ir)
         abort("pointer field load must agree with pointer expression ABI")
     }
@@ -26,8 +27,13 @@ fun requireFieldType(actual: String, expected: String, location: String) r: Void
     }
 }
 fun main() r: Int {
-    requirePointerFieldLoad("{ ptr, i64 }", "load ptr", false)
-    requirePointerFieldLoad("{ i64, i64 }", "load i64", true)
+    requirePointerFieldLoad("{ ptr, i64 }", "load ptr", true)
+    requirePointerFieldLoad("{ i64, i64 }", "load i64", false)
+    let noClasses = Array<String>()
+    requireFieldType(mapAssignmentSourceValueTypeCoreImpl("*UInt8", noClasses), "i64", "pointer assignment source ABI")
+    requireFieldType(mapAssignmentSourceValueTypeCoreImpl("*const UInt8", noClasses), "i64", "const pointer assignment source ABI")
+    noClasses.free()
+    if isNativePointerFieldTypeImpl("*UInt8") { abort("raw pointer expressions retain the word ABI") }
     if isNativePointerFieldTypeImpl("T") { abort("unresolved generic is not a native pointer") }
     let names = ["OwnedBuffer", "Owner"]
     // Registry names are comma-delimited; type spellings are pipe-delimited.
