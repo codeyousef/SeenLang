@@ -1,5 +1,9 @@
 import simd.ir_types.{simdComparisonMaskName, simdIsComparisonOperator}
 import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_generic_call_type.{findGenericCallTypeImpl, genericCallDeclarationImpl, specializeGenericCallReturnImpl}
+import codegen.ir_generic_type_specialize.{genericTypeArgumentsImpl}
+import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_codegen_feature_state.{getAsyncDeclaredRetTypeWithFeatureStateImpl, getEnumVariantCountWithFeatureStateImpl, isEnumVariantWithFeatureStateImpl, lookupEnumParentWithFeatureStateImpl}
 import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findActiveVariableIndexWithGlobalStateImpl}
 import codegen.ir_codegen_metrics_state.{inferStringInterpolationExprTypeWithMetricsStateImpl}
@@ -15,6 +19,9 @@ import codegen.ir_path_expr.{buildChainedPathExprImpl, splitFirstPathDotImpl, re
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
 import codegen.ir_type_tables.{inferFieldTypeFallback, inferIndexElementType, resolveTryPropagateTypeImpl}
+
+var g_genericCallInferenceDepth = 0
+
 fun resolveChainedPathTypeState(path: String, varNames: Array<String>,
     varTypes: Array<String>, stringConstants: Array<String>) r: String {
     if path.contains("()") {
@@ -462,6 +469,26 @@ fun inferSpecialExprTypeLocalState(expr: ParserExpressionNode,
 fun inferExpressionTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
+    if expr.kind == "Call" or (expr.kind == "MethodCall" and expr.literalValue == "" and expr.operands.length() == 0) {
+        let name = stripGenericCalleeNameImpl(expr.callee)
+        let genericIndex = findGenericCallTypeImpl(name)
+        if genericIndex >= 0 and not genericCallDeclarationImpl(genericIndex).isAsync and expr.arguments.length() <= 64 and expr.callee.length() <= 4096 and g_genericCallInferenceDepth < 32 {
+            g_genericCallInferenceDepth = g_genericCallInferenceDepth + 1
+            let actual = Array<String>(); var argument = 0
+            while argument < expr.arguments.length() {
+                actual.push(inferExpressionTypeState(expr.arguments[argument], varNames, varTypes, stringConstants))
+                argument = argument + 1
+            }
+            let explicit = genericTypeArgumentsImpl(expr.callee)
+            let declared = getFunctionReturnTypeWithGlobalStateImpl(name)
+            let specialized = specializeGenericCallReturnImpl(genericCallDeclarationImpl(genericIndex), actual, explicit, declared)
+            actual.free(); explicit.free()
+            g_genericCallInferenceDepth = g_genericCallInferenceDepth - 1
+            // Multi-field generic returns require their own value-specialized
+            // ABI. Preserve the existing path rather than guessing box ownership.
+            if specialized != declared and not mapTypeState(specialized).startsWith("%") { return specialized }
+        }
+    }
     let dispatchPlan = planExprInferenceDispatchImpl(expr.kind)
     if dispatchPlan.action == 1 {
         return inferLiteralExprTypeLocal(expr)
