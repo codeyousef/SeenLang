@@ -267,7 +267,7 @@ fun checkFloat(borrow storage: OwnedBuffer<UInt8>) r: Void {
     }
 }
 fun main() r: Int {
-    let storage = take(OwnedBuffer<UInt8>.allocate(128 as UInt64, 1 as UInt64, 64 as UInt64))
+    let storage: OwnedBuffer<UInt8> = take(OwnedBuffer<UInt8>.allocate(128 as UInt64, 1 as UInt64, 64 as UInt64))
     checkUInt8(storage)
     checkInt8(storage)
     checkUInt16(storage)
