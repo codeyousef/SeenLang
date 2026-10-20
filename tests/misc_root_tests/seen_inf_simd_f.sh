@@ -12,10 +12,10 @@ COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/inf-simd-f.XXXXXX")"
-SEEN_SIMD_ARTIFACT_PREFIX=inf-simd-f
-SIMD_RUN_SECONDS=900
-source "$ROOT_DIR/scripts/simd_regression_support.sh"
-SIMD_COMPILE_FLAGS=(--bounds-check --simd-report=full)
+FIXTURE_ARTIFACT_PREFIX=inf-simd-f
+FIXTURE_RUN_SECONDS=900
+source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+FIXTURE_COMPILE_FLAGS=(--bounds-check --simd-report=full)
 for profile in fast release undefined address; do
     compile_case "$profile" quantized "$ROOT_DIR/tests/inference_simd/quantized_corpus.seen"
     rg -Fq 'PASS: quantized Q8_0 Q4_0 Q4_K Q2_K IQ3_XXS MXFP4 E4M3FN tails=all alignments=64 widths=scalar,128,256,512' "$TMP_DIR/quantized-$profile.log"

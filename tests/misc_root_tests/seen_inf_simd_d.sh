@@ -12,8 +12,8 @@ COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/inf-simd-d.XXXXXX")"
-SEEN_SIMD_ARTIFACT_PREFIX=inf-simd-d
-source "$ROOT_DIR/scripts/simd_regression_support.sh"
+FIXTURE_ARTIFACT_PREFIX=inf-simd-d
+source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 for profile in fast release undefined address; do
     compile_case "$profile" operations "$ROOT_DIR/tests/inference_simd/portable_operations.seen"
     for name in happy partial packing invalid cancel cleanup; do
