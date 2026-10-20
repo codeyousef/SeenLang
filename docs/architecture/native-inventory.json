@@ -3410,6 +3410,69 @@
       ]
     },
     {
+      "name": "seen_async_socket_accept",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_bind",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_bound_port",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_connect",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_connect_status",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_listen",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_read",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_write",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
       "name": "seen_audio_create_output",
       "abi": "Seen",
       "sources": [

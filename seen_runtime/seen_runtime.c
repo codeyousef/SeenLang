@@ -89,6 +89,7 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 #include "reactor_abi.c"
 #include "sync_abi.c"
 #include "src/executor_abi.c"
+#include "src/executor_socket_abi.c"
 
 /* Allocation and reservation form one transaction across worker threads.
  * Nested allocator helpers reuse the owning thread's guard. In particular,

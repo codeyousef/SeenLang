@@ -541,6 +541,8 @@ fun runtimeSourceSignatureForCache() r: String {
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/sync_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_abi.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_socket_abi.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_socket_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_gpu.c"))
@@ -1702,7 +1704,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                 packageObjectManifestSchema:
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
-            runtimeAbi: "runtime-v6",
+            runtimeAbi: "runtime-v7",
             standardLibraryVersion: "0.6.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
@@ -8477,6 +8479,8 @@ fun programRuntimeInputIdentity() r: String {
     names.push("sync_abi.h")
     names.push("src/executor_abi.c")
     names.push("src/executor_abi.h")
+    names.push("src/executor_socket_abi.c")
+    names.push("src/executor_socket_abi.h")
     names.push("seen_region.c")
     names.push("seen_region.h")
     names.push("seen_gpu.c")
