@@ -1,0 +1,228 @@
+/// Portable SIMD geometry. One representation is shared by semantic
+/// recognition, LLVM type mapping and target-independent dispatch planning.
+
+import core.result.{Result, Ok, Err}
+
+class SimdIrError {
+    var code: String
+    var target: String
+    var capability: String
+    var operation: String
+    var location: String
+    var message: String
+}
+
+fun simdIrFailure(code: String, target: String, capability: String,
+    operation: String, location: String, message: String) r: SimdIrError {
+    return SimdIrError{code: code, target: target, capability: capability,
+        operation: operation, location: location, message: message}
+}
+
+fun simdLaneBits(lane: String) r: Int {
+    if lane == "Int8" or lane == "UInt8" { return 8 }
+    if lane == "Int16" or lane == "UInt16" or lane == "Float16" or
+        lane == "BFloat16" { return 16 }
+    if lane == "Int32" or lane == "UInt32" or lane == "Float32" { return 32 }
+    if lane == "Int64" or lane == "UInt64" or lane == "Float64" { return 64 }
+    return 0
+}
+
+fun simdLaneLlvmType(lane: String) r: String {
+    if lane == "Float16" { return "half" }
+    if lane == "BFloat16" { return "bfloat" }
+    if lane == "Float32" { return "float" }
+    if lane == "Float64" { return "double" }
+    let bits = simdLaneBits(lane)
+    if bits == 8 { return "i8" }
+    if bits == 16 { return "i16" }
+    if bits == 32 { return "i32" }
+    if bits == 64 { return "i64" }
+    return ""
+}
+
+fun simdWidthValid(bits: Int) r: Bool {
+    return bits == 128 or bits == 256 or bits == 512
+}
+
+class PortableVectorShape {
+    var lane: String
+    var laneBits: Int
+    var lanes: Int
+    var widthBits: Int
+    var packedBits: Int
+
+    static fun create(lane: String, widthBits: Int, packedBits: Int)
+        r: Result<PortableVectorShape, SimdIrError> {
+        let laneBits = simdLaneBits(lane)
+        if laneBits == 0 {
+            return Err<PortableVectorShape, SimdIrError>(simdIrFailure(
+                "simd.unsupported_lane", "portable", lane, "shape", "shape",
+                "SIMD lane type is unsupported"))
+        }
+        if not simdWidthValid(widthBits) {
+            return Err<PortableVectorShape, SimdIrError>(simdIrFailure(
+                "simd.invalid_width", "portable", lane, "shape", "shape",
+                "vector storage width must be 128, 256 or 512 bits"))
+        }
+        if packedBits != 0 {
+            if (lane != "Int8" and lane != "UInt8") or
+                (packedBits != 2 and packedBits != 3 and packedBits != 4 and
+                    packedBits != 8) {
+                return Err<PortableVectorShape, SimdIrError>(simdIrFailure(
+                    "simd.invalid_packing", "portable", lane, "shape", "shape",
+                    "packed values require 2, 3, 4 or 8-bit byte storage"))
+            }
+        }
+        return Ok<PortableVectorShape, SimdIrError>(PortableVectorShape{
+            lane: lane, laneBits: laneBits, lanes: widthBits / laneBits,
+            widthBits: widthBits, packedBits: packedBits})
+    }
+
+    fun valid() r: Bool {
+        if not simdWidthValid(this.widthBits) or this.laneBits <= 0 { return false }
+        if this.laneBits != simdLaneBits(this.lane) or
+            this.lanes != this.widthBits / this.laneBits { return false }
+        if this.packedBits == 0 { return true }
+        return (this.lane == "Int8" or this.lane == "UInt8") and
+            (this.packedBits == 2 or this.packedBits == 3 or
+                this.packedBits == 4 or this.packedBits == 8)
+    }
+
+    fun llvmType() r: String {
+        if not this.valid() { return "" }
+        return "<" + this.lanes.toString() + " x " + simdLaneLlvmType(this.lane) + ">"
+    }
+
+    fun maskType() r: String {
+        if not this.valid() { return "" }
+        return "<" + this.lanes.toString() + " x i1>"
+    }
+
+    fun alignmentBytes() r: Int {
+        if not this.valid() { return 0 }
+        return this.widthBits / 8
+    }
+}
+
+/// Prepare a scalar tail mask before entering the hot loop. Bit N denotes
+/// lane N. The 64-lane case avoids a shift by the operand width.
+fun simdActiveLaneBits(lanes: Int, active: Int) r: Result<UInt64, SimdIrError> {
+    if lanes <= 0 or lanes > 64 or active < 0 or active > lanes {
+        return Err<UInt64, SimdIrError>(simdIrFailure("simd.invalid_mask",
+            "portable", "mask", "tail-mask", "tail-mask", "active mask exceeds its lane bound"))
+    }
+    if active == 64 {
+        return Ok<UInt64, SimdIrError>(18446744073709551615 as UInt64)
+    }
+    return Ok<UInt64, SimdIrError>(((1 as UInt64) << active) - (1 as UInt64))
+}
+
+/// Closed source spellings whose arithmetic lowering is implemented.
+/// Additional lane formats may be represented by PortableVectorShape without
+/// claiming that their source intrinsics have already been implemented.
+fun simdBuiltinLanes(name: String) r: Int {
+    if name == "f32x4" or name == "i32x4" or name == "f64x4" { return 4 }
+    if name == "f32x8" or name == "i32x8" or name == "f64x8" { return 8 }
+    if name == "f32x16" or name == "i32x16" { return 16 }
+    if name == "f64x2" { return 2 }
+    return 0
+}
+
+fun simdMaskLanes(name: String) r: Int {
+    if name == "mask2" { return 2 }
+    if name == "mask4" { return 4 }
+    if name == "mask8" { return 8 }
+    if name == "mask16" { return 16 }
+    if name == "mask32" { return 32 }
+    if name == "mask64" { return 64 }
+    return 0
+}
+
+fun simdBuiltinLane(name: String) r: String {
+    if simdBuiltinLanes(name) == 0 { return "" }
+    if name.startsWith("f32") { return "Float32" }
+    if name.startsWith("f64") { return "Float64" }
+    return "Int32"
+}
+
+fun simdBuiltinWidthBits(name: String) r: Int {
+    return simdBuiltinLanes(name) * simdLaneBits(simdBuiltinLane(name))
+}
+
+fun simdIsComparisonOperator(operation: String) r: Bool {
+    return operation == "==" or operation == "!=" or operation == "<" or
+        operation == ">" or operation == "<=" or operation == ">="
+}
+
+fun simdConstructorLaneSupported(lane: String, mask: Bool) r: Bool {
+    return lane == "Int" or lane == "UInt" or lane == "Float" or
+        lane == "Float32" or lane == "Float64" or lane == "Int8" or
+        lane == "UInt8" or lane == "Int16" or lane == "UInt16" or
+        lane == "Int32" or lane == "UInt32" or lane == "Int64" or
+        lane == "UInt64" or (mask and lane == "Bool")
+}
+
+fun simdBuiltinLlvmType(name: String) r: String {
+    let maskLanes = simdMaskLanes(name)
+    if maskLanes > 0 { return "<" + maskLanes.toString() + " x i1>" }
+    let lanes = simdBuiltinLanes(name)
+    if lanes == 0 { return "" }
+    return "<" + lanes.toString() + " x " +
+        simdLaneLlvmType(simdBuiltinLane(name)) + ">"
+}
+
+fun simdComparisonMaskName(vector: String) r: String {
+    let lanes = simdBuiltinLanes(vector)
+    if lanes == 0 { return "" }
+    return "mask" + lanes.toString()
+}
+
+enum PortableSimdOperation {
+    Load; Store; Add; Subtract; Multiply; Divide; Compare; Select;
+    Pack; Unpack; Shuffle; ReduceAdd; ReduceMin; ReduceMax; Prefetch
+}
+
+/// A target-independent operation node borrows its validated shape. It owns
+/// no buffer or native handle; masks and tails refer to storage lanes.
+class PortableSimdInstruction {
+    var shape: PortableVectorShape
+    var operation: PortableSimdOperation
+    var maskLanes: Int
+    var alignmentBytes: Int
+    var activeLanes: Int
+
+    static fun create(shape: PortableVectorShape, operation: PortableSimdOperation,
+        maskLanes: Int, alignmentBytes: Int, activeLanes: Int)
+        r: Result<PortableSimdInstruction, SimdIrError> {
+        if not shape.valid() or activeLanes < 0 or activeLanes > shape.lanes {
+            return Err<PortableSimdInstruction, SimdIrError>(simdIrFailure(
+                "simd.invalid_shape", "portable", "operation", "instruction", "instruction",
+                "operation shape or tail is invalid"))
+        }
+        if maskLanes != 0 and maskLanes != shape.lanes {
+            return Err<PortableSimdInstruction, SimdIrError>(simdIrFailure(
+                "simd.invalid_mask", "portable", "operation", "instruction", "instruction",
+                "operation mask must match its value lanes"))
+        }
+        if alignmentBytes <= 0 or alignmentBytes > shape.alignmentBytes() or
+            (alignmentBytes & (alignmentBytes - 1)) != 0 {
+            return Err<PortableSimdInstruction, SimdIrError>(simdIrFailure(
+                "simd.invalid_alignment", "portable", "operation", "instruction", "instruction",
+                "alignment must be a bounded power of two"))
+        }
+        if (operation == PortableSimdOperation.Pack or
+            operation == PortableSimdOperation.Unpack) and shape.packedBits == 0 {
+            return Err<PortableSimdInstruction, SimdIrError>(simdIrFailure(
+                "simd.invalid_packing", "portable", "operation", "instruction", "instruction",
+                "packed operations require explicit packed storage geometry"))
+        }
+        if operation == PortableSimdOperation.Select and maskLanes == 0 {
+            return Err<PortableSimdInstruction, SimdIrError>(simdIrFailure(
+                "simd.invalid_mask", "portable", "operation", "instruction", "instruction",
+                "select requires an explicit lane mask"))
+        }
+        return Ok<PortableSimdInstruction, SimdIrError>(PortableSimdInstruction{
+            shape: shape, operation: operation, maskLanes: maskLanes,
+            alignmentBytes: alignmentBytes, activeLanes: activeLanes})
+    }
+}

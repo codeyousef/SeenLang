@@ -1,3 +1,5 @@
+import simd.ir_types.{simdBuiltinLlvmType}
+import codegen.ir_simd_type_helpers.{simdScalarTypeImpl, simdLlvmSuffixImpl}
 // ir_decl_feature_runtime.seen - Runtime declarations for feature support.
 
 import str.string.{StringBuilder}
@@ -115,24 +117,15 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
 
     // SIMD reduction intrinsics
     output.append("; SIMD vector reduction intrinsics\n")
-    output.append("declare float @llvm.vector.reduce.fadd.v4f32(float, <4 x float>) nounwind readnone\n")
-    output.append("declare float @llvm.vector.reduce.fadd.v8f32(float, <8 x float>) nounwind readnone\n")
-    output.append("declare double @llvm.vector.reduce.fadd.v2f64(double, <2 x double>) nounwind readnone\n")
-    output.append("declare double @llvm.vector.reduce.fadd.v4f64(double, <4 x double>) nounwind readnone\n")
-    output.append("declare i32 @llvm.vector.reduce.add.v4i32(<4 x i32>) nounwind readnone\n")
-    output.append("declare i32 @llvm.vector.reduce.add.v8i32(<8 x i32>) nounwind readnone\n")
-    output.append("declare float @llvm.vector.reduce.fmin.v4f32(<4 x float>) nounwind readnone\n")
-    output.append("declare float @llvm.vector.reduce.fmin.v8f32(<8 x float>) nounwind readnone\n")
-    output.append("declare float @llvm.vector.reduce.fmax.v4f32(<4 x float>) nounwind readnone\n")
-    output.append("declare float @llvm.vector.reduce.fmax.v8f32(<8 x float>) nounwind readnone\n")
-    output.append("declare double @llvm.vector.reduce.fmin.v2f64(<2 x double>) nounwind readnone\n")
-    output.append("declare double @llvm.vector.reduce.fmax.v2f64(<2 x double>) nounwind readnone\n")
-    output.append("declare double @llvm.vector.reduce.fmin.v4f64(<4 x double>) nounwind readnone\n")
-    output.append("declare double @llvm.vector.reduce.fmax.v4f64(<4 x double>) nounwind readnone\n")
-    output.append("declare i32 @llvm.vector.reduce.smin.v4i32(<4 x i32>) nounwind readnone\n")
-    output.append("declare i32 @llvm.vector.reduce.smax.v4i32(<4 x i32>) nounwind readnone\n")
-    output.append("declare i32 @llvm.vector.reduce.smin.v8i32(<8 x i32>) nounwind readnone\n")
-    output.append("declare i32 @llvm.vector.reduce.smax.v8i32(<8 x i32>) nounwind readnone\n")
+    emitPortableSimdReductionDecls(output, "f32x4")
+    emitPortableSimdReductionDecls(output, "f32x8")
+    emitPortableSimdReductionDecls(output, "f32x16")
+    emitPortableSimdReductionDecls(output, "f64x2")
+    emitPortableSimdReductionDecls(output, "f64x4")
+    emitPortableSimdReductionDecls(output, "f64x8")
+    emitPortableSimdReductionDecls(output, "i32x4")
+    emitPortableSimdReductionDecls(output, "i32x8")
+    emitPortableSimdReductionDecls(output, "i32x16")
 
     // : GPU compute runtime declarations
     output.append("; GPU compute runtime declarations\n")
@@ -367,4 +360,25 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
     }
 
     output.append("\n")
+}
+
+fun emitPortableSimdReductionDecls(output: StringBuilder, name: String) r: Void {
+    let scalar = simdScalarTypeImpl(name)
+    let vector = simdBuiltinLlvmType(name)
+    let suffix = simdLlvmSuffixImpl(name)
+    if scalar == "float" or scalar == "double" {
+        output.append("declare " + scalar + " @llvm.vector.reduce.fadd." + suffix +
+            "(" + scalar + ", " + vector + ") nounwind readnone\n")
+        output.append("declare " + scalar + " @llvm.vector.reduce.fmin." + suffix +
+            "(" + vector + ") nounwind readnone\n")
+        output.append("declare " + scalar + " @llvm.vector.reduce.fmax." + suffix +
+            "(" + vector + ") nounwind readnone\n")
+    } else {
+        output.append("declare " + scalar + " @llvm.vector.reduce.add." + suffix +
+            "(" + vector + ") nounwind readnone\n")
+        output.append("declare " + scalar + " @llvm.vector.reduce.smin." + suffix +
+            "(" + vector + ") nounwind readnone\n")
+        output.append("declare " + scalar + " @llvm.vector.reduce.smax." + suffix +
+            "(" + vector + ") nounwind readnone\n")
+    }
 }

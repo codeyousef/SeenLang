@@ -1,0 +1,4 @@
+fun main() r: Int {
+    let invalid = f32x4(1, 2, 3)
+    return 0
+}

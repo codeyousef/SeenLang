@@ -1,3 +1,4 @@
+import simd.ir_types.{simdBuiltinWidthBits, simdMaskLanes}
 ///
 Compile-time expression evaluation helpers
 Extracted from ir_type_mapping.seen
@@ -209,12 +210,10 @@ fun comptimeSizeofImpl(typeName: String) r: Int {
     if typeName == "Float64" { return 8 }
     if typeName == "Int64" { return 8 }
     if typeName == "UInt64" { return 8 }
-    if typeName == "f32x4" { return 16 }
-    if typeName == "i32x4" { return 16 }
-    if typeName == "f32x8" { return 32 }
-    if typeName == "i32x8" { return 32 }
-    if typeName == "f64x2" { return 16 }
-    if typeName == "f64x4" { return 32 }
+    let vectorBits = simdBuiltinWidthBits(typeName)
+    if vectorBits > 0 { return vectorBits / 8 }
+    let maskLanes = simdMaskLanes(typeName)
+    if maskLanes > 0 { return (maskLanes + 7) / 8 }
     return -9999999
 }
 

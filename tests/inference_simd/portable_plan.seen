@@ -1,0 +1,170 @@
+import simd.ir_types.{PortableVectorShape, PortableSimdInstruction,
+    PortableSimdOperation, SimdIrError, simdActiveLaneBits}
+import simd.dispatch_plan.{SimdCapabilities, planPortableSimd}
+
+fun require(ok: Bool) r: Void {
+    if not ok { abort("portable SIMD contract failed") }
+}
+
+fun x86(osState: Bool) r: SimdCapabilities {
+    return SimdCapabilities{architecture: "x86_64", sse2: true, avx2: true,
+        avx512: true, neon: false, sve: false, osVectorState: osState, sveBits: 0}
+}
+
+fun arm(sveBits: Int) r: SimdCapabilities {
+    return SimdCapabilities{architecture: "aarch64", sse2: false, avx2: false,
+        avx512: false, neon: true, sve: sveBits > 0, osVectorState: true,
+        sveBits: sveBits}
+}
+
+fun geometryAndTails() r: Void {
+    let laneTypes = ["Int8", "UInt8", "Int16", "UInt16", "Float16", "BFloat16",
+        "Int32", "UInt32", "Float32", "Int64", "UInt64", "Float64"]
+    var width = 128
+    while width <= 512 {
+        var i = 0
+        while i < laneTypes.length() {
+            let result = PortableVectorShape.create(laneTypes[i], width, 0)
+            require(result.isOkay())
+            let shape = result.unwrap()
+            result.releaseContainer()
+            require(shape.valid() and shape.lanes * shape.laneBits == width)
+            let llvm = shape.llvmType()
+            let mask = shape.maskType()
+            require(llvm.startsWith("<") and mask.endsWith(" x i1>"))
+            llvm.free()
+            mask.free()
+            var active = 0
+            while active <= shape.lanes {
+                let maskResult = simdActiveLaneBits(shape.lanes, active)
+                require(maskResult.isOkay())
+                let bits = maskResult.unwrap()
+                maskResult.releaseContainer()
+                var lane = 0
+                var observed = 0
+                while lane < shape.lanes {
+                    if ((bits >> lane) & (1 as UInt64)) != (0 as UInt64) {
+                        observed = observed + 1
+                    }
+                    lane = lane + 1
+                }
+                require(observed == active)
+                var alignment = 1
+                while alignment <= shape.alignmentBytes() {
+                    let instruction = PortableSimdInstruction.create(shape,
+                        PortableSimdOperation.Select, shape.lanes, alignment, active)
+                    require(instruction.isOkay())
+                    instruction.unwrap().free()
+                    instruction.releaseContainer()
+                    alignment = alignment * 2
+                }
+                active = active + 1
+            }
+            shape.free()
+            i = i + 1
+        }
+        width = width * 2
+    }
+    laneTypes.free()
+    println("PASS: geometry, every tail and legal alignment")
+}
+
+fun dispatchPlans() r: Void {
+    let shapeResult = PortableVectorShape.create("Float32", 512, 0)
+    let shape = shapeResult.unwrap()
+    shapeResult.releaseContainer()
+    let capable = x86(true)
+    let disabled = x86(false)
+    let neon = arm(0)
+    let sve = arm(512)
+    var round = 0
+    while round < 100 {
+        let native = planPortableSimd(shape, capable, "auto", false, false)
+        require(native.isOkay())
+        require(native.unwrap().variant == "avx512" and not native.unwrap().fallbackUsed)
+        native.unwrap().free()
+        native.releaseContainer()
+        let scalar = planPortableSimd(shape, capable, "auto", true, true)
+        require(scalar.isOkay())
+        require(scalar.unwrap().scalar and scalar.unwrap().fallbackUsed and
+            scalar.unwrap().reason == "deterministic-scalar")
+        scalar.unwrap().free()
+        scalar.releaseContainer()
+        let fallback = planPortableSimd(shape, disabled, "auto", true, false)
+        require(fallback.isOkay() and fallback.unwrap().scalar)
+        fallback.unwrap().free()
+        fallback.releaseContainer()
+        let denied = planPortableSimd(shape, disabled, "avx512", false, false)
+        require(denied.isErr())
+        require(denied.unwrapErr().code == "simd.unsupported_capability")
+        denied.unwrapErr().free()
+        denied.releaseContainer()
+        let armPlan = planPortableSimd(shape, sve, "sve", false, false)
+        require(armPlan.isOkay() and armPlan.unwrap().variant == "sve")
+        armPlan.unwrap().free()
+        armPlan.releaseContainer()
+        let armDenied = planPortableSimd(shape, neon, "neon", false, false)
+        require(armDenied.isErr())
+        armDenied.unwrapErr().free()
+        armDenied.releaseContainer()
+        round = round + 1
+    }
+    let explicitScalar = planPortableSimd(shape, disabled, "scalar", false, true)
+    require(explicitScalar.isOkay() and explicitScalar.unwrap().scalar and
+        not explicitScalar.unwrap().fallbackUsed)
+    explicitScalar.unwrap().free(); explicitScalar.releaseContainer()
+    let deterministicDenied = planPortableSimd(shape, capable, "auto", false, true)
+    require(deterministicDenied.isErr() and
+        deterministicDenied.unwrapErr().code == "simd.scalar_required")
+    deterministicDenied.unwrapErr().free(); deterministicDenied.releaseContainer()
+    let unknownPolicy = planPortableSimd(shape, capable, "arbitrary", true, false)
+    require(unknownPolicy.isErr() and unknownPolicy.unwrapErr().code == "simd.invalid_policy")
+    unknownPolicy.unwrapErr().free(); unknownPolicy.releaseContainer()
+    let packedResult = PortableVectorShape.create("UInt8", 256, 3)
+    let packedShape = packedResult.unwrap()
+    packedResult.releaseContainer()
+    let packedPlan = planPortableSimd(packedShape, capable, "auto", false, false)
+    require(packedPlan.isErr() and packedPlan.unwrapErr().code == "simd.unsupported_capability")
+    packedPlan.unwrapErr().free(); packedPlan.releaseContainer()
+    packedShape.free()
+    capable.free(); disabled.free(); neon.free(); sve.free(); shape.free()
+    println("PASS: deterministic x86/ARM planning and explicit fallback")
+}
+
+fun adverseGeometry() r: Void {
+    let width = PortableVectorShape.create("Int32", 9223372036854775807, 0)
+    require(width.isErr() and width.unwrapErr().code == "simd.invalid_width")
+    width.unwrapErr().free(); width.releaseContainer()
+    let lane = PortableVectorShape.create("Unknown", 128, 0)
+    require(lane.isErr() and lane.unwrapErr().code == "simd.unsupported_lane")
+    lane.unwrapErr().free(); lane.releaseContainer()
+    let packed = PortableVectorShape.create("Float32", 128, 3)
+    require(packed.isErr() and packed.unwrapErr().code == "simd.invalid_packing")
+    packed.unwrapErr().free(); packed.releaseContainer()
+    let tail = simdActiveLaneBits(64, 65)
+    require(tail.isErr() and tail.unwrapErr().code == "simd.invalid_mask")
+    tail.unwrapErr().free(); tail.releaseContainer()
+    let shapeResult = PortableVectorShape.create("Int32", 128, 0)
+    let shape = shapeResult.unwrap()
+    shapeResult.releaseContainer()
+    let badMask = PortableSimdInstruction.create(shape, PortableSimdOperation.Select, 8, 1, 4)
+    require(badMask.isErr() and badMask.unwrapErr().code == "simd.invalid_mask")
+    badMask.unwrapErr().free(); badMask.releaseContainer()
+    let badAlign = PortableSimdInstruction.create(shape, PortableSimdOperation.Load, 0, 3, 4)
+    require(badAlign.isErr() and badAlign.unwrapErr().code == "simd.invalid_alignment")
+    badAlign.unwrapErr().free(); badAlign.releaseContainer()
+    let badCaps = x86(true)
+    badCaps.neon = true
+    let invalid = planPortableSimd(shape, badCaps, "auto", true, false)
+    require(invalid.isErr() and invalid.unwrapErr().code == "simd.invalid_capability")
+    invalid.unwrapErr().free(); invalid.releaseContainer()
+    badCaps.free(); shape.free()
+    println("PASS: bounded malformed geometry, masks, alignment and capabilities")
+}
+
+fun main() r: Int {
+    geometryAndTails()
+    dispatchPlans()
+    adverseGeometry()
+    return 0
+}

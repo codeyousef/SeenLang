@@ -1,3 +1,4 @@
+import simd.ir_types.{simdMaskLanes, simdBuiltinWidthBits, simdConstructorLaneSupported}
 ///
 SIMD builtin emission helpers
 Extracted from ir_type_ops.seen
@@ -6,10 +7,54 @@ Extracted from ir_type_ops.seen
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_mapping.{mapTypeImpl}
-import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, simdScalarTypeImpl, simdLaneCountImpl}
+import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, isSimdValueTypeImpl, simdScalarTypeImpl, simdLaneCountImpl}
 
 fun mapSimdBuiltinTypeImpl(seenType: String) r: String {
     return mapTypeImpl(seenType, Array<String>(), "", "", 0, "")
+}
+
+/// Constructor conversion is shared by every vector width and by masks.
+/// Semantic validation rejects nonnumeric lanes before this defensive path.
+fun emitSimdConstructorLaneImpl(output: StringBuilder, regBox: Array<Int>,
+    value: String, source: String, target: String) r: String {
+    if not simdConstructorLaneSupported(source, target == "i1") {
+        abort("Error: [E_SIMD_LANE] SIMD constructor lane has an unsupported type")
+    }
+    let sourceLlvm = mapSimdBuiltinTypeImpl(source)
+    if sourceLlvm == target { return value }
+    let converted = getNextRegFn(regBox)
+    var operation = ""
+    if target == "i1" {
+        if sourceLlvm == "float" or sourceLlvm == "double" {
+            output.append("  " + converted + " = fcmp une " + sourceLlvm + " " + value + ", 0.0\n")
+        } else {
+            output.append("  " + converted + " = icmp ne " + sourceLlvm + " " + value + ", 0\n")
+        }
+        return converted
+    }
+    if target == "float" or target == "double" {
+        if sourceLlvm == "float" { operation = "fpext" }
+        else {
+            if sourceLlvm == "double" { operation = "fptrunc" }
+            else {
+                operation = "sitofp"
+                if source.startsWith("UInt") { operation = "uitofp" }
+            }
+        }
+    } else {
+        if sourceLlvm == "float" or sourceLlvm == "double" {
+            operation = "fptosi"
+        } else {
+            if sourceLlvm == "i64" { operation = "trunc" }
+            else {
+                operation = "sext"
+                if source.startsWith("UInt") { operation = "zext" }
+            }
+        }
+    }
+    output.append("  " + converted + " = " + operation + " " + sourceLlvm +
+        " " + value + " to " + target + "\n")
+    return converted
 }
 
 ///
@@ -21,19 +66,18 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     argTypes: Array<String>, constIndices: Array<Int>, constIndexCount: Int) r: String {
 
     // SIMD vector constructors: f32x4(a,b,c,d), f32x8(..), i32x4(..), etc.
-    if isSimdVectorTypeImpl(funcName) == 1 {
+    if isSimdValueTypeImpl(funcName) == 1 {
         let simdLT = mapSimdBuiltinTypeImpl(funcName)
         let simdST = simdScalarTypeImpl(funcName)
         let simdLanes = simdLaneCountImpl(funcName)
-        var simdVec = "undef"
+        if argCount != simdLanes {
+            abort("Error: [E_SIMD_ARITY] SIMD constructors require exactly one value per lane")
+        }
+        var simdVec = "zeroinitializer"
         var simdArgIdx = 0
         while simdArgIdx < argCount and simdArgIdx < simdLanes {
-            var simdFinalArg = args[simdArgIdx]
-            if simdST == "i32" {
-                let simdTruncReg = getNextRegFn(regBox)
-                output.append("  " + simdTruncReg + " = trunc i64 " + args[simdArgIdx] + " to i32\n")
-                simdFinalArg = simdTruncReg
-            }
+            let simdFinalArg = emitSimdConstructorLaneImpl(output, regBox,
+                args[simdArgIdx], argTypes[simdArgIdx], simdST)
             let simdInsReg = getNextRegFn(regBox)
             output.append("  " + simdInsReg + " = insertelement " + simdLT + " " + simdVec + ", " + simdST + " " + simdFinalArg + ", i32 " + simdArgIdx.toString() + "\n")
             simdVec = simdInsReg
@@ -54,9 +98,7 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
         if isSimdVectorTypeImpl(simdLoadCleanType) == 1 {
             let simdLoadLT = mapSimdBuiltinTypeImpl(simdLoadCleanType)
             if simdLoadAlign != "1" {
-                if simdLoadCleanType == "f32x8" or simdLoadCleanType == "i32x8" or simdLoadCleanType == "f64x4" {
-                    simdLoadAlign = "32"
-                }
+                simdLoadAlign = (simdBuiltinWidthBits(simdLoadCleanType) / 8).toString()
             }
             let ptrCastReg = getNextRegFn(regBox)
             output.append("  " + ptrCastReg + " = inttoptr i64 " + args[0] + " to ptr\n")
@@ -78,9 +120,7 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
         if isSimdVectorTypeImpl(simdStoreCleanType) == 1 {
             let simdStoreLT = mapSimdBuiltinTypeImpl(simdStoreCleanType)
             if simdStoreAlign != "1" {
-                if simdStoreCleanType == "f32x8" or simdStoreCleanType == "i32x8" or simdStoreCleanType == "f64x4" {
-                    simdStoreAlign = "32"
-                }
+                simdStoreAlign = (simdBuiltinWidthBits(simdStoreCleanType) / 8).toString()
             }
             let ptrCastReg = getNextRegFn(regBox)
             output.append("  " + ptrCastReg + " = inttoptr i64 " + args[1] + " to ptr\n")
@@ -97,8 +137,20 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
             let selMaskType = argTypes[0]
             let selMaskLT = mapSimdBuiltinTypeImpl(selMaskType)
             let selLanes = simdLaneCountImpl(selVecType)
-            let selI1Reg = getNextRegFn(regBox)
-            output.append("  " + selI1Reg + " = icmp ne " + selMaskLT + " " + args[0] + ", zeroinitializer\n")
+            if isSimdVectorTypeImpl(selVecType) != 1 or
+                argTypes[2] != selVecType or
+                simdLaneCountImpl(selMaskType) != selLanes {
+                abort("Error: [E_SIMD_MASK] SIMD select mask and value lane shapes must match")
+            }
+            var selI1Reg = args[0]
+            if simdMaskLanes(selMaskType) == 0 {
+                selI1Reg = getNextRegFn(regBox)
+                if selMaskType.startsWith("f") {
+                    output.append("  " + selI1Reg + " = fcmp une " + selMaskLT + " " + args[0] + ", zeroinitializer\n")
+                } else {
+                    output.append("  " + selI1Reg + " = icmp ne " + selMaskLT + " " + args[0] + ", zeroinitializer\n")
+                }
+            }
             let selResReg = getNextRegFn(regBox)
             output.append("  " + selResReg + " = select <" + selLanes.toString() + " x i1> " + selI1Reg + ", " + selVecLT + " " + args[1] + ", " + selVecLT + " " + args[2] + "\n")
             return selResReg
