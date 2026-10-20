@@ -1713,7 +1713,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
             runtimeAbi: "runtime-v8",
-            standardLibraryVersion: "0.6.0",
+            standardLibraryVersion: "0.7.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
             packageClientProtocol: "SEENPKG1",

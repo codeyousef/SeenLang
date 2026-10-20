@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add owned task-context captures, bounded redacted failure/fallback diagnostics,
+  cooperative panic reports, monotonic task progress and detailed join ownership.
+  Standard-library compatibility advances to 0.7.0; native runtime ABI is unchanged.
+
 - Add checked owning async byte spans, nonblocking pipe/socket streams, bounded
   process spawning with explicit argv/envp and pidfd reaping, and a Seen DNS
   query/parser path with explicit server and resource budgets (`runtime-v8`).

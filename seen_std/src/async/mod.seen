@@ -21,3 +21,7 @@ import async.task_group.{TaskGroup}
 
 import async.pool_placement.{PoolPlacement}
 import async.pools.{PoolJoinHandle, TypedWorkerPool, ExecutionPools}
+
+import async.task_diagnostics.{TaskDiagnostic, TaskDiagnosticKind, TaskBackend,
+    TaskPanicPolicy, TaskCapture, runtimeTaskPanicPolicy}
+import async.join_report.{ExecutorJoinReport}

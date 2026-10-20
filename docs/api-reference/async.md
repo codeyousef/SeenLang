@@ -401,3 +401,58 @@ with `async.unsupported_platform`. Software fixtures exercise real loopback
 sockets, partial pipe progress, child exit/cancellation, malformed source input,
 DNS compression attacks and a 60-second seed-1101 parser fuzz run. Hardware
 certification is separate from these API contracts.
+
+### Task context, failure and panic policy (ASYNC-002F)
+
+The `seen-task-context-policy-v1` API ships with standard-library identity 0.7.0.
+A callback borrows `ExecutorTaskContext` only until its `run`/`onEvent` returns.
+The compiler rejects retaining that context inside a Send job. Task helpers
+verify worker, slot and nested-help depth before mutating state. Use `capture()`
+for an owned `TaskCapture`: it clones resource/trace strings and copies deadline,
+fallback policy and depth. A capture can outlive the callback and executor ticket;
+it carries metadata rather than live cancellation authority. Release it explicitly.
+Submission separately owns a full context snapshot, so a caller may release its
+source context after successful admission. Shared caller metadata is never used
+as a worker's mutable context.
+
+`checkpoint()` returns typed cancellation/deadline errors with current progress.
+`advanceProgress(amount)` checks addition against a signed-64-bit ceiling before
+updating the task's monotonic item/byte count. `fail(status)` retains the first
+stable failure. `failWith(TaskDiagnostic)` snapshots a validated, borrowed
+report; the caller retains and releases its original. A task diagnostic has at
+most eight causes and 4 KiB of combined message/cause text. Its retry class is
+transient only for unavailable failures. Sensitive details are redacted before
+storage. Public details are an explicit `RedactionClass.Public` choice and must
+pass bounded text validation. Diagnostic status selects the stable ASCII code;
+message text cannot change that code.
+
+`context.panic(message)` records a redacted, permanent cooperative failure and
+returns a `Result`; it performs no stack unwinding. The executor rejects the task
+result even if the callback subsequently returns true. The first failure wins,
+and failed work uses normal exactly-once destructor/reap paths. Cancellation and
+expired deadlines take precedence over a late result while retaining diagnostic
+context. `context.panicPolicy()` reports `CooperativeFailure` for this API.
+`runtimeTaskPanicPolicy()` reports `AbortProcess`: a global `panic(...)`, abort,
+invalid memory access or foreign fatal failure remains process-fatal. Such a
+failure does not run Seen task destructors. Use typed cooperative failure when
+owned work must drain gracefully; no native exception catcher or unsafe unwind
+crosses the OS callback boundary.
+
+`recordFallback(backend, reason)` must precede fallback execution. It records one
+bounded redacted diagnostic only when the submitted context explicitly permits
+fallback. Forbidden fallback also marks the task failed as
+`async.unsupported_platform`, even if the callback ignores the returned error.
+A second fallback report returns `async.limit`; recording never grows an
+unbounded list. Backend identity is a typed `TaskBackend` enum.
+
+`ExecutorJoinHandle.joinDetailed(ctx)` and `PoolJoinHandle.joinDetailed(ctx)`
+return `ExecutorJoinReport<T>` after terminal reaping. A report owns its successful
+result, optional error, copied diagnostic/fallback records and progress.
+`takeTask()` transfers a successful result; `takeError()` transfers an error.
+`release()` consumes every owner still retained by the report, including an
+unclaimed successful job. Ordinary `join(ctx)` preserves typed error codes,
+progress and retry classification while consuming detailed records. Errors keep
+the existing borrowed await-context trace lifetime; the awaiting context must
+outlive an error that uses its trace. Detailed diagnostic text and captures own
+their storage independently of the executor ticket. Waiting-context cancellation
+or timeout retains the running join owner for a later cleanup wait.

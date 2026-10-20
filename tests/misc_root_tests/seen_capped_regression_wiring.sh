@@ -27,6 +27,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_cpu_blocking_pools_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_async_reactor_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_async_streams_process_dns_contract.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_task_context_policy_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_checked_allocation_codegen.sh"

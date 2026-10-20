@@ -26,6 +26,16 @@ class AsyncError {
     var traceId: String
 }
 
+// Shared native status vocabulary for executor, task diagnostics and adapters.
+fun asyncStatusCode(status: Int32) r: String {
+    if status == (2 as Int32) { return "async.limit" }
+    if status == (3 as Int32) or status == (5 as Int32) { return "async.unavailable" }
+    if status == (4 as Int32) { return "async.unsupported_platform" }
+    if status == (7 as Int32) { return "async.timeout" }
+    if status == (9 as Int32) { return "async.cancelled" }
+    return "async.invalid"
+}
+
 fun asyncFailure(code: String, operation: String, message: String,
     retryable: Bool, progress: UInt64, traceId: String) r: AsyncError {
 
