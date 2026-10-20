@@ -463,3 +463,9 @@ process argv/envp and diagnostic causes. It owns packed bytes and the pointer
 table, capped at 256 values and 64 KiB. `get(index)` returns an owned string copy,
 so neither a task capture nor a caller can retain a view after vector release.
 This replaces the process-specific packing class in the 0.7.0 alpha API.
+`async.completion_io.completionFileHandle(file)` borrows an open
+`fs.file.File` with required direct I/O and returns an independently owned,
+close-on-exec duplicate descriptor. Close the source File normally after this
+call; the completion owner remains valid. Buffered files return
+`async.unsupported_platform`. The filesystem's opaque wrapper is never treated
+as a raw descriptor number.
