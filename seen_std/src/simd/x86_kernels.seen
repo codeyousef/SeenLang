@@ -3,7 +3,8 @@ import core.result.{Result}
 import core.operation_context.{OperationContext}
 import memory.aligned_buffer.{OwnedBuffer}
 import simd.ir_types.{SimdIrError}
-import simd.dot_contract.{DotOperation, DotProgress, DotClock, NativeDotClock,
+import simd.dot_clock.{DotClockHandle, NativeDotClock}
+import simd.dot_contract.{DotOperation, DotProgress, DotBackendHandle,
     dotOperationName, executeDotWithBackend}
 import simd.x86_dispatch.{X86SimdCapabilities, selectX86Variant}
 import simd.x86_blocks.{dotF32Avx2, dotF32Avx512, dotU8S8Vnni, dotBf16Native}
@@ -38,18 +39,20 @@ fun executeX86Dot(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64,
     operation: DotOperation, policy: String, allowScalarFallback: Bool,
     deterministic: Bool, context: OperationContext, borrow progress: DotProgress)
     r: Result<Bool, SimdIrError> {
-    let clock = NativeDotClock{reserved: 0}
+    let clockProvider = NativeDotClock{reserved: 0}
+    let clock = DotClockHandle.create(clockProvider)
     let result = executeX86DotWithClock(left, leftOffset, right, rightOffset, count,
         operation, policy, allowScalarFallback, deterministic, context, progress, clock)
-    clock.free(); return result
+    clock.release(); clockProvider.free(); return result
 }
-fun executeX86DotWithClock<C: DotClock>(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64,
+fun executeX86DotWithClock(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64,
     borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64, count: UInt64,
     operation: DotOperation, policy: String, allowScalarFallback: Bool,
     deterministic: Bool, context: OperationContext, borrow progress: DotProgress,
-    borrow clock: C) r: Result<Bool, SimdIrError> {
-    let backend = X86DotBackend{reserved: 0}
+    borrow clock: DotClockHandle) r: Result<Bool, SimdIrError> {
+    let backendProvider = X86DotBackend{reserved: 0}
+    let backend = DotBackendHandle.create(backendProvider)
     let result = executeDotWithBackend(left, leftOffset, right, rightOffset, count,
         operation, policy, allowScalarFallback, deterministic, context, progress, clock, backend)
-    backend.free(); return result
+    backend.release(); backendProvider.free(); return result
 }
