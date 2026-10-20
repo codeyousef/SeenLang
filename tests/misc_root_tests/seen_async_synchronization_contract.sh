@@ -43,6 +43,7 @@ compile_case() {
 }
 
 for profile in fast release; do
+    compile_case "$profile" nested-generics "$ROOT_DIR/tests/fixtures/async/nested_generic_constructors.seen"
     compile_case "$profile" lifecycle "$ROOT_DIR/seen_std/tests/async/async-002b.seen"
     for case_name in happy partial invalid limit cancel cleanup; do
         rg -Fq "PASS: ASYNC-002B_$case_name" "$TMP_DIR/lifecycle-$profile.log"
