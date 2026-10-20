@@ -7,7 +7,7 @@ import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext
 import sync.contracts.{Send}
 import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
     ExecutorCore, ExecutorTicket, executorFailure, executorCopyContext,
-    executorContextFailure, executorReleaseContext, executorWorkerEntry,
+    executorContextFailure, executorReleaseContext, executorReleaseSnapshot, executorWorkerEntry,
     EXECUTOR_FOREVER}
 import async.executor_native.{seen_sync_mutex_create, seen_sync_mutex_lock_until, seen_sync_mutex_unlock,
     seen_sync_mutex_destroy, seen_sync_condition_create, seen_sync_condition_wait_until,
@@ -85,7 +85,7 @@ fun executorSubmit<T: Send + ExecutorJob>(core: ExecutorCore, task: T,
     if admitted.isErr() {
         let error = admitted.unwrapErr()
         admitted.releaseContainer()
-        executorReleaseContext(snapshot)
+        executorReleaseSnapshot(snapshot)
         return Err<ExecutorJoinHandle<T>, AsyncError>(error)
     }
     let slot = admitted.unwrap()

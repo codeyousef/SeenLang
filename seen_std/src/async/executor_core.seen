@@ -14,7 +14,8 @@ import async.executor_native.{seen_sync_mutex_create, seen_sync_mutex_lock_until
     seen_sync_mutex_destroy, seen_sync_condition_create, seen_sync_condition_wait_until,
     seen_sync_condition_notify_all, seen_sync_condition_destroy, seen_executor_thread_create,
     seen_executor_thread_join, seen_executor_current_owner, seen_executor_current_task,
-    seen_executor_swap_task, seen_executor_live_threads, seen_pool_free}
+    seen_executor_swap_task, seen_executor_live_threads, seen_pool_free,
+    seen_string_clone_owned}
 
 let EXECUTOR_PENDING: Int = 0
 let EXECUTOR_RUNNING: Int = 1
@@ -95,8 +96,8 @@ fun executorCopyContext(source: AsyncOperationContext) r: AsyncOperationContext 
             maxGraphModules: limits.maxGraphModules,
             maxGraphEdges: limits.maxGraphEdges,
             maxGraphDepth: limits.maxGraphDepth},
-        traceId: AsciiString{value: source.operation.traceId.value}},
-        resourceId: source.resourceId, fallbackPolicy: source.fallbackPolicy,
+        traceId: AsciiString{value: seen_string_clone_owned(source.operation.traceId.value)}},
+        resourceId: seen_string_clone_owned(source.resourceId), fallbackPolicy: source.fallbackPolicy,
         limits: AsyncLimits.bounded(asyncLimits.maxTasks, asyncLimits.maxReady,
             asyncLimits.maxTreeDepth, asyncLimits.maxFanOut, asyncLimits.maxPolls)}
 }
@@ -107,6 +108,14 @@ fun executorReleaseContext(context: AsyncOperationContext) r: Void {
     context.operation.free()
     context.limits.free()
     context.free()
+}
+
+// Only snapshots created by executorCopyContext own their string storage.
+// Caller-created contexts may borrow literals and use executorReleaseContext.
+fun executorReleaseSnapshot(context: AsyncOperationContext) r: Void {
+    context.operation.traceId.value.free()
+    context.resourceId.free()
+    executorReleaseContext(context)
 }
 
 fun executorErrorStatus(error: AsyncError) r: Int32 {
@@ -124,7 +133,7 @@ fun executorReleaseTicket(ticket: ExecutorTicket, releaseJob: Bool) r: Void {
         abort("executor job destructor violated its ownership contract")
     }
     seen_pool_free(ticket.job as *Void, 16 as Int64)
-    executorReleaseContext(ticket.operation)
+    executorReleaseSnapshot(ticket.operation)
     ticket.free()
 }
 
