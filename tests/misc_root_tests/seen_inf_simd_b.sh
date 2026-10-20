@@ -15,6 +15,7 @@ TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/inf-simd-b.XXXXXX")"
 SEEN_SIMD_ARTIFACT_PREFIX=inf-simd-b
 source "$ROOT_DIR/scripts/simd_regression_support.sh"
 for profile in fast release undefined address; do
+    compile_case "$profile" pointer-index "$ROOT_DIR/tests/compiler_regressions/typed_pointer_index.seen"
     compile_case "$profile" contract "$ROOT_DIR/tests/inference_simd/x86_dot_contract.seen"
     for name in happy partial invalid limit cancel cleanup; do
         rg -Fq "PASS: SEEN-INF-002B_$name" "$TMP_DIR/contract-$profile.log"
