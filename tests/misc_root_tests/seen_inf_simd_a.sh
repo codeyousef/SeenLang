@@ -13,6 +13,7 @@ COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 FIXTURES="$ROOT_DIR/tests/inference_simd"
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/inf-simd-a.XXXXXX")"
+source "$ROOT_DIR/scripts/report_fixture_failure_logs.sh"
 cleanup() {
     local status=$?
     case "$TMP_DIR" in
@@ -21,6 +22,7 @@ cleanup() {
                 [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] && rm -rf -- "$TMP_DIR"
             else
                 echo "Preserved portable SIMD artifacts: $TMP_DIR" >&2
+                seen_report_fixture_failure_logs "$TMP_DIR"
             fi ;;
         *) status=1 ;;
     esac
