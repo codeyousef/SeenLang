@@ -1,0 +1,16 @@
+import core.option.{Option, Some}
+fun main() r: Int {
+    let values = Array<Option<Array<Int>>>()
+    let inner = Array<Int>(); inner.push(42)
+    values.push(Some<Array<Int>>(inner))
+    if values[0].unwrap()[0] != 42 { return 1 }
+    let outer = Array<Array<Option<Array<Int>>>>()
+    outer.push(values)
+    if outer[0][0].unwrap()[0] != 42 { return 2 }
+    let spaced = Array<Option<Array<Int> > >()
+    if spaced.length() != 0 { return 3 }
+    if (32 >> 2) != 8 or 3 >= 8 or 8 <= 3 { return 4 }
+    if not (3 < 8) or not (8 > 3) { return 5 }
+    spaced.free(); outer.free(); values[0].free(); inner.free(); values.free()
+    return 0
+}
