@@ -1,0 +1,20 @@
+/// Internal OS and allocator bindings used by the fixed-worker scheduler.
+
+extern "C" fun seen_sync_mutex_create(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_mutex_lock_until(handle: UInt64, deadline: Int64) r: Int32
+extern "C" fun seen_sync_mutex_unlock(handle: UInt64) r: Int32
+extern "C" fun seen_sync_mutex_destroy(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_condition_create(handle: *UInt64) r: Int32
+extern "C" fun seen_sync_condition_wait_until(condition: UInt64,
+    mutex: UInt64, deadline: Int64) r: Int32
+extern "C" fun seen_sync_condition_notify_all(handle: UInt64) r: Int32
+extern "C" fun seen_sync_condition_destroy(handle: *UInt64) r: Int32
+extern "C" fun seen_executor_thread_create(entry: Int, argument: Int,
+    stackBytes: UInt64, handle: *UInt64) r: Int32
+extern "C" fun seen_executor_thread_join(handle: *UInt64) r: Int32
+extern "C" fun seen_executor_current_owner() r: UInt64
+extern "C" fun seen_executor_current_task() r: Int
+extern "C" fun seen_executor_swap_task(task: Int) r: Int
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_pool_free(value: *Void, bytes: Int64) r: Void
+

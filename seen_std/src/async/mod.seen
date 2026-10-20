@@ -1,5 +1,8 @@
 /// Public structured-async surface.
 
+import async.multithread.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
+    ExecutorJoinHandle, MultithreadExecutor, spawnExecutorTask}
+
 import async.structured.{AsyncError, AsyncLimits, AsyncOperationContext,
     CancellationSource, ReadyQueue, JoinHandle,
     DeterministicExecutor, Scope, AsyncWaitGroup, AsyncBarrier,

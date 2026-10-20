@@ -68,7 +68,19 @@ fun validateAsyncContext(context: AsyncOperationContext, operation: String,
     let base = validateOperationContext(context.operation)
     let trace = context.operation.traceId.value
     if base.isErr() {
-        let code = base.unwrapErr().code.value
+        // validateOperationContext creates a fresh literal error with empty
+        // causes. Consume that validation error and its container after
+        // borrowing the literal code; neither is a task-owned payload.
+        let baseError = base.unwrapErr()
+        let code = baseError.code.value
+        baseError.code.free()
+        baseError.subsystem.free()
+        baseError.operation.free()
+        baseError.causes.data.free()
+        baseError.causes.free()
+        baseError.nativeCode.free()
+        baseError.free()
+        base.releaseContainer()
         if code == "err.001a.cancelled" {
             return Err<Bool, AsyncError>(asyncFailure("async.cancelled",
                 operation, "operation is cancelled", false, progress, trace))
@@ -81,6 +93,7 @@ fun validateAsyncContext(context: AsyncOperationContext, operation: String,
         return Err<Bool, AsyncError>(asyncFailure("async.invalid", operation,
             "operation context is invalid", false, progress, trace))
     }
+    base.releaseContainer()
     let limits = context.limits
     if limits.maxTasks <= 0 or limits.maxTasks > ASYNC_MAX_TASKS or
         limits.maxReady <= 0 or limits.maxReady > ASYNC_MAX_QUEUE or

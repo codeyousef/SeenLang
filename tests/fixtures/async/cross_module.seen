@@ -1,0 +1,39 @@
+import imported_job.{ImportedExecutorJob}
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import async.structured.{AsyncLimits, AsyncOperationContext}
+import async.multithread.{MultithreadExecutor, ExecutorLimits}
+import async.executor_core.{executorReleaseContext}
+
+fun main() r: Int {
+    let limits = ExecutorLimits{workers: 1, tasks: 2, queued: 2,
+        helpDepth: 2, stackBytes: 1048576 as UInt64}
+    let created = MultithreadExecutor<ImportedExecutorJob>.create(limits)
+    limits.free()
+    if created.isErr() { return 1 }
+    let pool = created.unwrap()
+    created.releaseContainer()
+    let context = AsyncOperationContext{operation: OperationContext{
+        cancellation: false, monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096, maxPathBytes: 4095,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "executor-import"}}, resourceId: "imported",
+        fallbackPolicy: 0, limits: AsyncLimits.bounded(2, 2, 2, 2, 16)}
+    let spawned = pool.spawn(ImportedExecutorJob{value: 41, result: 0}, context)
+    if spawned.isErr() { return 2 }
+    let handle = spawned.unwrap()
+    spawned.releaseContainer()
+    let joined = handle.join(context)
+    if joined.isErr() { return 3 }
+    let job = joined.unwrap()
+    joined.releaseContainer()
+    if job.result != 42 { return 4 }
+    job.release()
+    handle.free()
+    let released = pool.release()
+    if released.isErr() { return 5 }
+    released.releaseContainer()
+    executorReleaseContext(context)
+    return 0
+}

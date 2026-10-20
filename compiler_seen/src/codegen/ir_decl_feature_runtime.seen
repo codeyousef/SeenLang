@@ -33,18 +33,6 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
     // Prefetch intrinsic (for @prefetch decorator)
     output.append("declare void @llvm.prefetch.p0(ptr, i32, i32, i32) nounwind\n")
 
-    // Work-Stealing Pool
-    output.append("; Work-stealing thread pool\n")
-    if not isFuncDefinedInModule("seen_ws_pool_new", definedFuncs) {
-        output.append("declare i64 @seen_ws_pool_new(i64) nounwind\n")
-    }
-    if not isFuncDefinedInModule("seen_ws_pool_submit", definedFuncs) {
-        output.append("declare void @seen_ws_pool_submit(i64, i64, i64) nounwind\n")
-    }
-    if not isFuncDefinedInModule("seen_ws_pool_shutdown", definedFuncs) {
-        output.append("declare void @seen_ws_pool_shutdown(i64) nounwind\n")
-    }
-
     // CPU Affinity
     output.append("; CPU affinity\n")
     if not isFuncDefinedInModule("seen_set_thread_affinity", definedFuncs) {

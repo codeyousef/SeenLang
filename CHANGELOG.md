@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a native Seen fixed-worker executor with typed `Send` task admission,
+  bounded FIFO scheduling, worker-assisted nested joins, cooperative
+  cancellation, deadline-aware waits, and deterministic resource release.
+- Added the Linux x86-64 thread create/join adapter and executor/allocator
+  concurrency contracts, including partial thread-creation failure and fork
+  cleanup. Other platforms return an explicit unsupported-platform error.
+
+### Changed
+
+- Advanced the runtime compatibility identity to `runtime-v5` for
+  `seen-multithread-executor-v1`; removed the untyped C work-stealing pool.
+- Serialized pool allocation and memory-budget transactions across threads,
+  made runtime error storage thread-local, and released temporary structured
+  async context-validation owners.
+
 ## [0.22.9] - 2026-10-10
 
 ### Fixed
