@@ -1,0 +1,21 @@
+fun main() r: Int {
+    let a = f32x16(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    let b = f32x16(8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8)
+    let comparison = a > b
+    let selected = simd_select(comparison, a, b)
+    if selected.reduce_add() != 164.0 { return 1 }
+    if selected.reduce_min() != 8.0 { return 2 }
+    if selected.reduce_max() != 16.0 { return 3 }
+    let ints = i32x16(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    if ints.reduce_add() != 136 { return 4 }
+    let doubles = f64x8(1, 2, 3, 4, 5, 6, 7, 8)
+    let mask = mask8(true, false, true, false, true, false, true, false)
+    let other = f64x8(10, 10, 10, 10, 10, 10, 10, 10)
+    if simd_select(mask, doubles, other).reduce_add() != 56.0 { return 5 }
+    // Legacy nonzero vector masks retain their public semantics.
+    let legacy = i32x4(-1, 0, -1, 0)
+    let old = simd_select(legacy, f32x4(1, 2, 3, 4), f32x4(10, 20, 30, 40))
+    if old.reduce_add() != 64.0 { return 6 }
+    println("PASS: native 512-bit values, comparison masks and legacy select")
+    return 0
+}
