@@ -67,7 +67,7 @@ class TypedWorkerPool<T: Send + ExecutorJob> {
     var placement: PoolPlacement
     var nextPlacement: Int
 
-    static fun create(kind: String, limits: ExecutorLimits, placement: PoolPlacement)
+    static fun create(kind: String, limits: ExecutorLimits, borrow placement: PoolPlacement)
         r: Result<TypedWorkerPool<T>, AsyncError> {
         if kind != "cpu" and kind != "blocking" {
             return Err<TypedWorkerPool<T>, AsyncError>(executorFailure(1 as Int32,
@@ -138,7 +138,7 @@ class ExecutionPools<T: Send + ExecutorJob> {
     var blocking: TypedWorkerPool<T>
 
     static fun create(cpuLimits: ExecutorLimits, blockingLimits: ExecutorLimits,
-        cpuPlacement: PoolPlacement, blockingPlacement: PoolPlacement, totalWorkers: Int)
+        borrow cpuPlacement: PoolPlacement, borrow blockingPlacement: PoolPlacement, totalWorkers: Int)
         r: Result<ExecutionPools<T>, AsyncError> {
         if not cpuLimits.valid() or not blockingLimits.valid() or
             totalWorkers <= 0 or totalWorkers > 32 or
