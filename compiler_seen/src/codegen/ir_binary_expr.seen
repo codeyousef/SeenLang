@@ -54,7 +54,7 @@ fun emitPointerArithmeticBinaryImpl(output: StringBuilder, regBox: Array<Int>,
 fun simdComparisonPredicateImpl(operator: String, isFloat: Int) r: String {
     if isFloat == 1 {
         if operator == "==" { return "oeq" }
-        if operator == "!=" { return "one" }
+        if operator == "!=" { return "une" }
         if operator == "<" { return "olt" }
         if operator == ">" { return "ogt" }
         if operator == "<=" { return "ole" }

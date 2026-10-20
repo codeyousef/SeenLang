@@ -10,6 +10,8 @@ import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode,
     StatementNode}
 import parser.real_parser.{ParserExpressionNode, TypeNode, AnnotationNode}
 import parser.real_parser.{ParamNode}
+import simd.ir_types.{simdBuiltinLanes, simdMaskLanes,
+    simdComparisonMaskName, simdIsComparisonOperator, simdConstructorLaneSupported}
 import parser.real_parser.{genericParameterCount, genericParameterNameAt}
 import parser.real_parser.{genericParameterModifierAt}
 import typechecker.type_ref.{TypeRef, parseTypeRef}
@@ -683,6 +685,16 @@ fun semanticExpressionBindingIdentity(result: LexicalSemanticResult,
 
     let variableName = semanticSimpleVariableName(expression)
     if variableName != "" { return bindings.lookup(variableName) }
+    if expression.kind == "Binary" and expression.operands.length() > 0 {
+        let left = semanticExpressionBindingIdentity(result,
+            expression.operands[0], bindings, moduleName)
+        if simdBuiltinLanes(left) > 0 {
+            if simdIsComparisonOperator(expression.operator) {
+                return simdComparisonMaskName(left)
+            }
+            return left
+        }
+    }
     if expression.kind == "Call" and expression.callee != "" {
         return result.registry.resolveTypeBase(moduleName, expression.callee)
     }
@@ -758,6 +770,52 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
     expression: ParserExpressionNode, bindings: ScopedBindings,
     moduleName: String, file: String, line: Int, column: Int,
     ownerType: String) r: Void {
+
+    if expression.kind == "Call" {
+        let lanes = simdBuiltinLanes(expression.callee) +
+            simdMaskLanes(expression.callee)
+        if lanes > 0 and expression.arguments.length() != lanes {
+            result.addError("E_SIMD_ARITY",
+                "SIMD constructors require exactly one value per lane",
+                file, line, column)
+        }
+        if lanes > 0 {
+            var laneIndex = 0
+            while laneIndex < expression.arguments.length() {
+                let identity = semanticExpressionBindingIdentity(result,
+                    expression.arguments[laneIndex], bindings, moduleName)
+                if identity != "" and identity != "Unknown" {
+                    if not simdConstructorLaneSupported(identity,
+                        simdMaskLanes(expression.callee) > 0) {
+                        result.addError("E_SIMD_LANE", "SIMD constructor lane has an unsupported type",
+                            file, line, column)
+                    }
+                }
+                laneIndex = laneIndex + 1
+            }
+        }
+        if expression.callee == "simd_select" {
+            if expression.arguments.length() != 3 {
+                result.addError("E_SIMD_ARITY", "simd_select requires mask, true and false vectors",
+                    file, line, column)
+            } else {
+                let mask = semanticExpressionBindingIdentity(result,
+                    expression.arguments[0], bindings, moduleName)
+                let yes = semanticExpressionBindingIdentity(result,
+                    expression.arguments[1], bindings, moduleName)
+                let no = semanticExpressionBindingIdentity(result,
+                    expression.arguments[2], bindings, moduleName)
+                if simdBuiltinLanes(yes) > 0 and simdBuiltinLanes(no) > 0 {
+                    let maskLanes = simdMaskLanes(mask) + simdBuiltinLanes(mask)
+                    if yes != no or (mask != "" and mask != "Unknown" and
+                        maskLanes != simdBuiltinLanes(yes)) {
+                        result.addError("E_SIMD_MASK", "SIMD select mask and value lane shapes must match",
+                            file, line, column)
+                    }
+                }
+            }
+        }
+    }
 
     if expression.kind == "Closure" {
         bindings.beginScope()
