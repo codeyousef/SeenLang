@@ -134,7 +134,7 @@ fun tryGenerateLowLevelBuiltinCallState(ctx: CodegenLoweringContext,
         lowArg2 = lowerExpression(ctx, expr.arguments[2])
     }
 
-    if lowPlan.action >= 1 and lowPlan.action <= 9 {
+    if (lowPlan.action >= 1 and lowPlan.action <= 9) or lowPlan.action == 14 {
         return emitPreparedSimpleLowLevelBuiltinCallState(output,
             lowPlan.action, funcName, insideUnsafe, boundsCheckEnabled,
             boundsCheckLabelCount, lowArg0, lowArg1, lowArg2)
