@@ -7,6 +7,9 @@
 : "${SEEN_SIMD_ARTIFACT_PREFIX:?}" "${ATTESTED_SEEN:?}" "${TMP_DIR:?}"
 ulimit -c 0
 SIMD_COMPILE_FLAGS=()
+: "${SIMD_RUN_SECONDS:=120}"
+case "$SIMD_RUN_SECONDS" in ''|*[!0-9]*) echo 'invalid SIMD run time limit' >&2; exit 126 ;; esac
+[ "$SIMD_RUN_SECONDS" -ge 1 ] && [ "$SIMD_RUN_SECONDS" -le 900 ] || exit 126
 source "$ROOT_DIR/scripts/report_fixture_failure_logs.sh"
 cleanup() {
     local status=$?
@@ -29,11 +32,11 @@ compile_case() {
     run_compiler compile "$source" "$TMP_DIR/$name-$profile" --no-cache --frozen \
         --target-cpu=x86-64 --emit-module-ir-dir "$TMP_DIR/$name-$profile-ir" "${flags[@]}" "${SIMD_COMPILE_FLAGS[@]}" >"$log" 2>&1
     if [ "$profile" = address ]; then
-        timeout --foreground --kill-after=5s 120s bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
+        timeout --foreground --kill-after=5s "${SIMD_RUN_SECONDS}s" bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
             --target-root "$TMP_DIR" --compile-log "$log" -- "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
     else
         UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0 \
-            timeout --foreground --kill-after=5s 120s "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
+            timeout --foreground --kill-after=5s "${SIMD_RUN_SECONDS}s" "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
     fi
     cp -- "$log" "$TMP_DIR/$name-$profile.log"
 }

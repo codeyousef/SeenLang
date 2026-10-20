@@ -47,6 +47,7 @@ bash -n \
     tests/misc_root_tests/seen_inf_simd_c.sh \
     tests/misc_root_tests/seen_inf_simd_d.sh \
     tests/misc_root_tests/seen_inf_simd_e.sh \
+    tests/misc_root_tests/seen_inf_simd_f.sh \
     scripts/simd_regression_support.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \

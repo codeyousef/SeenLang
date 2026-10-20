@@ -1,0 +1,117 @@
+/// Corpus construction and independent mathematical expectations. These do
+/// not call the production decoder, scale parser, or code extraction helpers.
+import inference.quantized_formats.{QuantizedFormat}
+import iq3_xxs_golden.{corpusIQ3Magnitude}
+fun corpusFormat(index: Int) r: QuantizedFormat {
+    if index == 0 { return QuantizedFormat.Q8_0 }
+    if index == 1 { return QuantizedFormat.Q4_0 }
+    if index == 2 { return QuantizedFormat.Q4_K }
+    if index == 3 { return QuantizedFormat.Q2_K }
+    if index == 4 { return QuantizedFormat.MXFP4 }
+    if index == 6 { return QuantizedFormat.IQ3_XXS }
+    return QuantizedFormat.FP8E4M3FN
+}
+fun corpusScale(group: Int) r: Int { return 1 + 8 * group }
+fun corpusMinimum(group: Int) r: Int { return 63 - 7 * group }
+fun corpusHalf(bits: Int) r: Float32 {
+    let sign = bits / 32768; let exponent = (bits / 1024) % 32; let fraction = bits % 1024
+    var value = (fraction as Float64) / (16777216.0 as Float64)
+    if exponent > 0 {
+        value = ((1024 + fraction) as Float64) / (33554432.0 as Float64)
+        var i = 0; while i < exponent { value = value + value; i = i + 1 }
+    }
+    if sign == 1 { value = -value }; return value as Float32
+}
+fun prepareQuantizedCorpus(data: *UInt8, format: QuantizedFormat, fp8: Int) r: Void {
+    var i = 0
+    while i < 144 { data[i] = 0 as UInt8; i = i + 1 }
+    data[1] = 56 as UInt8 // little-endian half 0.5
+    if format == QuantizedFormat.Q8_0 {
+        i = 0; while i < 32 { data[2 + i] = ((i * 17) % 256) as UInt8; i = i + 1 }
+    }
+    if format == QuantizedFormat.Q4_0 or format == QuantizedFormat.MXFP4 {
+        var header = 2
+        if format == QuantizedFormat.MXFP4 { header = 1; data[0] = 127 as UInt8 }
+        i = 0; while i < 16 { data[header + i] = (i | ((15 - i) << 4)) as UInt8; i = i + 1 }
+    }
+    if format == QuantizedFormat.Q4_K {
+        data[3] = 52 as UInt8 // half 0.25
+        i = 0
+        while i < 4 {
+            data[4 + i] = (corpusScale(i) | ((corpusScale(i + 4) / 16) * 64)) as UInt8
+            data[8 + i] = (corpusMinimum(i) | ((corpusMinimum(i + 4) / 16) * 64)) as UInt8
+            data[12 + i] = ((corpusScale(i + 4) % 16) | ((corpusMinimum(i + 4) % 16) * 16)) as UInt8
+            i = i + 1
+        }
+        i = 0; while i < 128 { data[16 + i] = ((15 - i % 16) | ((i % 16) << 4)) as UInt8; i = i + 1 }
+    }
+    if format == QuantizedFormat.Q2_K {
+        i = 0; while i < 16 { data[i] = ((i % 15 + 1) | ((15 - i) << 4)) as UInt8; i = i + 1 }
+        i = 0; while i < 64 { data[16 + i] = ((i * 37) % 256) as UInt8; i = i + 1 }
+        data[80] = 0 as UInt8; data[81] = 56 as UInt8; data[82] = 0 as UInt8; data[83] = 52 as UInt8
+    }
+    if format == QuantizedFormat.FP8E4M3FN { data[0] = fp8 as UInt8 }
+    if format == QuantizedFormat.IQ3_XXS {
+        i = 0; while i < 64 { data[2 + i] = (i + fp8 * 64) as UInt8; i = i + 1 }
+        i = 0
+        while i < 8 {
+            var word = (i + 1) * 268435456; var octet = 0; var factor = 1
+            while octet < 4 {
+                let code = ((i * 4 + octet + fp8 * 32) * 37) % 128
+                word = word + code * factor; factor = factor * 128; octet = octet + 1
+            }
+            var byte = 0
+            while byte < 4 { data[66 + i * 4 + byte] = (word % 256) as UInt8; word = word / 256; byte = byte + 1 }
+            i = i + 1
+        }
+    }
+}
+fun corpusE2M1(code: Int) r: Float32 {
+    let values = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0]
+    var value = values[code % 8] as Float32; values.free()
+    if code >= 8 { value = -value }; return value
+}
+fun corpusExpected(format: QuantizedFormat, lane: Int, fp8: Int) r: Float32 {
+    if format == QuantizedFormat.IQ3_XXS {
+        let group = lane / 32; let octet = (lane % 32) / 8; let axis = lane % 8
+        let signCode = ((group * 4 + octet + fp8 * 32) * 37) % 128
+        var divisor = 1; var i = 0; var parity = 0
+        while i < 7 { parity = parity + (signCode / divisor) % 2; divisor = divisor * 2; i = i + 1 }
+        var sign = parity % 2
+        if axis < 7 {
+            divisor = 1; i = 0; while i < axis { divisor = divisor * 2; i = i + 1 }
+            sign = (signCode / divisor) % 2
+        }
+        let index = group * 8 + octet * 2 + axis / 4 + fp8 * 64
+        var value = ((2 * group + 3) * corpusIQ3Magnitude(index, axis % 4)) as Float32
+        value = value / (8.0 as Float32)
+        if sign == 1 { value = -value }; return value
+    }
+    if format == QuantizedFormat.Q8_0 {
+        var value = (lane * 17) % 256
+        if value >= 128 { value = value - 256 }; return (value as Float32) * (0.5 as Float32)
+    }
+    if format == QuantizedFormat.Q4_0 or format == QuantizedFormat.MXFP4 {
+        var code = lane % 16; if lane >= 16 { code = 15 - code }
+        if format == QuantizedFormat.MXFP4 { return corpusE2M1(code) }
+        return ((code - 8) as Float32) / (2.0 as Float32)
+    }
+    if format == QuantizedFormat.Q4_K {
+        var code = 15 - lane % 16; if lane % 64 >= 32 { code = lane % 16 }
+        return ((corpusScale(lane / 32) * code) as Float32) / (2.0 as Float32) -
+            (corpusMinimum(lane / 32) as Float32) / (4.0 as Float32)
+    }
+    if format == QuantizedFormat.Q2_K {
+        let packed = (((lane / 128) * 32 + lane % 32) * 37) % 256
+        var divisor = 1; var shift = (lane % 128) / 32
+        while shift > 0 { divisor = divisor * 4; shift = shift - 1 }
+        let code = (packed / divisor) % 4; let group = lane / 16
+        return (((group % 15 + 1) * code) as Float32) / (2.0 as Float32) - ((15 - group) as Float32) / (4.0 as Float32)
+    }
+    let magnitude = fp8 % 128; let exponent = magnitude / 8; let mantissa = magnitude % 8
+    var units = mantissa; var doublings = 0
+    if exponent > 0 { units = 8 + mantissa; doublings = exponent - 1 }
+    var value = (units as Float32) / (512.0 as Float32)
+    while doublings > 0 { value = value + value; doublings = doublings - 1 }
+    if fp8 >= 128 { value = -value }; return value
+}

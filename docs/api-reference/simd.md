@@ -379,3 +379,66 @@ verified aggregate scope. The harness covers fast/release/UBSan/ASan execution,
 retained-guard checks, negative bounds traps, and observed JSON decisions.
 Cross-platform execution and designated-machine performance remain separate
 verification steps; source/IR inspection alone is compile-only evidence.
+
+
+## Quantized block decode corpus
+
+Standard library 0.10.0 adds `inference.quantized_formats.QuantizedFormat` and
+`simd.quantized_decode.decodeQuantizedBlock`. The explicit layouts are GGML
+Q8_0 (32 values / 34 bytes), Q4_0 (32 / 18), Q4_K grouped Q4 (256 / 144),
+Q2_K (256 / 84), IQ3_XXS (256 / 98), MXFP4 (32 / 17), and finite E4M3FN
+(1 / 1). Q4 and MXFP4 payloads contain the low-half lanes before high-half
+lanes. Q4_K carries packed six-bit group scales/minima; Q2_K carries four-bit
+scales/minima. Headers are little endian and may be unaligned. MXFP4 uses an
+E8M0 scale and signed E2M1 values. E4M3FN has a maximum finite magnitude of
+448, including subnormals and signed zero. Nonfinite half scales, MX scale
+255, E4M3FN NaNs, and decoded Float32 overflow return typed errors before any
+output write. The immutable IQ3_XXS codebook and its MIT attribution are in
+`seen_std/THIRD_PARTY_NOTICES.txt`, pinned to ggml commit
+`da8e2a54b919557b816b1c2beb432ccb766f7ce0`. Custom IQ3/E8 layouts are not aliases
+of IQ3_XXS and require a separate format contract.
+
+`decodeQuantizedBlock(source, sourceOffset, destination, destinationOffset,
+format, count, vectorBits, context, progress)` borrows both byte-buffer owners
+and returns `Result<Bool, SimdIrError>`. The source must contain a complete
+block, including when decoding a zero-length prefix. `count` is between zero
+and the format's block element count. The output uses `count * 4` bytes of
+Float32, at any byte alignment. `vectorBits` explicitly selects scalar (0)
+or masked stores of 128/256/512 bits; scalar lane decoding is shared. This
+API does not promise an architecture-specific arithmetic kernel or native
+execution at a requested store width: LLVM may legalize wider stores for the
+selected CPU baseline. Invalid widths never silently select another policy.
+The existing checked owner-range and alias helpers reject closed owners,
+address wrap, insufficient ranges and overlapping input/output. A block
+produces at most 1024 bytes, with no kernel allocation or global mutable state.
+
+Geometry admission errors preserve prior progress. After admission, progress
+resets before cancellation/deadline and metadata checks. Cancellation is
+observed before every scalar/vector store and after the final store. A late
+error leaves at most one additional vector (16 lanes) committed, and
+`progress.completed` records the prefix. Errors use `simd.invalid_quantization`,
+`simd.invalid_shape`, `simd.invalid_alias`, `simd.invalid_policy`,
+`simd.cancelled`, `simd.timeout`, or `simd.unavailable`. The caller owns each
+Result container and any error; destroy/release them once. Inputs stay immutable
+and output/progress require exclusive access during the synchronous call.
+There are no retries or detached owners. A caller may explicitly restart the
+block after handling a partial result.
+
+`bash tests/misc_root_tests/seen_inf_simd_f.sh` runs the attested corpus:
+all tails, 64 byte offsets, every store width, independently encoded golden
+expectations, all finite half encodings, all E4M3FN bytes, every MXFP4 exponent
+and E2M1 code, IQ3 codebook entries/sign parity, invalid geometry/aliasing,
+metadata, cancellation and deadlines. Fast/release/UBSan/ASan executions also
+check output sentinels and live allocations. A seeded 60-second metadata fuzz
+covers rejection paths. The bounded executable time limit is 900 seconds per
+case; compiler containment continues to use the aggregate project scope.
+
+The paired benchmark records seven formats and all three vector store widths,
+with five warmups and thirty alternating scalar/candidate measurements per
+case. It reports median ratio and allocator peak and checks correctness/live
+allocations. `SEEN_REQUIRE_QUANTIZED_SIMD_PERF=1` enforces a median ratio no
+higher than 1.05 on a designated machine; ordinary CI reports observations.
+Record the exact commit, toolchain, CPU/OS and aggregate-limit readback with
+these logs. Software fixtures and legalizable vector IR do not certify an ISA,
+platform, final LTO performance or accelerator hardware. Hardware testing and
+performance certification remain deferred to the designated machine.
