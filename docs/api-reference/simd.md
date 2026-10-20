@@ -106,3 +106,11 @@ checks cover every supported lane format, every tail and legal alignment;
 they do not measure real memory access, throughput or device capability.
 Hardware parity, sanitizer/leak checks and the required benchmark samples
 must be recorded separately before certification.
+
+
+`PortableVectorShape.llvmType()` and `maskType()` return `Result<String,
+SimdIrError>`. Invalid mutated geometry returns `simd.invalid_shape`. Successful
+spellings own their string storage and use `seen_string_release_owned`; they do
+not borrow a temporary formatter buffer. Type spelling construction releases
+its intermediate strings. Portable geometry and repeated dispatch fixtures
+assert stable live-memory accounting after all returned owners are released.

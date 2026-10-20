@@ -3,6 +3,8 @@
 
 import core.result.{Result, Ok, Err}
 
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
 class SimdIrError {
     var code: String
     var target: String
@@ -40,6 +42,19 @@ fun simdLaneLlvmType(lane: String) r: String {
     return ""
 }
 
+// The result is an owned spelling. Release every intermediate produced by
+// numeric formatting/concatenation rather than retaining hot-loop metadata.
+fun simdVectorTypeText(lanes: Int, element: String) r: String {
+    let count = lanes.toString()
+    let prefix = "<" + count
+    let middle = prefix + " x "
+    let body = middle + element
+    let text = body + ">"
+    seen_string_release_owned(count); seen_string_release_owned(prefix)
+    seen_string_release_owned(middle); seen_string_release_owned(body)
+    return text
+}
+
 fun simdWidthValid(bits: Int) r: Bool {
     return bits == 128 or bits == 256 or bits == 512
 }
@@ -56,7 +71,7 @@ class PortableVectorShape {
         let laneBits = simdLaneBits(lane)
         if laneBits == 0 {
             return Err<PortableVectorShape, SimdIrError>(simdIrFailure(
-                "simd.unsupported_lane", "portable", lane, "shape", "shape",
+                "simd.unsupported_lane", "portable", "lane-type", "shape", "shape",
                 "SIMD lane type is unsupported"))
         }
         if not simdWidthValid(widthBits) {
@@ -88,14 +103,20 @@ class PortableVectorShape {
                 this.packedBits == 4 or this.packedBits == 8)
     }
 
-    fun llvmType() r: String {
-        if not this.valid() { return "" }
-        return "<" + this.lanes.toString() + " x " + simdLaneLlvmType(this.lane) + ">"
+    fun llvmType() r: Result<String, SimdIrError> {
+        if not this.valid() {
+            return Err<String, SimdIrError>(simdIrFailure("simd.invalid_shape", "portable",
+                "geometry", "llvm-type", "shape", "invalid vector shape"))
+        }
+        return Ok<String, SimdIrError>(simdVectorTypeText(this.lanes, simdLaneLlvmType(this.lane)))
     }
 
-    fun maskType() r: String {
-        if not this.valid() { return "" }
-        return "<" + this.lanes.toString() + " x i1>"
+    fun maskType() r: Result<String, SimdIrError> {
+        if not this.valid() {
+            return Err<String, SimdIrError>(simdIrFailure("simd.invalid_shape", "portable",
+                "geometry", "mask-type", "shape", "invalid vector shape"))
+        }
+        return Ok<String, SimdIrError>(simdVectorTypeText(this.lanes, "i1"))
     }
 
     fun alignmentBytes() r: Int {

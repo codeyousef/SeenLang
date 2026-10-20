@@ -1,5 +1,7 @@
+extern "C" fun seen_string_release_owned(value: String) r: Void
+extern "C" fun seen_memory_used_bytes() r: Int64
 import simd.ir_types.{PortableVectorShape, PortableSimdInstruction,
-    PortableSimdOperation, SimdIrError, simdActiveLaneBits}
+    PortableSimdOperation, simdActiveLaneBits}
 import simd.dispatch_plan.{SimdCapabilities, planPortableSimd}
 
 fun require(ok: Bool) r: Void {
@@ -20,6 +22,7 @@ fun arm(sveBits: Int) r: SimdCapabilities {
 fun geometryAndTails() r: Void {
     let laneTypes = ["Int8", "UInt8", "Int16", "UInt16", "Float16", "BFloat16",
         "Int32", "UInt32", "Float32", "Int64", "UInt64", "Float64"]
+    let memory = seen_memory_used_bytes()
     var width = 128
     while width <= 512 {
         var i = 0
@@ -29,11 +32,13 @@ fun geometryAndTails() r: Void {
             let shape = result.unwrap()
             result.releaseContainer()
             require(shape.valid() and shape.lanes * shape.laneBits == width)
-            let llvm = shape.llvmType()
-            let mask = shape.maskType()
+            let llvmResult = shape.llvmType(); let maskResultType = shape.maskType()
+            require(llvmResult.isOkay() and maskResultType.isOkay())
+            let llvm = llvmResult.unwrap(); llvmResult.releaseContainer()
+            let mask = maskResultType.unwrap(); maskResultType.releaseContainer()
             require(llvm.startsWith("<") and mask.endsWith(" x i1>"))
-            llvm.free()
-            mask.free()
+            seen_string_release_owned(llvm)
+            seen_string_release_owned(mask)
             var active = 0
             while active <= shape.lanes {
                 let maskResult = simdActiveLaneBits(shape.lanes, active)
@@ -65,6 +70,7 @@ fun geometryAndTails() r: Void {
         }
         width = width * 2
     }
+    require(seen_memory_used_bytes() == memory)
     laneTypes.free()
     println("PASS: geometry, every tail and legal alignment")
 }
@@ -77,6 +83,7 @@ fun dispatchPlans() r: Void {
     let disabled = x86(false)
     let neon = arm(0)
     let sve = arm(512)
+    let memory = seen_memory_used_bytes()
     var round = 0
     while round < 100 {
         let native = planPortableSimd(shape, capable, "auto", false, false)
@@ -109,6 +116,7 @@ fun dispatchPlans() r: Void {
         armDenied.releaseContainer()
         round = round + 1
     }
+    require(seen_memory_used_bytes() == memory)
     let explicitScalar = planPortableSimd(shape, disabled, "scalar", false, true)
     require(explicitScalar.isOkay() and explicitScalar.unwrap().scalar and
         not explicitScalar.unwrap().fallbackUsed)
@@ -158,7 +166,12 @@ fun adverseGeometry() r: Void {
     let invalid = planPortableSimd(shape, badCaps, "auto", true, false)
     require(invalid.isErr() and invalid.unwrapErr().code == "simd.invalid_capability")
     invalid.unwrapErr().free(); invalid.releaseContainer()
-    badCaps.free(); shape.free()
+    badCaps.free()
+    shape.widthBits = 7
+    let invalidText = shape.llvmType()
+    require(invalidText.isErr() and invalidText.unwrapErr().code == "simd.invalid_shape")
+    invalidText.unwrapErr().free(); invalidText.releaseContainer()
+    shape.free()
     println("PASS: bounded malformed geometry, masks, alignment and capabilities")
 }
 
