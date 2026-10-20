@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added checked Seen x86 Float32, unsigned-byte/signed-byte VNNI and BF16 dot
+  dispatch with explicit scalar fallback, fixed target-function isolation,
+  bounded input geometry, deadline/cancellation progress and owning fixtures.
+  CPU feature discovery now requires OS-enabled AVX register state. Added
+  scalar-control performance observation with optional designated-machine
+  enforcement; hardware certification remains separate.
+
 - Defined the Seen portable SIMD IR v1 contract with checked vector/mask
   geometry, packed-operation metadata and explicit x86/ARM/scalar planning.
 - Added 512-bit vector spellings, lane-mask comparisons, checked constructors

@@ -145,6 +145,23 @@
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_time_monotonic_nanos", "seen_time_sleep_nanos", "seen_time_system_nanos"],
       "production": true
+    },
+    {
+      "id": "x86-cpu-register-state",
+      "subsystem": "runtime.cpu",
+      "purpose": "Startup CPUID/XGETBV normalization and read-only feature queries require OS-enabled XCR0 state before Seen selects AVX bodies. No allocations or borrowed storage escape; process-lifetime feature data initializes before workers. Seen owns dispatch, fallback, kernels, bounds, progress and diagnostics. Simulated OS-state probes and SIMD fixtures cover the boundary. Migrate queries together if compiler CPU discovery replaces this ABI.",
+      "abi": "Seen runtime C",
+      "platforms": [
+        "linux-x86_64",
+        "macos",
+        "windows"
+      ],
+      "symbols": [
+        "seen_cpu_detect",
+        "seen_cpu_has_feature",
+        "seen_cpu_simd_tier"
+      ],
+      "production": true
     }
   ]
 }

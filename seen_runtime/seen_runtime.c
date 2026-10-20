@@ -7939,7 +7939,7 @@ static void seen_cpu_normalize_x86_state(uint64_t xcr0) {
     if ((xcr0 & 6u) != 6u || !g_cpu_features.avx) {
         g_cpu_features.avx = 0; g_cpu_features.avx2 = 0; g_cpu_features.fma = 0;
     }
-    if ((xcr0 & 230u) != 230u || !g_cpu_features.avx) {
+    if ((xcr0 & 230u) != 230u || !g_cpu_features.avx || !g_cpu_features.avx512f) {
         g_cpu_features.avx512f = 0; g_cpu_features.avx512bw = 0;
         g_cpu_features.avx512dq = 0; g_cpu_features.avx512vl = 0;
         g_cpu_features.avx512vnni = 0; g_cpu_features.avx512bf16 = 0;
@@ -8089,7 +8089,7 @@ int64_t seen_cpu_simd_tier(void) {
     return 0;
 #else
     if (g_cpu_features.avx512f && g_cpu_features.avx512bw &&
-        g_cpu_features.avx512dq && g_cpu_features.avx512vl) return 3;
+        g_cpu_features.avx512dq && g_cpu_features.avx512vl && g_cpu_features.fma) return 3;
     if (g_cpu_features.avx2 && g_cpu_features.fma) return 2;
     if (g_cpu_features.sse42) return 1;
     return 0;

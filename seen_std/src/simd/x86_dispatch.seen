@@ -29,7 +29,7 @@ class X86SimdCapabilities {
     }
 }
 
-// Stable integer variants keep the per-call dispatch decision allocation-free.
+// Stable integer variants keep capability selection outside numeric loops.
 // 0 scalar, 1 AVX2, 2 AVX-512, 3 unsigned-byte/signed-byte VNNI,
 // 4 packed BF16 accumulation. No inference operation implies another operation.
 fun selectX86Variant(capabilities: X86SimdCapabilities, operation: String,

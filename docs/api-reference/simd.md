@@ -114,3 +114,78 @@ spellings own their string storage and use `seen_string_release_owned`; they do
 not borrow a temporary formatter buffer. Type spelling construction releases
 its intermediate strings. Portable geometry and repeated dispatch fixtures
 assert stable live-memory accounting after all returned owners are released.
+
+### Checked x86 dot dispatch
+
+`simd.x86_kernels.executeX86Dot(left, leftOffset, right, rightOffset, count,
+operation, policy, allowScalarFallback, deterministic, context, progress)`
+borrows two `OwnedBuffer<UInt8>` inputs and an exclusively owned
+`X86DotProgress`. It returns `Result<Bool, SimdIrError>` without retaining any
+borrow. `X86DotOperation` selects Float32, UnsignedSignedByte (u8 by i8) or
+BFloat16. Progress contains `floating` or `integer`, `completed` elements and
+`variant` (0 scalar, 1 AVX2, 2 AVX-512, 3 VNNI, 4 BF16). Both buffers may alias
+for read-only inputs; callers must exclude concurrent mutation and keep their
+storage/metadata valid for the call. The progress object must not alias either
+input's storage. Creators close buffers and free progress after all calls.
+
+Admission checks at most 4,194,304 elements, byte ranges, lane alignment and
+address overflow before changing prior progress or reading data. Work runs in
+chunks of at most 4096 elements without loop allocations. Cancellation and
+monotonic deadlines are checked before the first chunk and after each chunk.
+A deadline reached after computation retains the completed result/progress in
+the caller's object and returns `simd.timeout`; no work detaches. Other stable
+errors include `simd.cancelled`, `simd.limit`, `simd.invalid_shape`,
+`simd.invalid_policy`, `simd.invalid_operation`, `simd.invalid_capability`,
+`simd.scalar_required`, `simd.unsupported_capability` and `simd.unavailable`.
+Diagnostics use bounded public literals without source input or trace contents.
+There are no implicit retries.
+
+`X86SimdCapabilities.host()` discovers OS-normalized instruction availability.
+AVX requires hardware XSAVE/AVX, OSXSAVE and XCR0 XMM/YMM state. AVX-512 also
+requires opmask/ZMM state. AVX2 Float32 additionally requires FMA; the AVX-512
+variant requires F/BW/DQ/VL plus FMA. Packed variants require their separate
+VNNI/BF16 bits. CPUID/XGETBV normalization is the existing narrow runtime ABI;
+selection, bounds, scheduling of chunks, fallback and arithmetic live in Seen.
+The runtime ABI stays runtime-v4: new feature-name queries are additive and an
+older runtime returns false for unknown features. No new native symbol is added.
+
+`selectX86Variant` accepts synthetic capabilities for planning/tests only.
+Executable calls always discover the executing host and never trust a synthetic
+capability snapshot. Policies are `auto`, `scalar`, `avx2`, `avx512`, `vnni` and
+`bf16`; an unavailable requested operation fails unless scalar fallback was
+explicitly allowed. Deterministic mode selects scalar with explicit permission.
+Native floating reductions may differ in rounding order; BF16 hardware follows
+the ISA's fused arithmetic/subnormal rules. Choose deterministic scalar when
+those differences are unacceptable. Integer byte products accumulate exactly
+into Int64 under the checked count/chunk ceilings.
+
+`executeX86DotWithClock<C: X86DotClock>` borrows an explicit Seen clock provider
+for deterministic execution. The default API uses the native monotonic clock.
+Negative or backwards provider readings return `simd.unavailable` while
+retaining already completed progress. Providers grant no additional authority.
+The `@simd_target("scalar"|"avx2"|"avx512"|"vnni"|"bf16")` compiler annotation
+is an explicit low-level ISA requirement, not an automatic runtime check.
+Only a checked dispatcher may call such a body on a potentially older CPU.
+The compiler rejects unknown/duplicate target strings (`E_SIMD_TARGET`) and
+keeps each target function `noinline`, including under ThinLTO. Packed raw
+builtins require exactly an accumulator and two packed i32x16 operands;
+invalid arity/lane types report `E_SIMD_ARITY`/`E_SIMD_LANE`. BF16 input words
+bitcast to LLVM's actual 32-lane bfloat operand type.
+
+Run `bash tests/misc_root_tests/seen_inf_simd_b.sh` in the attested capped
+scope. Fixtures cover capability matrices, all tails through 65 elements,
+all lane-legal alignments within 64 bytes, native/scalar parity, injected
+partial deadlines/backwards clocks, redacted diagnostics and stable live
+allocations. Fast, release/ThinLTO, UBSan and ASan are included. Native OS-state
+probes simulate unavailable XCR0 state without executing unsupported vector
+instructions. Compiling an unavailable variant never counts as execution.
+Linux x86-64 is the development target; other platform execution and hardware
+certification remain unverified.
+
+The release benchmark uses five warmups and thirty adjacent, alternating
+native/scalar control samples with a paired median ratio and correctness/live
+allocation checks. Default output is observation, not certification. Set
+`SEEN_REQUIRE_X86_PERF=1` on the designated machine to enforce the 1.05 ratio
+ceiling and require an available native variant. Keep hardware, compiler commit,
+command, cgroup read-backs and the benchmark output together. Allocator peak
+bytes are reported separately from RSS; no RSS or hardware result is invented.

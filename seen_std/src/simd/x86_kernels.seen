@@ -1,0 +1,138 @@
+/// Checked synchronous dot dispatch. Inputs/context are immutable borrows;
+/// output is exclusively borrowed and retains partial progress on failure.
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import memory.aligned_buffer.{OwnedBuffer}
+import simd.ir_types.{SimdIrError, simdIrFailure}
+import simd.x86_dispatch.{X86SimdCapabilities, selectX86Variant}
+import simd.x86_blocks.{dotF32Scalar, dotF32Avx2, dotF32Avx512,
+    dotU8S8Scalar, dotU8S8Vnni, dotBf16Scalar, dotBf16Native}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+trait X86DotClock { fun now(this: X86DotClock) r: Int64 }
+class NativeX86DotClock {
+    var reserved: Int
+    fun now() r: Int64 { return seen_time_monotonic_nanos() }
+}
+
+enum X86DotOperation { Float32, UnsignedSignedByte, BFloat16 }
+class X86DotProgress {
+    var floating: Float32
+    var integer: Int64
+    var completed: UInt64
+    var variant: Int
+    static fun create() r: X86DotProgress {
+        return X86DotProgress{floating: 0.0 as Float32, integer: 0 as Int64,
+            completed: 0 as UInt64, variant: 0}
+    }
+}
+fun x86DotOperationName(operation: X86DotOperation) r: String {
+    if operation == X86DotOperation.Float32 { return "dot-f32" }
+    if operation == X86DotOperation.UnsignedSignedByte { return "dot-u8s8" }
+    return "dot-bf16"
+}
+fun x86DotLaneBytes(operation: X86DotOperation) r: UInt64 {
+    if operation == X86DotOperation.Float32 { return 4 as UInt64 }
+    if operation == X86DotOperation.UnsignedSignedByte { return 1 as UInt64 }
+    return 2 as UInt64
+}
+fun x86DotError(code: String, capability: String, message: String) r: SimdIrError {
+    return simdIrFailure(code, "x86_64", capability, "dot", "kernel", message)
+}
+fun x86DotContextStatus<C: X86DotClock>(context: OperationContext, borrow clock: C,
+    previous: *Int64) r: Int {
+    if context.cancellation { return 1 }
+    if context.monotonicDeadline < (0 as Int64) { return 2 }
+    if context.monotonicDeadline != (9223372036854775807 as Int64) {
+        let now = clock.now()
+        if now < (0 as Int64) or now < previous[0] { return 3 }
+        previous[0] = now
+        if now >= context.monotonicDeadline { return 2 }
+    }
+    return 0
+}
+fun x86DotStatusError(status: Int) r: SimdIrError {
+    if status == 1 { return x86DotError("simd.cancelled", "cancellation", "dot operation cancelled") }
+    if status == 2 { return x86DotError("simd.timeout", "deadline", "dot operation deadline expired") }
+    return x86DotError("simd.unavailable", "clock", "monotonic clock unavailable")
+}
+fun x86DotRangeValid(borrow buffer: OwnedBuffer<UInt8>, offset: UInt64,
+    count: UInt64, laneBytes: UInt64) r: Bool {
+    if buffer.data == (null as *UInt8) or offset > buffer.byteLength or
+        offset % laneBytes != (0 as UInt64) { return false }
+    if count > (4194304 as UInt64) or count * laneBytes > buffer.byteLength - offset { return false }
+    let bytes = count * laneBytes
+    if offset > (18446744073709551615 as UInt64) - bytes { return false }
+    let address = buffer.data as UInt64
+    if address > (18446744073709551615 as UInt64) - offset - bytes { return false }
+    return (address + offset) % laneBytes == (0 as UInt64)
+}
+fun executeX86Dot(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64,
+    borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64, count: UInt64,
+    operation: X86DotOperation, policy: String, allowScalarFallback: Bool,
+    deterministic: Bool, context: OperationContext, borrow progress: X86DotProgress)
+    r: Result<Bool, SimdIrError> {
+    let clock = NativeX86DotClock{reserved: 0}
+    let result = executeX86DotWithClock(left, leftOffset, right, rightOffset, count,
+        operation, policy, allowScalarFallback, deterministic, context, progress, clock)
+    clock.free(); return result
+}
+// Explicit clock providers support deterministic execution/testing. They grant
+// no authority beyond the caller's own context and must remain monotonic.
+fun executeX86DotWithClock<C: X86DotClock>(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64,
+    borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64, count: UInt64,
+    operation: X86DotOperation, policy: String, allowScalarFallback: Bool,
+    deterministic: Bool, context: OperationContext, borrow progress: X86DotProgress,
+    borrow clock: C) r: Result<Bool, SimdIrError> {
+    // Admission validates before clearing prior results or touching inputs.
+    if count > (4194304 as UInt64) {
+        return Err<Bool, SimdIrError>(x86DotError("simd.limit", "elements", "dot element ceiling exceeded"))
+    }
+    let laneBytes = x86DotLaneBytes(operation)
+    if not x86DotRangeValid(left, leftOffset, count, laneBytes) or
+        not x86DotRangeValid(right, rightOffset, count, laneBytes) {
+        return Err<Bool, SimdIrError>(x86DotError("simd.invalid_shape", "range", "invalid dot input range"))
+    }
+    // Never accept a caller-supplied synthetic capability set for execution.
+    let host = X86SimdCapabilities.host()
+    let selected = selectX86Variant(host, x86DotOperationName(operation),
+        policy, allowScalarFallback, deterministic)
+    host.free()
+    if selected.isErr() {
+        let error = selected.unwrapErr(); selected.releaseContainer()
+        return Err<Bool, SimdIrError>(error)
+    }
+    let variant = selected.unwrap(); selected.releaseContainer()
+    progress.floating = 0.0 as Float32; progress.integer = 0 as Int64
+    progress.completed = 0 as UInt64; progress.variant = variant
+    var previous = -1 as Int64
+    var status = x86DotContextStatus(context, clock, &previous)
+    if status != 0 { return Err<Bool, SimdIrError>(x86DotStatusError(status)) }
+    while progress.completed < count {
+        var block = count - progress.completed
+        if block > (4096 as UInt64) { block = 4096 as UInt64 }
+        let a = (left.data as UInt64) + leftOffset + progress.completed * laneBytes
+        let b = (right.data as UInt64) + rightOffset + progress.completed * laneBytes
+        if operation == X86DotOperation.Float32 {
+            var value = 0.0 as Float32
+            if variant == 2 { value = dotF32Avx512(a as *Float32, b as *Float32, block) }
+            else if variant == 1 { value = dotF32Avx2(a as *Float32, b as *Float32, block) }
+            else { value = dotF32Scalar(a as *Float32, b as *Float32, block) }
+            progress.floating = progress.floating + value
+        } else if operation == X86DotOperation.UnsignedSignedByte {
+            var value = 0 as Int64
+            if variant == 3 { value = dotU8S8Vnni(a as *UInt8, b as *Int8, block) }
+            else { value = dotU8S8Scalar(a as *UInt8, b as *Int8, block) }
+            progress.integer = progress.integer + value
+        } else {
+            var value = 0.0 as Float32
+            if variant == 4 { value = dotBf16Native(a as *UInt16, b as *UInt16, block) }
+            else { value = dotBf16Scalar(a as *UInt16, b as *UInt16, block) }
+            progress.floating = progress.floating + value
+        }
+        progress.completed = progress.completed + block
+        status = x86DotContextStatus(context, clock, &previous)
+        if status != 0 { return Err<Bool, SimdIrError>(x86DotStatusError(status)) }
+    }
+    return Ok<Bool, SimdIrError>(true)
+}

@@ -71,12 +71,19 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
         if argTypes[0] != dotType or argTypes[1] != "i32x16" or argTypes[2] != "i32x16" {
             abort("Error: [E_SIMD_LANE] x86 dot requires exact packed lane types")
         }
-        let result = getNextRegFn(regBox)
         var intrinsic = "llvm.x86.avx512.vpdpbusd.512"
         var llvmType = "<16 x i32>"
-        if dotType == "f32x16" { intrinsic = "llvm.x86.avx512bf16.dpbf16ps.512"; llvmType = "<16 x float>" }
+        var packedType = "<16 x i32>"; var left = args[1]; var right = args[2]
+        if dotType == "f32x16" {
+            intrinsic = "llvm.x86.avx512bf16.dpbf16ps.512"; llvmType = "<16 x float>"
+            packedType = "<32 x bfloat>"
+            left = getNextRegFn(regBox); right = getNextRegFn(regBox)
+            output.append("  " + left + " = bitcast <16 x i32> " + args[1] + " to <32 x bfloat>\n")
+            output.append("  " + right + " = bitcast <16 x i32> " + args[2] + " to <32 x bfloat>\n")
+        }
+        let result = getNextRegFn(regBox)
         output.append("  " + result + " = call " + llvmType + " @" + intrinsic + "(" +
-            llvmType + " " + args[0] + ", <16 x i32> " + args[1] + ", <16 x i32> " + args[2] + ")\n")
+            llvmType + " " + args[0] + ", " + packedType + " " + left + ", " + packedType + " " + right + ")\n")
         return result
     }
 

@@ -1,0 +1,91 @@
+/// Unchecked ISA blocks. Only the checked host dispatcher may call these.
+/// Borrowed pointers cover `count` elements and count is at most 4096.
+/// Each target is isolated from its caller even under ThinLTO.
+
+fun bf16Float(bits: UInt16) r: Float32 {
+    var expanded = (bits as UInt32) << (16 as UInt32)
+    return ptr_deref_f32((&expanded) as Int)
+}
+
+@simd_target("scalar")
+fun dotF32Scalar(left: *Float32, right: *Float32, count: UInt64) r: Float32 {
+    var value = 0.0 as Float32; var i = 0 as UInt64
+    while i < count { value = value + left[i] * right[i]; i = i + (1 as UInt64) }
+    return value
+}
+
+@simd_target("avx2")
+fun dotF32Avx2(left: *Float32, right: *Float32, count: UInt64) r: Float32 {
+    var sums = f32x8(0, 0, 0, 0, 0, 0, 0, 0); var i = 0 as UInt64
+    while count - i >= (8 as UInt64) {
+        let a: f32x8 = simd_load_f32x8_unaligned(((left as UInt64) + i * (4 as UInt64)) as Int)
+        let b: f32x8 = simd_load_f32x8_unaligned(((right as UInt64) + i * (4 as UInt64)) as Int)
+        sums = sums + a * b; i = i + (8 as UInt64)
+    }
+    var value: Float32 = sums.reduce_add()
+    while i < count { value = value + left[i] * right[i]; i = i + (1 as UInt64) }
+    return value
+}
+
+@simd_target("avx512")
+fun dotF32Avx512(left: *Float32, right: *Float32, count: UInt64) r: Float32 {
+    var sums = f32x16(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); var i = 0 as UInt64
+    while count - i >= (16 as UInt64) {
+        let a: f32x16 = simd_load_f32x16_unaligned(((left as UInt64) + i * (4 as UInt64)) as Int)
+        let b: f32x16 = simd_load_f32x16_unaligned(((right as UInt64) + i * (4 as UInt64)) as Int)
+        sums = sums + a * b; i = i + (16 as UInt64)
+    }
+    var value: Float32 = sums.reduce_add()
+    while i < count { value = value + left[i] * right[i]; i = i + (1 as UInt64) }
+    return value
+}
+
+@simd_target("scalar")
+fun dotU8S8Scalar(left: *UInt8, right: *Int8, count: UInt64) r: Int64 {
+    var value = 0 as Int64; var i = 0 as UInt64
+    while i < count {
+        value = value + (left[i] as Int64) * (right[i] as Int64); i = i + (1 as UInt64)
+    }
+    return value
+}
+
+@simd_target("vnni")
+fun dotU8S8Vnni(left: *UInt8, right: *Int8, count: UInt64) r: Int64 {
+    var sums = i32x16(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); var i = 0 as UInt64
+    while count - i >= (64 as UInt64) {
+        let a: i32x16 = simd_load_i32x16_unaligned(((left as UInt64) + i) as Int)
+        let b: i32x16 = simd_load_i32x16_unaligned(((right as UInt64) + i) as Int)
+        sums = simd_x86_vnni_u8s8(sums, a, b); i = i + (64 as UInt64)
+    }
+    // The public 4096-element chunk bound keeps even the horizontal i32
+    // reduction inside its signed range, before widening the result.
+    var value = sums.reduce_add() as Int64
+    while i < count {
+        value = value + (left[i] as Int64) * (right[i] as Int64); i = i + (1 as UInt64)
+    }
+    return value
+}
+
+@simd_target("scalar")
+fun dotBf16Scalar(left: *UInt16, right: *UInt16, count: UInt64) r: Float32 {
+    var value = 0.0 as Float32; var i = 0 as UInt64
+    while i < count {
+        value = value + bf16Float(left[i]) * bf16Float(right[i]); i = i + (1 as UInt64)
+    }
+    return value
+}
+
+@simd_target("bf16")
+fun dotBf16Native(left: *UInt16, right: *UInt16, count: UInt64) r: Float32 {
+    var sums = f32x16(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0); var i = 0 as UInt64
+    while count - i >= (32 as UInt64) {
+        let a: i32x16 = simd_load_i32x16_unaligned(((left as UInt64) + i * (2 as UInt64)) as Int)
+        let b: i32x16 = simd_load_i32x16_unaligned(((right as UInt64) + i * (2 as UInt64)) as Int)
+        sums = simd_x86_bf16_dot(sums, a, b); i = i + (32 as UInt64)
+    }
+    var value: Float32 = sums.reduce_add()
+    while i < count {
+        value = value + bf16Float(left[i]) * bf16Float(right[i]); i = i + (1 as UInt64)
+    }
+    return value
+}

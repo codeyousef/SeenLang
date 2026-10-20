@@ -106,8 +106,16 @@ hash = "0822f44cfb57260b5db24248087686c7d31caffda4532f93e5b4d9dfadc6c4c3"
 
 [[modules]]
 path = "src/simd/ir_types.seen"
-hash = "11d2f2ce2b15d3963a50c256b98ffa692f4460d9de6cca10078f2072d099bcb7"
+hash = "b8e79348b716b9c12f041b1685e1ed5ac6dc3865cc5bb3c929f50ce11ad27392"
 
 [[modules]]
 path = "src/simd/x86_dispatch.seen"
-hash = "e01841bb124bdd63b9ac2c78fa08293ce609c953ef9f1b290493bd6a0d7a001f"
+hash = "01aaf8574014fe8df8646b34fa61e5e2c5ea4cb76e2243c667af0e5357f2e9b0"
+
+[[modules]]
+path = "src/simd/x86_blocks.seen"
+hash = "2a733e271cc55fb1abc0a83ee8d50b11d40d1e24f51ede0ffad0877f0d750a69"
+
+[[modules]]
+path = "src/simd/x86_kernels.seen"
+hash = "82125745efa5902c389109752c886be2b6fd1a326082fab091616529a81cb4a9"

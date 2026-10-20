@@ -1,0 +1,7 @@
+@simd_target("vnni")
+fun rejected() r: i32x16 {
+    let wrong = f32x16(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    let packed = i32x16(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    return simd_x86_vnni_u8s8(wrong, packed, packed)
+}
+fun main() r: Int { return 0 }

@@ -1,0 +1,134 @@
+import x86_fixture_support.{must, errorIs, context}
+import core.operation_context.{OperationContext}
+import memory.aligned_buffer.{OwnedBuffer}
+import simd.x86_dispatch.{X86SimdCapabilities, selectX86Variant}
+import simd.x86_kernels.{X86DotOperation, X86DotProgress, executeX86Dot, executeX86DotWithClock}
+extern "C" fun seen_memory_used_bytes() r: Int64
+class ProbeClock {
+    var reads: Int
+    var reverse: Bool
+    fun now() r: Int64 {
+        this.reads = this.reads + 1
+        if this.reads == 1 { return 100 as Int64 }
+        if this.reverse { return 99 as Int64 }
+        return 201 as Int64
+    }
+}
+fun capabilitiesMatrix() r: Void {
+    var bits = 0
+    while bits < 32 {
+        let caps = X86SimdCapabilities{avx2: (bits & 1) != 0, fma: (bits & 2) != 0,
+            avx512: (bits & 4) != 0, vnni: (bits & 8) != 0, bf16: (bits & 16) != 0}
+        let selected = selectX86Variant(caps, "dot-f32", "auto", true, false)
+        if not caps.valid() {
+            if not errorIs(selected, "simd.invalid_capability") { abort("inconsistent capability set accepted") }
+        } else {
+            var expected = 0
+            if caps.avx2 and caps.fma { expected = 1 }
+            if caps.avx512 and caps.fma { expected = 2 }
+            if must(selected) != expected { abort("non-deterministic x86 selection") }
+            if must(selectX86Variant(caps, "dot-f32", "auto", true, true)) != 0 {
+                abort("deterministic policy selected native reduction")
+            }
+            if not errorIs(selectX86Variant(caps, "dot-f32", "auto", false, true), "simd.scalar_required") {
+                abort("implicit deterministic fallback accepted")
+            }
+        }
+        caps.free(); bits = bits + 1
+    }
+}
+fun parity(operation: X86DotOperation, context: OperationContext,
+    borrow left: OwnedBuffer<UInt8>, borrow right: OwnedBuffer<UInt8>,
+    reference: X86DotProgress, actual: X86DotProgress) r: Void {
+    var width = 4
+    if operation == X86DotOperation.UnsignedSignedByte { width = 1 }
+    if operation == X86DotOperation.BFloat16 { width = 2 }
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 66 {
+            let a = (left.data as UInt64) + (offset as UInt64)
+            let b = (right.data as UInt64) + (offset as UInt64)
+            if operation == X86DotOperation.Float32 {
+                let ap = a as *Float32; let bp = b as *Float32
+                ap[i] = ((i % 7) - 3) as Float32; bp[i] = ((i % 5) - 2) as Float32
+            } else if operation == X86DotOperation.UnsignedSignedByte {
+                let ap = a as *UInt8; let bp = b as *Int8
+                ap[i] = 255 as UInt8; bp[i] = -128 as Int8
+            } else {
+                let ap = a as *UInt16; let bp = b as *UInt16
+                ap[i] = 16256 as UInt16; bp[i] = 49152 as UInt16
+            }
+            i = i + 1
+        }
+        var count = 0
+        while count <= 65 {
+            must(executeX86Dot(left, offset as UInt64, right, offset as UInt64,
+                count as UInt64, operation, "scalar", false, false, context, reference))
+            must(executeX86Dot(left, offset as UInt64, right, offset as UInt64,
+                count as UInt64, operation, "auto", true, false, context, actual))
+            if actual.completed != (count as UInt64) or reference.completed != actual.completed or
+                actual.floating != reference.floating or actual.integer != reference.integer {
+                abort("native/scalar tail or alignment mismatch")
+            }
+            count = count + 1
+        }
+        offset = offset + width
+    }
+}
+fun main() r: Int {
+    let ctx = context(); let left = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let right = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let reference = X86DotProgress.create(); let actual = X86DotProgress.create()
+    capabilitiesMatrix()
+    parity(X86DotOperation.Float32, ctx, left, right, reference, actual)
+    parity(X86DotOperation.UnsignedSignedByte, ctx, left, right, reference, actual)
+    parity(X86DotOperation.BFloat16, ctx, left, right, reference, actual)
+    let memory = seen_memory_used_bytes()
+    capabilitiesMatrix()
+    parity(X86DotOperation.Float32, ctx, left, right, reference, actual)
+    parity(X86DotOperation.UnsignedSignedByte, ctx, left, right, reference, actual)
+    parity(X86DotOperation.BFloat16, ctx, left, right, reference, actual)
+    if seen_memory_used_bytes() != memory { return 1 }
+    println("PASS: SEEN-INF-002B_happy")
+    let none = X86SimdCapabilities{avx2: false, fma: false, avx512: false, vnni: false, bf16: false}
+    if not errorIs(selectX86Variant(none, "dot-u8s8", "vnni", false, false), "simd.unsupported_capability") { return 2 }
+    if not errorIs(selectX86Variant(none, "secret-input", "auto", true, false), "simd.invalid_operation") { return 3 }
+    if not errorIs(selectX86Variant(none, "dot-f32", "secret-policy", true, false), "simd.invalid_policy") { return 4 }
+    none.free()
+    if not errorIs(executeX86Dot(left, 1 as UInt64, right, 0 as UInt64, 8 as UInt64,
+        X86DotOperation.Float32, "auto", true, false, ctx, actual), "simd.invalid_shape") { return 5 }
+    let previous = actual.completed
+    if not errorIs(executeX86Dot(left, 0 as UInt64, right, 0 as UInt64, 4194305 as UInt64,
+        X86DotOperation.Float32, "auto", true, false, ctx, actual), "simd.limit") or
+        actual.completed != previous { return 6 }
+    println("PASS: SEEN-INF-002B_invalid")
+    println("PASS: SEEN-INF-002B_limit")
+    ctx.cancellation = true
+    if not errorIs(executeX86Dot(left, 0 as UInt64, right, 0 as UInt64, 64 as UInt64,
+        X86DotOperation.Float32, "scalar", false, false, ctx, actual), "simd.cancelled") or
+        actual.completed != (0 as UInt64) { return 7 }
+    ctx.cancellation = false; ctx.monotonicDeadline = -1 as Int64
+    if not errorIs(executeX86Dot(left, 0 as UInt64, right, 0 as UInt64, 64 as UInt64,
+        X86DotOperation.Float32, "scalar", false, false, ctx, actual), "simd.timeout") { return 8 }
+    println("PASS: SEEN-INF-002B_cancel")
+    var i = 0
+    let ap = left.data as *Float32; let bp = right.data as *Float32
+    while i < 8192 { ap[i] = 1.0 as Float32; bp[i] = 2.0 as Float32; i = i + 1 }
+    ctx.monotonicDeadline = 200 as Int64
+    let clock = ProbeClock{reads: 0, reverse: false}
+    if not errorIs(executeX86DotWithClock(left, 0 as UInt64, right, 0 as UInt64,
+        8192 as UInt64, X86DotOperation.Float32, "scalar", false, false, ctx,
+        actual, clock), "simd.timeout") or actual.completed != (4096 as UInt64) or
+        actual.floating != (8192.0 as Float32) { return 9 }
+    clock.reads = 0; clock.reverse = true
+    if not errorIs(executeX86DotWithClock(left, 0 as UInt64, right, 0 as UInt64,
+        8192 as UInt64, X86DotOperation.Float32, "scalar", false, false, ctx,
+        actual, clock), "simd.unavailable") or actual.completed != (4096 as UInt64) { return 10 }
+    clock.free()
+    println("PASS: SEEN-INF-002B_partial")
+    reference.free(); actual.free(); left.close(); left.free(); right.close(); right.free()
+    ctx.limits.free(); ctx.traceId.free(); ctx.free()
+    println("PASS: SEEN-INF-002B_cleanup")
+    return 0
+}

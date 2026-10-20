@@ -6180,6 +6180,7 @@
       "sources": [
         "seen_std/src/async/structured.seen",
         "seen_std/src/determinism/policy.seen",
+        "seen_std/src/simd/x86_kernels.seen",
         "seen_std/src/sync/contracts.seen"
       ]
     },
