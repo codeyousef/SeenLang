@@ -266,6 +266,17 @@ fun emitExternDeclImpl(output: StringBuilder,
     mappedParamTypes: Array<String>, paramCount: Int,
     externRetType: String, isVariadic: Int) r: Void {
 
+    // Seen represents raw pointers as i64 values, while the compiler's pool
+    // allocator declaration uses LLVM ptr. Calls have a dedicated lowering
+    // that converts the address bits; retain the one canonical declaration.
+    if funcName == "seen_pool_free" and externSymbol == "seen_pool_free" and
+        paramCount == 2 and mappedParamTypes.length() == 2 and
+        mappedParamTypes[0] == "i64" and mappedParamTypes[1] == "i64" and
+        externRetType == "void" and isVariadic == 0 {
+        output.append("; seen_pool_free uses the canonical allocator pointer ABI\n")
+        return
+    }
+
     // Build the declaration
     var externSignature = "declare " + externRetType + " @" + externSymbol + "("
     var pIdx = 0
