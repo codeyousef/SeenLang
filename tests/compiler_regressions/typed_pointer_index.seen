@@ -1,5 +1,7 @@
 import core.result.{Result}
 import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+class ReadonlyPointerFixture { var data: *const UInt8 }
 fun take<T, E>(result: Result<T, E>) r: T {
     if result.isErr() { abort("typed pointer fixture allocation failed") }
     let value = result.unwrap(); result.releaseContainer(); return value
@@ -278,6 +280,11 @@ fun main() r: Int {
     requirePointer((other.data as UInt64) == (storage.data as UInt64))
     other.data = original
     requirePointer(other.close()); other.free()
+    storage.data[0] = 81 as UInt8
+    let readonly = ReadonlyPointerFixture{data: storage.data as *const UInt8}
+    let view = seen_string_view_bytes(readonly.data, 4 as Int64)
+    requirePointer(view.byteAt(0) == 81 and readonly.data[0] == (81 as UInt8))
+    readonly.free()
     println("POINTER CASE: UInt8")
     checkUInt8(storage)
     println("POINTER CASE: Int8")
