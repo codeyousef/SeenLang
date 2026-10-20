@@ -1,4 +1,5 @@
 import typechecker.semantic_registry.{SemanticDeclarationRegistry}
+import typechecker.type_ref.{parseTypeRef}
 fun declaration(registry: SemanticDeclarationRegistry, name: String,
     field: String, generic: Bool) r: Void {
     if not registry.registerDeclaration("fixture", name, "Class",
@@ -19,6 +20,8 @@ fun main() r: Int {
     // The source resolver supplies canonical argument identities, including
     // the declaring module and the bound identity of an enclosing generic.
     let constrained = "fixture::Wrapper<generic:bound:Send+ExecutorJob:fixture::Good::U>"
+    let parsed = parseTypeRef(constrained, 1, 1, "fixture.seen")
+    if not parsed.valid or parsed.canonical() != constrained { return 9 }
     if registry.lifecycleIdentityPropertyState("fixture::Good", constrained, "Send") != 1 { return 1 }
     if registry.lifecycleIdentityPropertyState("fixture::Good",
         "fixture::Wrapper<fixture::Wrapper<Int>>", "Send") != 1 { return 2 }

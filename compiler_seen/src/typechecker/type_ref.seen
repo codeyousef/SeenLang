@@ -187,6 +187,18 @@ fun typeRefIsDelimiter(ch: Char) r: Bool {
         typeRefIsSpace(ch)
 }
 
+// Semantic identities qualify declarations with `module::name` and encode
+// generic bounds with `generic:bound:...`. Keep those identity colons inside
+// the name while preserving source ownership and bitfield delimiters.
+fun typeRefNameContinues(text: String, cursor: Int, start: Int) r: Bool {
+    let ch = text.byteAt(cursor)
+    if not typeRefIsDelimiter(ch) { return true }
+    if ch != ':' { return false }
+    if cursor + 1 < text.length() and text.byteAt(cursor + 1) == ':' { return true }
+    if cursor > start and text.byteAt(cursor - 1) == ':' { return true }
+    return typeRefStartsAt(text, start, "generic:")
+}
+
 fun typeRefIsDigits(text: String) r: Bool {
     if text == "" { return false }
     var i = 0
@@ -364,7 +376,7 @@ fun parseTypeRefAt(text: String, cursor: Array<Int>, line: Int, column: Int,
 
     let start = cursor[0]
     while cursor[0] < text.length() and
-        not typeRefIsDelimiter(text.byteAt(cursor[0])) {
+        typeRefNameContinues(text, cursor[0], start) {
 
         cursor[0] = cursor[0] + 1
     }
