@@ -10,6 +10,7 @@ import async.sockets.{AsyncTcpSocket, SocketAddress}
 import async.completion_io.{AsyncFileCompletionQueue}
 import reactor.reactor.{OwnedHandle, Interest}
 import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_async_readiness_live_handles() r: UInt64
 extern "C" fun seen_reactor_live_handles() r: UInt64
 extern "C" fun seen_sync_live_atomics() r: UInt64
 extern "C" fun seen_executor_live_threads() r: UInt64
@@ -69,6 +70,7 @@ fun emptyHandle() r: OwnedHandle {
 }
 fun probe(releases: UInt64) r: IoProbe { return IoProbe{releases: releases, observed: false} }
 fun main() r: Int {
+    let readiness = seen_async_readiness_live_handles()
     let reactors = seen_reactor_live_handles(); let atomics = seen_sync_live_atomics()
     let threads = seen_executor_live_threads()
     let mutexes = seen_sync_live_mutexes(); let conditions = seen_sync_live_conditions()
@@ -152,6 +154,7 @@ fun main() r: Int {
     if atomicValue(releases) != (7 as Int64) { return 15 }
     if seen_sync_atomic_destroy(&releases) != (0 as Int32) { return 16 }
     executorReleaseContext(ctx)
+    if seen_async_readiness_live_handles() != readiness { return 23 }
     if seen_reactor_live_handles() != reactors or seen_sync_live_atomics() != atomics { return 22 }
     if seen_executor_live_threads() != threads or seen_sync_live_mutexes() != mutexes or
         seen_sync_live_conditions() != conditions { return 17 }

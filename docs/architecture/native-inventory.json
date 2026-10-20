@@ -3452,6 +3452,69 @@
       ]
     },
     {
+      "name": "seen_async_readiness_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_consume_wake",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_deregister",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_event",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_live_handles",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_poll",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_register",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_wakeup",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
       "name": "seen_async_socket_accept",
       "abi": "C",
       "sources": [

@@ -271,7 +271,8 @@ class AsyncFileCompletionQueue {
         var status = seen_async_completion_close(&this.native)
         if status == (0 as Int32) and this.notification >= (0 as Int64) {
             status = seen_reactor_native_handle_close(this.notification)
-            if status == (0 as Int32) { this.notification = -1 as Int64 }
+            if status == (0 as Int32) or status == (8 as Int32) { this.notification = -1 as Int64 }
+            if status == (8 as Int32) { status = 3 as Int32 }
         }
         if status != (0 as Int32) {
             return Err<Bool, AsyncError>(executorFailure(status, "io.completion.close", 0 as UInt64))

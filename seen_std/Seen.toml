@@ -68,6 +68,7 @@ modules = [
     "src/async/io_wakeup.seen",
     "src/async/io_lease.seen",
     "src/async/completion_io.seen",
+    "src/async/readiness_native.seen",
     "src/async/sockets.seen",
     "src/async/sync_domain.seen",
     "src/async/wait_group.seen",

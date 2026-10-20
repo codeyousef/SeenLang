@@ -9,9 +9,11 @@ import async.executor_core.{ExecutorTaskContext, executorFailure, executorCopyCo
 import async.multithread.{MultithreadExecutor, ExecutorJoinHandle}
 import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
 import async.deadline_heap.{AsyncDeadlineHeap}
-import reactor.reactor.{OwnedHandle, Interest, interestFlags, seen_reactor_create,
-    seen_reactor_register, seen_reactor_deregister, seen_reactor_poll,
-    seen_reactor_event, seen_reactor_wakeup, seen_reactor_close}
+import reactor.reactor.{OwnedHandle, Interest, interestFlags}
+import memory.aligned_buffer.{OwnedBuffer}
+import async.readiness_native.{seen_async_readiness_create, seen_async_readiness_register,
+    seen_async_readiness_deregister, seen_async_readiness_poll, seen_async_readiness_event,
+    seen_async_readiness_wakeup, seen_async_readiness_consume_wake, seen_async_readiness_close}
 import time.time.{Instant}
 import async.io_wakeup.{AsyncIoWakeHandle}
 import async.io_lease.{AsyncIoLeaseCounter}
@@ -68,7 +70,9 @@ class AsyncIoEntry<T: Send + AsyncIoJob> {
 @move
 class AsyncEventLoop<T: Send + AsyncIoJob> {
     var executor: MultithreadExecutor<ReadyIoJob<T>>
-    var native: UInt64
+    var native: Int64
+    var wake: Int64
+    var eventStorage: OwnedBuffer<UInt8>
     var wakeLeases: AsyncIoLeaseCounter
     var capacity: Int
     var entries: Array<Option<AsyncIoEntry<T>>>
@@ -90,6 +94,23 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         if attached != (0 as Int32) {
             return Err<AsyncEventLoop<T>, AsyncError>(executorFailure(attached, "io.create", 0 as UInt64))
         }
+        let heapResult = AsyncDeadlineHeap.create(capacity)
+        if heapResult.isErr() { abort("validated I/O heap capacity rejected") }
+        let deadlines = heapResult.unwrap(); heapResult.releaseContainer()
+        let storageResult = OwnedBuffer<UInt8>.allocate(capacity as UInt64, 16 as UInt64, 16 as UInt64)
+        if storageResult.isErr() {
+            storageResult.unwrapErr().free(); storageResult.releaseContainer()
+            deadlines.release(); asyncSyncDetach(executor.core)
+            return Err<AsyncEventLoop<T>, AsyncError>(executorFailure(2 as Int32, "io.create", 0 as UInt64))
+        }
+        let storage = storageResult.unwrap(); storageResult.releaseContainer()
+        let leaseResult = AsyncIoLeaseCounter.create(capacity)
+        if leaseResult.isErr() {
+            let error = leaseResult.unwrapErr(); leaseResult.releaseContainer()
+            storage.close(); storage.free(); deadlines.release(); asyncSyncDetach(executor.core)
+            return Err<AsyncEventLoop<T>, AsyncError>(error)
+        }
+        let wakeLeases = leaseResult.unwrap(); leaseResult.releaseContainer()
         let entries = Array<Option<AsyncIoEntry<T>>>()
         let generations = Array<UInt64>(); let freeSlots = Array<Int>()
         var i = 0
@@ -97,40 +118,21 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
             entries.push(None<AsyncIoEntry<T>>()); generations.push(0 as UInt64)
             freeSlots.push(capacity - i - 1); i = i + 1
         }
-        let heapResult = AsyncDeadlineHeap.create(capacity)
-        if heapResult.isErr() { abort("validated I/O heap capacity rejected") }
-        let deadlines = heapResult.unwrap(); heapResult.releaseContainer()
-        var native = 0 as UInt64; var backend = 0 as Int32
-        var status = seen_reactor_create(capacity as UInt64, &native, &backend)
-        // Completion buffers on IOCP require a separate ownership protocol.
-        // This readiness API must never pretend that protocol is supported.
-        if status == (0 as Int32) and backend != (1 as Int32) {
-            let ignored = seen_reactor_close(&native); status = 4 as Int32
-        }
-        let leaseResult = AsyncIoLeaseCounter.create(capacity)
-        if leaseResult.isErr() {
-            let error = leaseResult.unwrapErr(); leaseResult.releaseContainer()
-            if native != (0 as UInt64) { let closed = seen_reactor_close(&native) }
-            i = 0
-            while i < entries.length() { entries[i].free(); i = i + 1 }
-            entries.free(); generations.free(); freeSlots.free(); deadlines.release()
-            asyncSyncDetach(executor.core)
-            return Err<AsyncEventLoop<T>, AsyncError>(error)
-        }
-        let wakeLeases = leaseResult.unwrap(); leaseResult.releaseContainer()
+        let loop = AsyncEventLoop<T>{executor: executor, native: -1 as Int64, wake: -1 as Int64,
+            eventStorage: storage, wakeLeases: wakeLeases, capacity: capacity,
+            entries: entries, generations: generations, freeSlots: freeSlots,
+            freeCount: capacity, deadlines: deadlines, readyHead: -1, readyTail: -1,
+            active: 0, closed: false}
+        var native = -1 as Int64; var wake = -1 as Int64
+        let status = seen_async_readiness_create(&native, &wake)
+        loop.native = native; loop.wake = wake
         if status != (0 as Int32) {
-            if native != (0 as UInt64) { let closed = seen_reactor_close(&native) }
-            i = 0
-            while i < entries.length() { entries[i].free(); i = i + 1 }
-            entries.free(); generations.free(); freeSlots.free(); deadlines.release()
-            let released = wakeLeases.release()
-            asyncSyncDetach(executor.core)
+            let released = loop.release()
+            if released.isErr() { abort("I/O construction rollback failed") }
+            released.releaseContainer()
             return Err<AsyncEventLoop<T>, AsyncError>(executorFailure(status, "io.create", 0 as UInt64))
         }
-        return Ok<AsyncEventLoop<T>, AsyncError>(AsyncEventLoop<T>{executor: executor,
-            native: native, wakeLeases: wakeLeases, capacity: capacity, entries: entries, generations: generations,
-            freeSlots: freeSlots, freeCount: capacity, deadlines: deadlines,
-            readyHead: -1, readyTail: -1, active: 0, closed: false})
+        return Ok<AsyncEventLoop<T>, AsyncError>(loop)
     }
 
     fun matches(registration: AsyncIoRegistration) r: Bool {
@@ -161,8 +163,8 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         let slot = this.freeSlots[this.freeCount - 1]
         let generation = this.generations[slot] + (1 as UInt64)
         if not timer {
-            let status = seen_reactor_register(this.native, descriptor.native, interestFlags(interest),
-                (slot + 1) as UInt64, generation)
+            let status = seen_async_readiness_register(this.native, descriptor.native, interestFlags(interest),
+                generation * (4294967296 as UInt64) + ((slot + 1) as UInt64))
             if status != (0 as Int32) {
                 return Err<AsyncIoRegistration, AsyncError>(executorFailure(status, "io.register", 0 as UInt64))
             }
@@ -196,8 +198,7 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
     fun stopWatching(slot: Int) r: Int32 {
         let entry = this.entries[slot].unwrap()
         if not entry.watching { return 0 as Int32 }
-        let status = seen_reactor_deregister(this.native, entry.job.descriptor.native,
-            (slot + 1) as UInt64, entry.generation)
+        let status = seen_async_readiness_deregister(this.native, entry.job.descriptor.native)
         if status == (0 as Int32) or status == (6 as Int32) {
             entry.watching = false; return 0 as Int32
         }
@@ -252,7 +253,7 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         if this.closed {
             return Err<AsyncIoWakeHandle, AsyncError>(executorFailure(1 as Int32, "io.wakeHandle", 0 as UInt64))
         }
-        let acquired = this.wakeLeases.acquire(this.native)
+        let acquired = this.wakeLeases.acquire(this.wake as UInt64)
         if acquired.isErr() {
             let error = acquired.unwrapErr(); acquired.releaseContainer()
             return Err<AsyncIoWakeHandle, AsyncError>(error)
@@ -265,7 +266,7 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         if this.closed {
             return Err<Bool, AsyncError>(executorFailure(1 as Int32, "io.wakeup", 0 as UInt64))
         }
-        let status = seen_reactor_wakeup(this.native)
+        let status = seen_async_readiness_wakeup(this.wake)
         if status != (0 as Int32) {
             return Err<Bool, AsyncError>(executorFailure(status, "io.wakeup", 0 as UInt64))
         }
@@ -314,25 +315,33 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         var timeout = 0 as Int64
         if this.readyHead < 0 and deadline > now { timeout = deadline - now }
         var count = 0 as UInt64
-        status = seen_reactor_poll(this.native, timeout, maxEvents as UInt64, &count)
+        status = seen_async_readiness_poll(this.native, this.eventStorage.data as *Void,
+            this.eventStorage.byteLength, maxEvents as UInt64, timeout, &count)
         if status != (0 as Int32) {
             return Err<Int, AsyncError>(executorFailure(status, "io.poll", 0 as UInt64))
         }
         var i = 0 as UInt64
         while i < count {
-            var token = 0 as UInt64; var generation = 0 as UInt64; var flags = 0 as Int32
-            var nativeStatus = 0 as Int64; var progress = 0 as UInt64
-            status = seen_reactor_event(this.native, i, &token, &generation, &flags, &nativeStatus, &progress)
+            var identity = 0 as UInt64; var flags = 0 as Int32
+            status = seen_async_readiness_event(this.eventStorage.data as *Void,
+                this.eventStorage.byteLength, i, &identity, &flags)
+            let token = identity % (4294967296 as UInt64)
+            let generation = identity / (4294967296 as UInt64)
             if status != (0 as Int32) {
                 return Err<Int, AsyncError>(executorFailure(status, "io.event", i))
+            }
+            if identity == (0 as UInt64) {
+                let consumed = seen_async_readiness_consume_wake(this.wake)
+                if consumed != (0 as Int32) {
+                    return Err<Int, AsyncError>(executorFailure(consumed, "io.consumeWake", i))
+                }
             }
             if token > (0 as UInt64) and token <= (this.capacity as UInt64) {
                 let slot = (token as Int) - 1
                 if this.entries[slot].isSome() and this.generations[slot] == generation {
                     let entry = this.entries[slot].unwrap()
                     if entry.watching {
-                        entry.job.event.flags = flags; entry.job.event.nativeStatus = nativeStatus
-                        entry.job.event.progress = progress
+                        entry.job.event.flags = flags
                         status = this.markReady(slot)
                         if status != (0 as Int32) {
                             return Err<Int, AsyncError>(executorFailure(status, "io.ready", i))
@@ -346,6 +355,11 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         if status != (0 as Int32) {
             return Err<Int, AsyncError>(executorFailure(status, "io.poll", count))
         }
+        let after = validateAsyncContext(context, "io.poll", count)
+        if after.isErr() {
+            let error = after.unwrapErr(); after.releaseContainer(); return Err<Int, AsyncError>(error)
+        }
+        after.releaseContainer()
         return Ok<Int, AsyncError>(count as Int)
     }
 
@@ -382,7 +396,12 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
             }
             i = i + 1
         }
-        let status = seen_reactor_close(&this.native)
+        var status = 0 as Int32
+        if this.native >= (0 as Int64) or this.wake >= (0 as Int64) {
+            var native = this.native; var wake = this.wake
+            status = seen_async_readiness_close(&native, &wake)
+            this.native = native; this.wake = wake
+        }
         if status != (0 as Int32) {
             return Err<Bool, AsyncError>(executorFailure(status, "io.close", 0 as UInt64))
         }
@@ -400,6 +419,7 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
         var i = 0
         while i < this.capacity { this.entries[i].free(); i = i + 1 }
         this.entries.free(); this.generations.free(); this.freeSlots.free()
+        this.eventStorage.close(); this.eventStorage.free()
         this.deadlines.release(); this.free()
         return Ok<Bool, AsyncError>(true)
     }

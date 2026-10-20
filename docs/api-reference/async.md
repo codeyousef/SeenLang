@@ -270,7 +270,8 @@ Already dispatched work belongs to the executor, not the loop. Immutable context
 snapshots own their string storage. A timed-out pending registration is cleaned
 before `pollOnce` returns `async.timeout`.
 
-Linux x86-64 uses epoll for sockets, device notification descriptors and
+Linux x86-64 uses direct epoll calls with a Seen-owned event buffer and no native
+registration lookup table. It supports sockets, device notification descriptors and
 completion-queue notification descriptors. A readiness notification transfers
 no device or kernel request buffer ownership: the callback must retain request
 storage until its completion protocol finishes. Native overlapped/IOCP request
@@ -326,3 +327,9 @@ Generation tokens never wrap. Other platforms return
 `async.unsupported_platform`. Native software probes cover OS struct marshalling,
 partial results, deferred cancellation, notification retention and failed-close
 retry; these probes do not certify a physical storage device.
+
+
+Linux descriptor close errors consume ownership even when delayed I/O errors are
+reported. The shared `OwnedHandle` marks such descriptors invalid before returning
+the error, so a retry cannot close a descriptor number reused by another owner.
+The typed owner remains available to finish metadata cleanup.

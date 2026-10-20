@@ -49,4 +49,10 @@ for profile in fast release; do
     done
 done
 
+if bash "$ATTESTED_SEEN" "$COMPILER" check \
+    "$ROOT_DIR/tests/fixtures/async/unsafe_io_job.seen" >"$TMP_DIR/unsafe.log" 2>&1; then
+    echo "FAIL: reactor admitted a borrowed raw callback" >&2
+    exit 1
+fi
+rg -Fq E_TYPE_BOUND "$TMP_DIR/unsafe.log"
 echo "PASS: bounded reactor dispatch, timers and sockets in fast and release/ThinLTO"

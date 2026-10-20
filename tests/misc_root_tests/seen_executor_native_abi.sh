@@ -56,6 +56,10 @@ for sanitizer in '' undefined address; do
         "$ROOT_DIR/tests/compiler_regressions/executor_placement_contract.c" \
         "$ROOT_DIR/seen_runtime/src/executor_abi.c" \
         -Wl,--wrap=sched_getaffinity -Wl,--wrap=sched_setaffinity -Wl,--wrap=syscall
+    run_probe readiness "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_readiness_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_readiness_abi.c" \
+        "$ROOT_DIR/seen_runtime/reactor_abi.c" -Wl,--wrap=close
     run_probe completion "$sanitizer" -Wall -Wextra -Werror \
         "$ROOT_DIR/tests/compiler_regressions/executor_completion_contract.c" \
         "$ROOT_DIR/seen_runtime/src/executor_completion_abi.c" \

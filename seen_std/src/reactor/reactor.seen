@@ -12,6 +12,7 @@ let REACTOR_UNSUPPORTED: Int32 = 4 as Int32
 let REACTOR_INTERRUPTED: Int32 = 5 as Int32
 let REACTOR_NOT_FOUND: Int32 = 6 as Int32
 let REACTOR_BUSY: Int32 = 7 as Int32
+let REACTOR_CLOSED_ERROR: Int32 = 8 as Int32
 let REACTOR_MAX_CAPACITY: Int = 1048576
 
 extern "C" fun seen_reactor_backend_capability(backend: Int32) r: Int32
@@ -47,7 +48,7 @@ fun reactorCode(status: Int32) r: String {
     }
     if status == REACTOR_INTERRUPTED { return "reactor.unavailable" }
     if status == REACTOR_NOT_FOUND { return "reactor.invalid" }
-    if status == REACTOR_BUSY { return "reactor.unavailable" }
+    if status == REACTOR_BUSY or status == REACTOR_CLOSED_ERROR { return "reactor.unavailable" }
     return "reactor.invalid"
 }
 
@@ -139,6 +140,9 @@ class OwnedHandle {
         if this.owned {
             let status = seen_reactor_native_handle_close(this.native)
             if status != REACTOR_OK {
+                if status == REACTOR_CLOSED_ERROR {
+                    this.valid = false; this.native = -1 as Int64
+                }
                 return Err<Bool, ReactorError>(reactorFailure(status,
                     "owned-handle.close", 0 as UInt64))
             }
