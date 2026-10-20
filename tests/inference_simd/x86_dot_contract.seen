@@ -29,8 +29,8 @@ fun capabilitiesMatrix() r: Void {
 }
 fun main() r: Int {
     let backend = X86DotBackend{reserved: 0}
-    let ctx = context(); let left = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
-    let right = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let ctx = context(); let left: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let right: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
     let reference = DotProgress.create(); let actual = DotProgress.create()
     capabilitiesMatrix()
     parity(backend, DotOperation.Float32, ctx, left, right, reference, actual)
