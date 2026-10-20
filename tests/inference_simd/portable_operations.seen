@@ -437,9 +437,9 @@ fun integerChecks(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<U
     require(shuffled.reduce_add() == 18)
 }
 fun main() r: Int {
-    let input = must(OwnedBuffer<UInt8>.allocate(8192 as UInt64, 1 as UInt64, 64 as UInt64))
-    let packed = must(OwnedBuffer<UInt8>.allocate(8192 as UInt64, 1 as UInt64, 64 as UInt64))
-    let output = must(OwnedBuffer<UInt8>.allocate(8192 as UInt64, 1 as UInt64, 64 as UInt64))
+    let input: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(8192 as UInt64, 1 as UInt64, 64 as UInt64))
+    let packed: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(8192 as UInt64, 1 as UInt64, 64 as UInt64))
+    let output: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(8192 as UInt64, 1 as UInt64, 64 as UInt64))
     let progress = SimdMemoryProgress.create(); let ctx = context()
     rawChecks(input, output); integerChecks(input, output)
     println("PASS: SEEN-INF-002D_happy")

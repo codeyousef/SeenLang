@@ -39,8 +39,8 @@ fun main() r: Int {
     if argv.length() > 2 { return 1 }
     if argv.length() == 2 { if argv[1] != "--enforce" { return 1 }; enforce = true }
     argv.free()
-    let source = must(OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64))
-    let output = must(OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64))
+    let source: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64))
+    let output: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64))
     var i = 0
     while i < 5 { let a = sample(source, output, false); let b = sample(source, output, true); i = i + 1 }
     let ratios = Array<Int64>(); i = 0; while i < 30 { ratios.push(0 as Int64); i = i + 1 }
