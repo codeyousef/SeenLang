@@ -36,7 +36,6 @@ def check_stale_cli_examples(errors: list[str]) -> None:
         "seen fmt",
         "seen format",
         "seen init",
-        "seen test",
         "seen clean",
         "--backend c",
         "--trace-llvm",

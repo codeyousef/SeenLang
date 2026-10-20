@@ -133,8 +133,7 @@ slow, and privileged remain independent flags so categories compose without
 stringly typed combinations.
 
 `scripts/discover_seen_tests.py --discover <absolute-repository-root>` is the
-strict host oracle used before TEST-001B ships the canonical `seen test`
-execution command. It emits canonical JSON to standard output. Validation is
+strict host oracle for the shipped canonical `seen test` execution command. It emits canonical JSON to standard output. Validation is
 available with `--validate <manifest>` and never repairs input.
 
 ## Canonical test runner
