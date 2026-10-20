@@ -1,5 +1,6 @@
+import simd.dot_clock.{DotClockHandle, NativeDotClock}
 import memory.aligned_buffer.{OwnedBuffer}
-import simd.dot_contract.{DotBackend, DotClock, DotOperation, DotProgress, NativeDotClock, executeDotWithBackend}
+import simd.dot_contract.{DotBackendHandle, DotOperation, DotProgress, executeDotWithBackend}
 import core.result.{Result}
 import core.error.{AsciiString}
 import core.operation_context.{OperationContext, OperationLimits}
@@ -22,10 +23,10 @@ fun context() r: OperationContext {
             maxGraphEdges: 16, maxGraphDepth: 4}, traceId: AsciiString{value: "simd-b"}}
 }
 
-fun parity<B: DotBackend>(borrow backend: B, operation: DotOperation, context: OperationContext,
+fun parity(borrow backend: DotBackendHandle, operation: DotOperation, context: OperationContext,
     borrow left: OwnedBuffer<UInt8>, borrow right: OwnedBuffer<UInt8>,
     reference: DotProgress, actual: DotProgress) r: Void {
-    let clock = NativeDotClock{reserved: 0}
+    let clockProvider = NativeDotClock{reserved: 0}; let clock = DotClockHandle.create(clockProvider)
     let policies = Array<String>(); policies.push("auto")
     if backend.target() == "x86_64" {
         if operation == DotOperation.Float32 { policies.push("avx2"); policies.push("avx512") }
@@ -79,7 +80,7 @@ fun parity<B: DotBackend>(borrow backend: B, operation: DotOperation, context: O
         }
         offset = offset + width
     }
-    policies.free(); clock.free()
+    policies.free(); clock.release(); clockProvider.free()
 }
 
 class ProbeDotClock {

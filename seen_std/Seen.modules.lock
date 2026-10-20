@@ -118,11 +118,11 @@ hash = "860a3462ceab717b208890d0a4633a94b56b37c1981937714330b38a54a42143"
 
 [[modules]]
 path = "src/simd/x86_kernels.seen"
-hash = "d9039d21e874a56d533e2118f3aa6c615e9d2280babdb32bf0751e3e9108c27e"
+hash = "72ba25324ffd4041628ed862429790f0e84f0aac6adb42510b14c762f5858cde"
 
 [[modules]]
 path = "src/simd/dot_contract.seen"
-hash = "c04177caea1e8e0d212b4b95dd7c00acc8d867c4124409a14b051fde58c6ce2a"
+hash = "66f45a5cabac618a8e09683fbe88aacac7d90909f7c2ef796a14c1fab6512986"
 
 [[modules]]
 path = "src/simd/dot_scalar.seen"
@@ -138,4 +138,8 @@ hash = "e45ee9cedcb39ad11e0dd2c183f6e0becdb6993d7fb0c18b185a23e43eddd695"
 
 [[modules]]
 path = "src/simd/arm_kernels.seen"
-hash = "91ceb1bef69b292d52b870b1e3cfd17e8817be6e93ea6079997fef067b1dff62"
+hash = "56d50424b735ed79e33a7334c8dce88308040f55ee356e83b607b2bda2a1bc04"
+
+[[modules]]
+path = "src/simd/dot_clock.seen"
+hash = "bfe37e4305d2c5fc306834e51ea7a67d6d6f7dabd43dbd9aa604c532c472eed5"

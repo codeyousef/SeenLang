@@ -1,15 +1,16 @@
+import simd.dot_clock.{DotClockHandle, NativeDotClock}
 import dot_fixture_support.{must, context}
 import env.env.{args}
 import memory.aligned_buffer.{OwnedBuffer}
 import simd.dot_contract.{DotOperation, DotProgress}
-import simd.dot_contract.{DotBackend, NativeDotClock, executeDotWithBackend}
+import simd.dot_contract.{DotBackendHandle, executeDotWithBackend}
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 extern "C" fun seen_memory_used_bytes() r: Int64
 extern "C" fun seen_memory_peak_bytes() r: Int64
 extern "C" fun seen_string_release_owned(value: String) r: Void
-fun sample<B: DotBackend>(borrow backend: B, borrow left: OwnedBuffer<UInt8>, borrow right: OwnedBuffer<UInt8>,
+fun sample(borrow backend: DotBackendHandle, borrow left: OwnedBuffer<UInt8>, borrow right: OwnedBuffer<UInt8>,
     progress: DotProgress, policy: String) r: Int64 {
-    let ctx = context(); let clock = NativeDotClock{reserved: 0}; let before = seen_time_monotonic_nanos(); var i = 0
+    let ctx = context(); let clockProvider = NativeDotClock{reserved: 0}; let clock = DotClockHandle.create(clockProvider); let before = seen_time_monotonic_nanos(); var i = 0
     while i < 16 {
         must(executeDotWithBackend(left, 0 as UInt64, right, 0 as UInt64, 262144 as UInt64,
             DotOperation.Float32, policy, true, false, ctx, progress, clock, backend))
@@ -19,7 +20,7 @@ fun sample<B: DotBackend>(borrow backend: B, borrow left: OwnedBuffer<UInt8>, bo
         i = i + 1
     }
     let elapsed = seen_time_monotonic_nanos() - before
-    clock.free(); ctx.limits.free(); ctx.traceId.free(); ctx.free()
+    clock.release(); clockProvider.free(); ctx.limits.free(); ctx.traceId.free(); ctx.free()
     if elapsed <= (0 as Int64) or elapsed > (10000000000 as Int64) { abort("benchmark duration invalid") }
     return elapsed
 }
@@ -27,7 +28,7 @@ fun metric(label: String, value: Int64) r: Void {
     let number = value.toString(); let line = label + number
     println(line); seen_string_release_owned(line); seen_string_release_owned(number)
 }
-fun runDotBenchmark<B: DotBackend>(borrow backend: B) r: Int {
+fun runDotBenchmark(borrow backend: DotBackendHandle) r: Int {
     let argv = args()
     if argv.length() > 2 { return 1 }
     var enforce = false

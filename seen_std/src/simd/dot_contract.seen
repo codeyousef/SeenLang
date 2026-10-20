@@ -4,13 +4,7 @@ import core.result.{Result, Ok, Err}
 import core.operation_context.{OperationContext}
 import memory.aligned_buffer.{OwnedBuffer}
 import simd.ir_types.{SimdIrError, simdIrFailure}
-extern "C" fun seen_time_monotonic_nanos() r: Int64
-
-trait DotClock { fun now(this: DotClock) r: Int64 }
-class NativeDotClock {
-    var reserved: Int
-    fun now() r: Int64 { return seen_time_monotonic_nanos() }
-}
+import simd.dot_clock.{DotClockHandle, seen_pool_free}
 
 enum DotOperation { Float32, UnsignedSignedByte, BFloat16 }
 class DotProgress {
@@ -40,7 +34,7 @@ fun dotLaneBytes(operation: DotOperation) r: UInt64 {
 fun dotError(target: String, code: String, capability: String, message: String) r: SimdIrError {
     return simdIrFailure(code, target, capability, "dot", "kernel", message)
 }
-fun dotContextStatus<C: DotClock>(context: OperationContext, borrow clock: C,
+fun dotContextStatus(context: OperationContext, borrow clock: DotClockHandle,
     previous: *Int64) r: Int {
     if context.cancellation { return 1 }
     if context.monotonicDeadline < (0 as Int64) { return 2 }
@@ -77,11 +71,33 @@ trait DotBackend {
     fun integerBlock(this: DotBackend, variant: Int, left: UInt64, right: UInt64,
         count: UInt64) r: Int64
 }
-fun executeDotWithBackend<B: DotBackend, C: DotClock>(borrow left: OwnedBuffer<UInt8>,
+// Owns the trait box and exclusively borrows its concrete backend provider.
+// Release this handle before freeing that provider. No policy is erased.
+@move
+class DotBackendHandle {
+    var provider: dyn DotBackend
+    static fun create(provider: dyn DotBackend) r: DotBackendHandle {
+        return DotBackendHandle{provider: provider}
+    }
+    fun target() r: String { return this.provider.target() }
+    fun select(operation: DotOperation, policy: String, allowScalarFallback: Bool,
+        deterministic: Bool) r: Result<Int, SimdIrError> {
+        return this.provider.select(operation, policy, allowScalarFallback, deterministic)
+    }
+    fun floatBlock(variant: Int, left: UInt64, right: UInt64, count: UInt64,
+        operation: DotOperation) r: Float32 {
+        return this.provider.floatBlock(variant, left, right, count, operation)
+    }
+    fun integerBlock(variant: Int, left: UInt64, right: UInt64, count: UInt64) r: Int64 {
+        return this.provider.integerBlock(variant, left, right, count)
+    }
+    fun release() r: Void { seen_pool_free(this.provider as *Void, 16 as Int64); this.free() }
+}
+fun executeDotWithBackend(borrow left: OwnedBuffer<UInt8>,
     leftOffset: UInt64, borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64,
     count: UInt64, operation: DotOperation, policy: String, allowScalarFallback: Bool,
     deterministic: Bool, context: OperationContext, borrow progress: DotProgress,
-    borrow clock: C, borrow backend: B) r: Result<Bool, SimdIrError> {
+    borrow clock: DotClockHandle, borrow backend: DotBackendHandle) r: Result<Bool, SimdIrError> {
     let reported = backend.target()
     var target = "portable"
     if reported == "x86_64" { target = "x86_64" }
