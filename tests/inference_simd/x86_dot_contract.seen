@@ -77,8 +77,8 @@ fun parity(operation: X86DotOperation, context: OperationContext,
     }
 }
 fun main() r: Int {
-    let ctx = context(); let left = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
-    let right = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let ctx = context(); let left: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let right: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
     let reference = X86DotProgress.create(); let actual = X86DotProgress.create()
     capabilitiesMatrix()
     parity(X86DotOperation.Float32, ctx, left, right, reference, actual)
