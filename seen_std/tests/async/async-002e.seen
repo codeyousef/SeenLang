@@ -57,12 +57,12 @@ class Notice {
     }
     fun release() r: Bool { this.lease.release(); this.free(); return true }
 }
-fun awaitNotice(loop: AsyncEventLoop<Notice>, lease: AsyncIoLease, context: AsyncOperationContext) r: Void {
+fun awaitNotice(reactor: AsyncEventLoop<Notice>, lease: AsyncIoLease, context: AsyncOperationContext) r: Void {
     let descriptor = must(OwnedHandle.borrow(lease.native as Int64))
-    let registration = must(loop.register(Notice{lease: lease, observed: false}, descriptor,
+    let registration = must(reactor.register(Notice{lease: lease, observed: false}, descriptor,
         Interest.Readable, -1 as Int64, context))
-    must(loop.pollOnce(2, context))
-    let handle = must(loop.dispatchNext()); let job = must(handle.join(context))
+    must(reactor.pollOnce(2, context))
+    let handle = must(reactor.dispatchNext()); let job = must(handle.join(context))
     if not job.task.observed { abort("readiness notification missing") }
     job.release(); handle.free(); registration.free()
 }
@@ -75,7 +75,7 @@ fun main() r: Int {
     let pool = must(TypedWorkerPool<ProcessSpawnJob>.create("blocking", config, placement))
     placement.release()
     let executor = must(MultithreadExecutor<ReadyIoJob<Notice>>.create(config)); config.free()
-    let loop = must(AsyncEventLoop<Notice>.create(executor, 2))
+    let reactor = must(AsyncEventLoop<Notice>.create(executor, 2))
     let spawner = must(AsyncProcessSpawner.create(pool, 1, 4096 as UInt64))
     let arguments = Array<String>(); let environment = Array<String>()
     if not errorIs(spawner.spawn("../bin/cat", arguments, environment, ctx), "async.invalid") { return 1 }
@@ -94,7 +94,7 @@ fun main() r: Int {
     let written = must(input.write(span, ctx))
     if written.bytes != (3 as UInt64) { return 4 }
     written.free(); must(input.release())
-    awaitNotice(loop, must(process.notificationLease()), ctx)
+    awaitNotice(reactor, must(process.notificationLease()), ctx)
     let read = must(output.read(span, ctx))
     if read.bytes != (3 as UInt64) or read.eof or output.readProgress != (3 as UInt64) { return 5 }
     read.free()
@@ -110,7 +110,7 @@ fun main() r: Int {
     let sleeping = must(spawner.spawn("/bin/sleep", arguments, environment, ctx))
     let sleepJob = must(sleeping.join(ctx)); let sleeper = must(sleepJob.takeProcess())
     sleepJob.release(); must(sleeping.release())
-    must(sleeper.cancel()); awaitNotice(loop, must(sleeper.notificationLease()), ctx)
+    must(sleeper.cancel()); awaitNotice(reactor, must(sleeper.notificationLease()), ctx)
     let killed = must(sleeper.pollExit())
     if killed.isNone() or killed.unwrap().signal != 9 { return 8 }
     killed.unwrap().free(); killed.free(); must(sleeper.release())
@@ -140,7 +140,7 @@ fun main() r: Int {
     if not errorIs(query.release(), "async.unavailable") { return 16 }
     lease.release(); must(query.release()); must(resolver.release())
     println("PASS: ASYNC-002E_partial")
-    must(loop.release()); must(executor.release()); executorReleaseContext(ctx)
+    must(reactor.release()); must(executor.release()); executorReleaseContext(ctx)
     if seen_async_process_live_children() != children or seen_executor_live_threads() != threads or
         seen_sync_live_mutexes() != mutexes or seen_sync_live_conditions() != conditions or
         seen_sync_live_atomics() != atomics or seen_async_readiness_live_handles() != readiness { return 17 }

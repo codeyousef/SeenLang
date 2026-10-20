@@ -78,19 +78,19 @@ fun main() r: Int {
     let executor = must(MultithreadExecutor<ReadyIoJob<IoProbe>>.create(config))
     config.free()
     if not errorIs(AsyncEventLoop<IoProbe>.create(executor, 0), "async.limit") { return 1 }
-    let loop = must(AsyncEventLoop<IoProbe>.create(executor, 2))
-    let wake = must(loop.wakeHandle())
+    let reactor = must(AsyncEventLoop<IoProbe>.create(executor, 2))
+    let wake = must(reactor.wakeHandle())
     must(wake.wakeup())
-    if not errorIs(loop.close(), "async.unavailable") { return 18 }
+    if not errorIs(reactor.close(), "async.unavailable") { return 18 }
     wake.release()
     var releases = 0 as UInt64
     if seen_sync_atomic_create(0 as Int64, &releases) != (0 as Int32) { return 2 }
-    let first = must(loop.register(probe(releases), emptyHandle(), Interest.Readable, 0 as Int64, ctx))
-    must(loop.pollOnce(2, ctx))
-    let joined = must(loop.dispatchNext()); let completed = must(joined.join(ctx))
+    let first = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable, 0 as Int64, ctx))
+    must(reactor.pollOnce(2, ctx))
+    let joined = must(reactor.dispatchNext()); let completed = must(joined.join(ctx))
     if not completed.task.observed { return 3 }
     completed.release(); joined.free()
-    if loop.matches(first) { return 4 }
+    if reactor.matches(first) { return 4 }
     first.free()
     println("PASS: ASYNC-002D_happy")
 
@@ -123,33 +123,33 @@ fun main() r: Int {
     println("PASS: ASYNC-002D_partial")
 
     let invalidTask = probe(releases); let invalidDescriptor = emptyHandle()
-    if not errorIs(loop.register(invalidTask, invalidDescriptor, Interest.Readable,
+    if not errorIs(reactor.register(invalidTask, invalidDescriptor, Interest.Readable,
         -1 as Int64, ctx), "async.invalid") { return 10 }
     invalidTask.release(); invalidDescriptor.free()
-    let a = must(loop.register(probe(releases), emptyHandle(), Interest.Readable,
+    let a = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable,
         9223372036854775807 as Int64, ctx))
-    let b = must(loop.register(probe(releases), emptyHandle(), Interest.Readable,
+    let b = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable,
         9223372036854775807 as Int64, ctx))
     let excess = probe(releases); let excessDescriptor = emptyHandle()
-    if not errorIs(loop.register(excess, excessDescriptor, Interest.Readable,
+    if not errorIs(reactor.register(excess, excessDescriptor, Interest.Readable,
         0 as Int64, ctx), "async.limit") { return 11 }
     excess.release(); excessDescriptor.free()
     if not errorIs(executor.close(), "async.invalid") { return 12 }
     println("PASS: ASYNC-002D_limit")
-    must(loop.cancel(a))
-    if not errorIs(loop.cancel(a), "async.invalid") { return 13 }
+    must(reactor.cancel(a))
+    if not errorIs(reactor.cancel(a), "async.invalid") { return 13 }
     a.free()
     println("PASS: ASYNC-002D_invalid")
     // Removing a ready entry unlinks it in O(1), without stale queue slots.
-    must(loop.cancel(b)); b.free()
-    let ready = must(loop.register(probe(releases), emptyHandle(), Interest.Readable, 0 as Int64, ctx))
-    must(loop.pollOnce(2, ctx)); must(loop.cancel(ready)); ready.free()
-    if not errorIs(loop.dispatchNext(), "async.unavailable") { return 14 }
+    must(reactor.cancel(b)); b.free()
+    let ready = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable, 0 as Int64, ctx))
+    must(reactor.pollOnce(2, ctx)); must(reactor.cancel(ready)); ready.free()
+    if not errorIs(reactor.dispatchNext(), "async.unavailable") { return 14 }
     println("PASS: ASYNC-002D_cancel")
-    let pending = must(loop.register(probe(releases), emptyHandle(), Interest.Readable,
+    let pending = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable,
         9223372036854775807 as Int64, ctx))
     pending.free()
-    must(loop.close()); must(loop.close()); must(loop.release())
+    must(reactor.close()); must(reactor.close()); must(reactor.release())
     must(executor.release())
     if atomicValue(releases) != (7 as Int64) { return 15 }
     if seen_sync_atomic_destroy(&releases) != (0 as Int32) { return 16 }
