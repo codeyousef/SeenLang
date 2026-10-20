@@ -1,0 +1,6 @@
+@move
+class BorrowToken { var value: Int }
+class BorrowFactory<T> {
+    static fun observe(borrow value: BorrowToken) r: Int { return value.value }
+    static fun consume(value: BorrowToken) r: Void { value.free() }
+}
