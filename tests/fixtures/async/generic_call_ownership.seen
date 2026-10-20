@@ -5,6 +5,8 @@ import json.builder.{releaseJsonText}
 fun main() r: Int {
     let token = BorrowToken{value: 7}
     if BorrowFactory<Array<Int>>.observe(token) != 7 { return 1 }
+    let owner = BorrowFactory<Int>{reserved: 0}
+    if owner.observeInstance(token) != 7 { return 2 }; owner.free()
     if token.value != 7 { return 2 }
     token.free()
     let registry = SemanticDeclarationRegistry.new()
