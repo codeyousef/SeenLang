@@ -208,8 +208,6 @@ fun semanticFoundationThreadProperty(name: String, propertyName: String)
         return 1
     }
     if semanticFoundationCanonicalType(base,
-            "seen_std.src.reactor.reactor", "BlockingCompletion") or
-        semanticFoundationCanonicalType(base,
             "seen_std.src.io.direct", "GatherCompletion") {
 
         if propertyName == "Send" { return 1 }

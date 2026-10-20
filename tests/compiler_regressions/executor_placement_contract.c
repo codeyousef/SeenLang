@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "src/executor_abi.h"
 #include "sync_abi.h"
 #include <assert.h>

@@ -3466,41 +3466,6 @@
       ]
     },
     {
-      "name": "seen_blocking_pool_cancel",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
-      ]
-    },
-    {
-      "name": "seen_blocking_pool_close",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
-      ]
-    },
-    {
-      "name": "seen_blocking_pool_completion",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
-      ]
-    },
-    {
-      "name": "seen_blocking_pool_create",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
-      ]
-    },
-    {
-      "name": "seen_blocking_pool_submit",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
-      ]
-    },
-    {
       "name": "seen_byte_array_append",
       "abi": "Seen",
       "sources": [
