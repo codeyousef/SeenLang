@@ -5,7 +5,7 @@ stages lower these predictably, and later enum/pfor passes can query the same
 registry without depending on LLVM generator state.
 ///
 
-import typechecker.type_ref.{TypeRef, parseTypeRef}
+import typechecker.type_ref.{TypeRef, parseTypeRef, typeRefSubstitute}
 
 class SemanticSourceLocation {
     var file: String
@@ -296,6 +296,7 @@ class SemanticDeclarationRegistry {
     var lifecycleFieldLines: Array<Int>
     var lifecycleFieldColumns: Array<Int>
     var lifecyclePropertyStates: Array<Int>
+    var lifecycleInstantiationDepth: Int
 
     static fun new() r: SemanticDeclarationRegistry {
         return SemanticDeclarationRegistry{
@@ -335,7 +336,8 @@ class SemanticDeclarationRegistry {
             lifecycleFieldFiles: Array<String>(),
             lifecycleFieldLines: Array<Int>(),
             lifecycleFieldColumns: Array<Int>(),
-            lifecyclePropertyStates: Array<Int>()
+            lifecyclePropertyStates: Array<Int>(),
+            lifecycleInstantiationDepth: 0
         }
     }
 
@@ -1105,6 +1107,10 @@ class SemanticDeclarationRegistry {
         if typeRef.kind == "constant" { return -3 }
 
         let ownerCanonical = this.canonicalNames[ownerIndex]
+        if typeRef.base.startsWith("generic:") {
+            return this.lifecycleIdentityPropertyState(ownerCanonical,
+                typeRef.base, propertyName)
+        }
         if this.isGenericParameter(ownerCanonical, typeRef.base) {
             if this.genericParameterHasLifecycleBound(ownerCanonical,
                 typeRef.base, propertyName) { return 1 }
@@ -1119,8 +1125,13 @@ class SemanticDeclarationRegistry {
                 typeRef, propertyName)
         }
 
-        let declarationIndex = this.lookupIndex(this.modules[ownerIndex],
-            typeRef.base)
+        // Resolved identities retain their declaring module. Looking them up
+        // as a source spelling incorrectly prefixes the current module again.
+        var declarationIndex = this.findCanonical(typeRef.base)
+        if declarationIndex < 0 {
+            declarationIndex = this.lookupIndex(this.modules[ownerIndex],
+                typeRef.base)
+        }
         if declarationIndex < 0 { return -3 }
         let kind = this.kinds[declarationIndex]
         if (kind == "Class" or kind == "Struct") and
@@ -1131,10 +1142,47 @@ class SemanticDeclarationRegistry {
             if foundationState != -1 { return foundationState }
         }
         if kind == "Class" or kind == "Struct" or kind == "Enum" {
+            if typeRef.arguments.length() > 0 and
+                (propertyName == "Send" or propertyName == "Share") {
+                return this.lifecycleInstantiatedPropertyState(declarationIndex,
+                    typeRef, propertyName)
+            }
             return this.deriveLifecycleDeclarationProperty(declarationIndex,
                 propertyName)
         }
         return -3
+    }
+
+    fun lifecycleInstantiatedPropertyState(declarationIndex: Int,
+        typeRef: TypeRef, propertyName: String) r: Int {
+
+        if this.lifecycleInstantiationDepth >= 64 { return -2 }
+        let owner = this.canonicalNames[declarationIndex]
+        if not this.lifecyclePropertyIsDeclared(owner, propertyName) { return 0 }
+        let names = Array<String>(); var i = 0
+        while i < this.genericOwners.length() {
+            if this.genericOwners[i] == owner { names.push(this.genericNames[i]) }
+            i = i + 1
+        }
+        if names.length() != typeRef.arguments.length() { names.free(); return -3 }
+        // Instantiations must not reuse the declaration-only property cache:
+        // Wrapper<Int> and Wrapper<borrowed pointer> have different proofs.
+        this.lifecycleInstantiationDepth = this.lifecycleInstantiationDepth + 1
+        var state = 1; i = 0
+        while i < this.lifecycleFieldOwners.length() {
+            if this.lifecycleFieldOwners[i] == owner {
+                let field = parseTypeRef(this.lifecycleFieldTypeNames[i],
+                    this.lifecycleFieldLines[i], this.lifecycleFieldColumns[i],
+                    this.lifecycleFieldFiles[i])
+                let instantiated = typeRefSubstitute(field, names, typeRef.arguments)
+                state = this.lifecycleTypePropertyState(declarationIndex,
+                    instantiated, propertyName)
+                if state != 1 { break }
+            }
+            i = i + 1
+        }
+        this.lifecycleInstantiationDepth = this.lifecycleInstantiationDepth - 1
+        names.free(); return state
     }
 
     fun deriveLifecycleDeclarationProperty(declarationIndex: Int,

@@ -111,6 +111,14 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
                 bitfieldWidth)
         }
     }
+    // Generic handle fields may use an integer slot in the physical layout.
+    // The caller still requested a pointer value; preserve that semantic ABI
+    // instead of leaking the storage type into array cleanup and other users.
+    if fieldType == "ptr" and effectiveFieldType == "i64" {
+        let pointer = getNextRegFn(regBox)
+        output.append("  " + pointer + " = inttoptr i64 " + resultReg + " to ptr\n")
+        return pointer
+    }
     return resultReg
 }
 
