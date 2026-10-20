@@ -33,6 +33,7 @@
         "seen_async_completion_close",
         "seen_async_completion_create",
         "seen_async_completion_drain_notification",
+        "seen_async_completion_duplicate_file",
         "seen_async_completion_reap",
         "seen_async_completion_submit"
       ],

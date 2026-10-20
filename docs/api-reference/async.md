@@ -401,3 +401,10 @@ with `async.unsupported_platform`. Software fixtures exercise real loopback
 sockets, partial pipe progress, child exit/cancellation, malformed source input,
 DNS compression attacks and a 60-second seed-1101 parser fuzz run. Hardware
 certification is separate from these API contracts.
+
+`async.completion_io.completionFileHandle(file)` borrows an open
+`fs.file.File` with required direct I/O and returns an independently owned,
+close-on-exec duplicate descriptor. Close the source File normally after this
+call; the completion owner remains valid. Buffered files return
+`async.unsupported_platform`. The filesystem's opaque wrapper is never treated
+as a raw descriptor number.

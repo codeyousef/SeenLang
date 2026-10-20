@@ -10,4 +10,5 @@ int32_t seen_async_completion_cancel(uint64_t context, void *request,
 int32_t seen_async_completion_reap(uint64_t context, uint64_t *token, int64_t *result);
 int32_t seen_async_completion_drain_notification(int64_t notification);
 int32_t seen_async_completion_close(uint64_t *context);
+int32_t seen_async_completion_duplicate_file(uint64_t source, int64_t *descriptor);
 #endif
