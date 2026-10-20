@@ -162,8 +162,15 @@ the ISA's fused arithmetic/subnormal rules. Choose deterministic scalar when
 those differences are unacceptable. Integer byte products accumulate exactly
 into Int64 under the checked count/chunk ceilings.
 
-`executeX86DotWithClock<C: DotClock>` borrows an explicit Seen clock provider
-for deterministic execution. The default API uses the native monotonic clock.
+`executeX86DotWithClock` borrows a `DotClockHandle` for deterministic execution.
+Create it with `DotClockHandle.create(provider)`; release the handle before
+freeing the caller-owned concrete `DotClock` provider. The handle owns only its
+compiler-created trait box. ARM uses the same clock handle.
+`DotBackendHandle.create(provider)` similarly owns a dispatch box and borrows
+its concrete `DotBackend` provider; release the handle before freeing that
+provider. Shared parity and benchmark drivers borrow these handles.
+Explicit vtable calls preserve each provider across module boundaries without
+requiring free-function monomorphization. The default API uses the native monotonic clock.
 Negative or backwards provider readings return `simd.unavailable` while
 retaining already completed progress. Providers grant no additional authority.
 The `@simd_target("scalar"|"avx2"|"avx512"|"vnni"|"bf16")` compiler annotation

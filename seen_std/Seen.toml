@@ -103,6 +103,7 @@ modules = [
     "src/simd/memory_operations.seen",
     "src/simd/dispatch_plan.seen",
     "src/simd/dot_contract.seen",
+    "src/simd/dot_clock.seen",
     "src/simd/dot_scalar.seen",
     "src/simd/x86_dispatch.seen",
     "src/simd/x86_blocks.seen",

@@ -1,3 +1,5 @@
+import simd.dot_contract.{DotBackendHandle}
+import simd.dot_clock.{DotClockHandle}
 import dot_fixture_support.{must, errorIs, context, parity, ProbeDotClock}
 import memory.aligned_buffer.{OwnedBuffer}
 import simd.x86_dispatch.{X86SimdCapabilities, selectX86Variant}
@@ -28,7 +30,7 @@ fun capabilitiesMatrix() r: Void {
     }
 }
 fun main() r: Int {
-    let backend = X86DotBackend{reserved: 0}
+    let backendProvider = X86DotBackend{reserved: 0}; let backend = DotBackendHandle.create(backendProvider)
     let ctx = context(); let left: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
     let right: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
     let reference = DotProgress.create(); let actual = DotProgress.create()
@@ -68,18 +70,18 @@ fun main() r: Int {
     let ap = left.data as *Float32; let bp = right.data as *Float32
     while i < 8192 { ap[i] = 1.0 as Float32; bp[i] = 2.0 as Float32; i = i + 1 }
     ctx.monotonicDeadline = 200 as Int64
-    let clock = ProbeDotClock{reads: 0, reverse: false}
+    let clockProvider = ProbeDotClock{reads: 0, reverse: false}; let clock = DotClockHandle.create(clockProvider)
     if not errorIs(executeX86DotWithClock(left, 0 as UInt64, right, 0 as UInt64,
         8192 as UInt64, DotOperation.Float32, "scalar", false, false, ctx,
         actual, clock), "simd.timeout") or actual.completed != (4096 as UInt64) or
         actual.floating != (8192.0 as Float32) { return 9 }
-    clock.reads = 0; clock.reverse = true
+    clockProvider.reads = 0; clockProvider.reverse = true
     if not errorIs(executeX86DotWithClock(left, 0 as UInt64, right, 0 as UInt64,
         8192 as UInt64, DotOperation.Float32, "scalar", false, false, ctx,
         actual, clock), "simd.unavailable") or actual.completed != (4096 as UInt64) { return 10 }
-    clock.free()
+    clock.release(); clockProvider.free()
     println("PASS: SEEN-INF-002B_partial")
-    backend.free(); reference.free(); actual.free(); left.close(); left.free(); right.close(); right.free()
+    backend.release(); backendProvider.free(); reference.free(); actual.free(); left.close(); left.free(); right.close(); right.free()
     ctx.limits.free(); ctx.traceId.free(); ctx.free()
     println("PASS: SEEN-INF-002B_cleanup")
     return 0
