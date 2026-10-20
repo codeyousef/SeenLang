@@ -86,6 +86,11 @@ fun registerGenericCallTypeImpl(borrow function: FunctionNode) r: Void {
     } else { g_genericCallNames.push(signature.name); g_genericCallDeclarations.push(signature) }
 }
 fun genericCallDeclarationImpl(index: Int) r: GenericCallSignature { return g_genericCallDeclarations[index] }
+// The frozen bootstrap compiler does not retain an empty String default in
+// imported signatures. Keep the full parsed-type ABI explicit in one place.
+fun parseGenericCallTypeImpl(text: String) r: TypeRef {
+    return parseTypeRef(text, 0, 0, "")
+}
 fun genericCallWordTypeNameImpl(name: String, parameter: Int) r: String {
     let index = findGenericCallTypeImpl(name)
     if index < 0 { return "" }
@@ -96,7 +101,7 @@ fun genericCallWordTypeNameImpl(name: String, parameter: Int) r: String {
         if parameter >= signature.parameters.length() { return "" }
         spelling = signature.parameters[parameter]
     }
-    let parsed = parseTypeRef(spelling)
+    let parsed = parseGenericCallTypeImpl(spelling)
     if not parsed.valid or parsed.arguments.length() != 0 { return "" }
     var i = 0
     while i < signature.genericNames.length() {
@@ -148,7 +153,7 @@ fun specializeGenericCallReturnImpl(borrow signature: GenericCallSignature,
         names.push(signature.genericNames[i])
         if explicitArguments.length() != 0 {
             if not genericCallTypeWithinLimitImpl(explicitArguments[i]) { names.free(); values.free(); return declared }
-            values.push(parseTypeRef(explicitArguments[i]))
+            values.push(parseGenericCallTypeImpl(explicitArguments[i]))
         }
         else { values.push(TypeRef.new()) }
         i = i + 1
@@ -157,15 +162,15 @@ fun specializeGenericCallReturnImpl(borrow signature: GenericCallSignature,
     while i < arguments.length() and matched {
         if not genericCallTypeWithinLimitImpl(arguments[i]) or not genericCallTypeWithinLimitImpl(signature.parameters[i]) { matched = false }
         else {
-            let pattern = parseTypeRef(signature.parameters[i])
-            let actual = parseTypeRef(arguments[i])
+            let pattern = parseGenericCallTypeImpl(signature.parameters[i])
+            let actual = parseGenericCallTypeImpl(arguments[i])
             matched = bindGenericCallTypeImpl(pattern, actual, names, values, 0, visited)
         }
         i = i + 1
     }
     var result = declared
     if matched and genericCallTypeWithinLimitImpl(declared) {
-        let parsed = parseTypeRef(declared)
+        let parsed = parseGenericCallTypeImpl(declared)
         if parsed.valid {
             let specialized = typeRefSubstitute(parsed, names, values)
             if specialized.base != "Unknown" and not specialized.isOpen(names) { result = specialized.canonical() }
