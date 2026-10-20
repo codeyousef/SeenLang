@@ -45,6 +45,7 @@ bash -n \
     tests/misc_root_tests/seen_inf_simd_a.sh \
     tests/misc_root_tests/seen_inf_simd_b.sh \
     tests/misc_root_tests/seen_inf_simd_c.sh \
+    tests/misc_root_tests/seen_inf_simd_d.sh \
     scripts/simd_regression_support.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \
@@ -149,6 +150,7 @@ python3 -m unittest \
     tests.runner.test_release_platform_inputs_unit \
     tests.runner.test_release_draft_api_unit
 python3 -m unittest tests.runner.test_repair_frozen_coro_ir_unit
+python3 -m unittest tests.runner.test_ir_failure_diagnostics_unit
 python3 -m py_compile \
     scripts/check_release_artifact_manifest.py \
     scripts/benchmark_release_artifact_manifest.py \

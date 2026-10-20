@@ -1,3 +1,4 @@
+import simd.operation_types.{simdOperationArity}
 import simd.ir_types.{simdArmBlockType}
 ///
 ir_call_low_level.seen — low-level builtin call helpers
@@ -110,7 +111,7 @@ fun emitAsyncYieldBuiltinStateImpl(output: StringBuilder, regBox: Array<Int>,
 fun isSimdBuiltinCallImpl(funcName: String, isSimdVectorTypeValue: Int)
     r: Int {
 
-    if simdArmBlockType(funcName) != "" or isSimdVectorTypeValue == 1 or funcName.startsWith("simd_load_") or
+    if simdOperationArity(funcName) > 0 or simdArmBlockType(funcName) != "" or isSimdVectorTypeValue == 1 or funcName.startsWith("simd_load_") or
         funcName.startsWith("simd_store_") or funcName == "simd_select" or
         funcName == "simd_x86_vnni_u8s8" or funcName == "simd_x86_bf16_dot" or
         funcName == "simd_shuffle" or funcName.startsWith("simd_gather_") or

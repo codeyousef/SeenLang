@@ -1,3 +1,4 @@
+import simd.operation_types.{simdOperationArity, simdOperationArgumentValid, simdOperationPrefix}
 ///
 Stage-2 lexical semantic foundation executed after parsing and before LLVM
 lowering. It establishes shared identities, declaration metadata, and proved
@@ -767,12 +768,46 @@ fun semanticCallArgumentTransfersOwnership(result: LexicalSemanticResult,
     return ownership != "borrow" and ownership != "ref"
 }
 
+fun semanticSimdShuffleIndexValid(expression: ParserExpressionNode, lanes: Int) r: Bool {
+    if expression.kind != "Literal" or expression.literalType != "Int" or
+        expression.literalValue.length() == 0 or expression.literalValue.length() > 2 { return false }
+    var value = 0; var i = 0
+    while i < expression.literalValue.length() {
+        let digit = expression.literalValue.charAt(i)
+        if digit < '0' or digit > '9' { return false }
+        value = value * 10 + digit.toInt() - '0'.toInt(); i = i + 1
+    }
+    return value < lanes * 2
+}
+
 fun semanticCheckExpression(result: LexicalSemanticResult,
     expression: ParserExpressionNode, bindings: ScopedBindings,
     moduleName: String, file: String, line: Int, column: Int,
     ownerType: String) r: Void {
 
     if expression.kind == "Call" {
+        let operationArity = simdOperationArity(expression.callee)
+        if operationArity == 0 and (simdOperationPrefix(expression.callee) != "" or
+            expression.callee.startsWith("simd_unsafe_prefetch_read_")) {
+            result.addError("E_SIMD_OPERATION", "unsupported portable SIMD operation spelling", file, line, column)
+        }
+        if operationArity > 0 {
+            if expression.arguments.length() != operationArity {
+                result.addError("E_SIMD_ARITY", "portable SIMD operation has incorrect arity", file, line, column)
+            } else {
+                var argument = 0
+                while argument < operationArity {
+                    let actual = semanticExpressionBindingIdentity(result,
+                        expression.arguments[argument], bindings, moduleName)
+                    if actual != "" and actual != "Unknown" {
+                        if not simdOperationArgumentValid(expression.callee, argument, actual) {
+                            result.addError("E_SIMD_LANE", "portable SIMD operation has incompatible argument shape", file, line, column)
+                        }
+                    }
+                    argument = argument + 1
+                }
+            }
+        }
         let armArity = simdArmBlockArity(expression.callee)
         if armArity > 0 and expression.arguments.length() != armArity {
             result.addError("E_SIMD_ARITY", "ARM block requires exact pointer/count arguments", file, line, column)
@@ -817,6 +852,30 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
                     }
                 }
                 laneIndex = laneIndex + 1
+            }
+        }
+        if expression.callee == "simd_shuffle" {
+            if expression.arguments.length() < 3 {
+                result.addError("E_SIMD_ARITY", "shuffle requires two vectors and literal lane indices", file, line, column)
+            } else {
+                let first = semanticExpressionBindingIdentity(result, expression.arguments[0], bindings, moduleName)
+                let second = semanticExpressionBindingIdentity(result, expression.arguments[1], bindings, moduleName)
+                let lanes = simdBuiltinLanes(first)
+                if lanes > 0 {
+                    if expression.arguments.length() != lanes + 2 {
+                        result.addError("E_SIMD_ARITY", "shuffle requires exactly one index per output lane", file, line, column)
+                    }
+                    if second != "" and second != "Unknown" and first != second {
+                        result.addError("E_SIMD_LANE", "shuffle inputs must have identical lane types", file, line, column)
+                    }
+                    var i = 2
+                    while i < expression.arguments.length() {
+                        if not semanticSimdShuffleIndexValid(expression.arguments[i], lanes) {
+                            result.addError("E_SIMD_INDEX", "shuffle index must be an in-range decimal integer literal", file, line, column)
+                        }
+                        i = i + 1
+                    }
+                }
             }
         }
         if expression.callee == "simd_select" {

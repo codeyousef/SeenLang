@@ -262,3 +262,78 @@ The shared five-warmup/thirty-sample paired benchmark observes native/scalar
 performance and live allocations. `SEEN_REQUIRE_ARM_PERF=1` enables the 1.05
 ceiling on a designated ARM machine and requires an available native variant.
 The default CI run does not invent a designated machine or RSS measurement.
+
+### Portable memory and lane operations
+
+The standard library 0.9.0 adds `simd.memory_operations` and
+`simd.operation_types`. Runtime ABI remains v9; these operations add no native
+symbols or foreign kernels. The compiler uses the same closed operation metadata
+for arity, return types, argument shapes, and lowering.
+
+The supported source values are `f32x4/8/16`, `f64x2/4/8`, and `i32x4/8/16`.
+Raw address operations deliberately carry an `unsafe` name. Their callers must
+keep the allocation alive and prove each accessed byte belongs to it. These
+intrinsics allocate no storage and retain no pointer:
+
+| Operation | Arguments and result | Contract |
+| --- | --- | --- |
+| `simd_unsafe_masked_load_TYPE` | address, matching mask, passthrough → TYPE | Alignment 1; false lanes retain passthrough and do not access memory. |
+| `simd_unsafe_masked_store_TYPE` | TYPE, address, matching mask → Void | Alignment 1; false lanes do not write memory. |
+| `simd_unsafe_widen_u8_i32xN` / `simd_unsafe_widen_s8_i32xN` | address → i32xN | Load N bytes with zero/sign extension; N is 4, 8, or 16. |
+| `simd_unsafe_narrow_u8_i32xN` / `simd_unsafe_narrow_s8_i32xN` | i32xN, address, maskN → Void | Clamp signed input lanes to [0,255] or [-128,127], truncate to bytes, and write only active lanes. |
+| `simd_fma_TYPE` | TYPE, TYPE, TYPE → TYPE | Float vectors only; one fused rounding, with no fast-math reassociation promise. |
+| `simd_permute_TYPE` | TYPE, TYPE, matching i32 indices → TYPE | Indices [0,N) select the first input; [N,2N) select the second. Negative/out-of-range indices produce zero. All extraction indices are bounded before use. `f64x2` is unsupported because no i32x2 source index value is shipped. |
+| `simd_unsafe_prefetch_read_0/1/2/3` | address → Void | Explicit LLVM locality; an advisory hint, with no residency or completion guarantee. |
+
+Existing `simd_shuffle` now requires exactly one in-range decimal integer literal
+per output lane and matching input types. Dynamic indices use `simd_permute_TYPE`.
+Malformed names, arity, types, masks, and shuffle indices fail with
+`E_SIMD_OPERATION`, `E_SIMD_ARITY`, `E_SIMD_LANE`, or `E_SIMD_INDEX` before unsafe
+lowering. Existing horizontal add/min/max and the x86/ARM dot kernels remain the
+reduction/dot operations; unsupported formats do not silently acquire a backend.
+
+`copyMaskedSimd(source, sourceOffset, destination, destinationOffset, vector,
+active, context, progress)` borrows two `OwnedBuffer<UInt8>` owners. Offsets may
+be byte-unaligned. Only `active` contiguous lanes need storage; inactive lanes
+are neither read nor written. A single integer implementation preserves every
+lane's bits, including NaNs. Admission rejects unknown vectors, invalid counts,
+closed owners, capacity/address overflow, and any overlap between nonempty
+ranges. The function never takes or releases buffer ownership.
+
+`transformPackedSimdBytes(source, sourceOffset, destination, destinationOffset,
+count, bits, pack, context, progress)` packs or unpacks unsigned 2/3/4/8-bit
+LSB-first values. It reuses `inference.span` packing semantics and preserves
+padding bits and surrounding bytes. Count is bounded to 4096; both ranges and
+non-aliasing are validated, and packing preflights all source values before
+writing. Invalid values leave the destination unchanged. It does not implement
+quantization policy or signed offset encoding.
+
+`prefetchSimdBlock(buffer, offset, locality, context, progress)` validates one
+byte in a live owner before issuing the chosen hint. Locality is 0–3. Byte-range
+validation is shared with dot admission through
+`memory.aligned_buffer.ownedBufferByteRangeValid`; work limits remain specific
+to each operation.
+
+The caller creates and ultimately frees `SimdMemoryProgress`, which records the
+committed element count and the previous monotonic clock observation. Geometry/range admission
+errors preserve the previous progress. An admitted operation clears progress;
+cancellation/deadline checks occur before access, every 64 packing elements,
+and after completion. Errors are `simd.cancelled`, `simd.timeout`,
+`simd.unavailable`, `simd.limit`, `simd.invalid_shape`, `simd.invalid_alias`,
+`simd.invalid_mask`, `simd.invalid_packing`, or `simd.invalid_policy`. A late
+cancellation may report an error with all elements committed. Callers use
+progress to decide how to resume; the library never retries or detaches work.
+Only result/error containers allocate; lane loops and compiler intrinsics do
+not allocate, retain storage, or perform hidden synchronization.
+
+Run `bash tests/misc_root_tests/seen_inf_simd_d.sh` inside the attested capped
+regression environment. It checks all byte alignments, tail masks, null-address
+all-false masks, sentinel preservation, widening, saturation, a fused-rounding
+counterexample, dynamic/literal permutes, an independent packed-bit oracle,
+invalid aliases/ranges/policies, cancellation/deadlines, and stable live memory.
+It runs fast/release/UBSan/ASan plus 60-second metadata fuzzing (seed 1101).
+The benchmark uses five warmups and thirty paired, alternating scalar controls;
+`SEEN_REQUIRE_SIMD_OPERATION_PERF=1` enables the designated-machine five-percent
+gate. Host observations and allocator peak do not constitute RSS or hardware
+certification. Hardware/platform execution and designated performance evidence
+remain separately classified; compile-only results are never execution claims.

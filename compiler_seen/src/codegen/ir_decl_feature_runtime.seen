@@ -1,6 +1,6 @@
 import codegen.ir_comptime_target.{getComptimeTargetName, comptimeTargetIsAarch64}
-import simd.ir_types.{simdBuiltinLlvmType}
-import codegen.ir_simd_type_helpers.{simdScalarTypeImpl, simdLlvmSuffixImpl}
+import simd.ir_types.{simdBuiltinLlvmType, simdBuiltinTypeAt}
+import codegen.ir_simd_type_helpers.{simdScalarTypeImpl, simdLlvmSuffixImpl, simdLaneCountImpl}
 // ir_decl_feature_runtime.seen - Runtime declarations for feature support.
 
 import str.string.{StringBuilder}
@@ -121,15 +121,12 @@ fun emitFeatureDecls(output: StringBuilder, definedFuncs: Array<String>) r: Void
     output.append("; SIMD vector reduction intrinsics\n")
     output.append("declare <16 x i32> @llvm.x86.avx512.vpdpbusd.512(<16 x i32>, <16 x i32>, <16 x i32>) nounwind readnone\n")
     output.append("declare <16 x float> @llvm.x86.avx512bf16.dpbf16ps.512(<16 x float>, <32 x bfloat>, <32 x bfloat>) nounwind readnone\n")
-    emitPortableSimdReductionDecls(output, "f32x4")
-    emitPortableSimdReductionDecls(output, "f32x8")
-    emitPortableSimdReductionDecls(output, "f32x16")
-    emitPortableSimdReductionDecls(output, "f64x2")
-    emitPortableSimdReductionDecls(output, "f64x4")
-    emitPortableSimdReductionDecls(output, "f64x8")
-    emitPortableSimdReductionDecls(output, "i32x4")
-    emitPortableSimdReductionDecls(output, "i32x8")
-    emitPortableSimdReductionDecls(output, "i32x16")
+    var simdTypeIndex = 0
+    var simdType = simdBuiltinTypeAt(simdTypeIndex)
+    while simdType != "" {
+        emitPortableSimdReductionDecls(output, simdType)
+        simdTypeIndex = simdTypeIndex + 1; simdType = simdBuiltinTypeAt(simdTypeIndex)
+    }
 
     // : GPU compute runtime declarations
     output.append("; GPU compute runtime declarations\n")
@@ -370,6 +367,15 @@ fun emitPortableSimdReductionDecls(output: StringBuilder, name: String) r: Void 
     let scalar = simdScalarTypeImpl(name)
     let vector = simdBuiltinLlvmType(name)
     let suffix = simdLlvmSuffixImpl(name)
+    let mask = "<" + simdLaneCountImpl(name).toString() + " x i1>"
+    output.append("declare " + vector + " @llvm.masked.load." + suffix + ".p0(ptr, i32 immarg, " + mask + ", " + vector + ") nounwind\n")
+    output.append("declare void @llvm.masked.store." + suffix + ".p0(" + vector + ", ptr, i32 immarg, " + mask + ") nounwind\n")
+    if scalar == "i32" {
+        let laneText = simdLaneCountImpl(name).toString()
+        output.append("declare void @llvm.masked.store.v" + laneText + "i8.p0(<" + laneText + " x i8>, ptr, i32 immarg, " + mask + ") nounwind\n")
+    } else {
+        output.append("declare " + vector + " @llvm.fma." + suffix + "(" + vector + ", " + vector + ", " + vector + ") nounwind readnone\n")
+    }
     if scalar == "float" or scalar == "double" {
         output.append("declare " + scalar + " @llvm.vector.reduce.fadd." + suffix +
             "(" + scalar + ", " + vector + ") nounwind readnone\n")

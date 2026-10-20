@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add portable masked SIMD memory operations, byte widening/saturating narrowing,
+  fused multiply-add, bounded dynamic permutes, strict literal shuffles, and
+  checked Seen packing/copy/prefetch APIs. Share range admission and benchmark
+  statistics; version the additive standard library surface as 0.9.0 (runtime v9).
+
 ### Added
 
 - Added NEON and scalable SVE dot lowering with per-thread OS vector-state

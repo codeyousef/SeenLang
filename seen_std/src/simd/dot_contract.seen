@@ -2,7 +2,7 @@
 /// capabilities and compute blocks; ownership, limits and progress stay here.
 import core.result.{Result, Ok, Err}
 import core.operation_context.{OperationContext}
-import memory.aligned_buffer.{OwnedBuffer}
+import memory.aligned_buffer.{OwnedBuffer, ownedBufferByteRangeValid}
 import simd.ir_types.{SimdIrError, simdIrFailure}
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 
@@ -59,14 +59,10 @@ fun dotStatusError(target: String, status: Int) r: SimdIrError {
 }
 fun dotRangeValid(borrow buffer: OwnedBuffer<UInt8>, offset: UInt64,
     count: UInt64, laneBytes: UInt64) r: Bool {
-    if buffer.data == (null as *UInt8) or offset > buffer.byteLength or
-        offset % laneBytes != (0 as UInt64) { return false }
-    if count > (4194304 as UInt64) or count * laneBytes > buffer.byteLength - offset { return false }
-    let bytes = count * laneBytes
-    if offset > (18446744073709551615 as UInt64) - bytes { return false }
-    let address = buffer.data as UInt64
-    if address > (18446744073709551615 as UInt64) - offset - bytes { return false }
-    return (address + offset) % laneBytes == (0 as UInt64)
+    if laneBytes != (1 as UInt64) and laneBytes != (2 as UInt64) and laneBytes != (4 as UInt64) { return false }
+    if count > (4194304 as UInt64) or offset % laneBytes != (0 as UInt64) { return false }
+    if not ownedBufferByteRangeValid(buffer, offset, count * laneBytes) { return false }
+    return ((buffer.data as UInt64) + offset) % laneBytes == (0 as UInt64)
 }
 trait DotBackend {
     fun target(this: DotBackend) r: String

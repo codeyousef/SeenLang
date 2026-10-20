@@ -1,0 +1,564 @@
+import memory.aligned_buffer.{OwnedBuffer}
+import simd.memory_operations.{SimdMemoryProgress, copyMaskedSimd, transformPackedSimdBytes, prefetchSimdBlock}
+import simd.operation_types.{simdOperationArity, simdOperationResult}
+import tests.inference_simd.dot_fixture_support.{must, errorIs, context}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun require(value: Bool) r: Void { if not value { abort("portable SIMD operation mismatch") } }
+fun closeBuffer(buffer: OwnedBuffer<UInt8>) r: Void { require(buffer.close()); buffer.free() }
+fun raw_f32x4(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, offset: Int) r: Void {
+    let rounded: f32x4 = simd_fma_f32x4(
+        f32x4(1.0000001192092896, 1.0000001192092896, 1.0000001192092896, 1.0000001192092896),
+        f32x4(0.9999998807907104, 0.9999998807907104, 0.9999998807907104, 0.9999998807907104),
+        f32x4(-1, -1, -1, -1))
+    require(rounded.reduce_add() == (-5.684341886080802e-14 as Float32))
+    let source = (input.data as Int) + offset
+    let destination = (output.data as Int) + offset
+    let mask = mask4(true, false, true, false)
+    let value: f32x4 = simd_unsafe_masked_load_f32x4(source, mask, f32x4(2, 2, 2, 2))
+    require(value.reduce_add() == 6)
+    let empty = mask4(false, false, false, false)
+    let noRead: f32x4 = simd_unsafe_masked_load_f32x4(0, empty, f32x4(2, 2, 2, 2))
+    require(noRead.reduce_add() == 8)
+    simd_unsafe_masked_store_f32x4(noRead, 0, empty)
+    simd_unsafe_masked_store_f32x4(f32x4(2, 2, 2, 2), destination, mask)
+    let fused: f32x4 = simd_fma_f32x4(f32x4(2, 2, 2, 2), f32x4(3, 3, 3, 3), f32x4(4, 4, 4, 4))
+    require(fused.reduce_add() == 40)
+    let indices = i32x4(-1, 8, 3, 4)
+    let permuted: f32x4 = simd_permute_f32x4(f32x4(2, 2, 2, 2), f32x4(5, 5, 5, 5), indices)
+    require(permuted.reduce_add() == 7)
+}
+fun raw_f32x8(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, offset: Int) r: Void {
+    let source = (input.data as Int) + offset
+    let destination = (output.data as Int) + offset
+    let mask = mask8(true, false, true, false, true, false, true, false)
+    let value: f32x8 = simd_unsafe_masked_load_f32x8(source, mask, f32x8(2, 2, 2, 2, 2, 2, 2, 2))
+    require(value.reduce_add() == 12)
+    let empty = mask8(false, false, false, false, false, false, false, false)
+    let noRead: f32x8 = simd_unsafe_masked_load_f32x8(0, empty, f32x8(2, 2, 2, 2, 2, 2, 2, 2))
+    require(noRead.reduce_add() == 16)
+    simd_unsafe_masked_store_f32x8(noRead, 0, empty)
+    simd_unsafe_masked_store_f32x8(f32x8(2, 2, 2, 2, 2, 2, 2, 2), destination, mask)
+    let fused: f32x8 = simd_fma_f32x8(f32x8(2, 2, 2, 2, 2, 2, 2, 2), f32x8(3, 3, 3, 3, 3, 3, 3, 3), f32x8(4, 4, 4, 4, 4, 4, 4, 4))
+    require(fused.reduce_add() == 80)
+    let indices = i32x8(-1, 16, 7, 8, 0, 0, 0, 0)
+    let permuted: f32x8 = simd_permute_f32x8(f32x8(2, 2, 2, 2, 2, 2, 2, 2), f32x8(5, 5, 5, 5, 5, 5, 5, 5), indices)
+    require(permuted.reduce_add() == 15)
+}
+fun raw_f32x16(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, offset: Int) r: Void {
+    let source = (input.data as Int) + offset
+    let destination = (output.data as Int) + offset
+    let mask = mask16(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false)
+    let value: f32x16 = simd_unsafe_masked_load_f32x16(source, mask, f32x16(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2))
+    require(value.reduce_add() == 24)
+    let empty = mask16(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false)
+    let noRead: f32x16 = simd_unsafe_masked_load_f32x16(0, empty, f32x16(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2))
+    require(noRead.reduce_add() == 32)
+    simd_unsafe_masked_store_f32x16(noRead, 0, empty)
+    simd_unsafe_masked_store_f32x16(f32x16(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2), destination, mask)
+    let fused: f32x16 = simd_fma_f32x16(f32x16(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2), f32x16(3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3), f32x16(4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4))
+    require(fused.reduce_add() == 160)
+    let indices = i32x16(-1, 32, 15, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    let permuted: f32x16 = simd_permute_f32x16(f32x16(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2), f32x16(5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5), indices)
+    require(permuted.reduce_add() == 31)
+}
+fun raw_f64x2(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, offset: Int) r: Void {
+    let source = (input.data as Int) + offset
+    let destination = (output.data as Int) + offset
+    let mask = mask2(true, false)
+    let value: f64x2 = simd_unsafe_masked_load_f64x2(source, mask, f64x2(2, 2))
+    require(value.reduce_add() == 3)
+    let empty = mask2(false, false)
+    let noRead: f64x2 = simd_unsafe_masked_load_f64x2(0, empty, f64x2(2, 2))
+    require(noRead.reduce_add() == 4)
+    simd_unsafe_masked_store_f64x2(noRead, 0, empty)
+    simd_unsafe_masked_store_f64x2(f64x2(2, 2), destination, mask)
+    let fused: f64x2 = simd_fma_f64x2(f64x2(2, 2), f64x2(3, 3), f64x2(4, 4))
+    require(fused.reduce_add() == 20)
+}
+fun raw_f64x4(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, offset: Int) r: Void {
+    let source = (input.data as Int) + offset
+    let destination = (output.data as Int) + offset
+    let mask = mask4(true, false, true, false)
+    let value: f64x4 = simd_unsafe_masked_load_f64x4(source, mask, f64x4(2, 2, 2, 2))
+    require(value.reduce_add() == 6)
+    let empty = mask4(false, false, false, false)
+    let noRead: f64x4 = simd_unsafe_masked_load_f64x4(0, empty, f64x4(2, 2, 2, 2))
+    require(noRead.reduce_add() == 8)
+    simd_unsafe_masked_store_f64x4(noRead, 0, empty)
+    simd_unsafe_masked_store_f64x4(f64x4(2, 2, 2, 2), destination, mask)
+    let fused: f64x4 = simd_fma_f64x4(f64x4(2, 2, 2, 2), f64x4(3, 3, 3, 3), f64x4(4, 4, 4, 4))
+    require(fused.reduce_add() == 40)
+    let indices = i32x4(-1, 8, 3, 4)
+    let permuted: f64x4 = simd_permute_f64x4(f64x4(2, 2, 2, 2), f64x4(5, 5, 5, 5), indices)
+    require(permuted.reduce_add() == 7)
+}
+fun raw_f64x8(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, offset: Int) r: Void {
+    let source = (input.data as Int) + offset
+    let destination = (output.data as Int) + offset
+    let mask = mask8(true, false, true, false, true, false, true, false)
+    let value: f64x8 = simd_unsafe_masked_load_f64x8(source, mask, f64x8(2, 2, 2, 2, 2, 2, 2, 2))
+    require(value.reduce_add() == 12)
+    let empty = mask8(false, false, false, false, false, false, false, false)
+    let noRead: f64x8 = simd_unsafe_masked_load_f64x8(0, empty, f64x8(2, 2, 2, 2, 2, 2, 2, 2))
+    require(noRead.reduce_add() == 16)
+    simd_unsafe_masked_store_f64x8(noRead, 0, empty)
+    simd_unsafe_masked_store_f64x8(f64x8(2, 2, 2, 2, 2, 2, 2, 2), destination, mask)
+    let fused: f64x8 = simd_fma_f64x8(f64x8(2, 2, 2, 2, 2, 2, 2, 2), f64x8(3, 3, 3, 3, 3, 3, 3, 3), f64x8(4, 4, 4, 4, 4, 4, 4, 4))
+    require(fused.reduce_add() == 80)
+    let indices = i32x8(-1, 16, 7, 8, 0, 0, 0, 0)
+    let permuted: f64x8 = simd_permute_f64x8(f64x8(2, 2, 2, 2, 2, 2, 2, 2), f64x8(5, 5, 5, 5, 5, 5, 5, 5), indices)
+    require(permuted.reduce_add() == 15)
+}
+fun raw_i32x4(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, offset: Int) r: Void {
+    let source = (input.data as Int) + offset
+    let destination = (output.data as Int) + offset
+    let mask = mask4(true, false, true, false)
+    let value: i32x4 = simd_unsafe_masked_load_i32x4(source, mask, i32x4(2, 2, 2, 2))
+    require(value.reduce_add() == 6)
+    let empty = mask4(false, false, false, false)
+    let noRead: i32x4 = simd_unsafe_masked_load_i32x4(0, empty, i32x4(2, 2, 2, 2))
+    require(noRead.reduce_add() == 8)
+    simd_unsafe_masked_store_i32x4(noRead, 0, empty)
+    simd_unsafe_masked_store_i32x4(i32x4(2, 2, 2, 2), destination, mask)
+    let indices = i32x4(-1, 8, 3, 4)
+    let permuted: i32x4 = simd_permute_i32x4(i32x4(2, 2, 2, 2), i32x4(5, 5, 5, 5), indices)
+    require(permuted.reduce_add() == 7)
+}
+fun raw_i32x8(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, offset: Int) r: Void {
+    let source = (input.data as Int) + offset
+    let destination = (output.data as Int) + offset
+    let mask = mask8(true, false, true, false, true, false, true, false)
+    let value: i32x8 = simd_unsafe_masked_load_i32x8(source, mask, i32x8(2, 2, 2, 2, 2, 2, 2, 2))
+    require(value.reduce_add() == 12)
+    let empty = mask8(false, false, false, false, false, false, false, false)
+    let noRead: i32x8 = simd_unsafe_masked_load_i32x8(0, empty, i32x8(2, 2, 2, 2, 2, 2, 2, 2))
+    require(noRead.reduce_add() == 16)
+    simd_unsafe_masked_store_i32x8(noRead, 0, empty)
+    simd_unsafe_masked_store_i32x8(i32x8(2, 2, 2, 2, 2, 2, 2, 2), destination, mask)
+    let indices = i32x8(-1, 16, 7, 8, 0, 0, 0, 0)
+    let permuted: i32x8 = simd_permute_i32x8(i32x8(2, 2, 2, 2, 2, 2, 2, 2), i32x8(5, 5, 5, 5, 5, 5, 5, 5), indices)
+    require(permuted.reduce_add() == 15)
+}
+fun raw_i32x16(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, offset: Int) r: Void {
+    let source = (input.data as Int) + offset
+    let destination = (output.data as Int) + offset
+    let mask = mask16(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false)
+    let value: i32x16 = simd_unsafe_masked_load_i32x16(source, mask, i32x16(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2))
+    require(value.reduce_add() == 24)
+    let empty = mask16(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false)
+    let noRead: i32x16 = simd_unsafe_masked_load_i32x16(0, empty, i32x16(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2))
+    require(noRead.reduce_add() == 32)
+    simd_unsafe_masked_store_i32x16(noRead, 0, empty)
+    simd_unsafe_masked_store_i32x16(i32x16(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2), destination, mask)
+    let indices = i32x16(-1, 32, 15, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    let permuted: i32x16 = simd_permute_i32x16(i32x16(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2), i32x16(5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5), indices)
+    require(permuted.reduce_add() == 31)
+}
+fun checkRaw_f32x4(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 192 { input.data[i] = 0 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+        var lane = 0
+        while lane < 4 {
+            input.data[offset + lane * 4 + 2] = 128 as UInt8
+            input.data[offset + lane * 4 + 3] = 63 as UInt8
+            lane = lane + 1
+        }
+        raw_f32x4(input, output, offset)
+        i = 0
+        while i < 192 {
+            var expected = 165
+            if i >= offset and i < offset + 16 and ((i - offset) / 4) % 2 == 0 {
+                expected = 0
+                if (i - offset) % 4 == 3 { expected = 64 }
+            }
+            require(output.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkRaw_f32x8(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 192 { input.data[i] = 0 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+        var lane = 0
+        while lane < 8 {
+            input.data[offset + lane * 4 + 2] = 128 as UInt8
+            input.data[offset + lane * 4 + 3] = 63 as UInt8
+            lane = lane + 1
+        }
+        raw_f32x8(input, output, offset)
+        i = 0
+        while i < 192 {
+            var expected = 165
+            if i >= offset and i < offset + 32 and ((i - offset) / 4) % 2 == 0 {
+                expected = 0
+                if (i - offset) % 4 == 3 { expected = 64 }
+            }
+            require(output.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkRaw_f32x16(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 192 { input.data[i] = 0 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+        var lane = 0
+        while lane < 16 {
+            input.data[offset + lane * 4 + 2] = 128 as UInt8
+            input.data[offset + lane * 4 + 3] = 63 as UInt8
+            lane = lane + 1
+        }
+        raw_f32x16(input, output, offset)
+        i = 0
+        while i < 192 {
+            var expected = 165
+            if i >= offset and i < offset + 64 and ((i - offset) / 4) % 2 == 0 {
+                expected = 0
+                if (i - offset) % 4 == 3 { expected = 64 }
+            }
+            require(output.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkRaw_f64x2(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 192 { input.data[i] = 0 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+        var lane = 0
+        while lane < 2 {
+            input.data[offset + lane * 8 + 6] = 240 as UInt8
+            input.data[offset + lane * 8 + 7] = 63 as UInt8
+            lane = lane + 1
+        }
+        raw_f64x2(input, output, offset)
+        i = 0
+        while i < 192 {
+            var expected = 165
+            if i >= offset and i < offset + 16 and ((i - offset) / 8) % 2 == 0 {
+                expected = 0
+                if (i - offset) % 8 == 7 { expected = 64 }
+            }
+            require(output.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkRaw_f64x4(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 192 { input.data[i] = 0 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+        var lane = 0
+        while lane < 4 {
+            input.data[offset + lane * 8 + 6] = 240 as UInt8
+            input.data[offset + lane * 8 + 7] = 63 as UInt8
+            lane = lane + 1
+        }
+        raw_f64x4(input, output, offset)
+        i = 0
+        while i < 192 {
+            var expected = 165
+            if i >= offset and i < offset + 32 and ((i - offset) / 8) % 2 == 0 {
+                expected = 0
+                if (i - offset) % 8 == 7 { expected = 64 }
+            }
+            require(output.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkRaw_f64x8(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 192 { input.data[i] = 0 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+        var lane = 0
+        while lane < 8 {
+            input.data[offset + lane * 8 + 6] = 240 as UInt8
+            input.data[offset + lane * 8 + 7] = 63 as UInt8
+            lane = lane + 1
+        }
+        raw_f64x8(input, output, offset)
+        i = 0
+        while i < 192 {
+            var expected = 165
+            if i >= offset and i < offset + 64 and ((i - offset) / 8) % 2 == 0 {
+                expected = 0
+                if (i - offset) % 8 == 7 { expected = 64 }
+            }
+            require(output.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkRaw_i32x4(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 192 { input.data[i] = 0 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+        var lane = 0
+        while lane < 4 {
+            input.data[offset + lane * 4 + 0] = 1 as UInt8
+            lane = lane + 1
+        }
+        raw_i32x4(input, output, offset)
+        i = 0
+        while i < 192 {
+            var expected = 165
+            if i >= offset and i < offset + 16 and ((i - offset) / 4) % 2 == 0 {
+                expected = 0
+                if (i - offset) % 4 == 0 { expected = 2 }
+            }
+            require(output.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkRaw_i32x8(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 192 { input.data[i] = 0 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+        var lane = 0
+        while lane < 8 {
+            input.data[offset + lane * 4 + 0] = 1 as UInt8
+            lane = lane + 1
+        }
+        raw_i32x8(input, output, offset)
+        i = 0
+        while i < 192 {
+            var expected = 165
+            if i >= offset and i < offset + 32 and ((i - offset) / 4) % 2 == 0 {
+                expected = 0
+                if (i - offset) % 4 == 0 { expected = 2 }
+            }
+            require(output.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun checkRaw_i32x16(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var offset = 0
+    while offset < 64 {
+        var i = 0
+        while i < 192 { input.data[i] = 0 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+        var lane = 0
+        while lane < 16 {
+            input.data[offset + lane * 4 + 0] = 1 as UInt8
+            lane = lane + 1
+        }
+        raw_i32x16(input, output, offset)
+        i = 0
+        while i < 192 {
+            var expected = 165
+            if i >= offset and i < offset + 64 and ((i - offset) / 4) % 2 == 0 {
+                expected = 0
+                if (i - offset) % 4 == 0 { expected = 2 }
+            }
+            require(output.data[i] == (expected as UInt8)); i = i + 1
+        }
+        offset = offset + 1
+    }
+}
+fun rawChecks(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    checkRaw_f32x4(input, output)
+    checkRaw_f32x8(input, output)
+    checkRaw_f32x16(input, output)
+    checkRaw_f64x2(input, output)
+    checkRaw_f64x4(input, output)
+    checkRaw_f64x8(input, output)
+    checkRaw_i32x4(input, output)
+    checkRaw_i32x8(input, output)
+    checkRaw_i32x16(input, output)
+}
+fun checkNarrow4(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var i = 0
+    let unsigned: i32x4 = simd_unsafe_widen_u8_i32x4(input.data as Int)
+    let signed: i32x4 = simd_unsafe_widen_s8_i32x4(input.data as Int)
+    require(unsigned.reduce_add() == 1020); require(signed.reduce_add() == -4)
+    let value = i32x4(-1000, 1000, -1, 128)
+    let mask = mask4(true, true, true, false)
+    simd_unsafe_narrow_s8_i32x4(value, output.data as Int, mask)
+    require(output.data[0] == (128 as UInt8)); require(output.data[1] == (127 as UInt8))
+    require(output.data[2] == (255 as UInt8)); require(output.data[3] == (165 as UInt8))
+    simd_unsafe_narrow_u8_i32x4(value, output.data as Int, mask)
+    require(output.data[0] == (0 as UInt8)); require(output.data[1] == (255 as UInt8))
+    require(output.data[2] == (0 as UInt8)); require(output.data[3] == (165 as UInt8))
+    i = 0; while i < 192 { output.data[i] = 165 as UInt8; i = i + 1 }
+}
+fun checkNarrow8(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var i = 0
+    let unsigned: i32x8 = simd_unsafe_widen_u8_i32x8(input.data as Int)
+    let signed: i32x8 = simd_unsafe_widen_s8_i32x8(input.data as Int)
+    require(unsigned.reduce_add() == 2040); require(signed.reduce_add() == -8)
+    let value = i32x8(-1000, 1000, -1, 128, 0, 0, 0, 0)
+    let mask = mask8(true, true, true, true, true, true, true, false)
+    simd_unsafe_narrow_s8_i32x8(value, output.data as Int, mask)
+    require(output.data[0] == (128 as UInt8)); require(output.data[1] == (127 as UInt8))
+    require(output.data[2] == (255 as UInt8)); require(output.data[7] == (165 as UInt8))
+    simd_unsafe_narrow_u8_i32x8(value, output.data as Int, mask)
+    require(output.data[0] == (0 as UInt8)); require(output.data[1] == (255 as UInt8))
+    require(output.data[2] == (0 as UInt8)); require(output.data[7] == (165 as UInt8))
+    i = 0; while i < 192 { output.data[i] = 165 as UInt8; i = i + 1 }
+}
+fun checkNarrow16(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var i = 0
+    let unsigned: i32x16 = simd_unsafe_widen_u8_i32x16(input.data as Int)
+    let signed: i32x16 = simd_unsafe_widen_s8_i32x16(input.data as Int)
+    require(unsigned.reduce_add() == 4080); require(signed.reduce_add() == -16)
+    let value = i32x16(-1000, 1000, -1, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    let mask = mask16(true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false)
+    simd_unsafe_narrow_s8_i32x16(value, output.data as Int, mask)
+    require(output.data[0] == (128 as UInt8)); require(output.data[1] == (127 as UInt8))
+    require(output.data[2] == (255 as UInt8)); require(output.data[15] == (165 as UInt8))
+    simd_unsafe_narrow_u8_i32x16(value, output.data as Int, mask)
+    require(output.data[0] == (0 as UInt8)); require(output.data[1] == (255 as UInt8))
+    require(output.data[2] == (0 as UInt8)); require(output.data[15] == (165 as UInt8))
+    i = 0; while i < 192 { output.data[i] = 165 as UInt8; i = i + 1 }
+}
+fun integerChecks(borrow input: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var i = 0
+    while i < 192 { input.data[i] = 255 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+    checkNarrow4(input, output)
+    checkNarrow8(input, output)
+    checkNarrow16(input, output)
+    simd_unsafe_prefetch_read_0(input.data as Int)
+    simd_unsafe_prefetch_read_1(input.data as Int)
+    simd_unsafe_prefetch_read_2(input.data as Int)
+    simd_unsafe_prefetch_read_3(input.data as Int)
+    let shuffled = simd_shuffle(i32x4(1, 2, 3, 4), i32x4(5, 6, 7, 8), 7, 0, 4, 3)
+    require(shuffled.reduce_add() == 18)
+}
+fun main() r: Int {
+    let input: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(8192 as UInt64, 1 as UInt64, 64 as UInt64))
+    let packed: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(8192 as UInt64, 1 as UInt64, 64 as UInt64))
+    let output: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(8192 as UInt64, 1 as UInt64, 64 as UInt64))
+    let progress = SimdMemoryProgress.create(); let ctx = context()
+    rawChecks(input, output); integerChecks(input, output)
+    println("PASS: SEEN-INF-002D_happy")
+    let vectors = ["f32x4", "f32x8", "f32x16", "f64x2", "f64x4", "f64x8", "i32x4", "i32x8", "i32x16"]
+    let counts = [4, 8, 16, 2, 4, 8, 4, 8, 16]
+    var v = 0
+    while v < vectors.length() {
+        var width = 4
+        if vectors[v].startsWith("f64") { width = 8 }
+        var offset = 0
+        while offset < 64 {
+            var active = 0
+            while active <= counts[v] {
+                var i = 0
+                while i < 192 { input.data[i] = (i % 251) as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+                let bytes = active * width
+                let original = input.byteLength; input.byteLength = (offset + bytes) as UInt64
+                require(must(copyMaskedSimd(input, offset as UInt64, output, offset as UInt64,
+                    vectors[v], active, ctx, progress)))
+                input.byteLength = original
+                require(progress.completed == (active as UInt64))
+                i = 0
+                while i < 192 {
+                    var expected = 165 as UInt8
+                    if i >= offset and i < offset + bytes { expected = input.data[i] }
+                    require(output.data[i] == expected); i = i + 1
+                }
+                active = active + 1
+            }
+            offset = offset + 1
+        }
+        v = v + 1
+    }
+    vectors.free(); counts.free()
+    println("PASS: SEEN-INF-002D_partial")
+    let widths = [2, 3, 4, 8]
+    var w = 0
+    while w < widths.length() {
+        let bits = widths[w]; let mask = (1 << bits) - 1
+        var offset = 0
+        while offset < 8 {
+            var count = 0
+            while count <= 65 {
+                var i = 0
+                while i < 192 { input.data[i] = (i & mask) as UInt8; packed.data[i] = 165 as UInt8; output.data[i] = 165 as UInt8; i = i + 1 }
+                require(must(transformPackedSimdBytes(input, 0 as UInt64, packed, offset as UInt64,
+                    count as UInt64, bits, true, ctx, progress)))
+                require(progress.completed == (count as UInt64))
+                require(must(transformPackedSimdBytes(packed, offset as UInt64, output, 0 as UInt64,
+                    count as UInt64, bits, false, ctx, progress)))
+                i = 0; while i < count { require(input.data[i] == output.data[i]); i = i + 1 }
+                require(output.data[count] == (165 as UInt8))
+                // Independent LSB-first bit oracle verifies every packed bit,
+                // including padding bits and untouched prefix/suffix bytes.
+                let packedBytes = (count * bits + 7) / 8
+                i = 0
+                while i < 192 {
+                    var expected = 165
+                    if i >= offset and i < offset + packedBytes {
+                        var bit = 0
+                        while bit < 8 {
+                            let position = (i - offset) * 8 + bit
+                            if position < count * bits {
+                                let lane = position / bits; let laneBit = position % bits
+                                let value = ((input.data[lane] as Int) >> laneBit) & 1
+                                expected = (expected & (~(1 << bit))) | (value << bit)
+                            }
+                            bit = bit + 1
+                        }
+                    }
+                    require(packed.data[i] == (expected as UInt8)); i = i + 1
+                }
+                count = count + 1
+            }
+            offset = offset + 1
+        }
+        w = w + 1
+    }
+    widths.free()
+    println("PASS: SEEN-INF-002D_packing")
+    input.data[0] = 7 as UInt8; packed.data[0] = 165 as UInt8
+    require(errorIs(transformPackedSimdBytes(input, 0 as UInt64, packed, 0 as UInt64,
+        1 as UInt64, 2, true, ctx, progress), "simd.invalid_packing"))
+    require(packed.data[0] == (165 as UInt8))
+    require(errorIs(copyMaskedSimd(input, 0 as UInt64, input, 1 as UInt64, "i32x4", 4, ctx, progress), "simd.invalid_alias"))
+    require(errorIs(copyMaskedSimd(input, 8192 as UInt64, output, 0 as UInt64, "i32x4", 1, ctx, progress), "simd.invalid_shape"))
+    require(errorIs(copyMaskedSimd(input, 0 as UInt64, output, 0 as UInt64, "i32x4", 5, ctx, progress), "simd.invalid_mask"))
+    require(errorIs(transformPackedSimdBytes(input, 0 as UInt64, packed, 0 as UInt64,
+        4097 as UInt64, 4, true, ctx, progress), "simd.limit"))
+    require(simdOperationArity("simd_fma_i32x4") == 0)
+    require(simdOperationArity("simd_unsafe_masked_load_f32x3") == 0)
+    require(simdOperationArity("simd_unsafe_prefetch_read_4") == 0)
+    require(simdOperationResult("simd_fma_f32x4") == "f32x4")
+    var locality = 0
+    while locality < 4 {
+        require(must(prefetchSimdBlock(input, 0 as UInt64, locality, ctx, progress)))
+        locality = locality + 1
+    }
+    require(errorIs(prefetchSimdBlock(input, 8192 as UInt64, 0, ctx, progress), "simd.invalid_shape"))
+    require(errorIs(prefetchSimdBlock(input, 0 as UInt64, 4, ctx, progress), "simd.invalid_policy"))
+    println("PASS: SEEN-INF-002D_invalid")
+    ctx.cancellation = true
+    require(errorIs(copyMaskedSimd(input, 0 as UInt64, output, 0 as UInt64, "i32x4", 4, ctx, progress), "simd.cancelled"))
+    require(progress.completed == (0 as UInt64)); ctx.cancellation = false
+    ctx.monotonicDeadline = 1 as Int64
+    require(errorIs(copyMaskedSimd(input, 0 as UInt64, output, 0 as UInt64, "i32x4", 4, ctx, progress), "simd.timeout"))
+    require(progress.completed == (0 as UInt64)); ctx.monotonicDeadline = 9223372036854775807 as Int64
+    println("PASS: SEEN-INF-002D_cancel")
+    var i = 0; while i < 64 { input.data[i] = (i % 16) as UInt8; i = i + 1 }
+    require(must(transformPackedSimdBytes(input, 0 as UInt64, packed, 0 as UInt64, 64 as UInt64, 4, true, ctx, progress)))
+    require(must(transformPackedSimdBytes(packed, 0 as UInt64, output, 0 as UInt64, 64 as UInt64, 4, false, ctx, progress)))
+    let baseline = seen_memory_used_bytes(); i = 0
+    while i < 1000 {
+        require(must(transformPackedSimdBytes(input, 0 as UInt64, packed, 0 as UInt64, 64 as UInt64, 4, true, ctx, progress)))
+        require(must(transformPackedSimdBytes(packed, 0 as UInt64, output, 0 as UInt64, 64 as UInt64, 4, false, ctx, progress)))
+        require(seen_memory_used_bytes() == baseline); i = i + 1
+    }
+    closeBuffer(input); closeBuffer(packed); closeBuffer(output); progress.free()
+    ctx.limits.free(); ctx.traceId.free(); ctx.free()
+    println("PASS: SEEN-INF-002D_cleanup")
+    return 0
+}
