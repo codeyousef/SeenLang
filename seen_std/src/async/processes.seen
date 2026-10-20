@@ -3,7 +3,8 @@ import core.option.{Option, Some, None}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
 import async.executor_core.{ExecutorTaskContext, executorFailure}
 import async.pools.{TypedWorkerPool, PoolJoinHandle}
-import async.process_arguments.{ProcessArguments, validProcessProgram, validProcessEnvironment}
+import async.process_arguments.{validProcessProgram, validProcessEnvironment}
+import async.owned_strings.{OwnedCStringVector}
 import async.process_native.{seen_async_process_pipe, seen_async_process_spawn, seen_async_process_pidfd,
     seen_async_process_signal, seen_async_process_kill_unreaped, seen_async_process_wait}
 import async.io_lease.{AsyncIoLeaseCounter, AsyncIoLease}
@@ -170,8 +171,8 @@ fun processKillAndReap(pid: Int64) r: Void {
 @send
 @move
 class ProcessSpawnJob {
-    var arguments: ProcessArguments
-    var environment: ProcessArguments
+    var arguments: OwnedCStringVector
+    var environment: OwnedCStringVector
     var maxTransferBytes: UInt64
     var childQuota: Option<AsyncIoLease>
     var leases: Option<AsyncIoLeaseCounter>
@@ -191,12 +192,12 @@ class ProcessSpawnJob {
         let command = Array<String>(); command.push(program)
         var i = 0
         while i < arguments.length() { command.push(arguments[i]); i = i + 1 }
-        let packed = ProcessArguments.pack(command); command.free()
+        let packed = OwnedCStringVector.pack(command); command.free()
         if packed.isErr() {
             let error = packed.unwrapErr(); packed.releaseContainer(); return Err<ProcessSpawnJob, AsyncError>(error)
         }
         let argv = packed.unwrap(); packed.releaseContainer()
-        let env = ProcessArguments.pack(environment)
+        let env = OwnedCStringVector.pack(environment)
         if env.isErr() {
             let error = env.unwrapErr(); env.releaseContainer(); argv.release()
             return Err<ProcessSpawnJob, AsyncError>(error)

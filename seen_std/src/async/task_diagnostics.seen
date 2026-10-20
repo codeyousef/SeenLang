@@ -2,6 +2,7 @@ import core.result.{Result, Ok, Err}
 import core.error.{RedactionClass, RetryClass}
 import async.structured.{AsyncError, asyncFailure, asyncStatusCode}
 import async.executor_native.{seen_string_clone_owned}
+import async.owned_strings.{OwnedCStringVector}
 
 enum TaskDiagnosticKind { Failure; Panic; Fallback }
 enum TaskBackend { Native; Scalar; Cpu; Blocking; Epoll; Aio; Cuda; Vulkan; Metal; DirectMl }
@@ -33,7 +34,7 @@ class TaskDiagnostic {
     var status: Int32
     var backend: TaskBackend
     var message: String
-    var causes: Array<String>
+    var causes: OwnedCStringVector
     var progress: UInt64
     var retryable: Bool
 
@@ -80,31 +81,52 @@ class TaskDiagnostic {
         }
         var visible = "task details redacted"
         if redaction == RedactionClass.Public { visible = message }
-        let copied = Array<String>(); i = 0
+        let visibleCauses = Array<String>(); i = 0
         while i < causes.length() {
             var cause = "redacted"
             if redaction == RedactionClass.Public { cause = causes[i] }
-            copied.push(seen_string_clone_owned(cause)); i = i + 1
+            visibleCauses.push(cause); i = i + 1
         }
+        let packed = OwnedCStringVector.pack(visibleCauses); visibleCauses.free()
+        if packed.isErr() {
+            let error = packed.unwrapErr(); packed.releaseContainer(); return Err<TaskDiagnostic, AsyncError>(error)
+        }
+        let copied = packed.unwrap(); packed.releaseContainer()
         return Ok<TaskDiagnostic, AsyncError>(TaskDiagnostic{kind: kind, status: status, backend: backend,
             message: seen_string_clone_owned(visible), causes: copied, progress: progress,
             retryable: retry == RetryClass.Transient})
     }
     fun snapshot() r: Result<TaskDiagnostic, AsyncError> {
+        if this.causes.length() < 0 { return Err<TaskDiagnostic, AsyncError>(taskDiagnosticRejected(false)) }
+        if this.causes.length() > 8 or this.message.length() > 4096 or
+            this.causes.strings.byteLength > (4105 as UInt64) {
+            return Err<TaskDiagnostic, AsyncError>(taskDiagnosticRejected(true))
+        }
         var retry = RetryClass.Never
         if this.retryable { retry = RetryClass.Transient }
-        // Stored text has already passed the caller's redaction policy.
-        return TaskDiagnostic.create(this.kind, this.status, this.backend, this.message,
-            this.causes, this.progress, retry, RedactionClass.Public)
+        let values = Array<String>(); var i = 0
+        while i < this.causes.length() {
+            let value = this.causes.get(i)
+            if value.isErr() {
+                let error = value.unwrapErr(); value.releaseContainer()
+                var j = 0
+                while j < values.length() { values[j].free(); j = j + 1 }
+                values.free(); return Err<TaskDiagnostic, AsyncError>(error)
+            }
+            values.push(value.unwrap()); value.releaseContainer(); i = i + 1
+        }
+        let copied = TaskDiagnostic.create(this.kind, this.status, this.backend, this.message,
+            values, this.progress, retry, RedactionClass.Public)
+        i = 0
+        while i < values.length() { values[i].free(); i = i + 1 }
+        values.free(); return copied
     }
     fun code() r: String {
         if this.kind == TaskDiagnosticKind.Fallback { return "async.fallback" }
         return asyncStatusCode(this.status)
     }
     fun release() r: Void {
-        var i = 0
-        while i < this.causes.length() { this.causes[i].free(); i = i + 1 }
-        this.causes.free(); this.message.free(); this.free()
+        this.causes.release(); this.message.free(); this.free()
     }
 }
 

@@ -456,3 +456,10 @@ the existing borrowed await-context trace lifetime; the awaiting context must
 outlive an error that uses its trace. Detailed diagnostic text and captures own
 their storage independently of the executor ticket. Waiting-context cancellation
 or timeout retains the running join owner for a later cleanup wait.
+
+
+`async.owned_strings.OwnedCStringVector` is the shared packing implementation for
+process argv/envp and diagnostic causes. It owns packed bytes and the pointer
+table, capped at 256 values and 64 KiB. `get(index)` returns an owned string copy,
+so neither a task capture nor a caller can retain a view after vector release.
+This replaces the process-specific packing class in the 0.7.0 alpha API.

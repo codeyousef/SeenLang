@@ -1,4 +1,5 @@
-import async.process_arguments.{ProcessArguments, validProcessProgram, validProcessEnvironment}
+import async.process_arguments.{validProcessProgram, validProcessEnvironment}
+import async.owned_strings.{OwnedCStringVector}
 import core.result.{Result}
 import async.structured.{AsyncError}
 fun matches<T>(result: Result<T, AsyncError>, code: String) r: Bool {
@@ -9,11 +10,11 @@ fun matches<T>(result: Result<T, AsyncError>, code: String) r: Bool {
 }
 fun main() r: Int {
     let values = Array<String>(); let nul = String.fromCharCode(0); values.push(nul)
-    if not matches(ProcessArguments.pack(values), "async.invalid") { return 1 }
+    if not matches(OwnedCStringVector.pack(values), "async.invalid") { return 1 }
     values.free(); nul.free()
     let tooMany = Array<String>(); var i = 0
     while i < 257 { tooMany.push("x"); i = i + 1 }
-    if not matches(ProcessArguments.pack(tooMany), "async.limit") { return 2 }
+    if not matches(OwnedCStringVector.pack(tooMany), "async.limit") { return 2 }
     tooMany.free()
     if validProcessProgram("/bin/../cat") or validProcessProgram("cat") or
         not validProcessProgram("/bin/cat") { return 3 }
@@ -23,11 +24,16 @@ fun main() r: Int {
     if not validProcessEnvironment(environment) { return 5 }
     environment.free()
     let arguments = Array<String>(); arguments.push("hello"); arguments.push("world")
-    let packed = ProcessArguments.pack(arguments)
+    let packed = OwnedCStringVector.pack(arguments)
     if packed.isErr() { return 6 }
     let owner = packed.unwrap(); packed.releaseContainer()
     arguments[0] = "changed"; arguments.free()
     if (ptr_deref_i8(owner.strings.data as Int) as Int) != 104 or
         ptr_deref_i64((owner.pointers.data as Int) + 16) != 0 { return 7 }
-    owner.release(); return 0
+    let first = owner.get(0)
+    if first.isErr() { return 8 }
+    let owned = first.unwrap(); first.releaseContainer()
+    owner.release()
+    if owned != "hello" { return 9 }
+    owned.free(); return 0
 }

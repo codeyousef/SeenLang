@@ -74,6 +74,7 @@ modules = [
     "src/async/process_native.seen",
     "src/async/processes.seen",
     "src/async/task_diagnostics.seen",
+    "src/async/owned_strings.seen",
     "src/async/join_report.seen",
     "src/async/dns_wire.seen",
     "src/async/dns.seen",

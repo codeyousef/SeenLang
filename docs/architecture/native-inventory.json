@@ -6183,6 +6183,7 @@
       "sources": [
         "seen_std/src/async/dns_wire.seen",
         "seen_std/src/async/executor_native.seen",
+        "seen_std/src/async/owned_strings.seen",
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen",
         "seen_std/src/json/builder.seen",
@@ -6241,6 +6242,7 @@
       "abi": "C",
       "sources": [
         "seen_std/src/async/dns_wire.seen",
+        "seen_std/src/async/owned_strings.seen",
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen"
       ]
