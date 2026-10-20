@@ -9,6 +9,7 @@ if [ "${SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE:-0}" != 1 ]; then
 fi
 bash "$CAPPED_ENTRY" --verify-platform-active "$SCOPE"
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/executor-native.XXXXXX")"
+source "$ROOT_DIR/scripts/report_fixture_failure_logs.sh"
 cleanup() {
     local status=$?
     if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
@@ -18,6 +19,7 @@ cleanup() {
         esac
     else
         echo "Preserved executor artifacts: $TMP_DIR" >&2
+        seen_report_fixture_failure_logs "$TMP_DIR"
     fi
     exit "$status"
 }
