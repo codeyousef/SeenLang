@@ -7,27 +7,23 @@ import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
 import codegen.ir_type_mapping.{isFixedWidthScalarTypeImpl,
     getFixedWidthScalarLlvmTypeImpl}
 
-fun emitPointerIndexAccessImpl(output: StringBuilder, regBox: Array<Int>,
-    baseReg: String, indexReg: String) r: String {
-
-    let mulReg = getNextRegFn(regBox)
-    output.append("  " + mulReg + " = mul i64 " + indexReg + ", 8\n")
-    let offsetReg = getNextRegFn(regBox)
-    output.append("  " + offsetReg + " = call i64 @seen_ptr_add(i64 " +
-        baseReg + ", i64 " + mulReg + ", i64 1)\n")
-    let ptrReg = getNextRegFn(regBox)
-    output.append("  " + ptrReg + " = inttoptr i64 " + offsetReg +
-        " to ptr\n")
-    let resultReg = getNextRegFn(regBox)
-    output.append("  " + resultReg + " = load i64, ptr " + ptrReg +
-        " ; ptr[i] access\n")
-    return resultReg
+fun emitPointerIndexAddressImpl(output: StringBuilder, regBox: Array<Int>,
+    baseReg: String, indexReg: String, elementLlvmType: String) r: String {
+    if elementLlvmType == "" or elementLlvmType == "void" {
+        abort("Error: [E_POINTER_ELEMENT] pointer indexing requires a concrete pointee type")
+    }
+    let base = getNextRegFn(regBox)
+    output.append("  " + base + " = inttoptr i64 " + baseReg + " to ptr\n")
+    let address = getNextRegFn(regBox)
+    output.append("  " + address + " = getelementptr " + elementLlvmType + ", ptr " + base + ", i64 " + indexReg + "\n")
+    return address
 }
-
 fun emitPreparedPointerIndexAccessImpl(output: StringBuilder,
-    regBox: Array<Int>, baseReg: String, indexReg: String) r: String {
-
-    return emitPointerIndexAccessImpl(output, regBox, baseReg, indexReg)
+    regBox: Array<Int>, baseReg: String, indexReg: String, elementLlvmType: String) r: String {
+    let address = emitPointerIndexAddressImpl(output, regBox, baseReg, indexReg, elementLlvmType)
+    let result = getNextRegFn(regBox)
+    output.append("  " + result + " = load " + elementLlvmType + ", ptr " + address + ", align 1 ; typed ptr[i]\n")
+    return result
 }
 
 fun emitOperatorIndexAccessCallImpl(output: StringBuilder,
