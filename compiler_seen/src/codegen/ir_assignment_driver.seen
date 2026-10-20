@@ -1,3 +1,4 @@
+import codegen.ir_bounds_proof_state.{consumeBoundsProof}
 // ir_assignment_driver.seen - recursive assignment lowering.
 
 import parser.real_parser.{ParserExpressionNode, StatementNode}
@@ -272,8 +273,13 @@ fun generateIndexAssignmentState(ctx: CodegenLoweringContext,
 
     let arrayType = inferLoweredExpressionType(ctx, array)
     let valueSeenType = inferLoweredExpressionType(ctx, value)
+    var checked = boundsCheckEnabled
+    if checked == 1 and consumeBoundsProof(array, index) {
+        output.append("  ; bounds-proof: canonical zero-to-stable-length write\n")
+        checked = 0
+    }
     let newBoundsCount = emitPreparedIndexAssignmentState(output, arrayReg,
         indexReg, valueReg, arrayType, value.kind, valueSeenType,
-        boundsCheckEnabled, boundsCheckLabelCount)
+        checked, boundsCheckLabelCount)
     return AssignmentDriverResult.new(newBoundsCount)
 }

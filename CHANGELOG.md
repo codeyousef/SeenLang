@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add conservative numeric tensor-loop bounds proofs and bounded JSON reports
+  for applied frontend proofs and observed LLVM vectorization decisions. Checked
+  builds retain unproved guards and refresh mutable array iteration bounds.
+
 - Added NEON and scalable SVE dot lowering with per-thread OS vector-state
   discovery, explicit fallback and compile-only cross-target fixtures. Shared
   dot contracts, scalar references and fixture tooling now serve both x86 and

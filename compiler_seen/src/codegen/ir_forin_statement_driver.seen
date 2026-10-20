@@ -1,8 +1,12 @@
+import codegen.ir_index_access_driver.{emitIndexBoundsCheckState}
+import codegen.ir_bounds_proof.{BoundsProofPlan, proveRangeArrayBounds}
+import codegen.ir_bounds_proof_state.{enterBoundsProof, leaveBoundsProof, boundsProofAccessCount}
+import codegen.simd_report.{appendBoundsLoopRecord}
 // ir_forin_statement_driver.seen - for-in statement lowering.
 
 import parser.real_parser.{StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, setFeatureBoundsCheckLabelCountImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getCurrentLoopCondLabelWithGlobalStateImpl, setCurrentLoopCondLabelWithGlobalStateImpl, getCurrentLoopEndLabelWithGlobalStateImpl, setCurrentLoopEndLabelWithGlobalStateImpl, resolveFunctionBodyForInLoopVariableStorageWithGlobalStateImpl, resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl}
 import codegen.ir_codegen_metrics_state.{cseClear}
 import codegen.ir_codegen_type_state.{mapTypeState}
@@ -77,7 +81,18 @@ fun generateForInStatementState(ctx: CodegenLoweringContext,
             loopContext.bodyLabel, loopContext.endLabel)
         cseClear()
         setBlockTerminatedWithGlobalStateImpl(false)
+        let boundsEnabled = getFeatureBoundsCheckEnabledImpl()
+        var proof = BoundsProofPlan.create(loopVarName)
+        if boundsEnabled == 1 {
+            proof.free()
+            proof = proveRangeArrayBounds(stmt, varNames, varTypes,
+                getBoundedActiveVarCountWithGlobalStateImpl(varNames))
+        }
+        let proofScope = enterBoundsProof(proof)
         lowerBlock(ctx, stmt.loopBody)
+        appendBoundsLoopRecord(output, loopContext.loopMetaId, stmt.line, stmt.column,
+            proofScope.plan.reason, boundsProofAccessCount(), boundsEnabled)
+        leaveBoundsProof(proofScope)
         if not getBlockTerminatedWithGlobalStateImpl() {
             emitForInIncrementImpl(output, getFeatureRegBoxImpl(), idxReg,
                 loopContext.condLabel, loopContext.loopMetaIdStr)
@@ -111,7 +126,7 @@ fun generateForInStatementState(ctx: CodegenLoweringContext,
                 " = call i64 @seen_length(%SeenString " + arrStrReg + ")\n")
         } else {
             lenReg = emitSeenArrayLengthLoadImpl(output,
-                getFeatureRegBoxImpl(), arrReg, ", !tbaa !108, !range !188")
+                getFeatureRegBoxImpl(), arrReg, ", !tbaa !108")
         }
         let idxReg = resolveFunctionBodyForInIndexAllocaWithGlobalStateImpl(
             output, getFeatureRegBoxImpl(), "__forin_idx_" + loopVarName)
@@ -134,13 +149,19 @@ fun generateForInStatementState(ctx: CodegenLoweringContext,
             var isFloat = 0
             if elementType == "String" { isString = 1 }
             if elementType == "Float" { isFloat = 1 }
+            let refreshedBoundsCount = emitIndexBoundsCheckState(output, arrReg, loadIdx,
+                getFeatureBoundsCheckEnabledImpl(), getFeatureBoundsCheckLabelCountImpl())
+            setFeatureBoundsCheckLabelCountImpl(refreshedBoundsCount)
             emitForInElementFetchImpl(output, getFeatureRegBoxImpl(), arrReg,
                 loadIdx, loopVarReg, elementType, isString, isFloat)
-            emitForInPrefetchImpl(output, getFeatureRegBoxImpl(),
-                getFeatureBlockBoxImpl(), arrReg, loadIdx, lenReg,
-                elementType)
+            if getFeatureBoundsCheckEnabledImpl() == 0 {
+                emitForInPrefetchImpl(output, getFeatureRegBoxImpl(),
+                    getFeatureBlockBoxImpl(), arrReg, loadIdx, lenReg, elementType)
+            }
         }
         lowerBlock(ctx, stmt.loopBody)
+        appendBoundsLoopRecord(output, loopContext.loopMetaId, stmt.line, stmt.column,
+            "mutable-iteration-state", 0, getFeatureBoundsCheckEnabledImpl())
         if not getBlockTerminatedWithGlobalStateImpl() {
             emitForInIncrementImpl(output, getFeatureRegBoxImpl(), idxReg,
                 loopContext.condLabel, loopContext.loopMetaIdStr)

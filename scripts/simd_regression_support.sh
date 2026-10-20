@@ -6,6 +6,7 @@
 }
 : "${SEEN_SIMD_ARTIFACT_PREFIX:?}" "${ATTESTED_SEEN:?}" "${TMP_DIR:?}"
 ulimit -c 0
+SIMD_COMPILE_FLAGS=()
 source "$ROOT_DIR/scripts/report_fixture_failure_logs.sh"
 cleanup() {
     local status=$?
@@ -26,7 +27,7 @@ compile_case() {
     if [ "$profile" = undefined ] || [ "$profile" = address ]; then flags+=("--sanitize=$profile"); fi
     local log="$TMP_DIR/00-active.log"
     run_compiler compile "$source" "$TMP_DIR/$name-$profile" --no-cache --frozen \
-        --target-cpu=x86-64 --emit-module-ir-dir "$TMP_DIR/$name-$profile-ir" "${flags[@]}" >"$log" 2>&1
+        --target-cpu=x86-64 --emit-module-ir-dir "$TMP_DIR/$name-$profile-ir" "${flags[@]}" "${SIMD_COMPILE_FLAGS[@]}" >"$log" 2>&1
     if [ "$profile" = address ]; then
         timeout --foreground --kill-after=5s 120s bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
             --target-root "$TMP_DIR" --compile-log "$log" -- "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1

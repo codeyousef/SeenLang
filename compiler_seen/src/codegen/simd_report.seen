@@ -1,105 +1,149 @@
-///
-SIMD Vectorization Report Parser
-Parses LLVM opt -pass-remarks output and formats a vectorization report
-///
-
+/// Machine-readable compiler decisions. Frontend proofs and observed LLVM
+/// remarks remain separate; neither claims target execution or certification.
 import str.string.{StringBuilder}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
 
-// A single vectorization remark from LLVM opt
-class VectorizationRemark {
-    let location: String    // file:line:col
-    let loopName: String    // loop identifier
-    let width: Int          // vectorization width (0 if not vectorized)
-    let reason: String      // reason for failure (empty if vectorized)
-    let vectorized: Bool    // whether the loop was vectorized
-
-    fun new(location: String, loopName: String, width: Int, reason: String, vectorized: Bool) r: VectorizationRemark {
-        return VectorizationRemark{
-            location: location,
-            loopName: loopName,
-            width: width,
-            reason: reason,
-            vectorized: vectorized
-        }
+var g_simdReportingEnabled: Bool = false
+fun configureSimdReporting(enabled: Bool) r: Void { g_simdReportingEnabled = enabled }
+fun renderBoundsLoopRecord(loopId: Int, line: Int, column: Int, reason: String,
+    eliminated: Int, checksEnabled: Int) r: String {
+    let builder = JsonBuilder_new(); builder.startObject()
+    builder.stringProp("contract", "seen-simd-loop-v1"); builder.stringProp("phase", "frontend")
+    builder.intProp("loop_id", loopId); builder.intProp("line", line); builder.intProp("column", column)
+    var decision = "retained"; var explanation = reason
+    if checksEnabled == 0 { decision = "disabled"; explanation = "caller-disabled-checks" }
+    else if reason == "canonical-zero-to-stable-length" {
+        if eliminated > 0 { decision = "proved" } else { explanation = "access-not-proved" }
     }
+    builder.stringProp("bounds", decision); builder.stringProp("reason", explanation)
+    builder.intProp("checks_eliminated", eliminated)
+    builder.stringProp("vectorization", "not-yet-observed"); builder.boolProp("hardware_verified", 0)
+    builder.endObject(); let text = builder.build(); destroyJsonBuilder(builder)
+    return text
+}
+fun appendBoundsLoopRecord(output: StringBuilder, loopId: Int, line: Int, column: Int,
+    reason: String, eliminated: Int, checksEnabled: Int) r: Void {
+    if not g_simdReportingEnabled { return }
+    let text = renderBoundsLoopRecord(loopId, line, column, reason, eliminated, checksEnabled)
+    let prefix = "; seen-simd-loop " + text; let record = prefix + "\n"
+    // The IR builder retains record until module flattening, as for all other
+    // emitted IR fragments. The independent JSON/prefix temporaries can close.
+    output.append(record); releaseJsonText(prefix); releaseJsonText(text)
+}
+fun simdReportDecimalAfter(text: String, marker: String) r: Int {
+    let found = text.indexOf(marker)
+    if found < 0 { return 0 }
+    var position = found + marker.length(); var value = 0; var digits = 0
+    while position < text.length() and digits < 6 {
+        let byte = text.byteAt(position)
+        if byte < 48 or byte > 57 { return value }
+        value = value * 10 + byte - 48; position = position + 1; digits = digits + 1
+    }
+    return value
+}
+fun simdRemarkReason(line: String) r: String {
+    if line.contains("not beneficial") or line.contains("not profitable") or line.contains("cost-model") { return "cost-model" }
+    if line.contains("call instruction") { return "call" }
+    if line.contains("dependence") or line.contains("cannot prove it is safe") { return "memory-dependence" }
+    if line.contains("loop iterations") or line.contains("array bounds") { return "unproved-loop-bounds" }
+    if line.contains("floating-point") { return "floating-point-semantics" }
+    return "llvm-rejected"
+}
+fun emitLlvmSimdRemark(line: String, moduleIndex: Int, full: Bool) r: Int {
+    if not line.contains("remark:") { return 0 }
+    let selected = line.contains("vectorized loop") and not line.contains("loop not vectorized")
+    let rejected = line.contains("loop not vectorized")
+    if not selected and not rejected { return 0 }
+    let builder = JsonBuilder_new(); builder.startObject()
+    builder.stringProp("contract", "seen-simd-loop-v1"); builder.stringProp("phase", "llvm-module")
+    builder.intProp("module_index", moduleIndex)
+    if selected {
+        builder.stringProp("vectorization", "selected"); builder.stringProp("reason", "llvm-vectorized")
+        builder.intProp("width", simdReportDecimalAfter(line, "vectorization width: "))
+    } else {
+        builder.stringProp("vectorization", "rejected"); builder.stringProp("reason", simdRemarkReason(line))
+    }
+    if full {
+        var detail = line
+        var owned = false
+        if detail.length() > 2048 { detail = line.substring(0, 2048); owned = true }
+        builder.stringProp("diagnostic", detail)
+        if owned { releaseJsonText(detail) }
+    }
+    builder.boolProp("hardware_verified", 0); builder.endObject()
+    let text = builder.build(); destroyJsonBuilder(builder); println(text); releaseJsonText(text)
+    if selected { return 1 }
+    return 2
+}
+fun emitCollectedSimdReports(text: String, moduleIndex: Int, frontend: Bool, full: Bool) r: Void {
+    // The parent supplies at most 256 KiB from compiler-owned IR/log files.
+    // Bound each record and total records again before formatting output.
+    let limit = 262144; var cursor = 0; var start = 0; var records = 0
+    var proved = 0; var retained = 0; var disabled = 0; var eliminated = 0
+    var selected = 0; var rejected = 0
+    while cursor <= text.length() and cursor <= limit and records < 4096 {
+        if cursor == text.length() or cursor == limit or text.byteAt(cursor) == 10 {
+            if cursor - start <= 8192 and cursor > start {
+                let line = text.substring(start, cursor)
+                if frontend {
+                    let prefix = "; seen-simd-loop "
+                    if line.startsWith(prefix + "{\"contract\":\"seen-simd-loop-v1\"") and line.endsWith("}") {
+                        records = records + 1
+                        if line.contains("\"bounds\":\"proved\"") { proved = proved + 1 }
+                        if line.contains("\"bounds\":\"retained\"") { retained = retained + 1 }
+                        if line.contains("\"bounds\":\"disabled\"") { disabled = disabled + 1 }
+                        eliminated = eliminated + simdReportDecimalAfter(line, "\"checks_eliminated\":")
+                        if full {
+                            let record = line.substring(prefix.length(), line.length())
+                            let builder = JsonBuilder_new(); builder.startObject()
+                            builder.stringProp("contract", "seen-simd-module-record-v1")
+                            builder.intProp("module_index", moduleIndex); builder.key("loop"); builder.raw(record)
+                            builder.endObject(); let wrapped = builder.build(); destroyJsonBuilder(builder)
+                            println(wrapped); releaseJsonText(wrapped); releaseJsonText(record)
+                        }
+                    }
+                } else {
+                    let decision = emitLlvmSimdRemark(line, moduleIndex, full)
+                    if decision != 0 { records = records + 1 }
+                    if decision == 1 { selected = selected + 1 }
+                    if decision == 2 { rejected = rejected + 1 }
+                }
+                releaseJsonText(line)
+            }
+            start = cursor + 1
+        }
+        cursor = cursor + 1
+    }
+    let builder = JsonBuilder_new(); builder.startObject()
+    builder.stringProp("contract", "seen-simd-summary-v1"); builder.intProp("module_index", moduleIndex)
+    if frontend {
+        builder.stringProp("phase", "frontend"); builder.intProp("proved_loops", proved)
+        builder.intProp("retained_loops", retained); builder.intProp("disabled_loops", disabled)
+        builder.intProp("checks_eliminated", eliminated)
+    } else {
+        builder.stringProp("phase", "llvm-module"); builder.intProp("selected_remarks", selected)
+        builder.intProp("rejected_remarks", rejected)
+        if records == 0 { builder.stringProp("reason", "no-observed-loop-vectorization-remark") }
+    }
+    var truncated = 0; if text.length() >= limit or records >= 4096 { truncated = 1 }
+    builder.boolProp("truncated", truncated); builder.boolProp("hardware_verified", 0)
+    builder.endObject(); let summary = builder.build(); destroyJsonBuilder(builder)
+    println(summary); releaseJsonText(summary)
 }
 
-// Parse vectorization remarks from LLVM opt stderr output
-class SIMDReportParser {
-    let remarks: Array<VectorizationRemark>
-    let vectorizedCount: Int
-    let missedCount: Int
-
-    fun new() r: SIMDReportParser {
-        return SIMDReportParser{
-            remarks: Array<VectorizationRemark>(),
-            vectorizedCount: 0,
-            missedCount: 0
-        }
-    }
-
-    ///
-    Parse LLVM opt output lines for vectorization remarks
-    Lines matching "remark:" are vectorization passes
-    ///
-    fun parseOutput(output: String) r: SIMDReportParser {
-        var result = SIMDReportParser.new()
-        let lines = output.split("\n")
-        var i = 0
-        while i < lines.length() {
-            let line = lines[i]
-            if contains(line, "remark:") {
-                if contains(line, "vectorized loop") {
-                    // Successfully vectorized
-                    var width = 0
-                    if contains(line, "width 2") {
-                        width = 2
-                    }
-                    if contains(line, "width 4") {
-                        width = 4
-                    }
-                    if contains(line, "width 8") {
-                        width = 8
-                    }
-                    if contains(line, "width 16") {
-                        width = 16
-                    }
-                    let remark = VectorizationRemark.new(line, "", width, "", true)
-                    result.remarks.push(remark)
-                    result.vectorizedCount = result.vectorizedCount + 1
-                } else {
-                    if contains(line, "loop not vectorized") {
-                        // Failed to vectorize
-                        let remark = VectorizationRemark.new(line, "", 0, "not vectorized", false)
-                        result.remarks.push(remark)
-                        result.missedCount = result.missedCount + 1
-                    }
-                }
-            }
-            i = i + 1
-        }
-        return result
-    }
-
-    // Format the report for stderr output
-    fun formatReport(parser: SIMDReportParser) r: String {
-        var sb = StringBuilder.new()
-        sb.append("=== SIMD Vectorization Report ===\n")
-        sb.append("Vectorized loops: " + parser.vectorizedCount.toString() + "\n")
-        sb.append("Missed loops:     " + parser.missedCount.toString() + "\n")
-        sb.append("\n")
-
-        var i = 0
-        while i < parser.remarks.length() {
-            let remark = parser.remarks[i]
-            if remark.vectorized {
-                sb.append("[VECTORIZED] width=" + remark.width.toString() + "  " + remark.location + "\n")
-            } else {
-                sb.append("[MISSED]     " + remark.reason + "  " + remark.location + "\n")
-            }
-            i = i + 1
-        }
-        sb.append("=================================\n")
-        return sb.toString()
-    }
+fun emitSimdObservationUnavailable(moduleIndex: Int, reason: String) r: Void {
+    let builder = JsonBuilder_new(); builder.startObject()
+    builder.stringProp("contract", "seen-simd-loop-v1"); builder.stringProp("phase", "llvm-module")
+    builder.intProp("module_index", moduleIndex); builder.stringProp("vectorization", "unavailable")
+    builder.stringProp("reason", reason); builder.boolProp("hardware_verified", 0); builder.endObject()
+    let text = builder.build(); destroyJsonBuilder(builder); println(text); releaseJsonText(text)
+}
+fun emitSimdPolicyRecord(policy: String, targetCpu: String) r: Void {
+    let builder = JsonBuilder_new(); builder.startObject()
+    builder.stringProp("contract", "seen-simd-policy-v1"); builder.stringProp("policy", policy)
+    builder.stringProp("target_cpu", targetCpu)
+    if policy == "none" { builder.stringProp("vectorization", "disabled-by-policy") }
+    else { builder.stringProp("vectorization", "awaiting-llvm-observation") }
+    builder.boolProp("hardware_verified", 0); builder.endObject()
+    let text = builder.build(); destroyJsonBuilder(builder); println(text); releaseJsonText(text)
 }
