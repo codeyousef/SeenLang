@@ -1,5 +1,8 @@
+import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
 import async.process_arguments.{validProcessProgram, validProcessEnvironment}
 import async.owned_strings.{OwnedCStringVector}
+import async.executor_native.{seen_string_release_owned}
 import core.result.{Result}
 import async.structured.{AsyncError}
 fun matches<T>(result: Result<T, AsyncError>, code: String) r: Bool {
@@ -9,9 +12,14 @@ fun matches<T>(result: Result<T, AsyncError>, code: String) r: Bool {
     error.free(); return okay
 }
 fun main() r: Int {
-    let values = Array<String>(); let nul = String.fromCharCode(0); values.push(nul)
+    let allocated = OwnedBuffer<UInt8>.allocate(1 as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { return 10 }
+    let storage = allocated.unwrap(); allocated.releaseContainer()
+    ptr_store_i8(storage.data as Int, 0 as Int8)
+    let nul = seen_string_view_bytes(storage.data as *const UInt8, 1 as Int64)
+    let values = Array<String>(); values.push(nul)
     if not matches(OwnedCStringVector.pack(values), "async.invalid") { return 1 }
-    values.free(); nul.free()
+    values.free(); storage.close(); storage.free()
     let tooMany = Array<String>(); var i = 0
     while i < 257 { tooMany.push("x"); i = i + 1 }
     if not matches(OwnedCStringVector.pack(tooMany), "async.limit") { return 2 }
@@ -35,5 +43,5 @@ fun main() r: Int {
     let owned = first.unwrap(); first.releaseContainer()
     owner.release()
     if owned != "hello" { return 9 }
-    owned.free(); return 0
+    seen_string_release_owned(owned); return 0
 }

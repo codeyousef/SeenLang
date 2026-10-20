@@ -1,7 +1,7 @@
 import core.result.{Result, Ok, Err}
 import core.error.{RedactionClass, RetryClass}
 import async.structured.{AsyncError, asyncFailure, asyncStatusCode}
-import async.executor_native.{seen_string_clone_owned}
+import async.executor_native.{seen_string_clone_owned, seen_string_release_owned}
 import async.owned_strings.{OwnedCStringVector}
 
 enum TaskDiagnosticKind { Failure; Panic; Fallback }
@@ -110,7 +110,7 @@ class TaskDiagnostic {
             if value.isErr() {
                 let error = value.unwrapErr(); value.releaseContainer()
                 var j = 0
-                while j < values.length() { values[j].free(); j = j + 1 }
+                while j < values.length() { seen_string_release_owned(values[j]); j = j + 1 }
                 values.free(); return Err<TaskDiagnostic, AsyncError>(error)
             }
             values.push(value.unwrap()); value.releaseContainer(); i = i + 1
@@ -118,7 +118,7 @@ class TaskDiagnostic {
         let copied = TaskDiagnostic.create(this.kind, this.status, this.backend, this.message,
             values, this.progress, retry, RedactionClass.Public)
         i = 0
-        while i < values.length() { values[i].free(); i = i + 1 }
+        while i < values.length() { seen_string_release_owned(values[i]); i = i + 1 }
         values.free(); return copied
     }
     fun code() r: String {
@@ -126,7 +126,7 @@ class TaskDiagnostic {
         return asyncStatusCode(this.status)
     }
     fun release() r: Void {
-        this.causes.release(); this.message.free(); this.free()
+        this.causes.release(); seen_string_release_owned(this.message); this.free()
     }
 }
 
@@ -140,5 +140,5 @@ class TaskCapture {
     var deadline: Int64
     var fallbackPolicy: Int
     var depth: Int
-    fun release() r: Void { this.resourceId.free(); this.traceId.free(); this.free() }
+    fun release() r: Void { seen_string_release_owned(this.resourceId); seen_string_release_owned(this.traceId); this.free() }
 }

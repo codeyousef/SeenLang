@@ -1,3 +1,4 @@
+import async.executor_native.{seen_string_release_owned}
 import core.result.{Result}
 import core.option.{Option, Some, None}
 import core.error.{AsciiString, RetryClass, RedactionClass}
@@ -124,7 +125,7 @@ fun main() r: Int {
     submission.resourceId = seen_string_clone_owned("owned-resource")
     submission.operation.traceId.value = seen_string_clone_owned("owned-trace")
     let handle = must(executor.spawn(probe(0, releases, started), submission))
-    submission.resourceId.free(); submission.operation.traceId.value.free(); executorReleaseContext(submission)
+    seen_string_release_owned(submission.resourceId); seen_string_release_owned(submission.operation.traceId.value); executorReleaseContext(submission)
     let report = must(handle.joinDetailed(ctx)); handle.free()
     if report.error.isSome() or report.progress != (3 as UInt64) or report.fallback.isNone() { return 3 }
     let fallback = report.fallback.unwrap()
