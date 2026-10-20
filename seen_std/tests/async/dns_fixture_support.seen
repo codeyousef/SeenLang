@@ -1,6 +1,6 @@
 import async.dns_wire.{DnsWire, DnsQuestion}
 import memory.aligned_buffer.{OwnedBuffer}
-fun dnsFixtureAnswer(question: DnsQuestion) r: DnsWire {
+fun dnsFixtureAnswer(borrow question: DnsQuestion) r: DnsWire {
     let allocated = OwnedBuffer<UInt8>.allocate(512 as UInt64, 1 as UInt64, 16 as UInt64)
     if allocated.isErr() { abort("DNS fixture allocation failed") }
     let storage = allocated.unwrap(); allocated.releaseContainer()
