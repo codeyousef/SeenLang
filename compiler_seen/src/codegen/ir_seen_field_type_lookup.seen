@@ -1,12 +1,23 @@
+import codegen.ir_generic_type_specialize.{specializeGenericTypeImpl}
 ///
 Seen-level struct field type lookup helpers
 Extracted from ir_type_info.seen
 ///
 
-import codegen.ir_type_info.{g_seenFieldTypeCacheValues, findSeenFieldTypeCacheRecord, cacheSeenFieldType, findStructIdx}
+import codegen.ir_type_info.{g_seenFieldTypeCacheValues, findSeenFieldTypeCacheRecord, cacheSeenFieldType, findStructIdx, findStructDeclarationIdx}
 import codegen.ir_seen_field_type_registered.{getSeenFieldTypeEmptyRegistryFallbackImpl, resolveSeenFieldTypeFromRegisteredListsImpl}
 
 fun getSeenFieldTypeImpl(structName: String, fieldName: String, structNames: Array<String>, structFieldNames: Array<String>, structFieldTypes: Array<String>) r: String {
+    if structName.contains("<") {
+        let declarationIndex = findStructDeclarationIdx(structNames, structName)
+        if declarationIndex >= 0 {
+            let declaration = structNames[declarationIndex]
+            if declaration != structName {
+                let declared = getSeenFieldTypeImpl(declaration, fieldName, structNames, structFieldNames, structFieldTypes)
+                return specializeGenericTypeImpl(structName, declaration, declared)
+            }
+        }
+    }
     let cacheKey = structName + "." + fieldName
     let structLen = structNames.length()
     let cachedFieldType = findSeenFieldTypeCacheRecord(cacheKey, structLen,
