@@ -1,0 +1,6 @@
+import generic_borrow_support.{BorrowToken, BorrowFactory}
+fun main() r: Int {
+    let token = BorrowToken{value: 7}
+    BorrowFactory<Array<Int>>.consume(token)
+    return token.value
+}

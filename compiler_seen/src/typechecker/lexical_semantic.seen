@@ -1,3 +1,4 @@
+import json.builder.{releaseJsonText}
 ///
 Stage-2 lexical semantic foundation executed after parsing and before LLVM
 lowering. It establishes shared identities, declaration metadata, and proved
@@ -759,10 +760,28 @@ fun semanticConsumeSimpleMove(result: LexicalSemanticResult,
 }
 
 fun semanticCallArgumentTransfersOwnership(result: LexicalSemanticResult,
-    moduleName: String, callee: String, argumentIndex: Int) r: Bool {
+    moduleName: String, expression: ParserExpressionNode, bindings: ScopedBindings,
+    argumentIndex: Int) r: Bool {
 
-    let ownership = result.registry.callParameterOwnership(moduleName,
-        callee, argumentIndex)
+    var callee = expression.callee; var owned = false
+    if expression.kind == "MethodCall" {
+        var receiver = ""
+        if expression.operands.length() > 0 {
+            receiver = semanticExpressionBindingIdentity(result, expression.operands[0], bindings, moduleName)
+        } else if expression.literalValue != "" {
+            receiver = bindings.lookup(expression.literalValue)
+            if receiver == "" { receiver = expression.literalValue }
+        }
+        if receiver != "" and receiver != "Unknown" {
+            let valueType = semanticDefaultParameterType(receiver)
+            let prefix = valueType + "."
+            callee = prefix + expression.callee; owned = true
+            releaseJsonText(prefix)
+            if valueType != receiver { releaseJsonText(valueType) }
+        }
+    }
+    let ownership = result.registry.callParameterOwnership(moduleName, callee, argumentIndex)
+    if owned { releaseJsonText(callee) }
     return ownership != "borrow" and ownership != "ref"
 }
 
@@ -909,7 +928,7 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
         semanticCheckExpression(result, expression.arguments[i], bindings,
             moduleName, file, line, column, ownerType)
         if semanticCallArgumentTransfersOwnership(result, moduleName,
-            expression.callee, i) {
+            expression, bindings, i) {
 
             semanticConsumeSimpleMove(result, expression.arguments[i],
                 bindings)

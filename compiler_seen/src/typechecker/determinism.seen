@@ -2,7 +2,7 @@
 // Validates deterministic annotations and nondeterministic usage.
 
 import parser.real_parser.{ProgramNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, ClassNode}
-import typechecker.type_ref.{TypeRef, parseTypeRef}
+import typechecker.type_ref.{TypeRef, parseTypeRef, typeRefEraseCallArguments}
 
 // Known nondeterministic types from stdlib require annotation in
 // deterministic profile mode.
@@ -161,14 +161,7 @@ fun determinismGraphMaxPropagationRounds() r: Int { return 128 }
 fun determinismGraphMaxPathLength() r: Int { return 768 }
 
 fun determinismStripCallGenericArguments(name: String) r: String {
-    var i = 0
-    while i < name.length() {
-        if name.byteAt(i) == 60 {
-            return name.substring(0, i)
-        }
-        i = i + 1
-    }
-    return name
+    return typeRefEraseCallArguments(name)
 }
 
 fun determinismGlobalEncodedType(encoded: String) r: String {

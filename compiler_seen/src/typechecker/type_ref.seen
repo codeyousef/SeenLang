@@ -1,3 +1,4 @@
+import json.builder.{jsonAppendOwnedPart, jsonFinishOwned, releaseJsonText}
 ///
 Structured Seen type references used by semantic analysis.
 
@@ -634,5 +635,37 @@ fun typeRefSubstitute(typeRef: TypeRef, names: Array<String>,
             values))
         i = i + 1
     }
+    return result
+}
+
+/// Erase balanced call-site type arguments while preserving member suffixes:
+/// Factory<Array<Int>>.create<Job> becomes Factory.create. Names without type
+/// arguments are borrowed; a nonempty erased result is JSON-owned storage.
+fun typeRefEraseCallArguments(name: String) r: String {
+    if name.indexOf("<", 0) < 0 { return name }
+    if name.length() > 4096 { return "" }
+    let builder = StringBuilder.new(); let ownership = Array<Bool>()
+    var depth = 0; var start = 0; var i = 0; var valid = true
+    while i < name.length() {
+        let byte = name.byteAt(i)
+        if byte == 60 {
+            if depth == 0 and start < i {
+                jsonAppendOwnedPart(builder, ownership, name.substring(start, i))
+            }
+            depth = depth + 1
+            if depth > 64 { valid = false }
+        } else if byte == 62 {
+            depth = depth - 1
+            if depth < 0 { valid = false }
+            if depth == 0 { start = i + 1 }
+        }
+        i = i + 1
+    }
+    if depth != 0 { valid = false }
+    if valid and start < name.length() {
+        jsonAppendOwnedPart(builder, ownership, name.substring(start, name.length()))
+    }
+    let result = jsonFinishOwned(builder, ownership)
+    if not valid { releaseJsonText(result); return "" }
     return result
 }

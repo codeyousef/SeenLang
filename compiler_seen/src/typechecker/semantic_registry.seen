@@ -1,3 +1,5 @@
+import typechecker.type_ref.{typeRefEraseCallArguments}
+import json.builder.{releaseJsonText}
 import simd.ir_types.{simdBuiltinLanes, simdMaskLanes}
 ///
 Semantic identities, cross-module declarations, decorators, and lexical
@@ -649,15 +651,37 @@ class SemanticDeclarationRegistry {
         this.parameterOwnerships.push(ownership)
     }
 
+    fun lookupCallableIndex(moduleName: String, callee: String) r: Int {
+        let name = typeRefEraseCallArguments(callee)
+        if name == "" { return -1 }
+        let owned = callee.indexOf("<", 0) >= 0
+        var found = -1; var dot = -1; var i = 0
+        while i < name.length() { if name.byteAt(i) == 46 { dot = i }; i = i + 1 }
+        if dot > 0 and dot + 1 < name.length() {
+            let owner = name.substring(0, dot); let member = name.substring(dot + 1, name.length())
+            var ownerIndex = this.findCanonical(owner)
+            if ownerIndex < 0 { ownerIndex = this.lookupIndex(moduleName, owner) }
+            if ownerIndex == -2 { found = -2 }
+            else if ownerIndex >= 0 and (this.kinds[ownerIndex] == "Class" or this.kinds[ownerIndex] == "Struct") {
+                let prefix = this.canonicalNames[ownerIndex] + "."
+                let canonical = prefix + member
+                found = this.findCanonical(canonical)
+                releaseJsonText(prefix); releaseJsonText(canonical)
+            }
+            releaseJsonText(owner); releaseJsonText(member)
+        }
+        if found == -1 {
+            found = this.findCanonical(name)
+            if found < 0 { found = this.lookupIndex(moduleName, name) }
+        }
+        if owned { releaseJsonText(name) }
+        return found
+    }
+
     fun callParameterOwnership(moduleName: String, callee: String,
         parameterIndex: Int) r: String {
 
-        var lookupName = callee
-        let genericStart = lookupName.indexOf("<", 0)
-        if genericStart > 0 {
-            lookupName = lookupName.substring(0, genericStart)
-        }
-        let declarationIndex = this.lookupIndex(moduleName, lookupName)
+        let declarationIndex = this.lookupCallableIndex(moduleName, callee)
         if declarationIndex < 0 or
             declarationIndex >= this.canonicalNames.length() {
 
