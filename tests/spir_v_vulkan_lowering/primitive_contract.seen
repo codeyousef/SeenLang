@@ -7,8 +7,15 @@ extern "C" fun seen_memory_used_bytes() r: Int64
 fun require(value: Bool) r: Void { if not value { abort("SPIR-V primitive contract failed") } }
 fun main() r: Int {
     require(spirvFloatLiteralWord("1.25") == 1067450368 and spirvFloatLiteralWord("-2.5") == 3223322624)
+    require(spirvFloatLiteralWord("1.25e2") == 1123680256)
+    require(spirvFloatLiteralWord("-0.0") == 2147483648 and spirvFloatLiteralWord("0.0") == 0)
+    require(spirvFloatLiteralWord("1.000000059604644775390625") == 1065353216)
+    require(spirvFloatLiteralWord("1.000000178813934326171875") == 1065353218)
+    require(spirvFloatLiteralWord("1.401298464324817e-45") == 1)
+    require(spirvFloatLiteralWord("1.1754943508222875e-38") == 8388608)
     let baseline = seen_memory_used_bytes(); var round = 0
     while round < 100 {
+        require(spirvFloatLiteralWord("1.25e2") == 1123680256)
         let validation = GpuIrValidation.create(); let context = createGpuSpirvContext(validation)
         let function = createGpuSpirvFunction(context, 1, 1, 1); function.emit(253, Array<Int>())
         let entry = [5, function.identity]; require(spirvLiteralString(entry, "main")); context.emit(SPV_ENTRY_POINTS, 15, entry)
