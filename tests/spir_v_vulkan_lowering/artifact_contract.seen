@@ -4,25 +4,25 @@ import bootstrap.frontend.{runFrontendCompat}
 import codegen.gpu_lower_program.{lowerGpuProgram}
 import codegen.gpu_options.{GpuOptions}
 import codegen.gpu_ir_model.{GpuIrModule}
-import codegen.gpu.spirv_artifact.{buildGpuSpirvArtifact}
-import codegen.gpu.spirv_artifact_model.{GpuSpirvArtifact}
-import codegen.gpu.spirv_artifact_manifest.{gpuSpirvArtifactManifest}
+import codegen.gpu_artifact.{buildGpuArtifact}
+import codegen.gpu_artifact_model.{GpuArtifact}
+import codegen.gpu_artifact_manifest.{gpuArtifactManifest}
 import spirv_contract_support.{require}
 import json.builder.{releaseJsonText}
 extern "C" fun seen_memory_used_bytes() r: Int64
 
-fun rejectArtifact(borrow artifact: GpuSpirvArtifact) r: Void {
-    let result = gpuSpirvArtifactManifest(artifact); require(result.isErr())
+fun rejectArtifact(borrow artifact: GpuArtifact) r: Void {
+    let result = gpuArtifactManifest(artifact); require(result.isErr())
     let error = result.unwrapErr(); result.releaseContainer()
     require(error.code == "E_GPU_SPIRV_ARTIFACT"); error.free()
 }
 fun checkArtifact(borrow module: GpuIrModule, borrow options: GpuOptions, emit: Bool) r: Void {
-    let result = buildGpuSpirvArtifact(module, options); require(result.isOkay())
+    let result = buildGpuArtifact(module, options); require(result.isOkay())
     let artifact = result.unwrap(); result.releaseContainer()
     require(artifact.binaryHash.length() == 64 and artifact.reflectionHash.length() == 64)
-    let first = gpuSpirvArtifactManifest(artifact); require(first.isOkay())
+    let first = gpuArtifactManifest(artifact); require(first.isOkay())
     let manifest = first.unwrap(); first.releaseContainer()
-    let second = gpuSpirvArtifactManifest(artifact); require(second.isOkay())
+    let second = gpuArtifactManifest(artifact); require(second.isOkay())
     let again = second.unwrap(); second.releaseContainer(); require(manifest == again)
     releaseJsonText(again); if emit { println(manifest) }; releaseJsonText(manifest)
     let binary = artifact.binary; artifact.binary = "bad"; rejectArtifact(artifact); artifact.binary = binary

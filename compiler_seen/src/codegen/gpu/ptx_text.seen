@@ -1,0 +1,62 @@
+/// Bounded PTX text assembly. Raw owned-text primitives are shared with the
+/// JSON builder; borrowed IR names outlive this writer, and owned fragments
+/// are released on both finish and rejection. No instruction owns native code.
+import str.string.{StringBuilder}
+import json.builder.{jsonAppendBorrowedPart, jsonAppendOwnedPart, jsonAppendInt, jsonAppendHexDigit, jsonFlattenOwned, jsonReleaseOwnedParts, releaseJsonText}
+import codegen.gpu_ir_model.{GpuIrValidation}
+class GpuPtxText {
+    var buffer: StringBuilder
+    var ownership: Array<Bool>
+    var validation: GpuIrValidation
+    static fun create(validation: GpuIrValidation) r: GpuPtxText {
+        return GpuPtxText{buffer: StringBuilder.new(), ownership: Array<Bool>(), validation: validation}
+    }
+    fun reserve(bytes: Int, parts: Int) r: Bool {
+        if not this.validation.valid { return false }
+        if bytes < 0 or bytes > 33554432 - this.buffer.totalLength or parts < 0 or parts > 1048576 - this.buffer.parts.length() {
+            this.validation.reject("E_GPU_PTX_LIMIT", "PTX text or fragment ceiling exceeded", -1, -1, -1); return false
+        }; return true
+    }
+    fun literal(text: String) r: Void {
+        if this.reserve(text.length(), 1) { jsonAppendBorrowedPart(this.buffer, this.ownership, text) }
+    }
+    fun owned(text: String) r: Void {
+        if this.reserve(text.length(), 1) { jsonAppendOwnedPart(this.buffer, this.ownership, text) }
+        else { releaseJsonText(text) }
+    }
+    fun number(value: Int) r: Void {
+        if this.reserve(20, 20) { jsonAppendInt(this.buffer, this.ownership, value) }
+    }
+    fun hexWord(value: Int) r: Void {
+        this.literal("0x"); var shift = 28
+        while shift >= 0 and this.validation.valid {
+            if this.reserve(1, 1) { jsonAppendHexDigit(this.buffer, this.ownership, (value >> shift) & 15) }; shift = shift - 4
+        }
+    }
+    fun reg(kind: String, identity: Int) r: Void { this.literal("%"); this.literal(kind); this.number(identity) }
+    fun label(identity: Int) r: Void { this.literal("$seen_L"); this.number(identity) }
+    fun defineLabel(identity: Int) r: Void { this.label(identity); this.literal(":\n") }
+    fun branch(identity: Int) r: Void { this.literal("bra "); this.label(identity); this.literal(";\n") }
+    fun conditional(predicate: Int, identity: Int) r: Void {
+        this.literal("@"); this.reg("p", predicate); this.literal(" bra "); this.label(identity); this.literal(";\n")
+    }
+    fun unary(opcode: String, destination: Int, source: Int) r: Void {
+        this.literal(opcode); this.literal(" "); this.reg("r", destination); this.literal(", "); this.reg("r", source); this.literal(";\n")
+    }
+    fun binary(opcode: String, destination: Int, left: Int, right: Int) r: Void {
+        this.literal(opcode); this.literal(" "); this.reg("r", destination); this.literal(", "); this.reg("r", left)
+        this.literal(", "); this.reg("r", right); this.literal(";\n")
+    }
+    fun predicate(opcode: String, destination: Int, left: Int, right: Int) r: Void {
+        this.literal(opcode); this.literal(" "); this.reg("p", destination); this.literal(", "); this.reg("r", left)
+        this.literal(", "); this.reg("r", right); this.literal(";\n")
+    }
+    fun select(destination: Int, yes: Int, no: Int, predicate: Int) r: Void {
+        this.literal("selp.b32 "); this.reg("r", destination); this.literal(", "); this.reg("r", yes)
+        this.literal(", "); this.reg("r", no); this.literal(", "); this.reg("p", predicate); this.literal(";\n")
+    }
+    fun finish() r: String { return jsonFlattenOwned(this.buffer, this.ownership) }
+    fun release() r: Void {
+        jsonReleaseOwnedParts(this.buffer, this.ownership); this.ownership.free(); this.buffer.parts.free(); this.buffer.free(); this.free()
+    }
+}

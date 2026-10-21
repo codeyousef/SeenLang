@@ -5,93 +5,65 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.23.0] - Unreleased
 
-- Add bounded Seen executor and real I/O stress fixtures with exact execution,
-  cancellation, progress and resource-lifetime checks. Run software profiles
-  through ThreadSanitizer as well as ASan/UBSan; report hardware certification
-  and the designated performance baseline as pending separately.
-
-- Add owned task-context captures, bounded redacted failure/fallback diagnostics,
-  cooperative panic reports, monotonic task progress and detailed join ownership.
-  Standard-library compatibility advances to 0.7.0; native runtime ABI is unchanged.
-
-- Add checked owning async byte spans, nonblocking pipe/socket streams, bounded
-  process spawning with explicit argv/envp and pidfd reaping, and a Seen DNS
-  query/parser path with explicit server and resource budgets (`runtime-v8`).
-
-- Add bounded Seen reactor dispatch with indexed deadlines, one-shot readiness,
-  generation-checked registrations and typed callback ownership. Add nonblocking
-  TCP socket OS normalization; `runtime-v7` includes these narrow exports.
+This release contains milestone **00 — Gate 0 Toolchain and Accelerator
+Foundations**.
 
 ### Added
 
-- Added reusable typed CPU/blocking pools with independent bounded workers,
-  queues and explicit placement snapshots. Affinity/NUMA OS normalization
-  advances the runtime identity to `runtime-v6`; Seen owns selection and
-  error propagation, with inherited placement as the default.
-
-### Added
-
-- Added `seen-async-sync-v1`: Seen task-group ownership and failure drain,
-  executor-aware wait groups, single-phase barriers, bounded typed queues,
-  and deterministic checked integer reductions. Counter-only models now
-  use explicit Deterministic names.
-
-### Added
-
-- Added a native Seen fixed-worker executor with typed `Send` task admission,
-  bounded FIFO scheduling, worker-assisted nested joins, cooperative
-  cancellation, deadline-aware waits, and deterministic resource release.
-- Added the Linux x86-64 thread create/join adapter and executor/allocator
-  concurrency contracts, including partial thread-creation failure and fork
-  cleanup. Other platforms return an explicit unsupported-platform error.
+- Add a Seen fixed-worker executor with typed Send admission, bounded queues,
+  worker-assisted nested joins, cancellation, deadlines and deterministic drain.
+  Add task groups, executor-aware wait groups, barriers, typed queues and
+  deterministic checked integer reductions.
+- Add independent CPU/blocking pools with bounded workers and queues, explicit
+  placement snapshots, and narrow affinity/NUMA platform normalization.
+- Add bounded reactor readiness and indexed deadlines; owning asynchronous
+  byte spans, pipe/socket streams, process spawning and reaping, DNS queries,
+  owned task-context captures, redacted diagnostics and monotonic progress.
+- Add bounded completion I/O with explicit Linux io_uring, Windows overlapped
+  and macOS worker backends; cancellation, partial-read and device acknowledgement
+  ownership contracts; and trace-based overlap/resource evidence.
+- Add portable SIMD vectors and masks, checked multiversion planning, 512-bit
+  spellings, masked memory operations, packing, prefetch and SIMD reports.
+  Add x86 AVX2/AVX-512/VNNI/BF16 and ARM NEON/SVE lowering with OS-state checks,
+  explicit scalar fallback and isolated target-specific functions.
+- Add checked quantized decoding and scalar/vector parity fixtures for GGML
+  Q8_0, Q4_0, Q4_K, Q2_K and IQ3_XXS with its E8 codebook, plus MXFP4 and
+  finite E4M3FN layouts. Add bounded tensor-loop proofs and vectorization reports.
+- Add typed GPU frontend validation, structured GPU IR, explicit precision and
+  cooperative-operation rules, reflection manifests and rejection fixtures.
+  Add SPIR-V/Vulkan emission, capability validation and pinned-toolchain checks.
+- Add the experimental CUDA/PTX emitter foundation with shared GPU artifact
+  ownership, emission frames and floating-point literal handling.
+- Add execution, cancellation, allocation and resource-lifetime regressions,
+  sanitizer profiles, stress fixtures and machine-readable software evidence.
 
 ### Changed
 
-- Bind the combined executor, completion I/O, SIMD and GPU compiler foundations
-  to runtime-v13 and standard-library 0.17.0, with complete module checksums
-  and retained software verification gates.
+- Bind the combined executor, completion I/O, SIMD and GPU foundations to
+  runtime-v13 and standard-library 0.17.0 with complete module checksums.
+- Replace the untyped C work-stealing pool with Seen scheduling and ownership.
+  Serialize allocator budget transactions, use thread-local runtime errors,
+  and keep native adapters limited to platform operations.
+- Keep unsupported platforms and fallback explicit. Hardware/platform
+  certification and designated-machine performance enforcement remain pending
+  until their separate verification is completed.
 
-- Advanced the runtime compatibility identity to `runtime-v5` for
-  `seen-multithread-executor-v1`; removed the untyped C work-stealing pool.
-- Serialized pool allocation and memory-budget transactions across threads,
-  made runtime error storage thread-local, and released temporary structured
-  async context-validation owners.
-- Add portable masked SIMD memory operations, byte widening/saturating narrowing,
-  fused multiply-add, bounded dynamic permutes, strict literal shuffles, and
-  checked Seen packing/copy/prefetch APIs. Share range admission and benchmark
-  statistics; version the additive standard library surface as 0.9.0 (runtime v9).
+### Fixed
 
-### Added
-
-- Add checked Seen decoding and a scalar/vector-store parity corpus for named
-  Q8_0, Q4_0, Q4_K, Q2_K, IQ3_XXS, MXFP4 and finite E4M3FN layouts, with
-  bounded metadata checks, partial progress and explicit store width policy.
-  Standard-library compatibility advances to 0.10.0; hardware certification
-  and designated-machine performance enforcement remain separate.
-
-- Add conservative numeric tensor-loop bounds proofs and bounded JSON reports
-  for applied frontend proofs and observed LLVM vectorization decisions. Checked
-  builds retain unproved guards and refresh mutable array iteration bounds.
-
-- Added NEON and scalable SVE dot lowering with per-thread OS vector-state
-  discovery, explicit fallback and compile-only cross-target fixtures. Shared
-  dot contracts, scalar references and fixture tooling now serve both x86 and
-  ARM. Standard-library compatibility advances to 0.8.0 and runtime-v9 adds the
-  narrow SVE length query; hardware/platform certification remains separate.
-
-- Added checked Seen x86 Float32, unsigned-byte/signed-byte VNNI and BF16 dot
-  dispatch with explicit scalar fallback, fixed target-function isolation,
-  bounded input geometry, deadline/cancellation progress and owning fixtures.
-  CPU feature discovery now requires OS-enabled AVX register state. Added
-  scalar-control performance observation with optional designated-machine
-  enforcement; hardware certification remains separate.
-
-- Defined the Seen portable SIMD IR v1 contract with checked vector/mask
-  geometry, packed-operation metadata and explicit x86/ARM/scalar planning.
-- Added 512-bit vector spellings, lane-mask comparisons, checked constructors
-  and machine-readable representation information in `--simd-report`.
+- Preserve Boolean array literal values, evaluation order and allocation
+  ownership through the same storage path as Boolean array push.
+- Preserve declared trait methods when free functions share their names.
+  Share receiver-function naming across declarations, definitions and module
+  symbols, and build complete imported/impl-block trait witnesses before boxing.
+- Keep fixed-width filled arrays consistent with typed access, and share
+  assignment conversions with call lowering while preserving LLVM value order.
+- Preserve SHA-256 typed byte/word storage and public signatures across
+  bootstrap generations with masked native-word arithmetic. Cover canonical,
+  binary and split-block vectors, rotations, digest comparison and cleanup.
+- Retain the active failing fixture log and emitted LLVM in bounded CI
+  diagnostics so nested gate failures remain visible.
 
 ## [0.22.9] - 2026-10-10
 

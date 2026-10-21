@@ -4,7 +4,7 @@
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu_ir_ops.{GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL, GPU_IR_COOP_MMA}
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_frame.{GpuSpirvFrame}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
 import codegen.gpu.spirv_memory.{spirvResourceLength, spirvElementPointer}
 import codegen.gpu.spirv_math.{spirvBinaryValue}
 import codegen.gpu_matrix_types.{gpuMatrixRows, gpuMatrixColumns, gpuMatrixFormat}
@@ -32,7 +32,7 @@ fun spirvMatrixBounds(function: GpuSpirvFunction, resourceIndex: Int, offset: In
         valid = spirvBinaryValue(function, 167, 1, valid, disjoint)
     }; return valid
 }
-fun spirvCooperativeMemory(function: GpuSpirvFunction, frame: GpuSpirvFrame, borrow op: GpuIrInstruction) r: Int {
+fun spirvCooperativeMemory(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
     let context = function.context; let load = op.opcode == GPU_IR_COOP_LOAD
     var resourceOperand = 0; var offsetOperand = 1; var strideOperand = 2; var matrixType = op.typeCode
     if not load { resourceOperand = 1; offsetOperand = 2; strideOperand = 3; matrixType = frame.registerTypes[op.operands[0]] }
@@ -54,7 +54,7 @@ fun spirvCooperativeMemory(function: GpuSpirvFunction, frame: GpuSpirvFrame, bor
     if not load { return 0 }
     let result = context.id(); function.emit(245, [typeId, result, loaded, yes, context.zero(matrixType), no]); return result
 }
-fun spirvCooperative(function: GpuSpirvFunction, frame: GpuSpirvFrame, borrow op: GpuIrInstruction) r: Int {
+fun spirvCooperative(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
     let context = function.context
     if op.opcode == GPU_IR_COOP_LOAD or (op.opcode != GPU_IR_COOP_FILL and op.opcode != GPU_IR_COOP_MMA) {
         return spirvCooperativeMemory(function, frame, op)

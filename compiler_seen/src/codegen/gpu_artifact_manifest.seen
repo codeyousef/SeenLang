@@ -3,7 +3,7 @@
 /// this manifest always records official validation as not run.
 import core.result.{Result, Ok, Err}
 import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
-import codegen.gpu.spirv_artifact_model.{GpuSpirvArtifact}
+import codegen.gpu_artifact_model.{GpuArtifact}
 import codegen.gpu_reflection.{gpuReflectionHash}
 import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
 
@@ -11,7 +11,7 @@ fun gpuSpirvWordAt(binary: String, index: Int) r: Int {
     let offset = index * 4
     return binary.byteAt(offset) | (binary.byteAt(offset + 1) << 8) | (binary.byteAt(offset + 2) << 16) | (binary.byteAt(offset + 3) << 24)
 }
-fun gpuSpirvArtifactShape(borrow artifact: GpuSpirvArtifact) r: Bool {
+fun gpuSpirvArtifactShape(borrow artifact: GpuArtifact) r: Bool {
     let binary = artifact.binary; let bytes = binary.length()
     if bytes < 20 or bytes > 33554432 or bytes % 4 != 0 or artifact.reflection.length() > 4194304 or
         (artifact.target != "vulkan1.2" and artifact.target != "vulkan1.3") { return false }
@@ -25,9 +25,24 @@ fun gpuSpirvArtifactShape(borrow artifact: GpuSpirvArtifact) r: Bool {
         if count < 1 or count > words - cursor { return false }; cursor = cursor + count
     }; return true
 }
-fun gpuSpirvArtifactManifest(borrow artifact: GpuSpirvArtifact) r: Result<String, GpuIrDiagnostic> {
-    if not gpuSpirvArtifactShape(artifact) {
-        return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_ARTIFACT", "SPIR-V artifact header, shape or target is invalid"))
+fun gpuPtxArtifactShape(borrow artifact: GpuArtifact) r: Bool {
+    if artifact.binary.length() < 32 or artifact.binary.length() > 33554432 or artifact.reflection.length() > 4194304 { return false }
+    var target = ""; var version = ".version 8.0\n"
+    if artifact.target == "sm_70" { target = "\n.target sm_70\n" }; if artifact.target == "sm_75" { target = "\n.target sm_75\n" }
+    if artifact.target == "sm_80" { target = "\n.target sm_80\n" }; if artifact.target == "sm_86" { target = "\n.target sm_86\n" }
+    if artifact.target == "sm_89" { target = "\n.target sm_89\n" }; if artifact.target == "sm_90" { target = "\n.target sm_90\n" }
+    if artifact.target == "sm_100" { target = "\n.target sm_100\n"; version = ".version 8.7\n" }
+    if target == "" or not artifact.binary.startsWith(version) or not artifact.binary.contains(target) or
+        not artifact.binary.contains("\n.address_size 64\n") or not artifact.binary.contains("// seen-ptx-kernel-v1;") { return false }
+    var i = 0
+    while i < artifact.binary.length() {
+        let byte = artifact.binary.byteAt(i); if byte != 10 and byte != 9 and (byte < 32 or byte > 126) { return false }; i = i + 1
+    }; return true
+}
+fun gpuArtifactManifest(borrow artifact: GpuArtifact) r: Result<String, GpuIrDiagnostic> {
+    if (artifact.backend == "spirv" and not gpuSpirvArtifactShape(artifact)) or (artifact.backend == "cuda" and not gpuPtxArtifactShape(artifact)) or
+        (artifact.backend != "spirv" and artifact.backend != "cuda") {
+        return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_ARTIFACT", "GPU artifact header, shape or target is invalid"))
     }
     let binaryResult = gpuReflectionHash(artifact.binary)
     if binaryResult.isErr() { let error = binaryResult.unwrapErr(); binaryResult.releaseContainer(); return Err<String, GpuIrDiagnostic>(error) }
@@ -40,9 +55,12 @@ fun gpuSpirvArtifactManifest(borrow artifact: GpuSpirvArtifact) r: Result<String
     releaseJsonText(binaryHash); releaseJsonText(reflectionHash)
     if not matches { return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_ARTIFACT", "artifact bytes or reflection no longer match their digest snapshot")) }
     let builder = JsonBuilder_new(); builder.startObject()
-    builder.stringProp("schema", "seen-gpu-artifact-manifest-v1"); builder.stringProp("backend", "spirv")
-    builder.stringProp("target", artifact.target); builder.stringProp("byte_order", "little")
-    builder.intProp("byte_count", artifact.binary.length()); builder.intProp("word_count", artifact.binary.length() / 4)
+    builder.stringProp("schema", "seen-gpu-artifact-manifest-v1"); builder.stringProp("backend", artifact.backend)
+    builder.stringProp("target", artifact.target)
+    var order = "little"; var words = artifact.binary.length() / 4
+    if artifact.backend == "cuda" { order = "utf-8"; words = 0; builder.stringProp("parameter_abi", "seen-ptx-kernel-v1") }
+    builder.stringProp("byte_order", order)
+    builder.intProp("byte_count", artifact.binary.length()); builder.intProp("word_count", words)
     builder.stringProp("sha256", artifact.binaryHash); builder.stringProp("reflection_sha256", artifact.reflectionHash)
     builder.stringProp("classification", "compile-only"); builder.stringProp("official_validation", "not-run")
     builder.boolProp("hardware_verified", 0); builder.boolProp("gpu_execution_verified", 0); builder.endObject()

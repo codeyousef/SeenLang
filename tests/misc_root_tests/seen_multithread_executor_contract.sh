@@ -52,6 +52,9 @@ compile_case() {
 }
 
 for profile in fast release; do
+    compile_case "$profile" trait-registry "$ROOT_DIR/tests/compiler_regressions/trait_registry_identity.seen"
+    compile_case "$profile" fixed-width-array "$ROOT_DIR/tests/compiler_regressions/fixed_width_array_fill.seen"
+    compile_case "$profile" boolean-array "$ROOT_DIR/tests/compiler_regressions/boolean_array_literals.seen"
     compile_case "$profile" pointer-index "$ROOT_DIR/tests/compiler_regressions/typed_pointer_index.seen"
     compile_case "$profile" trait-scalars "$ROOT_DIR/tests/compiler_regressions/dyn_fixed_width_returns.seen"
     compile_case "$profile" trait-methods "$ROOT_DIR/tests/compiler_regressions/dyn_method_arguments.seen"

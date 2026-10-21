@@ -3,7 +3,7 @@
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER}
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_frame.{GpuSpirvFrame}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
 import codegen.gpu.spirv_memory.{spirvCheckedIndex, spirvElementPointer}
 import codegen.gpu.spirv_memory_plan.{spirvMemoryScope, spirvMemorySemantics, spirvAtomicRmwOpcode}
 import typechecker.gpu_types.{gpuTypeValue}
@@ -19,7 +19,7 @@ fun spirvSynchronization(function: GpuSpirvFunction, borrow op: GpuIrInstruction
     if op.opcode == GPU_IR_BARRIER { function.emit(224, [scopeId, scopeId, semanticsId]) }
     else { function.emit(225, [scopeId, semanticsId]) }
 }
-fun spirvAtomic(function: GpuSpirvFunction, frame: GpuSpirvFrame, borrow op: GpuIrInstruction) r: Int {
+fun spirvAtomic(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
     let context = function.context; let resourceIndex = frame.resourceIndices[op.operands[0]]
     if resourceIndex < 0 or resourceIndex >= function.resources.length() {
         context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V atomic resource identity is unavailable"); return 0

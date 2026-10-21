@@ -3,7 +3,7 @@
 import codegen.gpu_ir_ops.{GPU_IR_BINARY, GPU_IR_BITCAST, GPU_IR_BOOL, GPU_IR_BUILTIN, GPU_IR_CAST, GPU_IR_EXTRACT, GPU_IR_FAULT, GPU_IR_FLOAT, GPU_IR_INDUCTION, GPU_IR_INT, GPU_IR_INTRINSIC, GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_LOCAL_INIT, GPU_IR_LOCAL_LOAD, GPU_IR_LOCAL_STORE, GPU_IR_PARAM, GPU_IR_SELECT, GPU_IR_SHARED, GPU_IR_STORE, GPU_IR_UNARY, GPU_IR_UNIFORM, GPU_IR_VECTOR}
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_frame.{GpuSpirvFrame}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
 import codegen.gpu.spirv_types.{spirvFloatLiteralWord}
 import codegen.gpu.spirv_layout.{spirvCreateResource}
 import codegen.gpu.spirv_shared.{spirvInitializeShared}
@@ -20,7 +20,7 @@ import codegen.gpu_ir_ops.{GPU_IR_UNPACK, GPU_IR_PACK}
 import codegen.gpu_ir_ops.{GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL}
 import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER, GPU_IR_SUBGROUP, GPU_IR_SPECIALIZE}
 
-fun spirvLowerValue(function: GpuSpirvFunction, frame: GpuSpirvFrame, borrow op: GpuIrInstruction) r: Void {
+fun spirvLowerValue(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Void {
     let context = function.context; let code = op.opcode; var result = 0
     if code == GPU_IR_PARAM {
         frame.registers[op.result] = frame.arguments[op.immediate]

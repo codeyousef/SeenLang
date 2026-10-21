@@ -426,7 +426,7 @@ hash = "259021f148eab805f7a5c54debadb48b38f9bc8cdc49cc474d09bc4d8e5313f2"
 
 [[modules]]
 path = "src/crypto/sha256.seen"
-hash = "55df7417338141e8896c2606af950be9a1f2699be05b60e41145972b619987f2"
+hash = "524c272a4a4869b25f0a30bd75800a055e692027920c2c565e703e2dddce2763"
 
 [[modules]]
 path = "src/json/value.seen"

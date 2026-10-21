@@ -438,39 +438,24 @@ fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int
     output.append("  " + stackMarkerReg +
         " = call ptr @llvm.stacksave()\n")
     var valuePtrReg = ""
+    var storageType = llvmElementType
+    let isDataElement = isDataTypeImpl(elementType) == 1
     if isClassTypeImpl(elementType, structNames) == 1 or
         isClassHandleLikeTypeImpl(elementType, structNames) == 1 {
-        let tmpReg = getNextRegFn(regBox)
-        let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
-            "i64", valueSeenType, valueReg, structNames)
-        output.append("  " + tmpReg + " = alloca i64\n")
-        output.append("  store i64 " + storedValueReg + ", ptr " + tmpReg + "\n")
-        valuePtrReg = tmpReg
-    } else if isDataTypeImpl(elementType) == 1 {
-        if valueIsStructLiteral == 1 {
-            valuePtrReg = valueReg
-        } else {
-            let tmpReg = getNextRegFn(regBox)
-            let storedValueReg = coerceAssignmentStoreValueCoreImpl(output,
-                regBox, "%" + elementType, valueSeenType, valueReg,
-                structNames)
-            output.append("  " + tmpReg + " = alloca %" + elementType + "\n")
-            output.append("  store %" + elementType + " " + storedValueReg + ", ptr " + tmpReg + "\n")
-            valuePtrReg = tmpReg
-        }
-    } else if llvmElementType == "ptr" {
-        let tmpReg = getNextRegFn(regBox)
-        var storedValue = coerceAssignmentStoreValueCoreImpl(output, regBox,
-            "ptr", valueSeenType, valueReg, structNames)
-        output.append("  " + tmpReg + " = alloca ptr\n")
-        output.append("  store ptr " + storedValue + ", ptr " + tmpReg + "\n")
-        valuePtrReg = tmpReg
+        storageType = "i64"
+    } else if isDataElement {
+        storageType = "%" + elementType
+    }
+    if isDataElement and valueIsStructLiteral == 1 {
+        valuePtrReg = valueReg
     } else {
-        let tmpReg = getNextRegFn(regBox)
+        // Coercion emits registers. Reserve the alloca only afterwards so
+        // numbered LLVM values remain in their definition order.
         let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
-            llvmElementType, valueSeenType, valueReg, structNames)
-        output.append("  " + tmpReg + " = alloca " + llvmElementType + "\n")
-        output.append("  store " + llvmElementType + " " + storedValueReg + ", ptr " + tmpReg + "\n")
+            storageType, valueSeenType, valueReg, structNames)
+        let tmpReg = getNextRegFn(regBox)
+        output.append("  " + tmpReg + " = alloca " + storageType + "\n")
+        output.append("  store " + storageType + " " + storedValueReg + ", ptr " + tmpReg + "\n")
         valuePtrReg = tmpReg
     }
     output.append("  call void @Array_set(ptr " + arrayReg + ", i64 " + indexReg + ", ptr " + valuePtrReg + ")\n")

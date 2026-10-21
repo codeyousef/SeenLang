@@ -1,0 +1,73 @@
+/// Non-control operations map verified logical values to 32-bit PTX registers.
+/// Resource identities borrow the entry's bounded table and never form a host
+/// pointer or infer behavior from a source function name.
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_PARAM, GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL, GPU_IR_BUILTIN, GPU_IR_EXTRACT, GPU_IR_VECTOR, GPU_IR_CAST, GPU_IR_BITCAST, GPU_IR_UNARY, GPU_IR_BINARY, GPU_IR_INTRINSIC, GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_STORE, GPU_IR_UNIFORM, GPU_IR_LOCAL_INIT, GPU_IR_LOCAL_LOAD, GPU_IR_LOCAL_STORE, GPU_IR_INDUCTION, GPU_IR_SHARED, GPU_IR_FAULT, GPU_IR_SELECT}
+import codegen.gpu_float_literals.{gpuFloatLiteralWord}
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import codegen.gpu.ptx_builtins.{ptxBuiltin}
+import codegen.gpu.ptx_memory.{ptxCheckedMemory, ptxSharedResource}
+import codegen.gpu.ptx_math.{ptxBinary, ptxUnary}
+import codegen.gpu.ptx_casts.{ptxCast}
+import codegen.gpu.ptx_intrinsics.{ptxIntrinsic}
+import typechecker.gpu_types.{gpuTypeLanes}
+fun ptxCopyValue(function: GpuPtxFunction, destination: Int, source: Int, typeCode: Int) r: Void {
+    var lane = 0
+    while lane < gpuTypeLanes(typeCode) { function.body.unary("mov.b32", destination + lane, source + lane); lane = lane + 1 }
+}
+fun ptxResourceIndex(function: GpuPtxFunction, frame: GpuEmissionFrame, operand: Int) r: Int {
+    let index = frame.resourceIndices[operand]
+    if index < 0 or index >= function.resources.length() { function.error("E_GPU_PTX_LAYOUT", "PTX resource identity is unavailable"); return -1 }; return index
+}
+fun ptxLowerValue(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Void {
+    let code = op.opcode; var result = 0
+    if code == GPU_IR_PARAM {
+        frame.registers[op.result] = frame.arguments[op.immediate]
+        frame.resourceIndices[op.result] = frame.argumentResources[op.immediate]; return
+    }
+    if code == GPU_IR_INT { result = function.word(op.text.toInt()) }
+    else if code == GPU_IR_FLOAT { result = function.word(gpuFloatLiteralWord(op.text)) }
+    else if code == GPU_IR_BOOL { var word = 0; if op.text == "true" { word = 1 }; result = function.word(word) }
+    else if code == GPU_IR_BUILTIN { result = ptxBuiltin(function, op.immediate) }
+    else if code == GPU_IR_EXTRACT { result = frame.registers[op.operands[0]] + op.immediate }
+    else if code == GPU_IR_VECTOR {
+        result = function.allocate(0, gpuTypeLanes(op.typeCode)); var lane = 0
+        while lane < op.operands.length() { function.body.unary("mov.b32", result + lane, frame.registers[op.operands[lane]]); lane = lane + 1 }
+    } else if code == GPU_IR_CAST or code == GPU_IR_BITCAST {
+        let source = op.operands[0]; result = ptxCast(function, frame.registerTypes[source], op.typeCode, frame.registers[source], code == GPU_IR_BITCAST)
+    } else if code == GPU_IR_UNARY { result = ptxUnary(function, op.immediate, op.typeCode, frame.registers[op.operands[0]]) }
+    else if code == GPU_IR_BINARY {
+        let left = op.operands[0]; result = ptxBinary(function, op.immediate, frame.registerTypes[left], frame.registers[left], frame.registers[op.operands[1]])
+    } else if code == GPU_IR_INTRINSIC {
+        let arguments = Array<Int>(); var i = 0
+        while i < op.operands.length() { arguments.push(frame.registers[op.operands[i]]); i = i + 1 }
+        result = ptxIntrinsic(function, op.immediate, op.typeCode, arguments); arguments.free()
+    } else if code == GPU_IR_LENGTH or code == GPU_IR_UNIFORM {
+        let index = ptxResourceIndex(function, frame, op.operands[0]); if index < 0 { return }
+        if code == GPU_IR_LENGTH { result = function.resources[index].length } else { result = function.resources[index].uniformBase }
+    } else if code == GPU_IR_LOAD or code == GPU_IR_STORE {
+        let index = ptxResourceIndex(function, frame, op.operands[0]); if index < 0 { return }
+        let position = op.operands[1]; var value = 0; if code == GPU_IR_STORE { value = frame.registers[op.operands[2]] }
+        result = ptxCheckedMemory(function, index, frame.registers[position], frame.registerTypes[position], value, code == GPU_IR_STORE)
+    } else if code == GPU_IR_LOCAL_INIT {
+        let source = op.operands[0]; let slot = function.allocate(0, gpuTypeLanes(frame.registerTypes[source]))
+        frame.localPointers[op.immediate] = slot; ptxCopyValue(function, slot, frame.registers[source], frame.registerTypes[source])
+    } else if code == GPU_IR_LOCAL_LOAD {
+        result = function.allocate(0, gpuTypeLanes(op.typeCode)); ptxCopyValue(function, result, frame.localPointers[op.immediate], op.typeCode)
+    } else if code == GPU_IR_LOCAL_STORE {
+        let source = op.operands[0]; ptxCopyValue(function, frame.localPointers[op.immediate], frame.registers[source], frame.registerTypes[source])
+    } else if code == GPU_IR_INDUCTION {
+        if frame.inductionPointers.length() == 0 { function.error("E_GPU_PTX_CONTROL", "PTX induction lacks its loop frame"); return }
+        result = function.allocate(0, 1); function.body.unary("mov.b32", result, frame.inductionPointers[frame.inductionPointers.length() - 1])
+    } else if code == GPU_IR_SHARED { frame.resourceIndices[op.result] = ptxSharedResource(function, op.typeCode, op.immediate); return }
+    else if code == GPU_IR_FAULT { function.fault(op.immediate) }
+    else if code == GPU_IR_SELECT {
+        let predicate = function.allocate(2, 1); function.body.predicate("setp.ne.u32", predicate, frame.registers[op.operands[0]], function.word(0))
+        result = function.allocate(0, gpuTypeLanes(op.typeCode)); var lane = 0
+        while lane < gpuTypeLanes(op.typeCode) {
+            function.body.select(result + lane, frame.registers[op.operands[1]] + lane, frame.registers[op.operands[2]] + lane, predicate); lane = lane + 1
+        }
+    } else { function.error("E_GPU_PTX_CAPABILITY", "PTX instruction requires unavailable capability lowering"); return }
+    if op.result > 0 { frame.registers[op.result] = result }
+}

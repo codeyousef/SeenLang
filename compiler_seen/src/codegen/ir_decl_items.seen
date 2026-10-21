@@ -11,7 +11,7 @@ import codegen.ir_call_args.{hasFloatParamFuncImpl}
 import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl, shouldSkipStringBuilderMethodDeclImpl, shouldSkipVecMethodDeclImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, registerFunctionStateImpl, registerEnumDeclarationStateImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
-import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, getDeclaredFunctionNameImpl}
 import codegen.ir_module_emit.{isRuntimeBackedStringCompatFunctionImpl}
 
 class DeclarationItemContext {
@@ -252,24 +252,6 @@ fun recordCrossModuleDeclareIntoStateImpl(symbolName: String,
     state.xmDeclareCount = state.xmDeclareCount + 1
 }
 
-fun getFloatParamRegistryNameImpl(fn: FunctionNode, structNames: Array<String>)
-    r: String {
-
-    var registryName = fn.name
-    if fn.params.length() > 0 {
-        let firstParam = fn.params[0]
-        if firstParam.name == "this" {
-            let firstParamType = firstParam.paramType.typeName
-            if isClassTypeImpl(firstParamType, structNames) == 1 {
-                let expectedPrefix = firstParamType + "_"
-                if not registryName.startsWith(expectedPrefix) {
-                    registryName = expectedPrefix + registryName
-                }
-            }
-        }
-    }
-    return registryName
-}
 
 fun registerClassMethodDeclarationsIntoStateImpl(className: String,
     methods: Array<FunctionNode>, methodRetTypeNames: Array<String>,
@@ -340,17 +322,18 @@ fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
     visibility: String, funcRetTypeName: String, ctx: DeclarationItemContext)
     r: Void {
     registerGenericCallTypeImpl(funcObj)
+    let declaredName = getDeclaredFunctionNameImpl(funcObj, ctx.structNames)
+    var receiverOffset = 0
+    if declaredName != funcObj.name { receiverOffset = 1 }
 
-    registerDeclaredDynParametersImpl(funcObj, funcObj.name, 0)
+    registerDeclaredDynParametersImpl(funcObj, declaredName, receiverOffset)
     let isRuntimeStringCompat = isRuntimeBackedStringCompatFunctionImpl(
-        funcObj.name)
-    let floatRegistryFuncName = getFloatParamRegistryNameImpl(funcObj,
-        ctx.structNames)
-    registerFloatParamMetadataImpl(floatRegistryFuncName, funcObj.params,
+        declaredName)
+    registerFloatParamMetadataImpl(declaredName, funcObj.params,
         ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
-    registerFunctionParamDefaultMetadataIntoStateImpl(funcObj, funcObj.name,
+    registerFunctionParamDefaultMetadataIntoStateImpl(funcObj, declaredName,
         ctx)
-    registerFunctionBorrowMetadataIntoStateImpl(funcObj, funcObj.name,
+    registerFunctionBorrowMetadataIntoStateImpl(funcObj, declaredName,
         ctx.state)
 
     let bodyStmtCount = funcObj.body.statements.length()
@@ -366,20 +349,20 @@ fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
         declLlvmParamTypes, ctx.structNames, ctx.typeAliasNames,
         ctx.typeAliasTargets, ctx.typeAliasCount, ctx.state.enumTypeNames,
         ctx.reprCClassNames)
-    registerFunctionStateImpl(funcObj.name, funcRetTypeName, ctx.funcNames,
+    registerFunctionStateImpl(declaredName, funcRetTypeName, ctx.funcNames,
         ctx.funcRetTypes)
     if funcObj.isAsync {
-        registerAsyncFunctionIntoStateImpl(funcObj.name, funcRetTypeName,
+        registerAsyncFunctionIntoStateImpl(declaredName, funcRetTypeName,
             ctx.state)
     }
-    if shouldRegisterCrossModuleFunctionImpl(funcObj.name, funcObj.isExtern,
+    if shouldRegisterCrossModuleFunctionImpl(declaredName, funcObj.isExtern,
         bodyStmtCount, isRuntimeStringCompat) {
         let declParams = buildDeclareParamsImpl(declSeenParamTypes,
             declLlvmParamTypes, false)
         let declStr = buildDeclareStringImpl(
-            quoteIdentIfNeededImpl(funcObj.name), declRetLlvm, declParams,
+            quoteIdentIfNeededImpl(declaredName), declRetLlvm, declParams,
             funcObj.isExtern and bodyStmtCount == 0)
-        recordCrossModuleDeclareIntoStateImpl(funcObj.name, declStr,
+        recordCrossModuleDeclareIntoStateImpl(declaredName, declStr,
             visibility, ctx.state)
     }
 }

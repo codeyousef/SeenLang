@@ -3,7 +3,6 @@
 /// frozen bootstrap cannot lower narrow-scalar Array.push arguments. Decimal
 /// round constants preserve their exact values through that bootstrap parser.
 
-import collections.vec.{Vec}
 import str.string.{StringBuilder}
 import io.file.{FsFile}
 import core.error.{SeenError}
@@ -30,10 +29,10 @@ class Sha256 {
 
     static fun new() r: Sha256 {
         let state = Array<UInt32>.withLength(8)
-        state[0] = 1779033703 as UInt32; state[1] = 3144134277 as UInt32
-        state[2] = 1013904242 as UInt32; state[3] = 2773480762 as UInt32
-        state[4] = 1359893119 as UInt32; state[5] = 2600822924 as UInt32
-        state[6] = 528734635 as UInt32; state[7] = 1541459225 as UInt32
+        state[0] = 1779033703; state[1] = 3144134277
+        state[2] = 1013904242; state[3] = 2773480762
+        state[4] = 1359893119; state[5] = 2600822924
+        state[6] = 528734635; state[7] = 1541459225
         let block = Array<UInt8>.withLength(64)
         return Sha256{ state: state, block: block, blockLength: 0,
             totalBytes: 0 as UInt64, finalized: false }
@@ -51,7 +50,7 @@ class Sha256 {
         }
         var index = 0
         while index < bytes.length() {
-            this.block[this.blockLength] = (bytes[index] & 255) as UInt8
+            this.block[this.blockLength] = (bytes[index] & 255)
             this.blockLength = this.blockLength + 1
             this.totalBytes = this.totalBytes + (1 as UInt64)
             if this.blockLength == 64 {
@@ -76,62 +75,67 @@ class Sha256 {
     }
 
     fun rotateRight(value: UInt32, count: UInt32) r: UInt32 {
-        return (value >> count) | (value << ((32 as UInt32) - count))
+        // The native-word bridge also gives the frozen bootstrap an explicit
+        // source width for each conversion while retaining the UInt32 API.
+        return (sha256RotateRightWord(value as Int, count as Int) as Int) as UInt32
     }
 
     fun compress() r: Void {
+        let mask = 4294967295 as UInt64
         let words = Array<UInt32>.withLength(64)
         var index = 0
         while index < 16 {
             let base = index * 4
-            words[index] = ((this.block[base] as UInt32) << 24) |
-                ((this.block[base + 1] as UInt32) << 16) |
-                ((this.block[base + 2] as UInt32) << 8) |
-                (this.block[base + 3] as UInt32)
+            let word = (((this.block[base] as UInt64) & (255 as UInt64)) << 24) |
+                (((this.block[base + 1] as UInt64) & (255 as UInt64)) << 16) |
+                (((this.block[base + 2] as UInt64) & (255 as UInt64)) << 8) |
+                ((this.block[base + 3] as UInt64) & (255 as UInt64))
+            words[index] = word
             index = index + 1
         }
         index = 16
         while index < 64 {
-            let x = words[index - 15]
-            let y = words[index - 2]
-            let s0 = this.rotateRight(x, 7 as UInt32) ^
-                this.rotateRight(x, 18 as UInt32) ^ (x >> 3)
-            let s1 = this.rotateRight(y, 17 as UInt32) ^
-                this.rotateRight(y, 19 as UInt32) ^ (y >> 10)
-            words[index] = words[index - 16] + s0 + words[index - 7] + s1
+            let x = (words[index - 15] as UInt64) & mask
+            let y = (words[index - 2] as UInt64) & mask
+            let s0 = sha256RotateRightWord(x, 7 as UInt64) ^
+                sha256RotateRightWord(x, 18 as UInt64) ^ (x >> 3)
+            let s1 = sha256RotateRightWord(y, 17 as UInt64) ^
+                sha256RotateRightWord(y, 19 as UInt64) ^ (y >> 10)
+            words[index] = (((words[index - 16] as UInt64) & mask) + s0 +
+                ((words[index - 7] as UInt64) & mask) + s1) & mask
             index = index + 1
         }
         let constants = sha256Constants()
-        var a = this.state[0]; var b = this.state[1]
-        var c = this.state[2]; var d = this.state[3]
-        var e = this.state[4]; var f = this.state[5]
-        var g = this.state[6]; var h = this.state[7]
+        var a = (this.state[0] as UInt64) & mask; var b = (this.state[1] as UInt64) & mask
+        var c = (this.state[2] as UInt64) & mask; var d = (this.state[3] as UInt64) & mask
+        var e = (this.state[4] as UInt64) & mask; var f = (this.state[5] as UInt64) & mask
+        var g = (this.state[6] as UInt64) & mask; var h = (this.state[7] as UInt64) & mask
         index = 0
         while index < 64 {
-            let sum1 = this.rotateRight(e, 6 as UInt32) ^
-                this.rotateRight(e, 11 as UInt32) ^
-                this.rotateRight(e, 25 as UInt32)
-            let choose = (e & f) ^ ((~e) & g)
-            let temp1 = h + sum1 + choose + constants[index] + words[index]
-            let sum0 = this.rotateRight(a, 2 as UInt32) ^
-                this.rotateRight(a, 13 as UInt32) ^
-                this.rotateRight(a, 22 as UInt32)
+            let sum1 = sha256RotateRightWord(e, 6 as UInt64) ^
+                sha256RotateRightWord(e, 11 as UInt64) ^
+                sha256RotateRightWord(e, 25 as UInt64)
+            let choose = (e & f) ^ ((mask ^ e) & g)
+            let temp1 = h + sum1 + choose + ((constants[index] as UInt64) & mask) +
+                ((words[index] as UInt64) & mask)
+            let sum0 = sha256RotateRightWord(a, 2 as UInt64) ^
+                sha256RotateRightWord(a, 13 as UInt64) ^
+                sha256RotateRightWord(a, 22 as UInt64)
             let majority = (a & b) ^ (a & c) ^ (b & c)
             let temp2 = sum0 + majority
-            h = g; g = f; f = e; e = d + temp1
-            d = c; c = b; b = a; a = temp1 + temp2
+            h = g; g = f; f = e; e = (d + temp1) & mask
+            d = c; c = b; b = a; a = (temp1 + temp2) & mask
             index = index + 1
         }
-        this.state[0] = this.state[0] + a
-        this.state[1] = this.state[1] + b
-        this.state[2] = this.state[2] + c
-        this.state[3] = this.state[3] + d
-        this.state[4] = this.state[4] + e
-        this.state[5] = this.state[5] + f
-        this.state[6] = this.state[6] + g
-        this.state[7] = this.state[7] + h
-        constants.free()
-        words.free()
+        this.state[0] = (((this.state[0] as UInt64) & mask) + a) & mask
+        this.state[1] = (((this.state[1] as UInt64) & mask) + b) & mask
+        this.state[2] = (((this.state[2] as UInt64) & mask) + c) & mask
+        this.state[3] = (((this.state[3] as UInt64) & mask) + d) & mask
+        this.state[4] = (((this.state[4] as UInt64) & mask) + e) & mask
+        this.state[5] = (((this.state[5] as UInt64) & mask) + f) & mask
+        this.state[6] = (((this.state[6] as UInt64) & mask) + g) & mask
+        this.state[7] = (((this.state[7] as UInt64) & mask) + h) & mask
+        constants.free(); words.free()
     }
 
     fun finalizeHex() r: Result<String, Sha256Error> {
@@ -140,24 +144,24 @@ class Sha256 {
                 "digest state is already finalized"))
         }
         let bitLength = this.totalBytes * (8 as UInt64)
-        this.block[this.blockLength] = 128 as UInt8
+        this.block[this.blockLength] = 128
         this.blockLength = this.blockLength + 1
         if this.blockLength > 56 {
             while this.blockLength < 64 {
-                this.block[this.blockLength] = 0 as UInt8
+                this.block[this.blockLength] = 0
                 this.blockLength = this.blockLength + 1
             }
             this.compress()
             this.blockLength = 0
         }
         while this.blockLength < 56 {
-            this.block[this.blockLength] = 0 as UInt8
+            this.block[this.blockLength] = 0
             this.blockLength = this.blockLength + 1
         }
         var shift = 56
         while shift >= 0 {
             this.block[this.blockLength] =
-                ((bitLength >> (shift as UInt64)) & (255 as UInt64)) as UInt8
+                ((bitLength >> (shift as UInt64)) & (255 as UInt64))
             this.blockLength = this.blockLength + 1
             shift = shift - 8
         }
@@ -171,8 +175,8 @@ class Sha256 {
         while wordIndex < 8 {
             var nibble = 7
             while nibble >= 0 {
-                let value = (this.state[wordIndex] >>
-                    ((nibble * 4) as UInt32)) & (15 as UInt32)
+                let word = (this.state[wordIndex] as UInt64) & (4294967295 as UInt64)
+                let value = (word >> ((nibble * 4) as UInt64)) & (15 as UInt64)
                 builder.append(digits[value as Int])
                 nibble = nibble - 1
             }
@@ -192,40 +196,49 @@ fun releaseSha256DigestResult(result: Result<String, Sha256Error>) r: Void {
     result.releaseContainer()
 }
 
+// Keep arithmetic in a bootstrap-native word and reduce explicitly modulo
+// 2^32. State and constants retain typed UInt32 storage; arithmetic reduces modulo 2^32.
+fun sha256RotateRightWord(value: UInt64, count: UInt64) r: UInt64 {
+    let word = value & (4294967295 as UInt64)
+    let amount = count & (31 as UInt64)
+    if amount == (0 as UInt64) { return word }
+    return ((word >> amount) | (word << ((32 as UInt64) - amount))) & (4294967295 as UInt64)
+}
+
 fun sha256Constants() r: Array<UInt32> {
     let k = Array<UInt32>.withLength(64)
-    k[0] = 1116352408 as UInt32; k[1] = 1899447441 as UInt32
-    k[2] = 3049323471 as UInt32; k[3] = 3921009573 as UInt32
-    k[4] = 961987163 as UInt32; k[5] = 1508970993 as UInt32
-    k[6] = 2453635748 as UInt32; k[7] = 2870763221 as UInt32
-    k[8] = 3624381080 as UInt32; k[9] = 310598401 as UInt32
-    k[10] = 607225278 as UInt32; k[11] = 1426881987 as UInt32
-    k[12] = 1925078388 as UInt32; k[13] = 2162078206 as UInt32
-    k[14] = 2614888103 as UInt32; k[15] = 3248222580 as UInt32
-    k[16] = 3835390401 as UInt32; k[17] = 4022224774 as UInt32
-    k[18] = 264347078 as UInt32; k[19] = 604807628 as UInt32
-    k[20] = 770255983 as UInt32; k[21] = 1249150122 as UInt32
-    k[22] = 1555081692 as UInt32; k[23] = 1996064986 as UInt32
-    k[24] = 2554220882 as UInt32; k[25] = 2821834349 as UInt32
-    k[26] = 2952996808 as UInt32; k[27] = 3210313671 as UInt32
-    k[28] = 3336571891 as UInt32; k[29] = 3584528711 as UInt32
-    k[30] = 113926993 as UInt32; k[31] = 338241895 as UInt32
-    k[32] = 666307205 as UInt32; k[33] = 773529912 as UInt32
-    k[34] = 1294757372 as UInt32; k[35] = 1396182291 as UInt32
-    k[36] = 1695183700 as UInt32; k[37] = 1986661051 as UInt32
-    k[38] = 2177026350 as UInt32; k[39] = 2456956037 as UInt32
-    k[40] = 2730485921 as UInt32; k[41] = 2820302411 as UInt32
-    k[42] = 3259730800 as UInt32; k[43] = 3345764771 as UInt32
-    k[44] = 3516065817 as UInt32; k[45] = 3600352804 as UInt32
-    k[46] = 4094571909 as UInt32; k[47] = 275423344 as UInt32
-    k[48] = 430227734 as UInt32; k[49] = 506948616 as UInt32
-    k[50] = 659060556 as UInt32; k[51] = 883997877 as UInt32
-    k[52] = 958139571 as UInt32; k[53] = 1322822218 as UInt32
-    k[54] = 1537002063 as UInt32; k[55] = 1747873779 as UInt32
-    k[56] = 1955562222 as UInt32; k[57] = 2024104815 as UInt32
-    k[58] = 2227730452 as UInt32; k[59] = 2361852424 as UInt32
-    k[60] = 2428436474 as UInt32; k[61] = 2756734187 as UInt32
-    k[62] = 3204031479 as UInt32; k[63] = 3329325298 as UInt32
+    k[0] = 1116352408; k[1] = 1899447441
+    k[2] = 3049323471; k[3] = 3921009573
+    k[4] = 961987163; k[5] = 1508970993
+    k[6] = 2453635748; k[7] = 2870763221
+    k[8] = 3624381080; k[9] = 310598401
+    k[10] = 607225278; k[11] = 1426881987
+    k[12] = 1925078388; k[13] = 2162078206
+    k[14] = 2614888103; k[15] = 3248222580
+    k[16] = 3835390401; k[17] = 4022224774
+    k[18] = 264347078; k[19] = 604807628
+    k[20] = 770255983; k[21] = 1249150122
+    k[22] = 1555081692; k[23] = 1996064986
+    k[24] = 2554220882; k[25] = 2821834349
+    k[26] = 2952996808; k[27] = 3210313671
+    k[28] = 3336571891; k[29] = 3584528711
+    k[30] = 113926993; k[31] = 338241895
+    k[32] = 666307205; k[33] = 773529912
+    k[34] = 1294757372; k[35] = 1396182291
+    k[36] = 1695183700; k[37] = 1986661051
+    k[38] = 2177026350; k[39] = 2456956037
+    k[40] = 2730485921; k[41] = 2820302411
+    k[42] = 3259730800; k[43] = 3345764771
+    k[44] = 3516065817; k[45] = 3600352804
+    k[46] = 4094571909; k[47] = 275423344
+    k[48] = 430227734; k[49] = 506948616
+    k[50] = 659060556; k[51] = 883997877
+    k[52] = 958139571; k[53] = 1322822218
+    k[54] = 1537002063; k[55] = 1747873779
+    k[56] = 1955562222; k[57] = 2024104815
+    k[58] = 2227730452; k[59] = 2361852424
+    k[60] = 2428436474; k[61] = 2756734187
+    k[62] = 3204031479; k[63] = 3329325298
     return k
 }
 
@@ -358,7 +371,7 @@ fun parseSha256Digest(text: String) r: Result<Array<UInt8>, Sha256Error> {
             return Err<Array<UInt8>, Sha256Error>(sha256Error("sha256.encoding",
                 "SHA-256 digest is not canonical lowercase hexadecimal"))
         }
-        bytes[index / 2] = ((high << 4) | low) as UInt8
+        bytes[index / 2] = ((high << 4) | low)
         index = index + 2
     }
     return Ok<Array<UInt8>, Sha256Error>(bytes)
@@ -372,11 +385,11 @@ fun sha256HexNibble(value: Int) r: Int {
 
 fun sha256DigestEqual(left: Array<UInt8>, right: Array<UInt8>) r: Bool {
     if left.length() != 32 or right.length() != 32 { return false }
-    var difference: UInt8 = 0 as UInt8
+    var difference = 0 as UInt64
     var index = 0
     while index < 32 {
-        difference = difference | (left[index] ^ right[index])
+        difference = difference | ((left[index] as UInt64) ^ (right[index] as UInt64))
         index = index + 1
     }
-    return difference == (0 as UInt8)
+    return difference == (0 as UInt64)
 }

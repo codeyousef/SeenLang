@@ -4,7 +4,7 @@ Extracted from llvm_ir_gen.seen to keep receiver type lookup and low-level
 receiver-method emission out of the main method-call lowering pipeline.
 ///
 
-import parser.real_parser.{ParserExpressionNode}
+import parser.real_parser.{ParserExpressionNode, FunctionNode}
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
@@ -215,4 +215,23 @@ fun emitSeenLexerKeywordManagerReceiverImpl(output: StringBuilder,
     let receiverReg = getNextRegFn(regBox)
     output.append("  " + receiverReg + " = load ptr, ptr " + gepReg + "\n")
     return receiverReg
+}
+
+fun getDeclaredFunctionNameImpl(fn: FunctionNode, structNames: Array<String>)
+    r: String {
+
+    var registryName = fn.name
+    if fn.params.length() > 0 {
+        let firstParam = fn.params[0]
+        if firstParam.name == "this" {
+            let firstParamType = firstParam.paramType.typeName
+            if isClassTypeImpl(firstParamType, structNames) == 1 {
+                let expectedPrefix = firstParamType + "_"
+                if not registryName.startsWith(expectedPrefix) {
+                    registryName = expectedPrefix + registryName
+                }
+            }
+        }
+    }
+    return registryName
 }

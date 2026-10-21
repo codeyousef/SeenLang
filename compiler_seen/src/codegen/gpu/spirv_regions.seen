@@ -3,12 +3,12 @@
 import codegen.gpu_ir_ops.{GPU_IR_BREAK, GPU_IR_CALL, GPU_IR_CONDITION, GPU_IR_CONTINUE, GPU_IR_FOR, GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_RETURN, GPU_IR_WHILE, GPU_IR_YIELD_VALUE}
 import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrInstruction}
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_frame.{GpuSpirvFrame, createGpuSpirvFrame}
+import codegen.gpu_emission_frame.{GpuEmissionFrame, createGpuEmissionFrame}
 import codegen.gpu.spirv_values.{spirvLowerValue}
 import codegen.gpu.spirv_math.{spirvBinaryValue}
 
 fun spirvLowerConditional(borrow module: GpuIrModule, function: GpuSpirvFunction,
-    frame: GpuSpirvFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
     let context = function.context; let yes = context.id(); let no = context.id(); let merge = context.id()
     function.emit(247, [merge, 0]); function.conditional(frame.registers[op.operands[0]], yes, no)
     function.label(yes); spirvLowerRegion(module, function, frame, op.leftBlock, depth + 1)
@@ -27,7 +27,7 @@ fun spirvLowerConditional(borrow module: GpuIrModule, function: GpuSpirvFunction
     }
 }
 fun spirvLowerLoop(borrow module: GpuIrModule, function: GpuSpirvFunction,
-    frame: GpuSpirvFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
     let context = function.context; let header = context.id(); let conditionBlock = context.id()
     let budgetBlock = context.id(); let body = context.id(); let exhausted = context.id()
     let continued = context.id(); let merge = context.id()
@@ -68,12 +68,12 @@ fun spirvLowerLoop(borrow module: GpuIrModule, function: GpuSpirvFunction,
     function.branch(header); function.label(merge)
 }
 fun spirvLowerCall(borrow module: GpuIrModule, function: GpuSpirvFunction,
-    frame: GpuSpirvFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
     let context = function.context; let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
     while i < op.operands.length() {
         arguments.push(frame.registers[op.operands[i]]); resources.push(frame.resourceIndices[op.operands[i]]); i = i + 1
     }
-    let child = createGpuSpirvFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free()
+    let child = createGpuEmissionFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free()
     let body = context.id(); let merge = context.id(); child.returnMerge = merge
     if op.typeCode != 0 { child.returnSlot = function.variable(op.typeCode); function.emit(62, [child.returnSlot, context.zero(op.typeCode)]) }
     function.emit(247, [merge, 0]); function.conditional(context.constant(1, 1), body, merge); function.label(body)
@@ -84,7 +84,7 @@ fun spirvLowerCall(borrow module: GpuIrModule, function: GpuSpirvFunction,
     child.release()
 }
 fun spirvLowerRegion(borrow module: GpuIrModule, function: GpuSpirvFunction,
-    frame: GpuSpirvFrame, blockIndex: Int, depth: Int) r: Void {
+    frame: GpuEmissionFrame, blockIndex: Int, depth: Int) r: Void {
     let context = function.context
     if not context.validation.valid { return }
     if depth > 128 { context.error("E_GPU_SPIRV_LIMIT", "SPIR-V expanded region depth ceiling exceeded"); return }

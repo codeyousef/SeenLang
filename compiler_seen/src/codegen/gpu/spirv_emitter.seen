@@ -10,7 +10,7 @@ import codegen.gpu_reflection_layout.{gpuEntryRequirements}
 import codegen.gpu.spirv_words.{spirvLiteralString, SPV_ENTRY_POINTS, SPV_EXECUTION_MODES, SPV_DECLARATIONS, SPV_FUNCTIONS}
 import codegen.gpu.spirv_types.{GpuSpirvContext, createGpuSpirvContext}
 import codegen.gpu.spirv_function.{createGpuSpirvFunction}
-import codegen.gpu.spirv_frame.{createGpuSpirvFrame}
+import codegen.gpu_emission_frame.{createGpuEmissionFrame}
 import codegen.gpu.spirv_layout.{spirvCreateResource, spirvCreateFaultResource}
 import codegen.gpu.spirv_regions.{spirvLowerRegion}
 import codegen.gpu.spirv_capabilities.{spirvCapabilitiesSupported}
@@ -31,7 +31,7 @@ fun spirvEmitEntry(borrow module: GpuIrModule, context: GpuSpirvContext, index: 
     }
     requirements.free()
     if context.validation.valid {
-        let frame = createGpuSpirvFrame(module, index, arguments, resources)
+        let frame = createGpuEmissionFrame(module, index, arguments, resources)
         spirvLowerRegion(module, function, frame, 0, 0)
         if not function.terminated { function.emit(253, Array<Int>()) }; frame.release()
     }

@@ -67,7 +67,8 @@ import codegen.gpu.spirv_words.{GpuSpirvWords as _seedSpirv_words}
 import codegen.gpu.spirv_types.{GpuSpirvContext as _seedSpirv_types}
 import codegen.gpu.spirv_layout.{GpuSpirvResource as _seedSpirv_layout}
 import codegen.gpu.spirv_function.{GpuSpirvFunction as _seedSpirv_function}
-import codegen.gpu.spirv_frame.{GpuSpirvFrame as _seedSpirv_frame}
+import codegen.gpu_float_literals.{gpuFloatLiteralWord}
+import codegen.gpu_emission_frame.{GpuEmissionFrame as _seedSpirv_frame}
 import codegen.gpu.spirv_shared.{spirvInitializeShared as _seedSpirv_shared}
 import codegen.gpu.spirv_memory.{spirvCheckedLoad as _seedSpirv_memory}
 import codegen.gpu.spirv_math_plan.{spirvBinaryOpcode as _seedSpirv_math_plan}
@@ -76,11 +77,23 @@ import codegen.gpu.spirv_casts.{spirvCast as _seedSpirv_casts}
 import codegen.gpu.spirv_intrinsics.{spirvIntrinsic as _seedSpirv_intrinsics}
 import codegen.gpu.spirv_values.{spirvLowerValue as _seedSpirv_values}
 import codegen.gpu.spirv_regions.{spirvLowerRegion as _seedSpirv_regions}
+import codegen.gpu.ptx_text.{GpuPtxText}
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import codegen.gpu.ptx_builtins.{ptxBuiltin}
+import codegen.gpu.ptx_abi.{ptxReflectionEntryAbi}
+import codegen.gpu.ptx_layout.{ptxEntryParameters}
+import codegen.gpu.ptx_memory.{ptxCheckedMemory}
+import codegen.gpu.ptx_math.{ptxBinary}
+import codegen.gpu.ptx_casts.{ptxCast}
+import codegen.gpu.ptx_intrinsics.{ptxIntrinsic}
+import codegen.gpu.ptx_values.{ptxLowerValue}
+import codegen.gpu.ptx_regions.{ptxLowerRegion}
+import codegen.gpu.ptx_emitter.{emitGpuPtx}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv as _seedSpirv_emitter}
 import codegen.gpu.spirv_binary.{encodeGpuSpirvBinary as _seedSpirv_binary}
-import codegen.gpu.spirv_artifact_manifest.{gpuSpirvArtifactManifest as _seedSpirv_artifact_manifest}
-import codegen.gpu.spirv_artifact_model.{GpuSpirvArtifact as _seedSpirv_artifact_model}
-import codegen.gpu.spirv_artifact.{buildGpuSpirvArtifact as _seedSpirv_artifact}
+import codegen.gpu_artifact_manifest.{gpuArtifactManifest as _seedSpirv_artifact_manifest}
+import codegen.gpu_artifact_model.{GpuArtifact as _seedSpirv_artifact_model}
+import codegen.gpu_artifact.{buildGpuArtifact as _seedSpirv_artifact}
 import codegen.gpu.spirv_memory_plan.{spirvMemoryScope as _seedSpirv_memory_plan}
 import codegen.gpu.spirv_atomics.{spirvAtomic as _seedSpirv_atomics}
 import codegen.gpu.spirv_subgroup.{spirvSubgroup as _seedSpirv_subgroup}
@@ -8981,7 +8994,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu.spirv_types")
         modules.push("codegen.gpu.spirv_layout")
         modules.push("codegen.gpu.spirv_function")
-        modules.push("codegen.gpu.spirv_frame")
+        modules.push("codegen.gpu_emission_frame")
+        modules.push("codegen.gpu_float_literals")
         modules.push("codegen.gpu.spirv_shared")
         modules.push("codegen.gpu.spirv_memory")
         modules.push("codegen.gpu.spirv_math_plan")
@@ -8990,11 +9004,23 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu.spirv_intrinsics")
         modules.push("codegen.gpu.spirv_values")
         modules.push("codegen.gpu.spirv_regions")
+        modules.push("codegen.gpu.ptx_text")
+        modules.push("codegen.gpu.ptx_context")
+        modules.push("codegen.gpu.ptx_builtins")
+        modules.push("codegen.gpu.ptx_abi")
+        modules.push("codegen.gpu.ptx_layout")
+        modules.push("codegen.gpu.ptx_memory")
+        modules.push("codegen.gpu.ptx_math")
+        modules.push("codegen.gpu.ptx_casts")
+        modules.push("codegen.gpu.ptx_intrinsics")
+        modules.push("codegen.gpu.ptx_values")
+        modules.push("codegen.gpu.ptx_regions")
+        modules.push("codegen.gpu.ptx_emitter")
         modules.push("codegen.gpu.spirv_emitter")
         modules.push("codegen.gpu.spirv_binary")
-        modules.push("codegen.gpu.spirv_artifact_manifest")
-        modules.push("codegen.gpu.spirv_artifact_model")
-        modules.push("codegen.gpu.spirv_artifact")
+        modules.push("codegen.gpu_artifact_manifest")
+        modules.push("codegen.gpu_artifact_model")
+        modules.push("codegen.gpu_artifact")
         modules.push("codegen.gpu.spirv_memory_plan")
         modules.push("codegen.gpu.spirv_atomics")
         modules.push("codegen.gpu.spirv_subgroup")
@@ -10335,7 +10361,12 @@ fun findClassMethodReturnType(classNode: ClassNode, methodName: String) r: Strin
 }
 
 fun findReferencedClassMethodReturnTypeInModules(modulePath: String, moduleProgram: ProgramNode, modulePaths: Array<String>, frontends: Array<FrontendResult>, className: String, methodName: String) r: String {
-    let referencedClass = findReferencedClassInModules(modulePath, moduleProgram, modulePaths, frontends, className)
+    // Dynamic receivers declare their methods on the underlying trait.
+    var receiverClassName = className
+    if receiverClassName.startsWith("dyn ") {
+        receiverClassName = receiverClassName.substring(4, receiverClassName.length())
+    }
+    let referencedClass = findReferencedClassInModules(modulePath, moduleProgram, modulePaths, frontends, receiverClassName)
     if referencedClass.name == "" {
         return ""
     }

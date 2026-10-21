@@ -1,4 +1,4 @@
-import crypto.sha256.{Sha256, sha256, releaseSha256DigestResult}
+import crypto.sha256.{Sha256, sha256, releaseSha256DigestResult, parseSha256Digest, sha256DigestEqual}
 import memory.allocation.{memoryStats}
 
 fun digestOnce() r: Void {
@@ -48,6 +48,30 @@ fun byteDigest(count: Int, chunkSize: Int, expected: String) r: Void {
     if digest.isErr() or digest.unwrap() != expected { abort("SHA-256 byte vector changed") }
     releaseSha256DigestResult(digest); state.free()
 }
+fun digestRepresentations() r: Void {
+    let state = Sha256.new()
+    if state.rotateRight(2147483649 as UInt32, 1 as UInt32) != (3221225472 as UInt32) or
+        state.rotateRight(2147483649 as UInt32, 0 as UInt32) != (2147483649 as UInt32) or
+        state.rotateRight(2147483649 as UInt32, 32 as UInt32) != (2147483649 as UInt32) {
+        abort("SHA-256 word rotation changed")
+    }
+    state.state.free(); state.block.free(); state.free()
+    let first = parseSha256Digest("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    let second = parseSha256Digest("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    if first.isErr() or second.isErr() { abort("SHA-256 canonical digest parse failed") }
+    let left = first.unwrap(); let right = second.unwrap()
+    first.releaseContainer(); second.releaseContainer()
+    if not sha256DigestEqual(left, right) { abort("equal SHA-256 bytes differ") }
+    var index = 0
+    while index < 32 {
+        let original = right[index]
+        right[index] = (original as UInt64) ^ (1 as UInt64)
+        if sha256DigestEqual(left, right) { abort("SHA-256 byte difference was ignored") }
+        right[index] = original
+        index = index + 1
+    }
+    left.free(); right.free()
+}
 fun knownVectors() r: Void {
     knownDigest("", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
     knownDigest("abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
@@ -90,6 +114,7 @@ fun knownVectors() r: Void {
     byteDigest(513, 64, "2ac6d9e2b50bdd65511fb4dc0f24b7f6a0c1b2e92d1cf6901df565802e380234");
 }
 fun main() r: Int {
+    digestRepresentations()
     knownVectors()
     var warm = 0
     while warm < 10 {

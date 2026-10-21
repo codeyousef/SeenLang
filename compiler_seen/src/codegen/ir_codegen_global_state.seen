@@ -436,7 +436,7 @@ fun registerClassTraitSetWithGlobalStateImpl(className: String, traits: String) 
     let registry = Array<String>(); registry.push(getTraitImplRegistryStateImpl())
     let count = Array<Int>(); count.push(getTraitImplCountStateImpl())
     registerClassTraitImplsImpl(className, traits,
-        structNames, structMethodNames, structMethodRetTypes, registry, count)
+        structNames, structMethodNames, structMethodRetTypes, registry, count, funcNames, funcRetTypes)
     applyTraitImplStateImpl(registry[0], count[0]); registry.free(); count.free()
 }
 
@@ -450,7 +450,7 @@ fun registerClassTraitImplsWithGlobalStateImpl(className: String) r: Void {
 fun registerBoxedTraitImplWithGlobalStateImpl(className: String, traitName: String) r: Void {
     registerClassTraitSetWithGlobalStateImpl(className, traitName + "|")
     if not ("|" + getTraitImplRegistryStateImpl()).contains("|" + traitName + ":" + className + ":") {
-        abort("Error: [E_DYN_IMPLEMENTATION] boxed trait has no complete declared implementation")
+        abort("Error: [E_DYN_IMPLEMENTATION] boxed trait has no complete declared implementation: " + className + " as " + traitName)
     }
     appendDynTraitNameWithFeatureStateImpl(traitName)
 }

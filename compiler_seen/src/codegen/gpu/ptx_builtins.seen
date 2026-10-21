@@ -1,0 +1,36 @@
+/// Hardware-index values are initialized before control flow, so reuse never
+/// depends on which branch first requested the value.
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+fun ptxReadIndex(function: GpuPtxFunction, destination: Int, source: String) r: Void {
+    function.initializers.literal("mov.u32 "); function.initializers.reg("r", destination)
+    function.initializers.literal(", "); function.initializers.literal(source); function.initializers.literal(";\n")
+}
+fun ptxBuiltin(function: GpuPtxFunction, code: Int) r: Int {
+    if code == 5 {
+        let local = ptxBuiltin(function, 2); let result = function.allocate(0, 1); let temporary = function.allocate(0, 1)
+        let width = function.word(function.workgroupX); let height = function.word(function.workgroupY)
+        function.initializers.binary("mul.lo.u32", temporary, local + 2, height)
+        function.initializers.binary("add.u32", temporary, temporary, local + 1)
+        function.initializers.binary("mul.lo.u32", result, temporary, width)
+        function.initializers.binary("add.u32", result, result, local); return result
+    }
+    if code != 1 and code != 2 and code != 3 and code != 4 and code != 9 {
+        function.error("E_GPU_PTX_CAPABILITY", "PTX builtin requires unavailable subgroup support"); return 0
+    }
+    let result = function.allocate(0, 3); var axis = 0
+    while axis < 3 {
+        var local = "%tid.x"; var group = "%ctaid.x"; var count = "%nctaid.x"; var size = "%ntid.x"
+        if axis == 1 { local = "%tid.y"; group = "%ctaid.y"; count = "%nctaid.y"; size = "%ntid.y" }
+        if axis == 2 { local = "%tid.z"; group = "%ctaid.z"; count = "%nctaid.z"; size = "%ntid.z" }
+        if code == 2 { ptxReadIndex(function, result + axis, local) }
+        else if code == 3 { ptxReadIndex(function, result + axis, group) }
+        else if code == 4 { ptxReadIndex(function, result + axis, count) }
+        else if code == 9 { ptxReadIndex(function, result + axis, size) }
+        else {
+            let groupValue = function.allocate(0, 1); let sizeValue = function.allocate(0, 1); let localValue = function.allocate(0, 1)
+            ptxReadIndex(function, groupValue, group); ptxReadIndex(function, sizeValue, size); ptxReadIndex(function, localValue, local)
+            function.initializers.binary("mul.lo.u32", result + axis, groupValue, sizeValue)
+            function.initializers.binary("add.u32", result + axis, result + axis, localValue)
+        }; axis = axis + 1
+    }; return result
+}

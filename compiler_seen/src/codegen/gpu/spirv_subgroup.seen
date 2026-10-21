@@ -2,11 +2,11 @@
 /// must be both in range and active; invalid sources yield zero and a fault.
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_frame.{GpuSpirvFrame}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
 import codegen.gpu.spirv_math.{spirvBinaryValue, spirvUnaryValue, spirvSelectValue}
 import typechecker.gpu_types.{gpuTypeScalar}
 
-fun spirvSubgroup(function: GpuSpirvFunction, frame: GpuSpirvFrame, borrow op: GpuIrInstruction) r: Int {
+fun spirvSubgroup(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
     let context = function.context; context.capability(61); let scope = context.constant(3, 3)
     let result = context.id(); let typeId = context.valueType(op.typeCode)
     if op.immediate == 1 { function.emit(333, [typeId, result, scope]); return result }

@@ -11,15 +11,15 @@ fun filledArrays(count: Int) r: Void {
         if bytes[index] != (0 as UInt8) or shorts[index] != (0 as Int16) or
             words[index] != (0 as UInt32) or wide[index] != (0 as UInt64) or
             floats[index] != (0 as Float32) { abort("fixed-width array was not zero-filled") }
-        bytes[index] = ((index * 17 + 128) & 255) as UInt8
-        shorts[index] = ((index % 256) - 128) as Int16
-        words[index] = (2147483648 + index * 65537) as UInt32
+        bytes[index] = ((index * 17 + 128) & 255)
+        shorts[index] = ((index % 256) - 128)
+        words[index] = (2147483648 as UInt64) + ((index * 65537) as UInt64)
         wide[index] = ((1 as UInt64) << 63) | (index as UInt64)
-        floats[index] = index as Float32
+        floats[index] = index as Float
         index = index + 1
     }
-    let byteData = bytes.data(); let shortData = shorts.data()
-    let wordData = words.data(); let wideData = wide.data(); let floatData = floats.data()
+    let byteData: *UInt8 = bytes.data(); let shortData: *Int16 = shorts.data()
+    let wordData: *UInt32 = words.data(); let wideData: *UInt64 = wide.data(); let floatData: *Float32 = floats.data()
     index = 0
     while index < count {
         if byteData[index] != (((index * 17 + 128) & 255) as UInt8) or

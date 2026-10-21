@@ -3,7 +3,7 @@
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu_ir_ops.{GPU_IR_PACK}
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_frame.{GpuSpirvFrame}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
 import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
 import codegen.gpu.spirv_packed_float.{spirvPackShortFloat, spirvUnpackShortFloat, spirvFloatIsNan}
 import codegen.gpu.spirv_fp8.{spirvPackFp8, spirvUnpackFp8}
@@ -35,7 +35,7 @@ fun spirvPackedPayload(function: GpuSpirvFunction, format: Int, value: Int, scal
     }
     context.error("E_GPU_SPIRV_PRECISION", "SPIR-V packed precision is unsupported"); return 0
 }
-fun spirvPacked(function: GpuSpirvFunction, frame: GpuSpirvFrame, borrow op: GpuIrInstruction) r: Int {
+fun spirvPacked(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
     let context = function.context; let insert = op.opcode == GPU_IR_PACK; let format = op.immediate
     let word = frame.registers[op.operands[0]]; let lane = frame.registers[op.operands[1]]
     let laneValid = spirvBinaryValue(function, 176, 1, lane, context.constant(3, gpuPrecisionWordLanes(format)))

@@ -1,0 +1,64 @@
+import codegen.gpu.ptx_abi.{ptxKernelParameterBytes}
+/// Offline CUDA PTX construction. The output establishes no device execution.
+/// Every entry has an explicit parameter ABI and a checked workgroup shape.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrValidation}
+import codegen.gpu_ir_verify.{verifyGpuIr}
+import codegen.gpu_options.{GpuOptions, validateGpuOptions, gpuEntryNameValid}
+import codegen.gpu_reflection.{gpuReflectionSelection}
+import codegen.gpu_reflection_layout.{gpuEntryRequirements}
+import codegen.gpu_emission_frame.{createGpuEmissionFrame}
+import codegen.gpu.ptx_text.{GpuPtxText}
+import codegen.gpu.ptx_context.{createGpuPtxFunction}
+import codegen.gpu.ptx_layout.{ptxEntryParameters, ptxLoadEntryResource, ptxLoadFaultParameter}
+import codegen.gpu.ptx_regions.{ptxLowerRegion}
+fun ptxEmitEntry(borrow module: GpuIrModule, index: Int, text: GpuPtxText) r: Void {
+    let source = module.functions[index]; let requirements = gpuEntryRequirements(module, index)
+    if not gpuEntryNameValid(source.name) { text.validation.reject("E_GPU_PTX_LAYOUT", "PTX entry name cannot be represented", index, -1, -1); requirements.free(); return }
+    if requirements.sharedBytes > (49152 as UInt64) { text.validation.reject("E_GPU_PTX_LAYOUT", "PTX shared memory exceeds its portable limit", index, -1, -1); requirements.free(); return }
+    if ptxKernelParameterBytes(source, requirements.faultBuffer) > 4096 {
+        text.validation.reject("E_GPU_PTX_LAYOUT", "PTX kernel parameters exceed the portable 4 KiB ABI limit", index, -1, -1); requirements.free(); return
+    }
+    let function = createGpuPtxFunction(text.validation, source.workgroupX, source.workgroupY, source.workgroupZ)
+    let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
+    while i < source.parameterTypes.length() and text.validation.valid {
+        arguments.push(0); resources.push(ptxLoadEntryResource(function, source.parameterTypes[i], i)); i = i + 1
+    }
+    if requirements.faultBuffer { ptxLoadFaultParameter(function) }
+    let frame = createGpuEmissionFrame(module, index, arguments, resources); arguments.free(); resources.free()
+    ptxLowerRegion(module, function, frame, 0, 0); frame.release(); function.body.literal("ret;\n")
+    if text.validation.valid {
+        text.literal(".visible .entry "); text.literal(source.name); text.literal("(\n"); ptxEntryParameters(text, source, requirements.faultBuffer)
+        text.literal("\n)\n.reqntid "); text.number(source.workgroupX); text.literal(", "); text.number(source.workgroupY)
+        text.literal(", "); text.number(source.workgroupZ); text.literal("\n{\n.reg .b32 %r<"); text.number(function.nextRegister)
+        text.literal(">;\n.reg .b64 %a<"); text.number(function.nextAddress); text.literal(">;\n.reg .pred %p<")
+        text.number(function.nextPredicate); text.literal(">;\n")
+        text.owned(function.sharedDeclarations.finish()); text.owned(function.initializers.finish()); text.owned(function.body.finish()); text.literal("}\n\n")
+    }
+    function.release(); requirements.free()
+}
+fun emitGpuPtx(borrow module: GpuIrModule, borrow options: GpuOptions) r: Result<String, GpuIrValidation> {
+    let validation = verifyGpuIr(module)
+    if not validation.valid { return Err<String, GpuIrValidation>(validation) }
+    let policy = validateGpuOptions(options)
+    if policy.code != "" { validation.reject(policy.code, policy.message, -1, -1, -1) }; policy.free()
+    if options.backend != "cuda" or (options.target != "" and not options.target.startsWith("sm_")) {
+        validation.reject("E_GPU_PTX_TARGET", "PTX emission requires the cuda backend and a CUDA target", -1, -1, -1)
+    }
+    if (module.requiredCapabilities & (~(519 as UInt64))) != (0 as UInt64) {
+        validation.reject("E_GPU_PTX_CAPABILITY", "PTX base emitter lacks a required module capability", -1, -1, -1)
+    }
+    if not validation.valid { return Err<String, GpuIrValidation>(validation) }
+    let selection = gpuReflectionSelection(module, options)
+    if selection.isErr() {
+        let error = selection.unwrapErr(); selection.releaseContainer(); validation.reject(error.code, error.message, -1, -1, -1)
+        error.free(); return Err<String, GpuIrValidation>(validation)
+    }
+    let selected = selection.unwrap(); selection.releaseContainer(); let text = GpuPtxText.create(validation)
+    if options.target == "sm_100" { text.literal(".version 8.7\n") } else { text.literal(".version 8.0\n") }
+    text.literal(".target "); if options.target == "" { text.literal("sm_80") } else { text.literal(options.target) }
+    text.literal("\n.address_size 64\n// seen-ptx-kernel-v1; compile-only; device execution unverified\n\n")
+    var i = 0; while i < selected.length() and validation.valid { ptxEmitEntry(module, selected[i], text); i = i + 1 }; selected.free()
+    if not validation.valid { text.release(); return Err<String, GpuIrValidation>(validation) }
+    let output = text.finish(); text.release(); validation.release(); return Ok<String, GpuIrValidation>(output)
+}

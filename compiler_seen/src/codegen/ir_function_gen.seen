@@ -8,6 +8,7 @@ import parser.real_parser.{FunctionNode}
 import simd.ir_types.{simdTargetFeatures}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_method_receiver.{getDeclaredFunctionNameImpl}
 import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.ir_decl_registry.{registerFunctionStateImpl}
@@ -55,17 +56,13 @@ fun resolveImplementationFunctionNameImpl(fn: FunctionNode,
     traitImplRegistryBox: Array<String>,
     traitImplCountBox: Array<Int>) r: String {
 
-    var implFuncName = fn.name
+    let implFuncName = getDeclaredFunctionNameImpl(fn, structNames)
     let implFnParams = fn.params
     if implFnParams.length() > 0 {
         let implFirstP = implFnParams[0]
         if implFirstP.name == "this" {
             let implFirstPTN = implFirstP.paramType.typeName
             if isClassTypeImpl(implFirstPTN, structNames) == 1 {
-                let implExpectedPrefix = implFirstPTN + "_"
-                if not implFuncName.startsWith(implExpectedPrefix) {
-                    implFuncName = implExpectedPrefix + implFuncName
-                }
                 autoRegisterTraitImplsImpl(fn.name, implFirstPTN,
                     implFuncName, dynTraitNames, structNames,
                     structMethodNames, structMethodRetTypes,
