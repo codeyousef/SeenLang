@@ -1,12 +1,14 @@
 /// Streaming SHA-256 with bounded file reads and canonical digest encoding.
+/// Fixed-size byte/word arrays are allocated once and filled by index: the
+/// frozen bootstrap cannot lower narrow-scalar Array.push arguments. Decimal
+/// round constants preserve their exact values through that bootstrap parser.
 
 import collections.vec.{Vec}
+import str.string.{StringBuilder}
 import io.file.{FsFile}
 import core.error.{SeenError}
 import core.result.{Result, Ok, Err}
 
-extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
-extern "C" fun seen_string_clone_owned(value: String) r: String
 extern "C" fun seen_string_release_owned(value: String) r: Void
 
 class Sha256Error {
@@ -26,14 +28,12 @@ class Sha256 {
     var finalized: Bool
 
     static fun new() r: Sha256 {
-        let state = Array<UInt32>()
-        state.push(0x6A09E667 as UInt32); state.push(0xBB67AE85 as UInt32)
-        state.push(0x3C6EF372 as UInt32); state.push(0xA54FF53A as UInt32)
-        state.push(0x510E527F as UInt32); state.push(0x9B05688C as UInt32)
-        state.push(0x1F83D9AB as UInt32); state.push(0x5BE0CD19 as UInt32)
-        let block = Array<UInt8>()
-        var index = 0
-        while index < 64 { block.push(0 as UInt8); index = index + 1 }
+        let state = Array<UInt32>.withLength(8)
+        state[0] = 1779033703 as UInt32; state[1] = 3144134277 as UInt32
+        state[2] = 1013904242 as UInt32; state[3] = 2773480762 as UInt32
+        state[4] = 1359893119 as UInt32; state[5] = 2600822924 as UInt32
+        state[6] = 528734635 as UInt32; state[7] = 1541459225 as UInt32
+        let block = Array<UInt8>.withLength(64)
         return Sha256{ state: state, block: block, blockLength: 0,
             totalBytes: 0 as UInt64, finalized: false }
     }
@@ -44,7 +44,7 @@ class Sha256 {
                 "digest state is already finalized"))
         }
         if (bytes.length() as UInt64) >
-            (0x1FFFFFFFFFFFFFFF as UInt64) - this.totalBytes {
+            (2305843009213693951 as UInt64) - this.totalBytes {
             return Err<UInt64, Sha256Error>(sha256Error("sha256.limit",
                 "SHA-256 bit length would overflow"))
         }
@@ -79,10 +79,8 @@ class Sha256 {
     }
 
     fun compress() r: Void {
-        let words = Array<UInt32>()
+        let words = Array<UInt32>.withLength(64)
         var index = 0
-        while index < 64 { words.push(0 as UInt32); index = index + 1 }
-        index = 0
         while index < 16 {
             let base = index * 4
             words[index] = ((this.block[base] as UInt32) << 24) |
@@ -141,7 +139,7 @@ class Sha256 {
                 "digest state is already finalized"))
         }
         let bitLength = this.totalBytes * (8 as UInt64)
-        this.block[this.blockLength] = 0x80 as UInt8
+        this.block[this.blockLength] = 128 as UInt8
         this.blockLength = this.blockLength + 1
         if this.blockLength > 56 {
             while this.blockLength < 64 {
@@ -164,25 +162,23 @@ class Sha256 {
         }
         this.compress()
         this.finalized = true
-        // Compression is complete: reuse the block as a bounded hex buffer.
-        // The returned digest must own its bytes independently of this state.
+        // Render from typed words; never reinterpret an array's backing stride
+        // as a byte string. All parts borrow static digits through flattening.
+        let digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+        let builder = StringBuilder{parts: Array<String>(), totalLength: 0}
         var wordIndex = 0
-        var outputIndex = 0
         while wordIndex < 8 {
             var nibble = 7
             while nibble >= 0 {
                 let value = (this.state[wordIndex] >>
                     ((nibble * 4) as UInt32)) & (15 as UInt32)
-                var digit = (value as Int) + 48
-                if value >= (10 as UInt32) { digit = (value as Int) + 87 }
-                this.block[outputIndex] = digit as UInt8
-                outputIndex = outputIndex + 1
+                builder.append(digits[value as Int])
                 nibble = nibble - 1
             }
             wordIndex = wordIndex + 1
         }
-        let digest = seen_string_clone_owned(
-            seen_string_view_bytes(this.block.data(), 64 as Int64))
+        let digest = builder.toString()
+        builder.parts.free(); builder.free(); digits.free()
         this.state.free()
         this.block.free()
         return Ok<String, Sha256Error>(digest)
@@ -196,39 +192,39 @@ fun releaseSha256DigestResult(result: Result<String, Sha256Error>) r: Void {
 }
 
 fun sha256Constants() r: Array<UInt32> {
-    let k = Array<UInt32>()
-    k.push(0x428A2F98 as UInt32); k.push(0x71374491 as UInt32)
-    k.push(0xB5C0FBCF as UInt32); k.push(0xE9B5DBA5 as UInt32)
-    k.push(0x3956C25B as UInt32); k.push(0x59F111F1 as UInt32)
-    k.push(0x923F82A4 as UInt32); k.push(0xAB1C5ED5 as UInt32)
-    k.push(0xD807AA98 as UInt32); k.push(0x12835B01 as UInt32)
-    k.push(0x243185BE as UInt32); k.push(0x550C7DC3 as UInt32)
-    k.push(0x72BE5D74 as UInt32); k.push(0x80DEB1FE as UInt32)
-    k.push(0x9BDC06A7 as UInt32); k.push(0xC19BF174 as UInt32)
-    k.push(0xE49B69C1 as UInt32); k.push(0xEFBE4786 as UInt32)
-    k.push(0x0FC19DC6 as UInt32); k.push(0x240CA1CC as UInt32)
-    k.push(0x2DE92C6F as UInt32); k.push(0x4A7484AA as UInt32)
-    k.push(0x5CB0A9DC as UInt32); k.push(0x76F988DA as UInt32)
-    k.push(0x983E5152 as UInt32); k.push(0xA831C66D as UInt32)
-    k.push(0xB00327C8 as UInt32); k.push(0xBF597FC7 as UInt32)
-    k.push(0xC6E00BF3 as UInt32); k.push(0xD5A79147 as UInt32)
-    k.push(0x06CA6351 as UInt32); k.push(0x14292967 as UInt32)
-    k.push(0x27B70A85 as UInt32); k.push(0x2E1B2138 as UInt32)
-    k.push(0x4D2C6DFC as UInt32); k.push(0x53380D13 as UInt32)
-    k.push(0x650A7354 as UInt32); k.push(0x766A0ABB as UInt32)
-    k.push(0x81C2C92E as UInt32); k.push(0x92722C85 as UInt32)
-    k.push(0xA2BFE8A1 as UInt32); k.push(0xA81A664B as UInt32)
-    k.push(0xC24B8B70 as UInt32); k.push(0xC76C51A3 as UInt32)
-    k.push(0xD192E819 as UInt32); k.push(0xD6990624 as UInt32)
-    k.push(0xF40E3585 as UInt32); k.push(0x106AA070 as UInt32)
-    k.push(0x19A4C116 as UInt32); k.push(0x1E376C08 as UInt32)
-    k.push(0x2748774C as UInt32); k.push(0x34B0BCB5 as UInt32)
-    k.push(0x391C0CB3 as UInt32); k.push(0x4ED8AA4A as UInt32)
-    k.push(0x5B9CCA4F as UInt32); k.push(0x682E6FF3 as UInt32)
-    k.push(0x748F82EE as UInt32); k.push(0x78A5636F as UInt32)
-    k.push(0x84C87814 as UInt32); k.push(0x8CC70208 as UInt32)
-    k.push(0x90BEFFFA as UInt32); k.push(0xA4506CEB as UInt32)
-    k.push(0xBEF9A3F7 as UInt32); k.push(0xC67178F2 as UInt32)
+    let k = Array<UInt32>.withLength(64)
+    k[0] = 1116352408 as UInt32; k[1] = 1899447441 as UInt32
+    k[2] = 3049323471 as UInt32; k[3] = 3921009573 as UInt32
+    k[4] = 961987163 as UInt32; k[5] = 1508970993 as UInt32
+    k[6] = 2453635748 as UInt32; k[7] = 2870763221 as UInt32
+    k[8] = 3624381080 as UInt32; k[9] = 310598401 as UInt32
+    k[10] = 607225278 as UInt32; k[11] = 1426881987 as UInt32
+    k[12] = 1925078388 as UInt32; k[13] = 2162078206 as UInt32
+    k[14] = 2614888103 as UInt32; k[15] = 3248222580 as UInt32
+    k[16] = 3835390401 as UInt32; k[17] = 4022224774 as UInt32
+    k[18] = 264347078 as UInt32; k[19] = 604807628 as UInt32
+    k[20] = 770255983 as UInt32; k[21] = 1249150122 as UInt32
+    k[22] = 1555081692 as UInt32; k[23] = 1996064986 as UInt32
+    k[24] = 2554220882 as UInt32; k[25] = 2821834349 as UInt32
+    k[26] = 2952996808 as UInt32; k[27] = 3210313671 as UInt32
+    k[28] = 3336571891 as UInt32; k[29] = 3584528711 as UInt32
+    k[30] = 113926993 as UInt32; k[31] = 338241895 as UInt32
+    k[32] = 666307205 as UInt32; k[33] = 773529912 as UInt32
+    k[34] = 1294757372 as UInt32; k[35] = 1396182291 as UInt32
+    k[36] = 1695183700 as UInt32; k[37] = 1986661051 as UInt32
+    k[38] = 2177026350 as UInt32; k[39] = 2456956037 as UInt32
+    k[40] = 2730485921 as UInt32; k[41] = 2820302411 as UInt32
+    k[42] = 3259730800 as UInt32; k[43] = 3345764771 as UInt32
+    k[44] = 3516065817 as UInt32; k[45] = 3600352804 as UInt32
+    k[46] = 4094571909 as UInt32; k[47] = 275423344 as UInt32
+    k[48] = 430227734 as UInt32; k[49] = 506948616 as UInt32
+    k[50] = 659060556 as UInt32; k[51] = 883997877 as UInt32
+    k[52] = 958139571 as UInt32; k[53] = 1322822218 as UInt32
+    k[54] = 1537002063 as UInt32; k[55] = 1747873779 as UInt32
+    k[56] = 1955562222 as UInt32; k[57] = 2024104815 as UInt32
+    k[58] = 2227730452 as UInt32; k[59] = 2361852424 as UInt32
+    k[60] = 2428436474 as UInt32; k[61] = 2756734187 as UInt32
+    k[62] = 3204031479 as UInt32; k[63] = 3329325298 as UInt32
     return k
 }
 
@@ -351,7 +347,7 @@ fun parseSha256Digest(text: String) r: Result<Array<UInt8>, Sha256Error> {
         return Err<Array<UInt8>, Sha256Error>(sha256Error("sha256.encoding",
             "SHA-256 digest must contain exactly 64 lowercase hex characters"))
     }
-    let bytes = Array<UInt8>()
+    let bytes = Array<UInt8>.withLength(32)
     var index = 0
     while index < 64 {
         let high = sha256HexNibble(text.charAt(index))
@@ -361,7 +357,7 @@ fun parseSha256Digest(text: String) r: Result<Array<UInt8>, Sha256Error> {
             return Err<Array<UInt8>, Sha256Error>(sha256Error("sha256.encoding",
                 "SHA-256 digest is not canonical lowercase hexadecimal"))
         }
-        bytes.push(((high << 4) | low) as UInt8)
+        bytes[index / 2] = ((high << 4) | low) as UInt8
         index = index + 2
     }
     return Ok<Array<UInt8>, Sha256Error>(bytes)
