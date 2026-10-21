@@ -7,6 +7,7 @@ import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStat
 import codegen.ir_codegen_type_state.{getDataTypeSizeState, isClassTypeState, isDataTypeState}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_array_scalar_emit.{emitArrayBooleanPushImpl}
 import codegen.ir_string_collect.{extractArrayLiteralElementTypeImpl}
 import codegen.ir_type_mapping.{isFixedWidthScalarTypeImpl,
     getFixedWidthScalarSizeImpl, getFixedWidthScalarLlvmTypeImpl}
@@ -36,6 +37,10 @@ fun emitArrayLiteralAllocationState(output: StringBuilder,
 fun emitArrayLiteralElementPushState(output: StringBuilder, arrReg: String,
     argReg: String, argType: String, argIsStructLiteral: Bool) r: Void {
 
+    if argType == "Bool" {
+        emitArrayBooleanPushImpl(output, getFeatureRegBoxImpl(), arrReg, argReg)
+        return
+    }
     if argType == "String" {
         output.append("  call void @seen_arr_push_str(ptr " + arrReg +
             ", %SeenString " + argReg + ")\n")

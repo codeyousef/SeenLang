@@ -2,6 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_array_scalar_emit.{emitArrayBooleanPushImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
 import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_driver.{tryGenerateChainedReceiverMemberAccessState, tryGenerateImplicitThisFieldVariableState, tryGenerateImplicitThisReceiverMemberAccessState, tryGenerateModuleConstReceiverMemberAccessState, tryGenerateVariableReceiverMemberAccessState}
@@ -210,11 +211,7 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
         return "0"
     }
     if pushElemType == "Bool" or receiverType == "Array<Bool>" {
-        let widenedBoolReg = getNextRegFn(regBox)
-        output.append("  " + widenedBoolReg + " = zext i1 " + argReg +
-            " to i64\n")
-        output.append("  call void @seen_arr_push_i64(ptr " + arrayPtrReg +
-            ", i64 " + widenedBoolReg + ")\n")
+        emitArrayBooleanPushImpl(output, regBox, arrayPtrReg, argReg)
         return "0"
     }
     if pushElemType != "String" and pushElemType != "Int" and
