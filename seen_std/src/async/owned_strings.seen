@@ -1,0 +1,91 @@
+// Bounded owned NUL-terminated string vector. Layout, copying and policy stay
+// in Seen; the packed buffers can move across threads without a mutable Array.
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError, asyncFailure, asyncStatusCode}
+import memory.aligned_buffer.{OwnedBuffer}
+
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+extern "C" fun seen_string_clone_owned(value: String) r: String
+fun ownedStringVectorFailure(status: Int32, operation: String, progress: UInt64) r: AsyncError {
+    return asyncFailure(asyncStatusCode(status), operation, "owned string vector contract failed",
+        false, progress, "strings")
+}
+
+@send
+@move
+class OwnedCStringVector {
+    var strings: OwnedBuffer<UInt8>
+    var pointers: OwnedBuffer<UInt8>
+    var count: Int
+
+    static fun pack(values: Array<String>) r: Result<OwnedCStringVector, AsyncError> {
+        if values.length() > 256 {
+            return Err<OwnedCStringVector, AsyncError>(ownedStringVectorFailure(2 as Int32, "strings.pack", 0 as UInt64))
+        }
+        var total = 1; var i = 0
+        while i < values.length() {
+            if values[i].length() > 65536 - total - 1 {
+                return Err<OwnedCStringVector, AsyncError>(ownedStringVectorFailure(2 as Int32, "strings.pack", i as UInt64))
+            }
+            var j = 0
+            while j < values[i].length() {
+                if values[i].byteAt(j) == 0 {
+                    return Err<OwnedCStringVector, AsyncError>(ownedStringVectorFailure(1 as Int32, "strings.pack", i as UInt64))
+                }
+                j = j + 1
+            }
+            total = total + values[i].length() + 1; i = i + 1
+        }
+        let allocated = OwnedBuffer<UInt8>.allocate(total as UInt64, 1 as UInt64, 16 as UInt64)
+        if allocated.isErr() {
+            allocated.unwrapErr().free(); allocated.releaseContainer()
+            return Err<OwnedCStringVector, AsyncError>(ownedStringVectorFailure(2 as Int32, "strings.pack", 0 as UInt64))
+        }
+        let strings = allocated.unwrap(); allocated.releaseContainer()
+        let table = OwnedBuffer<UInt8>.allocate((values.length() + 1) as UInt64, 8 as UInt64, 16 as UInt64)
+        if table.isErr() {
+            table.unwrapErr().free(); table.releaseContainer(); strings.close(); strings.free()
+            return Err<OwnedCStringVector, AsyncError>(ownedStringVectorFailure(2 as Int32, "strings.pack", 0 as UInt64))
+        }
+        let pointers = table.unwrap(); table.releaseContainer()
+        i = 0; var at = 0
+        while i < values.length() {
+            ptr_store_i64((pointers.data as Int) + i * 8, (strings.data as Int) + at)
+            var j = 0
+            while j < values[i].length() {
+                ptr_store_i8((strings.data as Int) + at, values[i].byteAt(j) as Int8)
+                j = j + 1; at = at + 1
+            }
+            ptr_store_i8((strings.data as Int) + at, 0 as Int8)
+            at = at + 1; i = i + 1
+        }
+        ptr_store_i64((pointers.data as Int) + i * 8, 0)
+        return Ok<OwnedCStringVector, AsyncError>(OwnedCStringVector{strings: strings, pointers: pointers,
+            count: values.length()})
+    }
+    fun length() r: Int { return this.count }
+    // Returned strings are owned copies, so no borrowed view can escape the
+    // lifetime of this vector or enter an unrelated Send capture.
+    fun get(index: Int) r: Result<String, AsyncError> {
+        if this.count < 0 or this.count > 256 or index < 0 or index >= this.count or
+            this.strings.data == (null as *UInt8) or this.pointers.data == (null as *UInt8) or
+            this.strings.byteLength == (0 as UInt64) or this.strings.byteLength > (65536 as UInt64) or
+            this.pointers.byteLength < ((this.count + 1) as UInt64) * (8 as UInt64) {
+            return Err<String, AsyncError>(ownedStringVectorFailure(1 as Int32, "strings.get", 0 as UInt64))
+        }
+        let base = this.strings.data as Int
+        let start = ptr_deref_i64((this.pointers.data as Int) + index * 8) as Int
+        var next = base + (this.strings.byteLength as Int) - 1
+        if index + 1 < this.count { next = ptr_deref_i64((this.pointers.data as Int) + (index + 1) * 8) as Int }
+        if start < base or next <= start or next > base + (this.strings.byteLength as Int) {
+            return Err<String, AsyncError>(ownedStringVectorFailure(1 as Int32, "strings.get", 0 as UInt64))
+        }
+        let view = seen_string_view_bytes(start as *const UInt8, (next - start - 1) as Int64)
+        return Ok<String, AsyncError>(seen_string_clone_owned(view))
+    }
+    fun release() r: Bool {
+        this.pointers.close(); this.pointers.free(); this.strings.close(); this.strings.free(); this.free()
+        return true
+    }
+}
+

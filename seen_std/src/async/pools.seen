@@ -1,4 +1,6 @@
 import core.result.{Result, Ok, Err}
+import core.option.{Option, Some, None}
+import async.join_report.{ExecutorJoinReport}
 import sync.contracts.{Send}
 import async.structured.{AsyncError, AsyncOperationContext}
 import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
@@ -45,6 +47,25 @@ class PoolJoinHandle<T: Send + ExecutorJob> {
         let task = wrapped.task
         wrapped.free()
         return Ok<T, AsyncError>(task)
+    }
+
+    fun joinDetailed(context: AsyncOperationContext) r: Result<ExecutorJoinReport<T>, AsyncError> {
+        let joined = this.inner.joinDetailed(context)
+        if joined.isErr() {
+            let error = joined.unwrapErr(); joined.releaseContainer()
+            return Err<ExecutorJoinReport<T>, AsyncError>(error)
+        }
+        let wrapped = joined.unwrap(); joined.releaseContainer()
+        var task = None<T>()
+        if wrapped.task.isSome() {
+            let placed = wrapped.task.unwrap()
+            task.free(); task = Some<T>(placed.task); placed.free()
+        }
+        wrapped.task.free()
+        let report = ExecutorJoinReport<T>{task: task, error: wrapped.error, diagnostic: wrapped.diagnostic,
+            fallback: wrapped.fallback, progress: wrapped.progress}
+        wrapped.free()
+        return Ok<ExecutorJoinReport<T>, AsyncError>(report)
     }
 
     fun release() r: Result<Bool, AsyncError> {

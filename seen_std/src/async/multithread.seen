@@ -5,6 +5,7 @@ import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
 import sync.contracts.{Send}
+import async.join_report.{ExecutorJoinReport}
 import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
     ExecutorCore, ExecutorTicket, executorFailure, executorCopyContext,
     executorContextFailure, executorReleaseContext, executorReleaseSnapshot, executorWorkerEntry,
@@ -37,37 +38,78 @@ class ExecutorJoinHandle<T: Send + ExecutorJob> {
         return Ok<Bool, AsyncError>(true)
     }
 
-    fun join(context: AsyncOperationContext) r: Result<T, AsyncError> {
+    fun waitForTerminal(context: AsyncOperationContext) r: Result<Int32, AsyncError> {
         if not this.active {
-            return Err<T, AsyncError>(executorFailure(1 as Int32,
-                "executor.await", 0 as UInt64))
+            return Err<Int32, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
         }
-        let valid = validateAsyncContext(context, "executor.await", 0 as UInt64)
+        let valid = validateAsyncContext(context, "executor.await", this.core.taskProgress(this.slot, this.id))
         if valid.isErr() {
-            let error = valid.unwrapErr()
-            valid.releaseContainer()
-            return Err<T, AsyncError>(error)
+            let error = valid.unwrapErr(); valid.releaseContainer(); return Err<Int32, AsyncError>(error)
         }
         valid.releaseContainer()
         let status = this.core.wait(this.slot, this.id, context, this.depth)
+        if status != (0 as Int32) and status < (100 as Int32) {
+            return Err<Int32, AsyncError>(executorContextFailure(status, "executor.await",
+                this.core.taskProgress(this.slot, this.id), context))
+        }
+        return Ok<Int32, AsyncError>(status)
+    }
+
+    fun join(context: AsyncOperationContext) r: Result<T, AsyncError> {
+        let waited = this.waitForTerminal(context)
+        if waited.isErr() {
+            let error = waited.unwrapErr(); waited.releaseContainer(); return Err<T, AsyncError>(error)
+        }
+        let status = waited.unwrap(); waited.releaseContainer()
         if status == (0 as Int32) {
             if not this.core.reap(this.slot, this.id, false) {
-                return Err<T, AsyncError>(executorFailure(1 as Int32,
-                    "executor.await", 0 as UInt64))
+                return Err<T, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
             }
-            this.active = false
-            return Ok<T, AsyncError>(this.task)
+            this.active = false; return Ok<T, AsyncError>(this.task)
         }
-        // Reap only if the task is terminal. Timeout/cancellation of the
-        // waiting context retains running work and the retryable join owner.
-        var failure = status
-        if status >= (100 as Int32) {
-            failure = status - (100 as Int32)
-            if this.core.reap(this.slot, this.id, true) { this.active = false }
+        let observed = this.core.observe(this.slot, this.id, false)
+        if observed.isErr() {
+            let error = observed.unwrapErr(); observed.releaseContainer(); return Err<T, AsyncError>(error)
         }
-        return Err<T, AsyncError>(executorContextFailure(failure,
-            "executor.await", this.core.progress(), context))
+        let observation = observed.unwrap(); observed.releaseContainer()
+        let error = executorContextFailure(status - (100 as Int32), "executor.await", observation.progress, context)
+        error.retryable = error.code == "async.unavailable" and observation.retryable
+        observation.release()
+        if this.core.reap(this.slot, this.id, true) { this.active = false }
+        return Err<T, AsyncError>(error)
     }
+
+    fun joinDetailed(context: AsyncOperationContext) r: Result<ExecutorJoinReport<T>, AsyncError> {
+        let waited = this.waitForTerminal(context)
+        if waited.isErr() {
+            let error = waited.unwrapErr(); waited.releaseContainer()
+            return Err<ExecutorJoinReport<T>, AsyncError>(error)
+        }
+        let status = waited.unwrap(); waited.releaseContainer()
+        let observed = this.core.observe(this.slot, this.id, true)
+        if observed.isErr() {
+            let error = observed.unwrapErr(); observed.releaseContainer()
+            return Err<ExecutorJoinReport<T>, AsyncError>(error)
+        }
+        let observation = observed.unwrap(); observed.releaseContainer()
+        if not this.core.reap(this.slot, this.id, status != (0 as Int32)) {
+            observation.release()
+            return Err<ExecutorJoinReport<T>, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
+        }
+        this.active = false
+        var task = None<T>(); var error = None<AsyncError>()
+        if status == (0 as Int32) { task.free(); task = Some<T>(this.task) }
+        else {
+            let failure = executorContextFailure(status - (100 as Int32), "executor.await", observation.progress, context)
+            failure.retryable = failure.code == "async.unavailable" and observation.retryable
+            error.free(); error = Some<AsyncError>(failure)
+        }
+        let report = ExecutorJoinReport<T>{task: task, error: error, diagnostic: observation.diagnostic,
+            fallback: observation.fallback, progress: observation.progress}
+        observation.free()
+        return Ok<ExecutorJoinReport<T>, AsyncError>(report)
+    }
+
 }
 
 fun executorSubmit<T: Send + ExecutorJob>(core: ExecutorCore, task: T,
