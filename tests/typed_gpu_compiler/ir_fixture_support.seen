@@ -30,8 +30,8 @@ fun irExpect(borrow module: GpuIrModule, code: String) r: Void {
 }
 fun irCopyFixture() r: GpuIrModule {
     let module = irModule("copy-fixture"); let function = irFunction("arbitrary_copy_name", true, 0)
-    module.functions.push(function); function.parameterTypes.push(1002); function.parameterTypes.push(2002); function.parameterTypes.push(4003)
-    let root = GpuIrBlock.create(-1, -1); function.blocks.push(root)
+    function.parameterTypes.push(1002); function.parameterTypes.push(2002); function.parameterTypes.push(4003)
+    let root = GpuIrBlock.create(-1, -1)
     var i = 0
     while i < 3 {
         let parameter = GpuIrInstruction.create(GPU_IR_PARAM, i + 1, function.parameterTypes[i]); parameter.immediate = i
@@ -44,28 +44,30 @@ fun irCopyFixture() r: GpuIrModule {
     compare.operands.push(5); compare.operands.push(6); root.instructions.push(compare)
     let branch = GpuIrInstruction.create(GPU_IR_IF, 0, 0); branch.operands.push(7); branch.leftBlock = 1; branch.rightBlock = 2
     root.instructions.push(branch)
-    let yes = GpuIrBlock.create(0, 7); let no = GpuIrBlock.create(0, 7); function.blocks.push(yes); function.blocks.push(no)
+    let yes = GpuIrBlock.create(0, 7); let no = GpuIrBlock.create(0, 7)
     let load = GpuIrInstruction.create(GPU_IR_LOAD, 8, 2); load.operands.push(1); load.operands.push(5); yes.instructions.push(load)
     let store = GpuIrInstruction.create(GPU_IR_STORE, 0, 0); store.operands.push(2); store.operands.push(5); store.operands.push(8)
     yes.instructions.push(store); function.registerCount = 8
     module.requiredCapabilities = 3 as UInt64; module.requiresFaultBuffer = true
+    function.blocks.push(root); function.blocks.push(yes); function.blocks.push(no); module.functions.push(function)
     return module
 }
 fun irValueFixture() r: GpuIrModule {
     let module = irModule("value-fixture"); let function = irFunction("short_circuit_region", true, 0)
-    module.functions.push(function); let root = GpuIrBlock.create(-1, -1); function.blocks.push(root)
+    let root = GpuIrBlock.create(-1, -1)
     root.instructions.push(irConstant(GPU_IR_BOOL, 1, 1, "true"))
     let branch = GpuIrInstruction.create(GPU_IR_IF_VALUE, 4, 1)
     branch.operands.push(1); branch.leftBlock = 1; branch.rightBlock = 2; root.instructions.push(branch)
-    let yes = GpuIrBlock.create(0, 1); let no = GpuIrBlock.create(0, 1); function.blocks.push(yes); function.blocks.push(no)
+    let yes = GpuIrBlock.create(0, 1); let no = GpuIrBlock.create(0, 1)
     yes.instructions.push(irConstant(GPU_IR_BOOL, 2, 1, "false")); no.instructions.push(irConstant(GPU_IR_BOOL, 3, 1, "true"))
     let leftYield = GpuIrInstruction.create(GPU_IR_YIELD_VALUE, 0, 0); leftYield.operands.push(2); yes.instructions.push(leftYield)
     let rightYield = GpuIrInstruction.create(GPU_IR_YIELD_VALUE, 0, 0); rightYield.operands.push(3); no.instructions.push(rightYield)
-    function.registerCount = 4; return module
+    function.registerCount = 4
+    function.blocks.push(root); function.blocks.push(yes); function.blocks.push(no); module.functions.push(function); return module
 }
 fun irBarrierFixture(varying: Bool) r: GpuIrModule {
     let module = irModule("barrier-fixture"); let function = irFunction("collective", true, 0)
-    module.functions.push(function); let root = GpuIrBlock.create(-1, -1); function.blocks.push(root)
+    let root = GpuIrBlock.create(-1, -1)
     let shared = GpuIrInstruction.create(GPU_IR_SHARED, 1, 5002); shared.immediate = 64; root.instructions.push(shared)
     let builtin = GpuIrInstruction.create(GPU_IR_BUILTIN, 2, 35); builtin.immediate = 3
     if varying { builtin.immediate = 1 }; root.instructions.push(builtin)
@@ -75,10 +77,11 @@ fun irBarrierFixture(varying: Bool) r: GpuIrModule {
     compare.operands.push(3); compare.operands.push(4); root.instructions.push(compare)
     let branch = GpuIrInstruction.create(GPU_IR_IF, 0, 0); branch.operands.push(5); branch.leftBlock = 1; branch.rightBlock = 2
     root.instructions.push(branch)
-    let yes = GpuIrBlock.create(0, 5); let no = GpuIrBlock.create(0, 5); function.blocks.push(yes); function.blocks.push(no)
+    let yes = GpuIrBlock.create(0, 5); let no = GpuIrBlock.create(0, 5)
     let barrier = GpuIrInstruction.create(GPU_IR_BARRIER, 0, 0)
     barrier.memoryScope = 3; barrier.memoryOrder = 4; barrier.memorySpaces = 2; yes.instructions.push(barrier)
     function.registerCount = 5; module.requiredCapabilities = 4 as UInt64; module.sharedBytes = 256 as UInt64
+    function.blocks.push(root); function.blocks.push(yes); function.blocks.push(no); module.functions.push(function)
     return module
 }
 fun irCallChainFixture(helpers: Int) r: GpuIrModule {
@@ -87,11 +90,11 @@ fun irCallChainFixture(helpers: Int) r: GpuIrModule {
     while i <= helpers {
         let number = i.toString(); let name = "helper_" + number
         let function = irFunction(name, i == helpers, 0); releaseJsonText(name); releaseJsonText(number)
-        module.functions.push(function); let block = GpuIrBlock.create(-1, -1); function.blocks.push(block)
+        let block = GpuIrBlock.create(-1, -1)
         if i > 0 {
             let call = GpuIrInstruction.create(GPU_IR_CALL, 0, 0); call.immediate = i - 1; block.instructions.push(call)
         }
-        i = i + 1
+        function.blocks.push(block); module.functions.push(function); i = i + 1
     }
     return module
 }

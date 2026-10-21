@@ -55,8 +55,8 @@ fun verifyGpuIr(borrow module: GpuIrModule) r: GpuIrValidation {
     while i < module.functions.length() {
         let function = module.functions[i]
         let localFacts = GpuIrFacts.create(function.registerCount, function.localCount, function.blocks.length())
+        if not gpuIrPrepareFunction(module, function, localFacts, validation, i) { localFacts.release(); gpuIrReleaseFacts(facts); return validation }
         facts.push(localFacts)
-        if not gpuIrPrepareFunction(module, function, localFacts, validation, i) { gpuIrReleaseFacts(facts); return validation }
         let shared = gpuIrFunctionSharedBytes(function, validation, i)
         if shared < 0 { gpuIrReleaseFacts(facts); return validation }
         if shared > sharedBytes { sharedBytes = shared }
@@ -65,8 +65,8 @@ fun verifyGpuIr(borrow module: GpuIrModule) r: GpuIrValidation {
             let block = function.blocks[blockIndex]; var opIndex = 0
             while opIndex < block.instructions.length() {
                 let op = block.instructions[opIndex]
-                validation.capabilities = validation.capabilities | gpuIrInstructionCapabilities(op)
-                if gpuIrInstructionNeedsFaultBuffer(op) { needsFaultBuffer = true }
+                validation.capabilities = validation.capabilities | gpuIrInstructionCapabilities(op.opcode, op.typeCode, op.immediate, op.memoryScope, op.memorySpaces)
+                if gpuIrInstructionNeedsFaultBuffer(op.opcode, op.immediate) { needsFaultBuffer = true }
                 opIndex = opIndex + 1
             }
             blockIndex = blockIndex + 1

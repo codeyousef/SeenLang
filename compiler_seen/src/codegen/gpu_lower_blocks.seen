@@ -63,23 +63,26 @@ fun gpuLowerBranch(context: GpuLowerContext, statement: StatementNode, depth: In
     if not context.validation.valid { return }
     if context.typeOf(condition) != 1 { context.error("E_GPU_TYPE", "GPU branch condition requires Bool"); return }
     let parent = context.blockIndex; let position = context.function.blocks[parent].instructions.length()
+    let line = context.line; let column = context.column
     let branch = context.operation(GPU_IR_IF, 0); branch.operands.push(condition)
     branch.leftBlock = context.childBlock(parent, position); branch.rightBlock = context.childBlock(parent, position)
-    if not context.validation.valid { branch.release(); return }; context.emit(branch)
+    if not context.validation.valid { branch.release(); return }
     context.blockIndex = branch.leftBlock; gpuLowerBlock(context, statement.thenBranch, depth + 1)
     context.blockIndex = branch.rightBlock; gpuLowerBlock(context, statement.elseBranch, depth + 1)
-    context.blockIndex = parent
+    context.blockIndex = parent; context.line = line; context.column = column; context.emit(branch)
 }
 fun gpuLowerWhile(context: GpuLowerContext, statement: StatementNode, depth: Int) r: Void {
     let parent = context.blockIndex; let position = context.function.blocks[parent].instructions.length()
+    let line = context.line; let column = context.column
     let loopOp = context.operation(GPU_IR_WHILE, 0)
     loopOp.leftBlock = context.childBlock(parent, position); loopOp.rightBlock = context.childBlock(parent, position)
-    if not context.validation.valid { loopOp.release(); return }; context.emit(loopOp)
+    if not context.validation.valid { loopOp.release(); return }
     context.blockIndex = loopOp.leftBlock
     let condition = gpuLowerExpression(context, statement.loopCondition, depth + 1)
     if context.validation.valid and context.typeOf(condition) != 1 { context.error("E_GPU_TYPE", "GPU loop condition requires Bool") }
     let decision = context.operation(GPU_IR_CONDITION, 0); decision.operands.push(condition); context.emit(decision)
-    context.blockIndex = loopOp.rightBlock; gpuLowerBlock(context, statement.loopBody, depth + 1); context.blockIndex = parent
+    context.blockIndex = loopOp.rightBlock; gpuLowerBlock(context, statement.loopBody, depth + 1)
+    context.blockIndex = parent; context.line = line; context.column = column; context.emit(loopOp)
 }
 fun gpuLowerFor(context: GpuLowerContext, statement: StatementNode, depth: Int) r: Void {
     let range = statement.expression
@@ -91,15 +94,17 @@ fun gpuLowerFor(context: GpuLowerContext, statement: StatementNode, depth: Int) 
     let typeCode = context.typeOf(first)
     if (typeCode != 2 and typeCode != 3) or typeCode != context.typeOf(last) { context.error("E_GPU_TYPE", "GPU range endpoints require matching fixed-width integers"); return }
     let parent = context.blockIndex; let position = context.function.blocks[parent].instructions.length()
+    let line = context.line; let column = context.column
     let loopOp = context.operation(GPU_IR_FOR, 0); loopOp.operands.push(first); loopOp.operands.push(last)
     loopOp.leftBlock = context.childBlock(parent, position)
-    if not context.validation.valid { loopOp.release(); return }; context.emit(loopOp); context.blockIndex = loopOp.leftBlock
+    if not context.validation.valid { loopOp.release(); return }; context.blockIndex = loopOp.leftBlock
     let originalLength = context.names.length(); let originalStart = context.scopeStart; context.scopeStart = originalLength
     let induction = context.operation(GPU_IR_INDUCTION, typeCode); let identity = context.emit(induction)
     if context.validation.valid { context.define(statement.variableName, identity, -1) }
     // The body shares the induction declaration's lexical scope.
     if context.visit(depth + 1) { gpuLowerStatements(context, statement.loopBody, depth + 1) }
     context.restoreBindings(originalLength); context.scopeStart = originalStart; context.blockIndex = parent
+    context.line = line; context.column = column; context.emit(loopOp)
 }
 fun gpuLowerStatements(context: GpuLowerContext, block: BlockNode, depth: Int) r: Void {
     var i = 0
