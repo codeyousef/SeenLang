@@ -1,0 +1,154 @@
+import stress_fixture_support.{must, errorIs, atomicValue, context, counter, closeCounter, addOne}
+import core.option.{Option, Some, None}
+import env.env.{args}
+import async.structured.{AsyncOperationContext}
+import async.executor_core.{ExecutorLimits, ExecutorTaskContext, executorReleaseContext,
+    executorCopyContext, executorReleaseSnapshot}
+import async.multithread.{MultithreadExecutor}
+import async.event_loop.{AsyncIoEvent, ReadyIoJob, AsyncEventLoop}
+import async.io_lease.{AsyncIoLease}
+import async.completion_io.{AsyncFileCompletionQueue, CompletedFileIo, completionFileHandle}
+import async.process_native.{seen_async_process_pipe}
+import async.streams.{AsyncByteSpan, AsyncFdStream}
+import reactor.reactor.{OwnedHandle, Interest}
+import memory.aligned_buffer.{OwnedBuffer}
+import fs.file.{File}
+import fs.types.{Path, OpenOptions, DirectIoPolicy}
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_async_readiness_live_handles() r: UInt64
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun __ThreadYield() r: Void
+
+@send
+class IoStressProbe {
+    var lease: Option<AsyncIoLease>
+    var executed: UInt64
+    var released: UInt64
+    var observed: Bool
+    fun onEvent(event: AsyncIoEvent, descriptor: Int64, task: ExecutorTaskContext) r: Bool {
+        let previous = addOne(this.executed)
+        this.observed = not event.timer and descriptor >= (0 as Int64) and event.flags != (0 as Int32)
+        return this.observed and not task.isCancelled()
+    }
+    fun release() r: Bool {
+        if this.lease.isSome() { this.lease.unwrap().release() }
+        this.lease.free(); let previous = addOne(this.released); this.free(); return true
+    }
+}
+fun handle(fd: Int64, owned: Bool) r: OwnedHandle {
+    return OwnedHandle{native: fd, owned: owned, valid: true}
+}
+fun probe(executed: UInt64, released: UInt64, lease: Option<AsyncIoLease>) r: IoStressProbe {
+    return IoStressProbe{lease: lease, executed: executed, released: released, observed: false}
+}
+fun awaitDispatch(borrow reactor: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContext) r: Void {
+    // Bounded software wait: absence of readiness fails instead of busy spinning
+    // forever. Each wait uses the existing wake-driven kernel poller.
+    let polling = executorCopyContext(ctx)
+    let now = seen_time_monotonic_nanos()
+    if now < (0 as Int64) or now > (9223372026854775807 as Int64) { abort("I/O clock invalid") }
+    polling.operation.monotonicDeadline = now + (10000000000 as Int64)
+    var attempts = 0
+    while attempts < 100 {
+        let ready = must(reactor.pollOnce(4, polling))
+        if ready > 0 {
+            let joined = must(reactor.dispatchNext()); let completed = must(joined.join(ctx))
+            if not completed.task.observed { abort("I/O callback did not observe readiness") }
+            completed.release(); joined.free(); executorReleaseSnapshot(polling); return
+        }
+        attempts = attempts + 1
+    }
+    abort("I/O stress readiness deadline exceeded")
+}
+fun pipeRound(borrow reactor: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContext,
+    executed: UInt64, released: UInt64, cancel: Bool) r: Void {
+    var readFd = -1 as Int64; var writeFd = -1 as Int64
+    if seen_async_process_pipe(1 as Int32, &readFd, &writeFd) != (0 as Int32) { abort("stress pipe failed") }
+    let writer = must(AsyncFdStream.take(handle(writeFd, true), 1 as UInt64))
+    let registration = must(reactor.register(probe(executed, released, None<AsyncIoLease>()),
+        handle(readFd, true), Interest.Readable, -1 as Int64, ctx))
+    if cancel {
+        must(reactor.cancel(registration))
+        if not errorIs(reactor.cancel(registration), "async.invalid") { abort("stale I/O generation accepted") }
+    } else {
+        let bytes = must(OwnedBuffer<UInt8>.allocate(1 as UInt64, 1 as UInt64, 16 as UInt64))
+        bytes.data[0] = 42 as UInt8
+        let span = must(AsyncByteSpan.take(bytes, 0 as UInt64, 1 as UInt64))
+        let progress = must(writer.write(span, ctx))
+        if progress.bytes != (1 as UInt64) { abort("pipe made incorrect progress") }
+        progress.free(); span.release(); awaitDispatch(reactor, ctx)
+    }
+    if reactor.matches(registration) { abort("completed I/O generation retained") }
+    registration.free(); must(writer.release())
+}
+fun reap(borrow queue: AsyncFileCompletionQueue) r: CompletedFileIo {
+    let start = seen_time_monotonic_nanos()
+    if start < (0 as Int64) or start > (9223372026854775807 as Int64) { abort("completion clock invalid") }
+    while seen_time_monotonic_nanos() - start < (10000000000 as Int64) {
+        let completed = must(queue.reap())
+        if completed.isSome() { let value = completed.unwrap(); completed.free(); return value }
+        completed.free(); __ThreadYield()
+    }
+    abort("kernel completion did not relinquish borrowed storage")
+}
+fun finishCancellation(borrow queue: AsyncFileCompletionQueue, value: Option<CompletedFileIo>) r: CompletedFileIo {
+    if value.isSome() { return value.unwrap() }
+    return reap(queue)
+}
+fun main() r: Int {
+    let argv = args()
+    if argv.length() != 2 { return 1 }
+    let threads = seen_executor_live_threads(); let atomics = seen_sync_live_atomics()
+    let readiness = seen_async_readiness_live_handles()
+    let ctx = context()
+    let config = ExecutorLimits{workers: 2, tasks: 8, queued: 8, helpDepth: 4, stackBytes: 1048576 as UInt64}
+    let executor = must(MultithreadExecutor<ReadyIoJob<IoStressProbe>>.create(config)); config.free()
+    let reactor = must(AsyncEventLoop<IoStressProbe>.create(executor, 4))
+    let executed = counter(); let released = counter()
+    pipeRound(reactor, ctx, executed, released, false); pipeRound(reactor, ctx, executed, released, true)
+    let memory = seen_memory_used_bytes(); var i = 0
+    while i < 1000 {
+        pipeRound(reactor, ctx, executed, released, false)
+        pipeRound(reactor, ctx, executed, released, true)
+        if seen_memory_used_bytes() != memory { return 2 }
+        i = i + 1
+    }
+    if atomicValue(executed) != (1001 as Int64) or atomicValue(released) != (2002 as Int64) { return 3 }
+    println("PASS: ASYNC-002G_io_readiness_cancel")
+
+    let path = must(Path.fromString(argv[1])); let options = OpenOptions.createNew()
+    let file = must(File.open(ctx.operation, path, options, DirectIoPolicy.Required)); options.free()
+    let queue = must(AsyncFileCompletionQueue.create(2, 4096 as UInt64))
+    let fd = must(completionFileHandle(file))
+    must(file.close()); file.directIo.free(); file.free()
+    let buffer = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 4096 as UInt64))
+    i = 0
+    while i < 4096 { buffer.data[i] = 42 as UInt8; i = i + 1 }
+    let written = must(queue.submit(fd, buffer, 4096 as UInt64, 0 as Int64, true, ctx))
+    let lease = must(queue.notificationLease())
+    let notification = must(reactor.register(probe(executed, released, Some<AsyncIoLease>(lease)),
+        handle(lease.native as Int64, false), Interest.Readable, -1 as Int64, ctx))
+    awaitDispatch(reactor, ctx); notification.free()
+    let complete = reap(queue)
+    if must(complete.outcome()) != (4096 as UInt64) or queue.matches(written) { return 4 }
+    written.free()
+    // Reuse exactly the returned owners. A cancelled request retains them
+    // until either confirmed cancellation or a real kernel completion.
+    let cancelled = must(queue.submit(complete.descriptor, complete.buffer,
+        4096 as UInt64, 4096 as Int64, true, ctx)); complete.free()
+    let cancellation = must(queue.cancel(cancelled))
+    let finished = finishCancellation(queue, cancellation)
+    cancellation.free()
+    if not errorIs(finished.outcome(), "async.cancelled") or queue.matches(cancelled) { return 5 }
+    cancelled.free(); must(finished.release()); must(queue.release())
+    path.raw.free(); path.free()
+    println("PASS: ASYNC-002G_io_completion_cancel")
+    must(reactor.release()); must(executor.release()); closeCounter(executed); closeCounter(released)
+    executorReleaseContext(ctx)
+    if seen_executor_live_threads() != threads or seen_sync_live_atomics() != atomics or
+        seen_async_readiness_live_handles() != readiness { return 6 }
+    println("PASS: ASYNC-002G_io_cleanup")
+    return 0
+}

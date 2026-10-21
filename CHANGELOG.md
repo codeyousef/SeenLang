@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add bounded Seen executor and real I/O stress fixtures with exact execution,
+  cancellation, progress and resource-lifetime checks. Run software profiles
+  through ThreadSanitizer as well as ASan/UBSan; report hardware certification
+  and the designated performance baseline as pending separately.
+
 - Add owned task-context captures, bounded redacted failure/fallback diagnostics,
   cooperative panic reports, monotonic task progress and detailed join ownership.
   Standard-library compatibility advances to 0.7.0; native runtime ABI is unchanged.

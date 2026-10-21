@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one generated Linux x86-64 ASan executable with enough finite virtual
+# Run one generated Linux x86-64 ASan/TSan executable with enough finite virtual
 # address space for the sanitizer shadow. Physical memory, swap, task, worker,
 # and timeout containment remain owned by the enclosing read-back-verified
 # capped-regression scope.
@@ -12,10 +12,13 @@ ARTIFACT_ROOT_HELPER="$SCRIPT_DIR/artifact_root.sh"
 HARD_SCOPE_WRAPPER="$SCRIPT_DIR/run_in_hard_memory_scope.sh"
 CAPPED_ENTRY="$SCRIPT_DIR/run_capped_regression.sh"
 ASAN_VMEM_LIMIT_KB=68719476736
+TSAN_VMEM_LIMIT_KB=137438953472
+SANITIZER=address
+SANITIZER_VMEM_LIMIT_KB=$ASAN_VMEM_LIMIT_KB
 MAX_COMPILE_LOG_BYTES=16777216
 
 fail() {
-    echo "RESOURCE STOP: ASan hard-scope runner: $*" >&2
+    echo "RESOURCE STOP: sanitizer hard-scope runner: $*" >&2
     exit 126
 }
 
@@ -30,6 +33,11 @@ TARGET_ROOT=""
 COMPILE_LOG=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --sanitizer)
+            [ "$#" -ge 2 ] || fail "--sanitizer requires a value"
+            SANITIZER=$2
+            shift 2
+            ;;
         --target-root)
             [ "$#" -ge 2 ] || fail "--target-root requires a value"
             TARGET_ROOT=$2
@@ -47,6 +55,14 @@ while [ "$#" -gt 0 ]; do
         *) fail "unknown option: $1" ;;
     esac
 done
+case "$SANITIZER" in
+    address) runtime_symbol=__asan_init; sanitizer_label=address-sanitizer; shadow_label=ASan ;;
+    thread)
+        runtime_symbol=__tsan_init; sanitizer_label=thread-sanitizer; shadow_label=TSan
+        SANITIZER_VMEM_LIMIT_KB=$TSAN_VMEM_LIMIT_KB
+        ;;
+    *) fail "--sanitizer must be address or thread" ;;
+esac
 [ -n "$TARGET_ROOT" ] && [ -n "$COMPILE_LOG" ] && [ "$#" -ge 1 ] ||
     fail "usage: $0 --target-root DIR --compile-log FILE -- /absolute/generated/executable [args...]"
 
@@ -139,16 +155,16 @@ compile_log_bytes=$(stat -c %s -- "$canonical_compile_log" 2>/dev/null || true)
 is_positive_integer "$compile_log_bytes" &&
     [ "$compile_log_bytes" -le "$MAX_COMPILE_LOG_BYTES" ] ||
     fail "the address-sanitizer compile log is empty or exceeds the bounded size"
-if ! grep -Fq '  Sanitizer: address' "$canonical_compile_log" &&
-    ! grep -Eq '^\+ ([^[:space:]]*/)?clang([[:space:]]|$).*[[:space:]]-fsanitize=address([[:space:]]|$)' \
+compile_evidence="  Sanitizer: $SANITIZER"
+if ! grep -Fq "$compile_evidence" "$canonical_compile_log" &&
+    ! grep -Eq "^\+ ([^[:space:]]*/)?clang([[:space:]]|$).*[[:space:]]-fsanitize=$SANITIZER([[:space:]]|$)" \
         "$canonical_compile_log"; then
-
-    fail "the compiler log does not attest address-sanitizer instrumentation"
+    fail "the compiler log does not attest $sanitizer_label instrumentation"
 fi
 timeout 10 readelf -Ws -- "$canonical_binary" 2>/dev/null |
-    awk '$NF ~ /^__asan_init(@[^[:space:]]+)?$/ { found = 1 }
+    awk -v symbol="$runtime_symbol" '{ split($NF, name, "@"); if (name[1] == symbol) found = 1 }
         END { exit(found ? 0 : 1) }' ||
-    fail "the generated executable has no address-sanitizer runtime symbol"
+    fail "the generated executable has no $sanitizer_label runtime symbol"
 
 is_positive_integer "${SEEN_MAIN_VMEM_KB:-}" ||
     fail "the inherited main virtual-memory cap is missing"
@@ -172,7 +188,7 @@ fi
 # Re-read the cgroup and all serial/low-memory bindings immediately before the
 # narrow virtual-address relaxation. This child cannot weaken the parent scope.
 bash "$HARD_SCOPE_WRAPPER" \
-    --label "ASan generated-executable read-back" --verify-only -- \
+    --label "$shadow_label generated-executable read-back" --verify-only -- \
     >/dev/null || fail "aggregate hard-memory scope read-back failed"
 
 hard_vmem_kb=$(ulimit -H -v 2>/dev/null || true)
@@ -181,20 +197,20 @@ case "$hard_vmem_kb" in
     *)
         is_positive_integer "$hard_vmem_kb" ||
             fail "the hard virtual-memory limit could not be read"
-        [ "$hard_vmem_kb" -ge "$ASAN_VMEM_LIMIT_KB" ] ||
-            fail "the hard virtual-memory limit cannot admit the finite ASan allowance"
+        [ "$hard_vmem_kb" -ge "$SANITIZER_VMEM_LIMIT_KB" ] ||
+            fail "the hard virtual-memory limit cannot admit the finite $shadow_label allowance"
         ;;
 esac
-ulimit -H -v "$ASAN_VMEM_LIMIT_KB" 2>/dev/null ||
-    fail "the finite ASan hard virtual-memory limit could not be applied"
+ulimit -H -v "$SANITIZER_VMEM_LIMIT_KB" 2>/dev/null ||
+    fail "the finite $shadow_label hard virtual-memory limit could not be applied"
 active_hard_vmem_kb=$(ulimit -H -v 2>/dev/null || true)
-[ "$active_hard_vmem_kb" = "$ASAN_VMEM_LIMIT_KB" ] ||
-    fail "the finite ASan hard virtual-memory limit failed exact read-back"
-ulimit -S -v "$ASAN_VMEM_LIMIT_KB" 2>/dev/null ||
-    fail "the finite ASan virtual-memory allowance could not be applied"
+[ "$active_hard_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ] ||
+    fail "the finite $shadow_label hard virtual-memory limit failed exact read-back"
+ulimit -S -v "$SANITIZER_VMEM_LIMIT_KB" 2>/dev/null ||
+    fail "the finite $shadow_label virtual-memory allowance could not be applied"
 active_soft_vmem_kb=$(ulimit -S -v 2>/dev/null || true)
-[ "$active_soft_vmem_kb" = "$ASAN_VMEM_LIMIT_KB" ] ||
-    fail "the finite ASan virtual-memory allowance failed exact read-back"
+[ "$active_soft_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ] ||
+    fail "the finite $shadow_label virtual-memory allowance failed exact read-back"
 
 exec env \
     -u LD_PRELOAD \
@@ -205,4 +221,5 @@ exec env \
     ASAN_OPTIONS=abort_on_error=1:halt_on_error=1:detect_leaks=1:symbolize=0 \
     LSAN_OPTIONS=exitcode=23 \
     UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0 \
+    TSAN_OPTIONS=halt_on_error=1:exitcode=66:report_signal_unsafe=1 \
     "$canonical_binary" "$@"

@@ -69,6 +69,7 @@ bash -n \
     tests/misc_root_tests/seen_async_reactor_contract.sh \
     tests/misc_root_tests/seen_async_streams_process_dns_contract.sh \
     tests/misc_root_tests/seen_task_context_policy_contract.sh \
+    tests/misc_root_tests/seen_async_stress_contract.sh \
     tests/misc_root_tests/seen_stdlib_component_payload.sh \
     tests/misc_root_tests/seen_mapped_close_ownership.sh \
     tests/misc_root_tests/seen_open_issue_regressions.sh \

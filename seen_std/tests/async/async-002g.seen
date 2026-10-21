@@ -1,0 +1,197 @@
+import stress_fixture_support.{must, errorIs, atomicValue, context, counter, closeCounter, addOne}
+import async.executor_native.{seen_string_release_owned}
+import async.structured.{AsyncOperationContext}
+import async.executor_core.{ExecutorLimits, ExecutorTaskContext, executorReleaseContext}
+import async.multithread.{MultithreadExecutor, ExecutorJoinHandle, spawnExecutorTask}
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_sync_atomic_store(handle: UInt64, value: Int64, order: Int32) r: Int32
+extern "C" fun __ThreadYield() r: Void
+@send
+class StressTask {
+    var number: Int
+    var depth: Int
+    var mode: Int
+    var unique: UInt64
+    var executions: UInt64
+    var releases: UInt64
+    var started: UInt64
+    var result: Int
+    fun run(context: ExecutorTaskContext) r: Bool {
+        if addOne(this.unique) != (0 as Int64) { return false }
+        let previous = addOne(this.executions)
+        let advanced = context.advanceProgress(1 as UInt64)
+        if advanced.isErr() { advanced.unwrapErr().free(); advanced.releaseContainer(); return false }
+        advanced.releaseContainer()
+        if this.mode == 1 {
+            let signalled = addOne(this.started)
+            while not context.isCancelled() { __ThreadYield() }
+            return true
+        }
+        if this.mode == 2 { return false }
+        this.result = this.number * 2
+        if this.depth > 0 {
+            let childUnique = counter()
+            let child = stressTask(this.number, this.depth - 1, 0, childUnique,
+                this.executions, this.releases, this.started)
+            let submitted = spawnExecutorTask<StressTask>(context, child)
+            if submitted.isErr() { abort("nested stress task admission failed") }
+            let handle = submitted.unwrap(); submitted.releaseContainer()
+            let joined = handle.join(context.operation)
+            if joined.isErr() { abort("nested stress child did not terminate") }
+            let value = joined.unwrap(); joined.releaseContainer()
+            this.result = value.result + 2
+            value.release(); handle.free()
+            if atomicValue(childUnique) != (1 as Int64) { abort("nested child ran more than once") }
+            closeCounter(childUnique)
+        }
+        return true
+    }
+    fun release() r: Bool {
+        let previous = addOne(this.releases); this.free(); return true
+    }
+}
+fun stressTask(number: Int, depth: Int, mode: Int, unique: UInt64, executions: UInt64,
+    releases: UInt64, started: UInt64) r: StressTask {
+    return StressTask{number: number, depth: depth, mode: mode, unique: unique,
+        executions: executions, releases: releases, started: started, result: 0}
+}
+fun runBatch(executor: MultithreadExecutor<StressTask>, unique: Array<UInt64>,
+    executions: UInt64, releases: UInt64, started: UInt64, ctx: AsyncOperationContext) r: Int64 {
+    let handles = Array<ExecutorJoinHandle<StressTask>>()
+    let before = seen_time_monotonic_nanos(); var i = 0
+    while i < unique.length() {
+        if seen_sync_atomic_store(unique[i], 0 as Int64, 4 as Int32) != (0 as Int32) { abort("stress reset failed") }
+        handles.push(must(executor.spawn(stressTask(i, 0, 0, unique[i], executions, releases, started), ctx)))
+        i = i + 1
+    }
+    i = 0
+    while i < handles.length() {
+        let value = must(handles[i].join(ctx))
+        if value.result != i * 2 or atomicValue(unique[i]) != (1 as Int64) { abort("stress task result/exactly-once mismatch") }
+        value.release(); handles[i].free(); i = i + 1
+    }
+    handles.free()
+    let after = seen_time_monotonic_nanos()
+    if before < (0 as Int64) or after < before { abort("stress monotonic clock failed") }
+    return after - before
+}
+fun main() r: Int {
+    let threads = seen_executor_live_threads(); let mutexes = seen_sync_live_mutexes()
+    let conditions = seen_sync_live_conditions(); let atomics = seen_sync_live_atomics()
+    let config = ExecutorLimits{workers: 2, tasks: 64, queued: 64, helpDepth: 8, stackBytes: 1048576 as UInt64}
+    let ctx = context(); ctx.limits.maxTasks = 64; ctx.limits.maxReady = 64; ctx.limits.maxFanOut = 64
+    let executor = must(MultithreadExecutor<StressTask>.create(config)); config.free()
+    let executions = counter(); let releases = counter(); let started = counter()
+    let unique = Array<UInt64>(); var i = 0
+    while i < 32 { unique.push(counter()); i = i + 1 }
+    i = 0
+    while i < 5 { let elapsed = runBatch(executor, unique, executions, releases, started, ctx); i = i + 1 }
+    let samples = Array<Int64>()
+    // Reserve measured-sample storage before measuring live-allocation stability.
+    i = 0
+    while i < 30 { samples.push(0 as Int64); i = i + 1 }
+    let memory = seen_memory_used_bytes(); let reserved = seen_memory_reserved_bytes()
+    i = 0
+    while i < 30 {
+        samples[i] = runBatch(executor, unique, executions, releases, started, ctx)
+        if seen_executor_live_threads() != threads + (2 as UInt64) or
+            seen_memory_used_bytes() != memory or seen_memory_reserved_bytes() > reserved { return 1 }
+        i = i + 1
+    }
+    // Thirty measured samples are sorted in Seen for a deterministic median.
+    i = 1
+    while i < samples.length() {
+        let value = samples[i]; var j = i
+        while j > 0 and samples[j - 1] > value { samples[j] = samples[j - 1]; j = j - 1 }
+        samples[j] = value; i = i + 1
+    }
+    let median = samples[15].toString()
+    let line = "BENCH: async-002g warmups=5 samples=30 median_ns=" + median
+    println(line); seen_string_release_owned(line); seen_string_release_owned(median)
+    i = 0
+    while i < 100 {
+        let elapsed = runBatch(executor, unique, executions, releases, started, ctx)
+        if seen_executor_live_threads() != threads + (2 as UInt64) or seen_memory_used_bytes() != memory { return 2 }
+        i = i + 1
+    }
+    samples.free()
+    if atomicValue(executions) != (4320 as Int64) or atomicValue(releases) != (4320 as Int64) { return 3 }
+    println("PASS: ASYNC-002G_happy")
+    // One parent at a time isolates nested helping from queue-depth limits.
+    let nestedUnique = counter()
+    let nested = must(executor.spawn(stressTask(5, 4, 0, nestedUnique, executions, releases, started), ctx))
+    let nestedValue = must(nested.join(ctx))
+    if nestedValue.result != 18 or atomicValue(nestedUnique) != (1 as Int64) { return 4 }
+    nestedValue.release(); nested.free(); closeCounter(nestedUnique)
+    let failedUnique = counter()
+    let failed = must(executor.spawn(stressTask(0, 0, 2, failedUnique, executions, releases, started), ctx))
+    let report = must(failed.joinDetailed(ctx)); failed.free()
+    if report.error.isNone() or report.error.unwrap().code != "async.unavailable" or report.progress != (1 as UInt64) { return 5 }
+    report.release(); closeCounter(failedUnique)
+    println("PASS: ASYNC-002G_partial")
+    let bad = ExecutorLimits{workers: 17, tasks: 2, queued: 1, helpDepth: 1, stackBytes: 1048576 as UInt64}
+    if not errorIs(MultithreadExecutor<StressTask>.create(bad), "async.limit") { return 6 }
+    bad.free()
+    println("PASS: ASYNC-002G_invalid")
+    // Occupy both workers before cancelling queued work: queued jobs must have
+    // zero executions and exactly one destructor, even during shutdown.
+    let blocked = Array<ExecutorJoinHandle<StressTask>>(); let blockedUnique = Array<UInt64>()
+    i = 0
+    while i < 2 {
+        let once = counter(); blockedUnique.push(once)
+        blocked.push(must(executor.spawn(stressTask(i, 0, 1, once, executions, releases, started), ctx)))
+        i = i + 1
+    }
+    var spins = 0
+    while atomicValue(started) != (2 as Int64) and spins < 1000000 { __ThreadYield(); spins = spins + 1 }
+    if atomicValue(started) != (2 as Int64) { return 7 }
+    let pending = Array<ExecutorJoinHandle<StressTask>>(); let pendingUnique = Array<UInt64>()
+    i = 0
+    while i < 8 {
+        let once = counter(); pendingUnique.push(once)
+        pending.push(must(executor.spawn(stressTask(i, 0, 0, once, executions, releases, started), ctx)))
+        i = i + 1
+    }
+    i = 0
+    while i < pending.length() { must(pending[i].cancel()); i = i + 1 }
+    i = 0
+    while i < blocked.length() { must(blocked[i].cancel()); i = i + 1 }
+    i = 0
+    while i < pending.length() {
+        if not errorIs(pending[i].join(ctx), "async.cancelled") or atomicValue(pendingUnique[i]) != (0 as Int64) { return 8 }
+        pending[i].free(); closeCounter(pendingUnique[i]); i = i + 1
+    }
+    i = 0
+    while i < blocked.length() {
+        if not errorIs(blocked[i].join(ctx), "async.cancelled") or atomicValue(blockedUnique[i]) != (1 as Int64) { return 9 }
+        blocked[i].free(); closeCounter(blockedUnique[i]); i = i + 1
+    }
+    pending.free(); pendingUnique.free(); blocked.free(); blockedUnique.free()
+    println("PASS: ASYNC-002G_cancel")
+    let tinyConfig = ExecutorLimits{workers: 1, tasks: 1, queued: 1, helpDepth: 1, stackBytes: 1048576 as UInt64}
+    let tiny = must(MultithreadExecutor<StressTask>.create(tinyConfig)); tinyConfig.free()
+    let occupiedUnique = counter()
+    let occupied = must(tiny.spawn(stressTask(0, 0, 1, occupiedUnique, executions, releases, started), ctx))
+    let rejectedUnique = counter()
+    let rejected = stressTask(0, 0, 0, rejectedUnique, executions, releases, started)
+    if not errorIs(tiny.spawn(rejected, ctx), "async.limit") { return 10 }
+    rejected.release(); closeCounter(rejectedUnique)
+    must(occupied.cancel())
+    if not errorIs(occupied.join(ctx), "async.cancelled") { return 11 }
+    occupied.free(); closeCounter(occupiedUnique); must(tiny.release())
+    println("PASS: ASYNC-002G_limit")
+    i = 0
+    while i < unique.length() { closeCounter(unique[i]); i = i + 1 }
+    unique.free(); closeCounter(executions); closeCounter(releases); closeCounter(started)
+    must(executor.release()); executorReleaseContext(ctx)
+    if seen_executor_live_threads() != threads or seen_sync_live_mutexes() != mutexes or
+        seen_sync_live_conditions() != conditions or seen_sync_live_atomics() != atomics { return 12 }
+    println("PASS: ASYNC-002G_cleanup")
+    return 0
+}

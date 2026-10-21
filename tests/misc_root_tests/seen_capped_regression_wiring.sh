@@ -28,6 +28,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_async_reactor_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_async_streams_process_dns_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_task_context_policy_contract.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_stress_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"
@@ -129,15 +130,15 @@ for required in \
     '[ "$current_soft_vmem_kb" -le "$SEEN_MAIN_VMEM_KB" ]' \
     '"$HARD_SCOPE_WRAPPER"' '--verify-only' \
     '"$CAPPED_ENTRY" --verify-active "$SEEN_CAPPED_REGRESSION_SCOPE"' \
-    'grep -Fq '\''  Sanitizer: address'\''' \
+    'compile_evidence="  Sanitizer: $SANITIZER"' \
     '! grep -Eq' 'clang([[:space:]]|$)' \
-    '-fsanitize=address' \
+    '-fsanitize=$SANITIZER' 'runtime_symbol=__asan_init' 'runtime_symbol=__tsan_init' \
     'readelf -Ws -- "$canonical_binary"' \
     'hard_vmem_kb=$(ulimit -H -v' \
-    'ulimit -H -v "$ASAN_VMEM_LIMIT_KB"' \
-    '[ "$active_hard_vmem_kb" = "$ASAN_VMEM_LIMIT_KB" ]' \
-    'ulimit -S -v "$ASAN_VMEM_LIMIT_KB"' \
-    '[ "$active_soft_vmem_kb" = "$ASAN_VMEM_LIMIT_KB" ]' \
+    'ulimit -H -v "$SANITIZER_VMEM_LIMIT_KB"' \
+    '[ "$active_hard_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ]' \
+    'ulimit -S -v "$SANITIZER_VMEM_LIMIT_KB"' \
+    '[ "$active_soft_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ]' \
     '"$SEEN_ARTIFACT_ROOT"/*' \
     '-u LD_PRELOAD' '-u SEEN_FORK_SERIALIZER_TARGET' \
     '-u SEEN_FORK_SERIALIZER_ROOT_PID' \
@@ -192,31 +193,31 @@ trap cleanup_asan_probe EXIT
 mkdir -p -- "$asan_probe_root/target" "$asan_probe_root/logs"
 cp -- /bin/true "$asan_probe_root/target/not-asan"
 chmod 0755 "$asan_probe_root/target/not-asan"
-printf '%s\n' '  Sanitizer: address' > "$asan_probe_root/logs/address.compile.log"
-if env \
-    SEEN_CAPPED_REGRESSION_ACTIVE=1 \
-    SEEN_CAPPED_REGRESSION_SCOPE=forged-asan-probe \
-    SEEN_CAPPED_REGRESSION_COMPILER=/bin/true \
-    SEEN_CAPPED_REGRESSION_TOOLCHAIN="$asan_probe_root/target" \
-    SEEN_ATTESTED_COMPILER_RUNNER=/bin/true \
-    SEEN_MEMORY_GUARD_IN_SCOPE=1 \
-    SEEN_HARD_MEMORY_SCOPE_ACTIVE=1 \
-    SEEN_MEMORY_GUARD_SCOPE_UNIT=forged.scope \
-    SEEN_MAIN_VMEM_KB=1048576 \
-    bash "$ASAN_RUNNER" \
-        --target-root "$asan_probe_root/target" \
-        --compile-log "$asan_probe_root/logs/address.compile.log" -- \
-        "$asan_probe_root/target/not-asan" \
-        >"$asan_probe_root/probe.out" 2>"$asan_probe_root/probe.err"; then
-
-    fail "bounded ASan runner accepted a non-ASan artifact-root executable"
-else
-    non_asan_status=$?
-    [ "$non_asan_status" -eq 126 ] ||
-        fail "non-ASan artifact probe returned $non_asan_status instead of 126"
-fi
-grep -Fq 'no address-sanitizer runtime symbol' "$asan_probe_root/probe.err" ||
-    fail "non-ASan artifact rejection diagnostic is missing"
+for sanitizer in address thread; do
+    printf '%s\n' "  Sanitizer: $sanitizer" > "$asan_probe_root/logs/$sanitizer.compile.log"
+    if env \
+        SEEN_CAPPED_REGRESSION_ACTIVE=1 \
+        SEEN_CAPPED_REGRESSION_SCOPE=forged-sanitizer-probe \
+        SEEN_CAPPED_REGRESSION_COMPILER=/bin/true \
+        SEEN_CAPPED_REGRESSION_TOOLCHAIN="$asan_probe_root/target" \
+        SEEN_ATTESTED_COMPILER_RUNNER=/bin/true \
+        SEEN_MEMORY_GUARD_IN_SCOPE=1 \
+        SEEN_HARD_MEMORY_SCOPE_ACTIVE=1 \
+        SEEN_MEMORY_GUARD_SCOPE_UNIT=forged.scope \
+        SEEN_MAIN_VMEM_KB=1048576 \
+        bash "$ASAN_RUNNER" --sanitizer "$sanitizer" \
+            --target-root "$asan_probe_root/target" \
+            --compile-log "$asan_probe_root/logs/$sanitizer.compile.log" -- \
+            "$asan_probe_root/target/not-asan" \
+            >"$asan_probe_root/probe.out" 2>"$asan_probe_root/probe.err"; then
+        fail "bounded sanitizer runner accepted a non-instrumented executable"
+    else
+        non_sanitizer_status=$?
+        [ "$non_sanitizer_status" -eq 126 ] || fail "non-instrumented probe omitted resource-stop status"
+    fi
+    grep -Fq "no $sanitizer-sanitizer runtime symbol" "$asan_probe_root/probe.err" ||
+        fail "non-instrumented artifact rejection diagnostic is missing"
+done
 for target in "${ASAN_REGRESSION_TARGETS[@]}"; do
     grep -Fq 'bash "$ASAN_RUNNER" --target-root' "$target" ||
         fail "$(basename "$target") bypasses the bounded ASan runner"
