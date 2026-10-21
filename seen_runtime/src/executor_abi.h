@@ -14,5 +14,7 @@ uint64_t seen_executor_current_owner(void);
 int64_t seen_executor_current_task(void);
 int64_t seen_executor_swap_task(int64_t task);
 uint64_t seen_executor_live_threads(void);
+int32_t seen_executor_validate_placement(int32_t cpu, int32_t node);
+int32_t seen_executor_apply_placement(int32_t cpu, int32_t node);
 
 #endif

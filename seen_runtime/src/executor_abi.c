@@ -1,3 +1,6 @@
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 #if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
 #define _POSIX_C_SOURCE 200809L
 #endif
@@ -12,6 +15,10 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stddef.h>
+#include <sched.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <linux/mempolicy.h>
 
 /* Static storage prevents allocation failure from losing a joinable thread.
  * Slots stay occupied until a successful join, including after thread exit. */
@@ -143,6 +150,62 @@ int32_t seen_executor_thread_join(uint64_t *handle) {
     return SEEN_SYNC_OK;
 }
 
+/* Fixed ABI geometry only. Selection/fallback and resource budgets are Seen. */
+static int32_t seen_executor_placement_bounds(int32_t cpu, int32_t node) {
+    if (cpu < -1 || node < -1) return SEEN_SYNC_INVALID;
+    if (cpu >= CPU_SETSIZE || node >= (int32_t)(sizeof(unsigned long) * CHAR_BIT))
+        return SEEN_SYNC_UNSUPPORTED;
+    return SEEN_SYNC_OK;
+}
+
+int32_t seen_executor_validate_placement(int32_t cpu, int32_t node) {
+    int32_t checked = seen_executor_placement_bounds(cpu, node);
+    if (checked != SEEN_SYNC_OK) return checked;
+    if (cpu >= 0) {
+        cpu_set_t allowed;
+        if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0)
+            return SEEN_SYNC_UNAVAILABLE;
+        if (!CPU_ISSET(cpu, &allowed)) return SEEN_SYNC_UNAVAILABLE;
+    }
+    if (node >= 0) {
+#if defined(SYS_get_mempolicy)
+        unsigned long allowed = 0;
+        if (syscall(SYS_get_mempolicy, NULL, &allowed,
+                    sizeof(allowed) * CHAR_BIT, NULL, MPOL_F_MEMS_ALLOWED) != 0)
+            return errno == ENOSYS ? SEEN_SYNC_UNSUPPORTED : SEEN_SYNC_UNAVAILABLE;
+        if (!(allowed & (1UL << (unsigned)node))) return SEEN_SYNC_UNAVAILABLE;
+#else
+        return SEEN_SYNC_UNSUPPORTED;
+#endif
+    }
+    return SEEN_SYNC_OK;
+}
+
+int32_t seen_executor_apply_placement(int32_t cpu, int32_t node) {
+    int32_t checked = seen_executor_placement_bounds(cpu, node);
+    if (checked != SEEN_SYNC_OK) return checked;
+    if (node >= 0) {
+#if defined(SYS_set_mempolicy)
+        unsigned long mask = 1UL << (unsigned)node;
+        if (syscall(SYS_set_mempolicy, MPOL_BIND, &mask,
+                    sizeof(mask) * CHAR_BIT) != 0)
+            return errno == ENOSYS ? SEEN_SYNC_UNSUPPORTED : SEEN_SYNC_UNAVAILABLE;
+#else
+        return SEEN_SYNC_UNSUPPORTED;
+#endif
+    }
+    if (cpu >= 0) {
+        cpu_set_t mask;
+        CPU_ZERO(&mask);
+        CPU_SET(cpu, &mask);
+        /* The kernel enforces the current process cpuset. The caller may
+         * deliberately change a worker's previous task affinity. */
+        if (sched_setaffinity(0, sizeof(mask), &mask) != 0)
+            return SEEN_SYNC_UNAVAILABLE;
+    }
+    return SEEN_SYNC_OK;
+}
+
 uint64_t seen_executor_current_owner(void) { return seen_executor_owner; }
 int64_t seen_executor_current_task(void) { return seen_executor_task; }
 int64_t seen_executor_swap_task(int64_t task) {
@@ -156,6 +219,13 @@ uint64_t seen_executor_live_threads(void) {
 }
 
 #else
+int32_t seen_executor_validate_placement(int32_t cpu, int32_t node) {
+    if (cpu < -1 || node < -1) return SEEN_SYNC_INVALID;
+    return cpu == -1 && node == -1 ? SEEN_SYNC_OK : SEEN_SYNC_UNSUPPORTED;
+}
+int32_t seen_executor_apply_placement(int32_t cpu, int32_t node) {
+    return seen_executor_validate_placement(cpu, node);
+}
 int32_t seen_executor_thread_create(int64_t entry, int64_t argument,
     uint64_t stack_bytes, uint64_t *out_handle) {
     (void)entry; (void)argument; (void)stack_bytes; (void)out_handle;

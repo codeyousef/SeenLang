@@ -46,7 +46,7 @@ See [the compiling structured-async example](../../seen_std/examples/structured_
 ## Fixed-worker execution
 
 Module: `async.multithread`. Contract: `seen-multithread-executor-v1`,
-runtime compatibility: `runtime-v5`.
+runtime compatibility: `runtime-v6`.
 
 `MultithreadExecutor<T: Send + ExecutorJob>` starts exactly the explicitly
 configured worker count and reuses those threads until shutdown. `T` is the
@@ -182,4 +182,61 @@ no platform or hardware certification is implied. Run software regressions:
 
 ```sh
 bash tests/misc_root_tests/seen_async_synchronization_contract.sh
+```
+
+## CPU and blocking pools (`seen-typed-worker-pools-v1`)
+
+`TypedWorkerPool<T: Send + ExecutorJob>` uses the existing persistent executor
+for either the `cpu` or `blocking` kind. `ExecutionPools<T>.create` creates an
+independent pool of each kind and checks their combined worker budget before
+side effects. Each pool permits at most 16 workers; the combined explicit
+budget is at most 32. Task/queue/stack/help-depth limits are the executor's
+limits. Submission does not create an OS thread.
+
+`PoolPlacement.inherited()` requests inherited CPU and memory policy. An
+explicit placement contains either an empty CPU list or one entry per worker
+budget, plus NUMA node -1 (inherit) or 0..63. CPU IDs are 0..1023. Creation
+copies the list, checks process cpuset/node permission through the OS ABI, and
+rejects unavailable placement. No automatic placement or fallback is implied.
+Accepted submissions cycle through the configured CPU slots in submission
+order. Placement is applied to an owned worker before its job runs; default
+inherited placement adds no placement syscall. Explicit placement may migrate
+a worker between configured slots across tasks. The slots are a task-placement
+policy, not a promise of one immutable OS-thread-to-core pairing.
+
+NUMA binding controls subsequent allocations by that worker. It does not move
+caller-owned buffers or the process-wide allocator's existing storage. Use
+separately checked mapped/buffer placement when physical residency matters.
+If an OS call fails, user code does not run and the task returns the exact
+bounded failure class through `ExecutorTaskContext.fail`. This includes
+unsupported-platform and unavailable/permission errors. A partial placement
+failure can affect the owned worker's OS policy; later explicitly placed jobs
+apply their policy again. Workers belong to one pool for their entire lifetime.
+
+`submit(task, ctx)` moves the task only on success and returns
+`PoolJoinHandle<T>`. A successful join transfers the original typed task and
+consumes its placement wrapper. Failed/cancelled tasks are released once by
+the executor. A timed-out join retains ownership for retry. `cancel` propagates
+to the task. Final handle release rejects an active task until the executor
+has closed; close the pool while retaining its core, dispose of join handles,
+then release the pool. Pool release consumes its placement snapshot and worker
+owner. Combined release preserves both owners for retry until both executor
+close operations succeed.
+
+Pool submission and destruction are exclusive owner operations; the worker
+jobs run concurrently. Keep the pool alive through every handle and do not
+bypass it with raw internal-core submission when relying on placement policy.
+Use separate CPU and blocking budgets so waiting system calls cannot occupy
+all CPU workers. Cancellation remains cooperative; the pool does not detach
+or forcibly terminate a blocking OS operation.
+
+The native boundary only validates/normalizes Linux x86-64 affinity and NUMA
+calls. All placement selection, budgets, wrappers, cancellation and cleanup
+are Seen. Other platforms explicitly reject non-inherited placement; executor
+platform support still determines whether an inherited pool can be created.
+Mocked native tests exercise permission, malformed and unsupported branches;
+they do not certify real CPU/NUMA hardware placement. Run software fixtures:
+
+```sh
+bash tests/misc_root_tests/seen_cpu_blocking_pools_contract.sh
 ```

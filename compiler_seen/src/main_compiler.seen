@@ -1707,7 +1707,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                 packageObjectManifestSchema:
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
-            runtimeAbi: "runtime-v5",
+            runtimeAbi: "runtime-v6",
             standardLibraryVersion: "0.6.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),

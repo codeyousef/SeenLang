@@ -610,7 +610,7 @@ short-lived view of `cudaStream_t`. The token transfers no ownership and is
 invalidated by stream close. Borrowing has no allocation, CUDA synchronization,
 fallback, or scheduling policy. Capture is supported explicitly and reported in
 the token flags. The optional CUDA ABI remains outside CPU-only discovery and is
-bound by the release manifest's `runtime-v5` compatibility identity.
+bound by the release manifest's `runtime-v6` compatibility identity.
 
 ## Key Source Areas
 

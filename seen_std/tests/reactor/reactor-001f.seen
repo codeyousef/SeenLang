@@ -1,19 +1,53 @@
-import reactor.mod.{BlockingPool}
+// Blocking work formerly exposed by reactor now uses the typed Seen pool.
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import async.structured.{AsyncLimits, AsyncOperationContext}
+import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
+    executorReleaseContext}
+import async.pools.{TypedWorkerPool}
+import async.pool_placement.{PoolPlacement}
 
+@send
+class BlockingProbe { var value: Int }
+impl ExecutorJob for BlockingProbe {
+    fun run(this: BlockingProbe, task: ExecutorTaskContext) r: Bool {
+        this.value = this.value + 1
+        return not task.isCancelled()
+    }
+    fun release(this: BlockingProbe) r: Bool { this.free(); return true }
+}
 fun main() r: Int {
-    let zeroWorkers = BlockingPool.create(0, 1)
-    if not zeroWorkers.isErr() or
-        zeroWorkers.unwrapErr().code != "reactor.limit" { return 1 }
-    let zeroQueue = BlockingPool.create(1, 0)
-    if not zeroQueue.isErr() or
-        zeroQueue.unwrapErr().code != "reactor.limit" { return 2 }
-    let opened = BlockingPool.create(1, 2)
-    if opened.isErr() { return 3 }
-    let pool = opened.unwrap()
-    let invalid = pool.submit(1 as UInt64, 0 as Int64, 0 as Int64)
-    if not invalid.isErr() or
-        invalid.unwrapErr().code != "reactor.invalid" { return 4 }
-    if pool.close().isErr() or pool.close().isErr() { return 5 }
+    let limits = ExecutorLimits{workers: 1, tasks: 2, queued: 2,
+        helpDepth: 4, stackBytes: 1048576 as UInt64}
+    let placement = PoolPlacement.inherited()
+    limits.workers = 0
+    let invalid = TypedWorkerPool<BlockingProbe>.create("blocking", limits, placement)
+    if not invalid.isErr() or invalid.unwrapErr().code != "async.limit" { return 1 }
+    invalid.unwrapErr().free(); invalid.releaseContainer()
+    limits.workers = 1
+    let opened = TypedWorkerPool<BlockingProbe>.create("blocking", limits, placement)
+    if opened.isErr() { return 2 }
+    let pool = opened.unwrap(); opened.releaseContainer()
+    limits.free(); placement.release()
+    let ctx = AsyncOperationContext{operation: OperationContext{
+        cancellation: false, monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096, maxPathBytes: 4095,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "reactor-001f"}}, resourceId: "blocking",
+        fallbackPolicy: 0, limits: AsyncLimits.bounded(2, 2, 4, 2, 128)}
+    let submitted = pool.submit(BlockingProbe{value: 7}, ctx)
+    if submitted.isErr() { return 3 }
+    let handle = submitted.unwrap(); submitted.releaseContainer()
+    let joined = handle.join(ctx)
+    if joined.isErr() { return 4 }
+    let value = joined.unwrap(); joined.releaseContainer()
+    if value.value != 8 { return 5 }
+    value.release()
+    let freed = handle.release(); freed.releaseContainer()
+    let closed = pool.close(); if closed.isErr() { return 6 }; closed.releaseContainer()
+    let released = pool.release(); if released.isErr() { return 7 }; released.releaseContainer()
+    executorReleaseContext(ctx)
     println("PASS: REACTOR-001F_happy")
     println("PASS: REACTOR-001F_partial")
     println("PASS: REACTOR-001F_invalid")

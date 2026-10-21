@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added reusable typed CPU/blocking pools with independent bounded workers,
+  queues and explicit placement snapshots. Affinity/NUMA OS normalization
+  advances the runtime identity to `runtime-v6`; Seen owns selection and
+  error propagation, with inherited placement as the default.
+
+### Added
+
 - Added `seen-async-sync-v1`: Seen task-group ownership and failure drain,
   executor-aware wait groups, single-phase barriers, bounded typed queues,
   and deterministic checked integer reductions. Counter-only models now

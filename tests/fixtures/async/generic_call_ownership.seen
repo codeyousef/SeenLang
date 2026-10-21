@@ -1,0 +1,25 @@
+import generic_borrow_support.{BorrowToken, BorrowFactory}
+import typechecker.semantic_registry.{SemanticDeclarationRegistry}
+import typechecker.type_ref.{typeRefEraseCallArguments}
+import json.builder.{releaseJsonText}
+fun main() r: Int {
+    let token = BorrowToken{value: 7}
+    if BorrowFactory<Array<Int>>.observe(token) != 7 { return 1 }
+    let owner = BorrowFactory<Int>{reserved: 0}
+    if owner.observeInstance(token) != 7 { return 2 }; owner.free()
+    if token.value != 7 { return 2 }
+    token.free()
+    let registry = SemanticDeclarationRegistry.new()
+    if not registry.registerDeclaration("library", "Factory", "Class", "library::Factory", "library.seen", 1, 1) { return 3 }
+    if not registry.registerDeclaration("library", "Factory.observe", "Method", "library::Factory.observe#fn", "library.seen", 1, 1) { return 4 }
+    registry.registerParameterOwnership("library::Factory.observe", 0, "borrow")
+    registry.registerImport("caller", "Alias", "library", "Factory")
+    if registry.callParameterOwnership("caller", "Alias<Array<Int>>.observe<Token>", 0) != "borrow" { return 5 }
+    if registry.callParameterOwnership("caller", "library::Factory<Int>.observe", 0) != "borrow" { return 6 }
+    if registry.callParameterOwnership("caller", "Alias<Int>.missing", 0) != "" { return 7 }
+    let spelling = typeRefEraseCallArguments("Alias<Array<Int>>.observe<Token>")
+    if spelling != "Alias.observe" { return 8 }; releaseJsonText(spelling)
+    if typeRefEraseCallArguments("Alias<Array<Int>.observe") != "" { return 9 }
+    println("PASS: generic member call ownership preserves imported borrow contracts")
+    return 0
+}

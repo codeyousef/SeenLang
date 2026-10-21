@@ -1,0 +1,185 @@
+import core.result.{Result, Ok, Err}
+import sync.contracts.{Send}
+import async.structured.{AsyncError, AsyncOperationContext}
+import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
+    executorFailure}
+import async.multithread.{MultithreadExecutor, ExecutorJoinHandle}
+import async.executor_native.{seen_executor_apply_placement}
+import async.pool_placement.{PoolPlacement}
+
+@send
+class PlacedJob<T: Send + ExecutorJob> {
+    var task: T
+    var cpu: Int
+    var numaNode: Int
+
+    fun run(context: ExecutorTaskContext) r: Bool {
+        if this.cpu != -1 or this.numaNode != -1 {
+            let status = seen_executor_apply_placement(this.cpu as Int32,
+                this.numaNode as Int32)
+            if status != (0 as Int32) { context.fail(status); return false }
+        }
+        if context.isCancelled() { return false }
+        return this.task.run(context)
+    }
+    fun release() r: Bool {
+        let released = this.task.release()
+        this.free()
+        return released
+    }
+}
+
+@move
+class PoolJoinHandle<T: Send + ExecutorJob> {
+    var inner: ExecutorJoinHandle<PlacedJob<T>>
+
+    fun cancel() r: Result<Bool, AsyncError> { return this.inner.cancel() }
+
+    fun join(context: AsyncOperationContext) r: Result<T, AsyncError> {
+        let joined = this.inner.join(context)
+        if joined.isErr() {
+            let error = joined.unwrapErr(); joined.releaseContainer()
+            return Err<T, AsyncError>(error)
+        }
+        let wrapped = joined.unwrap(); joined.releaseContainer()
+        let task = wrapped.task
+        wrapped.free()
+        return Ok<T, AsyncError>(task)
+    }
+
+    fun release() r: Result<Bool, AsyncError> {
+        if this.inner.active and not this.inner.core.closed {
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32,
+                "pool.join.release", 0 as UInt64))
+        }
+        this.inner.free(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}
+
+// Submission and owner destruction are exclusive coordinator operations.
+// Worker execution is concurrent. CPU and blocking kinds share implementation
+// but use independent fixed worker/queue budgets and placement snapshots.
+@move
+class TypedWorkerPool<T: Send + ExecutorJob> {
+    var kind: String
+    var executor: MultithreadExecutor<PlacedJob<T>>
+    var placement: PoolPlacement
+    var nextPlacement: Int
+
+    static fun create(kind: String, limits: ExecutorLimits, borrow placement: PoolPlacement)
+        r: Result<TypedWorkerPool<T>, AsyncError> {
+        if kind != "cpu" and kind != "blocking" {
+            return Err<TypedWorkerPool<T>, AsyncError>(executorFailure(1 as Int32,
+                "pool.create", 0 as UInt64))
+        }
+        if not limits.valid() {
+            return Err<TypedWorkerPool<T>, AsyncError>(executorFailure(2 as Int32,
+                "pool.create", 0 as UInt64))
+        }
+        let copied = placement.snapshot(limits)
+        if copied.isErr() {
+            let error = copied.unwrapErr(); copied.releaseContainer()
+            return Err<TypedWorkerPool<T>, AsyncError>(error)
+        }
+        let snapshot = copied.unwrap(); copied.releaseContainer()
+        let created = MultithreadExecutor<PlacedJob<T>>.create(limits)
+        if created.isErr() {
+            let error = created.unwrapErr(); created.releaseContainer()
+            snapshot.release()
+            return Err<TypedWorkerPool<T>, AsyncError>(error)
+        }
+        let executor = created.unwrap(); created.releaseContainer()
+        var ownedKind = "cpu"
+        if kind == "blocking" { ownedKind = "blocking" }
+        return Ok<TypedWorkerPool<T>, AsyncError>(TypedWorkerPool<T>{kind: ownedKind,
+            executor: executor, placement: snapshot, nextPlacement: 0})
+    }
+
+    fun submit(task: T, context: AsyncOperationContext)
+        r: Result<PoolJoinHandle<T>, AsyncError> {
+        var cpu = -1
+        if this.placement.cpus.length() > 0 { cpu = this.placement.cpus[this.nextPlacement] }
+        let wrapped = PlacedJob<T>{task: task, cpu: cpu,
+            numaNode: this.placement.numaNode}
+        let admitted = this.executor.spawn(wrapped, context)
+        if admitted.isErr() {
+            // Failed admission retains the caller's task owner. Only the
+            // newly allocated wrapper is consumed here.
+            let error = admitted.unwrapErr(); admitted.releaseContainer()
+            wrapped.free()
+            return Err<PoolJoinHandle<T>, AsyncError>(error)
+        }
+        let handle = admitted.unwrap(); admitted.releaseContainer()
+        if this.placement.cpus.length() > 0 {
+            this.nextPlacement = (this.nextPlacement + 1) % this.placement.cpus.length()
+        }
+        return Ok<PoolJoinHandle<T>, AsyncError>(PoolJoinHandle<T>{inner: handle})
+    }
+
+    fun shutdown(cancelPending: Bool) r: Result<Bool, AsyncError> {
+        return this.executor.shutdown(cancelPending)
+    }
+
+    fun close() r: Result<Bool, AsyncError> { return this.executor.close() }
+
+    fun release() r: Result<Bool, AsyncError> {
+        let released = this.executor.release()
+        if released.isErr() { return released }
+        released.releaseContainer()
+        this.placement.release(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}
+
+@move
+class ExecutionPools<T: Send + ExecutorJob> {
+    var cpu: TypedWorkerPool<T>
+    var blocking: TypedWorkerPool<T>
+
+    static fun create(cpuLimits: ExecutorLimits, blockingLimits: ExecutorLimits,
+        borrow cpuPlacement: PoolPlacement, borrow blockingPlacement: PoolPlacement, totalWorkers: Int)
+        r: Result<ExecutionPools<T>, AsyncError> {
+        if not cpuLimits.valid() or not blockingLimits.valid() or
+            totalWorkers <= 0 or totalWorkers > 32 or
+            cpuLimits.workers > totalWorkers - blockingLimits.workers {
+            return Err<ExecutionPools<T>, AsyncError>(executorFailure(2 as Int32,
+                "pools.create", 0 as UInt64))
+        }
+        let cpuResult = TypedWorkerPool<T>.create("cpu", cpuLimits, cpuPlacement)
+        if cpuResult.isErr() {
+            let error = cpuResult.unwrapErr(); cpuResult.releaseContainer()
+            return Err<ExecutionPools<T>, AsyncError>(error)
+        }
+        let cpu = cpuResult.unwrap(); cpuResult.releaseContainer()
+        let blockingResult = TypedWorkerPool<T>.create("blocking", blockingLimits, blockingPlacement)
+        if blockingResult.isErr() {
+            let error = blockingResult.unwrapErr(); blockingResult.releaseContainer()
+            let rollback = cpu.release()
+            if rollback.isErr() { abort("pool construction could not release CPU workers") }
+            rollback.releaseContainer()
+            return Err<ExecutionPools<T>, AsyncError>(error)
+        }
+        let blocking = blockingResult.unwrap(); blockingResult.releaseContainer()
+        return Ok<ExecutionPools<T>, AsyncError>(ExecutionPools<T>{cpu: cpu, blocking: blocking})
+    }
+
+    fun release() r: Result<Bool, AsyncError> {
+        // Both owners remain available for retry until their native release
+        // succeeds. Close each pool without consuming its wrapper first.
+        let cpuClosed = this.cpu.executor.close()
+        if cpuClosed.isErr() { return cpuClosed }
+        cpuClosed.releaseContainer()
+        let blockingClosed = this.blocking.executor.close()
+        if blockingClosed.isErr() { return blockingClosed }
+        blockingClosed.releaseContainer()
+        let cpu = this.cpu.release()
+        if cpu.isErr() { abort("closed CPU pool changed during final release") }
+        cpu.releaseContainer()
+        let blocking = this.blocking.release()
+        if blocking.isErr() { abort("closed blocking pool changed during final release") }
+        blocking.releaseContainer()
+        this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

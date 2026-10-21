@@ -52,16 +52,6 @@ int32_t seen_reactor_close(uint64_t *handle);
 uint64_t seen_reactor_live_handles(void);
 int32_t seen_reactor_native_handle_close(int64_t native_handle);
 
-int32_t seen_blocking_pool_create(uint64_t workers, uint64_t queue_capacity,
-                                  uint64_t *out_handle);
-int32_t seen_blocking_pool_submit(uint64_t handle, uint64_t token,
-                                  int64_t function_address, int64_t argument);
-int32_t seen_blocking_pool_cancel(uint64_t handle, uint64_t token);
-int32_t seen_blocking_pool_completion(uint64_t handle, uint64_t *out_token,
-                                      int64_t *out_result);
-int32_t seen_blocking_pool_close(uint64_t *handle);
-uint64_t seen_blocking_pool_live_workers(void);
-
 #ifdef __cplusplus
 }
 #endif

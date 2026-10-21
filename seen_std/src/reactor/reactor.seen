@@ -30,16 +30,6 @@ extern "C" fun seen_reactor_event(handle: UInt64, index: UInt64,
 extern "C" fun seen_reactor_close(handle: *UInt64) r: Int32
 extern "C" fun seen_reactor_native_handle_close(handle: Int64) r: Int32
 
-extern "C" fun seen_blocking_pool_create(workers: UInt64,
-    capacity: UInt64, handle: *UInt64) r: Int32
-extern "C" fun seen_blocking_pool_submit(handle: UInt64, token: UInt64,
-    functionAddress: Int64, argument: Int64) r: Int32
-extern "C" fun seen_blocking_pool_cancel(handle: UInt64,
-    token: UInt64) r: Int32
-extern "C" fun seen_blocking_pool_completion(handle: UInt64,
-    token: *UInt64, result: *Int64) r: Int32
-extern "C" fun seen_blocking_pool_close(handle: *UInt64) r: Int32
-
 class ReactorError {
     var code: String
     var operation: String
@@ -549,84 +539,6 @@ class Reactor {
         if firstFailure != REACTOR_OK {
             return Err<Bool, ReactorError>(reactorFailure(firstFailure,
                 "close.resource", 0 as UInt64))
-        }
-        return Ok<Bool, ReactorError>(true)
-    }
-}
-
-class BlockingCompletion {
-    var token: UInt64
-    var result: Int64
-}
-
-@move
-class BlockingPool {
-    var handle: UInt64
-    var capacity: Int
-    var workers: Int
-    var submitted: UInt64
-    var completed: UInt64
-    var rejected: UInt64
-
-    static fun create(workers: Int, capacity: Int)
-        r: Result<BlockingPool, ReactorError> {
-        if workers <= 0 or workers > 64 or capacity <= 0 or
-            capacity > REACTOR_MAX_CAPACITY {
-            return Err<BlockingPool, ReactorError>(reactorFailure(
-                REACTOR_LIMIT, "blocking-pool.create", 0 as UInt64))
-        }
-        var handle: UInt64 = 0 as UInt64
-        let status = seen_blocking_pool_create(workers as UInt64,
-            capacity as UInt64, &handle)
-        if status != REACTOR_OK {
-            return Err<BlockingPool, ReactorError>(reactorFailure(status,
-                "blocking-pool.create", 0 as UInt64))
-        }
-        return Ok<BlockingPool, ReactorError>(BlockingPool{handle: handle,
-            capacity: capacity, workers: workers, submitted: 0 as UInt64,
-            completed: 0 as UInt64, rejected: 0 as UInt64})
-    }
-
-    fun submit(token: UInt64, functionAddress: Int64, argument: Int64)
-        r: Result<Bool, ReactorError> {
-        let status = seen_blocking_pool_submit(this.handle, token,
-            functionAddress, argument)
-        if status != REACTOR_OK {
-            this.rejected = this.rejected + (1 as UInt64)
-            return Err<Bool, ReactorError>(reactorFailure(status,
-                "blocking-pool.submit", 0 as UInt64))
-        }
-        this.submitted = this.submitted + (1 as UInt64)
-        return Ok<Bool, ReactorError>(true)
-    }
-
-    fun cancel(token: UInt64) r: Result<Bool, ReactorError> {
-        let status = seen_blocking_pool_cancel(this.handle, token)
-        if status != REACTOR_OK {
-            return Err<Bool, ReactorError>(reactorFailure(status,
-                "blocking-pool.cancel", 0 as UInt64))
-        }
-        return Ok<Bool, ReactorError>(true)
-    }
-
-    fun takeCompletion() r: Result<BlockingCompletion, ReactorError> {
-        var token: UInt64 = 0 as UInt64
-        var result: Int64 = 0 as Int64
-        let status = seen_blocking_pool_completion(this.handle, &token, &result)
-        if status != REACTOR_OK {
-            return Err<BlockingCompletion, ReactorError>(reactorFailure(status,
-                "blocking-pool.completion", 0 as UInt64))
-        }
-        this.completed = this.completed + (1 as UInt64)
-        return Ok<BlockingCompletion, ReactorError>(BlockingCompletion{
-            token: token, result: result})
-    }
-
-    fun close() r: Result<Bool, ReactorError> {
-        let status = seen_blocking_pool_close(&this.handle)
-        if status != REACTOR_OK {
-            return Err<Bool, ReactorError>(reactorFailure(status,
-                "blocking-pool.close", 0 as UInt64))
         }
         return Ok<Bool, ReactorError>(true)
     }

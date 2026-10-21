@@ -61,6 +61,8 @@ modules = [
     "src/time/timer.seen",
     "src/async/structured.seen",
     "src/async/multithread.seen",
+    "src/async/pool_placement.seen",
+    "src/async/pools.seen",
     "src/async/sync_domain.seen",
     "src/async/wait_group.seen",
     "src/async/barrier.seen",

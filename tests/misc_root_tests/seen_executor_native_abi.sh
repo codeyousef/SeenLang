@@ -9,6 +9,7 @@ if [ "${SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE:-0}" != 1 ]; then
 fi
 bash "$CAPPED_ENTRY" --verify-platform-active "$SCOPE"
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/executor-native.XXXXXX")"
+source "$ROOT_DIR/scripts/report_fixture_failure_logs.sh"
 cleanup() {
     local status=$?
     if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
@@ -18,6 +19,7 @@ cleanup() {
         esac
     else
         echo "Preserved executor artifacts: $TMP_DIR" >&2
+        seen_report_fixture_failure_logs "$TMP_DIR"
     fi
     exit "$status"
 }
@@ -50,6 +52,10 @@ for sanitizer in '' undefined address; do
         -DSEEN_EXECUTOR_THREAD_SLOTS=4 \
         "$ROOT_DIR/tests/compiler_regressions/executor_abi_contract.c" \
         "$ROOT_DIR/seen_runtime/src/executor_abi.c" -Wl,--wrap=pthread_create
+    run_probe placement "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_placement_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_abi.c" \
+        -Wl,--wrap=sched_getaffinity -Wl,--wrap=sched_setaffinity -Wl,--wrap=syscall
     run_probe allocator "$sanitizer" \
         "$ROOT_DIR/tests/compiler_regressions/executor_allocator_contract.c" \
         "$ROOT_DIR/seen_runtime/seen_runtime.c"

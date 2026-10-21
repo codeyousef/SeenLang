@@ -250,6 +250,10 @@ class ExecutorCore {
         if this.lock(EXECUTOR_FOREVER) != (0 as Int32) {
             abort("executor could not publish task completion")
         }
+        if ticket.failure != (0 as Int32) {
+            succeeded = false
+            if deadlineStatus == (0 as Int32) { failure = ticket.failure }
+        }
         if ticket.cancelled {
             ticket.state = EXECUTOR_CANCELLED
             ticket.failure = 9 as Int32
@@ -506,6 +510,22 @@ class ExecutorTaskContext {
     var id: Int
     var depth: Int
     var operation: AsyncOperationContext
+
+    // A job may report one bounded, stable failure class without allocating
+    // an error graph across the erased callback boundary.
+    fun fail(status: Int32) r: Bool {
+        if status != (1 as Int32) and status != (2 as Int32) and
+            status != (3 as Int32) and status != (4 as Int32) and
+            status != (7 as Int32) and status != (9 as Int32) { return false }
+        if this.core.lock(EXECUTOR_FOREVER) != (0 as Int32) { return false }
+        if not this.core.matches(this.slot, this.id) {
+            this.core.unlock(); return false
+        }
+        let ticket = this.core.tickets[this.slot].unwrap()
+        if ticket.failure == (0 as Int32) { ticket.failure = status }
+        this.core.unlock()
+        return true
+    }
 
     fun isCancelled() r: Bool {
         return this.core.isCancelled(this.slot, this.id) or
