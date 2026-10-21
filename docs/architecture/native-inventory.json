@@ -4019,6 +4019,13 @@
       ]
     },
     {
+      "name": "seen_cstr_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
       "name": "seen_cstr_to_str",
       "abi": "Seen",
       "sources": [
