@@ -1,7 +1,7 @@
 version = 2
-manifest_sha256 = "217507544fa07daa1a441fdb586dbdb24c3e2cf76b4aeafc643bb1cf7d6e89d5"
+manifest_sha256 = "8105afa0e7ec68c1ea33690c5d816b81c012a6f29feb08ae8deeae73bdff1764"
 
 [root]
 name = "seen_std"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = []

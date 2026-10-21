@@ -4,24 +4,7 @@ import async.executor_core.{executorReleaseContext}
 import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioFixtureRequest}
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 extern "C" fun seen_memory_used_bytes() r: Int64
-fun checkIoQueueInvariants(borrow queue: IoQueue) r: Void {
-    var active = 0; var native = 0; var terminal = 0; var owned = 0 as UInt64; var metadata = 0 as UInt64; var i = 0
-    while i < queue.capacity {
-        if queue.states[i] != 0 {
-            let request = queue.entries[i].unwrap(); active = active + 1
-            owned = owned + request.resources.buffer.byteLength
-            metadata = metadata + (request.context.resourceId.length() as UInt64) + (request.context.operation.traceId.value.length() as UInt64)
-            if queue.states[i] == 2 { native = native + 1 }
-            if queue.states[i] == 3 { terminal = terminal + 1 }
-            ioRequire(queue.states[i] >= 1 and queue.states[i] <= 4)
-        } else { ioRequire(queue.entries[i].isNone()) }
-        i = i + 1
-    }
-    ioRequire(active == queue.active and native == queue.nativeActive and terminal == queue.terminalCount)
-    ioRequire(owned == queue.ownedBytes and owned <= queue.maxOwnedBytes)
-    ioRequire(metadata == queue.metadataBytes and metadata <= queue.maxMetadataBytes)
-    ioRequire(active <= queue.capacity and queue.freeCount + active <= queue.capacity)
-}
+import queue_invariants.{checkIoQueueInvariants}
 fun main() r: Int {
     let context = ioContext()
     let limits = IoQueueLimits{depth: 4, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 256 as UInt64, maxMetadataBytes: 8192 as UInt64}
@@ -53,7 +36,13 @@ fun main() r: Int {
                 } else { ioRequire(ioErrorIs(queue.submission(token), "async.invalid")) }
             }
             if mode == 5 {
-                if queue.states[index] == 4 { ioMust(queue.submitted(token)) }
+                if queue.states[index] == 4 and queue.cancellation[index] != (0 as Int32) {
+                    // Stopping a prepared request prevents native publication.
+                    // The rejected handoff is also the terminal acknowledgement.
+                    let nativeBefore = queue.nativeActive
+                    ioRequire(ioErrorIs(queue.submitted(token), "async.cancelled"))
+                    ioRequire(queue.states[index] == 3 and queue.nativeActive == nativeBefore)
+                } else if queue.states[index] == 4 { ioMust(queue.submitted(token)) }
                 else { ioRequire(ioErrorIs(queue.submitted(token), "async.invalid")) }
             }
             if mode == 6 {

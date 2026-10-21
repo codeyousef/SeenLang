@@ -5,7 +5,7 @@ import core.option.{Option, Some, None}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext, asyncDeadlineStatus}
 import async.executor_core.{executorCopyContext}
 import memory.aligned_buffer.{OwnedBuffer, ownedBufferByteRangeValid}
-import io.completion_types.{IoQueueLimits, IoOperation, IoRegistration, IoRequest,
+import io.completion_types.{IO_DEVICE_REMOVED_STATUS, IoQueueLimits, IoOperation, IoRegistration, IoRequest,
     IoRejectedSubmission, IoCompletion, IoSubmissionView, ioQueueFailure, ioQueueStableError, ioCompletionStatusValid}
 
 @move
@@ -29,6 +29,7 @@ class IoQueue {
     var active: Int
     var nativeActive: Int
     var accepting: Bool
+    var deviceLost: Bool
     var closed: Bool
 
     static fun create(borrow limits: IoQueueLimits) r: Result<IoQueue, AsyncError> {
@@ -46,7 +47,7 @@ class IoQueue {
             maxMetadataBytes: limits.maxMetadataBytes, metadataBytes: 0 as UInt64, entries: entries, generations: generations,
             states: states, cancellation: cancellation, cancellationNotified: notified, freeSlots: freeSlots,
             freeCount: limits.depth, terminalSlots: terminal, terminalHead: 0, terminalCount: 0,
-            active: 0, nativeActive: 0, accepting: true, closed: false})
+            active: 0, nativeActive: 0, accepting: true, deviceLost: false, closed: false})
     }
     fun slot(token: UInt64) r: Int {
         let identity = token % (4294967296 as UInt64); let generation = token / (4294967296 as UInt64)
@@ -113,6 +114,12 @@ class IoQueue {
     fun submitted(token: UInt64) r: Result<Bool, AsyncError> {
         let index = this.slot(token)
         if index < 0 or this.states[index] != 4 { return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.submitted", 0 as UInt64)) }
+        if this.cancellation[index] != (0 as Int32) {
+            let status = this.cancellation[index]; let event = this.entries[index].unwrap().nativeEvent
+            var native = 0 as Int64; if event.isSome() { native = event.unwrap() }
+            this.terminal(index, 0 as UInt64, status, native)
+            return Err<Bool, AsyncError>(ioQueueFailure(status, "io.queue.submitted.stopped", 0 as UInt64))
+        }
         this.states[index] = 2; this.nativeActive = this.nativeActive + 1
         return Ok<Bool, AsyncError>(true)
     }
@@ -172,6 +179,22 @@ class IoQueue {
         }
         return None<IoRegistration>()
     }
+    // An explicit backend/device event, not an acknowledgement of OS borrows.
+    // Tokens stay scoped to this queue; a replacement device needs a new queue.
+    fun deviceRemoved(nativeResult: Int64) r: UInt64 {
+        if this.closed or this.deviceLost { return 0 as UInt64 }
+        this.deviceLost = true; this.accepting = false; var affected = 0 as UInt64; var index = 0
+        while index < this.capacity {
+            if this.states[index] == 1 or this.states[index] == 2 or this.states[index] == 4 {
+                let request = this.entries[index].unwrap(); request.nativeEvent.free(); request.nativeEvent = Some<Int64>(nativeResult)
+                if this.cancellation[index] == (0 as Int32) { this.cancellation[index] = IO_DEVICE_REMOVED_STATUS }
+                if this.states[index] == 1 { this.terminal(index, 0 as UInt64, this.cancellation[index], nativeResult) }
+                affected = affected + (1 as UInt64)
+            }
+            index = index + 1
+        }
+        return affected
+    }
     fun poll() r: Option<IoCompletion> {
         if this.terminalCount == 0 { return None<IoCompletion>() }
         let index = this.terminalSlots[this.terminalHead]; let request = this.entries[index].unwrap()
@@ -214,6 +237,7 @@ class IoQueue {
 /// The serialized coordinator revalidates on reserve; preflight owns no lease.
 fun ioQueuePreflight(borrow queue: IoQueue, borrow buffer: OwnedBuffer<UInt8>, operation: IoOperation,
     offset: Int64, bytes: UInt64, context: AsyncOperationContext, descriptor: Int64) r: Result<Bool, AsyncError> {
+    if queue.deviceLost { return Err<Bool, AsyncError>(ioQueueFailure(IO_DEVICE_REMOVED_STATUS, "io.queue.reserve.device", 0 as UInt64)) }
     let validation = validateAsyncContext(context, "io.queue.reserve", 0 as UInt64)
     if validation.isErr() { let error = validation.unwrapErr(); validation.releaseContainer(); return Err<Bool, AsyncError>(ioQueueStableError(error)) }
     validation.releaseContainer()

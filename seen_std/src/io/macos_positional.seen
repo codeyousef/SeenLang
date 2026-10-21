@@ -86,6 +86,7 @@ class MacPositionalQueue {
         if bound.isErr() { let error = bound.unwrapErr(); bound.releaseContainer(); job.release(); return Err<Bool, AsyncError>(error) }
         let owner = bound.unwrap(); bound.releaseContainer(); return this.worker.submit(token, owner)
     }
+    fun deviceRemoved(nativeResult: Int64) r: UInt64 { return this.worker.deviceRemoved(nativeResult) }
     fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.worker.cancel(token) }
     fun publishCancellation() r: Result<Bool, AsyncError> { return this.worker.publishCancellation() }
     fun reap(maximum: Int) r: Result<UInt64, AsyncError> { return this.worker.reap(maximum) }
