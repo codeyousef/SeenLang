@@ -1,0 +1,17 @@
+import codegen.ir_trait_registry.{registerClassTraitImplsImpl, appendTraitImplEntryImpl}
+fun require(value: Bool) r: Void { if not value { abort("trait registration identity contract failed") } }
+fun main() r: Int {
+    let names = ["Provider", "Probe", "Incomplete"]
+    let methods = ["narrow,wide,narrow,wide", "wide,narrow", "wide"]
+    let returns = ["Int8|UInt32|Int8|UInt32", "UInt32|Int8", "UInt32"]
+    let registry = [""]; let count = [0]
+    registerClassTraitImplsImpl("Probe", "Provider|Provider|", names, methods, returns, registry, count)
+    require(count[0] == 2 and registry[0] == "Provider:Probe:Probe_narrow|Provider:Probe:Probe_wide|")
+    registerClassTraitImplsImpl("Probe", "Provider|", names, methods, returns, registry, count)
+    appendTraitImplEntryImpl("Provider:Probe:Probe_narrow", registry, count); require(count[0] == 2)
+    registerClassTraitImplsImpl("Incomplete", "Provider|", names, methods, returns, registry, count)
+    require(count[0] == 2 and registry[0] == "Provider:Probe:Probe_narrow|Provider:Probe:Probe_wide|")
+    names.free(); methods.free(); returns.free(); registry.free(); count.free()
+    println("PASS: trait registration identity deduplicates scans and preserves declared slots")
+    return 0
+}
