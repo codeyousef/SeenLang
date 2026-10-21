@@ -63,8 +63,9 @@ Before submission, bind the concrete job and its trait view with
 `ExecutorOwnedJob<Job>.bind(job, job)`. The second argument captures dispatch
 while the concrete type is available; the factory rejects views of different
 objects with `async.invalid` and releases only that trait box. On success the
-returned owner exclusively owns the job and box. Pass this owner to `spawn`
-or `spawnExecutorTask`. Failed admission retains the owner for retry or
+returned owner exclusively owns the job and box. Pass this owner to `spawnOwned`
+or `spawnExecutorTask`. Alternatively, `spawn(job, job, context)` captures the
+concrete witness and retains the concrete job if admission fails. Failed admission retains the owner for retry or
 `release()`. Successful join returns the concrete job and consumes its wrapper
 and dispatch box; failed/cancelled/unjoined work releases them through the same
 owner. Generic scheduling code never calls unresolved methods on `T`.
@@ -76,7 +77,7 @@ original context after submission.
 
 Jobs borrow `ExecutorTaskContext` only for the duration of `run`. Use
 `context.isCancelled()` at bounded work checkpoints. Nested jobs use
-`spawnExecutorTask<T>(context, task)`. When a worker joins a task on its own
+`spawnExecutorTaskWitness<T>(context, task, task)`. When a worker joins a task on its own
 pool, it executes queued work while waiting, allowing a single-worker parent
 to spawn and join a child. Helping has an explicit depth bound; it does not
 create extra threads. Joining oneself is invalid. Jobs must not construct
@@ -224,7 +225,7 @@ unsupported-platform and unavailable/permission errors. A partial placement
 failure can affect the owned worker's OS policy; later explicitly placed jobs
 apply their policy again. Workers belong to one pool for their entire lifetime.
 
-`submit(task, ctx)` moves the task only on success and returns
+`submit(task, task, ctx)` moves the task only on success and returns
 `PoolJoinHandle<T>`. A successful join transfers the original typed task and
 consumes its placement wrapper. Failed/cancelled tasks are released once by
 the executor. A timed-out join retains ownership for retry. `cancel` propagates
@@ -251,3 +252,25 @@ they do not certify real CPU/NUMA hardware placement. Run software fixtures:
 ```sh
 bash tests/misc_root_tests/seen_cpu_blocking_pools_contract.sh
 ```
+
+
+The repeated concrete argument at witness boundaries must refer to the same
+object. Validation compares the trait-box payload address with the typed job;
+a mismatch returns `async.invalid` without consuming either concrete object.
+The box is immutable metadata for that already-proved `T: Send` value. Its
+opaque address is stored inside the owner, restored only for virtual calls,
+and freed exactly once on take or release. It does not make an arbitrary
+callback Send. Users must create owners through `bind` and must not construct
+or alter their internal address fields. A rejected bind consumes its trait
+box; rejected admission retains the typed job (or the explicit owner for
+`spawnOwned`). Pools, task groups, and readiness registrations use the same
+ownership rule. Worker completion submission consumes an explicit owner on
+both success and rejection, as documented by that queue.
+
+`ExecutorJoinReport.task` holds an optional owned job wrapper. Use `takeTask()`
+to obtain the concrete result; `release()` destroys any untaken successful
+job through its captured dispatch. Task-group barriers retain these owners
+until every sibling has joined, then either release all results on failure or
+transfer the concrete values on success. A readiness job's callback is in
+`ReadyIoJob.task.value`; its `release()` consumes the callback owner before the
+descriptor and event. No generic cleanup path dispatches directly on `T`.
