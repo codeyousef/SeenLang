@@ -24,7 +24,7 @@ fun main() r: Int {
     let bound = ExecutorOwnedJob<ImportedExecutorJob>.bind(concrete, concrete)
     if bound.isErr() { return 6 }
     let owner = bound.unwrap(); bound.releaseContainer()
-    let spawned = pool.spawn(owner, context)
+    let spawned = pool.spawnOwned(owner, context)
     if spawned.isErr() { return 2 }
     let handle = spawned.unwrap()
     spawned.releaseContainer()
