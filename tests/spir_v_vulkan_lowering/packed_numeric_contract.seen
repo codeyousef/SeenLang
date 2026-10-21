@@ -4,7 +4,10 @@ import codegen.gpu.spirv_function.{createGpuSpirvFunction}
 import codegen.gpu.spirv_packed.{spirvPackedPayload}
 import codegen.gpu_precision_formats.{gpuPrecisionValueType}
 import spirv_scalar_witness.{witnessSpirvScalar, witnessRequire}
+import json.builder.{releaseJsonText}
 extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun printNumericGoldenValue(value: Int) r: Void { let text = value.toString(); println(text); releaseJsonText(text) }
 
 fun golden(format: Int, word: Int, scale: Int, insert: Bool, expected: Int) r: Void {
     let baseline = seen_memory_used_bytes(); let validation = GpuIrValidation.create(); let context = createGpuSpirvContext(validation)
@@ -14,7 +17,7 @@ fun golden(format: Int, word: Int, scale: Int, insert: Bool, expected: Int) r: V
     let result = spirvPackedPayload(function, format, value, scaleId, insert)
     witnessRequire(validation.valid); let actual = witnessSpirvScalar(context, function, result)
     if actual != expected {
-        println("FAIL: packed SPIR-V numeric golden"); println(format); println(word); println(scale); println(expected); println(actual)
+        println("FAIL: packed SPIR-V numeric golden"); printNumericGoldenValue(format); printNumericGoldenValue(word); printNumericGoldenValue(scale); printNumericGoldenValue(expected); printNumericGoldenValue(actual)
         abort("packed SPIR-V conversion differs from fixed format golden")
     }
     function.release(); context.release(); validation.release(); witnessRequire(seen_memory_used_bytes() == baseline)
