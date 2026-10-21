@@ -1,3 +1,4 @@
+import codegen.ir_dyn_parameter_metadata.{registerDeclaredDynParametersImpl}
 // Declaration-item registration helpers.
 // Keeps Pass 1 declaration-item plumbing out of llvm_ir_gen.seen.
 
@@ -289,6 +290,12 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
         }
 
         let mangledName = className + "_" + method.name
+        var receiverOffset = 0
+        if not method.isStatic and method.name != "new" and method.params.length() > 0 {
+            let first = method.params[0]
+            if (first.name == "this" or first.name == "self") and first.paramType.typeName == className { receiverOffset = 1 }
+        }
+        registerDeclaredDynParametersImpl(method, mangledName, receiverOffset)
         let methodRetTypeName = methodRetTypeNames[methodIdx]
         registerFloatParamMetadataImpl(mangledName, method.params,
             ctx.floatParamFuncNames, ctx.floatParamParamIdxs)
@@ -332,6 +339,7 @@ fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
     visibility: String, funcRetTypeName: String, ctx: DeclarationItemContext)
     r: Void {
 
+    registerDeclaredDynParametersImpl(funcObj, funcObj.name, 0)
     let isRuntimeStringCompat = isRuntimeBackedStringCompatFunctionImpl(
         funcObj.name)
     let floatRegistryFuncName = getFloatParamRegistryNameImpl(funcObj,
