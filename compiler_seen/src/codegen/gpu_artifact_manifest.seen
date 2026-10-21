@@ -39,10 +39,14 @@ fun gpuPtxArtifactShape(borrow artifact: GpuArtifact) r: Bool {
         let byte = artifact.binary.byteAt(i); if byte != 10 and byte != 9 and (byte < 32 or byte > 126) { return false }; i = i + 1
     }; return true
 }
+fun gpuArtifactIntegrityDiagnostic(backend: String, message: String) r: GpuIrDiagnostic {
+    var code = "E_GPU_SPIRV_ARTIFACT"; if backend == "cuda" { code = "E_GPU_PTX_ARTIFACT" }
+    return gpuIrDiagnostic(code, message)
+}
 fun gpuArtifactManifest(borrow artifact: GpuArtifact) r: Result<String, GpuIrDiagnostic> {
     if (artifact.backend == "spirv" and not gpuSpirvArtifactShape(artifact)) or (artifact.backend == "cuda" and not gpuPtxArtifactShape(artifact)) or
         (artifact.backend != "spirv" and artifact.backend != "cuda") {
-        return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_ARTIFACT", "GPU artifact header, shape or target is invalid"))
+        return Err<String, GpuIrDiagnostic>(gpuArtifactIntegrityDiagnostic(artifact.backend, "GPU artifact header, shape or target is invalid"))
     }
     let binaryResult = gpuReflectionHash(artifact.binary)
     if binaryResult.isErr() { let error = binaryResult.unwrapErr(); binaryResult.releaseContainer(); return Err<String, GpuIrDiagnostic>(error) }
@@ -53,7 +57,7 @@ fun gpuArtifactManifest(borrow artifact: GpuArtifact) r: Result<String, GpuIrDia
     let reflectionHash = reflectionResult.unwrap(); reflectionResult.releaseContainer()
     let matches = binaryHash == artifact.binaryHash and reflectionHash == artifact.reflectionHash
     releaseJsonText(binaryHash); releaseJsonText(reflectionHash)
-    if not matches { return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_ARTIFACT", "artifact bytes or reflection no longer match their digest snapshot")) }
+    if not matches { return Err<String, GpuIrDiagnostic>(gpuArtifactIntegrityDiagnostic(artifact.backend, "artifact bytes or reflection no longer match their digest snapshot")) }
     let builder = JsonBuilder_new(); builder.startObject()
     builder.stringProp("schema", "seen-gpu-artifact-manifest-v1"); builder.stringProp("backend", artifact.backend)
     builder.stringProp("target", artifact.target)

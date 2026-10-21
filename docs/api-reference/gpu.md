@@ -629,3 +629,20 @@ specialization ownership, native/unsupported capability boundaries, deterministi
 reflection and artifacts across four build profiles. The pinned assembler checks
 FP16 on all seven targets and BF16 on all five `sm_80+` targets. This is offline
 software evidence; numerical execution and device certification remain separate.
+
+`gpuArtifactManifest` returns `E_GPU_PTX_ARTIFACT` for corrupt CUDA headers,
+targets, bytes or digest snapshots; SPIR-V retains `E_GPU_SPIRV_ARTIFACT`.
+Artifact bytes, reflection and digest fields remain owned by their creator and
+borrowed during manifest construction. Rejection does not consume or repair the
+artifact; restore an intentionally mutated field before releasing its owner.
+
+`tests/misc_root_tests/seen_gpu_ptx_c.sh` checks integrity rejection/cleanup in
+four build profiles and byte-identical PTX, reflection and hashes after source
+relocation on every pinned target. The official assembler must produce a CUDA
+ELF object for each accepted file and reject malformed PTX, including a timed
+60-second corpus. `certification.json` records tool identity, target hashes,
+profile/relocation agreement and rejection progress, with hardware and GPU
+execution verification false. Certification input snapshots have explicit byte
+ceilings, reject symlinks/nonregular files, close descriptors on every path and
+reject metadata changes during a read. This software certificate establishes
+neither numerical device execution nor production readiness.

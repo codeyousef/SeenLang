@@ -8,24 +8,14 @@ import random
 import struct
 import time
 
+from gpu_certification_io import read_bounded, manifest_from_log, invoke_with_snapshot
 from check_gpu_spirv_artifacts import check_layout
 from check_gpu_spirv_toolchain import invoke, load_profile, require, verify_installation
 
 
-def read_bounded(path, ceiling):
-    require(path.is_file() and not path.is_symlink() and path.stat().st_size <= ceiling, 'artifact unavailable or oversized')
-    return path.read_bytes()
-
-
-def manifest_from_log(path):
-    lines = read_bounded(path, 1048576).decode().splitlines()
-    records = [json.loads(line) for line in lines if line.startswith('{"schema":"seen-gpu-artifact-manifest-v1"')]
-    require(len(records) == 1, 'expected exactly one compiler integrity manifest')
-    return records[0]
-
-
-def validate(profile, target, path, accepted=True):
-    status, output, diagnostic = invoke(profile, 'spirv-val', ['--target-env', target, str(path)])
+def validate(profile, target, path, accepted=True, expected=None):
+    status, output, diagnostic = invoke_with_snapshot(
+        path, 33554432, lambda: invoke(profile, 'spirv-val', ['--target-env', target, str(path)]), expected)
     require(status == (0 if accepted else 1), 'official validator returned an unexpected status')
     require(not output and (not diagnostic if accepted else bool(diagnostic)), 'official validator diagnostics differ')
 
@@ -58,14 +48,18 @@ def certify(root, profile, seconds=60):
             if baseline is None:
                 baseline = current
             require(current == baseline, 'relocated source changed deterministic artifacts')
-            validate(profile, target, Path(str(stem) + '.spv'))
+            validate(profile, target, Path(str(stem) + '.spv'), expected=binary)
             words = list(struct.unpack(f'<{len(binary)//4}I', binary))
             check_layout(words, json.loads(reflection))
         stem = root / f'original-{target}'
         assembly, rebuilt = root / f'{target}.spvasm', root / f'{target}-roundtrip.spv'
-        status, _, diagnostic = invoke(profile, 'spirv-dis', ['--raw-id', str(Path(str(stem) + '.spv')), '-o', str(assembly)])
+        status, _, diagnostic = invoke_with_snapshot(
+            Path(str(stem) + '.spv'), 33554432,
+            lambda: invoke(profile, 'spirv-dis', ['--raw-id', str(Path(str(stem) + '.spv')), '-o', str(assembly)]), binary)
         require(status == 0 and not diagnostic, 'official disassembly failed')
-        status, _, diagnostic = invoke(profile, 'spirv-as', ['--target-env', target, '--preserve-numeric-ids', str(assembly), '-o', str(rebuilt)])
+        status, _, diagnostic = invoke_with_snapshot(
+            assembly, 33554432,
+            lambda: invoke(profile, 'spirv-as', ['--target-env', target, '--preserve-numeric-ids', str(assembly), '-o', str(rebuilt)]))
         require(status == 0 and not diagnostic, 'official assembly failed')
         validate(profile, target, rebuilt)
         roundtrip = read_bounded(rebuilt, 33554432)
@@ -73,7 +67,7 @@ def certify(root, profile, seconds=60):
         require(binary[:8] + binary[12:] == roundtrip[:8] + roundtrip[12:], 'official roundtrip changed instruction bytes')
         records.append({'target': target, 'sha256': manifest['sha256'], 'reflection_sha256': manifest['reflection_sha256'], 'roundtrip': True})
         if target == 'vulkan1.3':
-            validate(profile, 'vulkan1.2', Path(str(stem) + '.spv'), False)
+            validate(profile, 'vulkan1.2', Path(str(stem) + '.spv'), False, binary)
     # Guaranteed-invalid inputs exercise the actual SDK, without a local parser rejecting first.
     binary = read_bounded(root / 'original-vulkan1.2.spv', 33554432)
     mutant = root / 'last-malformed.spv'
@@ -81,7 +75,7 @@ def certify(root, profile, seconds=60):
              binary[:12] + bytes(4) + binary[16:], binary[:4] + bytes(4) + binary[8:],
              binary + bytes(4), binary + struct.pack('<I', 0x1ffff)]
     for payload in cases:
-        mutant.write_bytes(payload); validate(profile, 'vulkan1.2', mutant, False)
+        mutant.write_bytes(payload); validate(profile, 'vulkan1.2', mutant, False, payload)
     rng = random.Random(1090); deadline = time.monotonic() + seconds; count = 0
     while time.monotonic() < deadline:
         payload = bytearray(binary)
@@ -90,7 +84,7 @@ def certify(root, profile, seconds=60):
             struct.pack_into('<I', payload, 0, rng.randrange(0x07230203))
         else:
             struct.pack_into('<I', payload, 4, rng.choice((0, 0xffffffff, 0x7fff0000)))
-        mutant.write_bytes(payload); validate(profile, 'vulkan1.2', mutant, False); count += 1
+        mutant.write_bytes(payload); validate(profile, 'vulkan1.2', mutant, False, payload); count += 1
     evidence = {'schema': 'seen-spirv-certification-v1', 'classification': 'compile-only',
                 'official_validation': True, 'hardware_verified': False, 'gpu_execution_verified': False,
                 'toolchain': toolchain, 'artifacts': records, 'malformed_cases': len(cases),

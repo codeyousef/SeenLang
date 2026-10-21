@@ -58,6 +58,11 @@ Foundations**.
 
 - Keep GPU byte access and owned-wrapper cleanup compatible with the frozen
   bootstrap compiler so the version branch can link during CI rebuilds.
+- Return backend-specific CUDA artifact integrity errors, preserve SPIR-V
+  diagnostics and verify shared ownership/rejection paths. Certify relocated
+  PTX/reflection/hash identity with pinned official assembly and malformed-input
+  rejection; bound artifact snapshots and reject unsafe file types. Run the
+  executable PTX acceptance harnesses with the selected compiler.
 - Keep CUDA capability admission compatible with the frozen bootstrap compiler
   by checking mask inclusion without unary bitwise complement.
 - Align CI workflow contract fixtures with PTX diagnostics and pinned assembler
