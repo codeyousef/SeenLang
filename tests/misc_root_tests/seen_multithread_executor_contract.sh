@@ -41,6 +41,8 @@ compile_case() {
         "${flags[@]}" >"$log" 2>&1
     timeout --foreground --kill-after=5s 120s "$TMP_DIR/$name-$profile" >>"$log" 2>&1
     test -d "$TMP_DIR/$name-$profile-ir"
+    rg --files "$TMP_DIR/$name-$profile-ir" -g '*.ll' > "$TMP_DIR/$name-$profile-ir-files.log"
+    test -s "$TMP_DIR/$name-$profile-ir-files.log"
     local dispatch_status=0
     rg -n '@"?T_(run|release|onEvent)"?\(' "$TMP_DIR/$name-$profile-ir" >>"$log" || dispatch_status=$?
     if [ "$dispatch_status" -ne 1 ]; then
@@ -72,7 +74,6 @@ if bash "$ATTESTED_SEEN" "$COMPILER" check \
     exit 1
 fi
 rg -Fq E_TYPE_BOUND "$TMP_DIR/unsafe.log"
-echo "PASS: fixed-worker typed execution in fast and release/ThinLTO"
 
 if bash "$ATTESTED_SEEN" "$COMPILER" check \
     "$ROOT_DIR/tests/fixtures/async/generic_move_rejected.seen" >"$TMP_DIR/generic-move.log" 2>&1; then
@@ -87,3 +88,5 @@ if bash "$ATTESTED_SEEN" "$COMPILER" check \
     exit 1
 fi
 rg -Fq E_TYPE_BOUND "$TMP_DIR/unsafe-owned.log"
+
+echo "PASS: fixed-worker typed execution in fast and release/ThinLTO"
