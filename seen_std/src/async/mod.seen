@@ -12,3 +12,5 @@ import async.structured.{AsyncError, AsyncLimits, AsyncOperationContext,
     ASYNC_TASK_CANCELLED, ASYNC_TASK_JOINED, asyncFailure, asyncUnsupported,
     validateAsyncContext, selectTaskId, raceTaskId, timeoutJoin,
     boundedFanOut, deterministicReduceSum}
+
+import async.executor_core.{ExecutorOwnedJob}

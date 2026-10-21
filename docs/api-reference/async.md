@@ -58,6 +58,17 @@ function-pointer submission API or erased user result.
 `ExecutorLimits` bounds workers (1–16), outstanding tasks, queued tasks,
 helping depth (1–64), and each worker's stack (at most 8 MiB). Stack size
 must provide at least 64 KiB plus 16 KiB per configured helping level.
+
+Before submission, bind the concrete job and its trait view with
+`ExecutorOwnedJob<Job>.bind(job, job)`. The second argument captures dispatch
+while the concrete type is available; the factory rejects views of different
+objects with `async.invalid` and releases only that trait box. On success the
+returned owner exclusively owns the job and box. Pass this owner to `spawn`
+or `spawnExecutorTask`. Failed admission retains the owner for retry or
+`release()`. Successful join returns the concrete job and consumes its wrapper
+and dispatch box; failed/cancelled/unjoined work releases them through the same
+owner. Generic scheduling code never calls unresolved methods on `T`.
+
 Saturation returns `async.limit` before admission and retains the caller's
 concrete task. Completed results count against the task bound until joined.
 Admission copies context and limit metadata so the caller can reuse its
