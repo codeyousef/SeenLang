@@ -37,9 +37,13 @@ def load_profile():
 
 def memory_budget():
     available = next(int(line.split()[1]) * 1024 for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemAvailable:'))
-    maximum = Path('/sys/fs/cgroup/memory.max').read_text().strip()
-    if maximum != 'max':
-        available = min(available, max(0, int(maximum) - int(Path('/sys/fs/cgroup/memory.current').read_text())))
+    maximum_path = Path('/sys/fs/cgroup/memory.max')
+    # Provisioning runs before the CI scope exists; some hosted machines use
+    # cgroup v1. These read-only SDK calls still receive a RAM-derived cap.
+    if maximum_path.is_file():
+        maximum = maximum_path.read_text().strip()
+        if maximum != 'max':
+            available = min(available, max(0, int(maximum) - int(Path('/sys/fs/cgroup/memory.current').read_text())))
     budget = min(2 * 1024**3, available // 4)
     require(budget >= 256 * 1024**2, 'insufficient validator memory headroom')
     return budget
