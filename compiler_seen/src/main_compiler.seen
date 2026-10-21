@@ -54,6 +54,24 @@ import typechecker.gpu_types.{gpuParseType as _seedGpuParseType}
 import typechecker.gpu_scope.{GpuCheckContext as _seedGpuCheckContext}
 import typechecker.gpu_workgroup.{gpuParseWorkgroup as _seedGpuParseWorkgroup}
 import codegen.gpu_extract.{hasGpuFunctions}
+import codegen.gpu_ir_call_graph.{GpuIrCallFacts as _seedGpuIrCallGraph}
+import codegen.gpu_ir_convergence.{gpuIrMaximumUniformity as _seedGpuIrConvergence}
+import codegen.gpu_ir_definitions.{gpuIrDefinitionVisible as _seedGpuIrDefinitions}
+import codegen.gpu_ir_facts.{gpuIrValueTypeValid as _seedGpuIrFacts}
+import codegen.gpu_ir_instruction_types.{gpuIrIndexType as _seedGpuIrInstructionTypes}
+import codegen.gpu_ir_memory_rules.{gpuIrMemoryTypesValid as _seedGpuIrMemoryRules}
+import codegen.gpu_ir_model.{GpuIrInstruction as _seedGpuIrModel}
+import codegen.gpu_ir_ops.{GPU_IR_PARAM as _seedGpuIrOps}
+import codegen.gpu_ir_regions.{gpuIrEnclosingLoop as _seedGpuIrRegions}
+import codegen.gpu_ir_requirements.{gpuIrInstructionCapabilities as _seedGpuIrRequirements}
+import codegen.gpu_ir_serialize.{gpuIrWriteInstruction as _seedGpuIrSerialize}
+import codegen.gpu_ir_structure.{gpuIrFunctionCountsValid as _seedGpuIrStructure}
+import codegen.gpu_ir_value_rules.{gpuIrBuiltinCode as _seedGpuIrValueRules}
+import codegen.gpu_ir_verify.{gpuIrFunctionTypesValid as _seedGpuIrVerify}
+import codegen.gpu_lower_blocks.{gpuIrSourceType as _seedGpuLowerBlocks}
+import codegen.gpu_lower_call_plan.{GpuCallPlan as _seedGpuLowerCallPlan}
+import codegen.gpu_lower_context.{GpuLowerContext as _seedGpuLowerContext}
+import codegen.gpu_lower_values.{gpuLowerLiteral as _seedGpuLowerValues}
 import codegen.gpu_lower_program.{lowerGpuProgram as _seedLowerGpuProgram}
 import typechecker.gpu_module_frontend.{gpuCheckModule as _seedGpuCheckModule}
 import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest,

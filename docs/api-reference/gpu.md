@@ -142,6 +142,15 @@ module identity to obtain stable artifacts across workspaces. The
 consumers must also enforce byte ceilings and semantic validation. Schema
 validation alone cannot prove resource access, dominance or convergence.
 
+The IR regression harness includes an independent, bounded scalar witness for
+one invocation with integer/bool values. It executes structured control, helper
+calls, mutable locals, checked buffer operations and serial atomics, and checks
+known output values plus allocation baselines. Barriers are recorded as events
+in this one-lane model. Other workgroup geometries, float/vector arithmetic and
+subgroups are explicitly unsupported by the witness. These results establish
+software semantics for the tested subset and never certify GPU execution or
+inter-invocation memory ordering.
+
 `seen check app.seen` checks compute bodies without creating a GPU device or
 entering LLVM/backend generation. Until typed backend lowering is available,
 compiling a shader module returns `E_GPU_BACKEND_UNAVAILABLE` before creating

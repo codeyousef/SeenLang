@@ -27,6 +27,12 @@ for profile in fast release undefined address; do
         'borrowed AST ownership deterministic export and repeated cleanup'; do
         rg -Fq "PASS: GPU-001B $expectation" "$TMP_DIR/lowering-$profile.log"
     done
+    compile_case "$profile" scalar "$ROOT_DIR/tests/typed_gpu_compiler/ir_scalar_contract.seen"
+    for expectation in 'scalar witness executes parsed loops helpers atomics wrapping and cleanup' \
+        'scalar witness preserves short circuit effects and checked fault progress' \
+        'scalar witness rejects unsupported geometry values and exhausted budgets'; do
+        rg -Fq "PASS: GPU-001B $expectation" "$TMP_DIR/scalar-$profile.log"
+    done
 done
 compile_case fast fuzz "$ROOT_DIR/tests/typed_gpu_compiler/ir_metadata_fuzz.seen"
 rg -Fq 'PASS: GPU-001B IR metadata fuzz 60s seed=1081 checked identities limits and allocation baseline' "$TMP_DIR/fuzz-fast.log"
