@@ -17,10 +17,19 @@ fun consumeGpuBytes(bytes: Array<Int>) r: Result<String, GpuIrDiagnostic> {
             bytes.free(); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT", "GPU byte string contains a non-byte value"))
         }; i = i + 1
     }
-    let address = seen_arr_data_ptr(bytes); let packed = address as *UInt8; i = 0
-    // Forward compaction cannot overwrite an unread Int: byte i precedes the
-    // next source element at (i + 1) * sizeof(Int). No view escapes this call.
-    while i < length { packed[i] = bytes[i] as UInt8; i = i + 1 }
+    i = 0; var destination = 0
+    // Supported compiler hosts use little-endian 64-bit Int storage. Read a
+    // complete source group before replacing an already-consumed Int slot.
+    // This avoids narrow pointer stores in the immutable bootstrap compiler.
+    while i < length {
+        var word = 0 as UInt64; var shift = 0
+        while i < length and shift < 64 {
+            word = word | ((bytes[i] as UInt64) << (shift as UInt64))
+            i = i + 1; shift = shift + 8
+        }
+        bytes[destination] = word as Int; destination = destination + 1
+    }
+    let address = seen_arr_data_ptr(bytes); let packed = address as *UInt8
     let text = seen_string_clone_owned(seen_string_view_bytes(packed, length as Int64)); bytes.free()
     return Ok<String, GpuIrDiagnostic>(text)
 }
