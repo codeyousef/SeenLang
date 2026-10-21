@@ -30,7 +30,7 @@ fun spirvEmitEntry(borrow module: GpuIrModule, context: GpuSpirvContext, index: 
     }
     requirements.free()
     if context.validation.valid {
-        let frame = createGpuSpirvFrame(source, index, arguments, resources)
+        let frame = createGpuSpirvFrame(module, index, arguments, resources)
         spirvLowerRegion(module, function, frame, 0, 0)
         if not function.terminated { function.emit(253, Array<Int>()) }; frame.release()
     }
