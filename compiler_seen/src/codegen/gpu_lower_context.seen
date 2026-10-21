@@ -66,8 +66,8 @@ class GpuLowerContext {
             if (this.sharedBytes as UInt64) > this.module.sharedBytes { this.module.sharedBytes = this.sharedBytes as UInt64 }
         }
         op.line = this.line; op.column = this.column
-        this.module.requiredCapabilities = this.module.requiredCapabilities | gpuIrInstructionCapabilities(op)
-        if gpuIrInstructionNeedsFaultBuffer(op) { this.module.requiresFaultBuffer = true }
+        this.module.requiredCapabilities = this.module.requiredCapabilities | gpuIrInstructionCapabilities(op.opcode, op.typeCode, op.immediate, op.memoryScope, op.memorySpaces)
+        if gpuIrInstructionNeedsFaultBuffer(op.opcode, op.immediate) { this.module.requiresFaultBuffer = true }
         let result = op.result; this.function.blocks[this.blockIndex].instructions.push(op)
         this.budget[0] = this.budget[0] + 1; return result
     }

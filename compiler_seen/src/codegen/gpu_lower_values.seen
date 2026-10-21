@@ -99,7 +99,6 @@ fun gpuLowerLogical(context: GpuLowerContext, expression: ParserExpressionNode, 
     let branch = GpuIrInstruction.create(GPU_IR_IF_VALUE, 0, 1); branch.operands.push(condition)
     branch.leftBlock = context.childBlock(parent, position); branch.rightBlock = context.childBlock(parent, position)
     if not context.validation.valid { branch.release(); return 0 }
-    context.emit(branch)
     var arm = 0
     while arm < 2 and context.validation.valid {
         context.blockIndex = branch.leftBlock; if arm == 1 { context.blockIndex = branch.rightBlock }
@@ -114,8 +113,8 @@ fun gpuLowerLogical(context: GpuLowerContext, expression: ParserExpressionNode, 
         let yield = context.operation(GPU_IR_YIELD_VALUE, 0); yield.operands.push(value); context.emit(yield); arm = arm + 1
     }
     context.blockIndex = parent
-    if not context.validation.valid { return 0 }
-    branch.result = context.nextRegister(1); return branch.result
+    if not context.validation.valid { branch.release(); return 0 }
+    branch.result = context.nextRegister(1); return context.emit(branch)
 }
 fun gpuLowerMember(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int) r: Int {
     var owner = 0
