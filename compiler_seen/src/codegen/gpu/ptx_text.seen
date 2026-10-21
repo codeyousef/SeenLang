@@ -61,6 +61,7 @@ class GpuPtxText {
     }
     fun finish() r: String { return jsonFlattenOwned(this.buffer, this.ownership) }
     fun release() r: Void {
-        jsonReleaseOwnedParts(this.buffer, this.ownership); this.ownership.free(); this.buffer.parts.free(); this.buffer.free(); this.free()
+        let buffer: StringBuilder = this.buffer
+        jsonReleaseOwnedParts(buffer, this.ownership); this.ownership.free(); buffer.parts.free(); buffer.free(); this.free()
     }
 }

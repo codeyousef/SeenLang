@@ -68,7 +68,7 @@ class GpuPtxFunction {
         this.body.conditional(predicate, bad); this.body.branch(merge); this.body.defineLabel(bad); this.fault(kind); this.body.defineLabel(merge)
     }
     fun release() r: Void {
-        var i = 0; while i < this.resources.length() { this.resources[i].free(); i = i + 1 }
+        var i = 0; while i < this.resources.length() { let resource: GpuPtxResource = this.resources[i]; resource.free(); i = i + 1 }
         this.resources.free(); this.words.free(); this.constants.free(); this.body.release(); this.initializers.release(); this.sharedDeclarations.release(); this.free()
     }
 }

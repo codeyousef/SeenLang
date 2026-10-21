@@ -28,7 +28,13 @@ fun consumeGpuBytes(bytes: Array<Int>) r: Result<String, GpuIrDiagnostic> {
         }
         bytes[destination] = word as Int; destination = destination + 1
     }
-    let packed = bytes.data() as *UInt8
+    // SeenArray has three 64-bit header words before its storage pointer.
+    // Read through a wide slot because Array.data() and indexed address-of
+    // are unavailable in the immutable bootstrap. This is a borrowed view;
+    // bytes remains the sole owner until the string clone completes.
+    let header: UInt64 = *((&bytes) as *UInt64)
+    let storage: UInt64 = *((header + (24 as UInt64)) as *UInt64)
+    let packed = storage as *UInt8
     let text = seen_string_clone_owned(seen_string_view_bytes(packed, length as Int64)); bytes.free()
     return Ok<String, GpuIrDiagnostic>(text)
 }

@@ -56,6 +56,8 @@ Foundations**.
 
 ### Fixed
 
+- Keep GPU byte access and owned-wrapper cleanup compatible with the frozen
+  bootstrap compiler so the version branch can link during CI rebuilds.
 - Keep CUDA capability admission compatible with the frozen bootstrap compiler
   by checking mask inclusion without unary bitwise complement.
 - Align CI workflow contract fixtures with PTX diagnostics and pinned assembler

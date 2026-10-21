@@ -5,7 +5,10 @@
 
 import str.string.{StringBuilder}
 import io.file.{FsFile}
-import core.error.{SeenError}
+import core.error.{SeenError, AsciiString}
+import core.option.{Option}
+import core.unit.{Unit}
+import collections.vec.{Vec}
 import core.result.{Result, Ok, Err}
 
 extern "C" fun seen_string_builder_flatten_owned(parts: Array<String>, totalLength: Int) r: String
@@ -263,11 +266,12 @@ fun sha256(text: String) r: Result<String, Sha256Error> {
 // Their other strings refer to static literals and must not be released.
 fun releaseSha256FileError(error: SeenError) r: Void {
     seen_string_release_owned(error.code.value)
-    error.code.free()
-    error.subsystem.free()
-    error.operation.free()
-    error.causes.free()
-    error.nativeCode.free()
+    let code: AsciiString = error.code
+    let subsystem: AsciiString = error.subsystem
+    let operation: AsciiString = error.operation
+    let causes: Vec<SeenError> = error.causes
+    let nativeCode: Option<Int64> = error.nativeCode
+    code.free(); subsystem.free(); operation.free(); causes.free(); nativeCode.free()
     error.free()
 }
 
@@ -296,7 +300,7 @@ fun sha256File(path: String, chunkBytes: Int = 1048576)
         if closedAfterSizeFailure.isErr() {
             releaseSha256FileError(closedAfterSizeFailure.unwrapErr())
         } else {
-            closedAfterSizeFailure.unwrap().free()
+            let closedUnit: Unit = closedAfterSizeFailure.unwrap(); closedUnit.free()
         }
         closedAfterSizeFailure.releaseContainer()
         file.free()
@@ -327,7 +331,7 @@ fun sha256File(path: String, chunkBytes: Int = 1048576)
                 chunkBytesValue.free()
                 chunk.releaseContainer()
                 if updated.isErr() {
-                    updated.unwrapErr().free()
+                    let updateError: Sha256Error = updated.unwrapErr(); updateError.free()
                     failed = true
                 }
                 updated.releaseContainer()
@@ -339,7 +343,7 @@ fun sha256File(path: String, chunkBytes: Int = 1048576)
     if closed.isErr() {
         releaseSha256FileError(closed.unwrapErr())
     } else {
-        closed.unwrap().free()
+        let closedUnit: Unit = closed.unwrap(); closedUnit.free()
     }
     let closeFailed = closed.isErr()
     closed.releaseContainer()

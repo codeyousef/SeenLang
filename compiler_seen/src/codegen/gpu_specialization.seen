@@ -21,7 +21,7 @@ class GpuSpecialization {
 }
 fun releaseGpuSpecializations(records: Array<GpuSpecialization>) r: Void {
     var i = 0
-    while i < records.length() { records[i].free(); i = i + 1 }; records.free()
+    while i < records.length() { let record: GpuSpecialization = records[i]; record.free(); i = i + 1 }; records.free()
 }
 fun collectGpuSpecializations(borrow module: GpuIrModule) r: Result<Array<GpuSpecialization>, GpuIrValidation> {
     let validation = verifyGpuIr(module)
