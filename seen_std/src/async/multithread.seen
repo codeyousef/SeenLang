@@ -6,7 +6,7 @@ import core.result.{Result, Ok, Err}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
 import sync.contracts.{Send}
 import async.join_report.{ExecutorJoinReport}
-import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
+import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorOwnedJob, ExecutorTaskContext,
     ExecutorCore, ExecutorTicket, executorFailure, executorCopyContext,
     executorContextFailure, executorReleaseContext, executorReleaseSnapshot, executorWorkerEntry,
     EXECUTOR_FOREVER}
@@ -19,7 +19,7 @@ import async.executor_native.{seen_sync_mutex_create, seen_sync_mutex_lock_until
 @move
 class ExecutorJoinHandle<T: Send + ExecutorJob> {
     var core: ExecutorCore
-    var task: T
+    var task: ExecutorOwnedJob<T>
     var slot: Int
     var id: Int
     var depth: Int
@@ -65,7 +65,7 @@ class ExecutorJoinHandle<T: Send + ExecutorJob> {
             if not this.core.reap(this.slot, this.id, false) {
                 return Err<T, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
             }
-            this.active = false; return Ok<T, AsyncError>(this.task)
+            this.active = false; return Ok<T, AsyncError>(this.task.take())
         }
         let observed = this.core.observe(this.slot, this.id, false)
         if observed.isErr() {
@@ -112,7 +112,7 @@ class ExecutorJoinHandle<T: Send + ExecutorJob> {
 
 }
 
-fun executorSubmit<T: Send + ExecutorJob>(core: ExecutorCore, task: T,
+fun executorSubmit<T: Send + ExecutorJob>(core: ExecutorCore, task: ExecutorOwnedJob<T>,
     context: AsyncOperationContext, depth: Int)
     r: Result<ExecutorJoinHandle<T>, AsyncError> {
     let valid = validateAsyncContext(context, "executor.spawn", 0 as UInt64)
@@ -139,7 +139,7 @@ fun executorSubmit<T: Send + ExecutorJob>(core: ExecutorCore, task: T,
 }
 
 fun spawnExecutorTask<T: Send + ExecutorJob>(context: ExecutorTaskContext,
-    task: T) r: Result<ExecutorJoinHandle<T>, AsyncError> {
+    task: ExecutorOwnedJob<T>) r: Result<ExecutorJoinHandle<T>, AsyncError> {
     if context.isCancelled() {
         return Err<ExecutorJoinHandle<T>, AsyncError>(executorFailure(
             9 as Int32, "executor.spawn", 0 as UInt64))
@@ -211,7 +211,7 @@ class MultithreadExecutor<T: Send + ExecutorJob> {
         return Ok<MultithreadExecutor<T>, AsyncError>(MultithreadExecutor<T>{core: core})
     }
 
-    fun spawn(task: T, context: AsyncOperationContext)
+    fun spawn(task: ExecutorOwnedJob<T>, context: AsyncOperationContext)
         r: Result<ExecutorJoinHandle<T>, AsyncError> {
         return executorSubmit<T>(this.core, task, context, 0)
     }
