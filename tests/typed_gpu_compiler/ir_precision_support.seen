@@ -1,5 +1,6 @@
 import codegen.gpu_ir_model.{GpuIrModule}
-import codegen.gpu_target_capabilities.{GpuTargetCapabilities, validateGpuTargetCapabilities}
+import codegen.gpu_target_capabilities.{validateGpuTargetCapabilities}
+import codegen.gpu_target_model.{GpuTargetCapabilities}
 import codegen.gpu_specialization.{resolveGpuSpecializations}
 import ir_fixture_support.{irRequire}
 
