@@ -1,0 +1,44 @@
+/// Closed intrinsic lowering. Integer operations preserve wrapping behavior;
+/// float absolute value clears the sign bit without changing NaN payload bits.
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_words.{spirvLiteralString, SPV_IMPORTS}
+import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
+import codegen.gpu.spirv_math_plan.{spirvPredicateType, spirvBinaryOpcode}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+
+fun spirvMinimumMaximum(function: GpuSpirvFunction, operation: Int, typeCode: Int, left: Int, right: Int) r: Int {
+    var compare = 13; if operation == 2 { compare = 15 }
+    let condition = spirvBinaryValue(function, spirvBinaryOpcode(compare, typeCode), spirvPredicateType(typeCode), right, left)
+    return spirvSelectValue(function, typeCode, condition, right, left)
+}
+fun spirvIntrinsic(function: GpuSpirvFunction, operation: Int, typeCode: Int, arguments: Array<Int>) r: Int {
+    let context = function.context
+    if operation == 1 or operation == 2 { return spirvMinimumMaximum(function, operation, typeCode, arguments[0], arguments[1]) }
+    if operation == 3 {
+        let lower = spirvBinaryValue(function, spirvBinaryOpcode(13, typeCode), spirvPredicateType(typeCode), arguments[0], arguments[1])
+        let first = spirvSelectValue(function, typeCode, lower, arguments[1], arguments[0])
+        let upper = spirvBinaryValue(function, spirvBinaryOpcode(15, typeCode), spirvPredicateType(typeCode), first, arguments[2])
+        return spirvSelectValue(function, typeCode, upper, arguments[2], first)
+    }
+    if operation == 4 {
+        if gpuTypeScalar(typeCode) == 3 { return arguments[0] }
+        if gpuTypeScalar(typeCode) == 4 {
+            let bitsType = 3 + (gpuTypeLanes(typeCode) - 1) * 16
+            let bits = spirvUnaryValue(function, 124, bitsType, arguments[0])
+            let magnitude = spirvBinaryValue(function, 199, bitsType, bits, context.splat(bitsType, 2147483647))
+            return spirvUnaryValue(function, 124, typeCode, magnitude)
+        }
+        let negative = spirvBinaryValue(function, 177, spirvPredicateType(typeCode), arguments[0], context.zero(typeCode))
+        let opposite = spirvUnaryValue(function, 126, typeCode, arguments[0])
+        return spirvSelectValue(function, typeCode, negative, opposite, arguments[0])
+    }
+    if operation == 5 {
+        if context.glslSet == 0 {
+            context.glslSet = context.id(); let imported = [context.glslSet]
+            if not spirvLiteralString(imported, "GLSL.std.450") { imported.free(); context.error("E_GPU_SPIRV_LIMIT", "SPIR-V extended instruction import is invalid"); return 0 }
+            context.emit(SPV_IMPORTS, 11, imported)
+        }
+        let result = context.id(); function.emit(12, [context.valueType(typeCode), result, context.glslSet, 31, arguments[0]]); return result
+    }
+    context.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V intrinsic identity is unsupported"); return 0
+}

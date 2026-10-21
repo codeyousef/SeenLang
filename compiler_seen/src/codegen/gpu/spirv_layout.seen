@@ -1,0 +1,77 @@
+/// Vulkan resource layouts. Every storage access retains a checked length and
+/// address space. Kernel resources have deterministic group-zero binding slots.
+import codegen.gpu.spirv_types.{GpuSpirvContext}
+import codegen.gpu.spirv_words.{SPV_DECLARATIONS, SPV_ANNOTATIONS}
+import codegen.gpu_ir_facts.{gpuIrResourceTypeValid, gpuIrElementStride}
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeValue}
+
+class GpuSpirvResource {
+    var typeCode: Int
+    var variable: Int
+    var storage: Int
+    var elementPointer: Int
+    var fixedLength: Int
+    var binding: Int
+}
+fun spirvBlockType(context: GpuSpirvContext, code: Int, uniform: Bool) r: Int {
+    let cache = context.storageBlocks; var stored = cache[code]
+    if uniform { stored = context.uniformBlocks[code] }; if stored != 0 { return stored }
+    var storedCode = code; if uniform and code == 1 { storedCode = 3 }
+    var field = context.valueType(storedCode)
+    if not uniform {
+        let array = context.id(); context.emit(SPV_DECLARATIONS, 29, [array, field])
+        context.emit(SPV_ANNOTATIONS, 71, [array, 6, gpuIrElementStride(code)]); field = array
+    }
+    let block = context.id(); context.emit(SPV_DECLARATIONS, 30, [block, field])
+    context.emit(SPV_ANNOTATIONS, 71, [block, 2]); context.emit(SPV_ANNOTATIONS, 72, [block, 0, 35, 0])
+    if uniform { context.uniformBlocks[code] = block } else { context.storageBlocks[code] = block }; return block
+}
+fun spirvSharedArrayType(context: GpuSpirvContext, code: Int, count: Int) r: Int {
+    let key = code * 16385 + count; var i = 0
+    while i < context.sharedArrayKeys.length() { if context.sharedArrayKeys[i] == key { return context.sharedArrayIds[i] }; i = i + 1 }
+    if context.sharedArrayKeys.length() >= 4096 { context.error("E_GPU_SPIRV_LIMIT", "SPIR-V shared array type cache ceiling exceeded"); return 0 }
+    let element = context.valueType(code); let length = context.constant(3, count); let identity = context.id()
+    context.emit(SPV_DECLARATIONS, 28, [identity, element, length]); context.emit(SPV_ANNOTATIONS, 71, [identity, 6, gpuIrElementStride(code)])
+    context.sharedArrayKeys.push(key); context.sharedArrayIds.push(identity); return identity
+}
+fun spirvCreateResource(context: GpuSpirvContext, typeCode: Int, binding: Int, count: Int) r: GpuSpirvResource {
+    let result = GpuSpirvResource{typeCode: typeCode, variable: 0, storage: 0, elementPointer: 0, fixedLength: 0, binding: binding}
+    if not gpuIrResourceTypeValid(typeCode) or binding < -1 or binding > 64 {
+        context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V resource type or binding is unsupported"); return result
+    }
+    let kind = gpuTypeResource(typeCode); let code = gpuTypeValue(typeCode); var aggregate = 0
+    if kind == 5 {
+        let stride = gpuIrElementStride(code)
+        if count < 1 or stride < 1 or count > 65536 / stride or binding != -1 {
+            context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V shared resource extent or binding is invalid"); return result
+        }
+        result.storage = 4; result.fixedLength = context.constant(3, count); aggregate = spirvSharedArrayType(context, code, count)
+    } else {
+        if binding < 0 { context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V bound resource lacks a descriptor slot"); return result }
+        result.storage = 12; if kind == 4 { result.storage = 2 }; aggregate = spirvBlockType(context, code, kind == 4)
+    }
+    var storedCode = code; if kind == 4 and code == 1 { storedCode = 3 }
+    let pointer = context.rawPointerType(result.storage, aggregate); result.elementPointer = context.pointerType(result.storage, storedCode)
+    result.variable = context.id(); context.emit(SPV_DECLARATIONS, 59, [pointer, result.variable, result.storage])
+    if kind != 5 {
+        context.emit(SPV_ANNOTATIONS, 71, [result.variable, 34, 0]); context.emit(SPV_ANNOTATIONS, 71, [result.variable, 33, binding])
+        if kind == 1 { context.emit(SPV_ANNOTATIONS, 71, [result.variable, 24]) }
+        if kind == 2 { context.emit(SPV_ANNOTATIONS, 71, [result.variable, 25]) }
+    }
+    return result
+}
+fun spirvCreateFaultResource(context: GpuSpirvContext, binding: Int) r: GpuSpirvResource {
+    if binding < 0 or binding > 64 {
+        context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V fault resource binding is invalid")
+        return GpuSpirvResource{typeCode: 0, variable: 0, storage: 12, elementPointer: 0, fixedLength: 0, binding: binding}
+    }
+    let scalar = context.valueType(3)
+    if context.faultBlock == 0 {
+        context.faultBlock = context.id(); context.emit(SPV_DECLARATIONS, 30, [context.faultBlock, scalar])
+        context.emit(SPV_ANNOTATIONS, 71, [context.faultBlock, 2]); context.emit(SPV_ANNOTATIONS, 72, [context.faultBlock, 0, 35, 0])
+    }
+    let pointer = context.rawPointerType(12, context.faultBlock); let variable = context.id()
+    context.emit(SPV_DECLARATIONS, 59, [pointer, variable, 12]); context.emit(SPV_ANNOTATIONS, 71, [variable, 34, 0])
+    context.emit(SPV_ANNOTATIONS, 71, [variable, 33, binding])
+    return GpuSpirvResource{typeCode: 0, variable: variable, storage: 12, elementPointer: context.pointerType(12, 3), fixedLength: 0, binding: binding}
+}

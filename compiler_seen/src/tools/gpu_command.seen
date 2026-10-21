@@ -28,13 +28,15 @@ fun gpuReadBoundedText(path: String, limit: Int) r: Result<String, GpuIrDiagnost
     let text = seen_string_clone_owned(seen_string_view_bytes(packed.data(), packed.length() as Int64)); packed.free()
     return Ok<String, GpuIrDiagnostic>(text)
 }
-fun parseGpuReflectCli(argv: Array<String>) r: CliArguments {
+fun parseGpuArtifactCli(argv: Array<String>, binary: Bool) r: CliArguments {
     let values = ["--output", "--module-id", "--manifest", "--gpu-manifest", "--gpu-backend", "--gpu-target", "--gpu-fallback", "--gpu-entry"]
     let names = ["--output", "--module-id", "--gpu-manifest", "--gpu-manifest", "--gpu-backend", "--gpu-target", "--gpu-fallback", "--gpu-entry"]
     let repeatable = ["--gpu-entry"]
+    if binary { values.push("--reflection"); names.push("--reflection") }
     let result = parseCliArguments(argv, 3, Array<String>(), Array<String>(), values, names, repeatable)
     values.free(); names.free(); repeatable.free(); return result
 }
+fun parseGpuReflectCli(argv: Array<String>) r: CliArguments { return parseGpuArtifactCli(argv, false) }
 fun gpuApplyCliOptions(borrow options: GpuOptions, parsed: CliArguments) r: GpuIrDiagnostic {
     let flags = ["--gpu-backend", "--gpu-target", "--gpu-fallback"]; let keys = ["backend", "target", "fallback"]; var i = 0
     while i < flags.length() {

@@ -1,0 +1,26 @@
+/// Explicit numeric conversion and bit reinterpretation. Invalid float lanes
+/// are sanitized before conversion so the target operation is always defined.
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue, spirvAny}
+import codegen.gpu.spirv_math_plan.{spirvPredicateType}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+
+fun spirvCast(function: GpuSpirvFunction, sourceType: Int, targetType: Int, value: Int, bitcast: Bool) r: Int {
+    if sourceType == targetType { return value }
+    let context = function.context; let source = gpuTypeScalar(sourceType); let target = gpuTypeScalar(targetType)
+    if bitcast or (source != 4 and target != 4) { return spirvUnaryValue(function, 124, targetType, value) }
+    if source != 4 {
+        var opcode = 112; if source == 2 { opcode = 111 }; return spirvUnaryValue(function, opcode, targetType, value)
+    }
+    let predicateType = spirvPredicateType(sourceType); var lowerWord = 0; var upperWord = 1333788672
+    if target == 2 { lowerWord = 3472883712; upperWord = 1325400064 }
+    let lower = context.splat(sourceType, lowerWord); let upper = context.splat(sourceType, upperWord)
+    let above = spirvBinaryValue(function, 190, predicateType, value, lower)
+    let below = spirvBinaryValue(function, 184, predicateType, value, upper)
+    let valid = spirvBinaryValue(function, 167, predicateType, above, below)
+    let safe = spirvSelectValue(function, sourceType, valid, value, context.zero(sourceType))
+    var opcode = 109; if target == 2 { opcode = 110 }
+    let result = spirvUnaryValue(function, opcode, targetType, safe)
+    let invalid = spirvUnaryValue(function, 168, predicateType, valid)
+    function.faultWhen(spirvAny(function, invalid, gpuTypeLanes(sourceType)), 4); return result
+}

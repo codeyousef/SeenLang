@@ -33,6 +33,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_c.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_d.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_e.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_spirv_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_checked_allocation_codegen.sh"

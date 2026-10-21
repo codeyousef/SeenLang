@@ -1,0 +1,89 @@
+/// Offline Vulkan artifact construction. Success establishes a verified IR
+/// translation, not device compatibility or execution. The caller owns words
+/// or diagnostics; this module releases every partial construction internally.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrValidation}
+import codegen.gpu_ir_verify.{verifyGpuIr}
+import codegen.gpu_options.{GpuOptions, validateGpuOptions}
+import codegen.gpu_reflection.{gpuReflectionSelection}
+import codegen.gpu_reflection_layout.{gpuEntryRequirements}
+import codegen.gpu.spirv_words.{spirvLiteralString, SPV_ENTRY_POINTS, SPV_EXECUTION_MODES, SPV_DECLARATIONS, SPV_FUNCTIONS}
+import codegen.gpu.spirv_types.{GpuSpirvContext, createGpuSpirvContext}
+import codegen.gpu.spirv_function.{createGpuSpirvFunction}
+import codegen.gpu.spirv_frame.{createGpuSpirvFrame}
+import codegen.gpu.spirv_layout.{spirvCreateResource, spirvCreateFaultResource}
+import codegen.gpu.spirv_regions.{spirvLowerRegion}
+
+fun spirvEmitEntry(borrow module: GpuIrModule, context: GpuSpirvContext, index: Int) r: Void {
+    let source: GpuIrFunction = module.functions[index]
+    let function = createGpuSpirvFunction(context, source.workgroupX, source.workgroupY, source.workgroupZ)
+    let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
+    while i < source.parameterTypes.length() and context.validation.valid {
+        let resource = spirvCreateResource(context, source.parameterTypes[i], i, 0)
+        resources.push(function.addResource(resource)); arguments.push(0); i = i + 1
+    }
+    let requirements = gpuEntryRequirements(module, index)
+    if requirements.faultBuffer and context.validation.valid {
+        let fault = spirvCreateFaultResource(context, source.parameterTypes.length())
+        let slot = function.addResource(fault)
+        if context.validation.valid { function.faultVariable = function.resources[slot].variable }
+    }
+    requirements.free()
+    if context.validation.valid {
+        let frame = createGpuSpirvFrame(source, index, arguments, resources)
+        spirvLowerRegion(module, function, frame, 0, 0)
+        if not function.terminated { function.emit(253, Array<Int>()) }; frame.release()
+    }
+    arguments.free(); resources.free()
+    if context.validation.valid {
+        let entry = [5, function.identity]
+        if not spirvLiteralString(entry, source.name) {
+            entry.free(); context.error("E_GPU_SPIRV_LIMIT", "SPIR-V entry name cannot be encoded")
+        } else {
+            i = 0; while i < function.interfaceIds.length() { entry.push(function.interfaceIds[i]); i = i + 1 }
+            context.emit(SPV_ENTRY_POINTS, 15, entry)
+            context.emit(SPV_EXECUTION_MODES, 16, [function.identity, 17, source.workgroupX, source.workgroupY, source.workgroupZ])
+            context.emit(SPV_FUNCTIONS, 54, [context.voidType, function.identity, 0, context.functionType])
+            context.emit(SPV_FUNCTIONS, 248, [function.entryLabel])
+            if not context.words.append(SPV_FUNCTIONS, function.code.sections[SPV_DECLARATIONS]) or
+                not context.words.append(SPV_FUNCTIONS, function.code.sections[SPV_FUNCTIONS]) {
+                context.error("E_GPU_SPIRV_LIMIT", context.words.message)
+            }
+            context.emit(SPV_FUNCTIONS, 56, Array<Int>())
+        }
+    }
+    function.release()
+}
+fun emitGpuSpirv(borrow module: GpuIrModule, borrow options: GpuOptions) r: Result<Array<Int>, GpuIrValidation> {
+    let validation = verifyGpuIr(module)
+    if not validation.valid { return Err<Array<Int>, GpuIrValidation>(validation) }
+    let policy = validateGpuOptions(options)
+    if policy.code != "" { validation.reject(policy.code, policy.message, -1, -1, -1) }
+    policy.free()
+    if options.backend != "spirv" or (options.target != "" and options.target != "vulkan1.2" and options.target != "vulkan1.3") {
+        validation.reject("E_GPU_SPIRV_TARGET", "SPIR-V emission requires the spirv backend and a Vulkan 1.2 or 1.3 target", -1, -1, -1)
+    }
+    // This baseline translates storage, uniform, workgroup and Float32 values.
+    // Additional memory, subgroup and precision capabilities have separate
+    // lowering contracts; an explicit CPU fallback never changes this result.
+    if (module.requiredCapabilities & (519 as UInt64)) != module.requiredCapabilities {
+        validation.reject("E_GPU_SPIRV_CAPABILITY", "SPIR-V baseline lacks a required module capability", -1, -1, -1)
+    }
+    if not validation.valid { return Err<Array<Int>, GpuIrValidation>(validation) }
+    let selection = gpuReflectionSelection(module, options)
+    if selection.isErr() {
+        let error = selection.unwrapErr(); selection.releaseContainer()
+        validation.reject(error.code, error.message, -1, -1, -1); error.free(); return Err<Array<Int>, GpuIrValidation>(validation)
+    }
+    let selected = selection.unwrap(); selection.releaseContainer(); let context = createGpuSpirvContext(validation); var i = 0
+    while i < selected.length() and validation.valid { spirvEmitEntry(module, context, selected[i]); i = i + 1 }; selected.free()
+    if not validation.valid { context.release(); return Err<Array<Int>, GpuIrValidation>(validation) }
+    var version = 66816; if options.target == "vulkan1.3" { version = 67072 }
+    let finished = context.words.finish(version)
+    if finished.isErr() {
+        let error = finished.unwrapErr(); finished.releaseContainer()
+        validation.reject(error.code, error.message, -1, -1, -1); error.free(); context.release(); return Err<Array<Int>, GpuIrValidation>(validation)
+    }
+    let output = finished.unwrap(); finished.releaseContainer(); context.release(); validation.release()
+    return Ok<Array<Int>, GpuIrValidation>(output)
+}

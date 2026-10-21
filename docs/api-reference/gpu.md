@@ -152,12 +152,69 @@ software semantics for the tested subset and never certify GPU execution or
 inter-invocation memory ordering.
 
 `seen check app.seen` checks compute bodies without creating a GPU device or
-entering LLVM/backend generation. Until typed backend lowering is available,
-compiling a shader module returns `E_GPU_BACKEND_UNAVAILABLE` before creating
+entering LLVM/backend generation. Native host compilation of a shader module
+returns `E_GPU_BACKEND_UNAVAILABLE` before creating
 kernel artifacts or native dispatch stubs. `--emit-glsl` returns the same explicit
 unsupported diagnostic: legacy source scanning, known-name body substitution
 and empty replacement bodies have been removed. A successful declaration check
 never stands in for kernel execution.
+
+## Offline SPIR-V Vulkan artifacts
+
+```sh
+seen gpu emit kernel.seen --gpu-backend spirv --gpu-target vulkan1.2 \
+  --output kernel.spv --reflection kernel.json
+spirv-val --target-env vulkan1.2 kernel.spv
+```
+
+`gpu emit` uses the same bounded source reader, strict manifest/options parser,
+entry selection and reflection pipeline as `gpu reflect`. The backend must be
+explicit. Vulkan 1.2 emits SPIR-V 1.5; Vulkan 1.3 emits SPIR-V 1.6. An omitted
+target defaults to Vulkan 1.2. Repeated `--gpu-entry` selects kernels in module
+order. Emission opens no device and does not provide a host dispatch stub.
+
+`emitGpuSpirv(module, options)` borrows verified structured IR and options and
+returns owned unsigned 32-bit words stored in `Array<Int>`, or independently
+owned validation diagnostics. The caller frees the word array or releases the
+validation. Every partial writer, function frame, resource record and cache is
+released before returning an error. Output bytes are little endian. Artifacts
+are bounded to 32 MiB, identities to 1048576, constants and shared array types
+to 4096 each, and pointer types to 512. Existing IR traversal, call expansion,
+workgroup and shared-memory ceilings also apply.
+
+The baseline supports Int32/UInt32/Float32 scalars and vectors, scalar Booleans,
+uniform/storage/workgroup layouts, checked accesses and arithmetic, local
+variables, structured branches and loops, lazy Boolean values, and acyclic
+device helpers. Helpers inline into fresh frames; resource arguments retain
+their entry resource identity. Each loop records a checked fault and exits on
+its one-million-iteration limit. Invalid memory indices never form a data
+pointer. Float-to-integer casts require a finite value in the destination's
+half-open numeric range; invalid lanes convert from zero and record a fault.
+
+Bindings use descriptor set zero and parameter order, matching reflection.
+Storage arrays use 4/8/16-byte element strides; three-lane vectors have a
+16-byte stride. Uniform members start at offset zero; Boolean uniforms use a
+UInt32 representation with nonzero meaning true. Shared arrays are cleared by
+disjoint invocation strides followed by a workgroup memory barrier. The hidden
+fault binding follows user parameters and accumulates one bit per fault kind
+with a device-scope atomic OR. Its presence matches reflection even when a
+particular cast cannot fault.
+
+Unsupported targets return `E_GPU_SPIRV_TARGET`; unavailable capability groups
+return `E_GPU_SPIRV_CAPABILITY` or `E_GPU_SPIRV_UNSUPPORTED`. Source atomics,
+explicit synchronization, subgroups, specialization and packed/cooperative
+precision require their dedicated lowering contracts. No fallback setting
+substitutes another backend or precision. Native `seen compile` GPU execution
+remains unavailable. Device limits must be queried before dispatch; offline
+emission and official validation do not establish hardware compatibility.
+
+Semantic rejection creates no new artifact. Each output is replaced atomically
+after successful emission and reflection. If an optional reflection file fails
+to publish after the binary, the command reports `E_GPU_OUTPUT` and retains the
+published binary. Existing destinations survive errors before replacement.
+The capped `tests/misc_root_tests/seen_gpu_spirv_a.sh` harness validates actual
+Seen-emitted artifacts with `spirv-val`, compares four compile profiles and CLI
+reflection, checks repeated cleanup, and runs malformed-IR fuzzing for 60 seconds.
 
 CPU-only runtime selection examines actual parsed GPU/extern declarations.
 Comments, string literals, file names and ordinary Seen functions mentioning

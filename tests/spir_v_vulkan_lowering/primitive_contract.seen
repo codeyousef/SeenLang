@@ -1,0 +1,36 @@
+import codegen.gpu.spirv_words.{GpuSpirvWords, spirvLiteralString, SPV_ENTRY_POINTS, SPV_EXECUTION_MODES, SPV_FUNCTIONS, SPV_DECLARATIONS}
+import codegen.gpu.spirv_types.{createGpuSpirvContext, spirvFloatLiteralWord}
+import codegen.gpu.spirv_function.{createGpuSpirvFunction}
+import codegen.gpu_ir_model.{GpuIrValidation}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun require(value: Bool) r: Void { if not value { abort("SPIR-V primitive contract failed") } }
+fun main() r: Int {
+    require(spirvFloatLiteralWord("1.25") == 1067450368 and spirvFloatLiteralWord("-2.5") == 3223322624)
+    let baseline = seen_memory_used_bytes(); var round = 0
+    while round < 100 {
+        let validation = GpuIrValidation.create(); let context = createGpuSpirvContext(validation)
+        let function = createGpuSpirvFunction(context, 1, 1, 1); function.emit(253, Array<Int>())
+        let entry = [5, function.identity]; require(spirvLiteralString(entry, "main")); context.emit(SPV_ENTRY_POINTS, 15, entry)
+        context.emit(SPV_EXECUTION_MODES, 16, [function.identity, 17, 1, 1, 1])
+        context.emit(SPV_FUNCTIONS, 54, [context.voidType, function.identity, 0, context.functionType])
+        context.emit(SPV_FUNCTIONS, 248, [function.entryLabel])
+        require(context.words.append(SPV_FUNCTIONS, function.code.sections[SPV_DECLARATIONS]))
+        require(context.words.append(SPV_FUNCTIONS, function.code.sections[SPV_FUNCTIONS])); context.emit(SPV_FUNCTIONS, 56, Array<Int>())
+        let result = context.words.finish(66816); require(result.isOkay() and validation.valid)
+        let words = result.unwrap(); result.releaseContainer()
+        require(words[0] == 119734787 and words[1] == 66816 and words[3] == 5)
+        if round == 0 {
+            let json = JsonBuilder_new(); json.startObject(); json.stringProp("schema", "seen-spirv-primitive-v1"); json.key("words"); json.startArray()
+            var i = 0; while i < words.length() { json.number(words[i]); i = i + 1 }; json.endArray(); json.endObject()
+            let text = json.build(); destroyJsonBuilder(json); println(text); releaseJsonText(text)
+        }
+        words.free(); function.release(); context.release(); validation.release()
+        require(seen_memory_used_bytes() == baseline); round = round + 1
+    }
+    let writer = GpuSpirvWords.create(); require(not writer.emit(0, 17, [-1]))
+    let failed = writer.finish(66816); require(failed.isErr()); let error = failed.unwrapErr(); failed.releaseContainer(); error.free(); writer.release()
+    require(seen_memory_used_bytes() == baseline)
+    println("PASS: GPU-002A primitive words float bits deterministic layout and ownership")
+    return 0
+}

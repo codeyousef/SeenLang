@@ -1,0 +1,114 @@
+/// Owned SPIR-V word sections in specification order. Numeric instruction
+/// construction is independent of GPU semantics and target capability policy.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+
+let SPV_CAPABILITIES: Int = 0
+let SPV_EXTENSIONS: Int = 1
+let SPV_IMPORTS: Int = 2
+let SPV_MEMORY_MODEL: Int = 3
+let SPV_ENTRY_POINTS: Int = 4
+let SPV_EXECUTION_MODES: Int = 5
+let SPV_DEBUG: Int = 6
+let SPV_ANNOTATIONS: Int = 7
+let SPV_DECLARATIONS: Int = 8
+let SPV_FUNCTIONS: Int = 9
+let SPV_MAX_WORDS: Int = 8388608
+let SPV_MAX_IDS: Int = 1048576
+
+@move
+class GpuSpirvWords {
+    var sections: Array<Array<Int>>
+    var nextId: Int
+    var wordCount: Int
+    var failed: Bool
+    var message: String
+    static fun create() r: GpuSpirvWords {
+        let sections = Array<Array<Int>>(); var i = 0
+        while i < 10 { sections.push(Array<Int>()); i = i + 1 }
+        return GpuSpirvWords{sections: sections, nextId: 1, wordCount: 5, failed: false, message: ""}
+    }
+    fun reject(message: String) r: Void { if not this.failed { this.failed = true; this.message = message } }
+    fun id() r: Int {
+        if this.failed { return 0 }
+        if this.nextId < 1 or this.nextId >= SPV_MAX_IDS { this.reject("SPIR-V identity ceiling exceeded"); return 0 }
+        let identity = this.nextId; this.nextId = identity + 1; return identity
+    }
+    // Consumes only the operand array, including on every rejected path.
+    fun emit(section: Int, opcode: Int, operands: Array<Int>) r: Bool {
+        if this.failed { operands.free(); return false }
+        let count = operands.length() + 1
+        if this.sections.length() != 10 or section < 0 or section >= 10 or opcode < 0 or opcode > 65535 or
+            count < 1 or count > 65535 or this.wordCount < 5 or this.wordCount > SPV_MAX_WORDS - count {
+            operands.free(); this.reject("SPIR-V instruction shape or aggregate word ceiling exceeded"); return false
+        }
+        var i = 0
+        while i < operands.length() {
+            if operands[i] < 0 or operands[i] > 4294967295 {
+                operands.free(); this.reject("SPIR-V operand is outside its unsigned 32-bit domain"); return false
+            }
+            i = i + 1
+        }
+        let words = this.sections[section]; words.push(count * 65536 + opcode); i = 0
+        while i < operands.length() { words.push(operands[i]); i = i + 1 }
+        this.wordCount = this.wordCount + count; operands.free(); return true
+    }
+    fun finish(version: Int) r: Result<Array<Int>, GpuIrDiagnostic> {
+        if version != 66816 and version != 67072 { this.reject("SPIR-V version must be 1.5 or 1.6") }
+        if this.sections.length() != 10 or this.nextId < 1 or this.nextId > SPV_MAX_IDS { this.reject("SPIR-V section or bound header is invalid") }
+        var count = 5; var i = 0
+        while i < this.sections.length() and not this.failed {
+            let length = this.sections[i].length()
+            if length > SPV_MAX_WORDS - count { this.reject("SPIR-V artifact exceeds its 32 MiB byte ceiling") }
+            else { count = count + length }; i = i + 1
+        }
+        if count != this.wordCount { this.reject("SPIR-V section sizes disagree with the writer budget") }
+        if this.failed { return Err<Array<Int>, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_LIMIT", this.message)) }
+        let output = [119734787, version, 0, this.nextId, 0]; i = 0
+        while i < this.sections.length() {
+            let section = this.sections[i]; var j = 0
+            while j < section.length() { output.push(section[j]); j = j + 1 }; i = i + 1
+        }
+        return Ok<Array<Int>, GpuIrDiagnostic>(output)
+    }
+    // Borrows an already encoded instruction stream; the caller retains it.
+    // This lets function-local declarations precede a separately built body.
+    fun append(section: Int, chunk: Array<Int>) r: Bool {
+        if this.failed { return false }
+        if this.sections.length() != 10 or section < 0 or section >= 10 or chunk.length() > SPV_MAX_WORDS - this.wordCount {
+            this.reject("SPIR-V appended section exceeds its shape or word ceiling"); return false
+        }
+        var i = 0
+        while i < chunk.length() {
+            let word = chunk[i]
+            if word < 0 or word > 4294967295 { this.reject("SPIR-V appended word is outside its unsigned domain"); return false }
+            let count = word >> 16
+            if count < 1 or count > chunk.length() - i { this.reject("SPIR-V appended instruction is truncated"); return false }
+            var operand = i + 1
+            while operand < i + count {
+                if chunk[operand] < 0 or chunk[operand] > 4294967295 { this.reject("SPIR-V appended operand is outside its unsigned domain"); return false }
+                operand = operand + 1
+            }
+            i = i + count
+        }
+        i = 0
+        while i < chunk.length() { this.sections[section].push(chunk[i]); i = i + 1 }
+        this.wordCount = this.wordCount + chunk.length(); return true
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.sections.length() { let section: Array<Int> = this.sections[i]; section.free(); i = i + 1 }
+        this.sections.free(); this.free()
+    }
+}
+// Append a literal UTF-8 string, padded with zero bytes to whole words. Input
+// names are already bounded by the IR verifier; embedded NUL is never accepted.
+fun spirvLiteralString(words: Array<Int>, text: String) r: Bool {
+    if text.length() > 1024 { return false }; var word = 0; var shift = 0; var i = 0
+    while i < text.length() {
+        let byte = text.byteAt(i)
+        if byte == 0 { return false }; word = word | ((byte & 255) << shift); shift = shift + 8
+        if shift == 32 { words.push(word); word = 0; shift = 0 }; i = i + 1
+    }
+    words.push(word); return true
+}

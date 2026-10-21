@@ -1,0 +1,65 @@
+/// Component-wise checked arithmetic. Unsafe operands are replaced before the
+/// native operation, and invalid lanes yield zero with one bounded fault flag.
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_math_plan.{spirvPredicateType, spirvBinaryOpcode}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+
+fun spirvUnaryValue(function: GpuSpirvFunction, opcode: Int, resultType: Int, argument: Int) r: Int {
+    let result = function.context.id(); function.emit(opcode, [function.context.valueType(resultType), result, argument]); return result
+}
+fun spirvBinaryValue(function: GpuSpirvFunction, opcode: Int, resultType: Int, left: Int, right: Int) r: Int {
+    let result = function.context.id(); function.emit(opcode, [function.context.valueType(resultType), result, left, right]); return result
+}
+fun spirvSelectValue(function: GpuSpirvFunction, typeCode: Int, condition: Int, yes: Int, no: Int) r: Int {
+    let result = function.context.id(); function.emit(169, [function.context.valueType(typeCode), result, condition, yes, no]); return result
+}
+fun spirvAny(function: GpuSpirvFunction, predicate: Int, lanes: Int) r: Int {
+    if lanes == 1 { return predicate }; return spirvUnaryValue(function, 154, 1, predicate)
+}
+fun spirvDivisionInvalid(function: GpuSpirvFunction, typeCode: Int, left: Int, right: Int) r: Int {
+    let context = function.context; let predicate = spirvPredicateType(typeCode); let scalar = gpuTypeScalar(typeCode)
+    let zero = context.zero(typeCode); let equality = spirvBinaryOpcode(11, typeCode)
+    var bad = spirvBinaryValue(function, equality, predicate, right, zero)
+    if scalar == 2 {
+        let minimum = context.splat(typeCode, 2147483648); let negativeOne = context.splat(typeCode, 4294967295)
+        let first = spirvBinaryValue(function, 170, predicate, left, minimum)
+        let second = spirvBinaryValue(function, 170, predicate, right, negativeOne)
+        let overflow = spirvBinaryValue(function, 167, predicate, first, second)
+        bad = spirvBinaryValue(function, 166, predicate, bad, overflow)
+    }
+    return bad
+}
+fun spirvShiftInvalid(function: GpuSpirvFunction, typeCode: Int, right: Int) r: Int {
+    let context = function.context; let predicate = spirvPredicateType(typeCode)
+    let upper = context.splat(typeCode, 32); var operation = 174
+    if gpuTypeScalar(typeCode) == 2 { operation = 175 }
+    var bad = spirvBinaryValue(function, operation, predicate, right, upper)
+    if gpuTypeScalar(typeCode) == 2 {
+        let negative = spirvBinaryValue(function, 177, predicate, right, context.zero(typeCode))
+        bad = spirvBinaryValue(function, 166, predicate, bad, negative)
+    }
+    return bad
+}
+fun spirvBinary(function: GpuSpirvFunction, operation: Int, typeCode: Int, resultType: Int, left: Int, right: Int) r: Int {
+    let opcode = spirvBinaryOpcode(operation, typeCode)
+    if opcode == 0 { function.context.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V arithmetic operation is unsupported"); return 0 }
+    if operation != 4 and operation != 5 and operation != 9 and operation != 10 {
+        return spirvBinaryValue(function, opcode, resultType, left, right)
+    }
+    let context = function.context; var invalid = 0; var substitute = context.zero(typeCode)
+    if operation == 4 or operation == 5 {
+        invalid = spirvDivisionInvalid(function, typeCode, left, right); var one = 1
+        if gpuTypeScalar(typeCode) == 4 { one = 1065353216 }; substitute = context.splat(typeCode, one)
+    } else { invalid = spirvShiftInvalid(function, typeCode, right) }
+    let safe = spirvSelectValue(function, typeCode, invalid, substitute, right)
+    let native = spirvBinaryValue(function, opcode, resultType, left, safe)
+    let result = spirvSelectValue(function, resultType, invalid, context.zero(resultType), native)
+    function.faultWhen(spirvAny(function, invalid, gpuTypeLanes(typeCode)), 2); return result
+}
+fun spirvUnary(function: GpuSpirvFunction, operation: Int, typeCode: Int, argument: Int) r: Int {
+    var opcode = 0
+    if operation == 1 { opcode = 126; if gpuTypeScalar(typeCode) == 4 { opcode = 127 } }
+    if operation == 2 { opcode = 168 }; if operation == 3 { opcode = 200 }
+    if opcode == 0 { function.context.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V unary operation is unsupported"); return 0 }
+    return spirvUnaryValue(function, opcode, typeCode, argument)
+}

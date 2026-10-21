@@ -13,7 +13,8 @@
     "libvulkan-dev",
     "lld-20",
     "llvm-20",
-    "ripgrep"
+    "ripgrep",
+    "spirv-tools"
   ],
   "host_tools_provisioning": "ubuntu-packages-scoped-apparmor",
   "job_count": 1,

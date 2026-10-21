@@ -1,0 +1,21 @@
+/// Workgroup storage has defined zero initialization. Each invocation clears a
+/// disjoint strided subset, then all invocations join a workgroup memory barrier.
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_layout.{GpuSpirvResource}
+import typechecker.gpu_types.{gpuTypeValue}
+
+fun spirvInitializeShared(function: GpuSpirvFunction, resource: GpuSpirvResource) r: Void {
+    let context = function.context; let unsigned = context.valueType(3); let boolean = context.valueType(1)
+    let initial = function.builtin(5); let predecessor = function.currentLabel
+    let header = context.id(); let body = context.id(); let continued = context.id(); let merge = context.id()
+    let index = context.id(); let next = context.id(); let condition = context.id()
+    let step = context.constant(3, function.workgroupX * function.workgroupY * function.workgroupZ)
+    function.branch(header); function.label(header); function.emit(245, [unsigned, index, initial, predecessor, next, continued])
+    function.emit(176, [boolean, condition, index, resource.fixedLength]); function.emit(246, [merge, continued, 0])
+    function.conditional(condition, body, merge); function.label(body)
+    let pointer = context.id(); function.emit(65, [resource.elementPointer, pointer, resource.variable, index])
+    function.emit(62, [pointer, context.zero(gpuTypeValue(resource.typeCode))]); function.branch(continued)
+    function.label(continued); function.emit(128, [unsigned, next, index, step]); function.branch(header)
+    function.label(merge); let scope = context.constant(3, 2); let semantics = context.constant(3, 264)
+    function.emit(224, [scope, scope, semantics])
+}
