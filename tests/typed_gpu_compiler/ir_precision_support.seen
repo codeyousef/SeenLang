@@ -1,0 +1,28 @@
+import codegen.gpu_ir_model.{GpuIrModule}
+import codegen.gpu_target_capabilities.{GpuTargetCapabilities, validateGpuTargetCapabilities}
+import codegen.gpu_specialization.{resolveGpuSpecializations}
+import ir_fixture_support.{irRequire}
+
+fun precisionTarget(borrow module: GpuIrModule) r: GpuTargetCapabilities {
+    let result = GpuTargetCapabilities.create("synthetic-contract", module.requiredCapabilities, 32, 1024, 65536 as UInt64)
+    irRequire(result.isOkay()); let target = result.unwrap(); result.releaseContainer(); return target
+}
+fun precisionExpectTarget(borrow module: GpuIrModule, borrow target: GpuTargetCapabilities, code: String) r: Void {
+    let validation = validateGpuTargetCapabilities(module, target)
+    if code == "" { irRequire(validation.valid) }
+    else { irRequire(not validation.valid and validation.diagnostics.length() > 0 and validation.diagnostics[0].code == code) }
+    validation.release()
+}
+fun precisionExpectOverride(borrow module: GpuIrModule, ids: Array<Int>, values: Array<Int>, accepted: Bool, expected: Int) r: Void {
+    let result = resolveGpuSpecializations(module, ids, values)
+    irRequire(result.isOkay() == accepted)
+    if accepted {
+        let resolved = result.unwrap(); irRequire(resolved.length() == 1 and resolved[0] == expected); resolved.free()
+    } else {
+        let error = result.unwrapErr(); irRequire(error.diagnostics[0].code == "E_GPU_SPECIALIZATION_OVERRIDE"); error.release()
+    }
+    result.releaseContainer(); ids.free(); values.free()
+}
+fun precisionCooperativeSource() r: String {
+    return "@compute(64) fun tiled(input: ReadBuffer<UInt32>, output: WriteBuffer<Float32>) { let a = coopLoadA(input, 0 as UInt32, 16 as UInt32, FP16, Tile16x16x16, RowMajor); let b = coopLoadB(input, 0 as UInt32, 16 as UInt32, FP16, Tile16x16x16, ColumnMajor); let c = coopFillFp32(0.0, Tile16x16x16); let d = coopMma(a, b, c); coopStore(d, output, 0 as UInt32, 16 as UInt32, RowMajor) }"
+}

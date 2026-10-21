@@ -7,8 +7,10 @@ import codegen.gpu_ir_call_graph.{GpuIrCallFacts}
 import codegen.gpu_ir_ops.{gpuIrHasResult, GPU_IR_PARAM, GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL, GPU_IR_BUILTIN,
     GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_UNIFORM, GPU_IR_LOCAL_LOAD, GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_WHILE,
     GPU_IR_FOR, GPU_IR_INDUCTION, GPU_IR_BREAK, GPU_IR_CONTINUE, GPU_IR_CALL, GPU_IR_RETURN,
-    GPU_IR_SHARED, GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_RMW, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_SUBGROUP}
+    GPU_IR_SHARED, GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_RMW, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_SUBGROUP,
+    GPU_IR_SPECIALIZE, GPU_IR_COOP_LOAD, GPU_IR_COOP_MMA, GPU_IR_COOP_STORE, GPU_IR_COOP_FILL}
 import typechecker.gpu_types.{gpuTypeResource}
+import codegen.gpu_matrix_types.{gpuMatrixTypeValid}
 
 fun gpuIrMaximumUniformity(left: Int, right: Int) r: Int { if left > right { return left }; return right }
 fun gpuIrOperandUniformity(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Int {
@@ -20,7 +22,9 @@ fun gpuIrOperandUniformity(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts
 }
 fun gpuIrValueUniformity(borrow function: GpuIrFunction, borrow op: GpuIrInstruction,
     borrow facts: GpuIrFacts, blockIndex: Int, control: Int) r: Int {
-    if op.opcode == GPU_IR_PARAM { if gpuTypeResource(op.typeCode) != 0 { return 0 }; return 3 }
+    if op.opcode == GPU_IR_PARAM { if gpuMatrixTypeValid(op.typeCode) { return 3 }; if gpuTypeResource(op.typeCode) != 0 { return 0 }; return 3 }
+    if op.opcode == GPU_IR_SPECIALIZE { return 0 }
+    if op.opcode == GPU_IR_COOP_LOAD or op.opcode == GPU_IR_COOP_MMA or op.opcode == GPU_IR_COOP_FILL { return 3 }
     if op.opcode == GPU_IR_INT or op.opcode == GPU_IR_FLOAT or op.opcode == GPU_IR_BOOL or
         op.opcode == GPU_IR_LENGTH or op.opcode == GPU_IR_UNIFORM or op.opcode == GPU_IR_SHARED { return 0 }
     if op.opcode == GPU_IR_BUILTIN {
@@ -46,9 +50,22 @@ fun gpuIrConvergenceBlock(borrow function: GpuIrFunction, borrow facts: GpuIrFac
         let op = block.instructions[opIndex]; var required = 3
         if op.opcode == GPU_IR_BARRIER { required = 1; if op.memoryScope == 2 { required = 2 } }
         if op.opcode == GPU_IR_SUBGROUP { required = 2 }
+        if op.opcode >= GPU_IR_COOP_LOAD and op.opcode <= GPU_IR_COOP_FILL { required = 2 }
         if op.opcode == GPU_IR_CALL { required = calls.convergence[op.immediate] }
         if active > required {
             validation.reject("E_GPU_IR_CONVERGENCE", "GPU collective is reached by an unproved active-lane set", functionIndex, blockIndex, opIndex); return -1
+        }
+        var addressUniformity = 0
+        if op.opcode == GPU_IR_COOP_LOAD or op.opcode == GPU_IR_COOP_FILL { addressUniformity = gpuIrOperandUniformity(op, facts) }
+        if op.opcode == GPU_IR_COOP_STORE {
+            var operandIndex = 1
+            while operandIndex < op.operands.length() {
+                addressUniformity = gpuIrMaximumUniformity(addressUniformity, facts.registerUniformity[op.operands[operandIndex]])
+                operandIndex = operandIndex + 1
+            }
+        }
+        if addressUniformity > 2 {
+            validation.reject("E_GPU_IR_CONVERGENCE", "cooperative matrix addresses and fill values must be subgroup-uniform", functionIndex, blockIndex, opIndex); return -1
         }
         if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE or op.opcode == GPU_IR_FOR or op.opcode == GPU_IR_WHILE {
             var childControl = gpuIrMaximumUniformity(active, gpuIrOperandUniformity(op, facts))

@@ -2,12 +2,15 @@
 /// lazy result regions, so a skipped operand cannot read memory or run atomics.
 import parser.real_parser.{ParserExpressionNode}
 import codegen.gpu_lower_context.{GpuLowerContext}
-import codegen.gpu_lower_call_plan.{gpuLowerName, gpuPlanCall, gpuPlanResourceArgument}
+import codegen.gpu_lower_call_plan.{gpuPlanCall, gpuPlanResourceArgument}
+import codegen.gpu_call_plan_model.{gpuLowerName}
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu_ir_ops.{GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL, GPU_IR_BUILTIN, GPU_IR_UNIFORM,
     GPU_IR_EXTRACT, GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_STORE, GPU_IR_LOCAL_STORE, GPU_IR_CAST,
     GPU_IR_UNARY, GPU_IR_BINARY, GPU_IR_IF_VALUE, GPU_IR_YIELD_VALUE, GPU_IR_INTRINSIC, GPU_IR_SUBGROUP,
-    GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER}
+    GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER,
+    GPU_IR_UNPACK, GPU_IR_PACK, GPU_IR_COOP_MMA}
+import codegen.gpu_precision_formats.{gpuPrecisionValueType}
 import codegen.gpu_ir_value_rules.{gpuIrBuiltinCode, gpuIrIntegerLiteralValid, gpuIrFloatLiteralValid,
     gpuIrUnaryCode, gpuIrUnaryType, gpuIrBinaryCode, gpuIrBinaryType}
 import codegen.gpu_ir_facts.{gpuIrBufferResource, gpuIrResourceReadable, gpuIrResourceWritable}
@@ -192,11 +195,14 @@ fun gpuLowerCall(context: GpuLowerContext, expression: ParserExpressionNode, dep
     if not context.validation.valid { plan.free(); return 0 }
     let operands = Array<Int>(); var i = 0
     while i < plan.dataOperands and context.validation.valid {
-        if gpuPlanResourceArgument(context, plan, i) { operands.push(gpuLowerResource(context, expression.arguments[i], depth + 1)) }
-        else { operands.push(gpuLowerExpression(context, expression.arguments[i], depth + 1)) }; i = i + 1
+        if gpuPlanResourceArgument(context, plan, i) { operands.push(gpuLowerResource(context, expression.arguments[i + plan.dataOffset], depth + 1)) }
+        else { operands.push(gpuLowerExpression(context, expression.arguments[i + plan.dataOffset], depth + 1)) }; i = i + 1
     }
     if not context.validation.valid { operands.free(); plan.free(); return 0 }
     var typeCode = plan.typeCode
+    if plan.opcode == GPU_IR_UNPACK { typeCode = gpuPrecisionValueType(plan.immediate) }
+    if plan.opcode == GPU_IR_PACK { typeCode = 3 }
+    if plan.opcode == GPU_IR_COOP_MMA { typeCode = context.typeOf(operands[2]) }
     if plan.opcode == GPU_IR_INTRINSIC or (plan.opcode == GPU_IR_SUBGROUP and plan.immediate > 3) { typeCode = context.typeOf(operands[0]) }
     if plan.opcode >= GPU_IR_ATOMIC_LOAD and plan.opcode <= GPU_IR_ATOMIC_COMPARE and plan.opcode != GPU_IR_ATOMIC_STORE {
         typeCode = gpuTypeValue(context.typeOf(operands[0]))

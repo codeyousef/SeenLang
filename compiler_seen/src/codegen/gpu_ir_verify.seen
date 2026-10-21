@@ -11,7 +11,8 @@ import codegen.gpu_ir_regions.{gpuIrRegionExits, gpuIrFunctionSharedBytes}
 import codegen.gpu_ir_call_graph.{GpuIrCallFacts, gpuIrCallGraphValid}
 import codegen.gpu_ir_convergence.{gpuIrConvergenceBlock}
 import codegen.gpu_ir_requirements.{gpuIrInstructionCapabilities, gpuIrInstructionNeedsFaultBuffer}
-import codegen.gpu_ir_ops.{gpuIrMemory, GPU_IR_SUBGROUP}
+import codegen.gpu_ir_ops.{gpuIrMemory, GPU_IR_SUBGROUP, GPU_IR_UNPACK, GPU_IR_SPECIALIZE}
+import codegen.gpu_precision_rules.{gpuIrPrecisionTypesValid, gpuIrRecordSpecialization}
 
 fun gpuIrFunctionTypesValid(borrow module: GpuIrModule, borrow function: GpuIrFunction,
     borrow facts: GpuIrFacts, validation: GpuIrValidation, functionIndex: Int) r: Bool {
@@ -20,7 +21,8 @@ fun gpuIrFunctionTypesValid(borrow module: GpuIrModule, borrow function: GpuIrFu
         let block = function.blocks[blockIndex]; var opIndex = 0
         while opIndex < block.instructions.length() {
             let op = block.instructions[opIndex]; var valid = false
-            if gpuIrMemory(op.opcode) { valid = gpuIrMemoryTypesValid(op, facts) }
+            if op.opcode >= GPU_IR_UNPACK { valid = gpuIrPrecisionTypesValid(function, op, facts) }
+            else if gpuIrMemory(op.opcode) { valid = gpuIrMemoryTypesValid(op, facts) }
             else if op.opcode == GPU_IR_SUBGROUP { valid = gpuIrSubgroupTypesValid(op, facts) }
             else { valid = gpuIrInstructionValueTypes(module, function, op, facts) }
             if not valid {
@@ -44,27 +46,30 @@ fun gpuIrPrepareFunction(borrow module: GpuIrModule, borrow function: GpuIrFunct
         gpuIrFunctionUses(function, facts, validation, functionIndex) and
         gpuIrFunctionTypesValid(module, function, facts, validation, functionIndex)
 }
-fun gpuIrReleaseFacts(facts: Array<GpuIrFacts>) r: Void {
+fun gpuIrReleaseFacts(facts: Array<GpuIrFacts>, specializations: Array<Int>) r: Void {
     var i = 0
-    while i < facts.length() { facts[i].release(); i = i + 1 }; facts.free()
+    while i < facts.length() { facts[i].release(); i = i + 1 }; facts.free(); specializations.free()
 }
 fun verifyGpuIr(borrow module: GpuIrModule) r: GpuIrValidation {
     let validation = GpuIrValidation.create()
     if not gpuIrModuleCountsValid(module, validation) { return validation }
-    let facts = Array<GpuIrFacts>(); var i = 0; var sharedBytes = 0; var needsFaultBuffer = false
+    let facts = Array<GpuIrFacts>(); let specializations = Array<Int>(); var i = 0; var sharedBytes = 0; var needsFaultBuffer = false
     while i < module.functions.length() {
         let function = module.functions[i]
         let localFacts = GpuIrFacts.create(function.registerCount, function.localCount, function.blocks.length())
-        if not gpuIrPrepareFunction(module, function, localFacts, validation, i) { localFacts.release(); gpuIrReleaseFacts(facts); return validation }
+        if not gpuIrPrepareFunction(module, function, localFacts, validation, i) { localFacts.release(); gpuIrReleaseFacts(facts, specializations); return validation }
         facts.push(localFacts)
         let shared = gpuIrFunctionSharedBytes(function, validation, i)
-        if shared < 0 { gpuIrReleaseFacts(facts); return validation }
+        if shared < 0 { gpuIrReleaseFacts(facts, specializations); return validation }
         if shared > sharedBytes { sharedBytes = shared }
         var blockIndex = 0
         while blockIndex < function.blocks.length() {
             let block = function.blocks[blockIndex]; var opIndex = 0
             while opIndex < block.instructions.length() {
                 let op = block.instructions[opIndex]
+                if op.opcode == GPU_IR_SPECIALIZE and not gpuIrRecordSpecialization(specializations, op.immediate, validation, i, blockIndex, opIndex) {
+                    gpuIrReleaseFacts(facts, specializations); return validation
+                }
                 validation.capabilities = validation.capabilities | gpuIrInstructionCapabilities(op.opcode, op.typeCode, op.immediate, op.memoryScope, op.memorySpaces)
                 if gpuIrInstructionNeedsFaultBuffer(op.opcode, op.immediate) { needsFaultBuffer = true }
                 opIndex = opIndex + 1
@@ -81,7 +86,7 @@ fun verifyGpuIr(borrow module: GpuIrModule) r: GpuIrValidation {
             i = i + 1
         }
     }
-    calls.release(); gpuIrReleaseFacts(facts)
+    calls.release(); gpuIrReleaseFacts(facts, specializations)
     if validation.valid and (module.requiredCapabilities != validation.capabilities or
         module.sharedBytes != (sharedBytes as UInt64) or module.requiresFaultBuffer != needsFaultBuffer) {
         validation.reject("E_GPU_IR_REQUIREMENTS", "GPU module requirements disagree with its verified instructions", -1, -1, -1)

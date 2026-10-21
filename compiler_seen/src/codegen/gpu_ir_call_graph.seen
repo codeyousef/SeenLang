@@ -1,7 +1,7 @@
 /// Device calls are acyclic and have a bounded static expansion. Summaries also
 /// propagate the strictest collective convergence requirement through helpers.
 import codegen.gpu_ir_model.{GpuIrModule, GpuIrValidation}
-import codegen.gpu_ir_ops.{GPU_IR_CALL, GPU_IR_BARRIER, GPU_IR_SUBGROUP}
+import codegen.gpu_ir_ops.{GPU_IR_CALL, GPU_IR_BARRIER, GPU_IR_SUBGROUP, GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL}
 
 @move
 class GpuIrCallFacts {
@@ -43,6 +43,7 @@ fun gpuIrVisitCalls(borrow module: GpuIrModule, borrow calls: GpuIrCallFacts, va
                 if required < convergence { convergence = required }
             }
             if op.opcode == GPU_IR_SUBGROUP and convergence > 2 { convergence = 2 }
+            if op.opcode >= GPU_IR_COOP_LOAD and op.opcode <= GPU_IR_COOP_FILL and convergence > 2 { convergence = 2 }
             if added > 65536 - expansion {
                 validation.reject("E_GPU_IR_LIMIT", "GPU helper expansion exceeds its instruction ceiling", functionIndex, blockIndex, opIndex); return false
             }

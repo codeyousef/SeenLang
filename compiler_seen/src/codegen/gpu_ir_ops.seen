@@ -40,6 +40,13 @@ let GPU_IR_SELECT: Int = 37
 let GPU_IR_BITCAST: Int = 38
 let GPU_IR_IF_VALUE: Int = 39
 let GPU_IR_YIELD_VALUE: Int = 40
+let GPU_IR_UNPACK: Int = 41
+let GPU_IR_PACK: Int = 42
+let GPU_IR_SPECIALIZE: Int = 43
+let GPU_IR_COOP_LOAD: Int = 44
+let GPU_IR_COOP_MMA: Int = 45
+let GPU_IR_COOP_STORE: Int = 46
+let GPU_IR_COOP_FILL: Int = 47
 let GPU_IR_MAX_LOOP_ITERATIONS: Int = 1000000
 let GPU_IR_MAX_ARTIFACT_BYTES: Int = 33554432
 
@@ -66,14 +73,14 @@ let GPU_CAP_SUBGROUP_SHUFFLE: UInt64 = 128 as UInt64
 let GPU_CAP_SUBGROUP_ARITHMETIC: UInt64 = 256 as UInt64
 let GPU_CAP_FLOAT32: UInt64 = 512 as UInt64
 
-fun gpuIrKnownOpcode(opcode: Int) r: Bool { return opcode >= 1 and opcode <= 40 }
+fun gpuIrKnownOpcode(opcode: Int) r: Bool { return opcode >= 1 and opcode <= 47 }
 fun gpuIrHasResult(opcode: Int, typeCode: Int) r: Bool {
     if opcode == GPU_IR_CALL { return typeCode != 0 }
     return opcode != GPU_IR_STORE and opcode != GPU_IR_LOCAL_INIT and opcode != GPU_IR_LOCAL_STORE and
         opcode != GPU_IR_IF and opcode != GPU_IR_WHILE and opcode != GPU_IR_FOR and opcode != GPU_IR_CONDITION and
         opcode != GPU_IR_BREAK and opcode != GPU_IR_CONTINUE and opcode != GPU_IR_RETURN and
         opcode != GPU_IR_ATOMIC_STORE and opcode != GPU_IR_BARRIER and opcode != GPU_IR_MEMORY_BARRIER and opcode != GPU_IR_FAULT and
-        opcode != GPU_IR_YIELD_VALUE
+        opcode != GPU_IR_YIELD_VALUE and opcode != GPU_IR_COOP_STORE
 }
 fun gpuIrControl(opcode: Int) r: Bool {
     return opcode == GPU_IR_IF or opcode == GPU_IR_WHILE or opcode == GPU_IR_FOR or opcode == GPU_IR_IF_VALUE
@@ -82,6 +89,9 @@ fun gpuIrMemory(opcode: Int) r: Bool {
     return (opcode >= GPU_IR_ATOMIC_LOAD and opcode <= GPU_IR_MEMORY_BARRIER)
 }
 fun gpuIrMinimumOperands(opcode: Int) r: Int {
+    if opcode == GPU_IR_UNPACK { return 2 }
+    if opcode == GPU_IR_PACK or opcode == GPU_IR_SPECIALIZE or opcode == GPU_IR_COOP_LOAD or opcode == GPU_IR_COOP_MMA { return 3 }
+    if opcode == GPU_IR_COOP_STORE { return 4 }; if opcode == GPU_IR_COOP_FILL { return 1 }
     if opcode == GPU_IR_EXTRACT or opcode == GPU_IR_CAST or opcode == GPU_IR_UNARY or opcode == GPU_IR_LENGTH or
         opcode == GPU_IR_UNIFORM or opcode == GPU_IR_LOCAL_INIT or opcode == GPU_IR_LOCAL_STORE or
         opcode == GPU_IR_IF or opcode == GPU_IR_CONDITION or opcode == GPU_IR_BITCAST or
@@ -93,6 +103,7 @@ fun gpuIrMinimumOperands(opcode: Int) r: Int {
     return 0
 }
 fun gpuIrMaximumOperands(opcode: Int) r: Int {
+    if opcode == GPU_IR_UNPACK { return 3 }; if opcode == GPU_IR_PACK { return 4 }; if opcode == GPU_IR_COOP_LOAD { return 5 }
     if opcode == GPU_IR_CALL { return 64 }
     if opcode == GPU_IR_VECTOR { return 4 }
     if opcode == GPU_IR_INTRINSIC { return 3 }

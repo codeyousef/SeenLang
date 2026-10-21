@@ -77,8 +77,9 @@ fun irScalarBinary(state: IrScalarState, operation: Int, left: Int, right: Int, 
     if operation == 1 { return irScalarNormalize(a + b, typeCode) }
     if operation == 2 { return irScalarNormalize(a - b, typeCode) }
     if operation == 3 {
-        let bits = ((a as UInt64) * (b as UInt64)) & (4294967295 as UInt64)
-        return irScalarNormalize(bits as Int, typeCode)
+        let low = (a & 65535) * (b & 65535)
+        let cross = (((a >> 16) & 65535) * (b & 65535) + (a & 65535) * ((b >> 16) & 65535)) & 65535
+        return irScalarNormalize(low + cross * 65536, typeCode)
     }
     if operation == 4 or operation == 5 {
         if b == 0 or (typeCode == 2 and a == -2147483648 and b == -1) { state.faults = state.faults + 1; return 0 }

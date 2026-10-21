@@ -50,6 +50,7 @@ bash -n \
     tests/misc_root_tests/seen_inf_simd_f.sh \
     tests/misc_root_tests/seen_gpu_ir_a.sh \
     tests/misc_root_tests/seen_gpu_ir_b.sh \
+    tests/misc_root_tests/seen_gpu_ir_c.sh \
     scripts/compiled_fixture_support.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \

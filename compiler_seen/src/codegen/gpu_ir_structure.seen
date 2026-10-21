@@ -6,6 +6,7 @@ import codegen.gpu_ir_ops.{gpuIrKnownOpcode, gpuIrHasResult, gpuIrControl, gpuIr
     gpuIrMinimumOperands, gpuIrMaximumOperands, gpuIrTerminator, GPU_IR_FOR, GPU_IR_PARAM, GPU_IR_LOCAL_INIT,
     GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL}
 import typechecker.gpu_types.{gpuTypeResource, gpuWorkgroupValid}
+import codegen.gpu_precision_formats.{GPU_CAP_ALL_KNOWN}
 
 fun gpuIrFunctionCountsValid(borrow function: GpuIrFunction, validation: GpuIrValidation, index: Int) r: Bool {
     if not gpuIrLabelValid(function.name, 256) or function.parameterTypes.length() > 64 or
@@ -37,7 +38,7 @@ fun gpuIrFunctionCountsValid(borrow function: GpuIrFunction, validation: GpuIrVa
 
 fun gpuIrModuleCountsValid(borrow module: GpuIrModule, validation: GpuIrValidation) r: Bool {
     if not gpuIrLabelValid(module.name, 1024) or module.functions.length() < 1 or module.functions.length() > 256 or
-        module.requiredCapabilities > (1023 as UInt64) or module.sharedBytes > (65536 as UInt64) {
+        module.requiredCapabilities > GPU_CAP_ALL_KNOWN or module.sharedBytes > (65536 as UInt64) {
         validation.reject("E_GPU_IR_LIMIT", "GPU module header exceeds supported bounds or capabilities", -1, -1, -1); return false
     }
     var instructions = 0; var operands = 0; var kernels = 0; var i = 0

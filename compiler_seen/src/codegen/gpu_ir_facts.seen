@@ -1,6 +1,7 @@
 /// Bounded function-local verification tables. Construct only after checking
 /// declared counts; no allocation size is taken from an unchecked IR value.
 import typechecker.gpu_types.{gpuTypeResource, gpuTypeValue, gpuTypeScalar, gpuTypeLanes}
+import codegen.gpu_matrix_types.{gpuMatrixTypeValid}
 
 fun gpuIrValueTypeValid(typeCode: Int) r: Bool {
     if typeCode < 1 or typeCode > 52 { return false }
@@ -14,7 +15,7 @@ fun gpuIrResourceTypeValid(typeCode: Int) r: Bool {
         (gpuTypeScalar(typeCode) != 1 or resource == 4)
 }
 fun gpuIrTypeValid(typeCode: Int) r: Bool {
-    return gpuIrValueTypeValid(typeCode) or gpuIrResourceTypeValid(typeCode)
+    return gpuIrValueTypeValid(typeCode) or gpuIrResourceTypeValid(typeCode) or gpuMatrixTypeValid(typeCode)
 }
 fun gpuIrBufferResource(typeCode: Int) r: Bool {
     let resource = gpuTypeResource(typeCode)

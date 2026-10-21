@@ -6,6 +6,7 @@ import codegen.gpu_lower_values.{gpuLowerExpression}
 import codegen.gpu_ir_ops.{GPU_IR_LOCAL_INIT, GPU_IR_IF, GPU_IR_WHILE, GPU_IR_FOR, GPU_IR_INDUCTION,
     GPU_IR_CONDITION, GPU_IR_BREAK, GPU_IR_CONTINUE, GPU_IR_RETURN, GPU_IR_SHARED}
 import codegen.gpu_ir_facts.{gpuIrValueTypeValid}
+import codegen.gpu_matrix_types.{gpuMatrixTypeValid}
 import typechecker.gpu_types.{gpuValueType, gpuTypeResource, gpuParseTypeRange, gpuTrimStart, gpuTrimEnd,
     gpuRangePrefix, gpuValueTypeRange, gpuBoundedDecimal}
 
@@ -44,7 +45,7 @@ fun gpuLowerLocal(context: GpuLowerContext, statement: StatementNode, depth: Int
     let value = gpuLowerExpression(context, statement.initializer, depth + 1)
     if not context.validation.valid { return }
     let inferred = context.typeOf(value)
-    if not gpuIrValueTypeValid(inferred) {
+    if not gpuIrValueTypeValid(inferred) and not gpuMatrixTypeValid(inferred) {
         context.error("E_GPU_RESOURCE", "GPU locals cannot alias or own resource identities"); return
     }
     if statement.variableType.isNullable or (statement.variableType.typeName != "Unknown" and statement.variableType.typeName != "" and declared != inferred) {
@@ -52,6 +53,7 @@ fun gpuLowerLocal(context: GpuLowerContext, statement: StatementNode, depth: Int
     }
     var slot = -1
     if statement.kind == "Var" {
+        if gpuMatrixTypeValid(inferred) { context.error("E_GPU_TYPE", "cooperative fragments are immutable SSA values"); return }
         if context.function.localCount >= 4096 { context.error("E_GPU_LIMIT", "GPU mutable local ceiling exceeded"); return }
         slot = context.function.localCount; context.function.localCount = slot + 1
         let op = context.operation(GPU_IR_LOCAL_INIT, inferred); op.immediate = slot; op.operands.push(value); context.emit(op)

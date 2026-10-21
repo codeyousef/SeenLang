@@ -26,7 +26,7 @@
     "required_capabilities": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 1023
+      "maximum": 67108863
     },
     "shared_bytes": {
       "type": "integer",
@@ -71,7 +71,7 @@
         "opcode": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 40
+          "maximum": 47
         },
         "result": {
           "type": "integer",
@@ -81,7 +81,7 @@
         "type": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 5052
+          "maximum": 7023
         },
         "operands": {
           "type": "array",
@@ -202,7 +202,7 @@
           "items": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 5052
+            "maximum": 7023
           },
           "minItems": 0,
           "maxItems": 64

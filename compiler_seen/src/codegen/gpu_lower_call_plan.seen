@@ -3,24 +3,14 @@
 /// value lowerer, keeping the module graph acyclic.
 import parser.real_parser.{ParserExpressionNode}
 import codegen.gpu_lower_context.{GpuLowerContext}
+import codegen.gpu_call_plan_model.{GpuCallPlan, gpuLowerName}
+import codegen.gpu_precision_call_plan.{gpuPrecisionCallOpcode, gpuPlanPrecisionCall}
 import codegen.gpu_ir_ops.{GPU_IR_CALL, GPU_IR_VECTOR, GPU_IR_INTRINSIC, GPU_IR_SUBGROUP,
     GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_RMW, GPU_IR_ATOMIC_COMPARE,
     GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER}
 import codegen.gpu_ir_value_rules.{gpuIrIntrinsicCode}
 import typechecker.gpu_types.{gpuValueType, gpuTypeLanes, gpuTypeResource}
 
-class GpuCallPlan {
-    var opcode: Int
-    var typeCode: Int
-    var immediate: Int
-    var dataOperands: Int
-    var memoryScope: Int
-    var memoryOrder: Int
-    var memorySpaces: Int
-}
-fun gpuLowerName(expression: ParserExpressionNode) r: String {
-    if expression.variableName != "" { return expression.variableName }; return expression.literalValue
-}
 fun gpuLowerAtomicOperation(name: String) r: Int {
     if name == "atomicExchange" { return 1 }; if name == "atomicAdd" { return 2 }; if name == "atomicSub" { return 3 }
     if name == "atomicMin" { return 4 }; if name == "atomicMax" { return 5 }; if name == "atomicAnd" { return 6 }
@@ -80,12 +70,13 @@ fun gpuPlanMemoryCall(context: GpuLowerContext, expression: ParserExpressionNode
     plan.memoryScope = gpuLowerMemoryEnum(context, expression.arguments[scopeIndex], 1, depth + 1)
 }
 fun gpuPlanCall(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int) r: GpuCallPlan {
-    let plan = GpuCallPlan{opcode: 0, typeCode: 0, immediate: 0, dataOperands: 0, memoryScope: 0, memoryOrder: 0, memorySpaces: 0}
+    let plan = GpuCallPlan{opcode: 0, typeCode: 0, immediate: 0, dataOperands: 0, dataOffset: 0, resourceMask: 0, memoryScope: 0, memoryOrder: 0, memorySpaces: 0}
     if expression.arguments.length() > 64 or expression.callee.length() > 256 {
         context.error("E_GPU_LIMIT", "GPU call identity or arity exceeds its ceiling"); return plan
     }
     let name = expression.callee
     if context.find(name) >= 0 { context.error("E_GPU_UNSUPPORTED", "GPU calls cannot use dynamic or shadowed callees"); return plan }
+    if gpuPrecisionCallOpcode(name) != 0 { gpuPlanPrecisionCall(context, expression, plan, depth); return plan }
     if name == "barrier" or name == "memoryBarrier" or name == "atomicLoad" or name == "atomicStore" or
         name == "atomicCompareExchange" or gpuLowerAtomicOperation(name) != 0 { gpuPlanMemoryCall(context, expression, plan, depth); return plan }
     let intrinsic = gpuIrIntrinsicCode(name); let constructor = gpuValueType(name); let subgroup = gpuLowerSubgroupOperation(name)
@@ -109,5 +100,6 @@ fun gpuPlanCall(context: GpuLowerContext, expression: ParserExpressionNode, dept
 }
 fun gpuPlanResourceArgument(context: GpuLowerContext, plan: GpuCallPlan, index: Int) r: Bool {
     if plan.opcode == GPU_IR_CALL { return gpuTypeResource(context.module.functions[plan.immediate].parameterTypes[index]) != 0 }
+    if index >= 0 and index < 8 and (plan.resourceMask & (1 << index)) != 0 { return true }
     return plan.opcode >= GPU_IR_ATOMIC_LOAD and plan.opcode <= GPU_IR_ATOMIC_COMPARE and index == 0
 }

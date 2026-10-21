@@ -17,7 +17,7 @@ fun main() r: Int {
         if mode == 2 { load.result = 0; code = "E_GPU_IR_RESULT" }
         if mode == 3 { load.memorySpaces = 1; code = "E_GPU_IR_MEMORY" }
         if mode == 4 { module.requiresFaultBuffer = false; code = "E_GPU_IR_REQUIREMENTS" }
-        if mode == 5 { module.requiredCapabilities = 1024 as UInt64; code = "E_GPU_IR_LIMIT" }
+        if mode == 5 { module.requiredCapabilities = 67108864 as UInt64; code = "E_GPU_IR_LIMIT" }
         if mode == 6 { function.registerCount = 9223372036854775807; code = "E_GPU_IR_LIMIT" }
         if mode == 7 { function.blocks[1].parentInstruction = 0; code = "E_GPU_IR_REGION" }
         if mode == 8 { root.instructions[0].immediate = 1; code = "E_GPU_IR_PARAMETER" }

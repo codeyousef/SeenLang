@@ -172,6 +172,80 @@ literals. `seen-gpu-frontend-v1` reports classify this as frontend verification
 with `kernel_execution_verified: false`. Platform/device execution requires
 separate backend and hardware evidence.
 
+## Packed precision and cooperative IR
+
+Precision intrinsics operate on explicit `UInt32` storage words. `unpackFp32`,
+`unpackFp16`, `unpackBf16`, `unpackFp8E4M3FN` and `unpackMxfp4` return `Float32`;
+`unpackInt8/Int4/Int2/Int32` return `Int32`, and the corresponding `UInt` forms
+return `UInt32`. Each receives `(word, lane)` with a `UInt32` lane. MXFP4 also
+requires a separate `UInt32` UE8M0 scale. Its logical block holds 32 E2M1 values
+and one scale byte, totaling 17 bytes. FP8 specifically means E4M3FN.
+
+The matching `insert*` intrinsics receive `(word, lane, value[, scale])`,
+return a new `UInt32` word and preserve neighboring fields. Lane zero selects
+the least significant bits. Signed integer unpacking sign extends; insertion
+uses the low field bits. An invalid lane records a checked fault and yields zero
+on unpack or the unchanged word on insert. Floating insertion uses round to
+nearest, ties to even. Finite overflow saturates to the largest finite value;
+NaNs use the format's canonical NaN where available and zero for E2M1. Invalid
+UE8M0 scale 255 records a fault and uses the same zero/unchanged-word rule.
+Backends must implement these semantics before admitting the corresponding
+capability. The CPU scalar witness currently executes integer conversions only.
+
+`specializeInt32/UInt32(id, default, minimum, maximum)` declare a bounded integer
+specialization. IDs are literal integers in 0..65535, unique across the module;
+at most 64 are permitted. Default and bounds must be same-type literals with
+`minimum <= default <= maximum`. `collectGpuSpecializations` returns owned
+records in module order, released by `releaseGpuSpecializations`.
+`resolveGpuSpecializations(module, ids, values)` returns an owned array in that
+same order. Omitted overrides use defaults. Unknown IDs, duplicate IDs,
+mismatched arrays and out-of-domain values produce
+`E_GPU_SPECIALIZATION_OVERRIDE`. Resolution does not mutate the module.
+
+Cooperative fragments are immutable, opaque SSA values. A/B input precision and
+M/N/K shape must match; accumulators are FP32, INT32 or UINT32 according to input
+precision. Supported shape identities are `Tile16x16x16`, `Tile16x8x16`,
+`Tile8x8x8` and `Tile16x16x32`. Layout is explicitly `RowMajor` or `ColumnMajor`.
+The source surface is:
+
+```seen
+let a = coopLoadA(input, offset, stride, FP16, Tile16x16x16, RowMajor)
+let b = coopLoadB(input, offset, stride, FP16, Tile16x16x16, ColumnMajor)
+let c = coopFillFp32(0.0, Tile16x16x16)
+let result = coopMma(a, b, c)
+coopStore(result, output, offset, stride, RowMajor)
+```
+
+Load storage is `ReadBuffer<UInt32>`, `ReadWriteBuffer<UInt32>` or shared UInt32
+storage. Offset and stride are UInt32 element counts in the respective storage
+resource. `coopLoadMxfp4A/B(input, offset, stride, scales, scaleOffset, shape,
+layout)` additionally requires a readable UInt32 scale resource. Stores require
+writable accumulator scalar storage. Bounds and geometry faults must be checked
+before access. Execution control, load addresses, fill values and store
+addresses must be proved subgroup-uniform. Fragment arithmetic may vary per
+lane. Explicit fragment parameter/return spellings and mutable fragment locals
+are unsupported by source lowering.
+
+`GpuTargetCapabilities.create` owns a cloned target name and bounded matrix
+tuple array. The creator calls `release`; validation borrows both target and
+module. Backend discovery must supply the actual feature mask, subgroup width,
+workgroup/shared-memory ceilings and supported shape/precision tuples.
+`validateGpuTargetCapabilities` revalidates IR and profile, checks every required
+feature and matrix tuple, and requires complete subgroups for cooperative
+entrypoints. Missing support returns `E_GPU_CAPABILITY`; malformed profiles use
+`E_GPU_CAPABILITY_PROFILE`. No precision conversion or alternative backend is
+selected implicitly. Synthetic profiles in tests prove only admission logic.
+
+The unreleased `seen-gpu-ir-v1` vocabulary includes opcodes 41..47 for unpack,
+insert, specialization, matrix load/MMA/store/fill. Capability bits 10..25
+distinguish packed widths, FP8/MXFP4, specialization and native matrix precision;
+opaque fragment type codes encode shape, precision and A/B/accumulator role.
+Consumers must reject unknown opcodes, types and capabilities. These are IR
+contracts; typed GPU compilation still reports `E_GPU_BACKEND_UNAVAILABLE` until
+a backend implements them. `tests/misc_root_tests/seen_gpu_ir_c.sh` runs the
+precision contracts under four profiles and seeded metadata fuzz for 60 seconds.
+Its evidence explicitly leaves GPU execution and hardware verification false.
+
 ## Runtime C API
 
 The authoritative declarations are in `seen_runtime/seen_gpu.h`:

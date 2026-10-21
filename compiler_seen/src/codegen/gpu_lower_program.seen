@@ -8,6 +8,7 @@ import codegen.gpu_ir_verify.{verifyGpuIr}
 import codegen.gpu_lower_context.{GpuLowerContext}
 import codegen.gpu_lower_blocks.{gpuLowerBlock, gpuIrSourceParameterType}
 import codegen.gpu_lower_call_plan.{gpuLowerSubgroupOperation, gpuLowerAtomicOperation}
+import codegen.gpu_precision_call_plan.{gpuPrecisionCallOpcode}
 import codegen.gpu_ir_value_rules.{gpuIrBuiltinCode, gpuIrIntrinsicCode}
 import codegen.gpu_ir_facts.{gpuIrValueTypeValid}
 import typechecker.gpu_types.{gpuValueType, gpuTypeResource}
@@ -32,7 +33,7 @@ fun gpuLowerSignature(source: FunctionNode, validation: GpuIrValidation, index: 
         validation.reject("E_GPU_SIGNATURE", "GPU definitions require bounded concrete synchronous signatures", index, -1, -1)
         return Err<GpuIrFunction, GpuIrValidation>(validation)
     }
-    if gpuIrBuiltinCode(source.name) != 0 or gpuIrIntrinsicCode(source.name) != 0 or gpuValueType(source.name) != 0 or
+    if gpuPrecisionCallOpcode(source.name) != 0 or gpuIrBuiltinCode(source.name) != 0 or gpuIrIntrinsicCode(source.name) != 0 or gpuValueType(source.name) != 0 or
         gpuLowerSubgroupOperation(source.name) != 0 or gpuLowerAtomicOperation(source.name) != 0 or source.name == "atomicLoad" or
         source.name == "atomicStore" or source.name == "atomicCompareExchange" or source.name == "barrier" or
         source.name == "memoryBarrier" or source.name == "sharedBuffer" {

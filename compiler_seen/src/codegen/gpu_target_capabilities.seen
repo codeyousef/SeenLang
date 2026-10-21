@@ -1,0 +1,144 @@
+/// Data-only target admission. A backend supplies a queried capability profile;
+/// accepting that profile proves compatibility, never device execution or
+/// certification. No missing feature selects another backend or precision.
+import core.result.{Result, Ok, Err}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrDiagnostic, GpuIrValidation, gpuIrDiagnostic}
+import codegen.gpu_ir_verify.{verifyGpuIr}
+import codegen.gpu_ir_facts.{gpuIrLabelValid}
+import codegen.gpu_ir_ops.{GPU_IR_CALL, GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL}
+import codegen.gpu_precision_formats.{GPU_CAP_ALL_KNOWN, GPU_CAP_COOPERATIVE}
+import codegen.gpu_matrix_types.{gpuMatrixType, gpuMatrixTypeValid, gpuMatrixRole, gpuMatrixFormat,
+    gpuMatrixShape, gpuMatrixCapabilities, gpuMatrixAccumulatorFormat}
+
+@move
+class GpuTargetCapabilities {
+    var name: String
+    var features: UInt64
+    var subgroupSize: Int
+    var maxWorkgroupInvocations: Int
+    var maxSharedBytes: UInt64
+    var matrixKeys: Array<Int>
+    static fun create(name: String, features: UInt64, subgroupSize: Int, maxWorkgroupInvocations: Int, maxSharedBytes: UInt64) r: Result<GpuTargetCapabilities, GpuIrDiagnostic> {
+        if not gpuIrLabelValid(name, 256) or features > GPU_CAP_ALL_KNOWN or subgroupSize < 0 or subgroupSize > 128 or
+            maxWorkgroupInvocations < 1 or maxWorkgroupInvocations > 1024 or maxSharedBytes > (65536 as UInt64) {
+            return Err<GpuTargetCapabilities, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_CAPABILITY_PROFILE", "invalid GPU target capability header"))
+        }
+        return Ok<GpuTargetCapabilities, GpuIrDiagnostic>(GpuTargetCapabilities{name: seen_string_clone_owned(name), features: features,
+            subgroupSize: subgroupSize, maxWorkgroupInvocations: maxWorkgroupInvocations, maxSharedBytes: maxSharedBytes, matrixKeys: Array<Int>()})
+    }
+    fun addMatrix(shape: Int, format: Int) r: Bool {
+        let key = gpuMatrixType(shape, format, 0)
+        if key == 0 or this.matrixKeys.length() >= 256 { return false }
+        var i = 0
+        while i < this.matrixKeys.length() { if this.matrixKeys[i] == key { return false }; i = i + 1 }
+        this.matrixKeys.push(key); return true
+    }
+    fun release() r: Void { this.matrixKeys.free(); seen_string_release_owned(this.name); this.free() }
+}
+fun gpuTargetProfileValid(borrow target: GpuTargetCapabilities, validation: GpuIrValidation) r: Bool {
+    if not gpuIrLabelValid(target.name, 256) or target.features > GPU_CAP_ALL_KNOWN or target.matrixKeys.length() > 256 or
+        target.subgroupSize < 0 or target.subgroupSize > 128 or target.maxWorkgroupInvocations < 1 or target.maxWorkgroupInvocations > 1024 or
+        target.maxSharedBytes > (65536 as UInt64) {
+        validation.reject("E_GPU_CAPABILITY_PROFILE", "GPU target profile exceeds its closed vocabulary or ceilings", -1, -1, -1); return false
+    }
+    if (target.features & (32 as UInt64)) != (0 as UInt64) {
+        if target.subgroupSize < 1 or (target.subgroupSize & (target.subgroupSize - 1)) != 0 {
+            validation.reject("E_GPU_CAPABILITY_PROFILE", "subgroup capabilities require a fixed power-of-two subgroup width", -1, -1, -1); return false
+        }
+    } else if target.subgroupSize != 0 or target.matrixKeys.length() != 0 {
+        validation.reject("E_GPU_CAPABILITY_PROFILE", "subgroup metadata requires an advertised subgroup capability", -1, -1, -1); return false
+    }
+    var i = 0
+    while i < target.matrixKeys.length() {
+        let key = target.matrixKeys[i]
+        if not gpuMatrixTypeValid(key) or gpuMatrixRole(key) != 0 or (gpuMatrixCapabilities(key) & target.features) != gpuMatrixCapabilities(key) {
+            validation.reject("E_GPU_CAPABILITY_PROFILE", "cooperative shape/precision tuple lacks matching advertised features", -1, -1, i); return false
+        }
+        var previous = 0
+        while previous < i {
+            if target.matrixKeys[previous] == key { validation.reject("E_GPU_CAPABILITY_PROFILE", "duplicate cooperative matrix capability tuple", -1, -1, i); return false }; previous = previous + 1
+        }
+        i = i + 1
+    }
+    return true
+}
+fun gpuTargetHasMatrix(borrow target: GpuTargetCapabilities, key: Int) r: Bool {
+    var i = 0
+    while i < target.matrixKeys.length() { if target.matrixKeys[i] == key { return true }; i = i + 1 }; return false
+}
+fun gpuTargetSupportsMatrixType(borrow target: GpuTargetCapabilities, typeCode: Int) r: Bool {
+    if not gpuMatrixTypeValid(typeCode) { return false }
+    let shape = gpuMatrixShape(typeCode); let format = gpuMatrixFormat(typeCode)
+    if gpuMatrixRole(typeCode) != 2 { return gpuTargetHasMatrix(target, gpuMatrixType(shape, format, 0)) }
+    var i = 0
+    while i < target.matrixKeys.length() {
+        let key = target.matrixKeys[i]
+        if gpuMatrixShape(key) == shape and gpuMatrixAccumulatorFormat(gpuMatrixFormat(key)) == format { return true }; i = i + 1
+    }
+    return false
+}
+fun gpuFunctionUsesCooperative(borrow module: GpuIrModule, functionIndex: Int, cache: Array<Int>) r: Bool {
+    if cache[functionIndex] != 0 { return cache[functionIndex] == 2 }
+    let function = module.functions[functionIndex]; var blockIndex = 0
+    while blockIndex < function.blocks.length() {
+        let block = function.blocks[blockIndex]; var i = 0
+        while i < block.instructions.length() {
+            let op = block.instructions[i]
+            if (op.opcode >= GPU_IR_COOP_LOAD and op.opcode <= GPU_IR_COOP_FILL) or
+                (op.opcode == GPU_IR_CALL and gpuFunctionUsesCooperative(module, op.immediate, cache)) {
+                cache[functionIndex] = 2; return true
+            }
+            i = i + 1
+        }
+        blockIndex = blockIndex + 1
+    }
+    cache[functionIndex] = 1; return false
+}
+fun validateGpuTargetCapabilities(borrow module: GpuIrModule, borrow target: GpuTargetCapabilities) r: GpuIrValidation {
+    let validation = verifyGpuIr(module)
+    if not validation.valid or not gpuTargetProfileValid(target, validation) { return validation }
+    if (module.requiredCapabilities & target.features) != module.requiredCapabilities {
+        validation.reject("E_GPU_CAPABILITY", "target lacks a required GPU capability; fallback is not permitted", -1, -1, -1); return validation
+    }
+    if module.sharedBytes > target.maxSharedBytes {
+        validation.reject("E_GPU_CAPABILITY", "GPU shared-memory requirement exceeds the target ceiling", -1, -1, -1); return validation
+    }
+    let cooperative = Array<Int>(); var i = 0
+    while i < module.functions.length() { cooperative.push(0); i = i + 1 }; i = 0
+    while i < module.functions.length() and validation.valid {
+        let function = module.functions[i]
+        var parameterIndex = 0
+        while parameterIndex < function.parameterTypes.length() and validation.valid {
+            let typeCode = function.parameterTypes[parameterIndex]
+            if gpuMatrixTypeValid(typeCode) and not gpuTargetSupportsMatrixType(target, typeCode) {
+                validation.reject("E_GPU_CAPABILITY", "target lacks a requested cooperative parameter shape and precision", i, -1, parameterIndex)
+            }
+            parameterIndex = parameterIndex + 1
+        }
+        if function.kernel {
+            let invocations = function.workgroupX * function.workgroupY * function.workgroupZ
+            if invocations > target.maxWorkgroupInvocations {
+                validation.reject("E_GPU_CAPABILITY", "kernel workgroup exceeds the target invocation ceiling", i, -1, -1)
+            } else if gpuFunctionUsesCooperative(module, i, cooperative) and (target.subgroupSize < 1 or invocations % target.subgroupSize != 0) {
+                validation.reject("E_GPU_CAPABILITY", "cooperative kernels require complete target subgroups", i, -1, -1)
+            }
+        }
+        var blockIndex = 0
+        while blockIndex < function.blocks.length() and validation.valid {
+            let block = function.blocks[blockIndex]; var opIndex = 0
+            while opIndex < block.instructions.length() and validation.valid {
+                let op = block.instructions[opIndex]
+                if gpuMatrixTypeValid(op.typeCode) {
+                    if not gpuTargetSupportsMatrixType(target, op.typeCode) {
+                        validation.reject("E_GPU_CAPABILITY", "target does not support the requested cooperative shape and precision tuple", i, blockIndex, opIndex)
+                    }
+                }
+                opIndex = opIndex + 1
+            }
+            blockIndex = blockIndex + 1
+        }
+        i = i + 1
+    }
+    cooperative.free(); return validation
+}
