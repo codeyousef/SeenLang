@@ -96,6 +96,22 @@ import codegen.gpu.ptx_regions.{ptxLowerRegion}
 import codegen.gpu.ptx_matrix_plan.{ptxValueWords as _seedPtxMatrixPlan}
 import codegen.gpu.ptx_cooperative.{ptxCooperative as _seedPtxCooperative}
 import codegen.gpu.ptx_emitter.{emitGpuPtx}
+import codegen.gpu.text_buffer.{GpuTextBuffer}
+import codegen.gpu.launch_abi.{gpuPackedKernelParameterBytes}
+import codegen.gpu.amdgpu_target.{amdTargetValid}
+import codegen.gpu.amdgpu_context.{GpuAmdFunction}
+import codegen.gpu.amdgpu_abi.{amdReflectionEntryAbi}
+import codegen.gpu.amdgpu_builtins.{amdBuiltin}
+import codegen.gpu.amdgpu_layout.{amdEntryParameters}
+import codegen.gpu.amdgpu_launch.{amdValidateLaunch}
+import codegen.gpu.amdgpu_memory.{amdCheckedMemory}
+import codegen.gpu.amdgpu_math.{amdBinary}
+import codegen.gpu.amdgpu_casts.{amdCast}
+import codegen.gpu.amdgpu_intrinsics.{amdIntrinsic}
+import codegen.gpu.amdgpu_sync.{amdSynchronization}
+import codegen.gpu.amdgpu_values.{amdLowerValue}
+import codegen.gpu.amdgpu_regions.{amdLowerRegion}
+import codegen.gpu.amdgpu_emitter.{emitGpuAmdgpu}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv as _seedSpirv_emitter}
 import codegen.gpu.spirv_binary.{encodeGpuSpirvBinary as _seedSpirv_binary}
 import codegen.gpu_artifact_manifest.{gpuArtifactManifest as _seedSpirv_artifact_manifest}
@@ -9046,6 +9062,22 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu.ptx_matrix_plan")
         modules.push("codegen.gpu.ptx_cooperative")
         modules.push("codegen.gpu.ptx_emitter")
+        modules.push("codegen.gpu.text_buffer")
+        modules.push("codegen.gpu.launch_abi")
+        modules.push("codegen.gpu.amdgpu_target")
+        modules.push("codegen.gpu.amdgpu_context")
+        modules.push("codegen.gpu.amdgpu_abi")
+        modules.push("codegen.gpu.amdgpu_builtins")
+        modules.push("codegen.gpu.amdgpu_layout")
+        modules.push("codegen.gpu.amdgpu_launch")
+        modules.push("codegen.gpu.amdgpu_memory")
+        modules.push("codegen.gpu.amdgpu_math")
+        modules.push("codegen.gpu.amdgpu_casts")
+        modules.push("codegen.gpu.amdgpu_intrinsics")
+        modules.push("codegen.gpu.amdgpu_sync")
+        modules.push("codegen.gpu.amdgpu_values")
+        modules.push("codegen.gpu.amdgpu_regions")
+        modules.push("codegen.gpu.amdgpu_emitter")
         modules.push("codegen.gpu.spirv_emitter")
         modules.push("codegen.gpu.spirv_binary")
         modules.push("codegen.gpu_artifact_manifest")

@@ -1,4 +1,5 @@
 import codegen.gpu.ptx_emitter.{emitGpuPtx}
+import codegen.gpu.amdgpu_emitter.{emitGpuAmdgpu}
 /// Artifact construction borrows one verified module and options. It returns
 /// owned bytes/reflection/digests together, or one owned validation. Every
 /// partially completed phase is released before a typed error is propagated.
@@ -26,6 +27,11 @@ fun buildGpuArtifact(borrow module: GpuIrModule, borrow options: GpuOptions) r: 
         let emitted = emitGpuPtx(module, options)
         if emitted.isErr() { let error = emitted.unwrapErr(); emitted.releaseContainer(); return Err<GpuArtifact, GpuIrValidation>(error) }
         binary = emitted.unwrap(); emitted.releaseContainer(); target = "sm_80"
+        if options.target != "" { target = options.target }
+    } else if options.backend == "hip" {
+        let emitted = emitGpuAmdgpu(module, options)
+        if emitted.isErr() { let error = emitted.unwrapErr(); emitted.releaseContainer(); return Err<GpuArtifact, GpuIrValidation>(error) }
+        binary = emitted.unwrap(); emitted.releaseContainer(); target = "gfx90a"
         if options.target != "" { target = options.target }
     } else {
         let validation = GpuIrValidation.create(); validation.reject("E_GPU_BACKEND_UNAVAILABLE", "selected backend has no offline emitter", -1, -1, -1)

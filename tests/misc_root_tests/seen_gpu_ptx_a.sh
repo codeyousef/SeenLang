@@ -16,11 +16,16 @@ FIXTURE_ARTIFACT_PREFIX=gpu-ptx-a
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 python3 "$ROOT_DIR/scripts/check_gpu_ptx_toolchain.py" > "$TMP_DIR/toolchain.json"
 for profile in fast release undefined address; do
-    compile_case "$profile" layout "$ROOT_DIR/tests/cuda_ptx_lowering/layout_contract.seen" \
-        "$ROOT_DIR/tests/cuda_ptx_lowering/layout_happy.seen"
-    rg -Fq 'PASS: PTX target coverage deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/layout-$profile.log"
+    compile_fixture "$profile" text "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
+    for pair in layout:cuda_ptx_lowering/layout_happy splat:gpu_artifacts/vector_splat; do
+        name=${pair%%:*}; source="$ROOT_DIR/tests/${pair#*:}.seen"
+        cp -- "$TMP_DIR/text-$profile" "$TMP_DIR/$name-$profile"
+        cp -- "$TMP_DIR/text-$profile.log" "$TMP_DIR/$name-$profile.log"
+        run_fixture "$profile" "$name" cuda "$source"
+        rg -Fq 'PASS: PTX target coverage deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/$name-$profile.log"
+    done
 done
-python3 "$ROOT_DIR/scripts/check_gpu_ptx_artifacts.py" "$TMP_DIR" layout
+python3 "$ROOT_DIR/scripts/check_gpu_ptx_artifacts.py" "$TMP_DIR" layout splat
 for target in sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 sm_100; do
     run_compiler gpu emit "$ROOT_DIR/tests/spir_v_vulkan_lowering/return_control.seen" \
         --gpu-backend cuda --gpu-target "$target" --output "$TMP_DIR/returns-$target.ptx" \
@@ -41,6 +46,6 @@ run_compiler gpu emit "$ROOT_DIR/tests/typed_gpu_compiler/rejection_host.seen" \
 test "$status" -eq 1
 rg -Fq E_GPU_UNSUPPORTED "$TMP_DIR/rejected.log"
 test ! -e "$TMP_DIR/rejected.ptx"
-compile_case fast rejection "$ROOT_DIR/tests/cuda_ptx_lowering/rejection_contract.seen"
+compile_case fast rejection "$ROOT_DIR/tests/gpu_artifacts/text_rejection_contract.seen" cuda
 rg -Fq 'PASS: PTX 60s seed=1091 malformed IR target capability and shared limits restore allocation baseline' "$TMP_DIR/rejection-fast.log"
 echo 'PASS: CUDA PTX entries layout helper control and official offline assembly'

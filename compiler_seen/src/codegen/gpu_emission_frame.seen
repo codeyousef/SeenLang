@@ -1,6 +1,6 @@
 /// One inlined source function frame. Resource identities borrow the entry's
 /// resource table; registers, local slots and control stacks belong to the frame.
-import codegen.gpu_ir_model.{GpuIrModule}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrInstruction}
 
 class GpuEmissionFrame {
     var functionIndex: Int
@@ -24,6 +24,12 @@ class GpuEmissionFrame {
         this.registers.free(); this.registerTypes.free(); this.resourceIndices.free(); this.localPointers.free(); this.arguments.free(); this.argumentResources.free()
         this.loopMerges.free(); this.loopContinues.free(); this.inductionPointers.free(); this.free()
     }
+}
+/// Verified vector constructors either broadcast one scalar or name every lane.
+fun gpuEmissionVectorSource(frame: GpuEmissionFrame, borrow op: GpuIrInstruction, lane: Int) r: Int {
+    var operand = lane
+    if op.operands.length() == 1 { operand = 0 }
+    return frame.registers[op.operands[operand]]
 }
 fun createGpuEmissionFrame(borrow module: GpuIrModule, functionIndex: Int, arguments: Array<Int>, resources: Array<Int>) r: GpuEmissionFrame {
     let function = module.functions[functionIndex]

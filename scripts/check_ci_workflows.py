@@ -95,6 +95,12 @@ jobs:
             .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*.json
             .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*.ptx
             .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.json
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.o
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.hsaco
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*-ir/*.ll
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.log
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.jsonl
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*-ir/*.ll

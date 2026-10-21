@@ -1,0 +1,19 @@
+@compute(workgroup: [3, 2, 2])
+fun coordinates(output: WriteBuffer<UInt32>) {
+    output[0] = globalInvocationId.x; output[1] = globalInvocationId.y; output[2] = globalInvocationId.z
+    output[3] = localInvocationId.x; output[4] = localInvocationId.y; output[5] = localInvocationId.z
+    output[6] = workgroupId.x; output[7] = workgroupId.y; output[8] = workgroupId.z
+    output[9] = numWorkgroups.x; output[10] = numWorkgroups.y; output[11] = numWorkgroups.z
+    output[12] = workgroupSize.x; output[13] = workgroupSize.y; output[14] = workgroupSize.z
+    output[15] = localInvocationIndex
+}
+@compute(1)
+fun seen_shared_0_4(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>) {
+    let left: SharedBuffer<Int32> = sharedBuffer(1)
+    let right: SharedBuffer<Int32> = sharedBuffer(1)
+    left[0] = input[0]; right[0] = input[1]
+    barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory)
+    output[0] = left[0] + right[0]
+}
+@compute(1)
+fun empty_entry() {}

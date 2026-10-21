@@ -1,16 +1,23 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Seen SPIR-V artifact integrity manifest v1",
+  "title": "Seen GPU artifact integrity manifest v1",
   "type": "object",
   "properties": {
     "schema": {
       "const": "seen-gpu-artifact-manifest-v1"
     },
     "backend": {
-      "const": "spirv"
+      "enum": [
+        "spirv",
+        "cuda",
+        "hip"
+      ]
     },
     "byte_order": {
-      "const": "little"
+      "enum": [
+        "little",
+        "utf-8"
+      ]
     },
     "classification": {
       "const": "compile-only"
@@ -25,20 +32,17 @@
       "const": false
     },
     "target": {
-      "enum": [
-        "vulkan1.2",
-        "vulkan1.3"
-      ]
+      "type": "string",
+      "maxLength": 128
     },
     "byte_count": {
       "type": "integer",
-      "minimum": 20,
-      "maximum": 33554432,
-      "multipleOf": 4
+      "minimum": 1,
+      "maximum": 33554432
     },
     "word_count": {
       "type": "integer",
-      "minimum": 5,
+      "minimum": 0,
       "maximum": 8388608
     },
     "sha256": {
@@ -48,6 +52,12 @@
     "reflection_sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "parameter_abi": {
+      "enum": [
+        "seen-ptx-kernel-v1",
+        "seen-amdgpu-kernel-v1"
+      ]
     }
   },
   "required": [
@@ -64,5 +74,93 @@
     "sha256",
     "reflection_sha256"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "backend": {
+          "const": "spirv"
+        },
+        "target": {
+          "enum": [
+            "vulkan1.2",
+            "vulkan1.3"
+          ]
+        },
+        "byte_order": {
+          "const": "little"
+        },
+        "byte_count": {
+          "minimum": 20,
+          "multipleOf": 4
+        },
+        "word_count": {
+          "minimum": 5
+        }
+      },
+      "not": {
+        "required": [
+          "parameter_abi"
+        ]
+      }
+    },
+    {
+      "required": [
+        "parameter_abi"
+      ],
+      "properties": {
+        "backend": {
+          "const": "cuda"
+        },
+        "target": {
+          "enum": [
+            "sm_70",
+            "sm_75",
+            "sm_80",
+            "sm_86",
+            "sm_89",
+            "sm_90",
+            "sm_100"
+          ]
+        },
+        "byte_order": {
+          "const": "utf-8"
+        },
+        "word_count": {
+          "const": 0
+        },
+        "parameter_abi": {
+          "const": "seen-ptx-kernel-v1"
+        }
+      }
+    },
+    {
+      "required": [
+        "parameter_abi"
+      ],
+      "properties": {
+        "backend": {
+          "const": "hip"
+        },
+        "target": {
+          "enum": [
+            "gfx90a",
+            "gfx942",
+            "gfx1100",
+            "gfx1101",
+            "gfx1200"
+          ]
+        },
+        "byte_order": {
+          "const": "utf-8"
+        },
+        "word_count": {
+          "const": 0
+        },
+        "parameter_abi": {
+          "const": "seen-amdgpu-kernel-v1"
+        }
+      }
+    }
+  ]
 }

@@ -29,11 +29,14 @@ source /etc/os-release
     fail "Ubuntu 24.04 runner is required"
 
 spirv_package_version=$(python3 -c 'import json; from pathlib import Path; print(json.loads(Path("docs/architecture/spirv-toolchain.json").read_text())["profiles"]["linux-x86_64"]["package_version"])')
+llvm_package_version=$(python3 -c 'import json; from pathlib import Path; print(json.loads(Path("docs/architecture/amdgpu-toolchain.json").read_text())["profiles"]["linux-x86_64"]["package_version"])')
 
 sudo -n apt-get update
 sudo -n apt-get install --yes --no-install-recommends \
-    bubblewrap ripgrep libvulkan-dev llvm-20 clang-20 lld-20 \
-    libclang-rt-20-dev "spirv-tools=$spirv_package_version"
+    bubblewrap ripgrep libvulkan-dev \
+    "llvm-20=$llvm_package_version" "clang-20=$llvm_package_version" "lld-20=$llvm_package_version" \
+    "libllvm20=$llvm_package_version" "libclang-rt-20-dev=$llvm_package_version" "spirv-tools=$spirv_package_version"
+python3 scripts/check_gpu_amdgpu_toolchain.py >/dev/null || fail "pinned LLVM AMDGPU toolchain identity differs"
 [ -x /usr/bin/spirv-val ] || fail "SPIR-V validator was not installed"
 python3 scripts/check_gpu_spirv_toolchain.py >/dev/null || fail "pinned SPIR-V toolchain identity differs"
 ptx_root="$RUNNER_TEMP/seen-ptx-toolchain"

@@ -22,13 +22,13 @@ for profile in fast release undefined address; do
     rg -Fq 'PASS: PTX bounded specialization overrides preserve source and independent clone ownership' "$TMP_DIR/specialization-$profile.log"
     compile_case "$profile" rejection "$ROOT_DIR/tests/cuda_ptx_lowering/capabilities_contract.seen"
     rg -Fq 'PASS: PTX native target shape layout and full-warp rejection preserve selected-entry isolation' "$TMP_DIR/rejection-$profile.log"
-    compile_fixture "$profile" layout "$ROOT_DIR/tests/cuda_ptx_lowering/layout_contract.seen"
+    compile_fixture "$profile" layout "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
     for pair in capabilities:cuda_ptx_lowering/capabilities_happy packed:spir_v_vulkan_lowering/packed_happy cooperative:cuda_ptx_lowering/cooperative_happy bf16:cuda_ptx_lowering/cooperative_bf16; do
         name=${pair%%:*}; source="$ROOT_DIR/tests/${pair#*:}.seen"; arguments=()
         if [ "$name" = bf16 ]; then arguments=(sm_80+); fi
         cp -- "$TMP_DIR/layout-$profile" "$TMP_DIR/$name-$profile"
         cp -- "$TMP_DIR/layout-$profile.log" "$TMP_DIR/$name-$profile.log"
-        run_fixture "$profile" "$name" "$source" "${arguments[@]}"
+        run_fixture "$profile" "$name" cuda "$source" "${arguments[@]}"
         rg -Fq 'PASS: PTX target coverage deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/$name-$profile.log"
     done
 done

@@ -1,0 +1,71 @@
+/// Deterministic offline HSA LLVM-IR construction. The output requests code
+/// object v5 and fixes workgroup/wave geometry; it establishes no execution.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrValidation}
+import codegen.gpu_ir_verify.{verifyGpuIr}
+import codegen.gpu_options.{GpuOptions, validateGpuOptions, gpuEntryNameValid}
+import codegen.gpu_reflection.{gpuReflectionSelection}
+import codegen.gpu_reflection_layout.{gpuBackendEntryRequirements}
+import codegen.gpu_emission_frame.{createGpuEmissionFrame}
+import codegen.gpu.text_buffer.{GpuTextBuffer}
+import codegen.gpu.amdgpu_target.{amdTargetValid, amdWavefrontSize, amdCoreCapabilities, amdTargetAttribute}
+import codegen.gpu.amdgpu_abi.{amdKernelArgumentBytes, amdStaticSharedBytes}
+import codegen.gpu.amdgpu_context.{createGpuAmdFunction}
+import codegen.gpu.amdgpu_layout.{amdEntryParameters, amdLoadEntryResource}
+import codegen.gpu.amdgpu_regions.{amdLowerRegion}
+import codegen.gpu.amdgpu_launch.{amdValidateLaunch}
+
+fun amdEmitEntry(borrow module: GpuIrModule, index: Int, text: GpuTextBuffer, target: String) r: Void {
+    let source = module.functions[index]; let requirements = gpuBackendEntryRequirements(module, index, "hip")
+    if (requirements.capabilities & amdCoreCapabilities()) != requirements.capabilities {
+        text.validation.reject("E_GPU_AMDGPU_CAPABILITY", "AMDGPU entry requires an unsupported capability", index, -1, -1); requirements.free(); return
+    }
+    if not gpuEntryNameValid(source.name) or amdKernelArgumentBytes(source, requirements.faultBuffer) > 4096 or amdStaticSharedBytes(source) > 65536 {
+        text.validation.reject("E_GPU_AMDGPU_LAYOUT", "AMDGPU entry exceeds its name, kernarg or static shared-storage ABI ceiling", index, -1, -1); requirements.free(); return
+    }
+    let function = createGpuAmdFunction(text.validation, target, index, source.workgroupX, source.workgroupY, source.workgroupZ, requirements.faultBuffer)
+    let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
+    while i < source.parameterTypes.length() and text.validation.valid {
+        arguments.push(0); resources.push(amdLoadEntryResource(function, source.parameterTypes[i], i)); i = i + 1
+    }
+    let frame = createGpuEmissionFrame(module, index, arguments, resources); arguments.free(); resources.free(); frame.returnMerge = function.label()
+    amdValidateLaunch(function, frame.returnMerge); amdLowerRegion(module, function, frame, 0, 0)
+    function.defineLabel(frame.returnMerge); function.body.literal("  ret void\n"); frame.release()
+    if text.validation.valid {
+        text.owned(function.globals.finish()); text.literal("\ndefine amdgpu_kernel void @"); text.literal(source.name); text.literal("(")
+        amdEntryParameters(text, source, requirements.faultBuffer); text.literal(") #"); text.number(index)
+        text.literal(" !reqd_work_group_size !"); text.number(index); text.literal(" {\nentry:\n")
+        text.owned(function.allocations.finish()); text.owned(function.initializers.finish()); text.owned(function.body.finish()); text.literal("}\nattributes #")
+        text.number(index); text.literal(" = { "); text.literal(amdTargetAttribute(target)); text.literal(" \"target-features\"=\"")
+        if amdWavefrontSize(target) == 32 { text.literal("+wavefrontsize32,-wavefrontsize64") } else { text.literal("+wavefrontsize64,-wavefrontsize32") }
+        text.literal("\" \"amdgpu-flat-work-group-size\"=\""); text.number(source.workgroupX * source.workgroupY * source.workgroupZ); text.literal(",")
+        text.number(source.workgroupX * source.workgroupY * source.workgroupZ); text.literal("\" \"denormal-fp-math-f32\"=\"ieee,ieee\" }\n!")
+        text.number(index); text.literal(" = !{i32 "); text.number(source.workgroupX); text.literal(", i32 "); text.number(source.workgroupY)
+        text.literal(", i32 "); text.number(source.workgroupZ); text.literal("}\n")
+    }
+    function.release(); requirements.free()
+}
+fun emitGpuAmdgpu(borrow module: GpuIrModule, borrow options: GpuOptions) r: Result<String, GpuIrValidation> {
+    let validation = verifyGpuIr(module)
+    if not validation.valid { return Err<String, GpuIrValidation>(validation) }
+    let policy = validateGpuOptions(options)
+    if policy.code != "" { validation.reject(policy.code, policy.message, -1, -1, -1) }; policy.free()
+    if options.backend != "hip" or not amdTargetValid(options.target) {
+        validation.reject("E_GPU_AMDGPU_TARGET", "AMDGPU emission requires HIP and a supported gfx target", -1, -1, -1)
+    }
+    if not validation.valid { return Err<String, GpuIrValidation>(validation) }
+    let selection = gpuReflectionSelection(module, options)
+    if selection.isErr() {
+        let error = selection.unwrapErr(); selection.releaseContainer(); validation.reject(error.code, error.message, -1, -1, -1)
+        error.free(); return Err<String, GpuIrValidation>(validation)
+    }
+    let selected = selection.unwrap(); selection.releaseContainer(); let text = GpuTextBuffer.create(validation, "E_GPU_AMDGPU_LIMIT")
+    text.literal("; seen-amdgpu-kernel-v1; HSA code-object-v5; compile-only; device execution unverified\nsource_filename = \"seen-amdgpu-kernel-v1\"\ntarget triple = \"amdgcn-amd-amdhsa\"\n")
+    text.literal("declare i32 @llvm.amdgcn.workitem.id.x()\ndeclare i32 @llvm.amdgcn.workitem.id.y()\ndeclare i32 @llvm.amdgcn.workitem.id.z()\n")
+    text.literal("declare i32 @llvm.amdgcn.workgroup.id.x()\ndeclare i32 @llvm.amdgcn.workgroup.id.y()\ndeclare i32 @llvm.amdgcn.workgroup.id.z()\n")
+    text.literal("declare ptr addrspace(4) @llvm.amdgcn.implicitarg.ptr()\ndeclare void @llvm.amdgcn.s.barrier()\ndeclare float @llvm.sqrt.f32(float)\n")
+    var target = options.target; if target == "" { target = "gfx90a" }; var i = 0
+    while i < selected.length() and validation.valid { amdEmitEntry(module, selected[i], text, target); i = i + 1 }; selected.free()
+    if not validation.valid { text.release(); return Err<String, GpuIrValidation>(validation) }
+    let output = text.finish(); text.release(); validation.release(); return Ok<String, GpuIrValidation>(output)
+}

@@ -3,7 +3,8 @@
 import codegen.gpu_ir_ops.{GPU_IR_BINARY, GPU_IR_BITCAST, GPU_IR_BOOL, GPU_IR_BUILTIN, GPU_IR_CAST, GPU_IR_EXTRACT, GPU_IR_FAULT, GPU_IR_FLOAT, GPU_IR_INDUCTION, GPU_IR_INT, GPU_IR_INTRINSIC, GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_LOCAL_INIT, GPU_IR_LOCAL_LOAD, GPU_IR_LOCAL_STORE, GPU_IR_PARAM, GPU_IR_SELECT, GPU_IR_SHARED, GPU_IR_STORE, GPU_IR_UNARY, GPU_IR_UNIFORM, GPU_IR_VECTOR}
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu_emission_frame.{GpuEmissionFrame, gpuEmissionVectorSource}
+import typechecker.gpu_types.{gpuTypeLanes}
 import codegen.gpu.spirv_types.{spirvFloatLiteralWord}
 import codegen.gpu.spirv_layout.{spirvCreateResource}
 import codegen.gpu.spirv_shared.{spirvInitializeShared}
@@ -34,7 +35,7 @@ fun spirvLowerValue(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow 
         result = context.id(); function.emit(81, [context.valueType(op.typeCode), result, frame.registers[op.operands[0]], op.immediate])
     } else if code == GPU_IR_VECTOR {
         result = context.id(); let operands = [context.valueType(op.typeCode), result]; var i = 0
-        while i < op.operands.length() { operands.push(frame.registers[op.operands[i]]); i = i + 1 }; function.emit(80, operands)
+        while i < gpuTypeLanes(op.typeCode) { operands.push(gpuEmissionVectorSource(frame, op, i)); i = i + 1 }; function.emit(80, operands)
     } else if code == GPU_IR_CAST or code == GPU_IR_BITCAST {
         let source = op.operands[0]; result = spirvCast(function, frame.registerTypes[source], op.typeCode, frame.registers[source], code == GPU_IR_BITCAST)
     } else if code == GPU_IR_UNARY { result = spirvUnary(function, op.immediate, op.typeCode, frame.registers[op.operands[0]]) }

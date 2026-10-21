@@ -1,4 +1,5 @@
 import codegen.gpu.ptx_abi.{ptxReflectionEntryAbi}
+import codegen.gpu.amdgpu_abi.{amdReflectionEntryAbi}
 /// Deterministic multi-entry reflection. Hashes identify canonical IR and ABI
 /// data; neither a hash nor a selected backend establishes device execution.
 import core.result.{Result, Ok, Err}
@@ -8,7 +9,7 @@ import codegen.gpu_ir_model.{GpuIrModule, GpuIrDiagnostic, GpuIrValidation, gpuI
 import codegen.gpu_ir_serialize.{serializeGpuIr}
 import codegen.gpu_options.{GpuOptions, validateGpuOptions}
 import codegen.gpu_specialization.{collectGpuSpecializations, releaseGpuSpecializations}
-import codegen.gpu_reflection_layout.{gpuEntryRequirements, gpuReflectionEntryAbi}
+import codegen.gpu_reflection_layout.{gpuBackendEntryRequirements, gpuReflectionEntryAbi}
 
 fun gpuReflectionHash(text: String) r: Result<String, GpuIrDiagnostic> {
     if text.length() > 33554432 { return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_REFLECTION_LIMIT", "GPU digest input exceeds its 32 MiB byte ceiling")) }
@@ -52,12 +53,13 @@ fun gpuReflectionSpecializations(builder: JsonBuilder, borrow module: GpuIrModul
     }
     builder.endArray(); releaseGpuSpecializations(records)
 }
-fun gpuWriteReflectionEntries(builder: JsonBuilder, borrow module: GpuIrModule, selected: Array<Int>, validation: GpuIrValidation, backend: String) r: Bool {
+fun gpuWriteReflectionEntries(builder: JsonBuilder, borrow module: GpuIrModule, selected: Array<Int>, validation: GpuIrValidation, backend: String, target: String) r: Bool {
     builder.key("entries"); builder.startArray(); var i = 0
     while i < selected.length() {
-        let index = selected[i]; let function = module.functions[index]; let requirements = gpuEntryRequirements(module, index)
+        let index = selected[i]; let function = module.functions[index]; let requirements = gpuBackendEntryRequirements(module, index, backend)
         let abi = JsonBuilder_new(); abi.startObject(); gpuReflectionEntryAbi(abi, function, requirements)
         if backend == "cuda" { ptxReflectionEntryAbi(abi, function, requirements.faultBuffer) }
+        if backend == "hip" { amdReflectionEntryAbi(abi, function, requirements.faultBuffer, target) }
         gpuReflectionSpecializations(abi, module); abi.endObject()
         let abiText = abi.build(); destroyJsonBuilder(abi); let hashed = gpuReflectionHash(abiText); releaseJsonText(abiText)
         if hashed.isErr() {
@@ -67,6 +69,7 @@ fun gpuWriteReflectionEntries(builder: JsonBuilder, borrow module: GpuIrModule, 
         builder.startObject(); builder.stringProp("name", function.name); builder.intProp("function", index)
         builder.stringProp("abi_sha256", digest); releaseJsonText(digest); gpuReflectionEntryAbi(builder, function, requirements)
         if backend == "cuda" { ptxReflectionEntryAbi(builder, function, requirements.faultBuffer) }
+        if backend == "hip" { amdReflectionEntryAbi(builder, function, requirements.faultBuffer, target) }
         builder.endObject(); requirements.free(); i = i + 1
     }
     builder.endArray(); return true
@@ -95,7 +98,7 @@ fun reflectGpuModule(borrow module: GpuIrModule, borrow options: GpuOptions) r: 
     builder.stringProp("backend", options.backend); builder.stringProp("target", options.target); builder.stringProp("fallback", options.fallback)
     builder.boolProp("hardware_verified", 0); builder.boolProp("gpu_execution_verified", 0)
     gpuReflectionSpecializations(builder, module)
-    let written = gpuWriteReflectionEntries(builder, module, selected, validation, options.backend); selected.free(); builder.endObject()
+    let written = gpuWriteReflectionEntries(builder, module, selected, validation, options.backend, options.target); selected.free(); builder.endObject()
     if not written or builder.buffer.totalLength > 4194304 {
         if validation.valid { validation.reject("E_GPU_REFLECTION_LIMIT", "GPU reflection exceeds its 4 MiB byte ceiling", -1, -1, -1) }
         destroyJsonBuilder(builder); return Err<String, GpuIrValidation>(validation)

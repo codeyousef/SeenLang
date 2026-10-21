@@ -210,6 +210,62 @@
           "type": "integer",
           "minimum": -1,
           "maximum": 64
+        },
+        "parameter_abi": {
+          "enum": [
+            "seen-ptx-kernel-v1",
+            "seen-amdgpu-kernel-v1"
+          ]
+        },
+        "packed_parameter_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "parameters": {
+          "type": "array",
+          "maxItems": 129,
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
+        },
+        "parameter_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 129
+        },
+        "hsa_code_object_version": {
+          "const": 5
+        },
+        "kernarg_alignment": {
+          "const": 16
+        },
+        "implicit_argument_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3840
+        },
+        "implicit_argument_bytes": {
+          "const": 256
+        },
+        "kernel_argument_bytes": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 4096
+        },
+        "wavefront_size": {
+          "enum": [
+            32,
+            64
+          ]
+        },
+        "static_shared_byte_ceiling": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "launch_fault_mask": {
+          "const": 16
         }
       }
     },
@@ -257,6 +313,126 @@
           "maximum": 255
         }
       }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "binding",
+        "kind",
+        "offset",
+        "bytes",
+        "alignment"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "binding": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64
+        },
+        "kind": {
+          "enum": [
+            "storage_address",
+            "storage_length",
+            "uniform_value",
+            "fault_address"
+          ]
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "bytes": {
+          "enum": [
+            4,
+            8,
+            16
+          ]
+        },
+        "alignment": {
+          "enum": [
+            4,
+            8,
+            16
+          ]
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "backend": {
+            "const": "cuda"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entries": {
+            "items": {
+              "required": [
+                "parameter_abi",
+                "packed_parameter_bytes",
+                "parameters",
+                "parameter_count"
+              ],
+              "properties": {
+                "parameter_abi": {
+                  "const": "seen-ptx-kernel-v1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "backend": {
+            "const": "hip"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entries": {
+            "items": {
+              "required": [
+                "parameter_abi",
+                "packed_parameter_bytes",
+                "parameters",
+                "parameter_count",
+                "hsa_code_object_version",
+                "kernarg_alignment",
+                "implicit_argument_offset",
+                "implicit_argument_bytes",
+                "kernel_argument_bytes",
+                "wavefront_size",
+                "static_shared_byte_ceiling",
+                "launch_fault_mask"
+              ],
+              "properties": {
+                "parameter_abi": {
+                  "const": "seen-amdgpu-kernel-v1"
+                },
+                "requires_fault_buffer": {
+                  "const": true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

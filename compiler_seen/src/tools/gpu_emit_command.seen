@@ -15,20 +15,20 @@ import io.file.{writeTextAtomically}
 fun gpuSpirvBinary(words: Array<Int>) r: Result<String, GpuIrDiagnostic> { return encodeGpuSpirvBinary(words) }
 fun gpuEmitCommand(parsed: CliArguments, defaultManifest: String) r: Int {
     if parsed.help {
-        println("Usage: seen gpu emit <source.seen> --gpu-backend spirv|cuda --output <module.spv|module.ptx> [--reflection <module.json>] [--gpu-target vulkan1.2|vulkan1.3] [--gpu-entry <name>] [--artifact-info]"); return 0
+        println("Usage: seen gpu emit <source.seen> --gpu-backend spirv|cuda|hip --output <module.spv|module.ptx|module.ll> [--reflection <module.json>] [--gpu-target <backend-target>] [--gpu-entry <name>] [--artifact-info]"); return 0
     }
     if not parsed.ok { println("Error: [E_GPU_CLI] " + parsed.error); return 1 }
     let outputPath = parsed.valueOr("--output", ""); let reflectionPath = parsed.valueOr("--reflection", "")
-    if parsed.positionals.length() != 1 or not parsed.positionals[0].endsWith(".seen") or (not outputPath.endsWith(".spv") and not outputPath.endsWith(".ptx")) or
+    if parsed.positionals.length() != 1 or not parsed.positionals[0].endsWith(".seen") or (not outputPath.endsWith(".spv") and not outputPath.endsWith(".ptx") and not outputPath.endsWith(".ll")) or
         (parsed.hasOption("--reflection") and not reflectionPath.endsWith(".json")) {
-        println("Error: [E_GPU_CLI] emission requires one .seen source, a .spv or .ptx output and an optional .json reflection output"); return 1
+        println("Error: [E_GPU_CLI] emission requires one .seen source, a .spv, .ptx or .ll output and an optional .json reflection output"); return 1
     }
     let loaded = gpuLoadOptions(parsed, defaultManifest)
     if loaded.isErr() { let error = loaded.unwrapErr(); loaded.releaseContainer(); gpuPrintError(error); error.free(); return 1 }
     let options = loaded.unwrap(); loaded.releaseContainer(); let policy = gpuApplyCliOptions(options, parsed)
     if policy.code != "" { gpuPrintError(policy); policy.free(); options.release(); return 1 }; policy.free()
     if (options.backend == "spirv" and not outputPath.endsWith(".spv")) or
-        (options.backend == "cuda" and not outputPath.endsWith(".ptx")) {
+        (options.backend == "cuda" and not outputPath.endsWith(".ptx")) or (options.backend == "hip" and not outputPath.endsWith(".ll")) {
         options.release(); println("Error: [E_GPU_CLI] output extension does not match the selected backend"); return 1
     }
     let read = gpuReadBoundedText(parsed.positionals[0], 1048576)

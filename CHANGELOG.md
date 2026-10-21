@@ -38,11 +38,17 @@ Foundations**.
   scoped atomics, subgroup collectives, packed precision, bounded specialization
   materialization and checked native FP16/BF16 cooperative matrices. Add
   seven-target launch/reflection checks and a digest-pinned NVIDIA assembler.
+- Add experimental HIP/AMDGPU LLVM emission for five targets, reflected HSA v5
+  launch arguments, checked scalar/vector memory and structured control flow.
+  Add pinned LLVM code-object validation and independent CPU execution of
+  normalized emitted LLVM for numeric, bounds and launch-geometry checks.
 - Add execution, cancellation, allocation and resource-lifetime regressions,
   sanitizer profiles, stress fixtures and machine-readable software evidence.
 
 ### Changed
 
+- Share bounded text construction and explicit launch-argument packing between
+  CUDA and AMDGPU. Describe both launch ABIs in the published GPU JSON schemas.
 - Share bounded packed-number conversion plans between PTX and SPIR-V while
   independently checking emitted instructions against common numeric goldens.
 - Bind the combined executor, completion I/O, SIMD and GPU foundations to
@@ -56,6 +62,7 @@ Foundations**.
 
 ### Fixed
 
+- Broadcast scalar vector constructors to every lane in SPIR-V, PTX and AMDGPU.
 - Preserve owning Result constructors when repairing frozen bootstrap IR, with
   bit-preserving scalar payloads and owned string boxing.
 - Keep GPU byte access and owned-wrapper cleanup compatible with the frozen

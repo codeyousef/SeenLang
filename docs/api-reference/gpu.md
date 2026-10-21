@@ -646,3 +646,53 @@ execution verification false. Certification input snapshots have explicit byte
 ceilings, reject symlinks/nonregular files, close descriptors on every path and
 reject metadata changes during a read. This software certificate establishes
 neither numerical device execution nor production readiness.
+
+### HIP/AMDGPU offline scalar emission
+
+`seen gpu emit source.seen --gpu-backend=hip --gpu-target=gfx90a --output=kernel.ll`
+emits LLVM IR for the HSA v5 ABI. Targets are `gfx90a` (the default), `gfx942`,
+`gfx1100`, `gfx1101` and `gfx1200`. The first two use wave64 and the remaining
+targets use wave32. This initial emitter supports storage, padded uniforms,
+workgroup storage, scalar and vector arithmetic, checked conversions, helper
+inlining and structured control. Unsupported atomics, subgroups, packed
+precision, specialization and cooperative operations reject with
+`E_GPU_AMDGPU_CAPABILITY`; target and layout errors remain explicit.
+
+The Seen emitter owns bounded text fragments and private value identities.
+Shared helpers pack CUDA/HSA explicit arguments: each storage binding supplies
+a 64-bit address and a 32-bit logical element count; uniforms occupy 16 bytes.
+Reflection includes ordered physical offsets and alignments, explicit byte
+count, `seen-amdgpu-kernel-v1`, the 16-byte kernarg alignment, and the full HSA
+argument byte count. HSA's 256-byte implicit block starts at the next 8-byte
+boundary after explicit arguments. Callers own the complete argument buffer.
+Every AMDGPU entry requires a fault buffer for its launch guard.
+
+The uniform launch guard runs before source instructions or barriers. It requires
+nonzero workgroup counts, complete workgroups matching the declared shape,
+32-bit axis products, zero global offsets and a dimension count from 1 to 3.
+Invalid geometry sets fault bit 16 and exits without source memory operations.
+Checked source bounds, integer operations, loop budgets and casts retain fault
+bits 1, 2, 4 and 8. Invalid loads return zero and invalid stores leave memory
+unchanged. Three-lane vectors retain 16-byte array stride and leave padding
+unchanged; scalar constructors broadcast the same payload bits to every lane.
+
+Each shared declaration occupies a separate 16-byte-aligned region. Reflection's
+`static_shared_byte_ceiling` includes that padding and must fit 64 KiB. LLVM may
+eliminate unused storage; compiled metadata must not exceed the reflected
+ceiling. Kernel arguments must fit 4096 bytes. Artifacts and validation results
+have the same single-owner lifecycle as CUDA; corrupt AMDGPU artifact snapshots
+return `E_GPU_AMDGPU_ARTIFACT`.
+
+[The pinned LLVM policy](../architecture/amdgpu-toolchain.json) records the exact
+Ubuntu LLVM package version, tool/library digests and compilation pipeline:
+verify, `default<O2>`, verify, AMDGPU object generation, HSA linking and metadata
+inspection. Validation checks physical arguments, wave size, workgroup size,
+implicit bytes, shared limits and the private-memory ceiling. CI retains LLVM
+IR, objects, HSA code objects and inspection records across four build profiles.
+Adverse metadata tests reject changed identities, argument offsets, sizes,
+storage classes, launch geometry, storage ceilings and duplicate fields.
+`tests/misc_root_tests/seen_gpu_amdgpu_a.sh` also executes fixed emitted-LLVM
+fixtures after explicit normalization for CPU execution, comparing raw numeric
+bits, checked faults, padding and invalid geometry against independent goldens.
+These results remain **compile-only** with hardware and GPU execution verification
+false; CPU normalization is not GPU execution.

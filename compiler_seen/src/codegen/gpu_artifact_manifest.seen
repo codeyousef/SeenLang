@@ -6,6 +6,7 @@ import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
 import codegen.gpu_artifact_model.{GpuArtifact}
 import codegen.gpu_reflection.{gpuReflectionHash}
 import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+import codegen.gpu.amdgpu_target.{amdTargetValid, amdTargetAttribute}
 
 fun gpuSpirvWordAt(binary: String, index: Int) r: Int {
     let offset = index * 4
@@ -25,6 +26,13 @@ fun gpuSpirvArtifactShape(borrow artifact: GpuArtifact) r: Bool {
         if count < 1 or count > words - cursor { return false }; cursor = cursor + count
     }; return true
 }
+fun gpuTextArtifactBytesValid(borrow artifact: GpuArtifact) r: Bool {
+    if artifact.binary.length() < 32 or artifact.binary.length() > 33554432 or artifact.reflection.length() > 4194304 { return false }
+    var i = 0
+    while i < artifact.binary.length() {
+        let byte = artifact.binary.byteAt(i); if byte != 10 and byte != 9 and (byte < 32 or byte > 126) { return false }; i = i + 1
+    }; return true
+}
 fun gpuPtxArtifactShape(borrow artifact: GpuArtifact) r: Bool {
     if artifact.binary.length() < 32 or artifact.binary.length() > 33554432 or artifact.reflection.length() > 4194304 { return false }
     var target = ""; var version = ".version 8.0\n"
@@ -34,18 +42,23 @@ fun gpuPtxArtifactShape(borrow artifact: GpuArtifact) r: Bool {
     if artifact.target == "sm_100" { target = "\n.target sm_100\n"; version = ".version 8.7\n" }
     if target == "" or not artifact.binary.startsWith(version) or not artifact.binary.contains(target) or
         not artifact.binary.contains("\n.address_size 64\n") or not artifact.binary.contains("// seen-ptx-kernel-v1;") { return false }
-    var i = 0
-    while i < artifact.binary.length() {
-        let byte = artifact.binary.byteAt(i); if byte != 10 and byte != 9 and (byte < 32 or byte > 126) { return false }; i = i + 1
-    }; return true
+    return gpuTextArtifactBytesValid(artifact)
+}
+fun gpuAmdgpuArtifactShape(borrow artifact: GpuArtifact) r: Bool {
+    if artifact.target == "" or not amdTargetValid(artifact.target) or not gpuTextArtifactBytesValid(artifact) { return false }
+    if not artifact.binary.startsWith("; seen-amdgpu-kernel-v1; HSA code-object-v5;") or
+        not artifact.binary.contains("target triple = \"amdgcn-amd-amdhsa\"") or not artifact.binary.contains("\ndefine amdgpu_kernel void @") { return false }
+    return artifact.binary.contains(amdTargetAttribute(artifact.target))
 }
 fun gpuArtifactIntegrityDiagnostic(backend: String, message: String) r: GpuIrDiagnostic {
     var code = "E_GPU_SPIRV_ARTIFACT"; if backend == "cuda" { code = "E_GPU_PTX_ARTIFACT" }
+    if backend == "hip" { code = "E_GPU_AMDGPU_ARTIFACT" }
     return gpuIrDiagnostic(code, message)
 }
 fun gpuArtifactManifest(borrow artifact: GpuArtifact) r: Result<String, GpuIrDiagnostic> {
     if (artifact.backend == "spirv" and not gpuSpirvArtifactShape(artifact)) or (artifact.backend == "cuda" and not gpuPtxArtifactShape(artifact)) or
-        (artifact.backend != "spirv" and artifact.backend != "cuda") {
+        (artifact.backend == "hip" and not gpuAmdgpuArtifactShape(artifact)) or
+        (artifact.backend != "spirv" and artifact.backend != "cuda" and artifact.backend != "hip") {
         return Err<String, GpuIrDiagnostic>(gpuArtifactIntegrityDiagnostic(artifact.backend, "GPU artifact header, shape or target is invalid"))
     }
     let binaryResult = gpuReflectionHash(artifact.binary)
@@ -63,6 +76,7 @@ fun gpuArtifactManifest(borrow artifact: GpuArtifact) r: Result<String, GpuIrDia
     builder.stringProp("target", artifact.target)
     var order = "little"; var words = artifact.binary.length() / 4
     if artifact.backend == "cuda" { order = "utf-8"; words = 0; builder.stringProp("parameter_abi", "seen-ptx-kernel-v1") }
+    if artifact.backend == "hip" { order = "utf-8"; words = 0; builder.stringProp("parameter_abi", "seen-amdgpu-kernel-v1") }
     builder.stringProp("byte_order", order)
     builder.intProp("byte_count", artifact.binary.length()); builder.intProp("word_count", words)
     builder.stringProp("sha256", artifact.binaryHash); builder.stringProp("reflection_sha256", artifact.reflectionHash)

@@ -20,8 +20,11 @@ for profile in fast release undefined address; do
     compile_case "$profile" primitive "$ROOT_DIR/tests/spir_v_vulkan_lowering/primitive_contract.seen"
     compile_case "$profile" emitter "$ROOT_DIR/tests/spir_v_vulkan_lowering/emitter_contract.seen"
     rg -Fq 'PASS: GPU-002A resource helper control flow deterministic reflection and partial cleanup' "$TMP_DIR/emitter-$profile.log"
+    compile_case "$profile" splat "$ROOT_DIR/tests/spir_v_vulkan_lowering/splat_contract.seen" \
+        "$ROOT_DIR/tests/gpu_artifacts/vector_splat.seen"
+    rg -Fq 'PASS: SPIR-V scalar broadcast constructors and deterministic cleanup' "$TMP_DIR/splat-$profile.log"
 done
-python3 "$ROOT_DIR/scripts/check_gpu_spirv_artifacts.py" "$TMP_DIR" primitive emitter
+python3 "$ROOT_DIR/scripts/check_gpu_spirv_artifacts.py" "$TMP_DIR" primitive emitter splat
 
 run_compiler gpu emit "$ROOT_DIR/tests/typed_gpu_compiler/reflection_happy.seen" \
     --gpu-backend spirv --gpu-target vulkan1.2 --output "$TMP_DIR/cli.spv" --reflection "$TMP_DIR/cli.json" > "$TMP_DIR/cli.log" 2>&1

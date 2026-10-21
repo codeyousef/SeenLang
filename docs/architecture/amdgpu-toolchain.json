@@ -1,0 +1,54 @@
+{
+  "schema": "seen-amdgpu-toolchain-v1",
+  "profiles": {
+    "linux-x86_64": {
+      "package_version": "1:20.1.2-0ubuntu1~24.04.3",
+      "packages": [
+        "llvm-20",
+        "lld-20",
+        "libllvm20"
+      ],
+      "targets": [
+        "gfx90a",
+        "gfx942",
+        "gfx1100",
+        "gfx1101",
+        "gfx1200"
+      ],
+      "optimization_passes": "default<O2>",
+      "hsa_code_object_version": 5,
+      "maximum_private_bytes_per_thread": 65536,
+      "tools": {
+        "opt": {
+          "path": "/usr/lib/llvm-20/bin/opt",
+          "sha256": "3c75bc280c535729531bf3b27cf69a592bc105044966617aeb84b8fc79e31652",
+          "version_line": "Ubuntu LLVM version 20.1.2"
+        },
+        "llc": {
+          "path": "/usr/lib/llvm-20/bin/llc",
+          "sha256": "994d679339b301a81bcc969d475bc1082da1cbfae40b2f3da9421cc85324a6d3",
+          "version_line": "Ubuntu LLVM version 20.1.2"
+        },
+        "lld": {
+          "path": "/usr/lib/llvm-20/bin/lld",
+          "sha256": "5c8dc44318df21528d0456cae914061cdc30221e40445b8cef84ba57f352445b",
+          "version_line": "Ubuntu LLD 20.1.2 (compatible with GNU linkers)"
+        },
+        "llvm-readobj": {
+          "path": "/usr/lib/llvm-20/bin/llvm-readobj",
+          "sha256": "95751bd1b9e7358a6f4e190a80f584611dd7b40ee8144a664cd0c6209874bb3d",
+          "version_line": "Ubuntu LLVM version 20.1.2"
+        },
+        "lli": {
+          "path": "/usr/lib/llvm-20/bin/lli",
+          "sha256": "6b18ac809ed8cccf8fee3a26ad1c4c900c48c8fad81dc86c347036633b972769",
+          "version_line": "Ubuntu LLVM version 20.1.2"
+        }
+      },
+      "library": {
+        "path": "/usr/lib/x86_64-linux-gnu/libLLVM.so.20.1",
+        "sha256": "4b93481bd1c9d42c0951275dd275d4a9d30db78c309ae2cc0405669bc6dbbf8a"
+      }
+    }
+  }
+}

@@ -1,0 +1,89 @@
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu.amdgpu_emitter.{emitGpuAmdgpu}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrValidation}
+import core.result.{Result}
+import env.env.{args, releaseArgs}
+import codegen.gpu.ptx_emitter.{emitGpuPtx}
+import codegen.gpu_options.{GpuOptions}
+import json.builder.{releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+fun require(value: Bool, message: String) r: Void { if not value { abort(message) } }
+
+fun emitText(borrow module: GpuIrModule, borrow options: GpuOptions, backend: String) r: Result<String, GpuIrValidation> {
+    if backend == "cuda" { return emitGpuPtx(module, options) }; return emitGpuAmdgpu(module, options)
+}
+fun rejectSource(source: String, expected: String, backend: String, target: String) r: Void {
+    let lowered = lowerGpuSource(source, "ptx-rejected.seen")
+    if lowered.isErr() {
+        let error = lowered.unwrapErr(); var index = 0
+        while index < error.diagnostics.length() {
+            println(error.diagnostics[index].code); println(error.diagnostics[index].message); index = index + 1
+        }
+        abort("GPU text rejection fixture source did not lower")
+    }
+    let module = lowered.unwrap(); lowered.releaseContainer()
+    let options = GpuOptions.create(); options.backend = backend; options.target = target
+    let rejected = emitText(module, options, backend); require(rejected.isErr(), "GPU text unsupported source was accepted")
+    let validation = rejected.unwrapErr(); rejected.releaseContainer()
+    require(validation.diagnostics.length() > 0, "GPU text rejection omitted diagnostics")
+    if validation.diagnostics[0].code != expected {
+        println(validation.diagnostics[0].code); println(expected)
+        abort("GPU text rejection diagnostic differs")
+    }
+    validation.release(); options.release(); module.release()
+}
+
+fun main() r: Int {
+    let initial = seen_memory_used_bytes(); let argv = args(); require(argv.length() == 2, "GPU text fuzz requires a backend")
+    let backend = argv[1]; require(backend == "cuda" or backend == "hip", "GPU text fuzz backend")
+    var target = "sm_80"; var layoutCode = "E_GPU_PTX_LAYOUT"; var capabilityCode = "E_GPU_PTX_CAPABILITY"; var targetCode = "E_GPU_PTX_TARGET"
+    if backend == "hip" { target = "gfx90a"; layoutCode = "E_GPU_AMDGPU_LAYOUT"; capabilityCode = "E_GPU_AMDGPU_CAPABILITY"; targetCode = "E_GPU_AMDGPU_TARGET" }
+    let sourceBaseline = seen_memory_used_bytes()
+    if backend == "cuda" {
+        rejectSource("@compute(1) fun too_large(output: WriteBuffer<Int32>) { let scratch: SharedBuffer<Int32> = sharedBuffer(16384); output[0] = scratch[0] }", layoutCode, backend, target)
+    } else {
+        rejectSource("@compute(1) fun too_large(output: WriteBuffer<Int32>) { let a: SharedBuffer<Int32> = sharedBuffer(16383); let b: SharedBuffer<Int32> = sharedBuffer(1); output[0] = a[0] + b[0] }", layoutCode, backend, target)
+    }
+    rejectSource("@compute(64) fun unsupported(input: ReadBuffer<UInt32>) { let value = coopLoadA(input, 0 as UInt32, 1 as UInt32, INT2, Tile8x8x8, RowMajor) }", capabilityCode, backend, target)
+    require(seen_memory_used_bytes() == sourceBaseline, "GPU source rejection allocation baseline differs")
+    let lowered = lowerGpuSource("@compute(1) fun arbitrary(output: WriteBuffer<Int32>) { output[0] = 7 }", "ptx-mutation.seen")
+    require(lowered.isOkay(), "GPU text mutation source did not lower"); let module = lowered.unwrap(); lowered.releaseContainer()
+    let function = module.functions[0]; let block = function.blocks[0]
+    let store = block.instructions[block.instructions.length() - 1]
+    let options = GpuOptions.create(); options.backend = backend; options.target = target
+    let originalOpcode = store.opcode; let originalOperand = store.operands[0]
+    let baseline = seen_memory_used_bytes(); let start = seen_time_monotonic_nanos()
+    require(start >= (0 as Int64) and start <= (9223371976854775807 as Int64), "GPU text fuzz clock domain")
+    let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1091
+    if backend == "hip" { seed = 1094 }
+    while now < deadline and iterations < 1000000000 {
+        seed = (seed * 48271) % 2147483647; let mode = seed % 5
+        if mode == 0 { store.opcode = 48 + seed % 10000 }
+        if mode == 1 { store.operands[0] = function.registerCount + 1 + seed % 1000 }
+        if mode == 2 { options.backend = "spirv"; options.target = "vulkan1.2" }
+        if mode == 3 { options.target = "sm_999"; if backend == "hip" { options.target = "gfx99999" } }
+        let emitted = emitText(module, options, backend)
+        if mode == 4 { require(emitted.isOkay(), "GPU text valid mutation control was rejected"); releaseJsonText(emitted.unwrap()) }
+        else {
+            require(emitted.isErr(), "GPU text malformed IR or target was accepted"); let validation = emitted.unwrapErr()
+            require(not validation.valid and validation.diagnostics.length() > 0 and validation.diagnostics.length() <= 64, "GPU text mutation diagnostic bounds")
+            if mode == 2 { require(validation.diagnostics[0].code == targetCode, "GPU text wrong-backend diagnostic") }
+            validation.release()
+        }
+        emitted.releaseContainer(); store.opcode = originalOpcode; store.operands[0] = originalOperand
+        options.backend = backend; options.target = target
+        require(seen_memory_used_bytes() == baseline, "GPU text mutation allocation baseline"); iterations = iterations + 1
+        if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); require(next >= now, "GPU text fuzz clock moved backwards"); now = next }
+    }
+    if now < deadline or iterations < 32 {
+        println(iterations.toString()); println(((now - start) as Int).toString())
+        abort("GPU text fuzz duration or progress")
+    }
+    let cuda = backend == "cuda"; options.release(); module.release(); releaseArgs(argv)
+    require(seen_memory_used_bytes() == initial, "GPU text mutation final cleanup")
+    if cuda { println("PASS: PTX 60s seed=1091 malformed IR target capability and shared limits restore allocation baseline") }
+    else { println("PASS: AMDGPU 60s seed=1094 malformed IR target capability and padded shared limits restore allocation baseline") }
+    return 0
+}

@@ -1,0 +1,14 @@
+/// Closed offline targets; these labels prove no device availability. The
+/// initial emitter admits storage/uniform/workgroup/f32 operations only.
+fun amdTargetValid(target: String) r: Bool {
+    return target == "" or target == "gfx90a" or target == "gfx942" or target == "gfx1100" or target == "gfx1101" or target == "gfx1200"
+}
+fun amdWavefrontSize(target: String) r: Int {
+    if target == "gfx1100" or target == "gfx1101" or target == "gfx1200" { return 32 }; return 64
+}
+fun amdCoreCapabilities() r: UInt64 { return 519 as UInt64 }
+fun amdTargetAttribute(target: String) r: String {
+    if target == "gfx90a" { return "\"target-cpu\"=\"gfx90a\"" }; if target == "gfx942" { return "\"target-cpu\"=\"gfx942\"" }
+    if target == "gfx1100" { return "\"target-cpu\"=\"gfx1100\"" }; if target == "gfx1101" { return "\"target-cpu\"=\"gfx1101\"" }
+    if target == "gfx1200" { return "\"target-cpu\"=\"gfx1200\"" }; return ""
+}
