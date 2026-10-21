@@ -168,7 +168,7 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
 
     if unionTypes != "" and unionTypes.contains(receiverType + "|") {
         var unionValueReg = coerceOptionStoreValueCoreImpl(output, regBox,
-            fieldTypes[1], valueSeenType, valueReg, structNames)
+            fieldTypes[1], valueSeenType, valueReg, valueKind, structNames)
         var unionValueSeenType = valueSeenType
         if unionValueReg != valueReg {
             unionValueSeenType = fieldTypes[1]
@@ -202,20 +202,21 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
         valueIsStructLit = 1
     }
     var isDataField = 0
-    if isDataTypeImpl(fieldTypes[1]) == 1 {
+    if not fieldTypes[1].endsWith("?") and isDataTypeImpl(fieldTypes[1]) == 1 {
         isDataField = 1
     }
     let fieldBaseType = getBaseTypeNameImpl(fieldTypes[1])
-    if reprCClassNames != "" and
+    if not fieldTypes[1].endsWith("?") and reprCClassNames != "" and
         reprCClassNames.contains(fieldBaseType + "|") {
 
         isDataField = 1
     }
     var coercedValueReg = coerceOptionStoreValueCoreImpl(output, regBox,
-        fieldTypes[1], valueSeenType, valueReg, structNames)
+        fieldTypes[1], valueSeenType, valueReg, valueKind, structNames)
     var coercedValueSeenType = valueSeenType
     if coercedValueReg != valueReg {
         coercedValueSeenType = fieldTypes[1]
+        valueIsStructLit = 0
     }
     coercedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
         fieldTypes[0], coercedValueSeenType, coercedValueReg, structNames)
@@ -358,30 +359,6 @@ fun emitImplicitThisMemberAssignmentImpl(output: StringBuilder,
         structLlvmFieldTypes, reprCClassNames, typeAliasNames,
         typeAliasTargets, typeAliasCount, enumTypeNames, unionTypes,
         bitfieldCount, bitfieldKeys, bitfieldWidths)
-}
-
-fun emitIndexAssignmentBoundsCheckImpl(output: StringBuilder, regBox: Array<Int>,
-    arrayReg: String, indexReg: String, failLabel: String, okLabel: String) r: Void {
-
-    let lenPtrReg = getNextRegFn(regBox)
-    output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 0\n")
-    let lenReg = getNextRegFn(regBox)
-    output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
-    let oobReg = getNextRegFn(regBox)
-    output.append("  " + oobReg + " = icmp uge i64 " + indexReg + ", " + lenReg + "\n")
-    output.append("  br i1 " + oobReg + ", label %" + failLabel + ", label %" + okLabel + "\n")
-    output.append(failLabel + ":\n")
-    output.append("  call void @seen_bounds_check(i64 " + indexReg + ", i64 " + lenReg + ")\n")
-    output.append("  unreachable\n")
-    output.append(okLabel + ":\n")
-}
-
-fun emitPreparedIndexAssignmentBoundsCheckImpl(output: StringBuilder,
-    regBox: Array<Int>, arrayReg: String, indexReg: String,
-    failLabel: String, okLabel: String) r: Void {
-
-    emitIndexAssignmentBoundsCheckImpl(output, regBox, arrayReg, indexReg,
-        failLabel, okLabel)
 }
 
 fun emitPrimitiveIndexAssignmentStoreImpl(output: StringBuilder,

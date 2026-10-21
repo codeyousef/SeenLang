@@ -5,11 +5,12 @@ import str.string.{StringBuilder}
 import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitReadFileBytesPathRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, isMathRuntimeCallPlanImpl, shouldReadMathRuntimeArgImpl, planRuntimeBuiltinDispatchImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
-import codegen.ir_codegen_type_state.{isClassTypeState}
+import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState, mapTypeState, getDataTypeSizeState}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.ir_option_aggregate.{emitOptionAggregateConstructorImpl}
 
 fun tryGenerateOptionRuntimeBuiltinCallState(
     ctx: CodegenLoweringContext, output: StringBuilder,
@@ -23,6 +24,11 @@ fun tryGenerateOptionRuntimeBuiltinCallState(
     if shouldReadSomeRuntimeArgImpl(funcName, expr.arguments.length()) {
         argReg = lowerExpression(ctx, expr.arguments[0])
         argType = inferLoweredExpressionType(ctx, expr.arguments[0])
+        if isDataTypeState(argType) {
+            return emitOptionAggregateConstructorImpl(output,
+                getFeatureRegBoxImpl(), argReg, mapTypeState(argType),
+                getDataTypeSizeState(argType), expr.arguments[0].kind == "StructLiteral")
+        }
     }
     var isClassArg = 0
     if isClassTypeState(argType) {

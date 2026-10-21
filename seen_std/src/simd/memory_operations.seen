@@ -3,7 +3,7 @@
 import core.result.{Result, Ok, Err}
 import core.operation_context.{OperationContext}
 import memory.aligned_buffer.{OwnedBuffer, ownedBufferByteRangeValid}
-import inference.span.{PackedView, MutablePackedView, packedGet, packedSet}
+import inference.span.{PackedView, MutablePackedView, unsafePackedGet, packedSet}
 import simd.ir_types.{SimdIrError, simdIrFailure, simdBuiltinLanes, simdBuiltinLane, simdLaneBits}
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 
@@ -107,10 +107,9 @@ fun transformPackedSimdBytes(borrow source: OwnedBuffer<UInt8>, sourceOffset: UI
         if pack {
             if not packedSet(packedOutput, i, input[i]) { abort("validated packed store failed") }
         } else {
-            let value = packedGet(packedInput, i)
-            if value.isNone() { value.free(); abort("validated packed load failed") }
-            let unpacked = value.unwrap(); value.free()
-            output[i] = unpacked
+            // The complete owner range, bit count and non-aliasing geometry
+            // were validated before entering this loop. Avoid boxed Options.
+            output[i] = unsafePackedGet(packedInput, i)
         }
         i = i + (1 as UInt64); progress.completed = i
     }

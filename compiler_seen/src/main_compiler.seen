@@ -351,6 +351,7 @@ import codegen.ir_expr_type_driver.{resolveChainedPathTypeState, resolveLiteralM
 import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, planConstructorFieldStoreImpl}
 import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitPreparedFinalMethodDispatchState}
+import codegen.ir_option_aggregate.{emitOptionAggregateConstructorImpl}
 import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
 import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, planArrayMutatorMethodImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl}
@@ -420,7 +421,7 @@ import codegen.ir_class_type_driver.{emitClassTypeState}
 import codegen.ir_class_generated_features.{emitGeneratedClassDecoratorMethodsImpl}
 import codegen.ir_field_registry.{resolveFieldIndexImpl, findCachedIrgenFieldIndexImpl, cacheIrgenFieldIndexImpl, findCachedChainedPathTypeRecordImpl, cacheChainedPathTypeImpl, resetFieldLookupCacheStateImpl}
 import codegen.ir_assignment_coerce.{coerceAssignmentStoreValueCoreImpl}
-import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl}
+import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitPreparedIndexAssignmentStoreImpl}
 import codegen.ir_member_assignment_driver.{emitValueReceiverMemberAssignmentState}
 import codegen.ir_assignment_move_driver.{applyMoveAssignmentSemanticsState}
 import codegen.ir_assignment_driver.{generateAssignmentStatementState}
@@ -9368,6 +9369,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_class_generated_features")
         modules.push("codegen.ir_field_registry")
         modules.push("codegen.ir_assignment_coerce")
+        modules.push("codegen.ir_option_aggregate")
         modules.push("codegen.ir_assignment_gen")
         modules.push("codegen.ir_member_assignment_driver")
         modules.push("codegen.ir_assignment_move_driver")

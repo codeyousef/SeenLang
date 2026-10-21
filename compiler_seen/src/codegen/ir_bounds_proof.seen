@@ -1,7 +1,7 @@
 /// Conservative source proof for canonical scalar Array tensor loops.
 /// Analysis is pure with respect to codegen: failure retains every check.
 import parser.real_parser.{StatementNode, ParserExpressionNode}
-import codegen.ir_type_mapping.{isFixedWidthScalarTypeImpl}
+import codegen.ir_type_mapping.{isFixedWidthScalarNameImpl}
 import codegen.ir_variable_gen.{findActiveVariableTypeImpl, getExprVariableNameImpl}
 import simd.ir_types.{seen_string_release_owned}
 
@@ -16,7 +16,7 @@ class BoundsProofPlan {
 }
 fun boundsProofNumericType(typeName: String) r: Bool {
     return typeName == "Int" or typeName == "Char" or typeName == "Bool" or
-        typeName == "Float" or isFixedWidthScalarTypeImpl(typeName)
+        typeName == "Float" or isFixedWidthScalarNameImpl(typeName)
 }
 fun boundsProofNumericArray(typeName: String) r: Bool {
     if not typeName.startsWith("Array<") or not typeName.endsWith(">") { return false }

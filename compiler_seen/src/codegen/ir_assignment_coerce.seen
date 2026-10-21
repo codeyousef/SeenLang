@@ -4,6 +4,8 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, isClassHandleLikeTypeImpl, getFixedWidthScalarLlvmTypeImpl}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_declarations.{emitSomeConstructorImpl, emitNoneConstructorImpl}
+import codegen.ir_codegen_type_state.{isDataTypeState, mapTypeState, getDataTypeSizeState}
+import codegen.ir_option_aggregate.{emitOptionAggregateConstructorImpl}
 import str.string.{StringBuilder}
 
 fun optionStoreInnerTypeCoreImpl(targetSeenType: String) r: String {
@@ -64,7 +66,7 @@ fun optionStoreInnerIsClassCoreImpl(innerType: String,
 }
 
 fun coerceOptionStoreValueCoreImpl(output: StringBuilder, regBox: Array<Int>,
-    targetSeenType: String, sourceSeenType: String, valueReg: String,
+    targetSeenType: String, sourceSeenType: String, valueReg: String, valueKind: String,
     structNames: Array<String>) r: String {
 
     let innerType = optionStoreInnerTypeCoreImpl(targetSeenType)
@@ -79,6 +81,11 @@ fun coerceOptionStoreValueCoreImpl(output: StringBuilder, regBox: Array<Int>,
     }
     if sourceSeenType == "" or sourceSeenType == "Unknown" {
         return valueReg
+    }
+    if isDataTypeState(innerType) {
+        return emitOptionAggregateConstructorImpl(output, regBox, valueReg,
+            mapTypeState(innerType), getDataTypeSizeState(innerType),
+            valueKind == "StructLiteral")
     }
     let isClassArg = optionStoreInnerIsClassCoreImpl(innerType, structNames)
     return emitSomeConstructorImpl(output, regBox, valueReg, innerType,

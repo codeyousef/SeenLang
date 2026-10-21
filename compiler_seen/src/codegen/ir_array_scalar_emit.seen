@@ -9,3 +9,9 @@ fun emitArrayBooleanPushImpl(output: StringBuilder, regBox: Array<Int>,
     output.append("  " + widened + " = zext i1 " + value + " to i64\n")
     output.append("  call void @seen_arr_push_i64(ptr " + array + ", i64 " + widened + ")\n")
 }
+
+/// Plain Float uses the same scalar array storage as its Float64 alias.
+fun arrayScalarStorageTypeImpl(elementType: String) r: String {
+    if elementType == "Float" { return "Float64" }
+    return elementType
+}

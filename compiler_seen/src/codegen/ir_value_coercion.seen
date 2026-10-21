@@ -134,3 +134,19 @@ fun coerceValueForLlvmTargetImpl(output: StringBuilder, regBox: Array<Int>,
     }
     return valueReg
 }
+
+/// Literal construction owns temporary storage; aggregate value consumers keep
+/// a copy and release that storage using the allocator's minimum eight bytes.
+fun releaseLiteralStorageImpl(output: StringBuilder, storage: String, bytes: Int) r: Void {
+    var allocationBytes = bytes
+    if allocationBytes < 8 { allocationBytes = 8 }
+    output.append("  call void @seen_pool_free(ptr " + storage + ", i64 " +
+        allocationBytes.toString() + ") ; release copied literal storage\n")
+}
+fun loadOwnedLiteralValueImpl(output: StringBuilder, regBox: Array<Int>,
+    llvmType: String, storage: String, bytes: Int) r: String {
+    let value = getNextRegFn(regBox)
+    output.append("  " + value + " = load " + llvmType + ", ptr " + storage + "\n")
+    releaseLiteralStorageImpl(output, storage, bytes)
+    return value
+}

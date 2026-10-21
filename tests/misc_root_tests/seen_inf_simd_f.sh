@@ -17,6 +17,8 @@ FIXTURE_RUN_SECONDS=900
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 FIXTURE_COMPILE_FLAGS=(--bounds-check --simd-report=full)
 for profile in fast release undefined address; do
+    compile_case "$profile" floating-array "$ROOT_DIR/tests/inference_simd/floating_array_literals.seen"
+    rg -Fq 'PASS: Float Float64 Float32 array literals retain typed storage values and exact cleanup' "$TMP_DIR/floating-array-$profile.log"
     compile_case "$profile" quantized "$ROOT_DIR/tests/inference_simd/quantized_corpus.seen"
     rg -Fq 'PASS: quantized Q8_0 Q4_0 Q4_K Q2_K IQ3_XXS MXFP4 E4M3FN tails=all alignments=64 widths=scalar,128,256,512' "$TMP_DIR/quantized-$profile.log"
     rg -Fq 'PASS: quantized invalid geometry alias metadata cancellation deadline and allocation stability' "$TMP_DIR/quantized-$profile.log"

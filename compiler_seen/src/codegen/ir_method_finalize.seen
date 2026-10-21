@@ -7,6 +7,7 @@ receiver discovery and dispatch rather than ABI normalization details.
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_value_coercion.{reifyErasedWordImpl}
+import codegen.ir_option_aggregate.{emitOptionAggregateUnwrapImpl}
 import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl, emitUserMethodCallImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, isClassHandleLikeTypeState, getDataTypeSizeState}
@@ -43,6 +44,10 @@ normalizeInstanceMethodTypeNameImpl — clean receiver type for user-method disp
 tracedUnwrapType is only used for ptr.toJson() on unwrap() results.
 ///
 fun normalizeInstanceMethodTypeNameImpl(receiverType: String, methodName: String, tracedUnwrapType: String) r: String {
+    if methodName == "unwrap" and receiverType.endsWith("?") {
+        let inner = receiverType.substring(0, receiverType.length() - 1)
+        if isDataTypeState(inner) { return "Option" }
+    }
     var instanceTypeName = receiverType
     if instanceTypeName == "ptr" and methodName == "toJson" and tracedUnwrapType != "" {
         instanceTypeName = tracedUnwrapType
@@ -444,6 +449,10 @@ fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
 
     if methodName == "unwrap" and instanceTypeName == "Option" {
         let innerType = extractOptionInnerTypeImpl(receiverType, returnTypeStr)
+        if isDataTypeState(innerType) {
+            return emitOptionAggregateUnwrapImpl(output, regBox, receiverReg,
+                mapTypeState(innerType))
+        }
         var isClassInner = 0
         let baseInnerType = getBaseTypeNameImpl(innerType)
         if isClassTypeState(baseInnerType) or

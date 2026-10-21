@@ -10,7 +10,9 @@ import codegen.ir_method_call_plan.{isDottedArrayMutatorLiteralImpl, planArrayMu
 import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_codegen_type_state.{isClassHandleLikeTypeState,
-    isClassTypeState, isDataTypeState}
+    isClassTypeState, isDataTypeState, getDataTypeSizeState}
+import codegen.ir_assignment_coerce.{optionStoreInnerTypeCoreImpl}
+import codegen.ir_option_aggregate.{emitOptionAggregateDropImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, isFixedWidthScalarTypeImpl,
     getFixedWidthScalarLlvmTypeImpl}
 import codegen.ir_type_tables.{resolvePopElementTypeImpl}
@@ -474,6 +476,22 @@ fun emitPreparedArrayFreeMutatorMethodStateImpl(output: StringBuilder,
     variableName: String, freePtrReg: String, varNames: Array<String>,
     varRegs: Array<String>, activeVarCount: Int, structNames: Array<String>,
     structSizes: Array<Int>) r: String {
+
+    let optionPayload = optionStoreInnerTypeCoreImpl(freeReceiverType)
+    if optionPayload != "" and isDataTypeState(optionPayload) {
+        let name = resolveArrayMutatorVariableNameImpl(literalValue, variableName)
+        let index = findActiveVariableIndexImpl(varNames, activeVarCount, name)
+        var word = freePtrReg
+        if index >= 0 {
+            word = emitLocalVariableLoadImpl(output, regBox, "i64", varRegs[index])
+        }
+        if word != "" {
+            emitOptionAggregateDropImpl(output, regBox, word,
+                getDataTypeSizeState(optionPayload))
+            return emitIndexedClassFreeMutationImpl(output, regBox, word, 24)
+        }
+        return ""
+    }
 
     let isArrayType = isArrayReceiverTypeImpl(freeReceiverType)
     if isArrayType {

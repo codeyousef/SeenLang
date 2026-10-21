@@ -4,7 +4,7 @@ import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 
 import str.string.{StringBuilder}
 import parser.real_parser.{ParserExpressionNode}
-import codegen.ir_assignment_gen.{emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl}
+import codegen.ir_assignment_gen.{emitPreparedIndexAssignmentStoreImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getFunctionReturnTypeWithGlobalStateImpl, getGlobalStructNamesImpl}
 import codegen.ir_codegen_metrics_state.{cseClear}
@@ -64,7 +64,9 @@ fun emitIndexBoundsCheckState(output: StringBuilder, arrayReg: String,
     emitPreparedIndexBoundsCheckImpl(output, getFeatureRegBoxImpl(), arrayReg,
         indexReg, boundsCountBox)
     cseClear()
-    return boundsCountBox[0]
+    let nextBoundsCount = boundsCountBox[0]
+    boundsCountBox.free()
+    return nextBoundsCount
 }
 
 fun emitTypedIndexAccessState(output: StringBuilder, arrayType: String,
@@ -110,15 +112,8 @@ fun emitPreparedIndexAssignmentState(output: StringBuilder, arrayReg: String,
         output.append("  store " + elementLlvm + " " + stored + ", ptr " + address + ", align 1 ; typed ptr[i] assignment\n")
         return boundsCheckCount
     }
-    var nextBoundsCount = boundsCheckCount
-    if boundsCheckEnabled == 1 {
-        let labelSuffix = nextBoundsCount.toString()
-        nextBoundsCount = nextBoundsCount + 1
-        emitPreparedIndexAssignmentBoundsCheckImpl(output, getFeatureRegBoxImpl(),
-            arrayReg, indexReg, "bounds_fail_" + labelSuffix,
-            "bounds_ok_" + labelSuffix)
-        cseClear()
-    }
+    let nextBoundsCount = emitIndexBoundsCheckState(output, arrayReg,
+        indexReg, boundsCheckEnabled, boundsCheckCount)
 
     var elementType: String = "ptr"
     if arrayType.startsWith("Array<") {

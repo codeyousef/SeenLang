@@ -402,7 +402,7 @@ hash = "c09ce8e3741132d8dbd27cdb379d0317dd3e2ef7ddb42e6330dbdb2eb24655de"
 
 [[modules]]
 path = "src/inference/span.seen"
-hash = "31890b5c68611e237a117cd645ba2700d4d85468b70eac4539212828100087d5"
+hash = "8e07f17a02da850922fbbea9003750784bc386085c2c884e6a61c28360458460"
 
 [[modules]]
 path = "src/inference/iq3_xxs_codebook.seen"
@@ -470,7 +470,7 @@ hash = "2b60bfc1046a240167779ff822f607cf4d239cebd8e63e8a60235e4ae1ad7033"
 
 [[modules]]
 path = "src/simd/memory_operations.seen"
-hash = "a66c4b1294d18773e625ccdaddb5e80468c3b69ffd67cbc9640e7b81548cd82e"
+hash = "327d3c969a00806099dd969d86b068e5f5ed382c61c3a08a7a0708ab882b908e"
 
 [[modules]]
 path = "src/simd/dispatch_plan.seen"

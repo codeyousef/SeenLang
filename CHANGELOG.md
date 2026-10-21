@@ -65,12 +65,24 @@ Foundations**.
 
 ### Fixed
 
+- Share read/write array bounds guards and derive their labels from unique SSA
+  registers so nested expressions cannot reuse control-flow blocks.
 - Provision and verify an ARM64 libc sysroot for CI cross-target object checks.
 - Preserve scalar floating-point types in mixed-precision comparisons,
   arithmetic and fused promotion; resolve portable SIMD fixture helpers locally.
+- Normalize `Float64` cast aliases for real widening, narrowing and scalar
+  conversions, including casts around function calls.
+- Lower `Float` array literals through the shared typed scalar storage path and
+  preserve fixed-width element types during array-literal inference.
 - Restore fixed-width integer payload types when unwrapping generic Options.
 - Load borrowed `repr(C)` method receivers before reading aggregate fields.
-- Release temporary packed-read Options in SIMD unpacking on every path.
+- Own boxed aggregate Option payloads across nullable returns, unwrap and cleanup.
+- Release copied aggregate literal storage in arguments, returns and locals.
+- Keep conservative tensor proof scalar classification free of temporary strings.
+- Read and write packed views through typed byte indices with shared null and
+  bit-offset overflow checks.
+- Remove per-lane Option allocation from prevalidated SIMD unpacking while
+  retaining checked packed-view reads for untrusted metadata.
 - Broadcast scalar vector constructors to every lane in SPIR-V, PTX and AMDGPU.
 - Preserve owning Result constructors when repairing frozen bootstrap IR, with
   bit-preserving scalar payloads and owned string boxing.

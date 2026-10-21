@@ -15,12 +15,18 @@ TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/inf-simd-d.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=inf-simd-d
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 for profile in fast release undefined address; do
+    compile_case "$profile" literal "$ROOT_DIR/tests/inference_simd/repr_c_literal_arguments.seen"
+    rg -Fq 'PASS: by-value repr C literal arguments release pooled and large temporaries before invocation' "$TMP_DIR/literal-$profile.log"
+    compile_case "$profile" geometry "$ROOT_DIR/tests/inference_simd/packed_view_geometry.seen"
+    rg -Fq 'PASS: packed views preserve cross-byte values reject null overflow and truncation and release Options' "$TMP_DIR/geometry-$profile.log"
     compile_case "$profile" scalar "$ROOT_DIR/tests/inference_simd/mixed_float_aliases.seen"
     rg -Fq 'PASS: mixed Float Float32 Float64 comparisons arithmetic and fused promotion retain scalar types' "$TMP_DIR/scalar-$profile.log"
     compile_case "$profile" option "$ROOT_DIR/tests/inference_simd/option_integer_payloads.seen"
     rg -Fq 'PASS: fixed-width Option integer unwrap preserves signedness payload bits and allocation baseline' "$TMP_DIR/option-$profile.log"
     compile_case "$profile" receiver "$ROOT_DIR/tests/inference_simd/borrowed_repr_c_methods.seen"
     rg -Fq 'PASS: borrowed repr C method receivers preserve explicit implicit and nested field reads' "$TMP_DIR/receiver-$profile.log"
+    compile_case "$profile" aggregate "$ROOT_DIR/tests/inference_simd/option_aggregate_payloads.seen"
+    rg -Fq 'PASS: aggregate Options preserve nullable returns repeated unwrap value copies None and exact cleanup' "$TMP_DIR/aggregate-$profile.log"
     compile_case "$profile" operations "$ROOT_DIR/tests/inference_simd/portable_operations.seen"
     for name in happy partial packing invalid cancel cleanup; do
         rg -Fq "PASS: SEEN-INF-002D_$name" "$TMP_DIR/operations-$profile.log"
@@ -42,6 +48,7 @@ for fixture in bad_operation_arity bad_operation_lane bad_operation_name bad_shu
     rg -Fq "$expected" "$TMP_DIR/00-active.log"
 done
 ir_dir="$TMP_DIR/operations-release-ir"
+python3 "$ROOT_DIR/scripts/check_simd_packed_allocations.py" "$ir_dir"
 for pattern in llvm.masked.load.v4f32.p0 llvm.masked.load.v8f32.p0 llvm.masked.load.v16f32.p0 \
     llvm.masked.store.v16i8.p0 llvm.fma.v16f32 llvm.prefetch.p0 shufflevector; do
     rg -Fq "$pattern" "$ir_dir"/*.ll

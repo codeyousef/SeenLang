@@ -1,0 +1,17 @@
+fun requireNestedBounds(value: Bool) r: Void {
+    if not value { abort("nested bounds checks changed array values") }
+}
+fun main() r: Int {
+    let values = [11, 23, 37]; let indices = [2, 0, 1]
+    requireNestedBounds(values[indices[0]] + values[indices[1]] == 48)
+    values[indices[2]] = values[indices[0]] + values[indices[1]]
+    requireNestedBounds(values[1] == 48)
+    var i = 0; var total = 0
+    while i < indices.length() {
+        total = total + values[indices[i]]; i = i + 1
+    }
+    requireNestedBounds(total == 96)
+    values.free(); indices.free()
+    println("PASS: nested read write call and binary bounds guards retain unique control flow")
+    return 0
+}

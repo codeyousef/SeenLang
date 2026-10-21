@@ -7,7 +7,7 @@ import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStat
 import codegen.ir_codegen_type_state.{getDataTypeSizeState, isClassTypeState, isDataTypeState}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_array_scalar_emit.{emitArrayBooleanPushImpl}
+import codegen.ir_array_scalar_emit.{emitArrayBooleanPushImpl, arrayScalarStorageTypeImpl}
 import codegen.ir_string_collect.{extractArrayLiteralElementTypeImpl}
 import codegen.ir_type_mapping.{isFixedWidthScalarTypeImpl,
     getFixedWidthScalarSizeImpl, getFixedWidthScalarLlvmTypeImpl}
@@ -16,14 +16,15 @@ fun emitArrayLiteralAllocationState(output: StringBuilder,
     elementType: String) r: String {
 
     let arrReg = getNextRegFn(getFeatureRegBoxImpl())
+    let scalarType = arrayScalarStorageTypeImpl(elementType)
     if elementType == "String" {
         output.append("  " + arrReg + " = call ptr @seen_arr_new_str_ptr()\n")
     } else if isDataTypeState(elementType) or
-        isFixedWidthScalarTypeImpl(elementType) {
+        isFixedWidthScalarTypeImpl(scalarType) {
         let elementSize = getDataTypeSizeState(elementType)
         var resolvedElementSize = elementSize
-        if isFixedWidthScalarTypeImpl(elementType) {
-            resolvedElementSize = getFixedWidthScalarSizeImpl(elementType)
+        if isFixedWidthScalarTypeImpl(scalarType) {
+            resolvedElementSize = getFixedWidthScalarSizeImpl(scalarType)
         }
         output.append("  " + arrReg +
             " = call ptr @seen_arr_new_with_size_ptr(i64 " +
@@ -51,8 +52,9 @@ fun emitArrayLiteralElementPushState(output: StringBuilder, arrReg: String,
             ", i64 " + argReg + ")\n")
         return
     }
-    if isFixedWidthScalarTypeImpl(argType) {
-        let llvmElemType = getFixedWidthScalarLlvmTypeImpl(argType)
+    let scalarType = arrayScalarStorageTypeImpl(argType)
+    if isFixedWidthScalarTypeImpl(scalarType) {
+        let llvmElemType = getFixedWidthScalarLlvmTypeImpl(scalarType)
         let tmpScalarReg = getNextRegFn(getFeatureRegBoxImpl())
         output.append("  " + tmpScalarReg + " = alloca " + llvmElemType +
             "\n")

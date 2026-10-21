@@ -1,0 +1,46 @@
+import core.option.{Some}
+extern "C" fun seen_memory_used_bytes() r: Int64
+@repr(C)
+@trivially_copyable
+class OptionalPair {
+    var left: Int64
+    var right: UInt64
+}
+class OptionalPairOwner {
+    var value: OptionalPair?
+}
+fun requireAggregateOption(value: Bool) r: Void {
+    if not value { abort("aggregate Option ownership or value ABI changed") }
+}
+fun makeOptionalPair(present: Bool) r: OptionalPair? {
+    if not present { return null }
+    return OptionalPair{left: -7 as Int64, right: 65001 as UInt64}
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 100 {
+        let returned = makeOptionalPair(true)
+        requireAggregateOption(returned.isSome())
+        let first = returned.unwrap(); let second = returned.unwrap()
+        requireAggregateOption(first.left == (-7 as Int64) and second.right == (65001 as UInt64))
+        let copied = Some(first); let literal = Some(OptionalPair{left: -11 as Int64, right: 42 as UInt64})
+        let local: OptionalPair? = OptionalPair{left: -13 as Int64, right: 17 as UInt64}
+        let copy = copied.unwrap(); let direct = literal.unwrap(); let localValue = local.unwrap()
+        requireAggregateOption(copy.left == (-7 as Int64) and copy.right == (65001 as UInt64))
+        requireAggregateOption(direct.left == (-11 as Int64) and direct.right == (42 as UInt64))
+        requireAggregateOption(localValue.left == (-13 as Int64) and localValue.right == (17 as UInt64))
+        returned.free(); copied.free(); literal.free(); local.free()
+        requireAggregateOption(first.left == (-7 as Int64) and second.right == (65001 as UInt64))
+        let missing = makeOptionalPair(false); requireAggregateOption(missing.isNone()); missing.free()
+        let owner = OptionalPairOwner{value: makeOptionalPair(false)}
+        owner.value.free()
+        owner.value = OptionalPair{left: -17 as Int64, right: 23 as UInt64}
+        let field = owner.value.unwrap()
+        requireAggregateOption(field.left == (-17 as Int64) and field.right == (23 as UInt64))
+        owner.value.free(); owner.free()
+        requireAggregateOption(seen_memory_used_bytes() == baseline)
+        iteration = iteration + 1
+    }
+    println("PASS: aggregate Options preserve nullable returns repeated unwrap value copies None and exact cleanup")
+    return 0
+}

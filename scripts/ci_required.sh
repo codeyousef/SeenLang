@@ -123,6 +123,7 @@ python3 -m py_compile \
     scripts/check_gpu_amdgpu_subgroups.py \
     scripts/check_gpu_amdgpu_cooperative.py \
     scripts/check_gpu_amdgpu_native.py \
+    scripts/check_simd_packed_allocations.py \
     scripts/gpu_launch_contract.py \
     scripts/gpu_certification_io.py \
     tests/gpu_artifacts/certification_io_contract.py \

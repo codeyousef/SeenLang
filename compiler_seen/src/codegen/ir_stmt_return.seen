@@ -4,6 +4,7 @@ import codegen.ir_function_signature_emit.{emitDefaultReturnValueImpl}
 import codegen.ir_type_info.{charToCodeStr}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_stmt_gen.{emitConditionToI1Impl}
+import codegen.ir_value_coercion.{loadOwnedLiteralValueImpl}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import str.string.{StringBuilder}
 
@@ -201,26 +202,17 @@ fun coerceReturnValueRegImpl(output: StringBuilder, regBox: Array<Int>,
     return valueReg
 }
 
-fun emitStructLiteralReturnLoadImpl(output: StringBuilder, loadReg: String,
-    llvmType: String, valueReg: String) r: Void {
-
-    output.append("  " + loadReg + " = load " + llvmType + ", ptr " + valueReg +
-        "\n")
-}
-
 fun normalizeReturnStatementValueRegImpl(output: StringBuilder,
     regBox: Array<Int>, isDataReturnType: Bool, returnKind: String,
     returnExprType: String, llvmType: String, returnExprLlvmType: String,
-    valueReg: String) r: String {
+    valueReg: String, literalBytes: Int) r: String {
 
     var normalizedValueReg = valueReg
     if shouldLoadStructLiteralReturnValueImpl(isDataReturnType,
         returnKind) == 1 {
 
-        let loadReg = getNextRegFn(regBox)
-        emitStructLiteralReturnLoadImpl(output, loadReg, llvmType,
-            normalizedValueReg)
-        normalizedValueReg = loadReg
+        normalizedValueReg = loadOwnedLiteralValueImpl(output, regBox,
+            llvmType, normalizedValueReg, literalBytes)
     }
     if llvmType == "i1" {
         return emitConditionToI1Impl(output, regBox, normalizedValueReg,
@@ -234,7 +226,7 @@ fun normalizeReturnStatementValueRegImpl(output: StringBuilder,
 fun emitFinalReturnStatementValueImpl(output: StringBuilder,
     regBox: Array<Int>, isDataReturnType: Bool, returnKind: String,
     returnExprType: String, returnExprLlvmType: String, llvmType: String,
-    rawValueReg: String) r: Void {
+    rawValueReg: String, literalBytes: Int) r: Void {
 
     if llvmType == "void" {
         output.append("  ret void\n")
@@ -242,6 +234,6 @@ fun emitFinalReturnStatementValueImpl(output: StringBuilder,
     }
     let valueReg = normalizeReturnStatementValueRegImpl(output, regBox,
         isDataReturnType, returnKind, returnExprType, llvmType,
-        returnExprLlvmType, rawValueReg)
+        returnExprLlvmType, rawValueReg, literalBytes)
     output.append("  ret " + llvmType + " " + valueReg + "\n")
 }

@@ -67,8 +67,15 @@ fun prepareQuantizedCorpus(data: *UInt8, format: QuantizedFormat, fp8: Int) r: V
     }
 }
 fun corpusE2M1(code: Int) r: Float32 {
-    let values = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0]
-    var value = values[code % 8] as Float32; values.free()
+    // Independent E2M1 value table, without allocating in the scalar oracle.
+    let magnitude = code % 8; var value = 0.0 as Float32
+    if magnitude == 1 { value = 0.5 as Float32 }
+    if magnitude == 2 { value = 1.0 as Float32 }
+    if magnitude == 3 { value = 1.5 as Float32 }
+    if magnitude == 4 { value = 2.0 as Float32 }
+    if magnitude == 5 { value = 3.0 as Float32 }
+    if magnitude == 6 { value = 4.0 as Float32 }
+    if magnitude == 7 { value = 6.0 as Float32 }
     if code >= 8 { value = -value }; return value
 }
 fun corpusExpected(format: QuantizedFormat, lane: Int, fp8: Int) r: Float32 {

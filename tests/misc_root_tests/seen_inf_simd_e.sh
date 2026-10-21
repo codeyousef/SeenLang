@@ -16,6 +16,8 @@ FIXTURE_ARTIFACT_PREFIX=inf-simd-e
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 FIXTURE_COMPILE_FLAGS=(--bounds-check --simd-report=full)
 for profile in fast release undefined address; do
+    compile_case "$profile" nested "$ROOT_DIR/tests/inference_simd/nested_bounds_checks.seen"
+    rg -Fq 'PASS: nested read write call and binary bounds guards retain unique control flow' "$TMP_DIR/nested-$profile.log"
     compile_case "$profile" proof "$ROOT_DIR/tests/inference_simd/bounds_proof_contract.seen"
     for name in happy invalid limit reports cleanup; do
         rg -Fq "PASS: SEEN-INF-002E_$name" "$TMP_DIR/proof-$profile.log"

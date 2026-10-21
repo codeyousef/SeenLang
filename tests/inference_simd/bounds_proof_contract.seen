@@ -82,10 +82,13 @@ fun main() r: Int {
         let checked = proveRangeArrayBounds(rangeStatement, names, types, names.length())
         let report = renderBoundsLoopRecord(202, 5, 9, checked.reason, 1, 1)
         releaseJsonText(report); checked.free()
-        proofRequire(seen_memory_used_bytes() == memory); i = i + 1
+        types[3] = "UnknownClass"
+        let adverse = proveRangeArrayBounds(rangeStatement, names, types, names.length())
+        proofRequire(adverse.reason == "effects-or-control"); adverse.free(); types[3] = "Int"
+        if seen_memory_used_bytes() != memory { abort("bounds proof repeated analysis or report leaked allocations") }; i = i + 1
     }
     fixture.release()
-    proofRequire(seen_memory_used_bytes() == fixtureBaseline)
+    if seen_memory_used_bytes() != fixtureBaseline { abort("bounds proof fixture teardown leaked allocations") }
     println("PASS: SEEN-INF-002E_cleanup")
     return 0
 }

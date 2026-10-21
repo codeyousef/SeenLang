@@ -16,7 +16,20 @@ fun checkFloatAliases(wide: Float, explicitWide: Float64, single: Float32) r: Vo
     let narrow = single + single
     requireFloatAlias(narrow == (2.5 as Float32))
 }
+fun floatAliasSingle(value: Float32) r: Float32 { return value }
+fun checkFloatAliasCasts() r: Void {
+    let single = floatAliasSingle(1.25 as Float32)
+    let wide = single as Float64
+    let narrowed = wide as Float32
+    requireFloatAlias(wide == (1.25 as Float64) and narrowed == single)
+    requireFloatAlias(((2.0 as Float64) * (floatAliasSingle(single) as Float64)) as Float32 == (2.5 as Float32))
+    requireFloatAlias(((wide as Float) as Float64) == wide)
+    requireFloatAlias(((2.5 as Float64) as Int) == 2)
+    requireFloatAlias(((250.0 as Float64) as UInt8) == (250 as UInt8))
+    requireFloatAlias(((17 as UInt32) as Float64) == (17.0 as Float64))
+}
 fun main() r: Int {
+    checkFloatAliasCasts()
     checkFloatAliases(2.5, 2.5 as Float64, 1.25 as Float32)
     println("PASS: mixed Float Float32 Float64 comparisons arithmetic and fused promotion retain scalar types")
     return 0
