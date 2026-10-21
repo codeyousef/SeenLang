@@ -67,7 +67,8 @@ import codegen.gpu_precision_call_plan.{gpuPrecisionCallFormat as _seedGpuPrecis
 import codegen.gpu_precision_formats.{GPU_FORMAT_FP32 as _seedGpuPrecisionFormats}
 import codegen.gpu_precision_rules.{gpuIrPackedTypesValid as _seedGpuPrecisionRules}
 import codegen.gpu_specialization.{GpuSpecialization as _seedGpuSpecialization}
-import codegen.gpu_target_capabilities.{GpuTargetCapabilities as _seedGpuTargetCapabilities}
+import codegen.gpu_target_capabilities.{validateGpuTargetCapabilities as _seedGpuTargetCapabilities}
+import codegen.gpu_target_model.{GpuTargetCapabilities as _seedGpuTargetModel}
 import codegen.gpu_ir_call_graph.{GpuIrCallFacts as _seedGpuIrCallGraph}
 import codegen.gpu_ir_convergence.{gpuIrMaximumUniformity as _seedGpuIrConvergence}
 import codegen.gpu_ir_definitions.{gpuIrDefinitionVisible as _seedGpuIrDefinitions}
@@ -8907,6 +8908,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu_precision_rules")
         modules.push("codegen.gpu_specialization")
         modules.push("codegen.gpu_target_capabilities")
+        modules.push("codegen.gpu_target_model")
         modules.push("codegen.gpu_ir_call_graph")
         modules.push("codegen.gpu_ir_convergence")
         modules.push("codegen.gpu_ir_definitions")
