@@ -1,0 +1,70 @@
+/// Offline artifact command. Existing bounded input, manifest and CLI policy
+/// are shared with reflection; this module owns binary encoding and publication.
+import tools.cli_args.{CliArguments}
+import tools.gpu_command.{gpuLoadOptions, gpuApplyCliOptions, gpuReadBoundedText, gpuPrintError, gpuPrintValidation}
+import bootstrap.frontend.{runFrontendCompat}
+import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu.spirv_emitter.{emitGpuSpirv}
+import codegen.gpu_reflection.{reflectGpuModule}
+import core.result.{Result, Err}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+import codegen.gpu_bytes.{consumeGpuBytes}
+import json.builder.{releaseJsonText}
+import io.file.{writeTextAtomically}
+
+fun gpuSpirvBinary(words: Array<Int>) r: Result<String, GpuIrDiagnostic> {
+    if words.length() < 5 or words.length() > 8388608 {
+        return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_BINARY", "SPIR-V binary word count exceeds its header or byte ceiling"))
+    }
+    var i = 0
+    while i < words.length() {
+        if words[i] < 0 or words[i] > 4294967295 {
+            return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_BINARY", "SPIR-V binary word exceeds its unsigned 32-bit domain"))
+        }; i = i + 1
+    }
+    let bytes = Array<Int>(); i = 0
+    while i < words.length() {
+        let word = words[i]; var shift = 0
+        while shift < 32 { bytes.push((word >> shift) & 255); shift = shift + 8 }; i = i + 1
+    }
+    return consumeGpuBytes(bytes)
+}
+fun gpuEmitCommand(parsed: CliArguments, defaultManifest: String) r: Int {
+    if parsed.help {
+        println("Usage: seen gpu emit <source.seen> --gpu-backend spirv --output <module.spv> [--reflection <module.json>] [--gpu-target vulkan1.2|vulkan1.3] [--gpu-entry <name>]"); return 0
+    }
+    if not parsed.ok { println("Error: [E_GPU_CLI] " + parsed.error); return 1 }
+    let outputPath = parsed.valueOr("--output", ""); let reflectionPath = parsed.valueOr("--reflection", "")
+    if parsed.positionals.length() != 1 or not parsed.positionals[0].endsWith(".seen") or not outputPath.endsWith(".spv") or
+        (parsed.hasOption("--reflection") and not reflectionPath.endsWith(".json")) {
+        println("Error: [E_GPU_CLI] emission requires one .seen source, a .spv output and an optional .json reflection output"); return 1
+    }
+    let loaded = gpuLoadOptions(parsed, defaultManifest)
+    if loaded.isErr() { let error = loaded.unwrapErr(); loaded.releaseContainer(); gpuPrintError(error); error.free(); return 1 }
+    let options = loaded.unwrap(); loaded.releaseContainer(); let policy = gpuApplyCliOptions(options, parsed)
+    if policy.code != "" { gpuPrintError(policy); policy.free(); options.release(); return 1 }; policy.free()
+    let read = gpuReadBoundedText(parsed.positionals[0], 1048576)
+    if read.isErr() { let error = read.unwrapErr(); read.releaseContainer(); gpuPrintError(error); error.free(); options.release(); return 1 }
+    let text = read.unwrap(); read.releaseContainer(); let identity = parsed.valueOr("--module-id", "module")
+    let frontend = runFrontendCompat(text, identity, "en")
+    if not frontend.success { releaseJsonText(text); options.release(); println("Error: [E_GPU_SOURCE] GPU source did not parse"); return 1 }
+    let lowered = lowerGpuProgram(frontend.program, identity); releaseJsonText(text)
+    if lowered.isErr() { let error = lowered.unwrapErr(); lowered.releaseContainer(); gpuPrintValidation(error); error.release(); options.release(); return 1 }
+    let module = lowered.unwrap(); lowered.releaseContainer(); let emitted = emitGpuSpirv(module, options)
+    if emitted.isErr() {
+        let error = emitted.unwrapErr(); emitted.releaseContainer(); gpuPrintValidation(error); error.release(); module.release(); options.release(); return 1
+    }
+    let words = emitted.unwrap(); emitted.releaseContainer(); let reflected = reflectGpuModule(module, options); module.release(); options.release()
+    if reflected.isErr() { let error = reflected.unwrapErr(); reflected.releaseContainer(); gpuPrintValidation(error); error.release(); words.free(); return 1 }
+    let reflection = reflected.unwrap(); reflected.releaseContainer(); let encoded = gpuSpirvBinary(words); words.free()
+    if encoded.isErr() {
+        let error = encoded.unwrapErr(); encoded.releaseContainer(); gpuPrintError(error); error.free(); releaseJsonText(reflection); return 1
+    }
+    let binary = encoded.unwrap(); encoded.releaseContainer()
+    let written = writeTextAtomically(outputPath, binary); releaseJsonText(binary)
+    if not written { releaseJsonText(reflection); println("Error: [E_GPU_OUTPUT] SPIR-V atomic write failed"); return 1 }
+    var reflectedWritten = true
+    if reflectionPath != "" { reflectedWritten = writeTextAtomically(reflectionPath, reflection) }; releaseJsonText(reflection)
+    if not reflectedWritten { println("Error: [E_GPU_OUTPUT] reflection atomic write failed after SPIR-V publication"); return 1 }
+    println("[OK] SPIR-V artifact written (device execution unverified)"); return 0
+}

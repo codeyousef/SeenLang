@@ -26,13 +26,15 @@ fun gpuReadBoundedText(path: String, limit: Int) r: Result<String, GpuIrDiagnost
     if failed { bytes.free(); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT", "GPU input read, close or stable-size check failed")) }
     return consumeGpuBytes(bytes)
 }
-fun parseGpuReflectCli(argv: Array<String>) r: CliArguments {
+fun parseGpuArtifactCli(argv: Array<String>, binary: Bool) r: CliArguments {
     let values = ["--output", "--module-id", "--manifest", "--gpu-manifest", "--gpu-backend", "--gpu-target", "--gpu-fallback", "--gpu-entry"]
     let names = ["--output", "--module-id", "--gpu-manifest", "--gpu-manifest", "--gpu-backend", "--gpu-target", "--gpu-fallback", "--gpu-entry"]
     let repeatable = ["--gpu-entry"]
+    if binary { values.push("--reflection"); names.push("--reflection") }
     let result = parseCliArguments(argv, 3, Array<String>(), Array<String>(), values, names, repeatable)
     values.free(); names.free(); repeatable.free(); return result
 }
+fun parseGpuReflectCli(argv: Array<String>) r: CliArguments { return parseGpuArtifactCli(argv, false) }
 fun gpuApplyCliOptions(borrow options: GpuOptions, parsed: CliArguments) r: GpuIrDiagnostic {
     let flags = ["--gpu-backend", "--gpu-target", "--gpu-fallback"]; let keys = ["backend", "target", "fallback"]; var i = 0
     while i < flags.length() {

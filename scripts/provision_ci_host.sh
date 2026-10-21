@@ -31,7 +31,8 @@ source /etc/os-release
 sudo -n apt-get update
 sudo -n apt-get install --yes --no-install-recommends \
     bubblewrap ripgrep libvulkan-dev llvm-20 clang-20 lld-20 \
-    libclang-rt-20-dev
+    libclang-rt-20-dev spirv-tools
+[ -x /usr/bin/spirv-val ] || fail "SPIR-V validator was not installed"
 [ -x /usr/bin/bwrap ] || fail "Bubblewrap was not installed"
 [ "$(command -v rg || true)" = "/usr/bin/rg" ] || fail "ripgrep was not installed"
 [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so ] ||

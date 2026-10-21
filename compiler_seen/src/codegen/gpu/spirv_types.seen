@@ -1,0 +1,135 @@
+/// Deterministic scalar/vector, pointer and constant declarations. Caches are
+/// bounded independently of instruction and identifier budgets.
+import codegen.gpu.spirv_words.{GpuSpirvWords, SPV_CAPABILITIES, SPV_MEMORY_MODEL, SPV_DECLARATIONS}
+import codegen.gpu_ir_model.{GpuIrValidation}
+import codegen.gpu_ir_facts.{gpuIrValueTypeValid}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+
+fun spirvValueTypeValid(code: Int) r: Bool {
+    // Boolean vectors are internal predicates for checked vector operations.
+    return gpuIrValueTypeValid(code) or code == 17 or code == 33 or code == 49
+}
+
+class GpuSpirvContext {
+    var words: GpuSpirvWords
+    var validation: GpuIrValidation
+    var valueTypes: Array<Int>
+    var zeroValues: Array<Int>
+    var pointerKeys: Array<Int>
+    var pointerIds: Array<Int>
+    var constantTypes: Array<Int>
+    var constantWords: Array<Int>
+    var constantIds: Array<Int>
+    var splatTypes: Array<Int>
+    var splatWords: Array<Int>
+    var splatIds: Array<Int>
+    var glslSet: Int
+    var storageBlocks: Array<Int>
+    var uniformBlocks: Array<Int>
+    var sharedArrayKeys: Array<Int>
+    var sharedArrayIds: Array<Int>
+    var faultBlock: Int
+    var voidType: Int
+    var functionType: Int
+    var functionIndex: Int
+    var blockIndex: Int
+    var instructionIndex: Int
+    fun error(code: String, message: String) r: Void {
+        if this.validation.valid { this.validation.reject(code, message, this.functionIndex, this.blockIndex, this.instructionIndex) }
+    }
+    fun id() r: Int {
+        let identity = this.words.id()
+        if identity == 0 { this.error("E_GPU_SPIRV_LIMIT", this.words.message) }; return identity
+    }
+    fun emit(section: Int, opcode: Int, operands: Array<Int>) r: Bool {
+        let emitted = this.words.emit(section, opcode, operands)
+        if not emitted { this.error("E_GPU_SPIRV_LIMIT", this.words.message) }; return emitted
+    }
+    fun scalarType(code: Int) r: Int {
+        if code < 1 or code > 4 { this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V scalar type is unsupported"); return 0 }
+        if this.valueTypes[code] != 0 { return this.valueTypes[code] }
+        let identity = this.id(); this.valueTypes[code] = identity
+        if code == 1 { this.emit(SPV_DECLARATIONS, 20, [identity]) }
+        if code == 2 { this.emit(SPV_DECLARATIONS, 21, [identity, 32, 1]) }
+        if code == 3 { this.emit(SPV_DECLARATIONS, 21, [identity, 32, 0]) }
+        if code == 4 { this.emit(SPV_DECLARATIONS, 22, [identity, 32]) }; return identity
+    }
+    fun valueType(code: Int) r: Int {
+        if not spirvValueTypeValid(code) { this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V value type is unsupported"); return 0 }
+        if this.valueTypes[code] != 0 { return this.valueTypes[code] }
+        let scalar = this.scalarType(gpuTypeScalar(code))
+        if gpuTypeLanes(code) == 1 { return scalar }
+        let identity = this.id(); this.valueTypes[code] = identity
+        this.emit(SPV_DECLARATIONS, 23, [identity, scalar, gpuTypeLanes(code)]); return identity
+    }
+    fun pointerType(storage: Int, code: Int) r: Int {
+        if not spirvValueTypeValid(code) { this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V pointer element type is unsupported"); return 0 }
+        return this.rawPointerType(storage, this.valueType(code))
+    }
+    fun rawPointerType(storage: Int, value: Int) r: Int {
+        if storage != 1 and storage != 2 and storage != 4 and storage != 7 and storage != 12 {
+            this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V pointer storage class is unsupported"); return 0
+        }
+        if value < 1 or value >= this.words.nextId { this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V pointer element identity is unavailable"); return 0 }
+        let key = storage * 1048576 + value; var i = 0
+        while i < this.pointerKeys.length() { if this.pointerKeys[i] == key { return this.pointerIds[i] }; i = i + 1 }
+        if this.pointerKeys.length() >= 512 { this.error("E_GPU_SPIRV_LIMIT", "SPIR-V pointer type cache ceiling exceeded"); return 0 }
+        let identity = this.id()
+        this.pointerKeys.push(key); this.pointerIds.push(identity); this.emit(SPV_DECLARATIONS, 32, [identity, storage, value]); return identity
+    }
+    fun constant(code: Int, word: Int) r: Int {
+        if code < 1 or code > 4 or word < 0 or word > 4294967295 or (code == 1 and word > 1) {
+            this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V scalar constant is outside its type domain"); return 0
+        }
+        var i = 0
+        while i < this.constantIds.length() {
+            if this.constantTypes[i] == code and this.constantWords[i] == word { return this.constantIds[i] }; i = i + 1
+        }
+        if this.constantIds.length() >= 4096 { this.error("E_GPU_SPIRV_LIMIT", "SPIR-V scalar constant cache ceiling exceeded"); return 0 }
+        let typeId = this.scalarType(code); let identity = this.id()
+        this.constantTypes.push(code); this.constantWords.push(word); this.constantIds.push(identity)
+        if code == 1 {
+            var opcode = 42; if word == 1 { opcode = 41 }; this.emit(SPV_DECLARATIONS, opcode, [typeId, identity])
+        } else { this.emit(SPV_DECLARATIONS, 43, [typeId, identity, word]) }; return identity
+    }
+    fun zero(code: Int) r: Int {
+        if not spirvValueTypeValid(code) { this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V zero value has an unsupported type"); return 0 }
+        if this.zeroValues[code] != 0 { return this.zeroValues[code] }
+        let typeId = this.valueType(code); let identity = this.id(); this.zeroValues[code] = identity
+        this.emit(SPV_DECLARATIONS, 46, [typeId, identity]); return identity
+    }
+    fun splat(code: Int, word: Int) r: Int {
+        if not spirvValueTypeValid(code) { this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V splat has an unsupported type"); return 0 }
+        let scalar = this.constant(gpuTypeScalar(code), word)
+        if gpuTypeLanes(code) == 1 { return scalar }; var i = 0
+        while i < this.splatIds.length() {
+            if this.splatTypes[i] == code and this.splatWords[i] == word { return this.splatIds[i] }; i = i + 1
+        }
+        if this.splatIds.length() >= 4096 { this.error("E_GPU_SPIRV_LIMIT", "SPIR-V composite constant cache ceiling exceeded"); return 0 }
+        let typeId = this.valueType(code); let identity = this.id(); let operands = [typeId, identity]; i = 0
+        while i < gpuTypeLanes(code) { operands.push(scalar); i = i + 1 }
+        this.emit(SPV_DECLARATIONS, 44, operands); this.splatTypes.push(code); this.splatWords.push(word); this.splatIds.push(identity); return identity
+    }
+    fun release() r: Void {
+        this.words.release(); this.valueTypes.free(); this.zeroValues.free(); this.pointerKeys.free(); this.pointerIds.free()
+        this.constantTypes.free(); this.constantWords.free(); this.constantIds.free()
+        this.splatTypes.free(); this.splatWords.free(); this.splatIds.free()
+        this.storageBlocks.free(); this.uniformBlocks.free(); this.sharedArrayKeys.free(); this.sharedArrayIds.free(); this.free()
+    }
+}
+fun createGpuSpirvContext(validation: GpuIrValidation) r: GpuSpirvContext {
+    let types = Array<Int>(); let zeros = Array<Int>(); let storageBlocks = Array<Int>(); let uniformBlocks = Array<Int>(); var i = 0
+    while i < 64 { types.push(0); zeros.push(0); storageBlocks.push(0); uniformBlocks.push(0); i = i + 1 }
+    let context = GpuSpirvContext{words: GpuSpirvWords.create(), validation: validation, valueTypes: types, zeroValues: zeros,
+        pointerKeys: Array<Int>(), pointerIds: Array<Int>(), constantTypes: Array<Int>(), constantWords: Array<Int>(), constantIds: Array<Int>(),
+        splatTypes: Array<Int>(), splatWords: Array<Int>(), splatIds: Array<Int>(), glslSet: 0,
+        storageBlocks: storageBlocks, uniformBlocks: uniformBlocks, sharedArrayKeys: Array<Int>(), sharedArrayIds: Array<Int>(), faultBlock: 0,
+        voidType: 0, functionType: 0, functionIndex: -1, blockIndex: -1, instructionIndex: -1}
+    context.emit(SPV_CAPABILITIES, 17, [1]); context.emit(SPV_MEMORY_MODEL, 14, [0, 1])
+    context.voidType = context.id(); context.emit(SPV_DECLARATIONS, 19, [context.voidType])
+    context.functionType = context.id(); context.emit(SPV_DECLARATIONS, 33, [context.functionType, context.voidType]); return context
+}
+fun spirvFloatLiteralWord(text: String) r: Int {
+    let native: Float = text.toFloat(); let packed: Float32 = native as Float32
+    let word = *((&packed) as *UInt32); return word as Int
+}

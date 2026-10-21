@@ -61,7 +61,22 @@ import codegen.gpu_bytes.{consumeGpuBytes as _seedGpuBytes}
 import codegen.gpu_manifest.{parseGpuManifest as _seedGpuManifest}
 import codegen.gpu_reflection.{reflectGpuModule as _seedGpuReflection}
 import codegen.gpu_reflection_layout.{GpuEntryRequirements as _seedGpuReflectionLayout}
-import tools.gpu_command.{parseGpuReflectCli, gpuReflectCommand, gpuValidateCompileOptions}
+import tools.gpu_command.{parseGpuArtifactCli, gpuReflectCommand, gpuValidateCompileOptions}
+import tools.gpu_emit_command.{gpuEmitCommand}
+import codegen.gpu.spirv_words.{GpuSpirvWords as _seedSpirv_words}
+import codegen.gpu.spirv_types.{GpuSpirvContext as _seedSpirv_types}
+import codegen.gpu.spirv_layout.{GpuSpirvResource as _seedSpirv_layout}
+import codegen.gpu.spirv_function.{GpuSpirvFunction as _seedSpirv_function}
+import codegen.gpu.spirv_frame.{GpuSpirvFrame as _seedSpirv_frame}
+import codegen.gpu.spirv_shared.{spirvInitializeShared as _seedSpirv_shared}
+import codegen.gpu.spirv_memory.{spirvCheckedLoad as _seedSpirv_memory}
+import codegen.gpu.spirv_math_plan.{spirvBinaryOpcode as _seedSpirv_math_plan}
+import codegen.gpu.spirv_math.{spirvBinary as _seedSpirv_math}
+import codegen.gpu.spirv_casts.{spirvCast as _seedSpirv_casts}
+import codegen.gpu.spirv_intrinsics.{spirvIntrinsic as _seedSpirv_intrinsics}
+import codegen.gpu.spirv_values.{spirvLowerValue as _seedSpirv_values}
+import codegen.gpu.spirv_regions.{spirvLowerRegion as _seedSpirv_regions}
+import codegen.gpu.spirv_emitter.{emitGpuSpirv as _seedSpirv_emitter}
 import crypto.sha256.{sha256 as _seedGpuSha256}
 import codegen.gpu_call_plan_model.{GpuCallPlan as _seedGpuCallPlanModel}
 import codegen.gpu_matrix_types.{gpuMatrixShapeValid as _seedGpuMatrixTypes}
@@ -8905,6 +8920,21 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu_reflection")
         modules.push("codegen.gpu_reflection_layout")
         modules.push("tools.gpu_command")
+        modules.push("tools.gpu_emit_command")
+        modules.push("codegen.gpu.spirv_words")
+        modules.push("codegen.gpu.spirv_types")
+        modules.push("codegen.gpu.spirv_layout")
+        modules.push("codegen.gpu.spirv_function")
+        modules.push("codegen.gpu.spirv_frame")
+        modules.push("codegen.gpu.spirv_shared")
+        modules.push("codegen.gpu.spirv_memory")
+        modules.push("codegen.gpu.spirv_math_plan")
+        modules.push("codegen.gpu.spirv_math")
+        modules.push("codegen.gpu.spirv_casts")
+        modules.push("codegen.gpu.spirv_intrinsics")
+        modules.push("codegen.gpu.spirv_values")
+        modules.push("codegen.gpu.spirv_regions")
+        modules.push("codegen.gpu.spirv_emitter")
         modules.push("crypto.sha256")
         modules.push("codegen.gpu_matrix_types")
         modules.push("codegen.gpu_precision_call_plan")
@@ -17383,11 +17413,12 @@ fun main() r: Int {
 
     let command = argv[1]
     if command == "gpu" {
-        if argv.length() < 3 or argv[2] != "reflect" {
-            println("Usage: seen gpu reflect <source.seen> --output <reflection.json>"); return 1
+        if argv.length() < 3 or (argv[2] != "reflect" and argv[2] != "emit") {
+            println("Usage: seen gpu reflect|emit <source.seen> --output <artifact>"); return 1
         }
-        let parsed = parseGpuReflectCli(argv); var manifest = ""
+        let parsed = parseGpuArtifactCli(argv, argv[2] == "emit"); var manifest = ""
         if parsed.ok and parsed.positionals.length() == 1 { manifest = findNearestSeenTomlForInput(parsed.positionals[0]) }
+        if argv[2] == "emit" { return gpuEmitCommand(parsed, manifest) }
         return gpuReflectCommand(parsed, manifest)
     }
     if command == "--version" or command == "-v" {
