@@ -1,3 +1,4 @@
+import codegen.ir_bounds_proof_state.{consumeBoundsProof}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 // ir_index_access_driver.seen - prepared index access lowering leaves.
 
@@ -167,8 +168,13 @@ fun generateIndexAccessState(ctx: CodegenLoweringContext,
     let indexReg = lowerExpression(ctx, expr.operands[1])
     arrayReg = applyBlockStatementsIndexAccessFallbackState(output,
         arrayReg, expr.operands[0].variableName, varRegs, varTypes)
+    var checked = boundsCheckEnabled
+    if checked == 1 and consumeBoundsProof(expr.operands[0], expr.operands[1]) {
+        output.append("  ; bounds-proof: canonical zero-to-stable-length read\n")
+        checked = 0
+    }
     let nextBoundsCount = emitIndexBoundsCheckState(output, arrayReg,
-        indexReg, boundsCheckEnabled, boundsCheckLabelCount)
+        indexReg, checked, boundsCheckLabelCount)
     let arrayType = inferLoweredExpressionType(ctx, expr.operands[0])
     return IndexAccessResult.new(emitTypedIndexAccessState(output,
         arrayType, arrayReg, indexReg), nextBoundsCount)

@@ -1,0 +1,3 @@
+@simd_target("avx512,+untrusted")
+fun rejected() r: Int { return 0 }
+fun main() r: Int { return rejected() }

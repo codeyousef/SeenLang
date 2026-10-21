@@ -1,0 +1,114 @@
+/// Structured region traversal and bounded helper expansion. Every source loop
+/// retains its iteration ceiling; each helper invocation owns a fresh SSA frame.
+import codegen.gpu_ir_ops.{GPU_IR_BREAK, GPU_IR_CALL, GPU_IR_CONDITION, GPU_IR_CONTINUE, GPU_IR_FOR, GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_RETURN, GPU_IR_WHILE, GPU_IR_YIELD_VALUE}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrInstruction}
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_frame.{GpuSpirvFrame, createGpuSpirvFrame}
+import codegen.gpu.spirv_values.{spirvLowerValue}
+import codegen.gpu.spirv_math.{spirvBinaryValue}
+
+fun spirvLowerConditional(borrow module: GpuIrModule, function: GpuSpirvFunction,
+    frame: GpuSpirvFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let context = function.context; let yes = context.id(); let no = context.id(); let merge = context.id()
+    function.emit(247, [merge, 0]); function.conditional(frame.registers[op.operands[0]], yes, no)
+    function.label(yes); spirvLowerRegion(module, function, frame, op.leftBlock, depth + 1)
+    let leftSignal = frame.signal; let leftValue = frame.yielded; let leftLabel = function.currentLabel
+    function.branch(merge); frame.signal = 0
+    function.label(no)
+    if op.rightBlock >= 0 { spirvLowerRegion(module, function, frame, op.rightBlock, depth + 1) }
+    let rightSignal = frame.signal; let rightValue = frame.yielded; let rightLabel = function.currentLabel
+    function.branch(merge); frame.signal = 0; function.label(merge)
+    if op.opcode == GPU_IR_IF_VALUE {
+        if leftSignal != 5 or rightSignal != 5 { context.error("E_GPU_SPIRV_CONTROL", "SPIR-V value selection lacks both yields"); return }
+        let result = context.id(); function.emit(245, [context.valueType(op.typeCode), result, leftValue, leftLabel, rightValue, rightLabel])
+        frame.registers[op.result] = result
+    } else if leftSignal != 0 and rightSignal != 0 {
+        function.emit(255, Array<Int>()); function.terminated = true; frame.signal = 6
+    }
+}
+fun spirvLowerLoop(borrow module: GpuIrModule, function: GpuSpirvFunction,
+    frame: GpuSpirvFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let context = function.context; let header = context.id(); let conditionBlock = context.id()
+    let budgetBlock = context.id(); let body = context.id(); let exhausted = context.id()
+    let continued = context.id(); let merge = context.id()
+    let counter = function.variable(3); function.emit(62, [counter, context.constant(3, 0)])
+    var induction = 0; var inductionType = 0
+    if op.opcode == GPU_IR_FOR {
+        inductionType = frame.registerTypes[op.operands[0]]; induction = function.variable(inductionType)
+        function.emit(62, [induction, frame.registers[op.operands[0]]])
+    }
+    function.branch(header); function.label(header); function.emit(246, [merge, continued, 0]); function.branch(conditionBlock)
+    function.label(conditionBlock); var condition = 0
+    if op.opcode == GPU_IR_WHILE {
+        spirvLowerRegion(module, function, frame, op.leftBlock, depth + 1)
+        if frame.signal != 4 { context.error("E_GPU_SPIRV_CONTROL", "SPIR-V loop condition did not yield Bool"); return }
+        condition = frame.condition; frame.signal = 0
+    } else {
+        let value = context.id(); function.emit(61, [context.valueType(inductionType), value, induction])
+        var compare = 176; if inductionType == 2 { compare = 177 }
+        condition = spirvBinaryValue(function, compare, 1, value, frame.registers[op.operands[1]])
+    }
+    function.conditional(condition, budgetBlock, merge); function.label(budgetBlock)
+    let count = context.id(); function.emit(61, [context.valueType(3), count, counter])
+    let over = spirvBinaryValue(function, 174, 1, count, context.constant(3, 1000000))
+    function.emit(247, [body, 0]); function.conditional(over, exhausted, body)
+    function.label(exhausted); function.faultKind(3); function.branch(merge)
+    function.label(body); frame.loopMerges.push(merge); frame.loopContinues.push(continued); frame.inductionPointers.push(induction)
+    var bodyIndex = op.leftBlock; if op.opcode == GPU_IR_WHILE { bodyIndex = op.rightBlock }
+    spirvLowerRegion(module, function, frame, bodyIndex, depth + 1); function.branch(continued)
+    frame.loopMerges.pop(); frame.loopContinues.pop(); frame.inductionPointers.pop(); frame.signal = 0
+    function.label(continued)
+    let previous = context.id(); function.emit(61, [context.valueType(3), previous, counter])
+    let next = spirvBinaryValue(function, 128, 3, previous, context.constant(3, 1)); function.emit(62, [counter, next])
+    if induction != 0 {
+        let old = context.id(); function.emit(61, [context.valueType(inductionType), old, induction])
+        let incremented = spirvBinaryValue(function, 128, inductionType, old, context.constant(inductionType, 1))
+        function.emit(62, [induction, incremented])
+    }
+    function.branch(header); function.label(merge)
+}
+fun spirvLowerCall(borrow module: GpuIrModule, function: GpuSpirvFunction,
+    frame: GpuSpirvFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let context = function.context; let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
+    while i < op.operands.length() {
+        arguments.push(frame.registers[op.operands[i]]); resources.push(frame.resourceIndices[op.operands[i]]); i = i + 1
+    }
+    let child = createGpuSpirvFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free()
+    let body = context.id(); let merge = context.id(); child.returnMerge = merge
+    if op.typeCode != 0 { child.returnSlot = function.variable(op.typeCode); function.emit(62, [child.returnSlot, context.zero(op.typeCode)]) }
+    function.emit(247, [merge, 0]); function.conditional(context.constant(1, 1), body, merge); function.label(body)
+    spirvLowerRegion(module, function, child, 0, depth + 1); function.branch(merge); function.label(merge)
+    if op.typeCode != 0 {
+        let result = context.id(); function.emit(61, [context.valueType(op.typeCode), result, child.returnSlot]); frame.registers[op.result] = result
+    }
+    child.release()
+}
+fun spirvLowerRegion(borrow module: GpuIrModule, function: GpuSpirvFunction,
+    frame: GpuSpirvFrame, blockIndex: Int, depth: Int) r: Void {
+    let context = function.context
+    if not context.validation.valid { return }
+    if depth > 128 { context.error("E_GPU_SPIRV_LIMIT", "SPIR-V expanded region depth ceiling exceeded"); return }
+    let source: GpuIrFunction = module.functions[frame.functionIndex]; let block = source.blocks[blockIndex]; var i = 0
+    while i < block.instructions.length() and context.validation.valid and frame.signal == 0 {
+        let op: GpuIrInstruction = block.instructions[i]
+        context.functionIndex = frame.functionIndex; context.blockIndex = blockIndex; context.instructionIndex = i
+        if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE { spirvLowerConditional(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR { spirvLowerLoop(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_CALL { spirvLowerCall(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_CONDITION { frame.condition = frame.registers[op.operands[0]]; frame.signal = 4 }
+        else if op.opcode == GPU_IR_YIELD_VALUE { frame.yielded = frame.registers[op.operands[0]]; frame.signal = 5 }
+        else if op.opcode == GPU_IR_BREAK or op.opcode == GPU_IR_CONTINUE {
+            if frame.loopMerges.length() == 0 { context.error("E_GPU_SPIRV_CONTROL", "SPIR-V loop exit lacks its enclosing loop"); return }
+            let index = frame.loopMerges.length() - 1
+            if op.opcode == GPU_IR_BREAK { function.branch(frame.loopMerges[index]); frame.signal = 2 }
+            else { function.branch(frame.loopContinues[index]); frame.signal = 3 }
+        } else if op.opcode == GPU_IR_RETURN {
+            if frame.returnMerge == 0 { function.emit(253, Array<Int>()); function.terminated = true }
+            else {
+                if frame.returnSlot != 0 { function.emit(62, [frame.returnSlot, frame.registers[op.operands[0]]]) }
+                function.branch(frame.returnMerge)
+            }; frame.signal = 1
+        } else { spirvLowerValue(function, frame, op) }
+        i = i + 1
+    }
+}

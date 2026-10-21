@@ -2288,6 +2288,31 @@ class RealParser {
         }
     }
 
+    // Preserve GPU workgroup syntax instead of dropping punctuation or keys.
+    // The typed GPU checker owns interpretation; this parser only groups tokens.
+    fun parseGpuComputeDecoratorArguments(annotation: AnnotationNode) r: Void {
+        var argument = ""; var brackets = 0; var tokens = 0
+        while not checkToken(SeenTokenType.RightParen) and not isAtEnd() and tokens < 128 {
+            if checkToken(SeenTokenType.Comma) and brackets == 0 {
+                advance()
+                if argument == "" { recordParserRecoveryError() }
+                annotation.addArgument(argument); argument = ""
+            } else {
+                if checkToken(SeenTokenType.LeftBracket) { brackets = brackets + 1 }
+                if checkToken(SeenTokenType.RightBracket) { brackets = brackets - 1 }
+                if brackets < 0 or brackets > 1 { recordParserRecoveryError() }
+                if checkToken(SeenTokenType.StringLiteral) { recordParserRecoveryError() }
+                let token = advance()
+                if argument.length() + token.getValue().length() > 256 { recordParserRecoveryError() }
+                else { argument = argument + token.getValue() }
+            }
+            tokens = tokens + 1
+        }
+        if tokens >= 128 or brackets != 0 { recordParserRecoveryError() }
+        if argument != "" { annotation.addArgument(argument) }
+        consume(SeenTokenType.RightParen, "Expected ')' after compute workgroup arguments")
+    }
+
     // Parse a decorator and add to pending decorators
     fun parseDecoratorInto() r: Void {
         // Expect identifier or keyword-as-decorator after @
@@ -2303,44 +2328,48 @@ class RealParser {
 
         // Optional: parse arguments in parentheses
         if matchTokenStr(SeenTokenType.LeftParen) {
-            while not checkToken(SeenTokenType.RightParen) and not isAtEnd() {
-                // Parse argument: value OR key=value
-                if checkToken(SeenTokenType.Identifier) {
-                    let argToken = advance()
-                    // Check if this is key=value syntax
-                    if checkToken(SeenTokenType.Equal) {
-                        // Skip the '=' and read the actual value
-                        advance()
-                        if checkToken(SeenTokenType.IntegerLiteral) {
-                            let valToken = advance()
-                            annotation.addArgument(valToken.getValue())
-                        } else if checkToken(SeenTokenType.StringLiteral) {
-                            let valToken = advance()
-                            annotation.addArgument(valToken.getValue())
-                        } else if checkToken(SeenTokenType.Identifier) {
-                            let valToken = advance()
-                            annotation.addArgument(valToken.getValue())
+            if decoratorName == "compute" {
+                parseGpuComputeDecoratorArguments(annotation)
+            } else {
+                while not checkToken(SeenTokenType.RightParen) and not isAtEnd() {
+                    // Parse argument: value OR key=value
+                    if checkToken(SeenTokenType.Identifier) {
+                        let argToken = advance()
+                        // Check if this is key=value syntax
+                        if checkToken(SeenTokenType.Equal) {
+                            // Skip the '=' and read the actual value
+                            advance()
+                            if checkToken(SeenTokenType.IntegerLiteral) {
+                                let valToken = advance()
+                                annotation.addArgument(valToken.getValue())
+                            } else if checkToken(SeenTokenType.StringLiteral) {
+                                let valToken = advance()
+                                annotation.addArgument(valToken.getValue())
+                            } else if checkToken(SeenTokenType.Identifier) {
+                                let valToken = advance()
+                                annotation.addArgument(valToken.getValue())
+                            }
+                        } else {
+                            annotation.addArgument(argToken.getValue())
                         }
-                    } else {
+                    } else if checkToken(SeenTokenType.StringLiteral) {
+                        let argToken = advance()
                         annotation.addArgument(argToken.getValue())
+                    } else if checkToken(SeenTokenType.IntegerLiteral) {
+                        let argToken = advance()
+                        annotation.addArgument(argToken.getValue())
+                    } else {
+                        // Skip unknown token to avoid infinite loop
+                        advance()
                     }
-                } else if checkToken(SeenTokenType.StringLiteral) {
-                    let argToken = advance()
-                    annotation.addArgument(argToken.getValue())
-                } else if checkToken(SeenTokenType.IntegerLiteral) {
-                    let argToken = advance()
-                    annotation.addArgument(argToken.getValue())
-                } else {
-                    // Skip unknown token to avoid infinite loop
-                    advance()
-                }
 
-                // Skip comma between arguments
-                if not matchTokenStr(SeenTokenType.Comma) {
-                    break
+                    // Skip comma between arguments
+                    if not matchTokenStr(SeenTokenType.Comma) {
+                        break
+                    }
                 }
+                consume(SeenTokenType.RightParen, "Expected ')' after decorator arguments")
             }
-            consume(SeenTokenType.RightParen, "Expected ')' after decorator arguments")
         }
 
         this.pendingDecorators.push(annotation)

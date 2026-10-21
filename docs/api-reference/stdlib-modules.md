@@ -189,6 +189,8 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ### `inference`
 
+- `inference/iq3_xxs_codebook`
+- `inference/quantized_formats`
 - `inference/scalars`
 - `inference/span`
 
@@ -295,10 +297,22 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ### `simd`
 
+- `simd/arm_blocks`
+- `simd/arm_dispatch`
+- `simd/arm_kernels`
 - `simd/dispatch_plan`
+- `simd/dot_clock`
+- `simd/dot_contract`
+- `simd/dot_scalar`
 - `simd/ir_types`
+- `simd/memory_operations`
+- `simd/operation_types`
+- `simd/quantized_decode`
 - `simd/simd_math`
 - `simd/simd_types`
+- `simd/x86_blocks`
+- `simd/x86_dispatch`
+- `simd/x86_kernels`
 
 ### `str`
 

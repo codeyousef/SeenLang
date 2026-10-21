@@ -1,4 +1,5 @@
 import json.builder.{releaseJsonText}
+import simd.operation_types.{simdOperationArity, simdOperationArgumentValid, simdOperationPrefix}
 ///
 Stage-2 lexical semantic foundation executed after parsing and before LLVM
 lowering. It establishes shared identities, declaration metadata, and proved
@@ -12,7 +13,8 @@ import parser.real_parser.{ProgramNode, FunctionNode, ClassNode, BlockNode,
 import parser.real_parser.{ParserExpressionNode, TypeNode, AnnotationNode}
 import parser.real_parser.{ParamNode}
 import simd.ir_types.{simdBuiltinLanes, simdMaskLanes,
-    simdComparisonMaskName, simdIsComparisonOperator, simdConstructorLaneSupported}
+    simdComparisonMaskName, simdIsComparisonOperator, simdConstructorLaneSupported,
+    simdX86DotType, simdKnownTarget, simdArmBlockArity}
 import parser.real_parser.{genericParameterCount, genericParameterNameAt}
 import parser.real_parser.{genericParameterModifierAt}
 import typechecker.type_ref.{TypeRef, parseTypeRef}
@@ -25,6 +27,8 @@ import typechecker.semantic_registry.{semanticBuiltinGenericArity}
 import typechecker.semantic_registry.{semanticFoundationThreadProperty}
 import typechecker.semantic_registry.{semanticFoundationTypeBase}
 import typechecker.semantic_registry.{semanticNormalizeModuleIdentity}
+import typechecker.gpu_annotations.{gpuFunctionStage}
+import typechecker.gpu_module_frontend.{gpuCheckModule}
 
 class LexicalSemanticResult {
     var success: Bool
@@ -785,12 +789,70 @@ fun semanticCallArgumentTransfersOwnership(result: LexicalSemanticResult,
     return ownership != "borrow" and ownership != "ref"
 }
 
+fun semanticSimdShuffleIndexValid(expression: ParserExpressionNode, lanes: Int) r: Bool {
+    if expression.kind != "Literal" or expression.literalType != "Int" or
+        expression.literalValue.length() == 0 or expression.literalValue.length() > 2 { return false }
+    var value = 0; var i = 0
+    while i < expression.literalValue.length() {
+        let digit = expression.literalValue.charAt(i)
+        if digit < '0' or digit > '9' { return false }
+        value = value * 10 + digit.toInt() - '0'.toInt(); i = i + 1
+    }
+    return value < lanes * 2
+}
+
 fun semanticCheckExpression(result: LexicalSemanticResult,
     expression: ParserExpressionNode, bindings: ScopedBindings,
     moduleName: String, file: String, line: Int, column: Int,
     ownerType: String) r: Void {
 
     if expression.kind == "Call" {
+        let operationArity = simdOperationArity(expression.callee)
+        if operationArity == 0 and (simdOperationPrefix(expression.callee) != "" or
+            expression.callee.startsWith("simd_unsafe_prefetch_read_")) {
+            result.addError("E_SIMD_OPERATION", "unsupported portable SIMD operation spelling", file, line, column)
+        }
+        if operationArity > 0 {
+            if expression.arguments.length() != operationArity {
+                result.addError("E_SIMD_ARITY", "portable SIMD operation has incorrect arity", file, line, column)
+            } else {
+                var argument = 0
+                while argument < operationArity {
+                    let actual = semanticExpressionBindingIdentity(result,
+                        expression.arguments[argument], bindings, moduleName)
+                    if actual != "" and actual != "Unknown" {
+                        if not simdOperationArgumentValid(expression.callee, argument, actual) {
+                            result.addError("E_SIMD_LANE", "portable SIMD operation has incompatible argument shape", file, line, column)
+                        }
+                    }
+                    argument = argument + 1
+                }
+            }
+        }
+        let armArity = simdArmBlockArity(expression.callee)
+        if armArity > 0 and expression.arguments.length() != armArity {
+            result.addError("E_SIMD_ARITY", "ARM block requires exact pointer/count arguments", file, line, column)
+        }
+        let dotType = simdX86DotType(expression.callee)
+        if dotType != "" {
+            if expression.arguments.length() != 3 {
+                result.addError("E_SIMD_ARITY", "x86 dot requires accumulator and two packed inputs",
+                    file, line, column)
+            } else {
+                var dotIndex = 0
+                while dotIndex < 3 {
+                    var expected = "i32x16"
+                    if dotIndex == 0 { expected = dotType }
+                    let actual = semanticExpressionBindingIdentity(result,
+                        expression.arguments[dotIndex], bindings, moduleName)
+                    if actual != "" and actual != "Unknown" and actual != expected {
+                        result.addError("E_SIMD_LANE", "x86 dot requires exact packed lane types",
+                            file, line, column)
+                    }
+                    dotIndex = dotIndex + 1
+                }
+            }
+        }
         let lanes = simdBuiltinLanes(expression.callee) +
             simdMaskLanes(expression.callee)
         if lanes > 0 and expression.arguments.length() != lanes {
@@ -811,6 +873,30 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
                     }
                 }
                 laneIndex = laneIndex + 1
+            }
+        }
+        if expression.callee == "simd_shuffle" {
+            if expression.arguments.length() < 3 {
+                result.addError("E_SIMD_ARITY", "shuffle requires two vectors and literal lane indices", file, line, column)
+            } else {
+                let first = semanticExpressionBindingIdentity(result, expression.arguments[0], bindings, moduleName)
+                let second = semanticExpressionBindingIdentity(result, expression.arguments[1], bindings, moduleName)
+                let lanes = simdBuiltinLanes(first)
+                if lanes > 0 {
+                    if expression.arguments.length() != lanes + 2 {
+                        result.addError("E_SIMD_ARITY", "shuffle requires exactly one index per output lane", file, line, column)
+                    }
+                    if second != "" and second != "Unknown" and first != second {
+                        result.addError("E_SIMD_LANE", "shuffle inputs must have identical lane types", file, line, column)
+                    }
+                    var i = 2
+                    while i < expression.arguments.length() {
+                        if not semanticSimdShuffleIndexValid(expression.arguments[i], lanes) {
+                            result.addError("E_SIMD_INDEX", "shuffle index must be an in-range decimal integer literal", file, line, column)
+                        }
+                        i = i + 1
+                    }
+                }
             }
         }
         if expression.callee == "simd_select" {
@@ -1467,6 +1553,24 @@ fun semanticCheckFunction(result: LexicalSemanticResult,
     function: FunctionNode, moduleName: String, file: String,
     ownerType: String, genericNames: Array<String>) r: Void {
 
+    if gpuFunctionStage(function) != 0 { return }
+
+    var targetCount = 0; var targetIndex = 0
+    while targetIndex < function.decorators.length() {
+        let decorator = function.decorators[targetIndex]
+        if decorator.name == "simd_target" {
+            targetCount = targetCount + 1
+            if targetCount > 1 or decorator.arguments.length() != 1 {
+                result.addError("E_SIMD_TARGET", "exactly one explicit SIMD target is required",
+                    file, function.line, function.column)
+            } else if not simdKnownTarget(decorator.arguments[0]) {
+                result.addError("E_SIMD_TARGET", "unsupported explicit SIMD target",
+                    file, function.line, function.column)
+            }
+        }
+        targetIndex = targetIndex + 1
+    }
+
     let functionGenericNames = semanticDecoratorGenericNames(
         function.decorators, genericNames)
     var functionOwner = semanticCanonicalDeclaration(moduleName,
@@ -1611,12 +1715,18 @@ fun checkSemanticDeclarations(result: LexicalSemanticResult,
     program: ProgramNode, moduleName: String, file: String,
     genericNames: Array<String>) r: Void {
 
+    let gpuDiagnostics = gpuCheckModule(program, file)
+    var gpuDiagnosticIndex = 0
+    while gpuDiagnosticIndex < gpuDiagnostics.length() {
+        result.diagnostics.push(gpuDiagnostics[gpuDiagnosticIndex]); result.success = false
+        gpuDiagnosticIndex = gpuDiagnosticIndex + 1
+    }
+    gpuDiagnostics.free()
     var i = 0
     while i < program.items.length() {
         let item = program.items[i]
         if item.itemType == "Function" {
-            semanticCheckFunction(result, item.function, moduleName, file, "",
-                genericNames)
+            semanticCheckFunction(result, item.function, moduleName, file, "", genericNames)
         } else if item.itemType == "Class" {
             let ownerType = semanticCanonicalDeclaration(moduleName,
                 item.classNode.name)

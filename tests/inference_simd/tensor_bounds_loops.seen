@@ -1,0 +1,43 @@
+@noinline
+fun provedTensor(values: Array<Int>) r: Int {
+    var total = 0
+    for i in 0..values.length() { total = total + values[i] }
+    return total
+}
+@noinline
+fun shiftedTensor(values: Array<Int>) r: Int {
+    var total = 0
+    for i in 0..values.length() { total = total + values[i - 1] }
+    return total
+}
+@noinline
+fun callInLoop(values: Array<Int>) r: Int {
+    var total = 0
+    for i in 0..values.length() { total = total + values[i]; observe(i) }
+    return total
+}
+@noinline
+fun observe(value: Int) r: Void { if value < 0 { abort("negative observation") } }
+@noinline
+fun updateTensor(values: Array<Int>) r: Void {
+    for i in 0..values.length() { values[i] = values[i] * 2 }
+}
+@noinline
+fun checkedBulk(values: Array<Int>, other: Array<Int>, count: Int) r: Void {
+    var i = 0
+    while i < count { values[i] = other[i]; i = i + 1 }
+}
+fun main() r: Int {
+    let values = Array<Int>(); var i = 0
+    while i < 1024 { values.push(i); i = i + 1 }
+    if provedTensor(values) != 523776 { return 1 }
+    if callInLoop(values) != 523776 { return 2 }
+    updateTensor(values)
+    if provedTensor(values) != 1047552 { return 3 }
+    let empty = Array<Int>(); if provedTensor(empty) != 0 { return 4 }
+    if shiftedTensor(empty) != 0 { return 5 }
+    checkedBulk(values, values, 0)
+    empty.free(); values.free()
+    println("PASS: proved tensor bounds and conservative loop execution")
+    return 0
+}

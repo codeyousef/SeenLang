@@ -324,6 +324,11 @@ fun emitStaticCollectionNewImpl(output: StringBuilder, regBox: Array<Int>, class
 
 // emitArrayWithLengthImpl — Array<T>.withLength(n) zero-initialized
 fun emitArrayWithLengthImpl(output: StringBuilder, regBox: Array<Int>, fullClassName: String, countReg: String) r: String {
+    let elementType = resolveArrayConstructorElementTypeImpl(fullClassName)
+    if isFixedWidthScalarTypeImpl(elementType) {
+        return emitFixedWidthArrayWithLengthImpl(output, regBox, countReg,
+            getFixedWidthScalarSizeImpl(elementType))
+    }
     let arrReg = getNextRegFn(regBox)
     if fullClassName.contains("<Float") {
         output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_double(i64 " + countReg + ", double 0.0)\n")
@@ -331,6 +336,36 @@ fun emitArrayWithLengthImpl(output: StringBuilder, regBox: Array<Int>, fullClass
         output.append("  " + arrReg + " = call noalias ptr @seen_arr_new_filled_i64(i64 " + countReg + ", i64 0)\n")
     }
     return arrReg
+}
+
+// Fixed-width arrays must share the element stride used by indexing and
+// Array_set. A word-sized filled array would copy past narrow temporaries.
+fun emitFixedWidthArrayWithLengthImpl(output: StringBuilder, regBox: Array<Int>,
+    countReg: String, width: Int) r: String {
+    // Reuse the existing checked nonnegative-index boundary before multiplying
+    // or allocating. The exclusive ceiling keeps capacity * width in Int64.
+    output.append("  call void @seen_bounds_check(i64 " + countReg + ", i64 " +
+        (9223372036854775807 / width).toString() + ")\n")
+    let small = getNextRegFn(regBox)
+    output.append("  " + small + " = icmp ult i64 " + countReg + ", 8\n")
+    let capacity = getNextRegFn(regBox)
+    output.append("  " + capacity + " = select i1 " + small + ", i64 8, i64 " + countReg + "\n")
+    let bytes = getNextRegFn(regBox)
+    output.append("  " + bytes + " = mul i64 " + capacity + ", " + width.toString() + "\n")
+    let array = getNextRegFn(regBox)
+    output.append("  " + array + " = call noalias ptr @seen_checked_malloc(i64 32)\n")
+    let data = getNextRegFn(regBox)
+    output.append("  " + data + " = call noalias ptr @seen_checked_aligned_alloc(i64 32, i64 " + bytes + ")\n")
+    output.append("  call void @llvm.memset.p0.i64(ptr " + data + ", i8 0, i64 " + bytes + ", i1 false)\n")
+    let values = [countReg, capacity, width.toString(), data]; var index = 0
+    while index < 4 {
+        let field = getNextRegFn(regBox)
+        output.append("  " + field + " = getelementptr inbounds %SeenArray, ptr " + array + ", i32 0, i32 " + index.toString() + "\n")
+        var fieldType = "i64"; if index == 3 { fieldType = "ptr" }
+        output.append("  store " + fieldType + " " + values[index] + ", ptr " + field + "\n")
+        index = index + 1
+    }
+    values.free(); return array
 }
 
 ///

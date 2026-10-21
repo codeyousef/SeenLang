@@ -50,6 +50,20 @@ bash -n \
     tests/misc_root_tests/seen_async_io_d.sh \
     tests/misc_root_tests/seen_async_io_e.sh \
     tests/misc_root_tests/seen_async_io_f.sh \
+    tests/misc_root_tests/seen_inf_simd_b.sh \
+    tests/misc_root_tests/seen_inf_simd_c.sh \
+    tests/misc_root_tests/seen_inf_simd_d.sh \
+    tests/misc_root_tests/seen_inf_simd_e.sh \
+    tests/misc_root_tests/seen_inf_simd_f.sh \
+    tests/misc_root_tests/seen_gpu_ir_a.sh \
+    tests/misc_root_tests/seen_gpu_ir_b.sh \
+    tests/misc_root_tests/seen_gpu_ir_c.sh \
+    tests/misc_root_tests/seen_gpu_ir_d.sh \
+    tests/misc_root_tests/seen_gpu_ir_e.sh \
+    tests/misc_root_tests/seen_gpu_spirv_a.sh \
+    tests/misc_root_tests/seen_gpu_spirv_b.sh \
+    tests/misc_root_tests/seen_gpu_spirv_c.sh \
+    scripts/compiled_fixture_support.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \
     tests/misc_root_tests/seen_pointer_field_cast_contract.sh \
@@ -88,6 +102,9 @@ SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh
 
 python3 -m py_compile \
+    scripts/check_gpu_spirv_artifacts.py \
+    scripts/check_gpu_spirv_toolchain.py \
+    scripts/certify_gpu_spirv.py \
     scripts/cpu_benchmark_statistics.py \
     scripts/benchmark_compatibility_manifest.py \
     scripts/benchmark_compatibility_runtime.py \
@@ -160,6 +177,7 @@ python3 -m unittest \
     tests.runner.test_release_platform_inputs_unit \
     tests.runner.test_release_draft_api_unit
 python3 -m unittest tests.runner.test_repair_frozen_coro_ir_unit
+python3 -m unittest tests.runner.test_ir_failure_diagnostics_unit
 python3 -m py_compile \
     scripts/check_release_artifact_manifest.py \
     scripts/benchmark_release_artifact_manifest.py \

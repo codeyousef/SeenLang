@@ -16,11 +16,11 @@
       "version": "0.22.9"
     },
     "runtime": {
-      "abi": "runtime-v12"
+      "abi": "runtime-v13"
     },
     "standard_library": {
       "module_manifest_version": 1,
-      "version": "0.16.0"
+      "version": "0.17.0"
     }
   },
   "determinism": {

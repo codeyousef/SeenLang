@@ -2,7 +2,7 @@ manifest-version = 1
 
 [project]
 name = "seen_std"
-version = "0.16.0"
+version = "0.17.0"
 language = "en"
 visibility = "explicit"
 description = "Core Seen standard library modules used by the self-hosted compiler"
@@ -126,6 +126,9 @@ modules = [
     # Production inference foundations
     "src/inference/scalars.seen",
     "src/inference/span.seen",
+    "src/inference/iq3_xxs_codebook.seen",
+    "src/inference/quantized_formats.seen",
+    "src/simd/quantized_decode.seen",
     "src/memory/aligned_buffer.seen",
     "src/memory/mapped_file.seen",
     "src/crypto/sha256.seen",
@@ -140,7 +143,18 @@ modules = [
 
     # Portable SIMD representation and dispatch planning
     "src/simd/ir_types.seen",
+    "src/simd/operation_types.seen",
+    "src/simd/memory_operations.seen",
     "src/simd/dispatch_plan.seen",
+    "src/simd/dot_contract.seen",
+    "src/simd/dot_clock.seen",
+    "src/simd/dot_scalar.seen",
+    "src/simd/x86_dispatch.seen",
+    "src/simd/x86_blocks.seen",
+    "src/simd/x86_kernels.seen",
+    "src/simd/arm_dispatch.seen",
+    "src/simd/arm_blocks.seen",
+    "src/simd/arm_kernels.seen",
 
     # Math
     "src/math/math.seen",

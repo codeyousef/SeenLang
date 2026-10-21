@@ -1,0 +1,13 @@
+/// Parsed annotations are the single source of GPU stage identity. Names,
+/// comments and string literals never select a shader implementation.
+import parser.real_parser.{FunctionNode}
+
+fun gpuFunctionStage(function: FunctionNode) r: Int {
+    var stage = 0; var i = 0
+    while i < function.decorators.length() {
+        let name = function.decorators[i].name
+        if name == "compute" { stage = stage | 1 }; if name == "device" { stage = stage | 2 }
+        if name == "vertex" { stage = stage | 4 }; if name == "fragment" { stage = stage | 8 }; i = i + 1
+    }
+    return stage
+}

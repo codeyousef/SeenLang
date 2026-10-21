@@ -1,0 +1,6 @@
+fun main() r: Int {
+    let values = Array<Int>(); values.push(7)
+    var total = 0
+    for i in 0..values.length() { total = total + values[i - 1] }
+    values.free(); return total
+}

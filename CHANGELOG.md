@@ -49,11 +49,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bind the combined executor, completion I/O, SIMD and GPU compiler foundations
+  to runtime-v13 and standard-library 0.17.0, with complete module checksums
+  and retained software verification gates.
+
 - Advanced the runtime compatibility identity to `runtime-v5` for
   `seen-multithread-executor-v1`; removed the untyped C work-stealing pool.
 - Serialized pool allocation and memory-budget transactions across threads,
   made runtime error storage thread-local, and released temporary structured
   async context-validation owners.
+- Add portable masked SIMD memory operations, byte widening/saturating narrowing,
+  fused multiply-add, bounded dynamic permutes, strict literal shuffles, and
+  checked Seen packing/copy/prefetch APIs. Share range admission and benchmark
+  statistics; version the additive standard library surface as 0.9.0 (runtime v9).
+
+### Added
+
+- Add checked Seen decoding and a scalar/vector-store parity corpus for named
+  Q8_0, Q4_0, Q4_K, Q2_K, IQ3_XXS, MXFP4 and finite E4M3FN layouts, with
+  bounded metadata checks, partial progress and explicit store width policy.
+  Standard-library compatibility advances to 0.10.0; hardware certification
+  and designated-machine performance enforcement remain separate.
+
+- Add conservative numeric tensor-loop bounds proofs and bounded JSON reports
+  for applied frontend proofs and observed LLVM vectorization decisions. Checked
+  builds retain unproved guards and refresh mutable array iteration bounds.
+
+- Added NEON and scalable SVE dot lowering with per-thread OS vector-state
+  discovery, explicit fallback and compile-only cross-target fixtures. Shared
+  dot contracts, scalar references and fixture tooling now serve both x86 and
+  ARM. Standard-library compatibility advances to 0.8.0 and runtime-v9 adds the
+  narrow SVE length query; hardware/platform certification remains separate.
+
+- Added checked Seen x86 Float32, unsigned-byte/signed-byte VNNI and BF16 dot
+  dispatch with explicit scalar fallback, fixed target-function isolation,
+  bounded input geometry, deadline/cancellation progress and owning fixtures.
+  CPU feature discovery now requires OS-enabled AVX register state. Added
+  scalar-control performance observation with optional designated-machine
+  enforcement; hardware certification remains separate.
+
 - Defined the Seen portable SIMD IR v1 contract with checked vector/mask
   geometry, packed-operation metadata and explicit x86/ARM/scalar planning.
 - Added 512-bit vector spellings, lane-mask comparisons, checked constructors

@@ -1,0 +1,9 @@
+import simd.dot_contract.{DotBackendHandle}
+import simd.dot_clock.{DotClockHandle}
+import simd.x86_kernels.{X86DotBackend}
+import dot_benchmark_support.{runDotBenchmark}
+fun main() r: Int {
+    let backendProvider = X86DotBackend{reserved: 0}; let backend = DotBackendHandle.create(backendProvider)
+    let result = runDotBenchmark(backend)
+    backend.release(); backendProvider.free(); return result
+}

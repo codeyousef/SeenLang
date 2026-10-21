@@ -1,11 +1,16 @@
+import codegen.simd_report.{configureSimdReporting, emitCollectedSimdReports,
+    emitSimdObservationUnavailable, emitSimdPolicyRecord}
+import codegen.ir_bounds_proof.{BoundsProofPlan, proveRangeArrayBounds}
+import codegen.ir_bounds_proof_state.{enterBoundsProof, consumeBoundsProof, leaveBoundsProof}
 // Bootstrap discovers direct imports before its curated module list.
 import simd.ir_types.{PortableVectorShape, SimdIrError}
 import simd.dispatch_plan.{portableSimdContractReport}
+import simd.operation_types.{simdOperationArity as _seedSimdOperationArity, simdOperationPrefix as _seedSimdOperationPrefix, simdOperationResult as _seedSimdOperationResult, simdOperationArgumentValid as _seedSimdOperationArgumentValid}
+import codegen.ir_simd_operation_emit.{emitPortableSimdOperationImpl as _seedEmitPortableSimdOperation}
 ///
-=============================================================================
+======================================================================
 main_compiler.seen -- Bootstrap compiler driver (Stage 5 orchestrator)
-=============================================================================
-
+======================================================================
 This is the entry point for the "compile" subcommand used during bootstrap
 and production builds. It orchestrates the full compilation pipeline:
 
@@ -27,6 +32,7 @@ limitation where boolean variables generate invalid IR.
 ///
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, runFrontendCompat, runFrontendDeclarationsCompat, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
+import core.result.{Result as _seedResult}
 import io.file.{readText, readTextChecked, writeText, writeTextAtomically, appendText, exists, deleteFile}
 import process.process.{runCommand, runProgram, runProgramRequest, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
 import env.env.{args, getOrDefault, set, removeEnv}
@@ -44,6 +50,79 @@ import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismEffectGraph, printDeterminismErrors}
 import typechecker.semantic_registry.{SemanticDeclarationRegistry, semanticNormalizeModuleIdentity}
 import typechecker.lexical_semantic.{LexicalSemanticResult, collectLexicalSemanticModule, checkLexicalSemanticModule}
+import typechecker.gpu_frontend.{gpuCheckFunction as _seedGpuCheckFunction}
+import typechecker.gpu_types.{gpuParseType as _seedGpuParseType}
+import typechecker.gpu_scope.{GpuCheckContext as _seedGpuCheckContext}
+import typechecker.gpu_workgroup.{gpuParseWorkgroup as _seedGpuParseWorkgroup}
+import typechecker.gpu_annotations.{gpuFunctionStage as _seedGpuAnnotations}
+import codegen.gpu_extract.{hasGpuFunctions}
+import codegen.gpu_options.{GpuOptions as _seedGpuOptions}
+import codegen.gpu_bytes.{consumeGpuBytes as _seedGpuBytes}
+import codegen.gpu_manifest.{parseGpuManifest as _seedGpuManifest}
+import codegen.gpu_reflection.{reflectGpuModule as _seedGpuReflection}
+import codegen.gpu_reflection_layout.{GpuEntryRequirements as _seedGpuReflectionLayout}
+import tools.gpu_command.{parseGpuArtifactCli, gpuReflectCommand, gpuValidateCompileOptions}
+import tools.gpu_emit_command.{gpuEmitCommand}
+import codegen.gpu.spirv_words.{GpuSpirvWords as _seedSpirv_words}
+import codegen.gpu.spirv_types.{GpuSpirvContext as _seedSpirv_types}
+import codegen.gpu.spirv_layout.{GpuSpirvResource as _seedSpirv_layout}
+import codegen.gpu.spirv_function.{GpuSpirvFunction as _seedSpirv_function}
+import codegen.gpu.spirv_frame.{GpuSpirvFrame as _seedSpirv_frame}
+import codegen.gpu.spirv_shared.{spirvInitializeShared as _seedSpirv_shared}
+import codegen.gpu.spirv_memory.{spirvCheckedLoad as _seedSpirv_memory}
+import codegen.gpu.spirv_math_plan.{spirvBinaryOpcode as _seedSpirv_math_plan}
+import codegen.gpu.spirv_math.{spirvBinary as _seedSpirv_math}
+import codegen.gpu.spirv_casts.{spirvCast as _seedSpirv_casts}
+import codegen.gpu.spirv_intrinsics.{spirvIntrinsic as _seedSpirv_intrinsics}
+import codegen.gpu.spirv_values.{spirvLowerValue as _seedSpirv_values}
+import codegen.gpu.spirv_regions.{spirvLowerRegion as _seedSpirv_regions}
+import codegen.gpu.spirv_emitter.{emitGpuSpirv as _seedSpirv_emitter}
+import codegen.gpu.spirv_binary.{encodeGpuSpirvBinary as _seedSpirv_binary}
+import codegen.gpu.spirv_artifact_manifest.{gpuSpirvArtifactManifest as _seedSpirv_artifact_manifest}
+import codegen.gpu.spirv_artifact_model.{GpuSpirvArtifact as _seedSpirv_artifact_model}
+import codegen.gpu.spirv_artifact.{buildGpuSpirvArtifact as _seedSpirv_artifact}
+import codegen.gpu.spirv_memory_plan.{spirvMemoryScope as _seedSpirv_memory_plan}
+import codegen.gpu.spirv_atomics.{spirvAtomic as _seedSpirv_atomics}
+import codegen.gpu.spirv_subgroup.{spirvSubgroup as _seedSpirv_subgroup}
+import codegen.gpu.spirv_specialization.{spirvSpecialization as _seedSpirv_specialization}
+import codegen.gpu.spirv_cooperative.{spirvCooperative as _seedSpirv_cooperative}
+import codegen.gpu.spirv_extended.{spirvGlslValue as _seedSpirv_extended}
+import codegen.gpu.spirv_float_bits.{spirvPositiveFloatBits as _seedSpirv_float_bits}
+import codegen.gpu.spirv_fp16.{spirvPackFp16Magnitude as _seedSpirv_fp16}
+import codegen.gpu.spirv_fp8.{spirvPackFp8 as _seedSpirv_fp8}
+import codegen.gpu.spirv_mxfp4.{spirvPackMxfp4 as _seedSpirv_mxfp4}
+import codegen.gpu.spirv_packed.{spirvPacked as _seedSpirv_packed}
+import codegen.gpu.spirv_packed_float.{spirvPackShortFloat as _seedSpirv_packed_float}
+import codegen.gpu.spirv_capabilities.{spirvCapabilitiesSupported as _seedSpirv_capabilities}
+import crypto.sha256.{sha256 as _seedGpuSha256}
+import codegen.gpu_call_plan_model.{GpuCallPlan as _seedGpuCallPlanModel}
+import codegen.gpu_matrix_types.{gpuMatrixShapeValid as _seedGpuMatrixTypes}
+import codegen.gpu_precision_call_plan.{gpuPrecisionCallFormat as _seedGpuPrecisionCallPlan}
+import codegen.gpu_precision_formats.{GPU_FORMAT_FP32 as _seedGpuPrecisionFormats}
+import codegen.gpu_precision_rules.{gpuIrPackedTypesValid as _seedGpuPrecisionRules}
+import codegen.gpu_specialization.{GpuSpecialization as _seedGpuSpecialization}
+import codegen.gpu_target_capabilities.{validateGpuTargetCapabilities as _seedGpuTargetCapabilities}
+import codegen.gpu_target_model.{GpuTargetCapabilities as _seedGpuTargetModel}
+import codegen.gpu_ir_call_graph.{GpuIrCallFacts as _seedGpuIrCallGraph}
+import codegen.gpu_ir_convergence.{gpuIrMaximumUniformity as _seedGpuIrConvergence}
+import codegen.gpu_ir_definitions.{gpuIrDefinitionVisible as _seedGpuIrDefinitions}
+import codegen.gpu_ir_facts.{gpuIrValueTypeValid as _seedGpuIrFacts}
+import codegen.gpu_ir_instruction_types.{gpuIrIndexType as _seedGpuIrInstructionTypes}
+import codegen.gpu_ir_memory_rules.{gpuIrMemoryTypesValid as _seedGpuIrMemoryRules}
+import codegen.gpu_ir_model.{GpuIrInstruction as _seedGpuIrModel}
+import codegen.gpu_ir_ops.{GPU_IR_PARAM as _seedGpuIrOps}
+import codegen.gpu_ir_regions.{gpuIrEnclosingLoop as _seedGpuIrRegions}
+import codegen.gpu_ir_requirements.{gpuIrInstructionCapabilities as _seedGpuIrRequirements}
+import codegen.gpu_ir_serialize.{gpuIrWriteInstruction as _seedGpuIrSerialize}
+import codegen.gpu_ir_structure.{gpuIrFunctionCountsValid as _seedGpuIrStructure}
+import codegen.gpu_ir_value_rules.{gpuIrBuiltinCode as _seedGpuIrValueRules}
+import codegen.gpu_ir_verify.{gpuIrFunctionTypesValid as _seedGpuIrVerify}
+import codegen.gpu_lower_blocks.{gpuIrSourceType as _seedGpuLowerBlocks}
+import codegen.gpu_lower_call_plan.{gpuLowerAtomicOperation as _seedGpuLowerCallPlan}
+import codegen.gpu_lower_context.{GpuLowerContext as _seedGpuLowerContext}
+import codegen.gpu_lower_values.{gpuLowerLiteral as _seedGpuLowerValues}
+import codegen.gpu_lower_program.{lowerGpuProgram as _seedLowerGpuProgram}
+import typechecker.gpu_module_frontend.{gpuCheckModule as _seedGpuCheckModule}
 import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest,
     CompatibilityCompiler, CompatibilityComponents, CompatibilityTarget, CompatibilityPlatforms,
     CompatibilityReleaseInputs, readCompatibilityRuntimeSelection}
@@ -563,6 +642,8 @@ fun runtimeSourceSignatureForCache() r: String {
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_process_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_stream_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_stream_abi.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/arm_vector_abi.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/arm_vector_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_gpu.c"))
@@ -1724,8 +1805,8 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                 packageObjectManifestSchema:
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
-            runtimeAbi: "runtime-v12",
-            standardLibraryVersion: "0.16.0",
+            runtimeAbi: "runtime-v13",
+            standardLibraryVersion: "0.17.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
             packageClientProtocol: "SEENPKG1",
@@ -8515,6 +8596,8 @@ fun programRuntimeInputIdentity() r: String {
     names.push("src/executor_process_abi.h")
     names.push("src/executor_stream_abi.c")
     names.push("src/executor_stream_abi.h")
+    names.push("src/arm_vector_abi.c")
+    names.push("src/arm_vector_abi.h")
     names.push("seen_region.c")
     names.push("seen_region.h")
     names.push("seen_gpu.c")
@@ -8879,6 +8962,78 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("types.send_share")
         modules.push("typechecker.semantic_registry")
         modules.push("typechecker.lexical_semantic")
+        modules.push("typechecker.gpu_types")
+        modules.push("typechecker.gpu_scope")
+        modules.push("typechecker.gpu_workgroup")
+        modules.push("typechecker.gpu_annotations")
+        modules.push("typechecker.gpu_frontend")
+        modules.push("typechecker.gpu_module_frontend")
+        modules.push("codegen.gpu_call_plan_model")
+        modules.push("codegen.gpu_options")
+        modules.push("codegen.gpu_bytes")
+        modules.push("codegen.gpu_manifest")
+        modules.push("codegen.gpu_reflection")
+        modules.push("codegen.gpu_reflection_layout")
+        modules.push("tools.gpu_command")
+        modules.push("tools.gpu_emit_command")
+        modules.push("codegen.gpu.spirv_words")
+        modules.push("codegen.gpu.spirv_types")
+        modules.push("codegen.gpu.spirv_layout")
+        modules.push("codegen.gpu.spirv_function")
+        modules.push("codegen.gpu.spirv_frame")
+        modules.push("codegen.gpu.spirv_shared")
+        modules.push("codegen.gpu.spirv_memory")
+        modules.push("codegen.gpu.spirv_math_plan")
+        modules.push("codegen.gpu.spirv_math")
+        modules.push("codegen.gpu.spirv_casts")
+        modules.push("codegen.gpu.spirv_intrinsics")
+        modules.push("codegen.gpu.spirv_values")
+        modules.push("codegen.gpu.spirv_regions")
+        modules.push("codegen.gpu.spirv_emitter")
+        modules.push("codegen.gpu.spirv_binary")
+        modules.push("codegen.gpu.spirv_artifact_manifest")
+        modules.push("codegen.gpu.spirv_artifact_model")
+        modules.push("codegen.gpu.spirv_artifact")
+        modules.push("codegen.gpu.spirv_memory_plan")
+        modules.push("codegen.gpu.spirv_atomics")
+        modules.push("codegen.gpu.spirv_subgroup")
+        modules.push("codegen.gpu.spirv_specialization")
+        modules.push("codegen.gpu.spirv_cooperative")
+        modules.push("codegen.gpu.spirv_extended")
+        modules.push("codegen.gpu.spirv_float_bits")
+        modules.push("codegen.gpu.spirv_fp16")
+        modules.push("codegen.gpu.spirv_fp8")
+        modules.push("codegen.gpu.spirv_mxfp4")
+        modules.push("codegen.gpu.spirv_packed")
+        modules.push("codegen.gpu.spirv_packed_float")
+        modules.push("codegen.gpu.spirv_capabilities")
+        modules.push("crypto.sha256")
+        modules.push("codegen.gpu_matrix_types")
+        modules.push("codegen.gpu_precision_call_plan")
+        modules.push("codegen.gpu_precision_formats")
+        modules.push("codegen.gpu_precision_rules")
+        modules.push("codegen.gpu_specialization")
+        modules.push("codegen.gpu_target_capabilities")
+        modules.push("codegen.gpu_target_model")
+        modules.push("codegen.gpu_ir_call_graph")
+        modules.push("codegen.gpu_ir_convergence")
+        modules.push("codegen.gpu_ir_definitions")
+        modules.push("codegen.gpu_ir_facts")
+        modules.push("codegen.gpu_ir_instruction_types")
+        modules.push("codegen.gpu_ir_memory_rules")
+        modules.push("codegen.gpu_ir_model")
+        modules.push("codegen.gpu_ir_ops")
+        modules.push("codegen.gpu_ir_regions")
+        modules.push("codegen.gpu_ir_requirements")
+        modules.push("codegen.gpu_ir_serialize")
+        modules.push("codegen.gpu_ir_structure")
+        modules.push("codegen.gpu_ir_value_rules")
+        modules.push("codegen.gpu_ir_verify")
+        modules.push("codegen.gpu_lower_blocks")
+        modules.push("codegen.gpu_lower_call_plan")
+        modules.push("codegen.gpu_lower_context")
+        modules.push("codegen.gpu_lower_program")
+        modules.push("codegen.gpu_lower_values")
         modules.push("typechecker.interfaces")
         // The legacy no-op SeenTypeChecker is not imported by the compiler.
         // Do not inject that stale stub into the bootstrap graph.
@@ -9066,6 +9221,9 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_field_lookup_state")
         modules.push("codegen.ir_generic_type_specialize")
         modules.push("codegen.ir_generic_call_type")
+        modules.push("codegen.ir_bounds_proof")
+        modules.push("codegen.ir_bounds_proof_state")
+        modules.push("codegen.simd_report")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_struct_literal_driver")
         modules.push("codegen.ir_struct_layout_build")
@@ -12367,36 +12525,23 @@ fun getLinuxRiscv64GccToolchain(sysroot: String) r: String {
     return ""
 }
 
-fun sourcesNeedGpuRuntime(modulePaths: Array<String>) r: Bool {
-    var mi = 0
-    while mi < modulePaths.length() {
-        let modulePath = modulePaths[mi]
-        if modulePath.endsWith("/graphics/gpu.seen") or
-            modulePath.endsWith("seen_std/src/graphics/gpu.seen") {
-
-            return true
+fun sourcesNeedGpuRuntime(modulePaths: Array<String>, language: String) r: Bool {
+    var moduleIndex = 0
+    while moduleIndex < modulePaths.length() {
+        let path = modulePaths[moduleIndex]; let source = readText(path)
+        if source.contains("seen_gpu_") or source.contains("compute") or source.contains("device") or source.contains("vertex") or source.contains("fragment") {
+            let frontend = parseModuleDeclarations(path, language)
+            if frontend.success {
+                if hasGpuFunctions(frontend.program) { return true }
+                var itemIndex = 0
+                while itemIndex < frontend.program.items.length() {
+                    let item = frontend.program.items[itemIndex]
+                    if item.itemType == "Function" and item.function.isExtern and item.function.name.startsWith("seen_gpu_") { return true }
+                    itemIndex = itemIndex + 1
+                }
+            }
         }
-        let sourceText = readText(modulePath)
-        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
-            "@compute") or sourceContainsOutsideTripleSlashBlockBodies(
-            sourceText, "@vertex") or sourceContainsOutsideTripleSlashBlockBodies(
-            sourceText, "@fragment") {
-
-            return true
-        }
-        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
-            "Buffer<") or sourceContainsOutsideTripleSlashBlockBodies(
-            sourceText, "Uniform<") or sourceContainsOutsideTripleSlashBlockBodies(
-            sourceText, "Image<") {
-
-            return true
-        }
-        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
-            "seen_gpu_") {
-
-            return true
-        }
-        mi = mi + 1
+        moduleIndex = moduleIndex + 1
     }
     return false
 }
@@ -12949,6 +13094,7 @@ var g_O2Mode = 0
 // CLI flags for safety checks (Int, not Bool -- Stage1 limitation)
 var g_panicOnOverflowCli = 0
 var g_boundsCheckCli = 0
+var g_simdReportFullCli = false
 var g_warnUnusedResultCli = 0
 // Emit GLSL flag for debugging shader generation
 var g_emitGlsl = 0
@@ -12986,677 +13132,29 @@ var g_largeProjectOptWorkerLimit = 2
 /// Compiler scratch/cache paths are derived from the validated project-local
 /// artifact root at each use site.
 
-fun shaderFindMatchingParen(source: String, openIdx: Int) r: Int {
-    var depth = 0
-    var idx = openIdx
-    while idx < source.length() {
-        let ch = source.byteAt(idx)
-        if ch == 40 {
-            depth = depth + 1
-        }
-        if ch == 41 {
-            depth = depth - 1
-            if depth == 0 {
-                return idx
-            }
-        }
-        idx = idx + 1
-    }
-    return -1
-}
-
-fun shaderWorkgroupDim(decoratorText: String, dim: Int) r: Int {
-    var fallback = 1
-    if dim == 0 {
-        fallback = 64
-    }
-    let openIdx = decoratorText.indexOf("(", 0)
-    if openIdx < 0 {
-        return fallback
-    }
-    let closeIdx = shaderFindMatchingParen(decoratorText, openIdx)
-    if closeIdx < 0 {
-        return fallback
-    }
-    let args = decoratorText.substring(openIdx + 1, closeIdx)
-    let parts = args.split(",")
-    if dim >= parts.length() {
-        return fallback
-    }
-    var piece = parts[dim].trim()
-    let colonIdx = piece.indexOf(":", 0)
-    if colonIdx >= 0 {
-        piece = piece.substring(colonIdx + 1, piece.length()).trim()
-    }
-    let parsed = piece.toInt()
-    if parsed > 0 {
-        return parsed
-    }
-    return fallback
-}
-
-fun shaderTypeInner(typeText: String, prefixLen: Int) r: String {
-    if typeText.length() <= prefixLen + 1 {
-        return "Float"
-    }
-    return typeText.substring(prefixLen, typeText.length() - 1).trim()
-}
-
-fun shaderMapScalarType(typeText: String) r: String {
-    let t = typeText.trim()
-    if t == "Float" or t == "f32" {
-        return "float"
-    }
-    if t == "Int" or t == "i32" or t == "i64" {
-        return "int"
-    }
-    if t == "Bool" {
-        return "int"
-    }
-    return "float"
-}
-
-fun shaderBindingReflection(name: String, binding: Int, bindingType: String,
-    elementType: String, accessMode: String) r: String {
-
-    let q = String.fromCharCode(34)
-    return "    {" + q + "set" + q + ": 0, " + q + "binding" + q + ": " +
-        binding.toString() + ", " + q + "name" + q + ": " + q + name +
-        q + ", " + q + "type" + q + ": " + q + bindingType + q + ", " +
-        q + "elementType" + q + ": " + q + elementType + q + ", " + q +
-        "access" + q + ": " + q + accessMode + q + "}"
-}
-
-fun shaderBuildBindings(paramsText: String) r: String {
-    let parts = paramsText.split(",")
-    var output = ""
-    var binding = 0
-    var idx = 0
-    while idx < parts.length() {
-        let part = parts[idx].trim()
-        let colonIdx = part.indexOf(":", 0)
-        if colonIdx >= 0 {
-            let name = part.substring(0, colonIdx).trim()
-            let typeText = part.substring(colonIdx + 1, part.length()).trim()
-            if typeText.startsWith("Buffer<") {
-                let inner = shaderTypeInner(typeText, 7)
-                let glslType = shaderMapScalarType(inner)
-                output = output + "layout(std430, set = 0, binding = " +
-                    binding.toString() + ") buffer " + name + "_buf {\n"
-                output = output + "    " + glslType + " " + name +
-                    "_data[];\n"
-                output = output + "};\n"
-                binding = binding + 1
-            } else if typeText.startsWith("Uniform<") {
-                let innerUniform = shaderTypeInner(typeText, 8)
-                let uniformType = shaderMapScalarType(innerUniform)
-                output = output + "layout(std430, set = 0, binding = " +
-                    binding.toString() + ") buffer " + name + "_buf {\n"
-                output = output + "    " + uniformType + " " + name +
-                    "_data[];\n"
-                output = output + "};\n"
-                binding = binding + 1
-            } else {
-                let scalarType = shaderMapScalarType(typeText)
-                output = output + "layout(std430, set = 0, binding = " +
-                    binding.toString() + ") buffer " + name + "_buf {\n"
-                output = output + "    " + scalarType + " " + name +
-                    "_data[];\n"
-                output = output + "};\n"
-                binding = binding + 1
-            }
-        }
-        idx = idx + 1
-    }
-    return output
-}
-
-fun shaderBuildReflectionBindings(paramsText: String) r: String {
-    let parts = paramsText.split(",")
-    var output = ""
-    var binding = 0
-    var emitted = 0
-    var idx = 0
-    while idx < parts.length() {
-        let part = parts[idx].trim()
-        let colonIdx = part.indexOf(":", 0)
-        if colonIdx >= 0 {
-            let name = part.substring(0, colonIdx).trim()
-            let typeText = part.substring(colonIdx + 1, part.length()).trim()
-            var bindingType = "storage"
-            var elementType = typeText
-            var accessMode = "readonly"
-            if typeText.startsWith("Buffer<") {
-                bindingType = "storage"
-                elementType = shaderTypeInner(typeText, 7)
-                accessMode = "readwrite"
-            } else if typeText.startsWith("Uniform<") {
-                elementType = shaderTypeInner(typeText, 8)
-            }
-            if emitted > 0 {
-                output = output + ",\n"
-            }
-            output = output + shaderBindingReflection(name, binding,
-                bindingType, elementType, accessMode)
-            binding = binding + 1
-            emitted = emitted + 1
-        }
-        idx = idx + 1
-    }
-    return output
-}
-
-fun shaderKnownTensorKernelBody(name: String) r: String {
-    if name == "tensorElementwiseAdd" {
-        return "    int idx = int(gl_GlobalInvocationID.x);\n" +
-            "    int count = count_data[0];\n" +
-            "    if (idx >= count) { return; }\n" +
-            "    out_data[idx] = a_data[idx] + b_data[idx];\n"
-    }
-    if name == "tensorElementwiseSub" {
-        return "    int idx = int(gl_GlobalInvocationID.x);\n" +
-            "    int count = count_data[0];\n" +
-            "    if (idx >= count) { return; }\n" +
-            "    out_data[idx] = a_data[idx] - b_data[idx];\n"
-    }
-    if name == "tensorElementwiseMul" {
-        return "    int idx = int(gl_GlobalInvocationID.x);\n" +
-            "    int count = count_data[0];\n" +
-            "    if (idx >= count) { return; }\n" +
-            "    out_data[idx] = a_data[idx] * b_data[idx];\n"
-    }
-    if name == "tensorScale" {
-        return "    int idx = int(gl_GlobalInvocationID.x);\n" +
-            "    int count = count_data[0];\n" +
-            "    if (idx >= count) { return; }\n" +
-            "    out_data[idx] = input_data[idx] * factor_data[0];\n"
-    }
-    if name == "tensorGelu" {
-        return "    int idx = int(gl_GlobalInvocationID.x);\n" +
-            "    int count = count_data[0];\n" +
-            "    if (idx >= count) { return; }\n" +
-            "    float x = input_data[idx];\n" +
-            "    out_data[idx] = 0.5 * x * (1.0 + tanh(0.7978845608 * (x + 0.044715 * x * x * x)));\n"
-    }
-    if name == "tensorGeluBackward" {
-        return "    int idx = int(gl_GlobalInvocationID.x);\n" +
-            "    int count = count_data[0];\n" +
-            "    if (idx >= count) { return; }\n" +
-            "    float x = input_data[idx];\n" +
-            "    float inner = 0.7978845608 * (x + 0.044715 * x * x * x);\n" +
-            "    float t = 0.0;\n" +
-            "    if (inner > 3.0) { t = 1.0; }\n" +
-            "    else if (inner < -3.0) { t = -1.0; }\n" +
-            "    else { t = inner * (27.0 + inner * inner) / (27.0 + 9.0 * inner * inner); }\n" +
-            "    float sechSq = 1.0 - t * t;\n" +
-            "    float innerGrad = 0.7978845608 * (1.0 + 0.134145 * x * x);\n" +
-            "    float derivative = 0.5 * (1.0 + t) + 0.5 * x * sechSq * innerGrad;\n" +
-            "    out_data[idx] = grad_data[idx] * derivative;\n"
-    }
-    if name == "tensorMatmul" {
-        return "    int col = int(gl_GlobalInvocationID.x);\n" +
-            "    int row = int(gl_GlobalInvocationID.y);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int sharedDim = shared_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows || col >= cols) { return; }\n" +
-            "    float sum = 0.0;\n" +
-            "    for (int k = 0; k < sharedDim; k++) {\n" +
-            "        sum += a_data[row * sharedDim + k] * b_data[k * cols + col];\n" +
-            "    }\n" +
-            "    out_data[row * cols + col] = sum;\n"
-    }
-    if name == "tensorMatmulBTransposed" {
-        return "    int col = int(gl_GlobalInvocationID.x);\n" +
-            "    int row = int(gl_GlobalInvocationID.y);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int sharedDim = shared_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows || col >= cols) { return; }\n" +
-            "    float sum = 0.0;\n" +
-            "    for (int k = 0; k < sharedDim; k++) {\n" +
-            "        sum += a_data[row * sharedDim + k] * b_data[col * sharedDim + k];\n" +
-            "    }\n" +
-            "    out_data[row * cols + col] = sum;\n"
-    }
-    if name == "tensorMatmulBiasBTransposed" {
-        return "    int col = int(gl_GlobalInvocationID.x);\n" +
-            "    int row = int(gl_GlobalInvocationID.y);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int sharedDim = shared_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows || col >= cols) { return; }\n" +
-            "    float sum = bias_data[col];\n" +
-            "    for (int k = 0; k < sharedDim; k++) {\n" +
-            "        sum += a_data[row * sharedDim + k] * b_data[col * sharedDim + k];\n" +
-            "    }\n" +
-            "    out_data[row * cols + col] = sum;\n"
-    }
-    if name == "tensorMatmulBiasGeluBTransposed" {
-        return "    int col = int(gl_GlobalInvocationID.x);\n" +
-            "    int row = int(gl_GlobalInvocationID.y);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int sharedDim = shared_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows || col >= cols) { return; }\n" +
-            "    float sum = bias_data[col];\n" +
-            "    for (int k = 0; k < sharedDim; k++) {\n" +
-            "        sum += a_data[row * sharedDim + k] * b_data[col * sharedDim + k];\n" +
-            "    }\n" +
-            "    out_data[row * cols + col] = 0.5 * sum * (1.0 + tanh(0.7978845608 * (sum + 0.044715 * sum * sum * sum)));\n"
-    }
-    if name == "tensorRowSums" {
-        return "    int row = int(gl_GlobalInvocationID.x);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows) { return; }\n" +
-            "    float sum = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        sum += input_data[row * cols + col];\n" +
-            "    }\n" +
-            "    out_data[row] = sum;\n"
-    }
-    if name == "tensorNormalizeRows" {
-        return "    int row = int(gl_GlobalInvocationID.x);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows) { return; }\n" +
-            "    float normSq = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        float value = input_data[row * cols + col];\n" +
-            "        normSq += value * value;\n" +
-            "    }\n" +
-            "    float norm = sqrt(normSq);\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        out_data[row * cols + col] = norm > 0.000000001 ? input_data[row * cols + col] / norm : 0.0;\n" +
-            "    }\n"
-    }
-    if name == "tensorLayerNormRows" {
-        return "    int row = int(gl_GlobalInvocationID.x);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows) { return; }\n" +
-            "    float mean = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) { mean += input_data[row * cols + col]; }\n" +
-            "    mean = mean / max(float(cols), 1.0);\n" +
-            "    float variance = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        float centered = input_data[row * cols + col] - mean;\n" +
-            "        variance += centered * centered;\n" +
-            "    }\n" +
-            "    variance = variance / max(float(cols), 1.0);\n" +
-            "    float invStd = inversesqrt(variance + epsilon_data[0]);\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        out_data[row * cols + col] = (input_data[row * cols + col] - mean) * invStd;\n" +
-            "    }\n"
-    }
-    if name == "tensorLayerNormAffineRows" {
-        return "    int row = int(gl_GlobalInvocationID.x);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows) { return; }\n" +
-            "    float mean = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) { mean += input_data[row * cols + col]; }\n" +
-            "    mean = mean / max(float(cols), 1.0);\n" +
-            "    float variance = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        float centered = input_data[row * cols + col] - mean;\n" +
-            "        variance += centered * centered;\n" +
-            "    }\n" +
-            "    variance = variance / max(float(cols), 1.0);\n" +
-            "    float invStd = inversesqrt(variance + epsilon_data[0]);\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        out_data[row * cols + col] = (input_data[row * cols + col] - mean) * invStd * weight_data[col] + bias_data[col];\n" +
-            "    }\n"
-    }
-    if name == "tensorResidualLayerNormAffineRows" {
-        return "    int row = int(gl_GlobalInvocationID.x);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows) { return; }\n" +
-            "    float mean = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) { mean += input_data[row * cols + col] + residual_data[row * cols + col]; }\n" +
-            "    mean = mean / max(float(cols), 1.0);\n" +
-            "    float variance = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        float merged = input_data[row * cols + col] + residual_data[row * cols + col];\n" +
-            "        float centered = merged - mean;\n" +
-            "        variance += centered * centered;\n" +
-            "    }\n" +
-            "    variance = variance / max(float(cols), 1.0);\n" +
-            "    float invStd = inversesqrt(variance + epsilon_data[0]);\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        float merged = input_data[row * cols + col] + residual_data[row * cols + col];\n" +
-            "        out_data[row * cols + col] = (merged - mean) * invStd * weight_data[col] + bias_data[col];\n" +
-            "    }\n"
-    }
-    if name == "tensorSoftmaxRows" {
-        return "    int row = int(gl_GlobalInvocationID.x);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows || cols <= 0) { return; }\n" +
-            "    float maxValue = input_data[row * cols];\n" +
-            "    for (int col = 1; col < cols; col++) {\n" +
-            "        maxValue = max(maxValue, input_data[row * cols + col]);\n" +
-            "    }\n" +
-            "    float denom = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        float value = exp(input_data[row * cols + col] - maxValue);\n" +
-            "        out_data[row * cols + col] = value;\n" +
-            "        denom += value;\n" +
-            "    }\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        out_data[row * cols + col] = out_data[row * cols + col] / max(denom, 0.000000001);\n" +
-            "    }\n"
-    }
-    if name == "tensorMeanPool" {
-        return "    int col = int(gl_GlobalInvocationID.x);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (col >= cols) { return; }\n" +
-            "    float sum = 0.0;\n" +
-            "    int count = 0;\n" +
-            "    for (int row = 0; row < rows; row++) {\n" +
-            "        if (mask_data[row] == 1) {\n" +
-            "            sum += input_data[row * cols + col];\n" +
-            "            count += 1;\n" +
-            "        }\n" +
-            "    }\n" +
-            "    out_data[col] = count > 0 ? sum / float(count) : 0.0;\n"
-    }
-    if name == "tensorCosineRows" {
-        return "    int row = int(gl_GlobalInvocationID.x);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows) { return; }\n" +
-            "    float dot = 0.0;\n" +
-            "    float aNorm = 0.0;\n" +
-            "    float bNorm = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        float av = a_data[row * cols + col];\n" +
-            "        float bv = b_data[row * cols + col];\n" +
-            "        dot += av * bv;\n" +
-            "        aNorm += av * av;\n" +
-            "        bNorm += bv * bv;\n" +
-            "    }\n" +
-            "    float denom = sqrt(aNorm) * sqrt(bNorm);\n" +
-            "    out_data[row] = denom > 0.000000001 ? dot / denom : 0.0;\n"
-    }
-    if name == "tensorAttentionContext" {
-        return "    int dim = int(gl_GlobalInvocationID.x);\n" +
-            "    int token = int(gl_GlobalInvocationID.y);\n" +
-            "    int head = int(gl_GlobalInvocationID.z);\n" +
-            "    int seqLen = seqLen_data[0];\n" +
-            "    int hiddenSize = hiddenSize_data[0];\n" +
-            "    int attentionHeads = attentionHeads_data[0];\n" +
-            "    if (token >= seqLen || head >= attentionHeads || attentionHeads <= 0) { return; }\n" +
-            "    int headDim = hiddenSize / attentionHeads;\n" +
-            "    if (dim >= headDim) { return; }\n" +
-            "    int offset = head * headDim;\n" +
-            "    float scale = sqrt(float(headDim));\n" +
-            "    float maxScore = -99999999.0;\n" +
-            "    for (int other = 0; other < seqLen; other++) {\n" +
-            "        float score = 0.0;\n" +
-            "        for (int inner = 0; inner < headDim; inner++) {\n" +
-            "            score += q_data[token * hiddenSize + offset + inner] * k_data[other * hiddenSize + offset + inner];\n" +
-            "        }\n" +
-            "        maxScore = max(maxScore, score / scale);\n" +
-            "    }\n" +
-            "    float denom = 0.0;\n" +
-            "    float weighted = 0.0;\n" +
-            "    for (int other = 0; other < seqLen; other++) {\n" +
-            "        float score = 0.0;\n" +
-            "        for (int inner = 0; inner < headDim; inner++) {\n" +
-            "            score += q_data[token * hiddenSize + offset + inner] * k_data[other * hiddenSize + offset + inner];\n" +
-            "        }\n" +
-            "        float weight = exp(score / scale - maxScore);\n" +
-            "        denom += weight;\n" +
-            "        weighted += weight * v_data[other * hiddenSize + offset + dim];\n" +
-            "    }\n" +
-            "    out_data[token * hiddenSize + offset + dim] = denom > 0.0 ? weighted / denom : 0.0;\n"
-    }
-    if name == "tensorAttentionContextSegmented" {
-        return "    int dim = int(gl_GlobalInvocationID.x);\n" +
-            "    int token = int(gl_GlobalInvocationID.y);\n" +
-            "    int head = int(gl_GlobalInvocationID.z);\n" +
-            "    int rows = segments_data[0];\n" +
-            "    int totalTokens = segments_data[1];\n" +
-            "    int hiddenSize = segments_data[2];\n" +
-            "    int attentionHeads = segments_data[3];\n" +
-            "    if (attentionHeads <= 0 || hiddenSize <= 0 || token >= totalTokens || head >= attentionHeads) { return; }\n" +
-            "    int row = 0;\n" +
-            "    int seqLen = 0;\n" +
-            "    int start = 0;\n" +
-            "    bool found = false;\n" +
-            "    while (row < rows && !found) {\n" +
-            "        start = segments_data[4 + row];\n" +
-            "        seqLen = segments_data[4 + rows + row];\n" +
-            "        if (token >= start && token < start + seqLen) { found = true; }\n" +
-            "        else { row += 1; }\n" +
-            "    }\n" +
-            "    if (!found || seqLen <= 0) { return; }\n" +
-            "    int headDim = hiddenSize / attentionHeads;\n" +
-            "    if (headDim <= 0 || dim >= headDim) { return; }\n" +
-            "    int offset = head * headDim;\n" +
-            "    float scale = sqrt(float(headDim));\n" +
-            "    float maxScore = -99999999.0;\n" +
-            "    for (int other = 0; other < seqLen; other++) {\n" +
-            "        int otherToken = start + other;\n" +
-            "        float score = 0.0;\n" +
-            "        for (int inner = 0; inner < headDim; inner++) {\n" +
-            "            score += q_data[token * hiddenSize + offset + inner] * k_data[otherToken * hiddenSize + offset + inner];\n" +
-            "        }\n" +
-            "        maxScore = max(maxScore, score / scale);\n" +
-            "    }\n" +
-            "    float denom = 0.0;\n" +
-            "    float weighted = 0.0;\n" +
-            "    for (int other = 0; other < seqLen; other++) {\n" +
-            "        int otherToken = start + other;\n" +
-            "        float score = 0.0;\n" +
-            "        for (int inner = 0; inner < headDim; inner++) {\n" +
-            "            score += q_data[token * hiddenSize + offset + inner] * k_data[otherToken * hiddenSize + offset + inner];\n" +
-            "        }\n" +
-            "        float weight = exp(score / scale - maxScore);\n" +
-            "        denom += weight;\n" +
-            "        weighted += weight * v_data[otherToken * hiddenSize + offset + dim];\n" +
-            "    }\n" +
-            "    out_data[token * hiddenSize + offset + dim] = denom > 0.0 ? weighted / denom : 0.0;\n"
-    }
-    if name == "tensorTripletMarginLoss" {
-        return "    int row = int(gl_GlobalInvocationID.x);\n" +
-            "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    if (row >= rows) { return; }\n" +
-            "    float qp = 0.0;\n" +
-            "    float qn = 0.0;\n" +
-            "    float qNorm = 0.0;\n" +
-            "    float pNorm = 0.0;\n" +
-            "    float nNorm = 0.0;\n" +
-            "    for (int col = 0; col < cols; col++) {\n" +
-            "        float qv = q_data[row * cols + col];\n" +
-            "        float pv = p_data[row * cols + col];\n" +
-            "        float nv = n_data[row * cols + col];\n" +
-            "        qp += qv * pv;\n" +
-            "        qn += qv * nv;\n" +
-            "        qNorm += qv * qv;\n" +
-            "        pNorm += pv * pv;\n" +
-            "        nNorm += nv * nv;\n" +
-            "    }\n" +
-            "    float simPos = qp / max(sqrt(qNorm) * sqrt(pNorm), 0.000000001);\n" +
-            "    float simNeg = qn / max(sqrt(qNorm) * sqrt(nNorm), 0.000000001);\n" +
-            "    out_data[row] = max(simNeg - simPos + margin_data[0], 0.0);\n"
-    }
-    if name == "tensorTopKInnerProduct" {
-        return "    int rows = rows_data[0];\n" +
-            "    int cols = cols_data[0];\n" +
-            "    int k = k_data[0];\n" +
-            "    for (int rank = 0; rank < k; rank++) {\n" +
-            "        indices_data[rank] = -1;\n" +
-            "        scores_data[rank] = -999999.0;\n" +
-            "    }\n" +
-            "    for (int row = 0; row < rows; row++) {\n" +
-            "        float score = 0.0;\n" +
-            "        for (int col = 0; col < cols; col++) {\n" +
-            "            score += query_data[col] * candidates_data[row * cols + col];\n" +
-            "        }\n" +
-            "        for (int rank = 0; rank < k; rank++) {\n" +
-            "            if (indices_data[rank] < 0 || score > scores_data[rank]) {\n" +
-            "                for (int shift = k - 1; shift > rank; shift--) {\n" +
-            "                    scores_data[shift] = scores_data[shift - 1];\n" +
-            "                    indices_data[shift] = indices_data[shift - 1];\n" +
-            "                }\n" +
-            "                scores_data[rank] = score;\n" +
-            "                indices_data[rank] = row;\n" +
-            "                break;\n" +
-            "            }\n" +
-            "        }\n" +
-            "    }\n"
-    }
-    return ""
-}
-
-fun shaderBuildComputeGlsl(name: String, paramsText: String, workgroupX: Int,
-    workgroupY: Int, workgroupZ: Int) r: String {
-
-    var glsl = "#version 450\n"
-    glsl = glsl + "// Compute shader generated by Seen compiler --emit-glsl\n"
-    glsl = glsl + "// Entry: " + name + "\n"
-    glsl = glsl + "layout(local_size_x = " + workgroupX.toString() +
-        ", local_size_y = " + workgroupY.toString() +
-        ", local_size_z = " + workgroupZ.toString() + ") in;\n\n"
-    glsl = glsl + shaderBuildBindings(paramsText)
-    glsl = glsl + "\nvoid main() {\n"
-    let knownBody = shaderKnownTensorKernelBody(name)
-    if knownBody.length() > 0 {
-        glsl = glsl + knownBody
-    } else {
-        glsl = glsl + "    uint seen_global_x = gl_GlobalInvocationID.x;\n"
-        glsl = glsl + "    uint seen_global_y = gl_GlobalInvocationID.y;\n"
-        glsl = glsl + "    uint seen_global_z = gl_GlobalInvocationID.z;\n"
-    }
-    glsl = glsl + "}\n"
-    return glsl
-}
-
-fun shaderBuildReflectionJson(name: String, paramsText: String,
-    workgroupX: Int, workgroupY: Int, workgroupZ: Int) r: String {
-
-    let q = String.fromCharCode(34)
-    var json = "{\n"
-    json = json + "  " + q + "name" + q + ": " + q + name + q + ",\n"
-    json = json + "  " + q + "stage" + q + ": " + q + "compute" + q + ",\n"
-    json = json + "  " + q + "workgroupSize" + q + ": [" +
-        workgroupX.toString() + ", " +
-        workgroupY.toString() + ", " + workgroupZ.toString() + "],\n"
-    json = json + "  " + q + "bindings" + q + ": [\n"
-    json = json + shaderBuildReflectionBindings(paramsText) + "\n"
-    json = json + "  ]\n"
-    json = json + "}\n"
-    return json
-}
-
-fun shaderCompileSpirv(glslPath: String, spvPath: String) r: Bool {
-    let glslcCmd = "glslc -fshader-stage=comp -O " +
-        mainCompilerShellQuote(glslPath) + " -o " +
-        mainCompilerShellQuote(spvPath) + " 2>&1"
-    let glslcResult: CommandResult = runCommand(glslcCmd)
-    if commandWasSuccessful(glslcResult) {
-        return true
-    }
-    println("[GPU] Failed to compile shader: " + glslPath)
-    println("[GPU] glslc output: " + glslcResult.output)
-    return false
-}
-
-fun emitGlslShadersFromSource(sourceText: String, outputDir: String) r: Int {
-    var failures = 0
-    var emitted = 0
-    var scan = 0
-    while scan < sourceText.length() {
-        let computeIdx = sourceText.indexOf("@compute", scan)
-        if computeIdx < 0 {
-            scan = sourceText.length()
-        } else {
-            let decoratorParen = sourceText.indexOf("(", computeIdx)
-            let decoratorEnd = shaderFindMatchingParen(sourceText,
-                decoratorParen)
-            if decoratorParen < 0 or decoratorEnd < 0 {
-                return failures + 1
-            }
-            let decoratorText = sourceText.substring(computeIdx,
-                decoratorEnd + 1)
-            let funIdx = sourceText.indexOf("fun ", decoratorEnd)
-            if funIdx < 0 {
-                return failures + 1
-            }
-            let nameOpen = sourceText.indexOf("(", funIdx)
-            if nameOpen < 0 {
-                return failures + 1
-            }
-            let name = sourceText.substring(funIdx + 4, nameOpen).trim()
-            let paramsEnd = shaderFindMatchingParen(sourceText, nameOpen)
-            if paramsEnd < 0 {
-                return failures + 1
-            }
-            let paramsText = sourceText.substring(nameOpen + 1, paramsEnd)
-            let workgroupX = shaderWorkgroupDim(decoratorText, 0)
-            let workgroupY = shaderWorkgroupDim(decoratorText, 1)
-            let workgroupZ = shaderWorkgroupDim(decoratorText, 2)
-            let glslPath = outputDir + "/" + name + ".comp.glsl"
-            let spvPath = outputDir + "/" + name + ".comp.spv"
-            let reflectPath = outputDir + "/" + name + ".reflect.json"
-            let glsl = shaderBuildComputeGlsl(name, paramsText, workgroupX,
-                workgroupY, workgroupZ)
-            let reflection = shaderBuildReflectionJson(name, paramsText,
-                workgroupX, workgroupY, workgroupZ)
-            writeText(glslPath, glsl)
-            writeText(reflectPath, reflection)
-            if shaderCompileSpirv(glslPath, spvPath) {
-                emitted = emitted + 1
-            } else {
-                failures = failures + 1
-            }
-            scan = paramsEnd + 1
-        }
-    }
-    if emitted > 0 {
-        println("[GPU] " + emitted.toString() +
-            " compute shader(s) emitted to SPIR-V")
-    }
-    return failures
-}
-
-fun emitGlslShadersForModules(modulePaths: Array<String>, language: String,
-    outputFile: String) r: Int {
-
-    if g_emitGlsl == 0 {
-        return 0
-    }
-
-    let shaderOutputDir = outputFile + ".shaders"
-    let mkdirResult: CommandResult = runCommand("mkdir -p " +
-        mainCompilerShellQuote(shaderOutputDir))
-    if not commandWasSuccessful(mkdirResult) {
-        println("  [GPU] Error: could not create shader output dir: " +
-            shaderOutputDir)
+/// Typed kernel checking is available independently of backend lowering.
+/// Until a typed backend is selected, compilation must fail before emitting a
+/// native dispatch stub, a shader artifact or a function-name substitute.
+fun validateGpuBackendAvailability(modulePaths: Array<String>, language: String) r: Int {
+    if g_emitGlsl != 0 {
+        println("Error: [E_GPU_BACKEND_UNAVAILABLE] legacy GLSL source/name substitution is disabled; typed GPU backend lowering is required")
         return 1
     }
-    println("  [GPU] Emitting GLSL/SPIR-V shaders -> " + shaderOutputDir +
-        " [" + language + "]")
-    var totalFailures = 0
-    var moduleIdx = 0
-    while moduleIdx < modulePaths.length() {
-        let modulePath = modulePaths[moduleIdx]
-        let sourceText = readText(modulePath)
-        if sourceText.indexOf("@compute", 0) >= 0 {
-            totalFailures = totalFailures +
-                emitGlslShadersFromSource(sourceText, shaderOutputDir)
+    var moduleIndex = 0
+    while moduleIndex < modulePaths.length() {
+        let path = modulePaths[moduleIndex]
+        // A cheap prefilter avoids retaining duplicate declaration ASTs for
+        // ordinary compiler modules. Only the parsed decorator is authoritative.
+        let source = readText(path)
+        if source.contains("compute") or source.contains("device") or source.contains("vertex") or source.contains("fragment") {
+            let frontend = parseModuleDeclarations(path, language)
+            if not frontend.success { printFrontendDiagnostics(frontend); return 1 }
+            if hasGpuFunctions(frontend.program) {
+                println("Error: [E_GPU_BACKEND_UNAVAILABLE] GPU shader definition requires a supported typed backend: " + path)
+                return 1
+            }
         }
-        moduleIdx = moduleIdx + 1
-    }
-
-    if totalFailures > 0 {
-        return 1
+        moduleIndex = moduleIndex + 1
     }
     return 0
 }
@@ -13703,7 +13201,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if not ensureProjectPackageDependenciesForInput(resolvedInput, true) {
         return 1
     }
-    if simdReport { println(portableSimdContractReport()) }
+    configureSimdReporting(simdReport)
+    if simdReport { println(portableSimdContractReport()); emitSimdPolicyRecord(simdPolicy, targetCpu) }
     println("Stage1 compiling (Two-Pass Memory Optimized)")
     let isDeterministicProfile = profile == "deterministic"
     let isDeterministicArtifactMode = g_deterministicArtifactCli == 1
@@ -13837,6 +13336,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             "|profile=" + hashString(loadFileContent(pgoPath))
     }
     var moduleCacheEnabled = useCache
+    // A report describes this invocation's optimizer decisions. Reusing a
+    // cached object would make selected/rejected loop evidence unavailable.
+    if simdReport { moduleCacheEnabled = false }
     if g_releaseMode and g_ltoMode == "full" {
         // Full LTO needs every raw IR input to prove a complete merge.
         moduleCacheEnabled = false
@@ -13977,10 +13479,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     generator.setTypeHeaderPath(headerArg)
 
     ///
-    ============================================================
-    : Dependency management -- parse Seen.toml if present
-    ============================================================
-    Reads [native.dependencies] (and legacy system=true entries inside
+    =====================================================
+        : Dependency management -- parse Seen.toml if present
+    =====================================================
+        Reads [native.dependencies] (and legacy system=true entries inside
     [dependencies]) for native library link flags, [features] for
     compile-time feature flags, and [assets] for shader files to compile
     with glslc before linking.
@@ -14110,10 +13612,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    Circular dependency detection
-    ============================================================
-    Build import graph and run DFS cycle detection before committing to
+    =====================================================
+        Circular dependency detection
+    =====================================================
+        Build import graph and run DFS cycle detection before committing to
     compilation. Circular imports would cause the module collector to loop
     and the IR generator to emit incomplete forward references. Catching
     this early gives a clear diagnostic instead of a cryptic linker error.
@@ -14211,10 +13713,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    PASS 1: Collect module paths and register all declarations
-    ============================================================
-    Why a separate declaration pass? The IR generator uses a three-pass approach
+    =====================================================
+        PASS 1: Collect module paths and register all declarations
+    =====================================================
+        Why a separate declaration pass? The IR generator uses a three-pass approach
     (signatures -> types -> implementations). Pass 1 here feeds all module ASTs
     into registerDeclarations() so every function signature, class layout, and
     enum variant is known before any IR is generated. Without this, cross-module
@@ -14324,10 +13826,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  [Pass 1d] Complete - deterministic effect graph validated")
     }
 
-    let shaderEmitStatus = emitGlslShadersForModules(modulePaths, language,
-        outputFile)
-    if shaderEmitStatus != 0 {
-        return shaderEmitStatus
+    let gpuBackendStatus = validateGpuBackendAvailability(modulePaths, language)
+    if gpuBackendStatus != 0 {
+        return gpuBackendStatus
     }
 
     // Optimization pipeline status
@@ -14349,10 +13850,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    CACHE: Compute global hash for incremental compilation
-    ============================================================
-    The source-level cache (.seen_cache/) uses a global registryHash to detect
+    =====================================================
+        CACHE: Compute global hash for incremental compilation
+    =====================================================
+        The source-level cache (.seen_cache/) uses a global registryHash to detect
     declaration-level ABI changes without tying every cache entry to every
     module body. Cache entries are namespaced by the effective compilation
     signature so cross-target, toolchain, profile, sanitizer, LTO, PIC, PGO,
@@ -14393,10 +13894,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    PASS 2: Stream compile each module (one AST at a time)
-    ============================================================
-    Per-module LLVM temp files live under a process-unique directory so two
+    =====================================================
+        PASS 2: Stream compile each module (one AST at a time)
+    =====================================================
+        Per-module LLVM temp files live under a process-unique directory so two
     independent compiler invocations cannot remove or overwrite each other's
     raw IR, optimized IR, status, log, script, or object files.
     ///
@@ -14799,10 +14300,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    PASS 2B: Run opt + object emission for all uncached modules
-    ============================================================
-    Why a generated shell script? LLVM opt is an external process, and we need
+    =====================================================
+        PASS 2B: Run opt + object emission for all uncached modules
+    =====================================================
+        Why a generated shell script? LLVM opt is an external process, and we need
     to run N instances with either backgrounded jobs (default) or serially when
     --no-fork requests the lower-memory bootstrap path. Generating a shell script
     is simpler and more portable than managing N fork+exec pairs from Seen code.
@@ -14911,6 +14412,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     mainCompilerShellQuote(mlRemarksTempPath(
                         compileTempDir, midx)) +
                     " -pass-remarks-format=yaml"
+            }
+
+            if simdReport and g_generatedTestMainMode == 0 and normalizedCrossTarget != "android-arm64" and
+                normalizedCrossTarget != "linux-riscv64" {
+                moduleOptCmd = moduleOptCmd + " -pass-remarks=loop-vectorize -pass-remarks-missed=loop-vectorize -pass-remarks-analysis=loop-vectorize"
             }
 
             let statusFile = moduleTempPath(compileTempDir, midx,
@@ -15189,6 +14695,27 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             " mode=" + optExecutionMode)
     }
 
+    if simdReport {
+        var reportIndex = 0
+        while reportIndex < uncachedIdxStrs.length() {
+            let moduleText = uncachedIdxStrs[reportIndex]
+            let rawFile = moduleTempPath(compileTempDir, moduleText, ".ll")
+            let frontendRows = runCommand("rg --no-heading --no-filename --color=never --max-count=4096 --max-columns=8192 '^; seen-simd-loop ' " +
+                mainCompilerShellQuote(rawFile) + " | head -c 262144")
+            emitCollectedSimdReports(frontendRows.output, moduleText.toInt(), true, g_simdReportFullCli)
+            if g_generatedTestMainMode != 0 {
+                emitSimdObservationUnavailable(moduleText.toInt(), "generated-test-main-pipeline")
+            } else if normalizedCrossTarget == "android-arm64" or normalizedCrossTarget == "linux-riscv64" {
+                emitSimdObservationUnavailable(moduleText.toInt(), "target-clang-pipeline")
+            } else {
+                let remarks = runCommand("tail -c 262144 " + mainCompilerShellQuote(
+                    moduleTempPath(compileTempDir, moduleText, ".opt.log")))
+                emitCollectedSimdReports(remarks.output, moduleText.toInt(), false, g_simdReportFullCli)
+            }
+            reportIndex = reportIndex + 1
+        }
+    }
+
     if g_generatedTestMainMode == 0 {
         if cachedCount > 0 {
             println("  [Pass 2] Complete (" + cachedCount.toString() + "/" + modulePaths.length().toString() + " cached)")
@@ -15304,10 +14831,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    RELEASE MODE: Cross-module LTO merge
-    ============================================================
-    Why a separate release path? Full module merging unlocks whole-program
+    =====================================================
+        RELEASE MODE: Cross-module LTO merge
+    =====================================================
+        Why a separate release path? Full module merging unlocks whole-program
     optimization and keeps release performance strong, but it loads every
     module into one LLVM module. Memory-constrained callers select --lto=thin
     to stay on the bounded per-module ThinLTO path.
@@ -15460,10 +14987,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
 
     ///
-    ============================================================
-    LINKING: Combine all object files
-    ============================================================
-    Release builds keep the merged cross-module LTO path by default for
+    =====================================================
+        LINKING: Combine all object files
+    =====================================================
+        Release builds keep the merged cross-module LTO path by default for
     throughput. Users can choose --lto=thin to keep per-module
     objects and lower peak memory. Non-release and opt-out release builds link
     the bounded object set produced above.
@@ -16105,7 +15632,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     }
     // Pre-compile GPU runtime if not already built
     var gpuArg = ""
-    let needsGpuRuntime = sourcesNeedGpuRuntime(modulePaths)
+    let needsGpuRuntime = sourcesNeedGpuRuntime(modulePaths, language)
     if needsGpuRuntime {
         let gpuSrc = rtPrefix + "/seen_gpu.c"
         if normalizedCrossTarget == "" {
@@ -17155,6 +16682,8 @@ fun printUsage() r: Void {
 
 fun printCompileUsage() r: Void {
     println("Usage: seen compile <input.seen> [output] [options]")
+    println("GPU options: --gpu-backend <none|spirv|cuda|hip|metal>, --gpu-target <target>, --gpu-entry <name>, --gpu-fallback <error|cpu>, --gpu-manifest <seen.toml>")
+    println("Reflection: seen gpu reflect <input.seen> --output <reflection.json> [--gpu-entry <name>]")
     println("Options: --profile <profile>, --deterministic, --language <lang>,")
     println("         --backend <name>, --simd <policy>,")
     println("         --target <platform>, --no-cache, --verbose, --locked, --offline,")
@@ -17557,6 +17086,11 @@ fun parseCompileCli(argv: Array<String>) r: CliArguments {
     addCliOptionAlias(values, valueNames, "--simd", "--simd")
     addCliOptionAlias(values, valueNames, "--simd-report", "--simd-report-level")
     addCliOptionAlias(values, valueNames, "--backend", "--backend")
+    addCliOptionAlias(values, valueNames, "--gpu-backend", "--gpu-backend")
+    addCliOptionAlias(values, valueNames, "--gpu-target", "--gpu-target")
+    addCliOptionAlias(values, valueNames, "--gpu-fallback", "--gpu-fallback")
+    addCliOptionAlias(values, valueNames, "--gpu-entry", "--gpu-entry")
+    addCliOptionAlias(values, valueNames, "--gpu-manifest", "--gpu-manifest")
     addCliOptionAlias(values, valueNames, "--sanitize", "--sanitize")
     addCliOptionAlias(values, valueNames, "--instrumentation-report", "--instrumentation-report")
     addCliOptionAlias(values, valueNames, "--pgo-use", "--pgo-use")
@@ -17574,6 +17108,7 @@ fun parseCompileCli(argv: Array<String>) r: CliArguments {
 
     let repeatable = Array<String>()
     repeatable.push("--feature")
+    repeatable.push("--gpu-entry")
     let normalized = normalizeCompileOptionalValues(argv)
     return parseCliArguments(normalized, 2, flags, flagNames, values, valueNames,
         repeatable)
@@ -17951,6 +17486,15 @@ fun main() r: Int {
     }
 
     let command = argv[1]
+    if command == "gpu" {
+        if argv.length() < 3 or (argv[2] != "reflect" and argv[2] != "emit") {
+            println("Usage: seen gpu reflect|emit <source.seen> --output <artifact>"); return 1
+        }
+        let parsed = parseGpuArtifactCli(argv, argv[2] == "emit"); var manifest = ""
+        if parsed.ok and parsed.positionals.length() == 1 { manifest = findNearestSeenTomlForInput(parsed.positionals[0]) }
+        if argv[2] == "emit" { return gpuEmitCommand(parsed, manifest) }
+        return gpuReflectCommand(parsed, manifest)
+    }
     if command == "--version" or command == "-v" {
         if argv.length() > 2 {
             println("Error: unexpected extra operand '" + argv[2] + "' for " + command)
@@ -18006,6 +17550,7 @@ fun main() r: Int {
             parsed.hasOption("--simd-report-level")
         if parsed.hasOption("--simd-report-level") {
             let reportLevel = parsed.valueOr("--simd-report-level", "")
+            g_simdReportFullCli = reportLevel == "full"
             if reportLevel != "brief" and reportLevel != "full" {
                 println("Error: invalid value '" + reportLevel + "' for --simd-report; expected brief or full")
                 return 1
@@ -18062,7 +17607,10 @@ fun main() r: Int {
         if parsed.hasOption("--bounds-check") { g_boundsCheckCli = 1 }
         if parsed.hasOption("--panic-on-overflow") { g_panicOnOverflowCli = 1 }
         if parsed.hasOption("--warn-unused-result") { g_warnUnusedResultCli = 1 }
-        if parsed.hasOption("--emit-glsl") { g_emitGlsl = 1 }
+        if parsed.hasOption("--emit-glsl") {
+            println("Warning: [W_GPU_LEGACY_GLSL] --emit-glsl is deprecated for one release; use seen gpu reflect for typed IR metadata")
+            g_emitGlsl = 1
+        }
         if parsed.hasOption("--null-safety") { g_nullSafetyCli = 1 }
         if parsed.hasOption("--warn-uninit") { g_uninitCheckCli = 1 }
         if parsed.hasOption("--stack-check") { g_stackCheckCli = 1 }
@@ -18117,6 +17665,7 @@ fun main() r: Int {
             return 1
         }
         let inputFile = parsed.positionals[0]
+        if gpuValidateCompileOptions(parsed, findNearestSeenTomlForInput(inputFile)) != 0 { return 1 }
         var outputFile = defaultOutput(inputFile)
         if parsed.positionals.length() > 1 {
             outputFile = parsed.positionals[1]
@@ -18346,9 +17895,9 @@ fun main() r: Int {
 }
 
 ///
-============================================================================
+=====================================================================
 macOS App Bundle / Code Signing / Notarization Commands
-============================================================================
+=====================================================================
 ///
 
 ///
@@ -18521,9 +18070,9 @@ fun notarizeCommand(argv: Array<String>) r: Int {
 }
 
 ///
-============================================================================
+=====================================================================
 Universal Binary (lipo) Command
-============================================================================
+=====================================================================
 ///
 
 ///
@@ -18666,9 +18215,9 @@ fun lipoCommand(argv: Array<String>, requestedFromSource: Bool) r: Int {
 }
 
 ///
-============================================================================
+=====================================================================
 iOS IPA Builder Command
-============================================================================
+=====================================================================
 ///
 
 ///
@@ -18945,9 +18494,9 @@ fun ipaCommand(argv: Array<String>, requestedFromSource: Bool) r: Int {
 }
 
 ///
-============================================================================
+=====================================================================
 Translate Command
-============================================================================
+=====================================================================
 ///
 
 // Check if a language code is supported. Returns 1 for valid, 0 for invalid.

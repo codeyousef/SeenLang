@@ -28,10 +28,14 @@ source /etc/os-release
 [ "${ID:-}" = "ubuntu" ] && [ "${VERSION_ID:-}" = "24.04" ] ||
     fail "Ubuntu 24.04 runner is required"
 
+spirv_package_version=$(python3 -c 'import json; from pathlib import Path; print(json.loads(Path("docs/architecture/spirv-toolchain.json").read_text())["profiles"]["linux-x86_64"]["package_version"])')
+
 sudo -n apt-get update
 sudo -n apt-get install --yes --no-install-recommends \
     bubblewrap ripgrep libvulkan-dev llvm-20 clang-20 lld-20 \
-    libclang-rt-20-dev
+    libclang-rt-20-dev "spirv-tools=$spirv_package_version"
+[ -x /usr/bin/spirv-val ] || fail "SPIR-V validator was not installed"
+python3 scripts/check_gpu_spirv_toolchain.py >/dev/null || fail "pinned SPIR-V toolchain identity differs"
 [ -x /usr/bin/bwrap ] || fail "Bubblewrap was not installed"
 [ "$(command -v rg || true)" = "/usr/bin/rg" ] || fail "ripgrep was not installed"
 [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so ] ||

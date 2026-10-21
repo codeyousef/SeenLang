@@ -1,4 +1,6 @@
-import simd.ir_types.{simdMaskLanes, simdBuiltinWidthBits, simdConstructorLaneSupported}
+import codegen.ir_simd_operation_emit.{emitPortableSimdOperationImpl}
+import simd.ir_types.{simdMaskLanes, simdBuiltinWidthBits, simdConstructorLaneSupported, simdX86DotType,
+    simdArmBlockType, simdArmBlockArity, simdArmBlockSymbol}
 ///
 SIMD builtin emission helpers
 Extracted from ir_type_ops.seen
@@ -64,6 +66,52 @@ args/argTypes are pre-generated registers/types, constIndices for shuffle lane i
 fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
     funcName: String, args: Array<String>, argCount: Int,
     argTypes: Array<String>, constIndices: Array<Int>, constIndexCount: Int) r: String {
+
+    let portable = emitPortableSimdOperationImpl(output, regBox, funcName, args, argTypes)
+    if portable != "" { return portable }
+
+    let armType = simdArmBlockType(funcName)
+    if armType != "" {
+        let arity = simdArmBlockArity(funcName)
+        if argCount != arity { abort("Error: [E_SIMD_ARITY] ARM block requires exact pointer/count arguments") }
+        var i = 0
+        while i < argCount {
+            if argTypes[i] != "Int" and argTypes[i] != "Int64" and argTypes[i] != "UInt64" {
+                abort("Error: [E_SIMD_LANE] ARM block arguments must be 64-bit pointer/count values")
+            }
+            i = i + 1
+        }
+        var llvmType = "float"
+        if armType == "Int64" { llvmType = "i64" }
+        let value = getNextRegFn(regBox)
+        output.append("  " + value + " = call " + llvmType + " @" + simdArmBlockSymbol(funcName) +
+            "(i64 " + args[0] + ", i64 " + args[1])
+        if arity == 3 { output.append(", i64 " + args[2]) }
+        output.append(")\n")
+        return value
+    }
+
+    let dotType = simdX86DotType(funcName)
+    if dotType != "" {
+        if argCount != 3 { abort("Error: [E_SIMD_ARITY] x86 dot requires accumulator and two packed inputs") }
+        if argTypes[0] != dotType or argTypes[1] != "i32x16" or argTypes[2] != "i32x16" {
+            abort("Error: [E_SIMD_LANE] x86 dot requires exact packed lane types")
+        }
+        var intrinsic = "llvm.x86.avx512.vpdpbusd.512"
+        var llvmType = "<16 x i32>"
+        var packedType = "<16 x i32>"; var left = args[1]; var right = args[2]
+        if dotType == "f32x16" {
+            intrinsic = "llvm.x86.avx512bf16.dpbf16ps.512"; llvmType = "<16 x float>"
+            packedType = "<32 x bfloat>"
+            left = getNextRegFn(regBox); right = getNextRegFn(regBox)
+            output.append("  " + left + " = bitcast <16 x i32> " + args[1] + " to <32 x bfloat>\n")
+            output.append("  " + right + " = bitcast <16 x i32> " + args[2] + " to <32 x bfloat>\n")
+        }
+        let result = getNextRegFn(regBox)
+        output.append("  " + result + " = call " + llvmType + " @" + intrinsic + "(" +
+            llvmType + " " + args[0] + ", " + packedType + " " + left + ", " + packedType + " " + right + ")\n")
+        return result
+    }
 
     // SIMD vector constructors: f32x4(a,b,c,d), f32x8(..), i32x4(..), etc.
     if isSimdValueTypeImpl(funcName) == 1 {
@@ -163,6 +211,17 @@ fun emitSimdBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
             let shufVecType = argTypes[0]
             let shufVecLT = mapSimdBuiltinTypeImpl(shufVecType)
             let shufLanes = simdLaneCountImpl(shufVecType)
+            if argCount != 2 or constIndexCount != shufLanes or
+                isSimdVectorTypeImpl(shufVecType) != 1 or argTypes[1] != shufVecType {
+                abort("Error: [E_SIMD_ARITY] shuffle requires matching vectors and exact lane indices")
+            }
+            var checkedIndex = 0
+            while checkedIndex < constIndexCount {
+                if constIndices[checkedIndex] < 0 or constIndices[checkedIndex] >= shufLanes * 2 {
+                    abort("Error: [E_SIMD_INDEX] shuffle index is out of range")
+                }
+                checkedIndex = checkedIndex + 1
+            }
             var shufMask = "<"
             var shufI = 0
             while shufI < constIndexCount and shufI < shufLanes {

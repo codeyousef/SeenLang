@@ -1,0 +1,16 @@
+/// One bounded GLSL instruction import shared by arithmetic and word formats.
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_words.{spirvLiteralString, SPV_IMPORTS}
+
+fun spirvGlslValue(function: GpuSpirvFunction, instruction: Int, typeCode: Int, arguments: Array<Int>) r: Int {
+    let context = function.context
+    if context.glslSet == 0 {
+        context.glslSet = context.id(); let imported = [context.glslSet]
+        if not spirvLiteralString(imported, "GLSL.std.450") {
+            imported.free(); arguments.free(); context.error("E_GPU_SPIRV_LIMIT", "SPIR-V extended instruction import is invalid"); return 0
+        }; context.emit(SPV_IMPORTS, 11, imported)
+    }
+    let result = context.id(); let operands = [context.valueType(typeCode), result, context.glslSet, instruction]; var i = 0
+    while i < arguments.length() { operands.push(arguments[i]); i = i + 1 }; arguments.free()
+    function.emit(12, operands); return result
+}

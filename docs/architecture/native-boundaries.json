@@ -12,6 +12,22 @@
       "production": false
     },
     {
+      "id": "arm-sve-thread-state",
+      "subsystem": "runtime.cpu",
+      "purpose": "Per-call Linux PR_SVE_GET_VL normalization copies the calling thread vector length into a borrowed UInt64 output and clears it on failure. No allocations or retained pointers. Seen validates lengths, discovers capabilities, chooses fallback, computes kernels and owns progress. Other platforms return unsupported. Covered by changing-length/errno/null-output mocks, metadata fuzz and SIMD fixtures. Permanent OS ABI until direct compiler normalization preserves these rules.",
+      "abi": "OS prctl C",
+      "platforms": [
+        "linux-x86_64",
+        "linux-aarch64",
+        "macos",
+        "windows"
+      ],
+      "symbols": [
+        "seen_arm_sve_vector_bytes"
+      ],
+      "production": true
+    },
+    {
       "id": "async-executor-thread-adapter",
       "subsystem": "stdlib.async",
       "purpose": "Generation-checked pthread lifetime, Linux affinity/NUMA calls and opaque TLS identity. Seen owns task slots, fixed workers, typed admission, scheduling, cancellation and cleanup. Failed joins retain ownership. Linux x86-64 and macOS x86-64/arm64; macOS accepts inherited placement only. Executor/native lifetime and I/O worker suites cover this permanent OS boundary. macOS execution remains uncertified.",
@@ -119,12 +135,30 @@
       "production": false
     },
     {
+      "id": "borrowed-trait-box-storage",
+      "subsystem": "stdlib.simd",
+      "purpose": "Existing runtime pool deallocation releases exactly the 16-byte compiler-created trait box owned by a DotClockHandle or DotBackendHandle. The concrete provider remains caller-owned and must outlive the handle. Seen owns dispatch, provider lifetime rules, progress and error policy. Contract allocation baselines and sanitizer profiles cover native and deterministic providers. Permanent until compiler-managed borrowed trait boxes replace explicit handle cleanup; migrate creation and release together.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_pool_free"],
+      "production": true
+    },
+    {
       "id": "c-string-conversion-memory",
       "subsystem": "runtime.ffi",
       "purpose": "Explicit C-string conversion ownership boundary. Converting a Seen string to a C string allocates a NUL-terminated copy that Seen code releases exactly once through the paired free symbol; converting a C string to Seen produces a borrowed view and never takes ownership. Exercised by packaged standard-library executable tests with non-null CUDA diagnostic strings and deterministic cleanup.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_cstr_free", "seen_cstr_to_str", "seen_str_to_cstr"],
+      "production": true
+    },
+    {
+      "id": "compiler-byte-array-storage-view",
+      "subsystem": "compiler.gpu",
+      "purpose": "Existing array-data accessor borrows exclusive Array<Int> storage without allocation or retention. Seen validates byte domains and the 32 MiB ceiling, compacts forward, clones a length-delimited string view, and frees the input once. No resize or alias is permitted. All-octet, NUL, empty, rejection and allocation tests cover it. Permanent runtime layout projection until a portable bootstrap array-data intrinsic replaces this accessor and its owner together.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_arr_data_ptr"],
       "production": true
     },
     {
@@ -320,6 +354,23 @@
       "abi": "OS time C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_time_monotonic_nanos", "seen_time_sleep_nanos", "seen_time_system_nanos"],
+      "production": true
+    },
+    {
+      "id": "x86-cpu-register-state",
+      "subsystem": "runtime.cpu",
+      "purpose": "Startup CPUID/XGETBV normalization and read-only feature queries require OS-enabled XCR0 state before Seen selects AVX bodies. No allocations or borrowed storage escape; process-lifetime feature data initializes before workers. Seen owns dispatch, fallback, kernels, bounds, progress and diagnostics. Simulated OS-state probes and SIMD fixtures cover the boundary. Migrate queries together if compiler CPU discovery replaces this ABI.",
+      "abi": "Seen runtime C",
+      "platforms": [
+        "linux-x86_64",
+        "macos",
+        "windows"
+      ],
+      "symbols": [
+        "seen_cpu_detect",
+        "seen_cpu_has_feature",
+        "seen_cpu_simd_tier"
+      ],
       "production": true
     }
   ]

@@ -1,0 +1,43 @@
+/// One inlined source function frame. Resource identities borrow the entry's
+/// resource table; registers, local slots and control stacks belong to the frame.
+import codegen.gpu_ir_model.{GpuIrModule}
+
+class GpuSpirvFrame {
+    var functionIndex: Int
+    var registers: Array<Int>
+    var registerTypes: Array<Int>
+    var resourceIndices: Array<Int>
+    var localPointers: Array<Int>
+    var arguments: Array<Int>
+    var argumentResources: Array<Int>
+    var loopMerges: Array<Int>
+    var loopContinues: Array<Int>
+    var inductionPointers: Array<Int>
+    var signal: Int
+    var condition: Int
+    var yielded: Int
+    var returnMerge: Int
+    var returnSlot: Int
+    fun release() r: Void {
+        this.registers.free(); this.registerTypes.free(); this.resourceIndices.free(); this.localPointers.free(); this.arguments.free(); this.argumentResources.free()
+        this.loopMerges.free(); this.loopContinues.free(); this.inductionPointers.free(); this.free()
+    }
+}
+fun createGpuSpirvFrame(borrow module: GpuIrModule, functionIndex: Int, arguments: Array<Int>, resources: Array<Int>) r: GpuSpirvFrame {
+    let function = module.functions[functionIndex]
+    let registers = Array<Int>(); let types = Array<Int>(); let indices = Array<Int>(); let locals = Array<Int>(); var i = 0
+    while i <= function.registerCount { registers.push(0); types.push(0); indices.push(-1); i = i + 1 }; i = 0
+    while i < function.blocks.length() {
+        let block = function.blocks[i]; var j = 0
+        while j < block.instructions.length() {
+            let op = block.instructions[j]
+            if op.result > 0 { types[op.result] = op.typeCode }; j = j + 1
+        }; i = i + 1
+    }; i = 0
+    while i < function.localCount { locals.push(0); i = i + 1 }
+    let copied = Array<Int>(); let copiedResources = Array<Int>(); i = 0
+    while i < arguments.length() { copied.push(arguments[i]); copiedResources.push(resources[i]); i = i + 1 }
+    return GpuSpirvFrame{functionIndex: functionIndex, registers: registers, registerTypes: types, resourceIndices: indices, localPointers: locals,
+        arguments: copied, argumentResources: copiedResources, loopMerges: Array<Int>(), loopContinues: Array<Int>(),
+        inductionPointers: Array<Int>(), signal: 0, condition: 0, yielded: 0, returnMerge: 0, returnSlot: 0}
+}

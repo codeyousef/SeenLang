@@ -1,0 +1,15 @@
+extern "C" fun seen_string_release_owned(value: String) r: Void
+fun metric(label: String, value: Int64) r: Void {
+    let number = value.toString(); let line = label + number
+    println(line); seen_string_release_owned(line); seen_string_release_owned(number)
+}
+fun medianRatioPpm(ratios: Array<Int64>) r: Int64 {
+    if ratios.length() != 30 { abort("benchmark requires thirty paired samples") }
+    var i = 1
+    while i < 30 {
+        let value = ratios[i]; var j = i
+        while j > 0 and ratios[j - 1] > value { ratios[j] = ratios[j - 1]; j = j - 1 }
+        ratios[j] = value; i = i + 1
+    }
+    return (ratios[14] + ratios[15]) / (2 as Int64)
+}

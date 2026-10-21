@@ -1,0 +1,34 @@
+import ir_fixture_support.{irRequire, irExpect}
+import ir_lowering_support.{irLowerSource}
+import ir_precision_support.{precisionTarget, precisionExpectTarget, precisionExpectOverride, precisionCooperativeSource}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let module = irLowerSource(precisionCooperativeSource()); let target = precisionTarget(module); irRequire(target.addMatrix(0, 2))
+    let specialized = irLowerSource("@compute(1) fun bounded() { let x = specializeInt32(7, 4, 1, 8) }")
+    let features = target.features; let key = target.matrixKeys[0]
+    let start = seen_time_monotonic_nanos(); irRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
+    let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1084
+    let baseline = seen_memory_used_bytes()
+    while now < deadline and iterations < 10000000 {
+        seed = (seed * 48271) % 2147483647; let mode = seed % 7
+        if mode == 0 {
+            target.features = 67108864 as UInt64; precisionExpectTarget(module, target, "E_GPU_CAPABILITY_PROFILE"); target.features = features
+        } else if mode == 1 {
+            target.matrixKeys[0] = 100000 + seed; precisionExpectTarget(module, target, "E_GPU_CAPABILITY_PROFILE"); target.matrixKeys[0] = key
+        } else if mode == 2 {
+            target.subgroupSize = 3; precisionExpectTarget(module, target, "E_GPU_CAPABILITY_PROFILE"); target.subgroupSize = 32
+        } else if mode == 3 {
+            target.maxWorkgroupInvocations = 1; precisionExpectTarget(module, target, "E_GPU_CAPABILITY"); target.maxWorkgroupInvocations = 1024
+        } else if mode == 4 { precisionExpectOverride(specialized, [7], [9 + seed], false, 0) }
+        else if mode == 5 { precisionExpectOverride(specialized, [8 + seed], [4], false, 0) }
+        else { precisionExpectOverride(specialized, [7, 7], [4, 4], false, 0) }
+        irRequire(seen_memory_used_bytes() == baseline); iterations = iterations + 1
+        if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); irRequire(next >= now); now = next }
+    }
+    irRequire(now >= deadline and iterations >= 32); precisionExpectTarget(module, target, ""); irExpect(specialized, "")
+    target.release(); module.release(); specialized.release()
+    println("PASS: GPU-001C precision metadata fuzz 60s seed=1084 rejected malformed profiles and overrides without leaks")
+    return 0
+}

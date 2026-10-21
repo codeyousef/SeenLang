@@ -1,0 +1,91 @@
+/// Per-entry function state. Source helpers inline into separate owned frames;
+/// physical function locals are collected before the entry block's body.
+import codegen.gpu.spirv_words.{GpuSpirvWords, SPV_DECLARATIONS, SPV_FUNCTIONS, SPV_ANNOTATIONS}
+import codegen.gpu.spirv_types.{GpuSpirvContext}
+import codegen.gpu.spirv_layout.{GpuSpirvResource}
+
+class GpuSpirvFunction {
+    var context: GpuSpirvContext
+    var code: GpuSpirvWords
+    var identity: Int
+    var entryLabel: Int
+    var currentLabel: Int
+    var terminated: Bool
+    var workgroupX: Int
+    var workgroupY: Int
+    var workgroupZ: Int
+    var workgroupSize: Int
+    var resources: Array<GpuSpirvResource>
+    var interfaceIds: Array<Int>
+    var builtinIds: Array<Int>
+    var faultVariable: Int
+    fun emit(opcode: Int, operands: Array<Int>) r: Void {
+        if not this.code.emit(SPV_FUNCTIONS, opcode, operands) { this.context.error("E_GPU_SPIRV_LIMIT", this.code.message) }
+    }
+    fun label(identity: Int) r: Void { this.emit(248, [identity]); this.currentLabel = identity; this.terminated = false }
+    fun branch(identity: Int) r: Void {
+        if not this.terminated { this.emit(249, [identity]) }; this.terminated = true
+    }
+    fun conditional(condition: Int, yes: Int, no: Int) r: Void { this.emit(250, [condition, yes, no]); this.terminated = true }
+    fun variable(typeCode: Int) r: Int {
+        let pointer = this.context.pointerType(7, typeCode); let identity = this.context.id()
+        if not this.code.emit(SPV_DECLARATIONS, 59, [pointer, identity, 7]) { this.context.error("E_GPU_SPIRV_LIMIT", this.code.message) }; return identity
+    }
+    fun addResource(resource: GpuSpirvResource) r: Int {
+        if this.resources.length() >= 4096 {
+            resource.free(); this.context.error("E_GPU_SPIRV_LIMIT", "SPIR-V entry resource ceiling exceeded"); return -1
+        }
+        let index = this.resources.length(); this.resources.push(resource); this.interfaceIds.push(resource.variable); return index
+    }
+    fun builtin(code: Int) r: Int {
+        let context = this.context
+        if code == 9 {
+            if this.workgroupSize == 0 {
+                let x = context.constant(3, this.workgroupX); let y = context.constant(3, this.workgroupY); let z = context.constant(3, this.workgroupZ)
+                let vector = context.valueType(35); this.workgroupSize = context.id()
+                context.emit(SPV_DECLARATIONS, 44, [vector, this.workgroupSize, x, y, z])
+            }
+            return this.workgroupSize
+        }
+        var decoration = -1; var typeCode = 35
+        if code == 1 { decoration = 28 }; if code == 2 { decoration = 27 }; if code == 3 { decoration = 26 }
+        if code == 4 { decoration = 24 }; if code == 5 { decoration = 29; typeCode = 3 }
+        if code >= 6 and code <= 8 {
+            context.capability(61); typeCode = 3
+            if code == 6 { decoration = 36 }; if code == 7 { decoration = 40 }; if code == 8 { decoration = 41 }
+        }
+        if decoration < 0 { context.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V builtin capability is unsupported"); return 0 }
+        if this.builtinIds[code] == 0 {
+            let pointer = context.pointerType(1, typeCode); let variable = context.id(); this.builtinIds[code] = variable
+            context.emit(SPV_DECLARATIONS, 59, [pointer, variable, 1]); context.emit(SPV_ANNOTATIONS, 71, [variable, 11, decoration])
+            this.interfaceIds.push(variable)
+        }
+        let result = context.id(); this.emit(61, [context.valueType(typeCode), result, this.builtinIds[code]]); return result
+    }
+    fun faultKind(kind: Int) r: Void {
+        let context = this.context
+        if kind < 1 or kind > 4 { context.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V fault identity is unsupported"); return }
+        if this.faultVariable == 0 { context.error("E_GPU_SPIRV_LAYOUT", "checked operation lacks its fault binding"); return }
+        let pointer = context.id(); let index = context.constant(3, 0)
+        this.emit(65, [context.pointerType(12, 3), pointer, this.faultVariable, index])
+        let ignored = context.id(); let scope = context.constant(3, 1); let semantics = context.constant(3, 64); let bit = context.constant(3, 1 << (kind - 1))
+        this.emit(241, [context.valueType(3), ignored, pointer, scope, semantics, bit])
+    }
+    fun faultWhen(condition: Int, kind: Int) r: Void {
+        let merge = this.context.id(); let bad = this.context.id()
+        this.emit(247, [merge, 0]); this.conditional(condition, bad, merge)
+        this.label(bad); this.faultKind(kind); this.branch(merge); this.label(merge)
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.resources.length() { let resource: GpuSpirvResource = this.resources[i]; resource.free(); i = i + 1 }
+        this.resources.free(); this.interfaceIds.free(); this.builtinIds.free(); this.code.release(); this.free()
+    }
+}
+fun createGpuSpirvFunction(context: GpuSpirvContext, x: Int, y: Int, z: Int) r: GpuSpirvFunction {
+    let builtins = Array<Int>(); var i = 0; while i < 10 { builtins.push(0); i = i + 1 }
+    let identity = context.id(); let entryLabel = context.id()
+    return GpuSpirvFunction{context: context, code: GpuSpirvWords.create(), identity: identity, entryLabel: entryLabel, currentLabel: entryLabel,
+        terminated: false, workgroupX: x, workgroupY: y, workgroupZ: z, workgroupSize: 0,
+        resources: Array<GpuSpirvResource>(), interfaceIds: Array<Int>(), builtinIds: builtins, faultVariable: 0}
+}

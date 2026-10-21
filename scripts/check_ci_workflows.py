@@ -85,6 +85,15 @@ jobs:
             .seen/agent-tools/safe-rebuild/run.*/completion-io-*/*.log
             .seen/agent-tools/safe-rebuild/run.*/completion-io-*/*.json
             .seen/agent-tools/safe-rebuild/run.*/completion-io-*/*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/stage2-failure.*/*
+            .seen/agent-tools/safe-rebuild/run.*/inf-simd-b.*/contract-*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*.json
+            .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*.spv
+            .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.jsonl
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*-ir/*.ll
             releases/compatibility-manifest.json
           include-hidden-files: true
           if-no-files-found: ignore
@@ -313,6 +322,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
             "lld-20",
             "llvm-20",
             "ripgrep",
+            "spirv-tools",
         ],
         "host_tools_provisioning": "ubuntu-packages-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",

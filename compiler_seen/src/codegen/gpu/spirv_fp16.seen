@@ -1,0 +1,63 @@
+/// Binary16 conversion uses integer significands, including all subnormals.
+/// Finite overflow saturates; infinities and canonical NaN are handled by the
+/// shared short-float policy after this nearest-even magnitude conversion.
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
+import codegen.gpu.spirv_float_bits.{spirvRoundRightEven}
+
+fun spirvPackFp16Magnitude(function: GpuSpirvFunction, magnitude: Int) r: Int {
+    let context = function.context; let rounded = spirvRoundRightEven(function, magnitude, 13)
+    let normal = spirvBinaryValue(function, 130, 3, rounded, context.constant(3, 114688))
+    let exponent = spirvBinaryValue(function, 194, 3, magnitude, context.constant(3, 23))
+    let rawShift = spirvBinaryValue(function, 130, 3, context.constant(3, 126), exponent)
+    let largeEnough = spirvBinaryValue(function, 174, 1, exponent, context.constant(3, 102))
+    let smallEnough = spirvBinaryValue(function, 176, 1, exponent, context.constant(3, 113))
+    let inRange = spirvBinaryValue(function, 167, 1, largeEnough, smallEnough)
+    let shift = spirvSelectValue(function, 3, inRange, rawShift, context.constant(3, 24))
+    let mantissa = spirvBinaryValue(function, 199, 3, magnitude, context.constant(3, 8388607))
+    let significand = spirvBinaryValue(function, 197, 3, mantissa, context.constant(3, 8388608))
+    let retained = spirvBinaryValue(function, 194, 3, significand, shift)
+    let range = spirvBinaryValue(function, 196, 3, context.constant(3, 1), shift)
+    let mask = spirvBinaryValue(function, 130, 3, range, context.constant(3, 1))
+    let remainder = spirvBinaryValue(function, 199, 3, significand, mask)
+    let half = spirvBinaryValue(function, 194, 3, range, context.constant(3, 1))
+    let greater = spirvBinaryValue(function, 172, 1, remainder, half)
+    let equal = spirvBinaryValue(function, 170, 1, remainder, half)
+    let odd = spirvBinaryValue(function, 199, 3, retained, context.constant(3, 1))
+    let oddBit = spirvBinaryValue(function, 171, 1, odd, context.constant(3, 0))
+    let tie = spirvBinaryValue(function, 167, 1, equal, oddBit)
+    let increment = spirvSelectValue(function, 3, spirvBinaryValue(function, 166, 1, greater, tie), context.constant(3, 1), context.constant(3, 0))
+    let subnormal = spirvBinaryValue(function, 128, 3, retained, increment)
+    let underflowed = spirvSelectValue(function, 3, largeEnough, subnormal, context.constant(3, 0))
+    return spirvSelectValue(function, 3, smallEnough, underflowed, normal)
+}
+fun spirvUnpackFp16(function: GpuSpirvFunction, payload: Int) r: Int {
+    let context = function.context; let high = spirvBinaryValue(function, 194, 3, payload, context.constant(3, 10))
+    let exponent = spirvBinaryValue(function, 199, 3, high, context.constant(3, 31))
+    let mantissa = spirvBinaryValue(function, 199, 3, payload, context.constant(3, 1023))
+    let fraction = spirvBinaryValue(function, 196, 3, mantissa, context.constant(3, 13))
+    let biased = spirvBinaryValue(function, 128, 3, exponent, context.constant(3, 112))
+    let exponentBits = spirvBinaryValue(function, 196, 3, biased, context.constant(3, 23))
+    let normal = spirvBinaryValue(function, 197, 3, exponentBits, fraction)
+    var highest = context.constant(3, 0); var i = 1
+    while i < 10 {
+        let active = spirvBinaryValue(function, 174, 1, mantissa, context.constant(3, 1 << i))
+        highest = spirvSelectValue(function, 3, active, context.constant(3, i), highest); i = i + 1
+    }
+    let smallExponent = spirvBinaryValue(function, 128, 3, highest, context.constant(3, 103))
+    let smallHigh = spirvBinaryValue(function, 196, 3, smallExponent, context.constant(3, 23))
+    let shift = spirvBinaryValue(function, 130, 3, context.constant(3, 23), highest)
+    let expanded = spirvBinaryValue(function, 196, 3, mantissa, shift)
+    let smallFraction = spirvBinaryValue(function, 199, 3, expanded, context.constant(3, 8388607))
+    let small = spirvBinaryValue(function, 197, 3, smallHigh, smallFraction)
+    let zero = spirvBinaryValue(function, 170, 1, mantissa, context.constant(3, 0))
+    let subnormal = spirvSelectValue(function, 3, zero, context.constant(3, 0), small)
+    let isSubnormal = spirvBinaryValue(function, 170, 1, exponent, context.constant(3, 0))
+    var bits = spirvSelectValue(function, 3, isSubnormal, subnormal, normal)
+    let special = spirvBinaryValue(function, 170, 1, exponent, context.constant(3, 31))
+    let specialBits = spirvBinaryValue(function, 197, 3, context.constant(3, 2139095040), fraction)
+    bits = spirvSelectValue(function, 3, special, specialBits, bits)
+    let sign = spirvBinaryValue(function, 199, 3, payload, context.constant(3, 32768))
+    let signBits = spirvBinaryValue(function, 196, 3, sign, context.constant(3, 16))
+    return spirvUnaryValue(function, 124, 4, spirvBinaryValue(function, 197, 3, bits, signBits))
+}

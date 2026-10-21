@@ -1,0 +1,75 @@
+/// Closed storage precision identities. Packed words are explicitly UInt32;
+/// unpacking produces an existing i32/u32/f32 value and never widens a resource
+/// declaration silently. MXFP4 uses E2M1 values and a separate UE8M0 scale.
+let GPU_FORMAT_FP32: Int = 1
+let GPU_FORMAT_FP16: Int = 2
+let GPU_FORMAT_BF16: Int = 3
+let GPU_FORMAT_INT8: Int = 4
+let GPU_FORMAT_UINT8: Int = 5
+let GPU_FORMAT_INT4: Int = 6
+let GPU_FORMAT_UINT4: Int = 7
+let GPU_FORMAT_INT2: Int = 8
+let GPU_FORMAT_UINT2: Int = 9
+let GPU_FORMAT_FP8_E4M3FN: Int = 10
+let GPU_FORMAT_MXFP4: Int = 11
+let GPU_FORMAT_INT32: Int = 12
+let GPU_FORMAT_UINT32: Int = 13
+
+let GPU_CAP_PACKED16: UInt64 = 1024 as UInt64
+let GPU_CAP_PACKED8: UInt64 = 2048 as UInt64
+let GPU_CAP_PACKED4: UInt64 = 4096 as UInt64
+let GPU_CAP_PACKED2: UInt64 = 8192 as UInt64
+let GPU_CAP_FP8: UInt64 = 16384 as UInt64
+let GPU_CAP_MXFP4: UInt64 = 32768 as UInt64
+let GPU_CAP_SPECIALIZATION: UInt64 = 65536 as UInt64
+let GPU_CAP_COOPERATIVE: UInt64 = 131072 as UInt64
+let GPU_CAP_COOP_FP16: UInt64 = 262144 as UInt64
+let GPU_CAP_COOP_BF16: UInt64 = 524288 as UInt64
+let GPU_CAP_COOP_INT8: UInt64 = 1048576 as UInt64
+let GPU_CAP_COOP_INT4: UInt64 = 2097152 as UInt64
+let GPU_CAP_COOP_INT2: UInt64 = 4194304 as UInt64
+let GPU_CAP_COOP_FP8: UInt64 = 8388608 as UInt64
+let GPU_CAP_COOP_MXFP4: UInt64 = 16777216 as UInt64
+let GPU_CAP_COOP_FP32: UInt64 = 33554432 as UInt64
+let GPU_CAP_ALL_KNOWN: UInt64 = 67108863 as UInt64
+
+fun gpuPrecisionValid(format: Int) r: Bool { return format >= 1 and format <= 13 }
+fun gpuPrecisionBits(format: Int) r: Int {
+    if format == GPU_FORMAT_FP32 or format == GPU_FORMAT_INT32 or format == GPU_FORMAT_UINT32 { return 32 }
+    if format == GPU_FORMAT_FP16 or format == GPU_FORMAT_BF16 { return 16 }
+    if format == GPU_FORMAT_INT8 or format == GPU_FORMAT_UINT8 or format == GPU_FORMAT_FP8_E4M3FN { return 8 }
+    if format == GPU_FORMAT_INT4 or format == GPU_FORMAT_UINT4 or format == GPU_FORMAT_MXFP4 { return 4 }
+    if format == GPU_FORMAT_INT2 or format == GPU_FORMAT_UINT2 { return 2 }; return 0
+}
+fun gpuPrecisionValueType(format: Int) r: Int {
+    if not gpuPrecisionValid(format) { return 0 }
+    if format == GPU_FORMAT_INT8 or format == GPU_FORMAT_INT4 or format == GPU_FORMAT_INT2 or format == GPU_FORMAT_INT32 { return 2 }
+    if format == GPU_FORMAT_UINT8 or format == GPU_FORMAT_UINT4 or format == GPU_FORMAT_UINT2 or format == GPU_FORMAT_UINT32 { return 3 }
+    return 4
+}
+fun gpuPrecisionWordLanes(format: Int) r: Int {
+    let bits = gpuPrecisionBits(format); if bits == 0 { return 0 }; return 32 / bits
+}
+fun gpuPrecisionBlockElements(format: Int) r: Int {
+    if not gpuPrecisionValid(format) { return 0 }; if format == GPU_FORMAT_MXFP4 { return 32 }; return gpuPrecisionWordLanes(format)
+}
+fun gpuPrecisionBlockBytes(format: Int) r: Int {
+    if not gpuPrecisionValid(format) { return 0 }; if format == GPU_FORMAT_MXFP4 { return 17 }; return 4
+}
+fun gpuPrecisionCapabilities(format: Int) r: UInt64 {
+    var capabilities = 0 as UInt64
+    if gpuPrecisionValueType(format) == 4 { capabilities = 512 as UInt64 }
+    let bits = gpuPrecisionBits(format)
+    if bits == 16 { capabilities = capabilities | GPU_CAP_PACKED16 }; if bits == 8 { capabilities = capabilities | GPU_CAP_PACKED8 }
+    if bits == 4 { capabilities = capabilities | GPU_CAP_PACKED4 }; if bits == 2 { capabilities = capabilities | GPU_CAP_PACKED2 }
+    if format == GPU_FORMAT_FP8_E4M3FN { capabilities = capabilities | GPU_CAP_FP8 }
+    if format == GPU_FORMAT_MXFP4 { capabilities = capabilities | GPU_CAP_MXFP4 }; return capabilities
+}
+fun gpuPrecisionName(format: Int) r: String {
+    if format == GPU_FORMAT_FP32 { return "FP32" }; if format == GPU_FORMAT_FP16 { return "FP16" }; if format == GPU_FORMAT_BF16 { return "BF16" }
+    if format == GPU_FORMAT_INT8 { return "INT8" }; if format == GPU_FORMAT_UINT8 { return "UINT8" }
+    if format == GPU_FORMAT_INT4 { return "INT4" }; if format == GPU_FORMAT_UINT4 { return "UINT4" }
+    if format == GPU_FORMAT_INT2 { return "INT2" }; if format == GPU_FORMAT_UINT2 { return "UINT2" }
+    if format == GPU_FORMAT_FP8_E4M3FN { return "FP8_E4M3FN" }; if format == GPU_FORMAT_MXFP4 { return "MXFP4_E2M1_UE8M0" }
+    if format == GPU_FORMAT_INT32 { return "INT32" }; if format == GPU_FORMAT_UINT32 { return "UINT32" }; return "unsupported"
+}

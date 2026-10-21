@@ -55,47 +55,33 @@ seen compile app.seen app --simd-report=full
 `--simd=auto` is the default. Use `--target-cpu` to choose the target CPU
 baseline; deterministic mode forces the compiler's deterministic SIMD policy.
 
-## Experimental GPU compute
-
-Compute declarations use the current decorator and built-in spellings:
+## Typed GPU frontend and experimental runtime
 
 ```seen
-@compute(workgroup: 64)
-fun vector_add(a: Buffer<Float>, b: Buffer<Float>, out: Buffer<Float>) {
+@compute(workgroup: [8, 8, 1])
+fun vector_add(a: ReadBuffer<Float32>, b: ReadBuffer<Float32>, out: WriteBuffer<Float32>) {
     let index = globalInvocationId.x
-    out[index] = a[index] + b[index]
+    if index < a.length and index < b.length and index < out.length {
+        out[index] = a[index] + b[index]
+    }
 }
 ```
 
-`--emit-glsl` writes shader artifacts below `<output>.shaders/`, including
-`.comp.glsl` and reflection JSON. When `glslc` is available, the compiler also
-produces SPIR-V `.comp.spv` output.
+`seen check app.seen` validates the parsed kernel body, fixed-width resources,
+access modes, scopes and checked workgroup geometry. It performs no GPU discovery
+or execution. Unsupported expressions and host effects fail with `E_GPU_*`
+diagnostics. Until a typed backend is available, compiling compute modules and
+using `--emit-glsl` fail explicitly with `E_GPU_BACKEND_UNAVAILABLE`; the legacy
+known-name/empty-body shader emitter has been removed.
 
-```bash
-seen compile app.seen app --emit-glsl
-```
+The experimental Vulkan C API in `seen_gpu.h` still provides context, buffer,
+shader/pipeline, dispatch and fence operations. Callers must check availability
+and choose fallback explicitly. Those runtime bindings do not certify typed
+kernel lowering. Ordinary CPU modules mentioning GPU markers in literals or
+non-extern function names do not select Vulkan linkage.
 
-This is not yet an automatic source-to-running-GPU pipeline. Arbitrary Seen
-shader bodies are not all translated faithfully, and the generated host
-dispatch wrapper does not construct a usable Vulkan pipeline for the caller.
-Treat generated GLSL/reflection as inspectable build artifacts. Production
-dispatch must explicitly initialize the runtime, load SPIR-V, create buffers
-and a pipeline, dispatch with that pipeline handle, synchronize, and release
-resources.
-
-The C runtime API in `seen_gpu.h` uses these names:
-
-- `seen_gpu_init`, `seen_gpu_shutdown`, and `seen_gpu_is_available`
-- `seen_gpu_buffer_create`, `seen_gpu_buffer_write`,
-  `seen_gpu_buffer_read`, and `seen_gpu_buffer_destroy`
-- `seen_gpu_shader_load`, `seen_gpu_pipeline_create`, and
-  `seen_gpu_pipeline_destroy`
-- `seen_gpu_dispatch` or `seen_gpu_dispatch_handles`
-- fence helpers and `seen_gpu_device_wait_idle`
-
-GPU compilation needs `glslc`. GPU execution additionally needs Vulkan headers,
-the Vulkan loader, and a suitable device/driver. Programs should check
-`seen_gpu_init()` and `seen_gpu_is_available()` and provide a CPU fallback.
+See [GPU API](api-reference/gpu.md) for the supported frontend vocabulary,
+resource ownership, diagnostics, verification harness and runtime declarations.
 
 ## Related
 

@@ -1,0 +1,103 @@
+/// Explicit precision intrinsic vocabulary and compile-time matrix metadata.
+/// Source operands are lowered later, once, by the ordinary value traversal.
+import parser.real_parser.{ParserExpressionNode}
+import codegen.gpu_lower_context.{GpuLowerContext}
+import codegen.gpu_call_plan_model.{GpuCallPlan, gpuLowerName}
+import codegen.gpu_ir_ops.{GPU_IR_UNPACK, GPU_IR_PACK, GPU_IR_SPECIALIZE,
+    GPU_IR_COOP_LOAD, GPU_IR_COOP_MMA, GPU_IR_COOP_STORE, GPU_IR_COOP_FILL}
+import codegen.gpu_precision_formats.{GPU_FORMAT_FP32, GPU_FORMAT_FP16, GPU_FORMAT_BF16,
+    GPU_FORMAT_INT8, GPU_FORMAT_UINT8, GPU_FORMAT_INT4, GPU_FORMAT_UINT4, GPU_FORMAT_INT2,
+    GPU_FORMAT_UINT2, GPU_FORMAT_FP8_E4M3FN, GPU_FORMAT_MXFP4, GPU_FORMAT_INT32, GPU_FORMAT_UINT32,
+    gpuPrecisionName}
+import codegen.gpu_matrix_types.{gpuMatrixType}
+import typechecker.gpu_types.{gpuBoundedDecimal}
+
+fun gpuPrecisionCallFormat(name: String) r: Int {
+    if name == "unpackFp32" or name == "insertFp32" { return GPU_FORMAT_FP32 }
+    if name == "unpackFp16" or name == "insertFp16" { return GPU_FORMAT_FP16 }
+    if name == "unpackBf16" or name == "insertBf16" { return GPU_FORMAT_BF16 }
+    if name == "unpackInt8" or name == "insertInt8" { return GPU_FORMAT_INT8 }
+    if name == "unpackUInt8" or name == "insertUInt8" { return GPU_FORMAT_UINT8 }
+    if name == "unpackInt4" or name == "insertInt4" { return GPU_FORMAT_INT4 }
+    if name == "unpackUInt4" or name == "insertUInt4" { return GPU_FORMAT_UINT4 }
+    if name == "unpackInt2" or name == "insertInt2" { return GPU_FORMAT_INT2 }
+    if name == "unpackUInt2" or name == "insertUInt2" { return GPU_FORMAT_UINT2 }
+    if name == "unpackFp8E4M3FN" or name == "insertFp8E4M3FN" { return GPU_FORMAT_FP8_E4M3FN }
+    if name == "unpackMxfp4" or name == "insertMxfp4" { return GPU_FORMAT_MXFP4 }
+    if name == "unpackInt32" or name == "insertInt32" { return GPU_FORMAT_INT32 }
+    if name == "unpackUInt32" or name == "insertUInt32" { return GPU_FORMAT_UINT32 }; return 0
+}
+fun gpuPrecisionCallOpcode(name: String) r: Int {
+    if gpuPrecisionCallFormat(name) != 0 { if name.startsWith("unpack") { return GPU_IR_UNPACK }; return GPU_IR_PACK }
+    if name == "specializeInt32" or name == "specializeUInt32" { return GPU_IR_SPECIALIZE }
+    if name == "coopLoadA" or name == "coopLoadB" or name == "coopLoadMxfp4A" or name == "coopLoadMxfp4B" { return GPU_IR_COOP_LOAD }
+    if name == "coopMma" { return GPU_IR_COOP_MMA }; if name == "coopStore" { return GPU_IR_COOP_STORE }
+    if name == "coopFillFp32" or name == "coopFillInt32" or name == "coopFillUInt32" { return GPU_IR_COOP_FILL }; return 0
+}
+fun gpuPrecisionEnum(context: GpuLowerContext, expression: ParserExpressionNode, category: Int, depth: Int) r: Int {
+    if not context.visit(depth) { return -1 }
+    if expression.kind != "Variable" and expression.kind != "VarExpr" { context.error("E_GPU_PRECISION", "precision and matrix metadata require compile-time enum identities"); return -1 }
+    let name = gpuLowerName(expression)
+    if context.find(name) >= 0 { context.error("E_GPU_PRECISION", "GPU precision enum identity is shadowed"); return -1 }
+    if category == 1 {
+        var format = 1
+        while format <= 13 { if gpuPrecisionName(format) == name { return format }; format = format + 1 }
+    } else if category == 2 {
+        if name == "Tile16x16x16" { return 0 }; if name == "Tile16x8x16" { return 1 }
+        if name == "Tile8x8x8" { return 2 }; if name == "Tile16x16x32" { return 3 }
+    } else if category == 3 {
+        if name == "RowMajor" { return 1 }; if name == "ColumnMajor" { return 2 }
+    }
+    context.error("E_GPU_PRECISION", "unknown precision or cooperative matrix enum identity"); return -1
+}
+fun gpuPlanPrecisionCall(context: GpuLowerContext, expression: ParserExpressionNode, plan: GpuCallPlan, depth: Int) r: Void {
+    let name = expression.callee; plan.opcode = gpuPrecisionCallOpcode(name)
+    if plan.opcode == GPU_IR_UNPACK or plan.opcode == GPU_IR_PACK {
+        plan.immediate = gpuPrecisionCallFormat(name); var arity = 2
+        if plan.opcode == GPU_IR_PACK { arity = 3 }; if plan.immediate == GPU_FORMAT_MXFP4 { arity = arity + 1 }
+        if expression.arguments.length() != arity { context.error("E_GPU_PRECISION", "packed conversion has an invalid argument count"); return }
+        plan.dataOperands = arity; return
+    }
+    if plan.opcode == GPU_IR_SPECIALIZE {
+        if expression.arguments.length() != 4 { context.error("E_GPU_SPECIALIZATION", "specialization requires id, default, minimum and maximum"); return }
+        if not context.visit(depth + 1) { return }; let identity = expression.arguments[0]
+        if identity.kind != "Literal" or identity.literalType != "Int" {
+            context.error("E_GPU_SPECIALIZATION", "specialization id requires a bounded integer literal"); return
+        }
+        let id = gpuBoundedDecimal(identity.literalValue, 65535)
+        if id < 0 { context.error("E_GPU_SPECIALIZATION", "specialization id exceeds its ceiling"); return }
+        plan.immediate = id; plan.dataOffset = 1; plan.dataOperands = 3; plan.typeCode = 2
+        if name == "specializeUInt32" { plan.typeCode = 3 }; return
+    }
+    if plan.opcode == GPU_IR_COOP_MMA {
+        if expression.arguments.length() != 3 { context.error("E_GPU_COOPERATIVE", "cooperative multiply-add requires A, B and accumulator fragments"); return }
+        plan.dataOperands = 3; return
+    }
+    if plan.opcode == GPU_IR_COOP_STORE {
+        if expression.arguments.length() != 5 { context.error("E_GPU_COOPERATIVE", "cooperative store requires fragment, resource, offset, stride and layout"); return }
+        plan.dataOperands = 4; plan.resourceMask = 2
+        plan.immediate = gpuPrecisionEnum(context, expression.arguments[4], 3, depth + 1); return
+    }
+    if plan.opcode == GPU_IR_COOP_FILL {
+        if expression.arguments.length() != 2 { context.error("E_GPU_COOPERATIVE", "cooperative fill requires a scalar and shape"); return }
+        let shape = gpuPrecisionEnum(context, expression.arguments[1], 2, depth + 1); var format = GPU_FORMAT_FP32
+        if name == "coopFillInt32" { format = GPU_FORMAT_INT32 }; if name == "coopFillUInt32" { format = GPU_FORMAT_UINT32 }
+        plan.typeCode = gpuMatrixType(shape, format, 2); plan.dataOperands = 1; return
+    }
+    if plan.opcode == GPU_IR_COOP_LOAD {
+        var arity = 6; var formatIndex = 3; var shapeIndex = 4; var layoutIndex = 5
+        let scaled = name == "coopLoadMxfp4A" or name == "coopLoadMxfp4B"
+        if scaled { arity = 7; shapeIndex = 5; layoutIndex = 6 }
+        if expression.arguments.length() != arity { context.error("E_GPU_COOPERATIVE", "cooperative load has invalid precision/shape arguments"); return }
+        var format = GPU_FORMAT_MXFP4
+        if not scaled { format = gpuPrecisionEnum(context, expression.arguments[formatIndex], 1, depth + 1) }
+        let shape = gpuPrecisionEnum(context, expression.arguments[shapeIndex], 2, depth + 1)
+        plan.immediate = gpuPrecisionEnum(context, expression.arguments[layoutIndex], 3, depth + 1)
+        var role = 0; if name == "coopLoadB" or name == "coopLoadMxfp4B" { role = 1 }
+        plan.typeCode = gpuMatrixType(shape, format, role); plan.dataOperands = 3; plan.resourceMask = 1
+        if scaled { plan.dataOperands = 5; plan.resourceMask = 9 }
+        if not scaled and format == GPU_FORMAT_MXFP4 { context.error("E_GPU_COOPERATIVE", "MXFP4 cooperative loads require an explicit scale resource") }
+        if plan.typeCode == 0 { context.error("E_GPU_COOPERATIVE", "unsupported matrix precision, shape or fragment role") }; return
+    }
+    context.error("E_GPU_UNSUPPORTED", "unsupported precision intrinsic")
+}

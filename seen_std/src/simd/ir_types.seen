@@ -141,6 +141,72 @@ fun simdActiveLaneBits(lanes: Int, active: Int) r: Result<UInt64, SimdIrError> {
 /// Closed source spellings whose arithmetic lowering is implemented.
 /// Additional lane formats may be represented by PortableVectorShape without
 /// claiming that their source intrinsics have already been implemented.
+fun simdX86DotType(name: String) r: String {
+    if name == "simd_x86_vnni_u8s8" { return "i32x16" }
+    if name == "simd_x86_bf16_dot" { return "f32x16" }
+    return ""
+}
+
+fun simdX86TargetFeatures(variant: String) r: String {
+    if variant == "scalar" { return "+sse2,-avx,-avx2,-fma,-avx512f,-avx512vnni,-avx512bf16" }
+    if variant == "avx2" { return "+avx2,+fma" }
+    if variant == "avx512" { return "+avx2,+fma,+avx512f,+avx512bw,+avx512dq,+avx512vl" }
+    if variant == "vnni" { return "+avx2,+avx512f,+avx512bw,+avx512dq,+avx512vl,+avx512vnni" }
+    if variant == "bf16" { return "+avx2,+avx512f,+avx512bw,+avx512dq,+avx512vl,+avx512bf16" }
+    return ""
+}
+
+fun simdKnownTarget(variant: String) r: Bool {
+    return simdX86TargetFeatures(variant) != "" or variant == "portable128" or
+        variant == "neon" or variant == "sve"
+}
+fun simdTargetFeatures(variant: String, architecture: String) r: String {
+    if architecture == "x86_64" {
+        if variant == "portable128" { return simdX86TargetFeatures("scalar") }
+        return simdX86TargetFeatures(variant)
+    }
+    if architecture == "aarch64" {
+        if variant == "scalar" or variant == "portable128" or variant == "neon" {
+            return "+neon,-sve"
+        }
+        if variant == "sve" { return "+neon,+sve" }
+    }
+    return ""
+}
+fun simdArmBlockType(name: String) r: String {
+    if name == "simd_unsafe_arm_neon_u8s8" or name == "simd_unsafe_arm_sve_u8s8" { return "Int64" }
+    if name == "simd_unsafe_arm_neon_bf16" or name == "simd_unsafe_arm_sve_bf16" or
+        name == "simd_unsafe_arm_sve_f32" { return "Float32" }
+    return ""
+}
+fun simdArmBlockArity(name: String) r: Int {
+    if simdArmBlockType(name) == "" { return 0 }
+    if name == "simd_unsafe_arm_neon_u8s8" or name == "simd_unsafe_arm_neon_bf16" { return 2 }
+    return 3
+}
+fun simdArmBlockSymbol(name: String) r: String {
+    if name == "simd_unsafe_arm_neon_u8s8" { return "__seen_arm_neon_u8s8" }
+    if name == "simd_unsafe_arm_neon_bf16" { return "__seen_arm_neon_bf16" }
+    if name == "simd_unsafe_arm_sve_u8s8" { return "__seen_arm_sve_u8s8" }
+    if name == "simd_unsafe_arm_sve_bf16" { return "__seen_arm_sve_bf16" }
+    if name == "simd_unsafe_arm_sve_f32" { return "__seen_arm_sve_f32" }
+    return ""
+}
+
+/// Enumerate implemented source vector spellings without allocating metadata.
+fun simdBuiltinTypeAt(index: Int) r: String {
+    if index == 0 { return "f32x4" }
+    if index == 1 { return "f32x8" }
+    if index == 2 { return "f32x16" }
+    if index == 3 { return "f64x2" }
+    if index == 4 { return "f64x4" }
+    if index == 5 { return "f64x8" }
+    if index == 6 { return "i32x4" }
+    if index == 7 { return "i32x8" }
+    if index == 8 { return "i32x16" }
+    return ""
+}
+
 fun simdBuiltinLanes(name: String) r: Int {
     if name == "f32x4" or name == "i32x4" or name == "f64x4" { return 4 }
     if name == "f32x8" or name == "i32x8" or name == "f64x8" { return 8 }

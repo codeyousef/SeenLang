@@ -1,0 +1,30 @@
+/// Shared deterministic artifact, binary byte and reflection assertions.
+import codegen.gpu_ir_model.{GpuIrModule}
+import codegen.gpu.spirv_emitter.{emitGpuSpirv}
+import codegen.gpu_options.{GpuOptions}
+import codegen.gpu_reflection.{reflectGpuModule}
+import tools.gpu_emit_command.{gpuSpirvBinary}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+
+fun require(value: Bool) r: Void { if not value { abort("SPIR-V emitter contract failed") } }
+fun checkEmission(borrow module: GpuIrModule, borrow options: GpuOptions, emit: Bool) r: Void {
+    let result = emitGpuSpirv(module, options); require(result.isOkay())
+    let words = result.unwrap(); result.releaseContainer()
+    let encoded = gpuSpirvBinary(words); require(encoded.isOkay())
+    let binary = encoded.unwrap(); encoded.releaseContainer(); require(binary.length() == words.length() * 4); var byteIndex = 0
+    while byteIndex < binary.length() {
+        require(binary.byteAt(byteIndex) == ((words[byteIndex / 4] >> ((byteIndex % 4) * 8)) & 255)); byteIndex = byteIndex + 1
+    }; releaseJsonText(binary)
+    let repeated = emitGpuSpirv(module, options); require(repeated.isOkay())
+    let again = repeated.unwrap(); repeated.releaseContainer(); require(words.length() == again.length()); var i = 0
+    while i < words.length() { require(words[i] == again[i]); i = i + 1 }; again.free()
+    let reflection = reflectGpuModule(module, options); require(reflection.isOkay())
+    let text = reflection.unwrap(); reflection.releaseContainer()
+    if emit {
+        let json = JsonBuilder_new(); json.startObject(); json.stringProp("schema", "seen-spirv-artifact-v1")
+        json.stringProp("target", options.target); json.key("words"); json.startArray(); i = 0
+        while i < words.length() { json.number(words[i]); i = i + 1 }; json.endArray(); json.endObject()
+        let artifact = json.build(); destroyJsonBuilder(json); println(artifact); releaseJsonText(artifact); println(text)
+    }
+    releaseJsonText(text); words.free()
+}

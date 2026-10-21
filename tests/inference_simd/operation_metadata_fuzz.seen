@@ -1,0 +1,50 @@
+import simd.operation_types.{simdOperationVector, simdOperationArity, simdOperationResult, simdPrefetchLocality}
+import simd.ir_types.{seen_string_release_owned}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun main() r: Int {
+    let start = seen_time_monotonic_nanos()
+    if start < (0 as Int64) or start > (9223371976854775807 as Int64) { return 1 }
+    let deadline = start + (60000000000 as Int64)
+    let prefixes = ["simd_unsafe_masked_load_", "simd_unsafe_masked_store_", "simd_fma_", "simd_permute_",
+        "simd_unsafe_widen_u8_", "simd_unsafe_widen_s8_", "simd_unsafe_narrow_u8_", "simd_unsafe_narrow_s8_", "simd_unsafe_prefetch_read_"]
+    let suffixes = ["f32x4", "f32x8", "f32x16", "f64x2", "f64x4", "f64x8", "i32x4", "i32x8", "i32x16",
+        "f32x3", "f32x4;", "f32x4\"", "../f32x4", "0", "1", "2", "3", "4", "-1", "", "i32x64"]
+    let memory = seen_memory_used_bytes(); var seed = 1101; var iterations = 0; var now = start
+    while now < deadline {
+        seed = (seed * 1103515245 + 12345) % 2147483647
+        let prefixIndex = seed % prefixes.length()
+        let suffixIndex = (seed / 16) % suffixes.length()
+        let name = prefixes[prefixIndex] + suffixes[suffixIndex]
+        let vector = simdOperationVector(name); let arity = simdOperationArity(name)
+        let result = simdOperationResult(name); let hint = simdPrefetchLocality(name)
+        var valid = suffixIndex < 9
+        if prefixIndex >= 4 and prefixIndex <= 7 { valid = suffixIndex >= 6 and suffixIndex <= 8 }
+        if prefixIndex == 2 { valid = suffixIndex < 6 }
+        if prefixIndex == 3 and suffixIndex == 3 { valid = false }
+        if prefixIndex == 8 { valid = suffixIndex >= 13 and suffixIndex <= 16 }
+        if (arity > 0) != valid { return 2 }
+        if valid {
+            var expectedArity = 3
+            if prefixIndex == 4 or prefixIndex == 5 or prefixIndex == 8 { expectedArity = 1 }
+            if arity != expectedArity { return 3 }
+            if prefixIndex == 8 {
+                if hint != suffixIndex - 13 or result != "Void" or vector != "" { return 4 }
+            } else {
+                if vector != suffixes[suffixIndex] or hint != -1 { return 5 }
+                var expectedResult = vector
+                if prefixIndex == 1 or prefixIndex == 6 or prefixIndex == 7 { expectedResult = "Void" }
+                if result != expectedResult { return 6 }
+            }
+        } else if vector != "" or result != "" or hint != -1 { return 7 }
+        seen_string_release_owned(name); iterations = iterations + 1
+        if iterations % 256 == 0 {
+            if seen_memory_used_bytes() != memory { return 8 }
+            let next = seen_time_monotonic_nanos(); if next < now { return 9 }; now = next
+        }
+    }
+    if iterations < 256 or seen_memory_used_bytes() != memory { return 10 }
+    prefixes.free(); suffixes.free()
+    println("PASS: portable SIMD operation metadata fuzz 60s seed=1101")
+    return 0
+}

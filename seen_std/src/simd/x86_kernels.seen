@@ -1,0 +1,58 @@
+/// Checked x86 adapter to the shared synchronous dot contract.
+import core.result.{Result}
+import core.operation_context.{OperationContext}
+import memory.aligned_buffer.{OwnedBuffer}
+import simd.ir_types.{SimdIrError}
+import simd.dot_clock.{DotClockHandle, NativeDotClock}
+import simd.dot_contract.{DotOperation, DotProgress, DotBackendHandle,
+    dotOperationName, executeDotWithBackend}
+import simd.x86_dispatch.{X86SimdCapabilities, selectX86Variant}
+import simd.x86_blocks.{dotF32Avx2, dotF32Avx512, dotU8S8Vnni, dotBf16Native}
+import simd.dot_scalar.{dotF32Scalar, dotU8S8Scalar, dotBf16Scalar}
+class X86DotBackend {
+    var reserved: Int
+    fun target() r: String { return "x86_64" }
+    fun select(operation: DotOperation, policy: String, allowScalarFallback: Bool,
+        deterministic: Bool) r: Result<Int, SimdIrError> {
+        let host = X86SimdCapabilities.host()
+        let result = selectX86Variant(host, dotOperationName(operation), policy,
+            allowScalarFallback, deterministic)
+        host.free(); return result
+    }
+    fun floatBlock(variant: Int, a: UInt64, b: UInt64, count: UInt64,
+        operation: DotOperation) r: Float32 {
+        if operation == DotOperation.Float32 {
+            if variant == 2 { return dotF32Avx512(a as *Float32, b as *Float32, count) }
+            if variant == 1 { return dotF32Avx2(a as *Float32, b as *Float32, count) }
+            return dotF32Scalar(a as *Float32, b as *Float32, count)
+        }
+        if variant == 4 { return dotBf16Native(a as *UInt16, b as *UInt16, count) }
+        return dotBf16Scalar(a as *UInt16, b as *UInt16, count)
+    }
+    fun integerBlock(variant: Int, a: UInt64, b: UInt64, count: UInt64) r: Int64 {
+        if variant == 3 { return dotU8S8Vnni(a as *UInt8, b as *Int8, count) }
+        return dotU8S8Scalar(a as *UInt8, b as *Int8, count)
+    }
+}
+fun executeX86Dot(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64,
+    borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64, count: UInt64,
+    operation: DotOperation, policy: String, allowScalarFallback: Bool,
+    deterministic: Bool, context: OperationContext, borrow progress: DotProgress)
+    r: Result<Bool, SimdIrError> {
+    let clockProvider = NativeDotClock{reserved: 0}
+    let clock = DotClockHandle.create(clockProvider)
+    let result = executeX86DotWithClock(left, leftOffset, right, rightOffset, count,
+        operation, policy, allowScalarFallback, deterministic, context, progress, clock)
+    clock.release(); clockProvider.free(); return result
+}
+fun executeX86DotWithClock(borrow left: OwnedBuffer<UInt8>, leftOffset: UInt64,
+    borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64, count: UInt64,
+    operation: DotOperation, policy: String, allowScalarFallback: Bool,
+    deterministic: Bool, context: OperationContext, borrow progress: DotProgress,
+    borrow clock: DotClockHandle) r: Result<Bool, SimdIrError> {
+    let backendProvider = X86DotBackend{reserved: 0}
+    let backend = DotBackendHandle.create(backendProvider)
+    let result = executeDotWithBackend(left, leftOffset, right, rightOffset, count,
+        operation, policy, allowScalarFallback, deterministic, context, progress, clock, backend)
+    backend.release(); backendProvider.free(); return result
+}

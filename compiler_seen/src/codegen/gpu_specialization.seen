@@ -1,0 +1,99 @@
+/// Bounded specialization domains and explicit override admission. Resolution
+/// returns owned values in the same deterministic order as the owned records;
+/// unknown, duplicate and out-of-domain overrides never select a default.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrValidation}
+import codegen.gpu_ir_verify.{verifyGpuIr}
+import codegen.gpu_ir_ops.{GPU_IR_INT, GPU_IR_SPECIALIZE}
+
+class GpuSpecialization {
+    var id: Int
+    var typeCode: Int
+    var defaultValue: Int
+    var minimum: Int
+    var maximum: Int
+    var functionIndex: Int
+    var blockIndex: Int
+    var instructionIndex: Int
+}
+fun releaseGpuSpecializations(records: Array<GpuSpecialization>) r: Void {
+    var i = 0
+    while i < records.length() { records[i].free(); i = i + 1 }; records.free()
+}
+fun collectGpuSpecializations(borrow module: GpuIrModule) r: Result<Array<GpuSpecialization>, GpuIrValidation> {
+    let validation = verifyGpuIr(module)
+    if not validation.valid { return Err<Array<GpuSpecialization>, GpuIrValidation>(validation) }; validation.release()
+    let records = Array<GpuSpecialization>(); var functionIndex = 0
+    while functionIndex < module.functions.length() {
+        let function = module.functions[functionIndex]; let constants = Array<Int>(); var i = 0
+        while i <= function.registerCount { constants.push(0); i = i + 1 }
+        var blockIndex = 0
+        while blockIndex < function.blocks.length() {
+            let block = function.blocks[blockIndex]; i = 0
+            while i < block.instructions.length() {
+                let op = block.instructions[i]; if op.opcode == GPU_IR_INT { constants[op.result] = op.text.toInt() }; i = i + 1
+            }
+            blockIndex = blockIndex + 1
+        }
+        blockIndex = 0
+        while blockIndex < function.blocks.length() {
+            let block = function.blocks[blockIndex]; i = 0
+            while i < block.instructions.length() {
+                let op = block.instructions[i]
+                if op.opcode == GPU_IR_SPECIALIZE {
+                    records.push(GpuSpecialization{id: op.immediate, typeCode: op.typeCode, defaultValue: constants[op.operands[0]],
+                        minimum: constants[op.operands[1]], maximum: constants[op.operands[2]], functionIndex: functionIndex,
+                        blockIndex: blockIndex, instructionIndex: i})
+                }
+                i = i + 1
+            }
+            blockIndex = blockIndex + 1
+        }
+        constants.free(); functionIndex = functionIndex + 1
+    }
+    return Ok<Array<GpuSpecialization>, GpuIrValidation>(records)
+}
+fun gpuSpecializationIndex(records: Array<GpuSpecialization>, id: Int) r: Int {
+    var i = 0
+    while i < records.length() { if records[i].id == id { return i }; i = i + 1 }; return -1
+}
+fun gpuCheckOverrideList(records: Array<GpuSpecialization>, ids: Array<Int>, values: Array<Int>, validation: GpuIrValidation) r: Bool {
+    var i = 0
+    while i < ids.length() {
+        var previous = 0
+        while previous < i {
+            if ids[previous] == ids[i] {
+                validation.reject("E_GPU_SPECIALIZATION_OVERRIDE", "duplicate specialization override identity", -1, -1, i); return false
+            }
+            previous = previous + 1
+        }
+        let index = gpuSpecializationIndex(records, ids[i])
+        if index < 0 { validation.reject("E_GPU_SPECIALIZATION_OVERRIDE", "unknown specialization override identity", -1, -1, i); return false }
+        let record = records[index]
+        if values[i] < record.minimum or values[i] > record.maximum {
+            validation.reject("E_GPU_SPECIALIZATION_OVERRIDE", "specialization override lies outside its declared domain", record.functionIndex, record.blockIndex, record.instructionIndex); return false
+        }
+        i = i + 1
+    }
+    return true
+}
+fun resolveGpuSpecializations(borrow module: GpuIrModule, ids: Array<Int>, values: Array<Int>) r: Result<Array<Int>, GpuIrValidation> {
+    let validation = GpuIrValidation.create()
+    if ids.length() > 64 or ids.length() != values.length() {
+        validation.reject("E_GPU_SPECIALIZATION_OVERRIDE", "specialization override arrays exceed their count or shape limit", -1, -1, -1)
+        return Err<Array<Int>, GpuIrValidation>(validation)
+    }
+    let collected = collectGpuSpecializations(module)
+    if collected.isErr() {
+        let error = collected.unwrapErr(); collected.releaseContainer(); validation.release(); return Err<Array<Int>, GpuIrValidation>(error)
+    }
+    let records = collected.unwrap(); collected.releaseContainer()
+    if not gpuCheckOverrideList(records, ids, values, validation) { releaseGpuSpecializations(records); return Err<Array<Int>, GpuIrValidation>(validation) }
+    let resolved = Array<Int>(); var i = 0
+    while i < records.length() {
+        var value = records[i].defaultValue; var overrideIndex = 0
+        while overrideIndex < ids.length() { if ids[overrideIndex] == records[i].id { value = values[overrideIndex] }; overrideIndex = overrideIndex + 1 }
+        resolved.push(value); i = i + 1
+    }
+    releaseGpuSpecializations(records); validation.release(); return Ok<Array<Int>, GpuIrValidation>(resolved)
+}

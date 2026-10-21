@@ -1,0 +1,98 @@
+import simd.dot_contract.{DotBackendHandle}
+import simd.dot_clock.{DotClockHandle}
+import dot_fixture_support.{must, errorIs, context, parity, ProbeDotClock}
+import memory.aligned_buffer.{OwnedBuffer}
+import simd.dot_contract.{DotOperation, DotProgress}
+import simd.arm_dispatch.{ArmSimdCapabilities, selectArmVariant}
+import simd.arm_kernels.{ArmDotBackend, executeArmDot, executeArmDotWithClock}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun capabilitiesMatrix() r: Void {
+    var bytes = 0 as UInt64
+    while bytes <= (512 as UInt64) {
+        let caps = ArmSimdCapabilities{neon: true, sve: true, vectorBytes: bytes}
+        let valid = bytes >= (16 as UInt64) and bytes <= (256 as UInt64) and
+            bytes % (16 as UInt64) == (0 as UInt64)
+        let planned = selectArmVariant(caps, "auto", false, false)
+        if valid {
+            if must(planned) != 2 { abort("SVE selection mismatch") }
+            if must(selectArmVariant(caps, "neon", false, false)) != 1 { abort("NEON isolation failed") }
+            if must(selectArmVariant(caps, "auto", true, true)) != 0 { abort("implicit native determinism") }
+            if not errorIs(selectArmVariant(caps, "auto", false, true), "simd.scalar_required") {
+                abort("determinism silently selected scalar")
+            }
+        } else if not errorIs(planned, "simd.invalid_capability") { abort("invalid SVE length accepted") }
+        caps.free(); bytes = bytes + (1 as UInt64)
+    }
+    if not errorIs(ArmSimdCapabilities.fromProbe(false, true, 0 as Int32, 16 as UInt64),
+        "simd.invalid_capability") { abort("inconsistent ARM features accepted") }
+    if not errorIs(ArmSimdCapabilities.fromProbe(true, true, 3 as Int32, 0 as UInt64),
+        "simd.unavailable") { abort("interrupted state probe silently fell back") }
+    let denied: ArmSimdCapabilities = must(ArmSimdCapabilities.fromProbe(true, true, 4 as Int32, 0 as UInt64))
+    if must(selectArmVariant(denied, "auto", false, false)) != 1 or
+        not errorIs(selectArmVariant(denied, "sve", false, false), "simd.unsupported_capability") {
+        abort("unsupported thread state granted SVE")
+    }
+    if not errorIs(selectArmVariant(denied, "private-input", true, false), "simd.invalid_policy") {
+        abort("unknown policy accepted")
+    }
+    denied.free()
+}
+fun main() r: Int {
+    let ctx = context(); let backendProvider = ArmDotBackend{reserved: 0}; let backend = DotBackendHandle.create(backendProvider)
+    let left: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let right: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
+    let reference = DotProgress.create(); let actual = DotProgress.create()
+    capabilitiesMatrix()
+    parity(backend, DotOperation.Float32, ctx, left, right, reference, actual)
+    parity(backend, DotOperation.UnsignedSignedByte, ctx, left, right, reference, actual)
+    parity(backend, DotOperation.BFloat16, ctx, left, right, reference, actual)
+    let memory = seen_memory_used_bytes()
+    capabilitiesMatrix()
+    parity(backend, DotOperation.Float32, ctx, left, right, reference, actual)
+    parity(backend, DotOperation.UnsignedSignedByte, ctx, left, right, reference, actual)
+    parity(backend, DotOperation.BFloat16, ctx, left, right, reference, actual)
+    if seen_memory_used_bytes() != memory { return 1 }
+    println("PASS: SEEN-INF-002C_happy")
+    let previous = actual.completed
+    if not errorIs(executeArmDot(left, 0 as UInt64, right, 0 as UInt64, 4194305 as UInt64,
+        DotOperation.Float32, "auto", true, false, ctx, actual), "simd.limit") or
+        actual.completed != previous { return 2 }
+    println("PASS: SEEN-INF-002C_limit")
+    if not errorIs(executeArmDot(left, 1 as UInt64, right, 0 as UInt64, 8 as UInt64,
+        DotOperation.Float32, "auto", true, false, ctx, actual), "simd.invalid_shape") { return 3 }
+    println("PASS: SEEN-INF-002C_invalid")
+    ctx.cancellation = true
+    if not errorIs(executeArmDot(left, 0 as UInt64, right, 0 as UInt64, 64 as UInt64,
+        DotOperation.Float32, "scalar", false, false, ctx, actual), "simd.cancelled") or
+        actual.completed != (0 as UInt64) { return 4 }
+    ctx.cancellation = false
+    println("PASS: SEEN-INF-002C_cancel")
+    let ap = left.data as *Float32; let bp = right.data as *Float32; var i = 0
+    while i < 8192 { ap[i] = 1.0 as Float32; bp[i] = 2.0 as Float32; i = i + 1 }
+    let clockProvider = ProbeDotClock{reads: 0, reverse: false}; let clock = DotClockHandle.create(clockProvider); ctx.monotonicDeadline = 200 as Int64
+    if not errorIs(executeArmDotWithClock(left, 0 as UInt64, right, 0 as UInt64,
+        8192 as UInt64, DotOperation.Float32, "scalar", false, false, ctx, actual, clock), "simd.timeout") or
+        actual.completed != (4096 as UInt64) or actual.floating != (8192.0 as Float32) { return 5 }
+    clockProvider.reads = 0; clockProvider.reverse = true
+    if not errorIs(executeArmDotWithClock(left, 0 as UInt64, right, 0 as UInt64,
+        8192 as UInt64, DotOperation.Float32, "scalar", false, false, ctx, actual, clock), "simd.unavailable") or
+        actual.completed != (4096 as UInt64) { return 6 }
+    clock.release(); clockProvider.free()
+    println("PASS: SEEN-INF-002C_partial")
+    let caps: ArmSimdCapabilities = must(ArmSimdCapabilities.current())
+    if caps.neon {
+        println("{\"target\":\"aarch64\",\"variant\":\"neon\",\"classification\":\"verified\",\"scope\":\"software-fixture\",\"hardware_certified\":false}")
+    } else {
+        println("{\"target\":\"aarch64\",\"variant\":\"neon\",\"classification\":\"unsupported\",\"scope\":\"executing-host\",\"hardware_certified\":false}")
+    }
+    if caps.sve {
+        println("{\"target\":\"aarch64\",\"variant\":\"sve\",\"classification\":\"verified\",\"scope\":\"software-fixture\",\"hardware_certified\":false}")
+    } else {
+        println("{\"target\":\"aarch64\",\"variant\":\"sve\",\"classification\":\"unsupported\",\"scope\":\"executing-host\",\"hardware_certified\":false}")
+    }
+    caps.free(); backend.release(); backendProvider.free(); reference.free(); actual.free()
+    left.close(); left.free(); right.close(); right.free()
+    ctx.limits.free(); ctx.traceId.free(); ctx.free()
+    println("PASS: SEEN-INF-002C_cleanup")
+    return 0
+}

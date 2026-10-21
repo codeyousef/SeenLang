@@ -1,0 +1,12 @@
+@compute(64)
+fun precision_words(input: ReadBuffer<UInt32>, output: WriteBuffer<Float32>, integers: WriteBuffer<Int32>) {
+    let word = input[0]
+    output[0] = unpackFp16(word, 0 as UInt32)
+    output[1] = unpackBf16(word, 1 as UInt32)
+    output[2] = unpackFp8E4M3FN(word, 2 as UInt32)
+    output[3] = unpackMxfp4(word, 3 as UInt32, 127 as UInt32)
+    integers[0] = unpackInt8(word, 0 as UInt32)
+    integers[1] = unpackInt4(word, 4 as UInt32)
+    integers[2] = unpackInt2(word, 15 as UInt32)
+}
+fun main() r: Int { return 0 }

@@ -3382,6 +3382,20 @@
       ]
     },
     {
+      "name": "seen_arm_sve_vector_bytes",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/simd/arm_dispatch.seen"
+      ]
+    },
+    {
+      "name": "seen_arr_data_ptr",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/codegen/gpu_bytes.seen"
+      ]
+    },
+    {
       "name": "seen_arr_free",
       "abi": "C",
       "sources": [
@@ -4016,6 +4030,14 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/platform/darwin/cocoa.seen"
+      ]
+    },
+    {
+      "name": "seen_cpu_has_feature",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/simd/arm_dispatch.seen",
+        "seen_std/src/simd/x86_dispatch.seen"
       ]
     },
     {
@@ -5998,7 +6020,8 @@
       "name": "seen_pool_free",
       "abi": "C",
       "sources": [
-        "seen_std/src/async/executor_native.seen"
+        "seen_std/src/async/executor_native.seen",
+        "seen_std/src/simd/dot_clock.seen"
       ]
     },
     {
@@ -6271,6 +6294,7 @@
       "name": "seen_string_builder_flatten_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/crypto/sha256.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/parser.seen"
       ]
@@ -6282,7 +6306,6 @@
         "seen_std/src/async/dns_wire.seen",
         "seen_std/src/async/executor_native.seen",
         "seen_std/src/async/owned_strings.seen",
-        "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/value.seen"
@@ -6342,9 +6365,9 @@
       "name": "seen_string_view_bytes",
       "abi": "C",
       "sources": [
+        "compiler_seen/src/codegen/gpu_bytes.seen",
         "seen_std/src/async/dns_wire.seen",
         "seen_std/src/async/owned_strings.seen",
-        "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen"
       ]
     },
@@ -6573,6 +6596,8 @@
       "sources": [
         "seen_std/src/async/structured.seen",
         "seen_std/src/determinism/policy.seen",
+        "seen_std/src/simd/dot_clock.seen",
+        "seen_std/src/simd/memory_operations.seen",
         "seen_std/src/sync/contracts.seen"
       ]
     },
@@ -7993,6 +8018,13 @@
   ],
   "backends": [
     {
+      "name": "armdot",
+      "status": "source-only",
+      "sources": [
+        "seen_std/src/simd/arm_kernels.seen"
+      ]
+    },
+    {
       "name": "c",
       "status": "source-only",
       "sources": [
@@ -8022,6 +8054,13 @@
       "sources": [
         "compiler_seen/src/codegen/generator.seen",
         "compiler_seen/src/codegen/interfaces.seen"
+      ]
+    },
+    {
+      "name": "x86dot",
+      "status": "source-only",
+      "sources": [
+        "seen_std/src/simd/x86_kernels.seen"
       ]
     }
   ]

@@ -5,6 +5,7 @@ Literal, signature, intrinsic, and dead-store helpers live in focused modules.
 ///
 
 import parser.real_parser.{FunctionNode}
+import simd.ir_types.{simdTargetFeatures}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_trait_registry.{appendTraitImplEntryImpl, autoRegisterTraitImplsImpl}
@@ -382,6 +383,31 @@ fun prepareFunctionAttributesImpl(output: StringBuilder, fn: FunctionNode,
     }
     if fn.isAsync {
         funcAttrs = funcAttrs + " presplitcoroutine"
+    }
+    var simdTargets = 0
+    var targetIndex = 0
+    while targetIndex < fn.decorators.length() {
+        let decorator = fn.decorators[targetIndex]
+        if decorator.name == "simd_target" {
+            simdTargets = simdTargets + 1
+            if simdTargets > 1 or decorator.arguments.length() != 1 {
+                abort("Error: [E_SIMD_TARGET] exactly one explicit SIMD target is required")
+            }
+            let activeTarget = getComptimeTargetName()
+            var architecture = "unsupported"
+            if comptimeTargetIsX86_64(activeTarget) { architecture = "x86_64" }
+            if comptimeTargetIsAarch64(activeTarget) { architecture = "aarch64" }
+            let features = simdTargetFeatures(decorator.arguments[0], architecture)
+            if features == "" {
+                abort("Error: [E_SIMD_TARGET] unsupported SIMD target or architecture")
+            }
+            // A target-specific body must never inline across its runtime
+            // capability check, including under release ThinLTO.
+            funcAttrs = funcAttrs.replace(" alwaysinline", "")
+            if not funcAttrs.contains("noinline") { funcAttrs = funcAttrs + " noinline" }
+            funcAttrs = funcAttrs + " \"target-features\"=\"" + features + "\""
+        }
+        targetIndex = targetIndex + 1
     }
     funcAttrsBox[0] = funcAttrs
 }

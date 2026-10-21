@@ -36,6 +36,19 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_async_io_d.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_async_io_e.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_async_io_f.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_c.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_d.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_e.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_f.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_c.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_d.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_e.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_spirv_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_spirv_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_spirv_c.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_checked_allocation_codegen.sh"
@@ -620,5 +633,16 @@ for blocked in "${BLOCKED_DISABLED[@]}"; do
             fail "blocked regression can reach a host temporary path: $(basename "$blocked")"
     fi
 done
+
+# Every standalone SIMD/GPU acceptance harness must use the freshly rebuilt
+# compiler. A fallback target binary can carry a different runtime/stdlib ABI.
+python3 - "$STAGE1_ACCEPTANCE" <<'PYTHON'
+import re, sys
+from pathlib import Path
+lines = Path(sys.argv[1]).read_text().splitlines()
+for index, line in enumerate(lines):
+    if re.fullmatch(r'\s+"\$REPO_ROOT/tests/misc_root_tests/seen_(?:inf_simd|gpu_ir)_[a-z]\.sh"', line):
+        assert index > 0 and lines[index - 1] == 'COMPILER="$REAL_COMPILER" \\', 'fresh compiler missing before ' + line
+PYTHON
 
 echo "PASS: compiler-capable regressions require project-local hard containment"

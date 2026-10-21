@@ -1,0 +1,109 @@
+/// A lowering context owns only numeric tables and borrowed source bindings.
+/// Its module/function/diagnostics outlive it. Emission transfers instructions
+/// to the function; a failed emission releases its untransferred instruction.
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrInstruction, GpuIrBlock, GpuIrValidation}
+import codegen.gpu_ir_ops.{gpuIrHasResult, GPU_IR_LOCAL_LOAD}
+import codegen.gpu_ir_requirements.{gpuIrInstructionCapabilities, gpuIrInstructionNeedsFaultBuffer}
+import codegen.gpu_ir_facts.{gpuIrElementStride}
+import codegen.gpu_ir_ops.{GPU_IR_SHARED}
+import codegen.gpu_ir_value_rules.{gpuIrBuiltinCode}
+
+class GpuLowerContext {
+    var module: GpuIrModule
+    var function: GpuIrFunction
+    var validation: GpuIrValidation
+    var functionIndex: Int
+    var budget: Array<Int>
+    var registerTypes: Array<Int>
+    var names: Array<String>
+    var registers: Array<Int>
+    var slots: Array<Int>
+    var scopeStart: Int
+    var blockIndex: Int
+    var sharedBytes: Int
+    var line: Int
+    var column: Int
+    fun error(code: String, message: String) r: Void {
+        let previous = this.validation.diagnostics.length()
+        this.validation.reject(code, message, this.functionIndex, this.blockIndex, -1)
+        if this.validation.diagnostics.length() > previous {
+            this.validation.diagnostics[previous].line = this.line; this.validation.diagnostics[previous].column = this.column
+        }
+    }
+    fun visit(depth: Int) r: Bool {
+        if not this.validation.valid { return false }
+        if depth >= 128 or this.budget[1] >= 65536 {
+            this.error("E_GPU_LIMIT", "GPU source traversal exceeds its node or nesting ceiling"); return false
+        }
+        this.budget[1] = this.budget[1] + 1; return true
+    }
+    fun nextRegister(typeCode: Int) r: Int {
+        if this.function.registerCount >= 65536 { this.error("E_GPU_LIMIT", "GPU register ceiling exceeded"); return 0 }
+        this.function.registerCount = this.function.registerCount + 1; this.registerTypes.push(typeCode)
+        return this.function.registerCount
+    }
+    fun operation(opcode: Int, typeCode: Int) r: GpuIrInstruction {
+        var result = 0
+        if gpuIrHasResult(opcode, typeCode) { result = this.nextRegister(typeCode) }
+        return GpuIrInstruction.create(opcode, result, typeCode)
+    }
+    fun emit(op: GpuIrInstruction) r: Int {
+        if not this.validation.valid { op.release(); return 0 }
+        if this.budget[0] >= 65536 { this.error("E_GPU_LIMIT", "GPU instruction ceiling exceeded"); op.release(); return 0 }
+        if op.opcode == GPU_IR_SHARED {
+            let stride = gpuIrElementStride(op.typeCode)
+            if stride < 1 or op.immediate < 1 or op.immediate > (65536 - this.sharedBytes) / stride {
+                this.error("E_GPU_LIMIT", "GPU shared-memory byte ceiling exceeded"); op.release(); return 0
+            }
+            this.sharedBytes = this.sharedBytes + stride * op.immediate
+            if (this.sharedBytes as UInt64) > this.module.sharedBytes { this.module.sharedBytes = this.sharedBytes as UInt64 }
+        }
+        op.line = this.line; op.column = this.column
+        this.module.requiredCapabilities = this.module.requiredCapabilities | gpuIrInstructionCapabilities(op.opcode, op.typeCode, op.immediate, op.memoryScope, op.memorySpaces)
+        if gpuIrInstructionNeedsFaultBuffer(op.opcode, op.immediate) { this.module.requiresFaultBuffer = true }
+        let result = op.result; this.function.blocks[this.blockIndex].instructions.push(op)
+        this.budget[0] = this.budget[0] + 1; return result
+    }
+    fun typeOf(identity: Int) r: Int {
+        if identity < 1 or identity >= this.registerTypes.length() {
+            this.error("E_GPU_EXPRESSION", "GPU expression has no supported value"); return 0
+        }
+        return this.registerTypes[identity]
+    }
+    fun find(name: String) r: Int {
+        var i = this.names.length() - 1
+        while i >= 0 { if this.names[i] == name { return i }; i = i - 1 }; return -1
+    }
+    fun define(name: String, register: Int, slot: Int) r: Void {
+        if gpuIrBuiltinCode(name) != 0 { this.error("E_GPU_BINDING", "GPU builtin identities cannot be shadowed"); return }
+        if name.length() == 0 or name.length() > 256 or this.names.length() >= 4096 {
+            this.error("E_GPU_LIMIT", "GPU binding identity or count exceeds its ceiling"); return
+        }
+        if this.find(name) >= this.scopeStart { this.error("E_GPU_BINDING", "duplicate GPU binding in one scope"); return }
+        this.names.push(name); this.registers.push(register); this.slots.push(slot)
+    }
+    fun binding(index: Int) r: Int {
+        if index < 0 or index >= this.names.length() { this.error("E_GPU_BINDING", "unbound GPU value"); return 0 }
+        let register = this.registers[index]
+        if this.slots[index] < 0 { return register }
+        let op = this.operation(GPU_IR_LOCAL_LOAD, this.typeOf(register)); op.immediate = this.slots[index]; return this.emit(op)
+    }
+    fun restoreBindings(length: Int) r: Void {
+        while this.names.length() > length { this.names.pop(); this.registers.pop(); this.slots.pop() }
+    }
+    fun childBlock(parent: Int, parentInstruction: Int) r: Int {
+        if this.function.blocks.length() >= 4096 { this.error("E_GPU_LIMIT", "GPU region ceiling exceeded"); return -1 }
+        let index = this.function.blocks.length(); this.function.blocks.push(GpuIrBlock.create(parent, parentInstruction)); return index
+    }
+    fun release() r: Void {
+        this.registerTypes.free(); this.names.free(); this.registers.free(); this.slots.free(); this.free()
+    }
+}
+
+fun gpuCreateLowerContext(borrow module: GpuIrModule, borrow function: GpuIrFunction, validation: GpuIrValidation,
+    functionIndex: Int, budget: Array<Int>) r: GpuLowerContext {
+    let types = Array<Int>(); types.push(0)
+    return GpuLowerContext{module: module, function: function, validation: validation, functionIndex: functionIndex,
+        budget: budget, registerTypes: types, names: Array<String>(), registers: Array<Int>(), slots: Array<Int>(),
+        scopeStart: 0, blockIndex: 0, sharedBytes: 0, line: function.line, column: 0}
+}
