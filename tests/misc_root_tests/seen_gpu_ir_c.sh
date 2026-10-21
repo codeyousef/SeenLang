@@ -24,6 +24,8 @@ for profile in fast release undefined address; do
         rg -Fq "PASS: GPU-001C $expectation" "$TMP_DIR/precision-$profile.log"
     done
 done
+run_compiler check "$ROOT_DIR/tests/typed_gpu_compiler/precision_happy.seen" --frozen > "$TMP_DIR/source-check.log" 2>&1
+rg -Fq '[OK] Check passed' "$TMP_DIR/source-check.log"
 compile_case fast fuzz "$ROOT_DIR/tests/typed_gpu_compiler/ir_precision_fuzz.seen"
 rg -Fq 'PASS: GPU-001C precision metadata fuzz 60s seed=1084 rejected malformed profiles and overrides without leaks' "$TMP_DIR/fuzz-fast.log"
 echo 'PASS: GPU precision and cooperative matrix IR contract'
