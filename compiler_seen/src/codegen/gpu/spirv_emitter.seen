@@ -13,6 +13,7 @@ import codegen.gpu.spirv_function.{createGpuSpirvFunction}
 import codegen.gpu.spirv_frame.{createGpuSpirvFrame}
 import codegen.gpu.spirv_layout.{spirvCreateResource, spirvCreateFaultResource}
 import codegen.gpu.spirv_regions.{spirvLowerRegion}
+import codegen.gpu.spirv_capabilities.{spirvCapabilitiesSupported}
 
 fun spirvEmitEntry(borrow module: GpuIrModule, context: GpuSpirvContext, index: Int) r: Void {
     let source: GpuIrFunction = module.functions[index]
@@ -63,11 +64,9 @@ fun emitGpuSpirv(borrow module: GpuIrModule, borrow options: GpuOptions) r: Resu
     if options.backend != "spirv" or (options.target != "" and options.target != "vulkan1.2" and options.target != "vulkan1.3") {
         validation.reject("E_GPU_SPIRV_TARGET", "SPIR-V emission requires the spirv backend and a Vulkan 1.2 or 1.3 target", -1, -1, -1)
     }
-    // This baseline translates storage, uniform, workgroup and Float32 values.
-    // Additional memory, subgroup and precision capabilities have separate
-    // lowering contracts; an explicit CPU fallback never changes this result.
-    if (module.requiredCapabilities & (519 as UInt64)) != module.requiredCapabilities {
-        validation.reject("E_GPU_SPIRV_CAPABILITY", "SPIR-V baseline lacks a required module capability", -1, -1, -1)
+    // Unsupported native matrix precision never selects another format or CPU.
+    if not spirvCapabilitiesSupported(module.requiredCapabilities) {
+        validation.reject("E_GPU_SPIRV_CAPABILITY", "SPIR-V target lacks a required module capability", -1, -1, -1)
     }
     if not validation.valid { return Err<Array<Int>, GpuIrValidation>(validation) }
     let selection = gpuReflectionSelection(module, options)

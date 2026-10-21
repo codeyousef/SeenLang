@@ -201,9 +201,7 @@ with a device-scope atomic OR. Its presence matches reflection even when a
 particular cast cannot fault.
 
 Unsupported targets return `E_GPU_SPIRV_TARGET`; unavailable capability groups
-return `E_GPU_SPIRV_CAPABILITY` or `E_GPU_SPIRV_UNSUPPORTED`. Source atomics,
-explicit synchronization, subgroups, specialization and packed/cooperative
-precision require their dedicated lowering contracts. No fallback setting
+return `E_GPU_SPIRV_CAPABILITY` or `E_GPU_SPIRV_UNSUPPORTED`. No fallback setting
 substitutes another backend or precision. Native `seen compile` GPU execution
 remains unavailable. Device limits must be queried before dispatch; offline
 emission and official validation do not establish hardware compatibility.
@@ -212,6 +210,52 @@ Semantic rejection creates no new artifact. Each output is replaced atomically
 after successful emission and reflection. If an optional reflection file fails
 to publish after the binary, the command reports `E_GPU_OUTPUT` and retains the
 published binary. Existing destinations survive errors before replacement.
+
+The Vulkan emitter also translates Int32/UInt32 atomics, workgroup/subgroup
+execution barriers, memory barriers, subgroup elect/vote/shuffle/broadcast/add,
+and integer specialization constants. Memory scopes and success/failure orders
+remain explicit. Vulkan sequentially consistent shader ordering is rejected with
+`E_GPU_SPIRV_MEMORY`; it is never weakened. A broadcast source must be
+subgroup-uniform. Shuffle and broadcast sources must name an active lane in
+range; invalid sources yield zero and record a checked address fault.
+
+Specialization IDs map to one module-global `SpecId`, even when helpers inline
+into several kernels. Defaults remain native specialization constants. The
+runtime must use the reflected domains to reject invalid overrides before
+creating a pipeline.
+
+All 13 explicit packed-word formats have scalar conversion lowering. FP16,
+BF16, FP8 normal values and MXFP4 use integer significands and nearest-even
+rounding; MXFP4 midpoint comparisons also use integer Float32 bit ordering.
+This preserves the smallest UE8M0 scales without relying on device denormal
+arithmetic. NaN insertion uses positive canonical payloads: FP32 `0x7fc00000`,
+FP16 `0x7e00`, BF16 `0x7fc0`, FP8 E4M3FN `0x7f`, and E2M1 zero. Infinity
+insertion is preserved where the format represents infinity and saturates in
+finite-only FP8/E2M1. Signed zero is preserved. Invalid UE8M0 values outside
+0..254 produce conversion fault bit four; invalid lanes produce address fault
+bit one. Failed insertion preserves the original word.
+
+Native `SPV_KHR_cooperative_matrix` lowering supports FP32, FP16 and signed or
+unsigned INT8 inputs with matching FP32/INT32/UINT32 accumulators. Packed input
+offsets and strides count UInt32 words; accumulator output offsets and strides
+count 32-bit elements. Row/column geometry is checked without overflowing
+address arithmetic, and stores require disjoint rows/columns. Invalid tile
+loads produce zero fragments, invalid stores skip writes, and both record a
+checked address fault. Native BF16, INT4, INT2, FP8 and MXFP4 matrix capabilities
+remain explicitly unsupported; packed-word conversion does not imply native
+matrix support. No precision is substituted. Dispatch must validate queried
+native shape/precision tuples, complete subgroups and device limits before
+execution. Offline emission establishes none of those device properties.
+
+`tests/misc_root_tests/seen_gpu_spirv_b.sh` adds four-profile official validation,
+independent descriptor/workgroup reflection checks, and a bounded Seen scalar
+SPIR-V witness. The witness interprets actual emitted conversion instructions
+against fixed IEEE/format goldens, including subnormals, midpoint ties, overflow,
+NaNs and signed zero. It verifies this scalar subset in software; it does not
+execute workgroups, atomics, subgroup operations or cooperative matrices on a
+device. The harness also checks partial-path cleanup, unsupported diagnostics,
+explicit fallback rejection, and 60-second malformed-IR capability fuzzing.
+
 The capped `tests/misc_root_tests/seen_gpu_spirv_a.sh` harness validates actual
 Seen-emitted artifacts with `spirv-val`, compares four compile profiles and CLI
 reflection, checks repeated cleanup, and runs malformed-IR fuzzing for 60 seconds.
@@ -245,9 +289,10 @@ uses the low field bits. An invalid lane records a checked fault and yields zero
 on unpack or the unchanged word on insert. Floating insertion uses round to
 nearest, ties to even. Finite overflow saturates to the largest finite value;
 NaNs use the format's canonical NaN where available and zero for E2M1. Invalid
-UE8M0 scale 255 records a fault and uses the same zero/unchanged-word rule.
+UE8M0 scales outside 0..254 record a fault and use the same zero/unchanged-word rule.
 Backends must implement these semantics before admitting the corresponding
-capability. The CPU scalar witness currently executes integer conversions only.
+capability. The IR scalar witness currently executes integer conversions only; the SPIR-V
+scalar witness also covers packed floating conversions.
 
 `specializeInt32/UInt32(id, default, minimum, maximum)` declare a bounded integer
 specialization. IDs are literal integers in 0..65535, unique across the module;

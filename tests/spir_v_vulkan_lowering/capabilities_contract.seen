@@ -1,0 +1,37 @@
+import bootstrap.frontend.{runFrontendCompat}
+import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu.spirv_emitter.{emitGpuSpirv}
+import codegen.gpu.spirv_capabilities.{spirvCapabilitiesSupported}
+import codegen.gpu.spirv_memory_plan.{spirvMemoryScope, spirvMemorySemantics, spirvAtomicRmwOpcode}
+import codegen.gpu_options.{GpuOptions}
+import spirv_contract_support.{require, checkEmission}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun rejectSource(source: String, code: String) r: Void {
+    let frontend = runFrontendCompat(source, "spirv-reject.seen", "en"); require(frontend.success)
+    let lowered = lowerGpuProgram(frontend.program, "spirv-reject.seen"); require(lowered.isOkay())
+    let module = lowered.unwrap(); lowered.releaseContainer(); let options = GpuOptions.create(); options.backend = "spirv"
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 50 {
+        let result = emitGpuSpirv(module, options); require(result.isErr())
+        let error = result.unwrapErr(); result.releaseContainer(); require(error.diagnostics[0].code == code); error.release()
+        require(seen_memory_used_bytes() == baseline); i = i + 1
+    }; options.release(); module.release()
+}
+fun main() r: Int {
+    require(spirvMemoryScope(1) == 4 and spirvMemoryScope(4) == 1 and spirvMemoryScope(0) == -1)
+    require(spirvMemorySemantics(4, 3) == 328 and spirvMemorySemantics(5, 1) == -1)
+    require(spirvAtomicRmwOpcode(4, true) == 236 and spirvAtomicRmwOpcode(4, false) == 237)
+    require(not spirvCapabilitiesSupported(67108864 as UInt64))
+    let source = "@device fun configured() r: Int32 { return specializeInt32(7, 4, 1, 8) } @compute(64) fun memory(data: Buffer<Int32>, output: WriteBuffer<Int32>) { let scratch: SharedBuffer<Int32> = sharedBuffer(64); let index = localInvocationIndex; atomicStore(scratch, index, 1, Release, WorkgroupScope); barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory); let a = atomicLoad(scratch, index, Acquire, WorkgroupScope); let b = atomicExchange(scratch, index, a, Relaxed, WorkgroupScope); let c = atomicAdd(scratch, index, b, AcquireRelease, WorkgroupScope); let d = atomicSub(scratch, index, c, Relaxed, WorkgroupScope); let e = atomicMin(scratch, index, d, Relaxed, WorkgroupScope); let f = atomicMax(scratch, index, e, Relaxed, WorkgroupScope); let g = atomicAnd(scratch, index, f, Relaxed, WorkgroupScope); let h = atomicOr(scratch, index, g, Relaxed, WorkgroupScope); let i = atomicXor(scratch, index, h, Relaxed, WorkgroupScope); let previous = atomicCompareExchange(data, index, i, 7, AcquireRelease, Acquire, DeviceScope); memoryBarrier(DeviceScope, AcquireRelease, StorageMemory); output[index] = previous } @compute(64) fun groups(output: WriteBuffer<UInt32>) { let first = subgroupElect(); let all = subgroupAll(first); let any = subgroupAny(first); let other = subgroupShuffle(subgroupLocalInvocationId, 0 as UInt32); let same = subgroupBroadcast(other, 0 as UInt32); let total = subgroupAdd(same); barrier(SubgroupScope, AcquireRelease, StorageMemory); if all or any { output[localInvocationIndex] = total + subgroupSize + subgroupId } } @compute(1) fun specialization(output: WriteBuffer<Int32>) { output[0] = configured() } @compute(1) fun specialization_again(output: WriteBuffer<Int32>) { output[0] = configured() } @compute(64) fun matrix_half(a: ReadBuffer<UInt32>, b: ReadBuffer<UInt32>, output: WriteBuffer<Float32>) { let left = coopLoadA(a, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, RowMajor); let right = coopLoadB(b, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, ColumnMajor); let zero = coopFillFp32(0.0, Tile16x16x16); let result = coopMma(left, right, zero); coopStore(result, output, subgroupId * (256 as UInt32), 16 as UInt32, RowMajor) } @compute(64) fun matrix_signed(a: ReadBuffer<UInt32>, b: ReadBuffer<UInt32>, output: WriteBuffer<Int32>) { let left = coopLoadA(a, 0 as UInt32, 2 as UInt32, INT8, Tile8x8x8, RowMajor); let right = coopLoadB(b, 0 as UInt32, 2 as UInt32, INT8, Tile8x8x8, RowMajor); let result = coopMma(left, right, coopFillInt32(0, Tile8x8x8)); coopStore(result, output, subgroupId * (64 as UInt32), 8 as UInt32, RowMajor) } @compute(64) fun matrix_unsigned(a: ReadBuffer<UInt32>, b: ReadBuffer<UInt32>, output: WriteBuffer<UInt32>) { let left = coopLoadA(a, 0 as UInt32, 2 as UInt32, UINT8, Tile8x8x8, RowMajor); let right = coopLoadB(b, 0 as UInt32, 2 as UInt32, UINT8, Tile8x8x8, RowMajor); let result = coopMma(left, right, coopFillUInt32(0 as UInt32, Tile8x8x8)); coopStore(result, output, subgroupId * (64 as UInt32), 8 as UInt32, RowMajor) } @compute(64) fun matrix_float(a: ReadBuffer<UInt32>, b: ReadBuffer<UInt32>, output: WriteBuffer<Float32>) { let left = coopLoadA(a, 0 as UInt32, 16 as UInt32, FP32, Tile16x8x16, RowMajor); let right = coopLoadB(b, 0 as UInt32, 8 as UInt32, FP32, Tile16x8x16, RowMajor); let result = coopMma(left, right, coopFillFp32(0.0, Tile16x8x16)); coopStore(result, output, subgroupId * (128 as UInt32), 16 as UInt32, ColumnMajor) }"
+    let frontend = runFrontendCompat(source, "spirv-capabilities.seen", "en"); require(frontend.success)
+    let lowered = lowerGpuProgram(frontend.program, "spirv-capabilities.seen"); require(lowered.isOkay())
+    let module = lowered.unwrap(); lowered.releaseContainer(); let options = GpuOptions.create(); options.backend = "spirv"; options.target = "vulkan1.2"
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 30 { checkEmission(module, options, i == 0); require(seen_memory_used_bytes() == baseline); i = i + 1 }
+    options.target = "vulkan1.3"; checkEmission(module, options, true); require(seen_memory_used_bytes() == baseline)
+    options.release(); module.release()
+    rejectSource("@compute(64) fun unsupported(a: ReadBuffer<UInt32>) { let fragment = coopLoadA(a, 0 as UInt32, 8 as UInt32, BF16, Tile16x16x16, RowMajor) }", "E_GPU_SPIRV_CAPABILITY")
+    rejectSource("@compute(1) fun ordering(data: Buffer<Int32>) { let value = atomicLoad(data, 0, SequentiallyConsistent, DeviceScope) }", "E_GPU_SPIRV_MEMORY")
+    println("PASS: GPU-002B atomic subgroup specialization native cooperative formats and typed rejection"); return 0
+}

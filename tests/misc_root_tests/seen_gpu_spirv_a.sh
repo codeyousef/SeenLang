@@ -21,33 +21,8 @@ for profile in fast release undefined address; do
     compile_case "$profile" emitter "$ROOT_DIR/tests/spir_v_vulkan_lowering/emitter_contract.seen"
     rg -Fq 'PASS: GPU-002A resource helper control flow deterministic reflection and partial cleanup' "$TMP_DIR/emitter-$profile.log"
 done
-python3 - "$TMP_DIR" <<'PY'
-import json
-import pathlib
-import struct
-import subprocess
-import sys
+python3 "$ROOT_DIR/scripts/check_gpu_spirv_artifacts.py" "$TMP_DIR" primitive emitter
 
-root = pathlib.Path(sys.argv[1])
-baseline = None
-for profile in ('fast', 'release', 'undefined', 'address'):
-    records = []
-    for name in ('primitive', 'emitter'):
-        for line in (root / f'{name}-{profile}.log').read_text().splitlines():
-            if not line.startswith('{"schema":"seen-spirv-'):
-                continue
-            record = json.loads(line)
-            words = record['words']
-            target = record.get('target', 'vulkan1.2')
-            path = root / f'{name}-{profile}-{target}.spv'
-            path.write_bytes(struct.pack(f'<{len(words)}I', *words))
-            subprocess.run(['spirv-val', '--target-env', target, str(path)], check=True)
-            records.append(record)
-    if baseline is None:
-        baseline = records
-    assert records == baseline, profile
-print('PASS: Seen-emitted artifacts pass official Vulkan validation and match across four profiles')
-PY
 run_compiler gpu emit "$ROOT_DIR/tests/typed_gpu_compiler/reflection_happy.seen" \
     --gpu-backend spirv --gpu-target vulkan1.2 --output "$TMP_DIR/cli.spv" --reflection "$TMP_DIR/cli.json" > "$TMP_DIR/cli.log" 2>&1
 spirv-val --target-env vulkan1.2 "$TMP_DIR/cli.spv"

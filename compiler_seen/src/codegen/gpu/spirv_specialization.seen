@@ -1,0 +1,23 @@
+/// A module-global specialization identity is emitted once, including when a
+/// source helper is expanded into multiple entries. Reflection owns its domain;
+/// the dispatch API must reject out-of-domain overrides before pipeline creation.
+import codegen.gpu.spirv_types.{GpuSpirvContext}
+import codegen.gpu.spirv_words.{SPV_DECLARATIONS, SPV_ANNOTATIONS}
+
+fun spirvSpecialization(context: GpuSpirvContext, key: Int, typeCode: Int, defaultId: Int) r: Int {
+    var i = 0
+    while i < context.specializationKeys.length() {
+        if context.specializationKeys[i] == key { return context.specializationIds[i] }; i = i + 1
+    }
+    if key < 0 or key > 65535 or context.specializationKeys.length() >= 64 or (typeCode != 2 and typeCode != 3) {
+        context.error("E_GPU_SPIRV_SPECIALIZATION", "SPIR-V specialization identity or type is unsupported"); return 0
+    }
+    i = 0
+    while i < context.constantIds.length() {
+        if context.constantIds[i] == defaultId and context.constantTypes[i] == typeCode {
+            let identity = context.id(); context.emit(SPV_DECLARATIONS, 50, [context.valueType(typeCode), identity, context.constantWords[i]])
+            context.emit(SPV_ANNOTATIONS, 71, [identity, 1, key]); context.specializationKeys.push(key); context.specializationIds.push(identity); return identity
+        }; i = i + 1
+    }
+    context.error("E_GPU_SPIRV_SPECIALIZATION", "SPIR-V specialization default lacks its literal definition"); return 0
+}

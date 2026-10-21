@@ -1,9 +1,11 @@
 /// Deterministic scalar/vector, pointer and constant declarations. Caches are
 /// bounded independently of instruction and identifier budgets.
-import codegen.gpu.spirv_words.{GpuSpirvWords, SPV_CAPABILITIES, SPV_MEMORY_MODEL, SPV_DECLARATIONS}
+import codegen.gpu.spirv_words.{GpuSpirvWords, spirvLiteralString, SPV_CAPABILITIES, SPV_EXTENSIONS, SPV_MEMORY_MODEL, SPV_DECLARATIONS}
 import codegen.gpu_ir_model.{GpuIrValidation}
 import codegen.gpu_ir_facts.{gpuIrValueTypeValid}
 import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+import codegen.gpu_matrix_types.{gpuMatrixTypeValid, gpuMatrixFormat, gpuMatrixRows, gpuMatrixColumns, gpuMatrixRole}
+import codegen.gpu_precision_formats.{GPU_FORMAT_FP32, GPU_FORMAT_FP16, GPU_FORMAT_INT8, GPU_FORMAT_UINT8, GPU_FORMAT_INT32, GPU_FORMAT_UINT32}
 
 fun spirvValueTypeValid(code: Int) r: Bool {
     // Boolean vectors are internal predicates for checked vector operations.
@@ -13,6 +15,15 @@ fun spirvValueTypeValid(code: Int) r: Bool {
 class GpuSpirvContext {
     var words: GpuSpirvWords
     var validation: GpuIrValidation
+    var capabilities: Array<Int>
+    var specializationKeys: Array<Int>
+    var specializationIds: Array<Int>
+    var matrixKeys: Array<Int>
+    var matrixIds: Array<Int>
+    var matrixZeros: Array<Int>
+    var nativeTypes: Array<Int>
+    var nativeZeros: Array<Int>
+    var matrixEnabled: Bool
     var valueTypes: Array<Int>
     var zeroValues: Array<Int>
     var pointerKeys: Array<Int>
@@ -41,6 +52,12 @@ class GpuSpirvContext {
         let identity = this.words.id()
         if identity == 0 { this.error("E_GPU_SPIRV_LIMIT", this.words.message) }; return identity
     }
+    fun capability(value: Int) r: Void {
+        var i = 0
+        while i < this.capabilities.length() { if this.capabilities[i] == value { return }; i = i + 1 }
+        if this.capabilities.length() >= 128 { this.error("E_GPU_SPIRV_LIMIT", "SPIR-V capability declaration ceiling exceeded"); return }
+        this.capabilities.push(value); this.emit(SPV_CAPABILITIES, 17, [value])
+    }
     fun emit(section: Int, opcode: Int, operands: Array<Int>) r: Bool {
         let emitted = this.words.emit(section, opcode, operands)
         if not emitted { this.error("E_GPU_SPIRV_LIMIT", this.words.message) }; return emitted
@@ -55,12 +72,60 @@ class GpuSpirvContext {
         if code == 4 { this.emit(SPV_DECLARATIONS, 22, [identity, 32]) }; return identity
     }
     fun valueType(code: Int) r: Int {
+        if gpuMatrixTypeValid(code) { return this.matrixType(code) }
         if not spirvValueTypeValid(code) { this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V value type is unsupported"); return 0 }
         if this.valueTypes[code] != 0 { return this.valueTypes[code] }
         let scalar = this.scalarType(gpuTypeScalar(code))
         if gpuTypeLanes(code) == 1 { return scalar }
         let identity = this.id(); this.valueTypes[code] = identity
         this.emit(SPV_DECLARATIONS, 23, [identity, scalar, gpuTypeLanes(code)]); return identity
+    }
+    fun matrixComponent(format: Int) r: Int {
+        if format == GPU_FORMAT_FP32 { return this.scalarType(4) }
+        if format == GPU_FORMAT_INT32 { return this.scalarType(2) }; if format == GPU_FORMAT_UINT32 { return this.scalarType(3) }
+        if format != GPU_FORMAT_FP16 and format != GPU_FORMAT_INT8 and format != GPU_FORMAT_UINT8 {
+            this.error("E_GPU_SPIRV_PRECISION", "Vulkan cooperative component precision is unsupported; conversion is not permitted"); return 0
+        }
+        if this.nativeTypes[format] != 0 { return this.nativeTypes[format] }
+        let identity = this.id(); this.nativeTypes[format] = identity
+        if format == GPU_FORMAT_FP16 { this.capability(9); this.emit(SPV_DECLARATIONS, 22, [identity, 16]) }
+        else {
+            this.capability(39); var signed = 0; if format == GPU_FORMAT_INT8 { signed = 1 }
+            this.emit(SPV_DECLARATIONS, 21, [identity, 8, signed])
+        }; return identity
+    }
+    fun matrixType(code: Int) r: Int {
+        var i = 0
+        while i < this.matrixKeys.length() { if this.matrixKeys[i] == code { return this.matrixIds[i] }; i = i + 1 }
+        if this.matrixKeys.length() >= 128 { this.error("E_GPU_SPIRV_LIMIT", "SPIR-V cooperative type ceiling exceeded"); return 0 }
+        let component = this.matrixComponent(gpuMatrixFormat(code))
+        if not this.validation.valid { return 0 }
+        if not this.matrixEnabled {
+            this.matrixEnabled = true; this.capability(6022); let extension = Array<Int>()
+            if not spirvLiteralString(extension, "SPV_KHR_cooperative_matrix") {
+                extension.free(); this.error("E_GPU_SPIRV_LIMIT", "SPIR-V cooperative extension identity is invalid"); return 0
+            }; this.emit(SPV_EXTENSIONS, 10, extension)
+        }
+        let scope = this.constant(3, 3); let rows = this.constant(3, gpuMatrixRows(code)); let columns = this.constant(3, gpuMatrixColumns(code))
+        let use = this.constant(3, gpuMatrixRole(code)); let identity = this.id()
+        this.emit(SPV_DECLARATIONS, 4456, [identity, component, scope, rows, columns, use])
+        this.matrixKeys.push(code); this.matrixIds.push(identity); this.matrixZeros.push(0); return identity
+    }
+    fun matrixZero(code: Int) r: Int {
+        let typeId = this.matrixType(code); if not this.validation.valid { return 0 }
+        var i = 0
+        while i < this.matrixKeys.length() {
+            if this.matrixKeys[i] == code {
+                if this.matrixZeros[i] != 0 { return this.matrixZeros[i] }
+                let format = gpuMatrixFormat(code); var scalarZero = this.nativeZeros[format]
+                if scalarZero == 0 {
+                    let scalar = this.matrixComponent(format); scalarZero = this.id()
+                    this.emit(SPV_DECLARATIONS, 46, [scalar, scalarZero]); this.nativeZeros[format] = scalarZero
+                }
+                let identity = this.id(); this.emit(SPV_DECLARATIONS, 44, [typeId, identity, scalarZero]); this.matrixZeros[i] = identity; return identity
+            }; i = i + 1
+        }
+        this.error("E_GPU_SPIRV_LAYOUT", "SPIR-V cooperative zero lacks its type identity"); return 0
     }
     fun pointerType(storage: Int, code: Int) r: Int {
         if not spirvValueTypeValid(code) { this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V pointer element type is unsupported"); return 0 }
@@ -93,6 +158,7 @@ class GpuSpirvContext {
         } else { this.emit(SPV_DECLARATIONS, 43, [typeId, identity, word]) }; return identity
     }
     fun zero(code: Int) r: Int {
+        if gpuMatrixTypeValid(code) { return this.matrixZero(code) }
         if not spirvValueTypeValid(code) { this.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V zero value has an unsupported type"); return 0 }
         if this.zeroValues[code] != 0 { return this.zeroValues[code] }
         let typeId = this.valueType(code); let identity = this.id(); this.zeroValues[code] = identity
@@ -111,7 +177,9 @@ class GpuSpirvContext {
         this.emit(SPV_DECLARATIONS, 44, operands); this.splatTypes.push(code); this.splatWords.push(word); this.splatIds.push(identity); return identity
     }
     fun release() r: Void {
-        this.words.release(); this.valueTypes.free(); this.zeroValues.free(); this.pointerKeys.free(); this.pointerIds.free()
+        this.words.release(); this.capabilities.free(); this.specializationKeys.free(); this.specializationIds.free()
+        this.matrixKeys.free(); this.matrixIds.free(); this.matrixZeros.free(); this.nativeTypes.free(); this.nativeZeros.free()
+        this.valueTypes.free(); this.zeroValues.free(); this.pointerKeys.free(); this.pointerIds.free()
         this.constantTypes.free(); this.constantWords.free(); this.constantIds.free()
         this.splatTypes.free(); this.splatWords.free(); this.splatIds.free()
         this.storageBlocks.free(); this.uniformBlocks.free(); this.sharedArrayKeys.free(); this.sharedArrayIds.free(); this.free()
@@ -119,13 +187,17 @@ class GpuSpirvContext {
 }
 fun createGpuSpirvContext(validation: GpuIrValidation) r: GpuSpirvContext {
     let types = Array<Int>(); let zeros = Array<Int>(); let storageBlocks = Array<Int>(); let uniformBlocks = Array<Int>(); var i = 0
+    let nativeTypes = Array<Int>(); let nativeZeros = Array<Int>()
+    while i < 14 { nativeTypes.push(0); nativeZeros.push(0); i = i + 1 }; i = 0
     while i < 64 { types.push(0); zeros.push(0); storageBlocks.push(0); uniformBlocks.push(0); i = i + 1 }
-    let context = GpuSpirvContext{words: GpuSpirvWords.create(), validation: validation, valueTypes: types, zeroValues: zeros,
+    let context = GpuSpirvContext{words: GpuSpirvWords.create(), validation: validation, capabilities: Array<Int>(),
+        specializationKeys: Array<Int>(), specializationIds: Array<Int>(), valueTypes: types, zeroValues: zeros,
+        matrixKeys: Array<Int>(), matrixIds: Array<Int>(), matrixZeros: Array<Int>(), nativeTypes: nativeTypes, nativeZeros: nativeZeros, matrixEnabled: false,
         pointerKeys: Array<Int>(), pointerIds: Array<Int>(), constantTypes: Array<Int>(), constantWords: Array<Int>(), constantIds: Array<Int>(),
         splatTypes: Array<Int>(), splatWords: Array<Int>(), splatIds: Array<Int>(), glslSet: 0,
         storageBlocks: storageBlocks, uniformBlocks: uniformBlocks, sharedArrayKeys: Array<Int>(), sharedArrayIds: Array<Int>(), faultBlock: 0,
         voidType: 0, functionType: 0, functionIndex: -1, blockIndex: -1, instructionIndex: -1}
-    context.emit(SPV_CAPABILITIES, 17, [1]); context.emit(SPV_MEMORY_MODEL, 14, [0, 1])
+    context.capability(1); context.emit(SPV_MEMORY_MODEL, 14, [0, 1])
     context.voidType = context.id(); context.emit(SPV_DECLARATIONS, 19, [context.voidType])
     context.functionType = context.id(); context.emit(SPV_DECLARATIONS, 33, [context.functionType, context.voidType]); return context
 }

@@ -37,6 +37,7 @@ fun gpuIrInstructionNeedsFaultBuffer(opcode: Int, immediate: Int) r: Bool {
     return opcode == GPU_IR_LOAD or opcode == GPU_IR_STORE or opcode == GPU_IR_WHILE or opcode == GPU_IR_FOR or
         opcode == GPU_IR_UNPACK or opcode == GPU_IR_PACK or opcode == GPU_IR_COOP_LOAD or opcode == GPU_IR_COOP_STORE or
         opcode == GPU_IR_CAST or opcode == GPU_IR_FAULT or
+        (opcode == GPU_IR_SUBGROUP and (immediate == 4 or immediate == 5)) or
         (opcode >= GPU_IR_ATOMIC_LOAD and opcode <= GPU_IR_ATOMIC_COMPARE) or
         (opcode == GPU_IR_BINARY and (immediate == 4 or immediate == 5 or immediate == 9 or immediate == 10))
 }

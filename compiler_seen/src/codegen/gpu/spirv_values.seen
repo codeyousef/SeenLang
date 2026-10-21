@@ -11,6 +11,14 @@ import codegen.gpu.spirv_math.{spirvUnary, spirvBinary, spirvSelectValue}
 import codegen.gpu.spirv_casts.{spirvCast}
 import codegen.gpu.spirv_intrinsics.{spirvIntrinsic}
 import codegen.gpu.spirv_memory.{spirvResourceLength, spirvCheckedLoad, spirvCheckedStore, spirvUniformLoad}
+import codegen.gpu.spirv_atomics.{spirvAtomic, spirvSynchronization}
+import codegen.gpu.spirv_subgroup.{spirvSubgroup}
+import codegen.gpu.spirv_specialization.{spirvSpecialization}
+import codegen.gpu.spirv_cooperative.{spirvCooperative}
+import codegen.gpu.spirv_packed.{spirvPacked}
+import codegen.gpu_ir_ops.{GPU_IR_UNPACK, GPU_IR_PACK}
+import codegen.gpu_ir_ops.{GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL}
+import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER, GPU_IR_SUBGROUP, GPU_IR_SPECIALIZE}
 
 fun spirvLowerValue(function: GpuSpirvFunction, frame: GpuSpirvFrame, borrow op: GpuIrInstruction) r: Void {
     let context = function.context; let code = op.opcode; var result = 0
@@ -59,7 +67,13 @@ fun spirvLowerValue(function: GpuSpirvFunction, frame: GpuSpirvFrame, borrow op:
         let index = function.addResource(resource)
         if not context.validation.valid { return }
         frame.resourceIndices[op.result] = index; spirvInitializeShared(function, function.resources[index]); return
-    } else if code == GPU_IR_FAULT { function.faultKind(op.immediate) }
+    } else if code >= GPU_IR_ATOMIC_LOAD and code <= GPU_IR_ATOMIC_COMPARE { result = spirvAtomic(function, frame, op) }
+    else if code == GPU_IR_BARRIER or code == GPU_IR_MEMORY_BARRIER { spirvSynchronization(function, op) }
+    else if code == GPU_IR_SUBGROUP { result = spirvSubgroup(function, frame, op) }
+    else if code == GPU_IR_SPECIALIZE { result = spirvSpecialization(context, op.immediate, op.typeCode, frame.registers[op.operands[0]]) }
+    else if code == GPU_IR_UNPACK or code == GPU_IR_PACK { result = spirvPacked(function, frame, op) }
+    else if code >= GPU_IR_COOP_LOAD and code <= GPU_IR_COOP_FILL { result = spirvCooperative(function, frame, op) }
+    else if code == GPU_IR_FAULT { function.faultKind(op.immediate) }
     else if code == GPU_IR_SELECT { result = spirvSelectValue(function, op.typeCode, frame.registers[op.operands[0]], frame.registers[op.operands[1]], frame.registers[op.operands[2]]) }
     else { context.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V instruction requires an unavailable target capability"); return }
     if op.result > 0 { frame.registers[op.result] = result }

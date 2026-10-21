@@ -1,0 +1,55 @@
+/// Source atomics preserve scope and success/failure order. Invalid addresses
+/// execute no data atomic and join with zero after recording a checked fault.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER}
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_frame.{GpuSpirvFrame}
+import codegen.gpu.spirv_memory.{spirvCheckedIndex, spirvElementPointer}
+import codegen.gpu.spirv_memory_plan.{spirvMemoryScope, spirvMemorySemantics, spirvAtomicRmwOpcode}
+import typechecker.gpu_types.{gpuTypeValue}
+
+fun spirvSynchronization(function: GpuSpirvFunction, borrow op: GpuIrInstruction) r: Void {
+    let context = function.context; let scope = spirvMemoryScope(op.memoryScope)
+    let semantics = spirvMemorySemantics(op.memoryOrder, op.memorySpaces)
+    if scope < 0 or semantics < 0 {
+        context.error("E_GPU_SPIRV_MEMORY", "Vulkan scope or memory ordering is unsupported; ordering cannot be weakened"); return
+    }
+    let scopeId = context.constant(3, scope); let semanticsId = context.constant(3, semantics)
+    if op.memoryScope == 2 { context.capability(61) }
+    if op.opcode == GPU_IR_BARRIER { function.emit(224, [scopeId, scopeId, semanticsId]) }
+    else { function.emit(225, [scopeId, semanticsId]) }
+}
+fun spirvAtomic(function: GpuSpirvFunction, frame: GpuSpirvFrame, borrow op: GpuIrInstruction) r: Int {
+    let context = function.context; let resourceIndex = frame.resourceIndices[op.operands[0]]
+    if resourceIndex < 0 or resourceIndex >= function.resources.length() {
+        context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V atomic resource identity is unavailable"); return 0
+    }
+    let resource = function.resources[resourceIndex]; let typeCode = gpuTypeValue(resource.typeCode)
+    let scope = spirvMemoryScope(op.memoryScope); let semantics = spirvMemorySemantics(op.memoryOrder, op.memorySpaces)
+    var failure = 0; if op.opcode == GPU_IR_ATOMIC_COMPARE { failure = spirvMemorySemantics(op.immediate, op.memorySpaces) }
+    if scope < 0 or semantics < 0 or failure < 0 {
+        context.error("E_GPU_SPIRV_MEMORY", "Vulkan atomic scope or ordering is unsupported; ordering cannot be weakened"); return 0
+    }
+    let index = op.operands[1]; let checked = spirvCheckedIndex(function, resource, frame.registers[index], frame.registerTypes[index])
+    if not context.validation.valid { checked.free(); return 0 }
+    let yes = context.id(); let no = context.id(); let merge = context.id()
+    function.emit(247, [merge, 0]); function.conditional(checked.condition, yes, no); function.label(yes)
+    let pointer = spirvElementPointer(function, resource, checked.unsignedIndex); checked.free()
+    let scopeId = context.constant(3, scope); let semanticsId = context.constant(3, semantics); var loaded = 0
+    if op.opcode == GPU_IR_ATOMIC_STORE { function.emit(228, [pointer, scopeId, semanticsId, frame.registers[op.operands[2]]]) }
+    else {
+        loaded = context.id(); let operands = [context.valueType(typeCode), loaded, pointer, scopeId, semanticsId]
+        var opcode = 227
+        if op.opcode == GPU_IR_ATOMIC_COMPARE {
+            opcode = 230; operands.push(context.constant(3, failure))
+            operands.push(frame.registers[op.operands[3]]); operands.push(frame.registers[op.operands[2]])
+        } else if op.opcode != GPU_IR_ATOMIC_LOAD {
+            opcode = spirvAtomicRmwOpcode(op.immediate, typeCode == 2); operands.push(frame.registers[op.operands[2]])
+        }
+        if opcode == 0 { operands.free(); context.error("E_GPU_SPIRV_MEMORY", "SPIR-V atomic operation is unsupported"); return 0 }
+        function.emit(opcode, operands)
+    }
+    function.branch(merge); function.label(no); function.faultKind(1); function.branch(merge); function.label(merge)
+    if op.opcode == GPU_IR_ATOMIC_STORE { return 0 }
+    let result = context.id(); function.emit(245, [context.valueType(typeCode), result, loaded, yes, context.zero(typeCode), no]); return result
+}

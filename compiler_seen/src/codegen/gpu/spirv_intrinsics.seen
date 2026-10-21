@@ -1,7 +1,7 @@
 /// Closed intrinsic lowering. Integer operations preserve wrapping behavior;
 /// float absolute value clears the sign bit without changing NaN payload bits.
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_words.{spirvLiteralString, SPV_IMPORTS}
+import codegen.gpu.spirv_extended.{spirvGlslValue}
 import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
 import codegen.gpu.spirv_math_plan.{spirvPredicateType, spirvBinaryOpcode}
 import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
@@ -33,12 +33,7 @@ fun spirvIntrinsic(function: GpuSpirvFunction, operation: Int, typeCode: Int, ar
         return spirvSelectValue(function, typeCode, negative, opposite, arguments[0])
     }
     if operation == 5 {
-        if context.glslSet == 0 {
-            context.glslSet = context.id(); let imported = [context.glslSet]
-            if not spirvLiteralString(imported, "GLSL.std.450") { imported.free(); context.error("E_GPU_SPIRV_LIMIT", "SPIR-V extended instruction import is invalid"); return 0 }
-            context.emit(SPV_IMPORTS, 11, imported)
-        }
-        let result = context.id(); function.emit(12, [context.valueType(typeCode), result, context.glslSet, 31, arguments[0]]); return result
+        return spirvGlslValue(function, 31, typeCode, [arguments[0]])
     }
     context.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V intrinsic identity is unsupported"); return 0
 }

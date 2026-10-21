@@ -55,6 +55,9 @@ fun gpuIrConvergenceBlock(borrow function: GpuIrFunction, borrow facts: GpuIrFac
         if active > required {
             validation.reject("E_GPU_IR_CONVERGENCE", "GPU collective is reached by an unproved active-lane set", functionIndex, blockIndex, opIndex); return -1
         }
+        if op.opcode == GPU_IR_SUBGROUP and op.immediate == 5 and facts.registerUniformity[op.operands[1]] > 2 {
+            validation.reject("E_GPU_IR_CONVERGENCE", "GPU subgroup broadcast source must be subgroup-uniform", functionIndex, blockIndex, opIndex); return -1
+        }
         var addressUniformity = 0
         if op.opcode == GPU_IR_COOP_LOAD or op.opcode == GPU_IR_COOP_FILL { addressUniformity = gpuIrOperandUniformity(op, facts) }
         if op.opcode == GPU_IR_COOP_STORE {
