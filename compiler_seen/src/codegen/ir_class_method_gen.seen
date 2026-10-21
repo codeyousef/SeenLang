@@ -61,7 +61,6 @@ fun buildMethodAttrsImpl(methods: Array<FunctionNode>, methodIdx: Int,
         methodAttrs = methodAttrs + " noinline"
     }
     if not isMethodSelfRecursive {
-        methodAttrs = methodAttrs + " norecurse"
         let methodBodySize = method.body.statements.length()
         if methodBodySize <= 15 and not methodAttrs.contains("noinline") and not methodAttrs.contains("alwaysinline") {
             methodAttrs = methodAttrs + " inlinehint"
