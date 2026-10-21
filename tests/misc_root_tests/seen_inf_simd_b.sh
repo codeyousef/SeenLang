@@ -17,6 +17,8 @@ source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 for profile in fast release; do
     compile_case "$profile" generic-fields "$ROOT_DIR/compiler_seen/tests/generic_field_type.seen"
 done
+compile_case fast trait-registry "$ROOT_DIR/tests/compiler_regressions/trait_registry_identity.seen"
+rg -Fq 'PASS: trait registration identity deduplicates scans and preserves declared slots' "$TMP_DIR/trait-registry-fast.log"
 for profile in fast release undefined address; do
     compile_case "$profile" trait-scalars "$ROOT_DIR/tests/compiler_regressions/dyn_fixed_width_returns.seen"
     compile_case "$profile" pointer-index "$ROOT_DIR/tests/compiler_regressions/typed_pointer_index.seen"
