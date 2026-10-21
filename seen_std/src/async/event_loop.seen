@@ -4,7 +4,7 @@ import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import sync.contracts.{Send}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext, seen_time_monotonic_nanos}
-import async.executor_core.{ExecutorTaskContext, executorFailure, executorCopyContext,
+import async.executor_core.{ExecutorTaskContext, executorFailure, executorCopyContext, executorWitnessMatches, executorFreeWitnessAddress,
     executorReleaseSnapshot, EXECUTOR_FOREVER}
 import async.multithread.{MultithreadExecutor, ExecutorJoinHandle}
 import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
@@ -22,6 +22,34 @@ trait AsyncIoJob {
     fun release(this: AsyncIoJob) r: Bool
 }
 
+
+/// Owns one Send callback plus its validated immutable trait-box address.
+/// bind consumes the box always and the callback only on success. take returns
+/// callback ownership and consumes the witness; release consumes both.
+@send
+class OwnedAsyncIoJob<T: Send + AsyncIoJob> {
+    var value: T
+    var dispatchAddress: UInt64
+    static fun bind(value: T, dispatch: dyn AsyncIoJob) r: Result<OwnedAsyncIoJob<T>, AsyncError> {
+        if not executorWitnessMatches(value as UInt64, dispatch as UInt64) {
+            executorFreeWitnessAddress(dispatch as UInt64)
+            return Err<OwnedAsyncIoJob<T>, AsyncError>(executorFailure(1 as Int32, "io.job.alias", 0 as UInt64))
+        }
+        return Ok<OwnedAsyncIoJob<T>, AsyncError>(OwnedAsyncIoJob<T>{value: value, dispatchAddress: dispatch as UInt64})
+    }
+    fun onEvent(event: AsyncIoEvent, descriptor: Int64, context: ExecutorTaskContext) r: Bool {
+        let dispatch: dyn AsyncIoJob = this.dispatchAddress as dyn AsyncIoJob
+        return dispatch.onEvent(event, descriptor, context)
+    }
+    fun take() r: T {
+        let value = this.value; executorFreeWitnessAddress(this.dispatchAddress); this.free(); return value
+    }
+    fun release() r: Bool {
+        let dispatch: dyn AsyncIoJob = this.dispatchAddress as dyn AsyncIoJob
+        let released = dispatch.release(); executorFreeWitnessAddress(this.dispatchAddress); this.free(); return released
+    }
+}
+
 @send
 class AsyncIoEvent {
     var flags: Int32
@@ -32,7 +60,7 @@ class AsyncIoEvent {
 
 @send
 class ReadyIoJob<T: Send + AsyncIoJob> {
-    var task: T
+    var task: OwnedAsyncIoJob<T>
     var descriptor: OwnedHandle
     var event: AsyncIoEvent
 
@@ -142,7 +170,17 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
 
     // Success transfers task and descriptor; rejection retains both owners.
     // A timer uses an invalid, unowned descriptor and a nonnegative deadline.
-    fun register(task: T, descriptor: OwnedHandle, interest: Interest,
+    fun register(task: T, witness: dyn AsyncIoJob, descriptor: OwnedHandle, interest: Interest,
+        timerDeadline: Int64, context: AsyncOperationContext)
+        r: Result<AsyncIoRegistration, AsyncError> {
+        let bound = OwnedAsyncIoJob<T>.bind(task, witness)
+        if bound.isErr() { let error = bound.unwrapErr(); bound.releaseContainer(); return Err<AsyncIoRegistration, AsyncError>(error) }
+        let owner = bound.unwrap(); bound.releaseContainer()
+        let registered = this.registerOwned(owner, descriptor, interest, timerDeadline, context)
+        if registered.isErr() { owner.take() }; return registered
+    }
+
+    fun registerOwned(task: OwnedAsyncIoJob<T>, descriptor: OwnedHandle, interest: Interest,
         timerDeadline: Int64, context: AsyncOperationContext)
         r: Result<AsyncIoRegistration, AsyncError> {
         let valid = validateAsyncContext(context, "io.register", 0 as UInt64)
@@ -370,7 +408,7 @@ class AsyncEventLoop<T: Send + AsyncIoJob> {
                 "io.dispatch", 0 as UInt64))
         }
         let slot = this.readyHead; let entry = this.entries[slot].unwrap()
-        let admitted = this.executor.spawn(entry.job, entry.context)
+        let admitted = this.executor.spawn(entry.job, entry.job, entry.context)
         if admitted.isErr() { return admitted }
         this.forget(slot, false)
         return admitted
