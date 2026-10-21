@@ -1,3 +1,4 @@
+import codegen.ir_dyn_parameter_metadata.{getDynParameterMetadataImpl, setDynParameterMetadataImpl}
 ///
 ir_codegen_feature_state.seen - feature flags and registry globals used
 by LLVM IR lowering.
@@ -159,7 +160,6 @@ fun applyStatementDriverFeatureStateImpl(boundsCheckLabelCount: Int,
 
 var g_dynTraitNames: String = ""
 var g_vtableClassImpls: String = ""
-var g_dynParamFuncs: String = ""
 
 var g_floatParamFuncNames: Array<String> = Array<String>()
 var g_floatParamParamIdxs: Array<Int> = Array<Int>()
@@ -390,7 +390,7 @@ fun prepareFunctionPreBodyWithFeatureStateImpl(state: CodegenState,
     let funcDefaultsBox = Array<String>()
     funcDefaultsBox.push(g_funcDefaultsArr)
     let dynParamFuncsBox = Array<String>()
-    dynParamFuncsBox.push(g_dynParamFuncs)
+    dynParamFuncsBox.push(getDynParameterMetadataImpl())
     let funcParamCountBox = Array<String>()
     funcParamCountBox.push(g_funcParamCountArr)
 
@@ -403,7 +403,7 @@ fun prepareFunctionPreBodyWithFeatureStateImpl(state: CodegenState,
     g_comptimeParamFuncNames = comptimeNamesBox[0]
     g_comptimeParamCount = comptimeCountBox[0]
     g_funcDefaultsArr = funcDefaultsBox[0]
-    g_dynParamFuncs = dynParamFuncsBox[0]
+    setDynParameterMetadataImpl(dynParamFuncsBox[0])
     g_funcParamCountArr = funcParamCountBox[0]
 }
 
@@ -751,8 +751,10 @@ fun getFeatureMoveOnlyClassesImpl() r: String {
     return g_moveOnlyClasses
 }
 
+
+
 fun getFeatureDynParamFuncsImpl() r: String {
-    return g_dynParamFuncs
+    return getDynParameterMetadataImpl()
 }
 
 fun getFeatureFuncParamCountArrImpl() r: String {
