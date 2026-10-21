@@ -1,41 +1,81 @@
 # GPU
 
-Seen's GPU support is an experimental Vulkan compute path. Shader declaration,
-artifact generation, and runtime dispatch are separate steps in 0.22.9.
+The typed GPU frontend validates actual parsed `@compute` bodies and explicit
+resource access. Kernel lowering and the experimental Vulkan runtime are separate
+capabilities. Frontend validation does not certify GPU execution.
 
-## Shader declarations
+## Typed compute declarations
 
 ```seen
-@compute(workgroup: 64)
-fun vector_add(a: Buffer<Float>, b: Buffer<Float>, out: Buffer<Float>) {
+@compute(workgroup: [8, 8, 1])
+fun vector_add(a: ReadBuffer<Float32>, b: ReadBuffer<Float32>, out: WriteBuffer<Float32>) {
     let index = globalInvocationId.x
-    out[index] = a[index] + b[index]
+    if index < a.length and index < b.length and index < out.length {
+        out[index] = a[index] + b[index]
+    }
 }
 ```
 
-The parser also accepts comma-separated workgroup dimensions, for example
-`@compute(workgroup: 16, 16)`. Tested compute built-ins use camelCase:
-`globalInvocationId`, `localInvocationId`, and `workgroupId`.
+Workgroups accept one to three positional dimensions, `workgroup: 64`,
+`workgroup=64`, or a named vector. Defaults are `[64, 1, 1]`. Dimensions must be
+positive integers: X/Y are at most 1024, Z at most 64, and the checked product
+is at most 1024. Unknown keys, strings, expressions, overflow and malformed
+vectors are rejected. No invalid dimension silently becomes a default.
 
-`Buffer<T>`, `Uniform<T>`, and `Image<T>` describe shader resources. They are
-opaque handles in host-side lowering; their declarations do not allocate or bind
-Vulkan resources automatically.
+| Resource | Address space | Element access |
+| --- | --- | --- |
+| `ReadBuffer<T>` | storage | read only |
+| `WriteBuffer<T>` | storage | write only |
+| `Buffer<T>` | storage | read and write |
+| `Uniform<T>` | uniform | read only |
 
-## Artifacts
+Supported values are `Int32`/`i32`, `UInt32`/`u32`, `Float32`/`f32` and their
+2/3/4-lane vectors (`i32x2`, `u32x3`, `f32x4`, etc.). `Bool` is supported for
+local values and uniforms. Storage booleans, host-sized `Int`/`Float`, 64-bit
+values, pointers, dynamic objects, nested resources and aggregate layouts are
+explicitly unsupported in this frontend revision. Resource declarations do not
+allocate or bind device memory. Parameters borrow resource identities; kernels
+cannot replace or alias those identities as local values.
 
-```bash
-seen compile app.seen app --emit-glsl
-```
+Buffer indexing requires Int32 or UInt32. Uniform parameters evaluate to their
+contained value. Resource `.length` is UInt32; it does not read storage elements.
+Builtins `globalInvocationId`, `localInvocationId`, `workgroupId`,
+`numWorkgroups` and `workgroupSize` expose UInt32 vector components and cannot
+be shadowed. Arithmetic, explicit numeric casts, scalar comparisons, vector
+constructors, typed `min`/`max`/`clamp`/`abs`/`sqrt`, mutable locals, `if`, `while`
+and Void returns are checked. Unknown calls, host effects, unsafe operations,
+resource escapes and unsupported constructs fail with a stable `E_GPU_*` code.
 
-Artifacts are written below `app.shaders/`: generated `.comp.glsl`, reflection
-JSON, and—when `glslc` is available—`.comp.spv` files. Arbitrary Seen function
-bodies are not yet guaranteed to translate faithfully to GLSL, so inspect and
-test generated artifacts.
+Modules contain at most 256 compute kernels. Bindings are scoped and bounded to
+4096; signatures have at most 64 parameters.
+Traversal stops at 65536 nodes or 128 levels, and each kernel stops at 64 diagnostic records.
+Type/workgroup parsing uses bounded byte ranges without temporary string
+allocations. The checking context owns its arrays and diagnostic records;
+source names and paths remain borrowed from the parsed module. A caller that
+retains diagnostics must keep that module/path alive or copy them.
 
-The compiler can emit a `<name>_gpu_dispatch` host wrapper, but the 0.22.9
-wrapper does not construct the caller's Vulkan pipeline. A production caller
-must load the emitted SPIR-V and pass a real pipeline handle through the runtime
-API.
+## Backend boundary and verification
+
+`seen check app.seen` checks compute bodies without creating a GPU device or
+entering LLVM/backend generation. Until typed backend lowering is available,
+compiling a shader module returns `E_GPU_BACKEND_UNAVAILABLE` before creating
+kernel artifacts or native dispatch stubs. `--emit-glsl` returns the same explicit
+unsupported diagnostic: legacy source scanning, known-name body substitution
+and empty replacement bodies have been removed. A successful declaration check
+never stands in for kernel execution.
+
+CPU-only runtime selection examines actual parsed GPU/extern declarations.
+Comments, string literals, file names and ordinary Seen functions mentioning
+`@compute`, `Buffer` or `seen_gpu_` do not request Vulkan linkage.
+
+`tests/misc_root_tests/seen_gpu_ir_a.sh` wires fast/release/UBSan/ASan contracts,
+positive/adverse compiler checks, backend rejection, CPU linkage trace checks and
+60 seconds of seeded metadata fuzz. Tests exercise parsed bodies (including a
+known legacy kernel name with an invalid body), exact validator allocation
+baselines, workgroup geometry, unsigned/minimum integer limits and finite float
+literals. `seen-gpu-frontend-v1` reports classify this as frontend verification
+with `kernel_execution_verified: false`. Platform/device execution requires
+separate backend and hardware evidence.
 
 ## Runtime C API
 
@@ -59,15 +99,12 @@ three workgroup counts, a pointer to buffer handles, and a buffer count.
 The runtime also provides fixed-arity dispatch and Seen-array transfer helpers
 for source paths that cannot safely form a raw handle pointer.
 
-## Availability and fallback
+## Availability and caller policy
 
-Shader compilation needs `glslc`. Runtime execution needs a Vulkan loader,
-device, and driver. Always check initialization/availability and retain a CPU
-fallback; GPU execution is not supported uniformly across every compiler target.
+The experimental runtime C ABI requires a Vulkan loader, device and driver.
+Check initialization/availability and choose fallback explicitly in caller
+policy. The frontend performs no device discovery and selects no fallback.
+`@vertex` and `@fragment` extraction and WebGPU bindings are separate APIs;
+they do not establish typed compute backend or Wasm target support.
 
-`@vertex` and `@fragment` are recognized by shader extraction, but the current
-runtime documentation and tests focus on compute dispatch. WebGPU bindings under
-`platform/web/webgpu` are a separate stdlib API and do not imply a shipped Wasm
-compiler target.
-
-See [SIMD and GPU](../simd-and-gpu.md) for compiler controls and limitations.
+See [SIMD and GPU](../simd-and-gpu.md) for related compiler controls.

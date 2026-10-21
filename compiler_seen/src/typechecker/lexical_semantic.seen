@@ -26,6 +26,7 @@ import typechecker.semantic_registry.{semanticBuiltinGenericArity}
 import typechecker.semantic_registry.{semanticFoundationThreadProperty}
 import typechecker.semantic_registry.{semanticFoundationTypeBase}
 import typechecker.semantic_registry.{semanticNormalizeModuleIdentity}
+import typechecker.gpu_frontend.{gpuHasCompute, gpuCheckFunction}
 
 class LexicalSemanticResult {
     var success: Bool
@@ -1532,6 +1533,18 @@ fun semanticCheckFunction(result: LexicalSemanticResult,
     function: FunctionNode, moduleName: String, file: String,
     ownerType: String, genericNames: Array<String>) r: Void {
 
+    if gpuHasCompute(function) {
+        if ownerType != "" { result.addError("E_GPU_SIGNATURE", "compute kernels must be top-level definitions", file, function.line, function.column); return }
+        let diagnostics = gpuCheckFunction(function, file)
+        var diagnosticIndex = 0
+        while diagnosticIndex < diagnostics.length() {
+            result.diagnostics.push(diagnostics[diagnosticIndex]); result.success = false
+            diagnosticIndex = diagnosticIndex + 1
+        }
+        diagnostics.free()
+        return
+    }
+
     var targetCount = 0; var targetIndex = 0
     while targetIndex < function.decorators.length() {
         let decorator = function.decorators[targetIndex]
@@ -1692,12 +1705,17 @@ fun checkSemanticDeclarations(result: LexicalSemanticResult,
     program: ProgramNode, moduleName: String, file: String,
     genericNames: Array<String>) r: Void {
 
+    var computeCount = 0
     var i = 0
     while i < program.items.length() {
         let item = program.items[i]
         if item.itemType == "Function" {
-            semanticCheckFunction(result, item.function, moduleName, file, "",
-                genericNames)
+            if gpuHasCompute(item.function) { computeCount = computeCount + 1 }
+            if computeCount > 256 and gpuHasCompute(item.function) {
+                if computeCount == 257 { result.addError("E_GPU_LIMIT", "GPU kernel count exceeds the per-module ceiling", file, item.line, item.column) }
+            } else {
+                semanticCheckFunction(result, item.function, moduleName, file, "", genericNames)
+            }
         } else if item.itemType == "Class" {
             let ownerType = semanticCanonicalDeclaration(moduleName,
                 item.classNode.name)

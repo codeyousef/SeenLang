@@ -45,6 +45,13 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ## Modules
 
+### `(root)`
+
+- `error`
+- `operation_context`
+- `ownership`
+- `secret`
+
 ### `accelerator`
 
 - `accelerator/cuda/error`
@@ -236,13 +243,6 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `reactor/mod`
 - `reactor/reactor`
 
-### `root compatibility modules`
-
-- `error`
-- `operation_context`
-- `ownership`
-- `secret`
-
 ### `scripting`
 
 - `scripting/lua`
@@ -257,6 +257,7 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `simd/arm_dispatch`
 - `simd/arm_kernels`
 - `simd/dispatch_plan`
+- `simd/dot_clock`
 - `simd/dot_contract`
 - `simd/dot_scalar`
 - `simd/ir_types`
