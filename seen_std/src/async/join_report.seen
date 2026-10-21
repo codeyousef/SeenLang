@@ -2,14 +2,14 @@ import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import sync.contracts.{Send}
 import async.structured.{AsyncError}
-import async.executor_core.{ExecutorJob, executorFailure}
+import async.executor_core.{ExecutorJob, ExecutorOwnedJob, executorFailure}
 import async.task_diagnostics.{TaskDiagnostic}
 
 // Successful task ownership and diagnostics outlive the executor ticket.
 // release consumes any result the coordinator has not explicitly taken.
 @move
 class ExecutorJoinReport<T: Send + ExecutorJob> {
-    var task: Option<T>
+    var task: Option<ExecutorOwnedJob<T>>
     var error: Option<AsyncError>
     var diagnostic: Option<TaskDiagnostic>
     var fallback: Option<TaskDiagnostic>
@@ -19,8 +19,8 @@ class ExecutorJoinReport<T: Send + ExecutorJob> {
         if this.task.isNone() {
             return Err<T, AsyncError>(executorFailure(1 as Int32, "task.report.take", this.progress))
         }
-        let task = this.task.unwrap(); this.task.free(); this.task = None<T>()
-        return Ok<T, AsyncError>(task)
+        let task = this.task.unwrap(); this.task.free(); this.task = None<ExecutorOwnedJob<T>>()
+        return Ok<T, AsyncError>(task.take())
     }
     fun takeError() r: Result<AsyncError, AsyncError> {
         if this.error.isNone() {
