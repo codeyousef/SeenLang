@@ -37,9 +37,18 @@ compile_case() {
     local log="$TMP_DIR/$name-$profile.log"
     bash "$ATTESTED_SEEN" "$COMPILER" compile \
         "$source" "$TMP_DIR/$name-$profile" \
-        --no-cache --frozen --target-cpu=x86-64 \
+        --no-cache --frozen --target-cpu=x86-64 --emit-module-ir-dir "$TMP_DIR/$name-$profile-ir" \
         "${flags[@]}" >"$log" 2>&1
     timeout --foreground --kill-after=5s 120s "$TMP_DIR/$name-$profile" >>"$log" 2>&1
+    test -d "$TMP_DIR/$name-$profile-ir"
+    rg --files "$TMP_DIR/$name-$profile-ir" -g '*.ll' > "$TMP_DIR/$name-$profile-ir-files.log"
+    test -s "$TMP_DIR/$name-$profile-ir-files.log"
+    local dispatch_status=0
+    rg -n '@"?T_(run|release|onEvent)"?\(' "$TMP_DIR/$name-$profile-ir" >>"$log" || dispatch_status=$?
+    if [ "$dispatch_status" -ne 1 ]; then
+        echo 'FAIL: unresolved generic callback dispatch or unreadable emitted LLVM' >&2
+        exit 1
+    fi
 }
 
 for profile in fast release; do
@@ -65,7 +74,6 @@ if bash "$ATTESTED_SEEN" "$COMPILER" check \
     exit 1
 fi
 rg -Fq E_TYPE_BOUND "$TMP_DIR/unsafe.log"
-echo "PASS: fixed-worker typed execution in fast and release/ThinLTO"
 
 if bash "$ATTESTED_SEEN" "$COMPILER" check \
     "$ROOT_DIR/tests/fixtures/async/generic_move_rejected.seen" >"$TMP_DIR/generic-move.log" 2>&1; then
@@ -73,3 +81,12 @@ if bash "$ATTESTED_SEEN" "$COMPILER" check \
     exit 1
 fi
 rg -Fq E_OWNERSHIP_USE_AFTER_MOVE "$TMP_DIR/generic-move.log"
+
+if bash "$ATTESTED_SEEN" "$COMPILER" check \
+    "$ROOT_DIR/tests/fixtures/async/unsafe_owned_job.seen" >"$TMP_DIR/unsafe-owned.log" 2>&1; then
+    echo 'FAIL: capturing a trait witness bypassed the Send admission bound' >&2
+    exit 1
+fi
+rg -Fq E_TYPE_BOUND "$TMP_DIR/unsafe-owned.log"
+
+echo "PASS: fixed-worker typed execution in fast and release/ThinLTO"
