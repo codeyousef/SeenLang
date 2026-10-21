@@ -36,7 +36,8 @@ fun main() r: Int {
             maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
         traceId: AsciiString{value: "reactor-001f"}}, resourceId: "blocking",
         fallbackPolicy: 0, limits: AsyncLimits.bounded(2, 2, 4, 2, 128)}
-    let submitted = pool.submit(BlockingProbe{value: 7}, ctx)
+    let job = BlockingProbe{value: 7}
+    let submitted = pool.submit(job, job, ctx)
     if submitted.isErr() { return 3 }
     let handle = submitted.unwrap(); submitted.releaseContainer()
     let joined = handle.join(ctx)
