@@ -153,6 +153,19 @@ fun spawnExecutorTask<T: Send + ExecutorJob>(context: ExecutorTaskContext,
         context.depth)
 }
 
+
+/// Explicit witness capture keeps failed admission ownership with the caller.
+fun executorSubmitWitness<T: Send + ExecutorJob>(core: ExecutorCore, task: T,
+    witness: dyn ExecutorJob, context: AsyncOperationContext, depth: Int)
+    r: Result<ExecutorJoinHandle<T>, AsyncError> {
+    let bound = ExecutorOwnedJob<T>.bind(task, witness)
+    if bound.isErr() { let error = bound.unwrapErr(); bound.releaseContainer(); return Err<ExecutorJoinHandle<T>, AsyncError>(error) }
+    let owner = bound.unwrap(); bound.releaseContainer()
+    let submitted = executorSubmit<T>(core, owner, context, depth)
+    if submitted.isErr() { owner.take() }
+    return submitted
+}
+
 @move
 class MultithreadExecutor<T: Send + ExecutorJob> {
     var core: ExecutorCore
@@ -216,7 +229,12 @@ class MultithreadExecutor<T: Send + ExecutorJob> {
         return Ok<MultithreadExecutor<T>, AsyncError>(MultithreadExecutor<T>{core: core})
     }
 
-    fun spawn(task: ExecutorOwnedJob<T>, context: AsyncOperationContext)
+    fun spawn(task: T, witness: dyn ExecutorJob, context: AsyncOperationContext)
+        r: Result<ExecutorJoinHandle<T>, AsyncError> {
+        return executorSubmitWitness<T>(this.core, task, witness, context, 0)
+    }
+
+    fun spawnOwned(task: ExecutorOwnedJob<T>, context: AsyncOperationContext)
         r: Result<ExecutorJoinHandle<T>, AsyncError> {
         return executorSubmit<T>(this.core, task, context, 0)
     }
