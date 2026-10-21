@@ -3389,6 +3389,13 @@
       ]
     },
     {
+      "name": "seen_arr_data_ptr",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/codegen/gpu_bytes.seen"
+      ]
+    },
+    {
       "name": "seen_arr_free",
       "abi": "C",
       "sources": [
@@ -5908,6 +5915,7 @@
       "name": "seen_string_builder_flatten_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/crypto/sha256.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/parser.seen"
       ]
@@ -5916,7 +5924,6 @@
       "name": "seen_string_clone_owned",
       "abi": "C",
       "sources": [
-        "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/value.seen"
@@ -5974,7 +5981,7 @@
       "name": "seen_string_view_bytes",
       "abi": "C",
       "sources": [
-        "seen_std/src/crypto/sha256.seen",
+        "compiler_seen/src/codegen/gpu_bytes.seen",
         "seen_std/src/formats/safetensors.seen"
       ]
     },

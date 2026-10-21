@@ -1,0 +1,114 @@
+/// Frontend-only reflection command. Bounded reads and atomic output surround
+/// the pure manifest/lowering/reflection pipeline; no backend or device opens.
+import tools.cli_args.{CliArguments, parseCliArguments}
+import bootstrap.frontend.{runFrontendCompat}
+import core.result.{Result, Ok, Err}
+import io.file.{__OpenFile, __FileSize, __ReadFileBytes, __FileError, __CloseFile, writeTextAtomically}
+import json.builder.{seen_string_release_owned}
+import codegen.gpu_bytes.{consumeGpuBytes}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, GpuIrValidation, gpuIrDiagnostic}
+import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_options.{GpuOptions, gpuSetOption, validateGpuOptions}
+import codegen.gpu_manifest.{parseGpuManifest}
+import codegen.gpu_reflection.{reflectGpuModule}
+import json.builder.{releaseJsonText}
+
+fun gpuReadBoundedText(path: String, limit: Int) r: Result<String, GpuIrDiagnostic> {
+    if limit < 1 or limit > 1048576 { return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT_LIMIT", "invalid GPU input byte ceiling")) }
+    let fd = __OpenFile(path, "rb")
+    if fd < 0 { return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT", "could not open GPU input")) }
+    let size = __FileSize(fd)
+    if size < 0 or size > limit {
+        let ignored = __CloseFile(fd); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT_LIMIT", "GPU input size is unavailable or exceeds its ceiling"))
+    }
+    let bytes = __ReadFileBytes(fd, limit + 1); let nativeError = __FileError(fd); let closed = __CloseFile(fd)
+    let failed = nativeError != "" or closed < 0 or bytes.length() != size; seen_string_release_owned(nativeError)
+    if failed { bytes.free(); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT", "GPU input read, close or stable-size check failed")) }
+    return consumeGpuBytes(bytes)
+}
+fun parseGpuReflectCli(argv: Array<String>) r: CliArguments {
+    let values = ["--output", "--module-id", "--manifest", "--gpu-manifest", "--gpu-backend", "--gpu-target", "--gpu-fallback", "--gpu-entry"]
+    let names = ["--output", "--module-id", "--gpu-manifest", "--gpu-manifest", "--gpu-backend", "--gpu-target", "--gpu-fallback", "--gpu-entry"]
+    let repeatable = ["--gpu-entry"]
+    let result = parseCliArguments(argv, 3, Array<String>(), Array<String>(), values, names, repeatable)
+    values.free(); names.free(); repeatable.free(); return result
+}
+fun gpuApplyCliOptions(borrow options: GpuOptions, parsed: CliArguments) r: GpuIrDiagnostic {
+    let flags = ["--gpu-backend", "--gpu-target", "--gpu-fallback"]; let keys = ["backend", "target", "fallback"]; var i = 0
+    while i < flags.length() {
+        if parsed.hasOption(flags[i]) {
+            let error = gpuSetOption(options, keys[i], parsed.valueOr(flags[i], ""), 0)
+            if error.code != "" { flags.free(); keys.free(); return error }; error.free()
+        }
+        i = i + 1
+    }
+    flags.free(); keys.free()
+    if parsed.hasOption("--gpu-entry") {
+        options.clearEntries(); let names = parsed.valuesFor("--gpu-entry"); i = 0
+        while i < names.length() {
+            let error = gpuSetOption(options, "entry", names[i], 0)
+            if error.code != "" { names.free(); return error }; error.free(); i = i + 1
+        }
+        names.free()
+    }
+    return validateGpuOptions(options)
+}
+fun gpuPrintError(borrow error: GpuIrDiagnostic) r: Void {
+    println("Error: [" + error.code + "] " + error.message)
+}
+fun gpuPrintValidation(validation: GpuIrValidation) r: Void {
+    var i = 0
+    while i < validation.diagnostics.length() { gpuPrintError(validation.diagnostics[i]); i = i + 1 }
+}
+fun gpuReflectSource(source: String, identity: String, borrow options: GpuOptions) r: Result<String, GpuIrValidation> {
+    let frontend = runFrontendCompat(source, identity, "en")
+    if not frontend.success {
+        let error = GpuIrValidation.create(); error.reject("E_GPU_SOURCE", "GPU reflection source did not parse", -1, -1, -1)
+        return Err<String, GpuIrValidation>(error)
+    }
+    let lowered = lowerGpuProgram(frontend.program, identity)
+    if lowered.isErr() { let error = lowered.unwrapErr(); lowered.releaseContainer(); return Err<String, GpuIrValidation>(error) }
+    let module = lowered.unwrap(); lowered.releaseContainer(); let result = reflectGpuModule(module, options); module.release(); return result
+}
+fun gpuLoadOptions(parsed: CliArguments, defaultManifest: String) r: Result<GpuOptions, GpuIrDiagnostic> {
+    let path = parsed.valueOr("--gpu-manifest", defaultManifest)
+    if path == "" { return Ok<GpuOptions, GpuIrDiagnostic>(GpuOptions.create()) }
+    let loaded = gpuReadBoundedText(path, 65536)
+    if loaded.isErr() { let error = loaded.unwrapErr(); loaded.releaseContainer(); return Err<GpuOptions, GpuIrDiagnostic>(error) }
+    let text = loaded.unwrap(); loaded.releaseContainer(); let result = parseGpuManifest(text); releaseJsonText(text); return result
+}
+fun gpuValidateCompileOptions(parsed: CliArguments, defaultManifest: String) r: Int {
+    let loaded = gpuLoadOptions(parsed, defaultManifest)
+    if loaded.isErr() { let error = loaded.unwrapErr(); gpuPrintError(error); error.free(); loaded.releaseContainer(); return 1 }
+    let options = loaded.unwrap(); loaded.releaseContainer(); let policy = gpuApplyCliOptions(options, parsed)
+    if policy.code != "" { gpuPrintError(policy); policy.free(); options.release(); return 1 }; policy.free()
+    if options.backend != "none" {
+        options.release(); println("Error: [E_GPU_BACKEND_UNAVAILABLE] selected typed GPU backend is not implemented in this binary; no fallback artifact was emitted"); return 1
+    }
+    if options.entries.length() != 0 {
+        options.release(); println("Error: [E_GPU_OPTIONS] GPU entry compilation requires an explicit backend"); return 1
+    }
+    options.release(); return 0
+}
+fun gpuReflectCommand(parsed: CliArguments, defaultManifest: String) r: Int {
+    if parsed.help {
+        println("Usage: seen gpu reflect <source.seen> --output <reflection.json> [--manifest <seen.toml>] [--gpu-entry <name>] [--module-id <stable-id>]"); return 0
+    }
+    if not parsed.ok { println("Error: [E_GPU_CLI] " + parsed.error); return 1 }
+    if parsed.positionals.length() != 1 or not parsed.positionals[0].endsWith(".seen") or not parsed.hasOption("--output") or
+        not parsed.valueOr("--output", "").endsWith(".json") {
+        println("Error: [E_GPU_CLI] reflection requires one .seen source and an explicit .json output"); return 1
+    }
+    let loaded = gpuLoadOptions(parsed, defaultManifest)
+    if loaded.isErr() { let error = loaded.unwrapErr(); gpuPrintError(error); error.free(); loaded.releaseContainer(); return 1 }
+    let options = loaded.unwrap(); loaded.releaseContainer(); let policy = gpuApplyCliOptions(options, parsed)
+    if policy.code != "" { gpuPrintError(policy); policy.free(); options.release(); return 1 }; policy.free()
+    let source = gpuReadBoundedText(parsed.positionals[0], 1048576)
+    if source.isErr() { let error = source.unwrapErr(); gpuPrintError(error); error.free(); source.releaseContainer(); options.release(); return 1 }
+    let text = source.unwrap(); source.releaseContainer()
+    let reflection = gpuReflectSource(text, parsed.valueOr("--module-id", "module"), options); releaseJsonText(text); options.release()
+    if reflection.isErr() { let error = reflection.unwrapErr(); gpuPrintValidation(error); error.release(); reflection.releaseContainer(); return 1 }
+    let output = reflection.unwrap(); reflection.releaseContainer(); let written = writeTextAtomically(parsed.valueOr("--output", ""), output); releaseJsonText(output)
+    if not written { println("Error: [E_GPU_OUTPUT] GPU reflection atomic write failed"); return 1 }
+    println("[OK] GPU reflection written (software IR; device execution unverified)"); return 0
+}

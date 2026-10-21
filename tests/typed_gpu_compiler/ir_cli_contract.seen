@@ -1,0 +1,22 @@
+import ir_fixture_support.{irRequire}
+import tools.gpu_command.{parseGpuReflectCli, gpuApplyCliOptions, gpuReflectSource}
+import codegen.gpu_options.{GpuOptions}
+import json.builder.{releaseJsonText}
+
+fun main() r: Int {
+    let arguments = ["seen", "gpu", "reflect", "source.seen", "--output", "reflection.json", "--gpu-backend=cuda", "--gpu-target=sm_80", "--gpu-entry", "second", "--gpu-entry", "first"]
+    let parsed = parseGpuReflectCli(arguments); irRequire(parsed.ok and parsed.positionals.length() == 1)
+    let options = GpuOptions.create(); let error = gpuApplyCliOptions(options, parsed)
+    irRequire(error.code == "" and options.entries.length() == 2 and options.entries[0] == "second"); error.free()
+    let reflection = gpuReflectSource("@compute(1) fun first() {} @compute(1) fun second() {}", "stable-module", options)
+    irRequire(reflection.isOkay()); let text = reflection.unwrap(); reflection.releaseContainer()
+    irRequire(text.indexOf("\"name\":\"first\"", 0) < text.indexOf("\"name\":\"second\"", 0)); releaseJsonText(text); options.release()
+    let duplicate = ["seen", "gpu", "reflect", "source.seen", "--manifest", "a", "--gpu-manifest", "b"]
+    irRequire(not parseGpuReflectCli(duplicate).ok)
+    let unknown = ["seen", "gpu", "reflect", "source.seen", "--gpu-backnd", "cuda"]
+    irRequire(not parseGpuReflectCli(unknown).ok)
+    let missing = ["seen", "gpu", "reflect", "source.seen", "--gpu-target"]
+    irRequire(not parseGpuReflectCli(missing).ok)
+    println("PASS: GPU-001D strict GPU CLI aliases selection and source reflection")
+    return 0
+}

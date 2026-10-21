@@ -55,6 +55,13 @@ import typechecker.gpu_types.{gpuParseType as _seedGpuParseType}
 import typechecker.gpu_scope.{GpuCheckContext as _seedGpuCheckContext}
 import typechecker.gpu_workgroup.{gpuParseWorkgroup as _seedGpuParseWorkgroup}
 import codegen.gpu_extract.{hasGpuFunctions}
+import codegen.gpu_options.{GpuOptions as _seedGpuOptions}
+import codegen.gpu_bytes.{consumeGpuBytes as _seedGpuBytes}
+import codegen.gpu_manifest.{parseGpuManifest as _seedGpuManifest}
+import codegen.gpu_reflection.{reflectGpuModule as _seedGpuReflection}
+import codegen.gpu_reflection_layout.{GpuEntryRequirements as _seedGpuReflectionLayout}
+import tools.gpu_command.{parseGpuReflectCli, gpuReflectCommand, gpuValidateCompileOptions}
+import crypto.sha256.{sha256 as _seedGpuSha256}
 import codegen.gpu_call_plan_model.{GpuCallPlan as _seedGpuCallPlanModel}
 import codegen.gpu_matrix_types.{gpuMatrixShapeValid as _seedGpuMatrixTypes}
 import codegen.gpu_precision_call_plan.{gpuPrecisionCallFormat as _seedGpuPrecisionCallPlan}
@@ -8891,6 +8898,13 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("typechecker.gpu_frontend")
         modules.push("typechecker.gpu_module_frontend")
         modules.push("codegen.gpu_call_plan_model")
+        modules.push("codegen.gpu_options")
+        modules.push("codegen.gpu_bytes")
+        modules.push("codegen.gpu_manifest")
+        modules.push("codegen.gpu_reflection")
+        modules.push("codegen.gpu_reflection_layout")
+        modules.push("tools.gpu_command")
+        modules.push("crypto.sha256")
         modules.push("codegen.gpu_matrix_types")
         modules.push("codegen.gpu_precision_call_plan")
         modules.push("codegen.gpu_precision_formats")
@@ -16564,6 +16578,8 @@ fun printUsage() r: Void {
 
 fun printCompileUsage() r: Void {
     println("Usage: seen compile <input.seen> [output] [options]")
+    println("GPU options: --gpu-backend <none|spirv|cuda|hip|metal>, --gpu-target <target>, --gpu-entry <name>, --gpu-fallback <error|cpu>, --gpu-manifest <seen.toml>")
+    println("Reflection: seen gpu reflect <input.seen> --output <reflection.json> [--gpu-entry <name>]")
     println("Options: --profile <profile>, --deterministic, --language <lang>,")
     println("         --backend <name>, --simd <policy>,")
     println("         --target <platform>, --no-cache, --verbose, --locked, --offline,")
@@ -16966,6 +16982,11 @@ fun parseCompileCli(argv: Array<String>) r: CliArguments {
     addCliOptionAlias(values, valueNames, "--simd", "--simd")
     addCliOptionAlias(values, valueNames, "--simd-report", "--simd-report-level")
     addCliOptionAlias(values, valueNames, "--backend", "--backend")
+    addCliOptionAlias(values, valueNames, "--gpu-backend", "--gpu-backend")
+    addCliOptionAlias(values, valueNames, "--gpu-target", "--gpu-target")
+    addCliOptionAlias(values, valueNames, "--gpu-fallback", "--gpu-fallback")
+    addCliOptionAlias(values, valueNames, "--gpu-entry", "--gpu-entry")
+    addCliOptionAlias(values, valueNames, "--gpu-manifest", "--gpu-manifest")
     addCliOptionAlias(values, valueNames, "--sanitize", "--sanitize")
     addCliOptionAlias(values, valueNames, "--instrumentation-report", "--instrumentation-report")
     addCliOptionAlias(values, valueNames, "--pgo-use", "--pgo-use")
@@ -16983,6 +17004,7 @@ fun parseCompileCli(argv: Array<String>) r: CliArguments {
 
     let repeatable = Array<String>()
     repeatable.push("--feature")
+    repeatable.push("--gpu-entry")
     let normalized = normalizeCompileOptionalValues(argv)
     return parseCliArguments(normalized, 2, flags, flagNames, values, valueNames,
         repeatable)
@@ -17360,6 +17382,14 @@ fun main() r: Int {
     }
 
     let command = argv[1]
+    if command == "gpu" {
+        if argv.length() < 3 or argv[2] != "reflect" {
+            println("Usage: seen gpu reflect <source.seen> --output <reflection.json>"); return 1
+        }
+        let parsed = parseGpuReflectCli(argv); var manifest = ""
+        if parsed.ok and parsed.positionals.length() == 1 { manifest = findNearestSeenTomlForInput(parsed.positionals[0]) }
+        return gpuReflectCommand(parsed, manifest)
+    }
     if command == "--version" or command == "-v" {
         if argv.length() > 2 {
             println("Error: unexpected extra operand '" + argv[2] + "' for " + command)
@@ -17472,7 +17502,10 @@ fun main() r: Int {
         if parsed.hasOption("--bounds-check") { g_boundsCheckCli = 1 }
         if parsed.hasOption("--panic-on-overflow") { g_panicOnOverflowCli = 1 }
         if parsed.hasOption("--warn-unused-result") { g_warnUnusedResultCli = 1 }
-        if parsed.hasOption("--emit-glsl") { g_emitGlsl = 1 }
+        if parsed.hasOption("--emit-glsl") {
+            println("Warning: [W_GPU_LEGACY_GLSL] --emit-glsl is deprecated for one release; use seen gpu reflect for typed IR metadata")
+            g_emitGlsl = 1
+        }
         if parsed.hasOption("--null-safety") { g_nullSafetyCli = 1 }
         if parsed.hasOption("--warn-uninit") { g_uninitCheckCli = 1 }
         if parsed.hasOption("--stack-check") { g_stackCheckCli = 1 }
@@ -17527,6 +17560,7 @@ fun main() r: Int {
             return 1
         }
         let inputFile = parsed.positionals[0]
+        if gpuValidateCompileOptions(parsed, findNearestSeenTomlForInput(inputFile)) != 0 { return 1 }
         var outputFile = defaultOutput(inputFile)
         if parsed.positionals.length() > 1 {
             outputFile = parsed.positionals[1]

@@ -46,6 +46,15 @@
       "production": true
     },
     {
+      "id": "compiler-byte-array-storage-view",
+      "subsystem": "compiler.gpu",
+      "purpose": "Existing array-data accessor borrows exclusive Array<Int> storage without allocation or retention. Seen validates byte domains and the 32 MiB ceiling, compacts forward, clones a length-delimited string view, and frees the input once. No resize or alias is permitted. All-octet, NUL, empty, rejection and allocation tests cover it. Permanent runtime layout projection until a portable bootstrap array-data intrinsic replaces this accessor and its owner together.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_arr_data_ptr"],
+      "production": true
+    },
+    {
       "id": "deterministic-process-input-adapter",
       "subsystem": "stdlib.determinism",
       "purpose": "Bounded process-start snapshots, Linux process replacement after validated deterministic CLI activation, and symlink-aware path containment. Native Seen owns grants, policy, context identity, diagnostics, and observable values. The runtime captures inputs before user code, re-execs without PATH lookup when the flag activates the mode, and canonicalizes existing paths through the OS. Unsupported process replacement and Windows path policy fail closed.",

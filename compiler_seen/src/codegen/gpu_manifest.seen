@@ -1,0 +1,112 @@
+/// Bounded strict [gpu] subset: quoted selection values and an entry-name array.
+/// Other project tables are ignored; unknown/nested GPU keys are rejected.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_options.{GpuOptions, gpuSetOption, gpuOptionsError, validateGpuOptions}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+import typechecker.gpu_types.{gpuTrimStart, gpuTrimEnd, gpuRangePrefix}
+import json.builder.{releaseJsonText}
+
+fun gpuManifestSlice(text: String, first: Int, last: Int) r: String {
+    let start = gpuTrimStart(text, first, last); let end = gpuTrimEnd(text, start, last)
+    return text.substring(start, end)
+}
+
+fun gpuManifestUncomment(line: String) r: String {
+    var quoted = false; var i = 0
+    while i < line.length() {
+        let c = line.byteAt(i)
+        if c == 34 { quoted = not quoted }
+        if c == 35 and not quoted { return gpuManifestSlice(line, 0, i) }; i = i + 1
+    }
+    return gpuManifestSlice(line, 0, line.length())
+}
+fun gpuManifestQuoted(value: String) r: Bool {
+    if value.length() < 2 or value.length() > 130 or value.byteAt(0) != 34 or value.byteAt(value.length() - 1) != 34 { return false }
+    var i = 1
+    while i + 1 < value.length() {
+        let c = value.byteAt(i)
+        if c < 32 or c > 126 or c == 34 or c == 92 { return false }; i = i + 1
+    }
+    return true
+}
+fun gpuManifestTableKind(text: String) r: Int {
+    var start = 0
+    while start < text.length() and text.byteAt(start) == 91 { start = start + 1 }
+    let brackets = start; start = gpuTrimStart(text, start, text.length())
+    var gpu = gpuRangePrefix(text, start, text.length(), "gpu")
+    if gpu and start + 3 < text.length() {
+        let next = text.byteAt(start + 3)
+        gpu = next == 32 or next == 9 or next == 46 or next == 93
+    }
+    if gpuRangePrefix(text, start, text.length(), "\"gpu\"") { return -1 }
+    if not gpu { return 0 }
+    if brackets != 1 or text.byteAt(text.length() - 1) != 93 { return -1 }
+    let end = gpuTrimEnd(text, start, text.length() - 1)
+    if end == start + 3 { return 1 }; return -1
+}
+fun gpuManifestEntries(borrow options: GpuOptions, value: String, line: Int) r: GpuIrDiagnostic {
+    if value.length() < 2 or value.byteAt(0) != 91 or value.byteAt(value.length() - 1) != 93 {
+        return gpuOptionsError(line, "GPU entries require a single-line quoted-name array")
+    }
+    let end = gpuTrimEnd(value, 1, value.length() - 1); var position = gpuTrimStart(value, 1, end)
+    if position == end { options.specified = true; return gpuIrDiagnostic("", "") }
+    while position < end {
+        var next = value.indexOf(",", position); if next < 0 or next > end { next = end }
+        let item = gpuManifestSlice(value, position, next)
+        if not gpuManifestQuoted(item) { releaseJsonText(item); return gpuOptionsError(line, "GPU entry must be a quoted identifier") }
+        let name = item.substring(1, item.length() - 1)
+        let error = gpuSetOption(options, "entry", name, line); releaseJsonText(name); releaseJsonText(item)
+        if error.code != "" { return error }; error.free()
+        if next + 1 == end { return gpuOptionsError(line, "GPU entries cannot end with an empty element") }
+        position = next + 1
+    }
+    return gpuIrDiagnostic("", "")
+}
+fun gpuManifestLine(borrow options: GpuOptions, text: String, line: Int, seenKeys: Array<String>) r: GpuIrDiagnostic {
+    let equal = text.indexOf("=", 0)
+    if equal < 1 { return gpuOptionsError(line, "GPU manifest entry requires key = value") }
+    let rawKey = gpuManifestSlice(text, 0, equal); var key = ""
+    if rawKey == "backend" { key = "backend" }; if rawKey == "target" { key = "target" }
+    if rawKey == "fallback" { key = "fallback" }; if rawKey == "entries" { key = "entries" }; releaseJsonText(rawKey)
+    if key == "" { return gpuOptionsError(line, "unknown GPU manifest key") }
+    var i = 0
+    while i < seenKeys.length() { if seenKeys[i] == key { return gpuOptionsError(line, "duplicate GPU manifest key") }; i = i + 1 }
+    // Canonical key labels are static; selected entry names are cloned.
+    seenKeys.push(key)
+    let value = gpuManifestSlice(text, equal + 1, text.length())
+    if key == "entries" { let error = gpuManifestEntries(options, value, line); releaseJsonText(value); return error }
+    if not gpuManifestQuoted(value) { releaseJsonText(value); return gpuOptionsError(line, "GPU manifest selection must be a quoted literal without escapes") }
+    let selected = value.substring(1, value.length() - 1); let error = gpuSetOption(options, key, selected, line)
+    releaseJsonText(selected); releaseJsonText(value); return error
+}
+fun parseGpuManifest(content: String) r: Result<GpuOptions, GpuIrDiagnostic> {
+    if content.length() > 65536 { return Err<GpuOptions, GpuIrDiagnostic>(gpuOptionsError(0, "project manifest exceeds the GPU parser byte ceiling")) }
+    let options = GpuOptions.create(); let keys = Array<String>(); var active = false; var found = false
+    var start = 0; var line = 1
+    while start < content.length() {
+        var end = content.indexOf("\n", start); if end < 0 { end = content.length() }
+        if line > 2048 or end - start > 4096 {
+            keys.free(); options.release(); return Err<GpuOptions, GpuIrDiagnostic>(gpuOptionsError(line, "project manifest line or line-count ceiling exceeded"))
+        }
+        let rawLine = content.substring(start, end); let text = gpuManifestUncomment(rawLine); releaseJsonText(rawLine)
+        if text.startsWith("[") {
+            let table = gpuManifestTableKind(text)
+            if table == 1 {
+                if found { releaseJsonText(text); keys.free(); options.release(); return Err<GpuOptions, GpuIrDiagnostic>(gpuOptionsError(line, "duplicate GPU manifest table")) }
+                active = true; found = true
+            } else {
+                active = false
+                if table < 0 {
+                    releaseJsonText(text); keys.free(); options.release(); return Err<GpuOptions, GpuIrDiagnostic>(gpuOptionsError(line, "nested GPU manifest tables are unsupported"))
+                }
+            }
+        } else if active and text != "" {
+            let error = gpuManifestLine(options, text, line, keys)
+            if error.code != "" { releaseJsonText(text); keys.free(); options.release(); return Err<GpuOptions, GpuIrDiagnostic>(error) }; error.free()
+        }
+        releaseJsonText(text); start = end + 1; line = line + 1
+    }
+    keys.free(); let error = validateGpuOptions(options)
+    if error.code != "" { options.release(); return Err<GpuOptions, GpuIrDiagnostic>(error) }; error.free()
+    return Ok<GpuOptions, GpuIrDiagnostic>(options)
+}
