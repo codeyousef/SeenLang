@@ -51,6 +51,52 @@ trait ExecutorJob {
     fun release(this: ExecutorJob) r: Bool
 }
 
+
+fun executorWitnessMatches(value: UInt64, address: UInt64) r: Bool {
+    let words = address as *UInt64; return words[0] == value
+}
+fun executorFreeWitnessAddress(address: UInt64) r: Void {
+    seen_pool_free(address as *Void, 16 as Int64)
+}
+
+fun executorDropWitness(witness: dyn ExecutorJob) r: Void {
+    executorFreeWitnessAddress(witness as UInt64)
+}
+
+/// Capture a concrete trait witness before crossing an erased generic ABI.
+/// bind consumes the dyn box on every path and the concrete job on success.
+/// The caller must exclusively own both views of the same job. Failed spawn
+/// retains this owner; successful join takes the concrete job back out.
+@send
+class ExecutorOwnedJob<T: Send + ExecutorJob> {
+    var value: T
+    // Opaque address of the immutable box validated by bind. The payload is
+    // exactly value (whose Send bound is proved); this is not another job or
+    // an independently supplied Send assertion. Never mutate this address.
+    var dispatchAddress: UInt64
+
+    static fun bind(value: T, dispatch: dyn ExecutorJob) r: Result<ExecutorOwnedJob<T>, AsyncError> {
+        if not executorWitnessMatches(value as UInt64, dispatch as UInt64) {
+            executorFreeWitnessAddress(dispatch as UInt64)
+            return Err<ExecutorOwnedJob<T>, AsyncError>(executorFailure(1 as Int32, "executor.job.alias", 0 as UInt64))
+        }
+        return Ok<ExecutorOwnedJob<T>, AsyncError>(ExecutorOwnedJob<T>{value: value, dispatchAddress: dispatch as UInt64})
+    }
+    fun run(context: ExecutorTaskContext) r: Bool {
+        let dispatch: dyn ExecutorJob = this.dispatchAddress as dyn ExecutorJob
+        return dispatch.run(context)
+    }
+    fun take() r: T {
+        let value = this.value
+        executorFreeWitnessAddress(this.dispatchAddress); this.free(); return value
+    }
+    fun release() r: Bool {
+        let dispatch: dyn ExecutorJob = this.dispatchAddress as dyn ExecutorJob
+        let released = dispatch.release()
+        executorFreeWitnessAddress(this.dispatchAddress); this.free(); return released
+    }
+}
+
 fun executorFailure(status: Int32, operation: String, progress: UInt64)
     r: AsyncError {
     let code = asyncStatusCode(status)

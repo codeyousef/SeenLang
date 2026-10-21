@@ -1,0 +1,175 @@
+import async.executor_core.{ExecutorOwnedJob}
+// Linux executable witness: two actual blocking pipe reads bracket CPU work.
+// The external collector observes the blocked syscalls before granting progress.
+import core.result.{Result}
+import io.completion_types.{IoQueueLimits, IoOperation, IoRequest, IoRegistration}
+import io.completion_diagnostics.{IoQueueDiagnostics}
+import io.worker_queue.{WorkerCompletionQueue}
+import io.worker_completion.{WorkerIoOutcome, WorkerIoSubmission}
+import async.structured.{AsyncOperationContext}
+import async.executor_core.{ExecutorTaskContext, executorReleaseContext}
+import async.process_native.{seen_async_process_pipe}
+import reactor.reactor.{OwnedHandle}
+import memory.aligned_buffer.{OwnedBuffer}
+import sync.atomic.{seen_sync_atomic_destroy}
+import sync.contracts.{seen_time_monotonic_nanos}
+import io.stdio.{flushStdout}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+import fixture_support.{ioMust, ioRequire, ioContext}
+import worker_fixture_support.{workerCounter, workerCount, workerWait, workerAdd}
+extern "C" fun read(descriptor: Int32, buffer: *UInt8, bytes: UInt64) r: Int64
+extern "C" fun getpid() r: Int32
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_async_stream_write(descriptor: Int64, buffer: *Void, bytes: UInt64, completed: *UInt64) r: Int32
+
+@send
+class ReadInterval {
+    var started: Int64
+    var finished: Int64
+}
+@send
+class PipeReadJob {
+    var descriptor: Int32
+    var address: UInt64
+    var outcome: WorkerIoOutcome
+    var interval: ReadInterval
+    var startedCounter: UInt64
+    fun run(context: ExecutorTaskContext) r: Bool {
+        this.interval.started = seen_time_monotonic_nanos()
+        workerAdd(this.startedCounter)
+        let bytes = read(this.descriptor, this.address as *UInt8, 16 as UInt64)
+        this.interval.finished = seen_time_monotonic_nanos()
+        this.outcome.nativeCode = bytes
+        this.outcome.status = 0 as Int32
+        this.outcome.progress = 0 as UInt64
+        if bytes < (0 as Int64) { this.outcome.status = 4 as Int32 }
+        else { this.outcome.progress = bytes as UInt64 }
+        this.outcome.finished = true
+        let progress = context.advanceProgress(this.outcome.progress)
+        if progress.isErr() { progress.unwrapErr().free() }; progress.releaseContainer()
+        return true
+    }
+    fun release() r: Bool { this.free(); return true }
+}
+class PipeSubmission {
+    var registration: IoRegistration
+    var writer: OwnedHandle
+    var reader: Int64
+    fun releaseWriter(address: UInt64) r: Void {
+        var bytes = 0 as UInt64
+        ioRequire(seen_async_stream_write(this.writer.native, address as *Void, 16 as UInt64, &bytes) == (0 as Int32))
+        ioRequire(bytes == (16 as UInt64)); ioMust(this.writer.close()); this.writer.free()
+    }
+    fun release() r: Void { this.registration.free(); this.free() }
+}
+fun overlapSubmit(borrow queue: WorkerCompletionQueue<PipeReadJob>, context: AsyncOperationContext,
+    interval: ReadInterval, counter: UInt64) r: PipeSubmission {
+    var input = -1 as Int64; var output = -1 as Int64
+    ioRequire(seen_async_process_pipe(1 as Int32, &input, &output) == (0 as Int32))
+    let buffer: OwnedBuffer<UInt8> = ioMust(OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 16 as UInt64))
+    let request = IoRequest.create(OwnedHandle{native: input, owned: true, valid: true}, buffer,
+        IoOperation.Read, 0 as Int64, 16 as UInt64, context)
+    let registration: IoRegistration = ioMust(queue.reserve(request))
+    let prepared: WorkerIoSubmission = ioMust(queue.prepare(registration.token))
+    let job = PipeReadJob{descriptor: prepared.view.descriptor as Int32, address: prepared.view.buffer as UInt64,
+        outcome: prepared.outcome, interval: interval, startedCounter: counter}
+    prepared.release(); ioMust(queue.submit(registration.token, ioMust(ExecutorOwnedJob<PipeReadJob>.bind(job, job))))
+    return PipeSubmission{registration: registration, writer: OwnedHandle{native: output, owned: true, valid: true}, reader: input}
+}
+fun overlapDrain(borrow queue: WorkerCompletionQueue<PipeReadJob>, first: UInt64, second: UInt64) r: Void {
+    let start = seen_time_monotonic_nanos()
+    ioRequire(start > (0 as Int64) and start < (9223372031854775807 as Int64))
+    var seenFirst = false; var seenSecond = false; var delivered = 0
+    while delivered < 2 {
+        ioMust(queue.reap(2))
+        let ready = queue.poll()
+        if ready.isSome() {
+            let completion = ready.unwrap()
+            if completion.token == first { ioRequire(not seenFirst); seenFirst = true }
+            else { ioRequire(completion.token == second and not seenSecond); seenSecond = true }
+            let bytes: UInt64 = ioMust(completion.outcome()); ioRequire(bytes == (16 as UInt64))
+            var i = 0; while i < 16 { ioRequire(completion.request.resources.buffer.data[i] == (73 as UInt8)); i = i + 1 }
+            ioMust(completion.release()); delivered = delivered + 1
+        }
+        ready.free()
+        ioRequire(seen_time_monotonic_nanos() - start < (5000000000 as Int64))
+    }
+    ioRequire(seenFirst and seenSecond and queue.core.active == 0 and queue.core.nativeActive == 0)
+    ioRequire(queue.core.ownedBytes == (0 as UInt64) and queue.core.metadataBytes == (0 as UInt64))
+}
+class OverlapEvidence {
+    var stats: IoQueueDiagnostics
+    var firstReader: Int64
+    var secondReader: Int64
+    var computeStart: Int64
+    var computeEnd: Int64
+    var firstStart: Int64
+    var firstEnd: Int64
+    var secondStart: Int64
+    var secondEnd: Int64
+    var checksum: Int64
+    fun checkpoint(stage: String) r: Void {
+        let managed = seen_memory_used_bytes()
+        let json = JsonBuilder_new(); json.beginObject()
+        json.stringProp("schema", "seen-io-checkpoint-v1"); json.stringProp("stage", stage)
+        json.intProp("pid", getpid() as Int); json.intProp("managed_bytes", managed as Int)
+        json.intProp("reader_a", this.firstReader as Int); json.intProp("reader_b", this.secondReader as Int)
+        json.intProp("compute_start_ns", this.computeStart as Int); json.intProp("compute_end_ns", this.computeEnd as Int)
+        json.intProp("read_a_start_ns", this.firstStart as Int); json.intProp("read_a_end_ns", this.firstEnd as Int)
+        json.intProp("read_b_start_ns", this.secondStart as Int); json.intProp("read_b_end_ns", this.secondEnd as Int)
+        json.intProp("checksum", this.checksum as Int)
+        json.intProp("accepted", this.stats.acceptedCount as Int); json.intProp("submitted", this.stats.submittedCount as Int)
+        json.intProp("terminal", this.stats.terminalCount as Int); json.intProp("delivered", this.stats.deliveredCount as Int)
+        json.intProp("transferred_bytes", this.stats.transferredBytes as Int)
+        json.intProp("peak_active", this.stats.peakActive); json.intProp("peak_submitted", this.stats.peakSubmitted)
+        json.intProp("peak_owned_bytes", this.stats.peakOwnedBytes as Int); json.intProp("peak_metadata_bytes", this.stats.peakMetadataBytes as Int)
+        var saturated = 0; if this.stats.saturated { saturated = 1 }; json.boolProp("saturated", saturated)
+        json.endObject(); let text = json.build(); destroyJsonBuilder(json)
+        println(text); releaseJsonText(text); flushStdout()
+        var acknowledgement = 0 as UInt8
+        ioRequire(read(0 as Int32, &acknowledgement, 1 as UInt64) == (1 as Int64) and acknowledgement == (71 as UInt8))
+    }
+}
+fun overlapSnapshot(evidence: OverlapEvidence, borrow queue: WorkerCompletionQueue<PipeReadJob>) r: Void {
+    evidence.stats.free(); evidence.stats = queue.core.diagnostics.snapshot()
+}
+fun main() r: Int {
+    let evidence = OverlapEvidence{stats: IoQueueDiagnostics.create(), firstReader: -1 as Int64, secondReader: -1 as Int64,
+        computeStart: 0 as Int64, computeEnd: 0 as Int64, firstStart: 0 as Int64, firstEnd: 0 as Int64,
+        secondStart: 0 as Int64, secondEnd: 0 as Int64, checksum: 0 as Int64}
+    evidence.checkpoint("start")
+    let context = ioContext()
+    let limits = IoQueueLimits{depth: 2, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 128 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let queue: WorkerCompletionQueue<PipeReadJob> = ioMust(WorkerCompletionQueue<PipeReadJob>.create(limits, 2, 262144 as UInt64, context)); limits.free()
+    let payload: OwnedBuffer<UInt8> = ioMust(OwnedBuffer<UInt8>.allocate(16 as UInt64, 1 as UInt64, 16 as UInt64))
+    var i = 0; while i < 16 { payload.data[i] = 73 as UInt8; i = i + 1 }
+    let a = ReadInterval{started: 0 as Int64, finished: 0 as Int64}; let b = ReadInterval{started: 0 as Int64, finished: 0 as Int64}
+    var counter = workerCounter(); overlapSnapshot(evidence, queue); evidence.checkpoint("setup")
+    let first = overlapSubmit(queue, context, a, counter); let second = overlapSubmit(queue, context, b, counter)
+    workerWait(counter, 2 as Int64)
+    evidence.firstReader = first.reader; evidence.secondReader = second.reader
+    overlapSnapshot(evidence, queue); evidence.checkpoint("blocked")
+    evidence.computeStart = seen_time_monotonic_nanos()
+    var checksum = getpid() as Int64; i = 0
+    while i < 1000000 { checksum = (checksum * (1664525 as Int64) + (1013904223 as Int64)) % (2147483647 as Int64); i = i + 1 }
+    evidence.computeEnd = seen_time_monotonic_nanos(); evidence.checksum = checksum
+    evidence.checkpoint("computed")
+    first.releaseWriter(payload.data as UInt64); second.releaseWriter(payload.data as UInt64)
+    overlapDrain(queue, first.registration.token, second.registration.token)
+    evidence.firstStart = a.started; evidence.firstEnd = a.finished; evidence.secondStart = b.started; evidence.secondEnd = b.finished
+    ioRequire(a.started <= evidence.computeStart and evidence.computeStart < evidence.computeEnd and evidence.computeEnd <= a.finished)
+    ioRequire(b.started <= evidence.computeStart and evidence.computeEnd <= b.finished)
+    first.release(); second.release(); overlapSnapshot(evidence, queue); evidence.checkpoint("drained")
+    let baseline = seen_memory_used_bytes(); i = 0
+    while i < 10000 {
+        let left = overlapSubmit(queue, context, a, counter); let right = overlapSubmit(queue, context, b, counter)
+        left.releaseWriter(payload.data as UInt64); right.releaseWriter(payload.data as UInt64)
+        overlapDrain(queue, left.registration.token, right.registration.token)
+        left.release(); right.release(); ioRequire(seen_memory_used_bytes() == baseline); i = i + 1
+    }
+    overlapSnapshot(evidence, queue); evidence.checkpoint("soak")
+    ioMust(queue.release()); ioMust(payload.close()); payload.free(); a.free(); b.free()
+    ioRequire(seen_sync_atomic_destroy(&counter) == (0 as Int32)); executorReleaseContext(context)
+    evidence.checkpoint("closed"); evidence.stats.free(); evidence.free()
+    return 0
+}

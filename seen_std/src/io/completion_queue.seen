@@ -2,6 +2,7 @@
 /// submission, acknowledgement and cancellation are explicit transitions.
 import core.result.{Result, Ok, Err}
 import core.option.{Option, Some, None}
+import io.completion_diagnostics.{IoQueueDiagnostics}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext, asyncDeadlineStatus}
 import async.executor_core.{executorCopyContext}
 import memory.aligned_buffer.{OwnedBuffer, ownedBufferByteRangeValid}
@@ -10,6 +11,7 @@ import io.completion_types.{IO_DEVICE_REMOVED_STATUS, IoQueueLimits, IoOperation
 
 @move
 class IoQueue {
+    var diagnostics: IoQueueDiagnostics
     var capacity: Int
     var maxTransferBytes: UInt64
     var maxOwnedBytes: UInt64
@@ -42,7 +44,7 @@ class IoQueue {
             cancellation.push(0 as Int32); notified.push(false); freeSlots.push(limits.depth - i - 1); terminal.push(0)
             i = i + 1
         }
-        return Ok<IoQueue, AsyncError>(IoQueue{capacity: limits.depth, maxTransferBytes: limits.maxTransferBytes,
+        return Ok<IoQueue, AsyncError>(IoQueue{diagnostics: IoQueueDiagnostics.create(), capacity: limits.depth, maxTransferBytes: limits.maxTransferBytes,
             maxOwnedBytes: limits.maxOwnedBytes, ownedBytes: 0 as UInt64,
             maxMetadataBytes: limits.maxMetadataBytes, metadataBytes: 0 as UInt64, entries: entries, generations: generations,
             states: states, cancellation: cancellation, cancellationNotified: notified, freeSlots: freeSlots,
@@ -60,6 +62,7 @@ class IoQueue {
         return this.generations[index] * (4294967296 as UInt64) + ((index + 1) as UInt64)
     }
     fun reject(request: IoRequest, error: AsyncError) r: Result<IoRegistration, IoRejectedSubmission> {
+        this.diagnostics.recordRejection()
         return Err<IoRegistration, IoRejectedSubmission>(IoRejectedSubmission{request: request, error: error})
     }
     // Admission checks full owner ranges, including requests awaiting delivery.
@@ -96,6 +99,7 @@ class IoQueue {
         this.cancellation[index] = 0 as Int32; this.cancellationNotified[index] = false
         this.active = this.active + 1; this.ownedBytes = this.ownedBytes + buffer.byteLength
         this.metadataBytes = this.metadataBytes + metadata
+        this.diagnostics.recordAdmission(this.active, this.ownedBytes, this.metadataBytes)
         return Ok<IoRegistration, IoRejectedSubmission>(IoRegistration{token: this.token(index)})
     }
     fun submission(token: UInt64) r: Result<IoSubmissionView, AsyncError> {
@@ -121,11 +125,13 @@ class IoQueue {
             return Err<Bool, AsyncError>(ioQueueFailure(status, "io.queue.submitted.stopped", 0 as UInt64))
         }
         this.states[index] = 2; this.nativeActive = this.nativeActive + 1
+        this.diagnostics.recordSubmission(this.nativeActive)
         return Ok<Bool, AsyncError>(true)
     }
     fun terminal(index: Int, bytes: UInt64, status: Int32, nativeCode: Int64) r: Void {
         let request = this.entries[index].unwrap()
         request.resources.progress = bytes; request.resources.status = status; request.resources.nativeResult = nativeCode
+        this.diagnostics.recordTerminal(bytes, status)
         if this.states[index] == 2 { this.nativeActive = this.nativeActive - 1 }
         this.states[index] = 3
         let tail = (this.terminalHead + this.terminalCount) % this.capacity
@@ -202,6 +208,7 @@ class IoQueue {
         this.terminalHead = (this.terminalHead + 1) % this.capacity; this.terminalCount = this.terminalCount - 1
         this.entries[index].free(); this.entries[index] = None<IoRequest>(); this.states[index] = 0
         this.active = this.active - 1; this.ownedBytes = this.ownedBytes - request.resources.buffer.byteLength
+        this.diagnostics.recordDelivery()
         this.metadataBytes = this.metadataBytes - (request.context.resourceId.length() as UInt64) -
             (request.context.operation.traceId.value.length() as UInt64)
         if this.generations[index] < (4294967295 as UInt64) {
@@ -228,7 +235,7 @@ class IoQueue {
         let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer()
         var index = 0; while index < this.capacity { this.entries[index].free(); index = index + 1 }
         this.entries.free(); this.generations.free(); this.states.free(); this.cancellation.free()
-        this.cancellationNotified.free(); this.freeSlots.free(); this.terminalSlots.free(); this.free()
+        this.cancellationNotified.free(); this.freeSlots.free(); this.terminalSlots.free(); this.diagnostics.free(); this.free()
         return Ok<Bool, AsyncError>(true)
     }
 }

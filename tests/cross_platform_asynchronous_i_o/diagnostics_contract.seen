@@ -1,0 +1,49 @@
+import io.completion_diagnostics.{IoQueueDiagnostics}
+import io.completion_types.{IoQueueLimits, IoRegistration, IoSubmissionView}
+import io.completion_queue.{IoQueue}
+import fixture_support.{ioMust, ioRequire, ioContext, ioFixtureRequest, ioTake, ioRejectAndRelease}
+import async.executor_core.{executorReleaseContext}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun diagnosticsRound() r: Void {
+    let context = ioContext()
+    let limits = IoQueueLimits{depth: 2, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 128 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let queue: IoQueue = ioMust(IoQueue.create(limits)); limits.free()
+    let first: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    let second: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    ioRejectAndRelease(queue.reserve(ioFixtureRequest(context)), "async.limit")
+    let initial = queue.diagnostics.snapshot()
+    ioRequire(initial.acceptedCount == (2 as UInt64) and initial.rejectedCount == (1 as UInt64))
+    ioRequire(initial.peakActive == 2 and initial.peakOwnedBytes == (128 as UInt64))
+    ioRequire(initial.peakMetadataBytes > (0 as UInt64) and initial.peakMetadataBytes <= (8192 as UInt64))
+    let a: IoSubmissionView = ioMust(queue.submission(first.token)); a.free(); ioMust(queue.submitted(first.token))
+    let b: IoSubmissionView = ioMust(queue.submission(second.token)); b.free(); ioMust(queue.submitted(second.token))
+    ioMust(queue.complete(first.token, 9 as UInt64, 0 as Int32, 9 as Int64))
+    ioMust(queue.cancel(second.token)); ioMust(queue.complete(second.token, 3 as UInt64, 0 as Int32, 3 as Int64))
+    let final = queue.diagnostics.snapshot()
+    ioRequire(final.submittedCount == (2 as UInt64) and final.terminalCount == (2 as UInt64))
+    ioRequire(final.deliveredCount == (0 as UInt64) and final.transferredBytes == (12 as UInt64))
+    ioRequire(final.cancelledCount == (1 as UInt64) and final.concurrentSubmissionCount == (1 as UInt64) and final.peakSubmitted == 2)
+    ioRequire(initial.submittedCount == (0 as UInt64) and not final.saturated)
+    let completed = ioTake(queue); ioMust(completed.release())
+    let cancelled = ioTake(queue); ioMust(cancelled.release())
+    ioRequire(queue.diagnostics.deliveredCount == (2 as UInt64) and final.deliveredCount == (0 as UInt64))
+    first.free(); second.free(); ioMust(queue.release()); executorReleaseContext(context)
+    ioRequire(final.transferredBytes == (12 as UInt64)); final.free(); initial.free()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 1000 { diagnosticsRound(); ioRequire(seen_memory_used_bytes() == baseline); i = i + 1 }
+    let counters = IoQueueDiagnostics.create()
+    counters.recordTerminal(0 as UInt64, 7 as Int32); counters.recordTerminal(0 as UInt64, 10 as Int32)
+    counters.recordTerminal(0 as UInt64, 4 as Int32)
+    ioRequire(counters.timeoutCount == (1 as UInt64) and counters.deviceRemovedCount == (1 as UInt64) and counters.failureCount == (1 as UInt64))
+    counters.acceptedCount = 18446744073709551615 as UInt64
+    counters.recordAdmission(1, 0 as UInt64, 0 as UInt64)
+    ioRequire(counters.saturated and counters.acceptedCount == (18446744073709551615 as UInt64))
+    counters.saturated = false; counters.transferredBytes = 18446744073709551614 as UInt64
+    counters.recordTerminal(2 as UInt64, 0 as Int32)
+    ioRequire(counters.saturated and counters.transferredBytes == (18446744073709551615 as UInt64)); counters.free()
+    println("PASS: IO-002F fixed diagnostics snapshot lifetime saturation and 1000 exact cleanup rounds")
+    return 0
+}

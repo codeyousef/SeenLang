@@ -6,8 +6,8 @@ import core.result.{Result, Ok, Err}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
 import sync.contracts.{Send}
 import async.join_report.{ExecutorJoinReport}
-import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
-    ExecutorCore, ExecutorTicket, executorFailure, executorCopyContext,
+import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorOwnedJob, ExecutorTaskContext,
+    ExecutorCore, ExecutorTicket, executorFailure, executorCopyContext, executorDropWitness,
     executorContextFailure, executorReleaseContext, executorReleaseSnapshot, executorWorkerEntry,
     EXECUTOR_FOREVER}
 import async.executor_native.{seen_sync_mutex_create, seen_sync_mutex_lock_until, seen_sync_mutex_unlock,
@@ -19,7 +19,7 @@ import async.executor_native.{seen_sync_mutex_create, seen_sync_mutex_lock_until
 @move
 class ExecutorJoinHandle<T: Send + ExecutorJob> {
     var core: ExecutorCore
-    var task: T
+    var task: ExecutorOwnedJob<T>
     var slot: Int
     var id: Int
     var depth: Int
@@ -61,27 +61,33 @@ class ExecutorJoinHandle<T: Send + ExecutorJob> {
     }
 
     fun join(context: AsyncOperationContext) r: Result<T, AsyncError> {
+        let joined = this.joinOwned(context)
+        if joined.isErr() { let error = joined.unwrapErr(); joined.releaseContainer(); return Err<T, AsyncError>(error) }
+        let owner = joined.unwrap(); joined.releaseContainer(); return Ok<T, AsyncError>(owner.take())
+    }
+
+    fun joinOwned(context: AsyncOperationContext) r: Result<ExecutorOwnedJob<T>, AsyncError> {
         let waited = this.waitForTerminal(context)
         if waited.isErr() {
-            let error = waited.unwrapErr(); waited.releaseContainer(); return Err<T, AsyncError>(error)
+            let error = waited.unwrapErr(); waited.releaseContainer(); return Err<ExecutorOwnedJob<T>, AsyncError>(error)
         }
         let status = waited.unwrap(); waited.releaseContainer()
         if status == (0 as Int32) {
             if not this.core.reap(this.slot, this.id, false) {
-                return Err<T, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
+                return Err<ExecutorOwnedJob<T>, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
             }
-            this.active = false; return Ok<T, AsyncError>(this.task)
+            this.active = false; return Ok<ExecutorOwnedJob<T>, AsyncError>(this.task)
         }
         let observed = this.core.observe(this.slot, this.id, false)
         if observed.isErr() {
-            let error = observed.unwrapErr(); observed.releaseContainer(); return Err<T, AsyncError>(error)
+            let error = observed.unwrapErr(); observed.releaseContainer(); return Err<ExecutorOwnedJob<T>, AsyncError>(error)
         }
         let observation = observed.unwrap(); observed.releaseContainer()
         let error = executorContextFailure(status - (100 as Int32), "executor.await", observation.progress, context)
         error.retryable = error.code == "async.unavailable" and observation.retryable
         observation.release()
         if this.core.reap(this.slot, this.id, true) { this.active = false }
-        return Err<T, AsyncError>(error)
+        return Err<ExecutorOwnedJob<T>, AsyncError>(error)
     }
 
     fun joinDetailed(context: AsyncOperationContext) r: Result<ExecutorJoinReport<T>, AsyncError> {
@@ -102,8 +108,8 @@ class ExecutorJoinHandle<T: Send + ExecutorJob> {
             return Err<ExecutorJoinReport<T>, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
         }
         this.active = false
-        var task = None<T>(); var error = None<AsyncError>()
-        if status == (0 as Int32) { task.free(); task = Some<T>(this.task) }
+        var task = None<ExecutorOwnedJob<T>>(); var error = None<AsyncError>()
+        if status == (0 as Int32) { task.free(); task = Some<ExecutorOwnedJob<T>>(this.task) }
         else {
             let failure = executorContextFailure(status - (100 as Int32), "executor.await", observation.progress, context)
             failure.retryable = failure.code == "async.unavailable" and observation.retryable
@@ -117,7 +123,7 @@ class ExecutorJoinHandle<T: Send + ExecutorJob> {
 
 }
 
-fun executorSubmit<T: Send + ExecutorJob>(core: ExecutorCore, task: T,
+fun executorSubmit<T: Send + ExecutorJob>(core: ExecutorCore, task: ExecutorOwnedJob<T>,
     context: AsyncOperationContext, depth: Int)
     r: Result<ExecutorJoinHandle<T>, AsyncError> {
     let valid = validateAsyncContext(context, "executor.spawn", 0 as UInt64)
@@ -144,13 +150,36 @@ fun executorSubmit<T: Send + ExecutorJob>(core: ExecutorCore, task: T,
 }
 
 fun spawnExecutorTask<T: Send + ExecutorJob>(context: ExecutorTaskContext,
-    task: T) r: Result<ExecutorJoinHandle<T>, AsyncError> {
+    task: ExecutorOwnedJob<T>) r: Result<ExecutorJoinHandle<T>, AsyncError> {
     if context.isCancelled() {
         return Err<ExecutorJoinHandle<T>, AsyncError>(executorFailure(
             9 as Int32, "executor.spawn", 0 as UInt64))
     }
     return executorSubmit<T>(context.core, task, context.operation,
         context.depth)
+}
+
+
+
+fun spawnExecutorTaskWitness<T: Send + ExecutorJob>(context: ExecutorTaskContext,
+    task: T, witness: dyn ExecutorJob) r: Result<ExecutorJoinHandle<T>, AsyncError> {
+    if context.isCancelled() {
+        executorDropWitness(witness)
+        return Err<ExecutorJoinHandle<T>, AsyncError>(executorFailure(9 as Int32, "executor.spawn", 0 as UInt64))
+    }
+    return executorSubmitWitness<T>(context.core, task, witness, context.operation, context.depth)
+}
+
+/// Explicit witness capture keeps failed admission ownership with the caller.
+fun executorSubmitWitness<T: Send + ExecutorJob>(core: ExecutorCore, task: T,
+    witness: dyn ExecutorJob, context: AsyncOperationContext, depth: Int)
+    r: Result<ExecutorJoinHandle<T>, AsyncError> {
+    let bound = ExecutorOwnedJob<T>.bind(task, witness)
+    if bound.isErr() { let error = bound.unwrapErr(); bound.releaseContainer(); return Err<ExecutorJoinHandle<T>, AsyncError>(error) }
+    let owner = bound.unwrap(); bound.releaseContainer()
+    let submitted = executorSubmit<T>(core, owner, context, depth)
+    if submitted.isErr() { owner.take() }
+    return submitted
 }
 
 @move
@@ -216,7 +245,12 @@ class MultithreadExecutor<T: Send + ExecutorJob> {
         return Ok<MultithreadExecutor<T>, AsyncError>(MultithreadExecutor<T>{core: core})
     }
 
-    fun spawn(task: T, context: AsyncOperationContext)
+    fun spawn(task: T, witness: dyn ExecutorJob, context: AsyncOperationContext)
+        r: Result<ExecutorJoinHandle<T>, AsyncError> {
+        return executorSubmitWitness<T>(this.core, task, witness, context, 0)
+    }
+
+    fun spawnOwned(task: ExecutorOwnedJob<T>, context: AsyncOperationContext)
         r: Result<ExecutorJoinHandle<T>, AsyncError> {
         return executorSubmit<T>(this.core, task, context, 0)
     }

@@ -42,6 +42,16 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+      - name: Retain I/O overlap resource evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: seen-io-overlap-${{ github.sha }}
+          path: .seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 6
       - name: Retain failed-gate frontend diagnostics
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -54,6 +64,7 @@ jobs:
             .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/*.log
             .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/pointer-index-*-ir/*.ll
             .seen/agent-tools/safe-rebuild/run.*/completion-io-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/completion-io-*/*.json
             .seen/agent-tools/safe-rebuild/run.*/completion-io-*/*-ir/*.ll
             releases/compatibility-manifest.json
           include-hidden-files: true

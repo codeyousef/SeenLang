@@ -111,7 +111,7 @@ hash = "9e43d2bd2e370fa0761725d003438ca22198e3504903e6c6330c076ab754e966"
 
 [[modules]]
 path = "src/io/completion_queue.seen"
-hash = "10cb8e93422c8ea5a9881cb72bebca7308862f8904cf12a7c2f08673b561bc30"
+hash = "620f514eedee08da65116c0d747b62cd4cbe640e712e20897d2fcad794d18766"
 
 [[modules]]
 path = "src/io/uring_native.seen"
@@ -168,3 +168,7 @@ hash = "8f736937c03452b1345261f3a10452a947de5e21a49f310045c6dea9a824e8c9"
 [[modules]]
 path = "src/io/macos_positional.seen"
 hash = "a139ff4a71d00243d280d07d5d588cd1871a74504899325b5554cf29ecbf98fc"
+
+[[modules]]
+path = "src/io/completion_diagnostics.seen"
+hash = "a021f9809e7231f980563e01938a984484b2e3f962a737285cb44108b02adab8"

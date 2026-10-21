@@ -5,8 +5,9 @@ import async.structured.{AsyncError, AsyncLimits, AsyncOperationContext,
     seen_time_monotonic_nanos}
 import async.multithread.{MultithreadExecutor, ExecutorLimits, ExecutorJob,
     ExecutorTaskContext, ExecutorJoinHandle, spawnExecutorTask}
-import async.executor_core.{executorReleaseContext}
+import async.executor_core.{executorReleaseContext, ExecutorOwnedJob}
 
+extern "C" fun seen_memory_used_bytes() r: Int64
 extern "C" fun seen_executor_live_threads() r: UInt64
 extern "C" fun seen_sync_live_mutexes() r: UInt64
 extern "C" fun seen_sync_live_conditions() r: UInt64
@@ -61,8 +62,8 @@ impl ExecutorJob for ExecutorProbe {
     fun run(this: ExecutorProbe, context: ExecutorTaskContext) r: Bool {
         if this.mode == 1 {
             let child = must(spawnExecutorTask<ExecutorProbe>(context,
-                ExecutorProbe{mode: 0, number: this.number, result: 0,
-                    releases: 0 as UInt64}))
+                ownProbe(ExecutorProbe{mode: 0, number: this.number, result: 0,
+                    releases: 0 as UInt64})))
             let value = must(child.join(context.operation))
             this.result = value.result + 1
             value.release()
@@ -91,6 +92,24 @@ impl ExecutorJob for ExecutorProbe {
     }
 }
 
+fun ownProbe(value: ExecutorProbe) r: ExecutorOwnedJob<ExecutorProbe> {
+    return must(ExecutorOwnedJob<ExecutorProbe>.bind(value, value))
+}
+
+fun ownerBinding() r: Bool {
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 100 {
+        let first = ExecutorProbe{mode: 0, number: 1, result: 0, releases: 0 as UInt64}
+        let second = ExecutorProbe{mode: 0, number: 2, result: 0, releases: 0 as UInt64}
+        if not hasError(ExecutorOwnedJob<ExecutorProbe>.bind(first, second), "async.invalid") { return false }
+        first.release(); second.release()
+        let owner = ownProbe(ExecutorProbe{mode: 0, number: 3, result: 0, releases: 0 as UInt64})
+        let value = owner.take(); if value.number != 3 { return false }; value.release()
+        let destroyed = ownProbe(ExecutorProbe{mode: 0, number: 4, result: 0, releases: 0 as UInt64})
+        if not destroyed.release() or seen_memory_used_bytes() != baseline { return false }; i = i + 1
+    }; return true
+}
+
 fun happy(context: AsyncOperationContext) r: Bool {
     let limits = poolLimits(2, 8)
     let pool = must(MultithreadExecutor<ExecutorProbe>.create(limits))
@@ -98,10 +117,10 @@ fun happy(context: AsyncOperationContext) r: Bool {
     if seen_executor_live_threads() != (2 as UInt64) { return false }
     var round = 0
     while round < 100 {
-        let first = must(pool.spawn(ExecutorProbe{mode: 0, number: round,
-            result: 0, releases: 0 as UInt64}, context))
-        let second = must(pool.spawn(ExecutorProbe{mode: 0, number: round + 1,
-            result: 0, releases: 0 as UInt64}, context))
+        let first = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 0, number: round,
+            result: 0, releases: 0 as UInt64}), context))
+        let second = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 0, number: round + 1,
+            result: 0, releases: 0 as UInt64}), context))
         let a = must(first.join(context))
         let b = must(second.join(context))
         if a.result != round * 2 or b.result != (round + 1) * 2 { return false }
@@ -121,8 +140,8 @@ fun nested(context: AsyncOperationContext) r: Bool {
     let limits = poolLimits(1, 4)
     let pool = must(MultithreadExecutor<ExecutorProbe>.create(limits))
     limits.free()
-    let handle = must(pool.spawn(ExecutorProbe{mode: 1, number: 20,
-        result: 0, releases: 0 as UInt64}, context))
+    let handle = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 1, number: 20,
+        result: 0, releases: 0 as UInt64}), context))
     let value = must(handle.join(context))
     let valid = value.result == 41 and
         seen_executor_live_threads() == (1 as UInt64)
@@ -138,18 +157,18 @@ fun limitsAndInvalid(context: AsyncOperationContext) r: Bool {
     let limits = poolLimits(1, 1)
     let pool = must(MultithreadExecutor<ExecutorProbe>.create(limits))
     limits.free()
-    let first = must(pool.spawn(ExecutorProbe{mode: 0, number: 1,
-        result: 0, releases: 0 as UInt64}, context))
-    let rejected = ExecutorProbe{mode: 0, number: 2, result: 0,
-        releases: 0 as UInt64}
-    if not hasError(pool.spawn(rejected, context), "async.limit") { return false }
+    let first = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 0, number: 1,
+        result: 0, releases: 0 as UInt64}), context))
+    let rejected = ownProbe(ExecutorProbe{mode: 0, number: 2, result: 0,
+        releases: 0 as UInt64})
+    if not hasError(pool.spawnOwned(rejected, context), "async.limit") { return false }
     rejected.release()
     let value = must(first.join(context))
     value.release(); first.free()
     must(pool.shutdown(false))
-    let late = ExecutorProbe{mode: 0, number: 3, result: 0,
-        releases: 0 as UInt64}
-    if not hasError(pool.spawn(late, context), "async.invalid") { return false }
+    let late = ownProbe(ExecutorProbe{mode: 0, number: 3, result: 0,
+        releases: 0 as UInt64})
+    if not hasError(pool.spawnOwned(late, context), "async.invalid") { return false }
     late.release()
     must(pool.release())
     return true
@@ -161,13 +180,13 @@ fun cancellationAndCleanup(context: AsyncOperationContext) r: Bool {
     let limits = poolLimits(1, 2)
     let pool = must(MultithreadExecutor<ExecutorProbe>.create(limits))
     limits.free()
-    let handle = must(pool.spawn(ExecutorProbe{mode: 2, number: 0,
-        result: 0, releases: counter}, context))
+    let handle = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 2, number: 0,
+        result: 0, releases: counter}), context))
     must(handle.cancel())
     if not hasError(handle.join(context), "async.cancelled") { return false }
     handle.free()
-    let failed = must(pool.spawn(ExecutorProbe{mode: 3, number: 0,
-        result: 0, releases: counter}, context))
+    let failed = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 3, number: 0,
+        result: 0, releases: counter}), context))
     if not hasError(failed.join(context), "async.unavailable") { return false }
     failed.free()
     let deadlineContext = poolContext()
@@ -176,13 +195,13 @@ fun cancellationAndCleanup(context: AsyncOperationContext) r: Bool {
         return false
     }
     deadlineContext.operation.monotonicDeadline = now + (1000000000 as Int64)
-    let timed = must(pool.spawn(ExecutorProbe{mode: 4, number: 0,
-        result: 0, releases: counter}, deadlineContext))
+    let timed = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 4, number: 0,
+        result: 0, releases: counter}), deadlineContext))
     if not hasError(timed.join(context), "async.timeout") { return false }
     timed.free()
     executorReleaseContext(deadlineContext)
-    let abandoned = must(pool.spawn(ExecutorProbe{mode: 0, number: 3,
-        result: 0, releases: counter}, context))
+    let abandoned = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 0, number: 3,
+        result: 0, releases: counter}), context))
     must(pool.shutdown(false))
     must(pool.close())
     if not hasError(abandoned.join(context), "async.invalid") { return false }
@@ -197,6 +216,8 @@ fun cancellationAndCleanup(context: AsyncOperationContext) r: Bool {
 }
 
 fun main() r: Int {
+    if not ownerBinding() { return 20 }
+    println("PASS: ASYNC-002A concrete dispatch binding alias rejection and cleanup")
     let mutexes = seen_sync_live_mutexes()
     let conditions = seen_sync_live_conditions()
     let context = poolContext()
