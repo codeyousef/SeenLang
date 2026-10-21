@@ -107,37 +107,43 @@ fun gpuWorkgroupValid(x: Int, y: Int, z: Int) r: Bool {
 /// The bounded mantissa/exponent fit Float64; the final GPU value must be finite.
 /// Use the bootstrap compiler's native double spelling for these internal
 /// temporaries; the device's declared type remains explicitly Float32.
+/// One bounded decimal parser supplies validation and emitter values.
+/// The caller owns the returned record and frees it on every path.
+class GpuFloatLiteralParse { var valid: Bool; var value: Float }
 fun gpuFloatLiteralValid(text: String) r: Bool {
-    if text.length() == 0 or text.length() > 128 { return false }
+    let parsed = gpuParseFloatLiteral(text, 0); let valid = parsed.valid; parsed.free(); return valid
+}
+fun gpuParseFloatLiteral(text: String, start: Int) r: GpuFloatLiteralParse {
+    if start < 0 or start >= text.length() or text.length() > 128 { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
     var value = 0.0 as Float; var divisor = 1.0 as Float
-    var decimal = false; var digits = 0; var i = 0
+    var decimal = false; var digits = 0; var i = start
     while i < text.length() and text.byteAt(i) != 101 and text.byteAt(i) != 69 {
         let byte = text.byteAt(i)
-        if byte == 46 { if decimal { return false }; decimal = true }
+        if byte == 46 { if decimal { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }; decimal = true }
         else if byte >= 48 and byte <= 57 {
             digits = digits + 1
             if decimal { divisor = divisor * (10.0 as Float); value = value + ((byte - 48) as Float) / divisor }
             else { value = value * (10.0 as Float) + ((byte - 48) as Float) }
-        } else { return false }
+        } else { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
         i = i + 1
     }
-    if digits == 0 { return false }
+    if digits == 0 { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
     if i < text.length() {
         i = i + 1; var negative = false
         if i < text.length() and (text.byteAt(i) == 43 or text.byteAt(i) == 45) {
             negative = text.byteAt(i) == 45; i = i + 1
         }
         let exponent = gpuBoundedDecimalRange(text, i, text.length(), 256)
-        if exponent < 0 { return false }
+        if exponent < 0 { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
         var step = 0
         while step < exponent {
             if negative { value = value / (10.0 as Float) }
             else {
-                if value > (3.4028234663852886e37 as Float) { return false }
+                if value > (3.4028234663852886e37 as Float) { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
                 value = value * (10.0 as Float)
             }
             step = step + 1
         }
     }
-    return value == value and value <= (3.4028234663852886e38 as Float)
+    return GpuFloatLiteralParse{valid: value == value and value <= (3.4028234663852886e38 as Float), value: value}
 }
