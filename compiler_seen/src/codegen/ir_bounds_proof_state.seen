@@ -31,5 +31,6 @@ fun boundsProofAccessCount() r: Int { return g_provedAccessCount }
 fun leaveBoundsProof(scope: BoundsProofScope) r: Void {
     g_provedArrayName = scope.savedArray; g_provedIndexName = scope.savedIndex
     g_provedAccessCount = scope.savedAccessCount
-    scope.plan.free(); scope.free()
+    let plan: BoundsProofPlan = scope.plan
+    plan.free(); scope.free()
 }
