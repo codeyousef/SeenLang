@@ -3,7 +3,7 @@ import core.error.{AsciiString}
 import core.operation_context.{OperationContext, OperationLimits}
 import async.structured.{AsyncLimits, AsyncOperationContext}
 import async.multithread.{MultithreadExecutor, ExecutorLimits}
-import async.executor_core.{executorReleaseContext}
+import async.executor_core.{executorReleaseContext, ExecutorOwnedJob}
 
 fun main() r: Int {
     let limits = ExecutorLimits{workers: 1, tasks: 2, queued: 2,
@@ -20,7 +20,11 @@ fun main() r: Int {
             maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
         traceId: AsciiString{value: "executor-import"}}, resourceId: "imported",
         fallbackPolicy: 0, limits: AsyncLimits.bounded(2, 2, 2, 2, 16)}
-    let spawned = pool.spawn(ImportedExecutorJob{value: 41, result: 0}, context)
+    let concrete = ImportedExecutorJob{value: 41, result: 0}
+    let bound = ExecutorOwnedJob<ImportedExecutorJob>.bind(concrete, concrete)
+    if bound.isErr() { return 6 }
+    let owner = bound.unwrap(); bound.releaseContainer()
+    let spawned = pool.spawn(owner, context)
     if spawned.isErr() { return 2 }
     let handle = spawned.unwrap()
     spawned.releaseContainer()

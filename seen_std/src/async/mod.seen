@@ -21,3 +21,5 @@ import async.task_group.{TaskGroup}
 
 import async.pool_placement.{PoolPlacement}
 import async.pools.{PoolJoinHandle, TypedWorkerPool, ExecutionPools}
+
+import async.executor_core.{ExecutorOwnedJob}
