@@ -279,7 +279,7 @@ fun spawnAsyncProcess(pool: TypedWorkerPool<ProcessSpawnJob>, job: ProcessSpawnJ
     if pool.kind != "blocking" {
         return Err<PoolJoinHandle<ProcessSpawnJob>, AsyncError>(executorFailure(1 as Int32, "process.spawn", 0 as UInt64))
     }
-    return pool.submit(job, context)
+    return pool.submit(job, job, context)
 }
 
 

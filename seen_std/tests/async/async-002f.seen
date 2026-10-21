@@ -124,7 +124,7 @@ fun main() r: Int {
     let submission = context(); submission.fallbackPolicy = 1
     submission.resourceId = seen_string_clone_owned("owned-resource")
     submission.operation.traceId.value = seen_string_clone_owned("owned-trace")
-    let handle = must(executor.spawn(probe(0, releases, started), submission))
+    let handle = must(spawnPolicyProbe(executor,probe(0, releases, started), submission))
     seen_string_release_owned(submission.resourceId); seen_string_release_owned(submission.operation.traceId.value); executorReleaseContext(submission)
     let report = must(handle.joinDetailed(ctx)); handle.free()
     if report.error.isSome() or report.progress != (3 as UInt64) or report.fallback.isNone() { return 3 }
@@ -136,20 +136,20 @@ fun main() r: Int {
     value.release()
     println("PASS: ASYNC-002F_happy")
 
-    let panicHandle = must(executor.spawn(probe(1, releases, started), ctx))
+    let panicHandle = must(spawnPolicyProbe(executor,probe(1, releases, started), ctx))
     let panic = must(panicHandle.joinDetailed(ctx)); panicHandle.free()
     if panic.error.isNone() or panic.error.unwrap().code != "async.unavailable" or panic.error.unwrap().retryable or
         panic.error.unwrap().progress != (3 as UInt64) or panic.diagnostic.isNone() { return 6 }
     if panic.diagnostic.unwrap().kind != TaskDiagnosticKind.Panic or
         panic.diagnostic.unwrap().message != "task details redacted" { return 7 }
     panic.release()
-    let typedHandle = must(executor.spawn(probe(2, releases, started), ctx))
+    let typedHandle = must(spawnPolicyProbe(executor,probe(2, releases, started), ctx))
     let typed = must(typedHandle.joinDetailed(ctx)); typedHandle.free()
     if typed.error.isNone() or typed.error.unwrap().code != "async.invalid" or typed.progress != (7 as UInt64) or
         typed.diagnostic.unwrap().message != "public failure" or typed.diagnostic.unwrap().causes.length() != 1 { return 8 }
     typed.release()
     println("PASS: ASYNC-002F_partial")
-    let denied = must(executor.spawn(probe(0, releases, started), ctx))
+    let denied = must(spawnPolicyProbe(executor,probe(0, releases, started), ctx))
     if not errorIs(denied.join(ctx), "async.unsupported_platform") { return 9 }
     denied.free()
     let causes = Array<String>()
@@ -162,7 +162,7 @@ fun main() r: Int {
         "x", causes, 0 as UInt64, RetryClass.Never, RedactionClass.Public), "async.limit") { return 11 }
     causes.free()
     println("PASS: ASYNC-002F_limit")
-    let cancelled = must(executor.spawn(probe(3, releases, started), ctx))
+    let cancelled = must(spawnPolicyProbe(executor,probe(3, releases, started), ctx))
     var spins = 0
     while atomicValue(started) == (0 as Int64) and spins < 1000000 { __ThreadYield(); spins = spins + 1 }
     if atomicValue(started) == (0 as Int64) { return 12 }
@@ -172,7 +172,7 @@ fun main() r: Int {
         cancellation.progress != (3 as UInt64) { return 13 }
     cancellation.release()
     let deadline = context(); deadline.operation.monotonicDeadline = seen_time_monotonic_nanos() + (1000000000 as Int64)
-    let late = must(executor.spawn(probe(4, releases, started), deadline))
+    let late = must(spawnPolicyProbe(executor,probe(4, releases, started), deadline))
     executorReleaseContext(deadline)
     let lateReport = must(late.joinDetailed(ctx)); late.free()
     if lateReport.error.isNone() or lateReport.error.unwrap().code != "async.timeout" or
@@ -180,7 +180,7 @@ fun main() r: Int {
     lateReport.release()
     println("PASS: ASYNC-002F_cancel")
     // Report destruction releases a successful result that was not taken.
-    let unclaimed = must(executor.spawn(probe(5, releases, started), ctx))
+    let unclaimed = must(spawnPolicyProbe(executor,probe(5, releases, started), ctx))
     let unclaimedReport = must(unclaimed.joinDetailed(ctx)); unclaimed.free(); unclaimedReport.release()
     must(executor.release()); executorReleaseContext(ctx)
     if atomicValue(releases) != (7 as Int64) { return 15 }
@@ -189,4 +189,10 @@ fun main() r: Int {
         seen_sync_live_conditions() != conditions { return 17 }
     println("PASS: ASYNC-002F_cleanup")
     return 0
+}
+
+
+import async.multithread.{ExecutorJoinHandle}
+fun spawnPolicyProbe(pool: MultithreadExecutor<PolicyProbe>, task: PolicyProbe, context: AsyncOperationContext) r: Result<ExecutorJoinHandle<PolicyProbe>, AsyncError> {
+    return pool.spawn(task, task, context)
 }
