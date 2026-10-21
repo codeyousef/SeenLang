@@ -1,0 +1,110 @@
+/// Definition and dominance checks use only the previously bounded region tree.
+/// Resources and values share register identities; mutable locals have explicit,
+/// separately scoped slots. A child definition never leaks into its parent.
+import codegen.gpu_ir_model.{GpuIrFunction, GpuIrValidation}
+import codegen.gpu_ir_facts.{GpuIrFacts, gpuIrValueTypeValid}
+import codegen.gpu_ir_ops.{gpuIrHasResult, GPU_IR_PARAM, GPU_IR_LOCAL_INIT, GPU_IR_LOCAL_LOAD, GPU_IR_LOCAL_STORE}
+
+fun gpuIrDefinitionVisible(borrow function: GpuIrFunction, definitionBlock: Int,
+    definitionInstruction: Int, useBlock: Int, useInstruction: Int) r: Bool {
+    var block = useBlock; var instruction = useInstruction
+    while block >= 0 {
+        if block == definitionBlock { return definitionInstruction < instruction }
+        instruction = function.blocks[block].parentInstruction
+        block = function.blocks[block].parent
+    }
+    return false
+}
+
+fun gpuIrFunctionDefinitions(borrow function: GpuIrFunction, borrow facts: GpuIrFacts,
+    validation: GpuIrValidation, functionIndex: Int) r: Bool {
+    var parameters = 0; var prologue = true; var blockIndex = 0
+    while blockIndex < function.blocks.length() {
+        let block = function.blocks[blockIndex]; var opIndex = 0
+        while opIndex < block.instructions.length() {
+            let op = block.instructions[opIndex]
+            if op.opcode == GPU_IR_PARAM {
+                if blockIndex != 0 or not prologue or parameters >= function.parameterTypes.length() {
+                    validation.reject("E_GPU_IR_PARAMETER", "GPU parameters must form the entry prologue", functionIndex, blockIndex, opIndex); return false
+                }
+                if op.immediate != parameters or op.typeCode != function.parameterTypes[parameters] {
+                    validation.reject("E_GPU_IR_PARAMETER", "GPU parameter index or type disagrees with the signature", functionIndex, blockIndex, opIndex); return false
+                }
+                parameters = parameters + 1
+            } else if blockIndex == 0 { prologue = false }
+            if gpuIrHasResult(op.opcode, op.typeCode) {
+                if facts.registerBlocks[op.result] != -2 {
+                    validation.reject("E_GPU_IR_DEFINITION", "GPU register is defined more than once", functionIndex, blockIndex, opIndex); return false
+                }
+                facts.registerTypes[op.result] = op.typeCode
+                facts.registerBlocks[op.result] = blockIndex
+                facts.registerInstructions[op.result] = opIndex
+            }
+            if op.opcode == GPU_IR_LOCAL_INIT {
+                if op.immediate < 0 or op.immediate >= function.localCount or not gpuIrValueTypeValid(op.typeCode) {
+                    validation.reject("E_GPU_IR_LOCAL", "GPU local slot or value type is invalid", functionIndex, blockIndex, opIndex); return false
+                }
+                if facts.localBlocks[op.immediate] != -2 {
+                    validation.reject("E_GPU_IR_LOCAL", "GPU local slot is declared more than once", functionIndex, blockIndex, opIndex); return false
+                }
+                facts.localTypes[op.immediate] = op.typeCode
+                facts.localBlocks[op.immediate] = blockIndex
+                facts.localInstructions[op.immediate] = opIndex
+            }
+            opIndex = opIndex + 1
+        }
+        blockIndex = blockIndex + 1
+    }
+    if parameters != function.parameterTypes.length() {
+        validation.reject("E_GPU_IR_PARAMETER", "GPU parameter definitions are incomplete", functionIndex, 0, -1); return false
+    }
+    var identity = 1
+    while identity <= function.registerCount {
+        if facts.registerBlocks[identity] == -2 {
+            validation.reject("E_GPU_IR_DEFINITION", "GPU declared register has no definition", functionIndex, -1, identity); return false
+        }
+        identity = identity + 1
+    }
+    identity = 0
+    while identity < function.localCount {
+        if facts.localBlocks[identity] == -2 {
+            validation.reject("E_GPU_IR_LOCAL", "GPU declared local has no initializer", functionIndex, -1, identity); return false
+        }
+        identity = identity + 1
+    }
+    return true
+}
+
+fun gpuIrFunctionUses(borrow function: GpuIrFunction, borrow facts: GpuIrFacts,
+    validation: GpuIrValidation, functionIndex: Int) r: Bool {
+    var blockIndex = 0
+    while blockIndex < function.blocks.length() {
+        let block = function.blocks[blockIndex]; var opIndex = 0
+        while opIndex < block.instructions.length() {
+            let op = block.instructions[opIndex]; var operandIndex = 0
+            while operandIndex < op.operands.length() {
+                let identity = op.operands[operandIndex]
+                if identity < 1 or identity > function.registerCount {
+                    validation.reject("E_GPU_IR_USE", "GPU operand register is outside the declared range", functionIndex, blockIndex, opIndex); return false
+                }
+                if (op.result != 0 and identity >= op.result) or not gpuIrDefinitionVisible(function,
+                    facts.registerBlocks[identity], facts.registerInstructions[identity], blockIndex, opIndex) {
+                    validation.reject("E_GPU_IR_DOMINANCE", "GPU operand is not available before its use", functionIndex, blockIndex, opIndex); return false
+                }
+                operandIndex = operandIndex + 1
+            }
+            if op.opcode == GPU_IR_LOCAL_LOAD or op.opcode == GPU_IR_LOCAL_STORE {
+                if op.immediate < 0 or op.immediate >= function.localCount {
+                    validation.reject("E_GPU_IR_LOCAL", "GPU local access is outside the declared range", functionIndex, blockIndex, opIndex); return false
+                }
+                if not gpuIrDefinitionVisible(function, facts.localBlocks[op.immediate],
+                    facts.localInstructions[op.immediate], blockIndex, opIndex) {
+                    validation.reject("E_GPU_IR_DOMINANCE", "GPU local access escapes its initialized scope", functionIndex, blockIndex, opIndex); return false
+                }
+            }
+            opIndex = opIndex + 1
+        }
+        blockIndex = blockIndex + 1
+    }
+    return true
+}

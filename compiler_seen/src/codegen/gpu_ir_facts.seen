@@ -1,0 +1,79 @@
+/// Bounded function-local verification tables. Construct only after checking
+/// declared counts; no allocation size is taken from an unchecked IR value.
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeValue, gpuTypeScalar, gpuTypeLanes}
+
+fun gpuIrValueTypeValid(typeCode: Int) r: Bool {
+    if typeCode < 1 or typeCode > 52 { return false }
+    let scalar = typeCode % 16
+    if scalar == 1 { return typeCode == 1 }
+    return scalar >= 2 and scalar <= 4 and gpuTypeLanes(typeCode) <= 4
+}
+fun gpuIrResourceTypeValid(typeCode: Int) r: Bool {
+    let resource = gpuTypeResource(typeCode)
+    return resource >= 1 and resource <= 5 and gpuIrValueTypeValid(gpuTypeValue(typeCode)) and
+        (gpuTypeScalar(typeCode) != 1 or resource == 4)
+}
+fun gpuIrTypeValid(typeCode: Int) r: Bool {
+    return gpuIrValueTypeValid(typeCode) or gpuIrResourceTypeValid(typeCode)
+}
+fun gpuIrBufferResource(typeCode: Int) r: Bool {
+    let resource = gpuTypeResource(typeCode)
+    return gpuIrResourceTypeValid(typeCode) and (resource <= 3 or resource == 5)
+}
+fun gpuIrResourceReadable(typeCode: Int) r: Bool {
+    let resource = gpuTypeResource(typeCode)
+    return gpuIrResourceTypeValid(typeCode) and resource != 2
+}
+fun gpuIrResourceWritable(typeCode: Int) r: Bool {
+    let resource = gpuTypeResource(typeCode)
+    return gpuIrResourceTypeValid(typeCode) and (resource == 2 or resource == 3 or resource == 5)
+}
+fun gpuIrElementStride(typeCode: Int) r: Int {
+    if not gpuIrTypeValid(typeCode) { return 0 }
+    if gpuTypeLanes(typeCode) == 3 { return 16 }
+    return gpuTypeLanes(typeCode) * 4
+}
+fun gpuIrLabelValid(text: String, maximum: Int) r: Bool {
+    if maximum < 1 or text.length() == 0 or text.length() > maximum { return false }
+    var i = 0
+    while i < text.length() {
+        let byte = text.byteAt(i)
+        if byte < 32 or byte == 127 { return false }
+        i = i + 1
+    }
+    return true
+}
+@move
+class GpuIrFacts {
+    var registerTypes: Array<Int>
+    var registerBlocks: Array<Int>
+    var registerInstructions: Array<Int>
+    var registerUniformity: Array<Int>
+    var localTypes: Array<Int>
+    var localBlocks: Array<Int>
+    var localInstructions: Array<Int>
+    var blockDepths: Array<Int>
+    var blockReferences: Array<Int>
+    static fun create(registers: Int, locals: Int, blocks: Int) r: GpuIrFacts {
+        let result = GpuIrFacts{registerTypes: Array<Int>(), registerBlocks: Array<Int>(),
+            registerInstructions: Array<Int>(), registerUniformity: Array<Int>(), localTypes: Array<Int>(),
+            localBlocks: Array<Int>(), localInstructions: Array<Int>(), blockDepths: Array<Int>(), blockReferences: Array<Int>()}
+        var i = 0
+        while i <= registers {
+            result.registerTypes.push(0); result.registerBlocks.push(-2); result.registerInstructions.push(-1)
+            result.registerUniformity.push(3); i = i + 1
+        }
+        i = 0
+        while i < locals {
+            result.localTypes.push(0); result.localBlocks.push(-2); result.localInstructions.push(-1); i = i + 1
+        }
+        i = 0
+        while i < blocks { result.blockDepths.push(0); result.blockReferences.push(0); i = i + 1 }
+        return result
+    }
+    fun release() r: Void {
+        this.registerTypes.free(); this.registerBlocks.free(); this.registerInstructions.free(); this.registerUniformity.free()
+        this.localTypes.free(); this.localBlocks.free(); this.localInstructions.free()
+        this.blockDepths.free(); this.blockReferences.free(); this.free()
+    }
+}

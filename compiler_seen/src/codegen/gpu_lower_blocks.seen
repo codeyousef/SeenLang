@@ -1,0 +1,136 @@
+/// Statements lower to explicit scoped locals and owned structured regions.
+/// Unsupported iteration forms never become host loops or empty device bodies.
+import parser.real_parser.{BlockNode, StatementNode}
+import codegen.gpu_lower_context.{GpuLowerContext}
+import codegen.gpu_lower_values.{gpuLowerExpression}
+import codegen.gpu_ir_ops.{GPU_IR_LOCAL_INIT, GPU_IR_IF, GPU_IR_WHILE, GPU_IR_FOR, GPU_IR_INDUCTION,
+    GPU_IR_CONDITION, GPU_IR_BREAK, GPU_IR_CONTINUE, GPU_IR_RETURN, GPU_IR_SHARED}
+import codegen.gpu_ir_facts.{gpuIrValueTypeValid}
+import typechecker.gpu_types.{gpuValueType, gpuTypeResource, gpuParseTypeRange, gpuTrimStart, gpuTrimEnd,
+    gpuRangePrefix, gpuValueTypeRange, gpuBoundedDecimal}
+
+fun gpuIrSourceType(raw: String) r: Int {
+    return gpuIrSourceTypeRange(raw, 0, raw.length())
+}
+fun gpuIrSourceParameterType(raw: String) r: Int {
+    if raw.startsWith("borrow:") { return gpuIrSourceTypeRange(raw, 7, raw.length()) }
+    return gpuIrSourceType(raw)
+}
+fun gpuIrSourceTypeRange(raw: String, first: Int, last: Int) r: Int {
+    if raw.length() > 256 or first < 0 or last > raw.length() or first >= last { return 0 }
+    let typeCode = gpuParseTypeRange(raw, first, last); if typeCode != 0 { return typeCode }
+    let start = gpuTrimStart(raw, first, last); let end = gpuTrimEnd(raw, start, last)
+    if end - start <= 14 or not gpuRangePrefix(raw, start, end, "SharedBuffer<") or raw.byteAt(end - 1) != 62 { return 0 }
+    let elementStart = gpuTrimStart(raw, start + 13, end - 1); let elementEnd = gpuTrimEnd(raw, elementStart, end - 1)
+    let value = gpuValueTypeRange(raw, elementStart, elementEnd)
+    if value == 0 or value == 1 { return 0 }; return 5000 + value
+}
+fun gpuLowerLocal(context: GpuLowerContext, statement: StatementNode, depth: Int) r: Void {
+    let declared = gpuIrSourceType(statement.variableType.typeName)
+    if gpuTypeResource(declared) == 5 {
+        let initializer = statement.initializer
+        if statement.variableType.isNullable or statement.kind != "Let" or (initializer.kind != "Call" and initializer.kind != "CallExpr") or
+            initializer.callee != "sharedBuffer" or initializer.arguments.length() != 1 {
+            context.error("E_GPU_RESOURCE", "shared buffers require an immutable declaration with a static extent"); return
+        }
+        if not context.visit(depth + 1) or not context.visit(depth + 2) { return }
+        let extent = initializer.arguments[0]
+        if extent.kind != "Literal" or extent.literalType != "Int" { context.error("E_GPU_RESOURCE", "shared buffer extent must be a positive integer literal"); return }
+        let count = gpuBoundedDecimal(extent.literalValue, 16384)
+        if count < 1 { context.error("E_GPU_LIMIT", "shared buffer extent exceeds supported bounds"); return }
+        let op = context.operation(GPU_IR_SHARED, declared); op.immediate = count
+        let value = context.emit(op); if context.validation.valid { context.define(statement.variableName, value, -1) }; return
+    }
+    let value = gpuLowerExpression(context, statement.initializer, depth + 1)
+    if not context.validation.valid { return }
+    let inferred = context.typeOf(value)
+    if not gpuIrValueTypeValid(inferred) {
+        context.error("E_GPU_RESOURCE", "GPU locals cannot alias or own resource identities"); return
+    }
+    if statement.variableType.isNullable or (statement.variableType.typeName != "Unknown" and statement.variableType.typeName != "" and declared != inferred) {
+        context.error("E_GPU_TYPE", "GPU local type differs from its initializer"); return
+    }
+    var slot = -1
+    if statement.kind == "Var" {
+        if context.function.localCount >= 4096 { context.error("E_GPU_LIMIT", "GPU mutable local ceiling exceeded"); return }
+        slot = context.function.localCount; context.function.localCount = slot + 1
+        let op = context.operation(GPU_IR_LOCAL_INIT, inferred); op.immediate = slot; op.operands.push(value); context.emit(op)
+    }
+    context.define(statement.variableName, value, slot)
+}
+fun gpuLowerBranch(context: GpuLowerContext, statement: StatementNode, depth: Int) r: Void {
+    let condition = gpuLowerExpression(context, statement.condition, depth + 1)
+    if not context.validation.valid { return }
+    if context.typeOf(condition) != 1 { context.error("E_GPU_TYPE", "GPU branch condition requires Bool"); return }
+    let parent = context.blockIndex; let position = context.function.blocks[parent].instructions.length()
+    let line = context.line; let column = context.column
+    let branch = context.operation(GPU_IR_IF, 0); branch.operands.push(condition)
+    branch.leftBlock = context.childBlock(parent, position); branch.rightBlock = context.childBlock(parent, position)
+    if not context.validation.valid { branch.release(); return }
+    context.blockIndex = branch.leftBlock; gpuLowerBlock(context, statement.thenBranch, depth + 1)
+    context.blockIndex = branch.rightBlock; gpuLowerBlock(context, statement.elseBranch, depth + 1)
+    context.blockIndex = parent; context.line = line; context.column = column; context.emit(branch)
+}
+fun gpuLowerWhile(context: GpuLowerContext, statement: StatementNode, depth: Int) r: Void {
+    let parent = context.blockIndex; let position = context.function.blocks[parent].instructions.length()
+    let line = context.line; let column = context.column
+    let loopOp = context.operation(GPU_IR_WHILE, 0)
+    loopOp.leftBlock = context.childBlock(parent, position); loopOp.rightBlock = context.childBlock(parent, position)
+    if not context.validation.valid { loopOp.release(); return }
+    context.blockIndex = loopOp.leftBlock
+    let condition = gpuLowerExpression(context, statement.loopCondition, depth + 1)
+    if context.validation.valid and context.typeOf(condition) != 1 { context.error("E_GPU_TYPE", "GPU loop condition requires Bool") }
+    let decision = context.operation(GPU_IR_CONDITION, 0); decision.operands.push(condition); context.emit(decision)
+    context.blockIndex = loopOp.rightBlock; gpuLowerBlock(context, statement.loopBody, depth + 1)
+    context.blockIndex = parent; context.line = line; context.column = column; context.emit(loopOp)
+}
+fun gpuLowerFor(context: GpuLowerContext, statement: StatementNode, depth: Int) r: Void {
+    let range = statement.expression
+    if range.kind != "Range" or range.operands.length() != 2 { context.error("E_GPU_UNSUPPORTED", "GPU for loops require a bounded half-open integer range"); return }
+    if not context.visit(depth + 1) { return }
+    let first = gpuLowerExpression(context, range.operands[0], depth + 2)
+    let last = gpuLowerExpression(context, range.operands[1], depth + 2)
+    if not context.validation.valid { return }
+    let typeCode = context.typeOf(first)
+    if (typeCode != 2 and typeCode != 3) or typeCode != context.typeOf(last) { context.error("E_GPU_TYPE", "GPU range endpoints require matching fixed-width integers"); return }
+    let parent = context.blockIndex; let position = context.function.blocks[parent].instructions.length()
+    let line = context.line; let column = context.column
+    let loopOp = context.operation(GPU_IR_FOR, 0); loopOp.operands.push(first); loopOp.operands.push(last)
+    loopOp.leftBlock = context.childBlock(parent, position)
+    if not context.validation.valid { loopOp.release(); return }; context.blockIndex = loopOp.leftBlock
+    let originalLength = context.names.length(); let originalStart = context.scopeStart; context.scopeStart = originalLength
+    let induction = context.operation(GPU_IR_INDUCTION, typeCode); let identity = context.emit(induction)
+    if context.validation.valid { context.define(statement.variableName, identity, -1) }
+    // The body shares the induction declaration's lexical scope.
+    if context.visit(depth + 1) { gpuLowerStatements(context, statement.loopBody, depth + 1) }
+    context.restoreBindings(originalLength); context.scopeStart = originalStart; context.blockIndex = parent
+    context.line = line; context.column = column; context.emit(loopOp)
+}
+fun gpuLowerStatements(context: GpuLowerContext, block: BlockNode, depth: Int) r: Void {
+    var i = 0
+    while i < block.statements.length() and context.validation.valid {
+        let statement = block.statements[i]
+        context.line = statement.line; context.column = statement.column
+        if not context.visit(depth + 1) { return }
+        if statement.kind == "Let" or statement.kind == "Var" { gpuLowerLocal(context, statement, depth + 1) }
+        else if statement.kind == "If" { gpuLowerBranch(context, statement, depth + 1) }
+        else if statement.kind == "While" { gpuLowerWhile(context, statement, depth + 1) }
+        else if statement.kind == "ForIn" { gpuLowerFor(context, statement, depth + 1) }
+        else if statement.kind == "Break" or statement.kind == "Continue" {
+            var opcode = GPU_IR_BREAK; if statement.kind == "Continue" { opcode = GPU_IR_CONTINUE }; context.emit(context.operation(opcode, 0))
+        } else if statement.kind == "Return" {
+            var value = 0
+            if statement.returnValue.kind != "None" { value = gpuLowerExpression(context, statement.returnValue, depth + 1) }
+            let op = context.operation(GPU_IR_RETURN, 0); if value != 0 { op.operands.push(value) }; context.emit(op)
+        } else if statement.kind == "Expression" or statement.kind == "Assignment" {
+            gpuLowerExpression(context, statement.expression, depth + 1)
+        } else { context.error("E_GPU_UNSUPPORTED", "unsupported GPU statement or host effect") }
+        i = i + 1
+    }
+}
+fun gpuLowerBlock(context: GpuLowerContext, block: BlockNode, depth: Int) r: Void {
+    if not context.visit(depth) { return }
+    let originalLength = context.names.length(); let originalStart = context.scopeStart; context.scopeStart = originalLength
+    gpuLowerStatements(context, block, depth)
+    context.restoreBindings(originalLength); context.scopeStart = originalStart
+}

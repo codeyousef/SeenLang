@@ -1,0 +1,104 @@
+/// Conservative uniformity lattice: dispatch=0, workgroup=1, subgroup=2,
+/// invocation=3. Mutable locals, storage observations and scalar helper inputs
+/// are varying. Unproved collective convergence is rejected explicitly.
+import codegen.gpu_ir_model.{GpuIrFunction, GpuIrInstruction, GpuIrValidation}
+import codegen.gpu_ir_facts.{GpuIrFacts}
+import codegen.gpu_ir_call_graph.{GpuIrCallFacts}
+import codegen.gpu_ir_ops.{gpuIrHasResult, GPU_IR_PARAM, GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL, GPU_IR_BUILTIN,
+    GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_UNIFORM, GPU_IR_LOCAL_LOAD, GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_WHILE,
+    GPU_IR_FOR, GPU_IR_INDUCTION, GPU_IR_BREAK, GPU_IR_CONTINUE, GPU_IR_CALL, GPU_IR_RETURN,
+    GPU_IR_SHARED, GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_RMW, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_SUBGROUP}
+import typechecker.gpu_types.{gpuTypeResource}
+
+fun gpuIrMaximumUniformity(left: Int, right: Int) r: Int { if left > right { return left }; return right }
+fun gpuIrOperandUniformity(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Int {
+    var result = 0; var i = 0
+    while i < op.operands.length() {
+        result = gpuIrMaximumUniformity(result, facts.registerUniformity[op.operands[i]]); i = i + 1
+    }
+    return result
+}
+fun gpuIrValueUniformity(borrow function: GpuIrFunction, borrow op: GpuIrInstruction,
+    borrow facts: GpuIrFacts, blockIndex: Int, control: Int) r: Int {
+    if op.opcode == GPU_IR_PARAM { if gpuTypeResource(op.typeCode) != 0 { return 0 }; return 3 }
+    if op.opcode == GPU_IR_INT or op.opcode == GPU_IR_FLOAT or op.opcode == GPU_IR_BOOL or
+        op.opcode == GPU_IR_LENGTH or op.opcode == GPU_IR_UNIFORM or op.opcode == GPU_IR_SHARED { return 0 }
+    if op.opcode == GPU_IR_BUILTIN {
+        if op.immediate == 4 or op.immediate == 9 { return 0 }; if op.immediate == 3 { return 1 }
+        if op.immediate == 6 or op.immediate == 7 { return 2 }; return 3
+    }
+    if op.opcode == GPU_IR_LOAD or op.opcode == GPU_IR_LOCAL_LOAD or op.opcode == GPU_IR_CALL or
+        op.opcode == GPU_IR_ATOMIC_LOAD or op.opcode == GPU_IR_ATOMIC_RMW or op.opcode == GPU_IR_ATOMIC_COMPARE { return 3 }
+    if op.opcode == GPU_IR_INDUCTION {
+        let block = function.blocks[blockIndex]
+        let owner = function.blocks[block.parent].instructions[block.parentInstruction]
+        return gpuIrMaximumUniformity(control, gpuIrOperandUniformity(owner, facts))
+    }
+    if op.opcode == GPU_IR_SUBGROUP {
+        if op.immediate == 2 or op.immediate == 3 or op.immediate == 6 { return 2 }; return 3
+    }
+    return gpuIrOperandUniformity(op, facts)
+}
+fun gpuIrConvergenceBlock(borrow function: GpuIrFunction, borrow facts: GpuIrFacts, borrow calls: GpuIrCallFacts,
+    validation: GpuIrValidation, functionIndex: Int, blockIndex: Int, control: Int) r: Int {
+    let block = function.blocks[blockIndex]; var active = control; var escaped = 0; var opIndex = 0
+    while opIndex < block.instructions.length() {
+        let op = block.instructions[opIndex]; var required = 3
+        if op.opcode == GPU_IR_BARRIER { required = 1; if op.memoryScope == 2 { required = 2 } }
+        if op.opcode == GPU_IR_SUBGROUP { required = 2 }
+        if op.opcode == GPU_IR_CALL { required = calls.convergence[op.immediate] }
+        if active > required {
+            validation.reject("E_GPU_IR_CONVERGENCE", "GPU collective is reached by an unproved active-lane set", functionIndex, blockIndex, opIndex); return -1
+        }
+        if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE or op.opcode == GPU_IR_FOR or op.opcode == GPU_IR_WHILE {
+            var childControl = gpuIrMaximumUniformity(active, gpuIrOperandUniformity(op, facts))
+            if op.opcode == GPU_IR_WHILE {
+                let conditionExit = gpuIrConvergenceBlock(function, facts, calls, validation, functionIndex, op.leftBlock, active)
+                if conditionExit < 0 { return -1 }
+                let conditionBlock = function.blocks[op.leftBlock]
+                let condition = conditionBlock.instructions[conditionBlock.instructions.length() - 1]
+                childControl = gpuIrMaximumUniformity(active, gpuIrOperandUniformity(condition, facts))
+            }
+            var leftExit = 0
+            if op.opcode != GPU_IR_WHILE {
+                leftExit = gpuIrConvergenceBlock(function, facts, calls, validation, functionIndex, op.leftBlock, childControl)
+                if leftExit < 0 { return -1 }
+            }
+            var rightExit = 0
+            if op.opcode != GPU_IR_FOR {
+                rightExit = gpuIrConvergenceBlock(function, facts, calls, validation, functionIndex, op.rightBlock, childControl)
+                if rightExit < 0 { return -1 }
+            }
+            if op.opcode == GPU_IR_IF_VALUE {
+                let left = function.blocks[op.leftBlock]; let right = function.blocks[op.rightBlock]
+                let leftYield = left.instructions[left.instructions.length() - 1]
+                let rightYield = right.instructions[right.instructions.length() - 1]
+                facts.registerUniformity[op.result] = gpuIrMaximumUniformity(childControl,
+                    gpuIrMaximumUniformity(gpuIrOperandUniformity(leftYield, facts), gpuIrOperandUniformity(rightYield, facts)))
+            }
+            let regionEscape = gpuIrMaximumUniformity(leftExit, rightExit)
+            // Exiting lanes remain absent on subsequent iterations. Check the
+            // whole loop at that active-set level, including a barrier before
+            // the varying break/continue/return that produced it.
+            if (op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR) and regionEscape > childControl {
+                var loopBody = op.leftBlock
+                if op.opcode == GPU_IR_WHILE { loopBody = op.rightBlock }
+                if gpuIrConvergenceBlock(function, facts, calls, validation, functionIndex, loopBody, regionEscape) < 0 { return -1 }
+                if op.opcode == GPU_IR_WHILE and
+                    gpuIrConvergenceBlock(function, facts, calls, validation, functionIndex, op.leftBlock, regionEscape) < 0 { return -1 }
+            }
+            active = gpuIrMaximumUniformity(active, regionEscape)
+            escaped = gpuIrMaximumUniformity(escaped, regionEscape)
+            // A varying loop trip count can change which lanes reach a later
+            // collective. Preserve that conservative fact across the loop.
+            if op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR { active = gpuIrMaximumUniformity(active, childControl) }
+        } else if gpuIrHasResult(op.opcode, op.typeCode) {
+            facts.registerUniformity[op.result] = gpuIrValueUniformity(function, op, facts, blockIndex, active)
+        }
+        if op.opcode == GPU_IR_RETURN or op.opcode == GPU_IR_BREAK or op.opcode == GPU_IR_CONTINUE {
+            escaped = gpuIrMaximumUniformity(escaped, active)
+        }
+        opIndex = opIndex + 1
+    }
+    return escaped
+}

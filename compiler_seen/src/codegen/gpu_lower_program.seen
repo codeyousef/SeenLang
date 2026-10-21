@@ -1,0 +1,137 @@
+/// Two-pass parsed-AST lowering first fixes concrete signatures, then lowers
+/// every selected body. No source name supplies a body or suppresses an error.
+import parser.real_parser.{ProgramNode, FunctionNode, genericParameterCount}
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrBlock, GpuIrDiagnostic, GpuIrValidation}
+import codegen.gpu_ir_ops.{GPU_IR_PARAM}
+import codegen.gpu_ir_verify.{verifyGpuIr}
+import codegen.gpu_lower_context.{GpuLowerContext}
+import codegen.gpu_lower_blocks.{gpuLowerBlock, gpuIrSourceParameterType}
+import codegen.gpu_lower_call_plan.{gpuLowerSubgroupOperation, gpuLowerAtomicOperation}
+import codegen.gpu_ir_value_rules.{gpuIrBuiltinCode, gpuIrIntrinsicCode}
+import codegen.gpu_ir_facts.{gpuIrValueTypeValid}
+import typechecker.gpu_types.{gpuValueType, gpuTypeResource}
+import typechecker.gpu_workgroup.{gpuParseWorkgroup}
+
+fun gpuFunctionStage(function: FunctionNode) r: Int {
+    var stage = 0; var i = 0
+    while i < function.decorators.length() {
+        let name = function.decorators[i].name
+        if name == "compute" { stage = stage | 1 }; if name == "device" { stage = stage | 2 }; i = i + 1
+    }
+    return stage
+}
+fun gpuLowerSignature(source: FunctionNode, validation: GpuIrValidation, index: Int) r: Result<GpuIrFunction, GpuIrValidation> {
+    let stage = gpuFunctionStage(source); var returnType = 0
+    let rawReturn = source.returnType.typeName
+    if rawReturn != "" and rawReturn != "Unknown" and rawReturn != "Void" { returnType = gpuValueType(rawReturn) }
+    if source.name.length() == 0 or source.name.length() > 256 or source.decorators.length() > 16 or
+        source.params.length() > 64 or source.isAsync or source.isExtern or genericParameterCount(source.decorators) != 0 or
+        source.returnType.isNullable or (stage != 1 and stage != 2) or
+        (stage == 1 and returnType != 0) or (rawReturn != "" and rawReturn != "Unknown" and rawReturn != "Void" and not gpuIrValueTypeValid(returnType)) {
+        validation.reject("E_GPU_SIGNATURE", "GPU definitions require bounded concrete synchronous signatures", index, -1, -1)
+        return Err<GpuIrFunction, GpuIrValidation>(validation)
+    }
+    if gpuIrBuiltinCode(source.name) != 0 or gpuIrIntrinsicCode(source.name) != 0 or gpuValueType(source.name) != 0 or
+        gpuLowerSubgroupOperation(source.name) != 0 or gpuLowerAtomicOperation(source.name) != 0 or source.name == "atomicLoad" or
+        source.name == "atomicStore" or source.name == "atomicCompareExchange" or source.name == "barrier" or
+        source.name == "memoryBarrier" or source.name == "sharedBuffer" {
+        validation.reject("E_GPU_BINDING", "GPU function identity collides with a reserved builtin", index, -1, -1)
+        return Err<GpuIrFunction, GpuIrValidation>(validation)
+    }
+    let created = GpuIrFunction.create(source.name, stage == 1, returnType)
+    if created.isErr() {
+        let error: GpuIrDiagnostic = created.unwrapErr(); validation.reject(error.code, error.message, index, -1, -1)
+        error.free(); created.releaseContainer(); return Err<GpuIrFunction, GpuIrValidation>(validation)
+    }
+    let function: GpuIrFunction = created.unwrap(); created.releaseContainer(); function.line = source.line
+    var annotations = 0; var i = 0
+    while i < source.decorators.length() {
+        let annotation = source.decorators[i]
+        if annotation.name == "compute" or annotation.name == "device" {
+            annotations = annotations + 1
+            if annotation.name == "compute" {
+                let workgroup = gpuParseWorkgroup(annotation.arguments)
+                if not workgroup.valid { validation.reject("E_GPU_WORKGROUP", "invalid GPU workgroup dimensions", index, -1, -1) }
+                else { function.workgroupX = workgroup.x; function.workgroupY = workgroup.y; function.workgroupZ = workgroup.z }
+                workgroup.free()
+            } else if annotation.arguments.length() != 0 { validation.reject("E_GPU_SIGNATURE", "device helpers do not accept decorator arguments", index, -1, -1) }
+        } else if annotation.name != "pub" and annotation.name != "export" {
+            validation.reject("E_GPU_UNSUPPORTED", "unsupported GPU definition decorator", index, -1, -1)
+        }
+        i = i + 1
+    }
+    if annotations != 1 { validation.reject("E_GPU_SIGNATURE", "GPU definitions require exactly one stage annotation", index, -1, -1) }
+    i = 0
+    while i < source.params.length() and validation.valid {
+        let parameter = source.params[i]; let typeCode = gpuIrSourceParameterType(parameter.paramType.typeName)
+        if typeCode == 0 or parameter.paramType.isNullable or parameter.isMutable or
+            (stage == 1 and (gpuTypeResource(typeCode) == 0 or gpuTypeResource(typeCode) == 5)) {
+            validation.reject("E_GPU_RESOURCE", "unsupported GPU parameter value, access or address space", index, -1, i)
+        } else { function.parameterTypes.push(typeCode) }
+        i = i + 1
+    }
+    if not validation.valid { function.release(); return Err<GpuIrFunction, GpuIrValidation>(validation) }
+    return Ok<GpuIrFunction, GpuIrValidation>(function)
+}
+fun gpuLowerFunction(context: GpuLowerContext, source: FunctionNode) r: Void {
+    context.function.blocks.push(GpuIrBlock.create(-1, -1)); var i = 0
+    while i < source.params.length() and context.validation.valid {
+        let parameter = source.params[i]; context.line = parameter.line; context.column = parameter.column
+        let op = context.operation(GPU_IR_PARAM, context.function.parameterTypes[i]); op.immediate = i
+        let identity = context.emit(op); context.define(parameter.name, identity, -1); i = i + 1
+    }
+    gpuLowerBlock(context, source.body, 0)
+}
+fun gpuIrAttachLocations(borrow module: GpuIrModule, validation: GpuIrValidation) r: Void {
+    var i = 0
+    while i < validation.diagnostics.length() {
+        let diagnostic = validation.diagnostics[i]
+        if diagnostic.line == 0 and diagnostic.functionIndex >= 0 and diagnostic.functionIndex < module.functions.length() {
+            let function = module.functions[diagnostic.functionIndex]; diagnostic.line = function.line; diagnostic.column = 1
+            if diagnostic.blockIndex >= 0 and diagnostic.blockIndex < function.blocks.length() {
+                let block = function.blocks[diagnostic.blockIndex]
+                if diagnostic.instructionIndex >= 0 and diagnostic.instructionIndex < block.instructions.length() {
+                    let op = block.instructions[diagnostic.instructionIndex]; diagnostic.line = op.line; diagnostic.column = op.column
+                }
+            }
+        }
+        i = i + 1
+    }
+}
+fun lowerGpuProgram(program: ProgramNode, path: String) r: Result<GpuIrModule, GpuIrValidation> {
+    let validation = GpuIrValidation.create(); let created = GpuIrModule.create(path)
+    if created.isErr() {
+        let error: GpuIrDiagnostic = created.unwrapErr(); validation.reject(error.code, error.message, -1, -1, -1)
+        error.free(); created.releaseContainer(); return Err<GpuIrModule, GpuIrValidation>(validation)
+    }
+    let module = created.unwrap(); created.releaseContainer(); let sources = Array<FunctionNode>(); var i = 0
+    while i < program.items.length() and validation.valid {
+        let item = program.items[i]
+        if item.itemType == "Function" and gpuFunctionStage(item.function) != 0 {
+            if sources.length() >= 256 { validation.reject("E_GPU_LIMIT", "GPU function ceiling exceeded", -1, -1, -1) }
+            else {
+                let signature = gpuLowerSignature(item.function, validation, sources.length())
+                if signature.isOkay() { module.functions.push(signature.unwrap()); sources.push(item.function) }
+                signature.releaseContainer()
+            }
+        } else if item.itemType == "Class" {
+            var method = 0
+            while method < item.classNode.methods.length() {
+                if gpuFunctionStage(item.classNode.methods[method]) != 0 { validation.reject("E_GPU_SIGNATURE", "GPU methods cannot capture host object state", -1, -1, -1) }
+                method = method + 1
+            }
+        }
+        i = i + 1
+    }
+    let budget = Array<Int>(); budget.push(0); budget.push(0); i = 0
+    while i < sources.length() and validation.valid {
+        let context = GpuLowerContext.create(module, module.functions[i], validation, i, budget)
+        gpuLowerFunction(context, sources[i]); context.release(); i = i + 1
+    }
+    budget.free(); sources.free()
+    if not validation.valid { gpuIrAttachLocations(module, validation); module.release(); return Err<GpuIrModule, GpuIrValidation>(validation) }
+    validation.release(); let verified = verifyGpuIr(module)
+    if not verified.valid { gpuIrAttachLocations(module, verified); module.release(); return Err<GpuIrModule, GpuIrValidation>(verified) }
+    verified.release(); return Ok<GpuIrModule, GpuIrValidation>(module)
+}

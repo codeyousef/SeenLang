@@ -32,6 +32,7 @@ limitation where boolean variables generate invalid IR.
 ///
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, runFrontendCompat, runFrontendDeclarationsCompat, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
+import core.result.{Result as _seedResult}
 import io.file.{readText, readTextChecked, writeText, writeTextAtomically, appendText, exists, deleteFile}
 import process.process.{runCommand, runProgram, runProgramRequest, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
 import env.env.{args, getOrDefault, set, removeEnv}
@@ -54,6 +55,26 @@ import typechecker.gpu_types.{gpuParseType as _seedGpuParseType}
 import typechecker.gpu_scope.{GpuCheckContext as _seedGpuCheckContext}
 import typechecker.gpu_workgroup.{gpuParseWorkgroup as _seedGpuParseWorkgroup}
 import codegen.gpu_extract.{hasGpuFunctions}
+import codegen.gpu_ir_call_graph.{GpuIrCallFacts as _seedGpuIrCallGraph}
+import codegen.gpu_ir_convergence.{gpuIrMaximumUniformity as _seedGpuIrConvergence}
+import codegen.gpu_ir_definitions.{gpuIrDefinitionVisible as _seedGpuIrDefinitions}
+import codegen.gpu_ir_facts.{gpuIrValueTypeValid as _seedGpuIrFacts}
+import codegen.gpu_ir_instruction_types.{gpuIrIndexType as _seedGpuIrInstructionTypes}
+import codegen.gpu_ir_memory_rules.{gpuIrMemoryTypesValid as _seedGpuIrMemoryRules}
+import codegen.gpu_ir_model.{GpuIrInstruction as _seedGpuIrModel}
+import codegen.gpu_ir_ops.{GPU_IR_PARAM as _seedGpuIrOps}
+import codegen.gpu_ir_regions.{gpuIrEnclosingLoop as _seedGpuIrRegions}
+import codegen.gpu_ir_requirements.{gpuIrInstructionCapabilities as _seedGpuIrRequirements}
+import codegen.gpu_ir_serialize.{gpuIrWriteInstruction as _seedGpuIrSerialize}
+import codegen.gpu_ir_structure.{gpuIrFunctionCountsValid as _seedGpuIrStructure}
+import codegen.gpu_ir_value_rules.{gpuIrBuiltinCode as _seedGpuIrValueRules}
+import codegen.gpu_ir_verify.{gpuIrFunctionTypesValid as _seedGpuIrVerify}
+import codegen.gpu_lower_blocks.{gpuIrSourceType as _seedGpuLowerBlocks}
+import codegen.gpu_lower_call_plan.{GpuCallPlan as _seedGpuLowerCallPlan}
+import codegen.gpu_lower_context.{GpuLowerContext as _seedGpuLowerContext}
+import codegen.gpu_lower_values.{gpuLowerLiteral as _seedGpuLowerValues}
+import codegen.gpu_lower_program.{lowerGpuProgram as _seedLowerGpuProgram}
+import typechecker.gpu_module_frontend.{gpuCheckModule as _seedGpuCheckModule}
 import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest,
     CompatibilityCompiler, CompatibilityComponents, CompatibilityTarget, CompatibilityPlatforms,
     CompatibilityReleaseInputs, readCompatibilityRuntimeSelection}
@@ -8860,6 +8881,26 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("typechecker.gpu_scope")
         modules.push("typechecker.gpu_workgroup")
         modules.push("typechecker.gpu_frontend")
+        modules.push("typechecker.gpu_module_frontend")
+        modules.push("codegen.gpu_ir_call_graph")
+        modules.push("codegen.gpu_ir_convergence")
+        modules.push("codegen.gpu_ir_definitions")
+        modules.push("codegen.gpu_ir_facts")
+        modules.push("codegen.gpu_ir_instruction_types")
+        modules.push("codegen.gpu_ir_memory_rules")
+        modules.push("codegen.gpu_ir_model")
+        modules.push("codegen.gpu_ir_ops")
+        modules.push("codegen.gpu_ir_regions")
+        modules.push("codegen.gpu_ir_requirements")
+        modules.push("codegen.gpu_ir_serialize")
+        modules.push("codegen.gpu_ir_structure")
+        modules.push("codegen.gpu_ir_value_rules")
+        modules.push("codegen.gpu_ir_verify")
+        modules.push("codegen.gpu_lower_blocks")
+        modules.push("codegen.gpu_lower_call_plan")
+        modules.push("codegen.gpu_lower_context")
+        modules.push("codegen.gpu_lower_program")
+        modules.push("codegen.gpu_lower_values")
         modules.push("typechecker.interfaces")
         // The legacy no-op SeenTypeChecker is not imported by the compiler.
         // Do not inject that stale stub into the bootstrap graph.
@@ -12354,7 +12395,7 @@ fun sourcesNeedGpuRuntime(modulePaths: Array<String>, language: String) r: Bool 
     var moduleIndex = 0
     while moduleIndex < modulePaths.length() {
         let path = modulePaths[moduleIndex]; let source = readText(path)
-        if source.contains("seen_gpu_") or source.contains("compute") or source.contains("vertex") or source.contains("fragment") {
+        if source.contains("seen_gpu_") or source.contains("compute") or source.contains("device") or source.contains("vertex") or source.contains("fragment") {
             let frontend = parseModuleDeclarations(path, language)
             if frontend.success {
                 if hasGpuFunctions(frontend.program) { return true }
@@ -12971,7 +13012,7 @@ fun validateGpuBackendAvailability(modulePaths: Array<String>, language: String)
         // A cheap prefilter avoids retaining duplicate declaration ASTs for
         // ordinary compiler modules. Only the parsed decorator is authoritative.
         let source = readText(path)
-        if source.contains("compute") or source.contains("vertex") or source.contains("fragment") {
+        if source.contains("compute") or source.contains("device") or source.contains("vertex") or source.contains("fragment") {
             let frontend = parseModuleDeclarations(path, language)
             if not frontend.success { printFrontendDiagnostics(frontend); return 1 }
             if hasGpuFunctions(frontend.program) {

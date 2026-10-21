@@ -1,0 +1,36 @@
+import ir_fixture_support.{irRequire, irExpect, irCopyFixture}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let start = seen_time_monotonic_nanos()
+    irRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
+    let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1081
+    let baseline = seen_memory_used_bytes()
+    while now < deadline and iterations < 10000000 {
+        seed = (seed * 48271) % 2147483647
+        let module = irCopyFixture(); let function = module.functions[0]
+        let root = function.blocks[0]; let load = function.blocks[1].instructions[0]
+        let mode = seed % 12; var code = "E_GPU_IR_TYPE"
+        if mode == 0 { load.opcode = 100 + seed % 1000; code = "E_GPU_IR_OPCODE" }
+        if mode == 1 { load.operands[0] = 100000 + seed; code = "E_GPU_IR_USE" }
+        if mode == 2 { load.result = 0; code = "E_GPU_IR_RESULT" }
+        if mode == 3 { load.memorySpaces = 1; code = "E_GPU_IR_MEMORY" }
+        if mode == 4 { module.requiresFaultBuffer = false; code = "E_GPU_IR_REQUIREMENTS" }
+        if mode == 5 { module.requiredCapabilities = 1024 as UInt64; code = "E_GPU_IR_LIMIT" }
+        if mode == 6 { function.registerCount = 9223372036854775807; code = "E_GPU_IR_LIMIT" }
+        if mode == 7 { function.blocks[1].parentInstruction = 0; code = "E_GPU_IR_REGION" }
+        if mode == 8 { root.instructions[0].immediate = 1; code = "E_GPU_IR_PARAMETER" }
+        if mode == 9 { root.instructions[7].leftBlock = -1; code = "E_GPU_IR_REGION" }
+        if mode == 10 { load.operands[0] = 2 }
+        if mode == 11 { function.registerCount = 9; code = "E_GPU_IR_DEFINITION" }
+        irExpect(module, code); module.release(); irRequire(seen_memory_used_bytes() == baseline)
+        iterations = iterations + 1
+        if iterations % 32 == 0 {
+            let next = seen_time_monotonic_nanos(); irRequire(next >= now); now = next
+        }
+    }
+    irRequire(now >= deadline and iterations >= 32)
+    println("PASS: GPU-001B IR metadata fuzz 60s seed=1081 checked identities limits and allocation baseline")
+    return 0
+}
