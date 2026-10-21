@@ -30,7 +30,7 @@ compile_case() {
     local flags=(--fast)
     if [ "$profile" = release ]; then flags=(--release --lto=thin); fi
     if [ "$profile" = undefined ] || [ "$profile" = address ]; then flags+=("--sanitize=$profile"); fi
-    local log="$TMP_DIR/$name-$profile.log"
+    local log="$TMP_DIR/00-active.log"
     run_compiler compile "$source" "$TMP_DIR/$name-$profile" --no-cache --frozen \
         --target-cpu=x86-64 --emit-module-ir-dir "$TMP_DIR/$name-$profile-ir" "${flags[@]}" >"$log" 2>&1
     if [ "$profile" = address ]; then
@@ -40,6 +40,7 @@ compile_case() {
         UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0 \
             timeout --foreground --kill-after=5s 120s "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
     fi
+    cp -- "$log" "$TMP_DIR/$name-$profile.log"
 }
 for profile in fast release; do
     compile_case "$profile" generic-fields "$ROOT_DIR/compiler_seen/tests/generic_field_type.seen"
