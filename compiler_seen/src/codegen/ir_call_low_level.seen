@@ -162,6 +162,12 @@ fun emitPreparedLowLevelBuiltinActionImpl(output: StringBuilder,
     indirectFnVarReg: String, indirectArgRegs: Array<String>,
     boundsCountBox: Array<Int>) r: String {
 
+    if action == 14 {
+        let pointer = getNextRegFn(regBox)
+        output.append("  " + pointer + " = inttoptr i64 " + arg0 + " to ptr\n")
+        output.append("  call void @seen_pool_free(ptr " + pointer + ", i64 " + arg1 + ")\n")
+        return "0"
+    }
     if action == 1 {
         return emitPtrBuiltinCallImpl(output, regBox, funcName, insideUnsafe,
             arg0, arg1, arg2)
