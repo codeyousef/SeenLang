@@ -53,3 +53,39 @@ fun autoRegisterTraitImplsImpl(methodName: String, receiverType: String, implFun
         traitScan = traitPipePos + 1
     }
 }
+
+// Inline class methods use the same structural trait contract as receiver
+// functions. Register complete tables in trait declaration order, independently
+// of the order in which the class happens to declare its methods.
+fun registerClassTraitImplsImpl(receiverType: String, dynTraitNames: String,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>, traitImplRegistryBox: Array<String>,
+    traitImplCountBox: Array<Int>) r: Void {
+    var scan = 0
+    while scan < dynTraitNames.length() {
+        var end = dynTraitNames.indexOf("|", scan)
+        if end < 0 { end = dynTraitNames.length() }
+        let traitName = dynTraitNames.substring(scan, end)
+        var index = 0
+        while index < structNames.length() and structNames[index] != traitName { index = index + 1 }
+        if index < structNames.length() and traitName != receiverType {
+            let methods = structMethodNames[index]; var position = 0; var entries = ""; var count = 0; var complete = methods != ""
+            while position < methods.length() and complete {
+                var next = methods.indexOf(",", position)
+                if next < 0 { next = methods.length() }
+                let method = methods.substring(position, next)
+                let expected = getMethodReturnTypeImpl(traitName, method, structNames, structMethodNames, structMethodRetTypes)
+                let actual = getMethodReturnTypeImpl(receiverType, method, structNames, structMethodNames, structMethodRetTypes)
+                if expected == "" or actual != expected { complete = false }
+                else { entries = entries + traitName + ":" + receiverType + ":" + receiverType + "_" + method + "|"; count = count + 1 }
+                position = next + 1
+            }
+            if complete {
+                ensureTraitStringBoxValue(traitImplRegistryBox); ensureTraitIntBoxValue(traitImplCountBox)
+                traitImplRegistryBox[0] = traitImplRegistryBox[0] + entries
+                traitImplCountBox[0] = traitImplCountBox[0] + count
+            }
+        }
+        scan = end + 1
+    }
+}
