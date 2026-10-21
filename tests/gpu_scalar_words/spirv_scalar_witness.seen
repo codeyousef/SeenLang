@@ -3,15 +3,9 @@
 import codegen.gpu.spirv_types.{GpuSpirvContext}
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
 import codegen.gpu.spirv_words.{SPV_DECLARATIONS, SPV_FUNCTIONS}
+import word_bits.{witnessFloat, witnessBits, witnessSigned, witnessRoundEven, witnessExtract, witnessInsert}
 
 fun witnessRequire(value: Bool) r: Void { if not value { abort("SPIR-V scalar witness rejected its instruction stream") } }
-fun witnessFloat(bits: Int) r: Float32 {
-    var word: UInt32 = bits as UInt32; return *((&word) as *Float32)
-}
-fun witnessBits(value: Float32) r: Int {
-    var number: Float32 = value; return (*((&number) as *UInt32)) as Int
-}
-fun witnessSigned(value: Int) r: Int { if value >= 2147483648 { return value - 4294967296 }; return value }
 class SpirvScalarWitness {
     var values: Array<Int>
     var types: Array<Int>
@@ -78,16 +72,13 @@ class SpirvScalarWitness {
             } else if opcode == 112 { value = witnessBits((this.value(words[cursor + 3]) as UInt32) as Float32) }
             else if opcode == 12 {
                 witnessRequire(count == 6 and words[cursor + 3] == this.glsl and words[cursor + 4] == 2)
-                let bits = this.value(words[cursor + 5]); witnessRequire(bits <= 1090519040)
-                let number = witnessFloat(bits); var rounded = number as UInt32
-                let remainder: Float32 = number - (rounded as Float32)
-                if remainder > (0.5 as Float32) or (remainder == (0.5 as Float32) and (rounded & (1 as UInt32)) != (0 as UInt32)) { rounded = rounded + (1 as UInt32) }
-                value = witnessBits(rounded as Float32)
+                value = witnessRoundEven(this.value(words[cursor + 5]))
+            } else if opcode == 201 {
+                witnessRequire(count == 7)
+                value = witnessInsert(this.value(words[cursor + 3]), this.value(words[cursor + 4]), this.value(words[cursor + 5]), this.value(words[cursor + 6]))
             } else if opcode == 202 or opcode == 203 {
                 witnessRequire(count == 6); let base = this.value(words[cursor + 3]); let offset = this.value(words[cursor + 4]); let bits = this.value(words[cursor + 5])
-                witnessRequire(offset >= 0 and bits > 0 and bits <= 32 and offset <= 32 - bits)
-                let mask = (1 << bits) - 1; value = (base >> offset) & mask
-                if opcode == 202 and (value & (1 << (bits - 1))) != 0 { value = (value - (1 << bits)) & 4294967295 }
+                value = witnessExtract(base, offset, bits, opcode == 202)
             } else {
                 witnessRequire(count == 5); value = this.binary(opcode, this.value(words[cursor + 3]), this.value(words[cursor + 4]))
             }

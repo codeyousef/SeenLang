@@ -3,22 +3,23 @@
 /// pointer or infer behavior from a source function name.
 import codegen.gpu_emission_frame.{GpuEmissionFrame}
 import codegen.gpu_ir_model.{GpuIrInstruction}
-import codegen.gpu_ir_ops.{GPU_IR_PARAM, GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL, GPU_IR_BUILTIN, GPU_IR_EXTRACT, GPU_IR_VECTOR, GPU_IR_CAST, GPU_IR_BITCAST, GPU_IR_UNARY, GPU_IR_BINARY, GPU_IR_INTRINSIC, GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_STORE, GPU_IR_UNIFORM, GPU_IR_LOCAL_INIT, GPU_IR_LOCAL_LOAD, GPU_IR_LOCAL_STORE, GPU_IR_INDUCTION, GPU_IR_SHARED, GPU_IR_FAULT, GPU_IR_SELECT}
+import codegen.gpu_ir_ops.{GPU_IR_PARAM, GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL, GPU_IR_BUILTIN, GPU_IR_EXTRACT, GPU_IR_VECTOR, GPU_IR_CAST, GPU_IR_BITCAST, GPU_IR_UNARY, GPU_IR_BINARY, GPU_IR_INTRINSIC, GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_STORE, GPU_IR_UNIFORM, GPU_IR_LOCAL_INIT, GPU_IR_LOCAL_LOAD, GPU_IR_LOCAL_STORE, GPU_IR_INDUCTION, GPU_IR_SHARED, GPU_IR_FAULT, GPU_IR_SELECT, GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER, GPU_IR_SUBGROUP, GPU_IR_UNPACK, GPU_IR_PACK, GPU_IR_SPECIALIZE, GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL}
 import codegen.gpu_float_literals.{gpuFloatLiteralWord}
 import codegen.gpu.ptx_context.{GpuPtxFunction}
 import codegen.gpu.ptx_builtins.{ptxBuiltin}
-import codegen.gpu.ptx_memory.{ptxCheckedMemory, ptxSharedResource}
+import codegen.gpu.ptx_memory.{ptxCheckedMemory, ptxSharedResource, ptxResourceIndex}
+import codegen.gpu.ptx_atomics.{ptxAtomic}
+import codegen.gpu.ptx_memory_plan.{ptxSynchronization}
+import codegen.gpu.ptx_subgroup.{ptxSubgroup}
+import codegen.gpu.ptx_packed.{ptxPacked}
+import codegen.gpu.ptx_cooperative.{ptxCooperative}
 import codegen.gpu.ptx_math.{ptxBinary, ptxUnary}
 import codegen.gpu.ptx_casts.{ptxCast}
 import codegen.gpu.ptx_intrinsics.{ptxIntrinsic}
-import typechecker.gpu_types.{gpuTypeLanes}
+import codegen.gpu.ptx_matrix_plan.{ptxValueWords}
 fun ptxCopyValue(function: GpuPtxFunction, destination: Int, source: Int, typeCode: Int) r: Void {
     var lane = 0
-    while lane < gpuTypeLanes(typeCode) { function.body.unary("mov.b32", destination + lane, source + lane); lane = lane + 1 }
-}
-fun ptxResourceIndex(function: GpuPtxFunction, frame: GpuEmissionFrame, operand: Int) r: Int {
-    let index = frame.resourceIndices[operand]
-    if index < 0 or index >= function.resources.length() { function.error("E_GPU_PTX_LAYOUT", "PTX resource identity is unavailable"); return -1 }; return index
+    while lane < ptxValueWords(typeCode) { function.body.unary("mov.b32", destination + lane, source + lane); lane = lane + 1 }
 }
 fun ptxLowerValue(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Void {
     let code = op.opcode; var result = 0
@@ -32,7 +33,7 @@ fun ptxLowerValue(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: 
     else if code == GPU_IR_BUILTIN { result = ptxBuiltin(function, op.immediate) }
     else if code == GPU_IR_EXTRACT { result = frame.registers[op.operands[0]] + op.immediate }
     else if code == GPU_IR_VECTOR {
-        result = function.allocate(0, gpuTypeLanes(op.typeCode)); var lane = 0
+        result = function.allocate(0, ptxValueWords(op.typeCode)); var lane = 0
         while lane < op.operands.length() { function.body.unary("mov.b32", result + lane, frame.registers[op.operands[lane]]); lane = lane + 1 }
     } else if code == GPU_IR_CAST or code == GPU_IR_BITCAST {
         let source = op.operands[0]; result = ptxCast(function, frame.registerTypes[source], op.typeCode, frame.registers[source], code == GPU_IR_BITCAST)
@@ -51,10 +52,10 @@ fun ptxLowerValue(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: 
         let position = op.operands[1]; var value = 0; if code == GPU_IR_STORE { value = frame.registers[op.operands[2]] }
         result = ptxCheckedMemory(function, index, frame.registers[position], frame.registerTypes[position], value, code == GPU_IR_STORE)
     } else if code == GPU_IR_LOCAL_INIT {
-        let source = op.operands[0]; let slot = function.allocate(0, gpuTypeLanes(frame.registerTypes[source]))
+        let source = op.operands[0]; let slot = function.allocate(0, ptxValueWords(frame.registerTypes[source]))
         frame.localPointers[op.immediate] = slot; ptxCopyValue(function, slot, frame.registers[source], frame.registerTypes[source])
     } else if code == GPU_IR_LOCAL_LOAD {
-        result = function.allocate(0, gpuTypeLanes(op.typeCode)); ptxCopyValue(function, result, frame.localPointers[op.immediate], op.typeCode)
+        result = function.allocate(0, ptxValueWords(op.typeCode)); ptxCopyValue(function, result, frame.localPointers[op.immediate], op.typeCode)
     } else if code == GPU_IR_LOCAL_STORE {
         let source = op.operands[0]; ptxCopyValue(function, frame.localPointers[op.immediate], frame.registers[source], frame.registerTypes[source])
     } else if code == GPU_IR_INDUCTION {
@@ -64,10 +65,16 @@ fun ptxLowerValue(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: 
     else if code == GPU_IR_FAULT { function.fault(op.immediate) }
     else if code == GPU_IR_SELECT {
         let predicate = function.allocate(2, 1); function.body.predicate("setp.ne.u32", predicate, frame.registers[op.operands[0]], function.word(0))
-        result = function.allocate(0, gpuTypeLanes(op.typeCode)); var lane = 0
-        while lane < gpuTypeLanes(op.typeCode) {
+        result = function.allocate(0, ptxValueWords(op.typeCode)); var lane = 0
+        while lane < ptxValueWords(op.typeCode) {
             function.body.select(result + lane, frame.registers[op.operands[1]] + lane, frame.registers[op.operands[2]] + lane, predicate); lane = lane + 1
         }
-    } else { function.error("E_GPU_PTX_CAPABILITY", "PTX instruction requires unavailable capability lowering"); return }
+    } else if code >= GPU_IR_ATOMIC_LOAD and code <= GPU_IR_ATOMIC_COMPARE { result = ptxAtomic(function, frame, op) }
+    else if code == GPU_IR_BARRIER or code == GPU_IR_MEMORY_BARRIER { ptxSynchronization(function, op); return }
+    else if code == GPU_IR_SUBGROUP { result = ptxSubgroup(function, frame, op) }
+    else if code == GPU_IR_UNPACK or code == GPU_IR_PACK { result = ptxPacked(function, frame, op) }
+    else if code >= GPU_IR_COOP_LOAD and code <= GPU_IR_COOP_FILL { result = ptxCooperative(function, frame, op) }
+    else if code == GPU_IR_SPECIALIZE { result = frame.registers[op.operands[0]] }
+    else { function.error("E_GPU_PTX_CAPABILITY", "PTX instruction requires unavailable capability lowering"); return }
     if op.result > 0 { frame.registers[op.result] = result }
 }

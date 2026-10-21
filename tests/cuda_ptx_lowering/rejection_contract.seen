@@ -31,7 +31,7 @@ fun rejectSource(source: String, expected: String) r: Void {
 fun main() r: Int {
     let initial = seen_memory_used_bytes()
     rejectSource("@compute(1) fun too_large(output: WriteBuffer<Int32>) { let scratch: SharedBuffer<Int32> = sharedBuffer(16384); output[0] = scratch[0] }", "E_GPU_PTX_LAYOUT")
-    rejectSource("@compute(1) fun unsupported(output: Buffer<Int32>) { let old = atomicAdd(output, 0, 1, Relaxed, DeviceScope) }", "E_GPU_PTX_CAPABILITY")
+    rejectSource("@compute(64) fun unsupported(input: ReadBuffer<UInt32>) { let value = coopLoadA(input, 0 as UInt32, 1 as UInt32, INT2, Tile8x8x8, RowMajor) }", "E_GPU_PTX_CAPABILITY")
     if seen_memory_used_bytes() != initial { abort("PTX source rejection allocation baseline differs") }
     let lowered = lowerGpuSource("@compute(1) fun arbitrary(output: WriteBuffer<Int32>) { output[0] = 7 }", "ptx-mutation.seen")
     require(lowered.isOkay(), "PTX mutation source did not lower"); let module = lowered.unwrap(); lowered.releaseContainer()

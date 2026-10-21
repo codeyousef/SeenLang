@@ -4,7 +4,10 @@
 import core.result.{Result, Ok, Err}
 import codegen.gpu_ir_model.{GpuIrModule, GpuIrValidation}
 import codegen.gpu_ir_verify.{verifyGpuIr}
+import codegen.gpu_ir_clone.{cloneGpuIr}
 import codegen.gpu_ir_ops.{GPU_IR_INT, GPU_IR_SPECIALIZE}
+import codegen.gpu_precision_formats.{GPU_CAP_SPECIALIZATION}
+import json.builder.{releaseJsonText}
 
 class GpuSpecialization {
     var id: Int
@@ -96,4 +99,51 @@ fun resolveGpuSpecializations(borrow module: GpuIrModule, ids: Array<Int>, value
         resolved.push(value); i = i + 1
     }
     releaseGpuSpecializations(records); validation.release(); return Ok<Array<Int>, GpuIrValidation>(resolved)
+}
+
+/// Freeze explicitly admitted choices into a new module. Existing constant
+/// operands remain unchanged, so shared literals and the borrowed source stay
+/// intact. The clone's canonical IR/hash records the actual selected values.
+fun materializeGpuSpecializations(borrow source: GpuIrModule, ids: Array<Int>, values: Array<Int>) r: Result<GpuIrModule, GpuIrValidation> {
+    let resolved = resolveGpuSpecializations(source, ids, values)
+    if resolved.isErr() {
+        let error = resolved.unwrapErr(); resolved.releaseContainer(); return Err<GpuIrModule, GpuIrValidation>(error)
+    }
+    let choices = resolved.unwrap(); resolved.releaseContainer(); let copied = cloneGpuIr(source)
+    if copied.isErr() { choices.free(); return copied }
+    let module = copied.unwrap(); copied.releaseContainer(); var functionIndex = 0; var choice = 0
+    while functionIndex < module.functions.length() {
+        let function = module.functions[functionIndex]; var blockIndex = 0
+        while blockIndex < function.blocks.length() {
+            let block = function.blocks[blockIndex]; var index = 0
+            while index < block.instructions.length() {
+                let op = block.instructions[index]
+                if op.opcode == GPU_IR_SPECIALIZE {
+                    if choice >= choices.length() {
+                        let error = GpuIrValidation.create(); error.reject("E_GPU_SPECIALIZATION_OVERRIDE", "specialization record order changed", functionIndex, blockIndex, index)
+                        choices.free(); module.release(); return Err<GpuIrModule, GpuIrValidation>(error)
+                    }
+                    let text = choices[choice].toString(); let accepted = op.setText(text); releaseJsonText(text)
+                    if not accepted {
+                        let error = GpuIrValidation.create(); error.reject("E_GPU_SPECIALIZATION_OVERRIDE", "specialized constant exceeds its text limit", functionIndex, blockIndex, index)
+                        choices.free(); module.release(); return Err<GpuIrModule, GpuIrValidation>(error)
+                    }
+                    op.opcode = GPU_IR_INT; op.immediate = 0; op.operands.free(); op.operands = Array<Int>()
+                    choice = choice + 1
+                }
+                index = index + 1
+            }
+            blockIndex = blockIndex + 1
+        }
+        functionIndex = functionIndex + 1
+    }
+    let complete = choice == choices.length(); choices.free()
+    if not complete {
+        let error = GpuIrValidation.create(); error.reject("E_GPU_SPECIALIZATION_OVERRIDE", "specialization record count changed", -1, -1, -1)
+        module.release(); return Err<GpuIrModule, GpuIrValidation>(error)
+    }
+    module.requiredCapabilities = module.requiredCapabilities - (module.requiredCapabilities & GPU_CAP_SPECIALIZATION)
+    let validation = verifyGpuIr(module)
+    if not validation.valid { module.release(); return Err<GpuIrModule, GpuIrValidation>(validation) }
+    validation.release(); return Ok<GpuIrModule, GpuIrValidation>(module)
 }

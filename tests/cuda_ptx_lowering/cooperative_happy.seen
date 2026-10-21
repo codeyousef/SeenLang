@@ -1,0 +1,16 @@
+@compute(64)
+fun matrix_half(a: ReadBuffer<UInt32>, b: ReadBuffer<UInt32>, output: WriteBuffer<Float32>) {
+    let left = coopLoadA(a, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, RowMajor)
+    let right = coopLoadB(b, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, ColumnMajor)
+    let zero = coopFillFp32(0.0, Tile16x16x16)
+    let result = coopMma(left, right, zero)
+    coopStore(result, output, subgroupId * (256 as UInt32), 16 as UInt32, RowMajor)
+}
+@compute(32)
+fun matrix_shared(output: WriteBuffer<Float32>) {
+    let shared: SharedBuffer<UInt32> = sharedBuffer(128)
+    let left = coopLoadA(shared, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, RowMajor)
+    let right = coopLoadB(shared, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, ColumnMajor)
+    let result = coopMma(left, right, coopFillFp32(1.0, Tile16x16x16))
+    coopStore(result, output, 0 as UInt32, 16 as UInt32, ColumnMajor)
+}

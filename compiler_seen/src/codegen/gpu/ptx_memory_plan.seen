@@ -1,0 +1,57 @@
+/// PTX scopes strengthen invocation/subgroup memory ordering to CTA ordering.
+/// This introduces no rendezvous. Device ordering retains GPU scope. Sequential
+/// consistency surrounds the native operation with SC fences at that scope.
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import codegen.gpu.ptx_builtins.{ptxBuiltin}
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_BARRIER}
+
+fun ptxMemoryScope(scope: Int) r: String {
+    if scope >= 1 and scope <= 3 { return "cta" }
+    if scope == 4 { return "gpu" }; return ""
+}
+fun ptxMemoryOrder(order: Int) r: String {
+    if order == 1 { return "relaxed" }; if order == 2 { return "acquire" }
+    if order == 3 { return "release" }; if order == 4 or order == 5 { return "acq_rel" }
+    return ""
+}
+fun ptxMemoryFence(function: GpuPtxFunction, scope: Int, sequential: Bool) r: Void {
+    let label = ptxMemoryScope(scope)
+    if label == "" { function.error("E_GPU_PTX_MEMORY", "PTX memory scope is unsupported"); return }
+    if sequential { function.body.literal("fence.sc.") } else { function.body.literal("fence.acq_rel.") }
+    function.body.literal(label); function.body.literal(";\n")
+}
+fun ptxSubgroupMask(function: GpuPtxFunction) r: Int {
+    // IR convergence proves that every logical subgroup member reaches a
+    // collective. A scheduler's current active mask can omit delayed lanes;
+    // derive membership from launch geometry so sync instructions wait for them.
+    let total = function.workgroupX * function.workgroupY * function.workgroupZ
+    if total % 32 == 0 { return function.word(-1) }
+    let base = function.allocate(0, 1); let count = function.allocate(0, 1)
+    let shift = function.allocate(0, 1); let mask = function.allocate(0, 1)
+    function.body.binary("and.b32", base, ptxBuiltin(function, 5), function.word(-32))
+    function.body.binary("sub.u32", count, function.word(total), base)
+    function.body.binary("min.u32", count, count, function.word(32))
+    function.body.binary("sub.u32", shift, function.word(32), count)
+    function.body.binary("shr.u32", mask, function.word(-1), shift); return mask
+}
+fun ptxSynchronization(function: GpuPtxFunction, borrow op: GpuIrInstruction) r: Void {
+    if op.memoryOrder < 2 or op.memoryOrder > 5 or ptxMemoryScope(op.memoryScope) == "" {
+        function.error("E_GPU_PTX_MEMORY", "PTX fence ordering or scope is unsupported"); return
+    }
+    ptxMemoryFence(function, op.memoryScope, op.memoryOrder == 5)
+    if op.opcode == GPU_IR_BARRIER {
+        if op.memoryScope == 3 { function.body.literal("bar.sync 0;\n") }
+        else if op.memoryScope == 2 {
+            let mask = ptxSubgroupMask(function)
+            function.body.literal("bar.warp.sync "); function.body.reg("r", mask); function.body.literal(";\n")
+        } else { function.error("E_GPU_PTX_MEMORY", "PTX execution barrier requires subgroup or workgroup scope"); return }
+        ptxMemoryFence(function, op.memoryScope, op.memoryOrder == 5)
+    }
+}
+fun ptxAtomicOperation(operation: Int) r: String {
+    if operation == 1 { return "exch" }; if operation == 2 or operation == 3 { return "add" }
+    if operation == 4 { return "min" }; if operation == 5 { return "max" }
+    if operation == 6 { return "and" }; if operation == 7 { return "or" }; if operation == 8 { return "xor" }
+    return ""
+}

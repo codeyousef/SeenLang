@@ -1,43 +1,12 @@
-/// E2M1/UE8M0 conversions use integer Float32 bit ordering. Even the smallest
-/// scale and midpoint remain exact without device denormal arithmetic.
+/// Bootstrap-compatible entry points delegate to the shared scalar policy.
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
-import codegen.gpu.spirv_packed_float.{spirvFloatIsNan}
-import codegen.gpu.spirv_float_bits.{spirvPositiveFloatBits}
+import codegen.gpu.spirv_scalar_plan.{spirvScalarPlanValue}
+import codegen.gpu.scalar_packed.{scalarPayloadPlan}
+import codegen.gpu_precision_formats.{GPU_FORMAT_MXFP4}
 
 fun spirvPackMxfp4(function: GpuSpirvFunction, value: Int, scale: Int) r: Int {
-    let context = function.context; let bits = spirvUnaryValue(function, 124, 3, value)
-    let magnitude = spirvBinaryValue(function, 199, 3, bits, context.constant(3, 2147483647))
-    let exponents = [-2, -1, 0, 0, 1, 1, 2]; let mantissas = [0, 4194304, 2097152, 6291456, 2097152, 6291456, 2097152]
-    let scaleExponent = spirvUnaryValue(function, 124, 2, scale); var payload = context.constant(3, 0); var i = 0
-    while i < exponents.length() {
-        let exponent = spirvBinaryValue(function, 128, 2, scaleExponent, context.constant(2, exponents[i] & 4294967295))
-        let threshold = spirvPositiveFloatBits(function, exponent, context.constant(3, mantissas[i]))
-        var compare = 172; if i % 2 == 1 { compare = 174 }
-        let greater = spirvBinaryValue(function, compare, 1, magnitude, threshold)
-        payload = spirvSelectValue(function, 3, greater, context.constant(3, i + 1), payload); i = i + 1
-    }; exponents.free(); mantissas.free()
-    let infinity = spirvBinaryValue(function, 170, 1, magnitude, context.constant(3, 2139095040))
-    payload = spirvSelectValue(function, 3, infinity, context.constant(3, 7), payload)
-    let high = spirvBinaryValue(function, 194, 3, bits, context.constant(3, 28))
-    let sign = spirvBinaryValue(function, 199, 3, high, context.constant(3, 8))
-    let signed = spirvBinaryValue(function, 197, 3, payload, sign)
-    return spirvSelectValue(function, 3, spirvFloatIsNan(function, bits), context.constant(3, 0), signed)
+    return spirvScalarPlanValue(function, scalarPayloadPlan(GPU_FORMAT_MXFP4, value, scale, true))
 }
 fun spirvUnpackMxfp4(function: GpuSpirvFunction, payload: Int, scale: Int) r: Int {
-    let context = function.context; let magnitude = spirvBinaryValue(function, 199, 3, payload, context.constant(3, 7))
-    let high = spirvBinaryValue(function, 194, 3, magnitude, context.constant(3, 1))
-    let exponentDelta = spirvBinaryValue(function, 130, 2, spirvUnaryValue(function, 124, 2, high), context.constant(2, 1))
-    let exponent = spirvBinaryValue(function, 128, 2, spirvUnaryValue(function, 124, 2, scale), exponentDelta)
-    let odd = spirvBinaryValue(function, 199, 3, magnitude, context.constant(3, 1))
-    let fraction = spirvBinaryValue(function, 196, 3, odd, context.constant(3, 22))
-    let hasFraction = spirvBinaryValue(function, 174, 1, magnitude, context.constant(3, 3))
-    let mantissa = spirvSelectValue(function, 3, hasFraction, fraction, context.constant(3, 0))
-    let expanded = spirvPositiveFloatBits(function, exponent, mantissa)
-    let zero = spirvBinaryValue(function, 170, 1, magnitude, context.constant(3, 0))
-    let bits = spirvSelectValue(function, 3, zero, context.constant(3, 0), expanded)
-    let sign = spirvBinaryValue(function, 199, 3, payload, context.constant(3, 8))
-    let signBits = spirvBinaryValue(function, 196, 3, sign, context.constant(3, 28))
-    let signed = spirvBinaryValue(function, 197, 3, bits, signBits)
-    return spirvUnaryValue(function, 124, 4, signed)
+    return spirvScalarPlanValue(function, scalarPayloadPlan(GPU_FORMAT_MXFP4, payload, scale, false))
 }

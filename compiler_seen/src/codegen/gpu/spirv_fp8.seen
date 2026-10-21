@@ -1,45 +1,12 @@
-/// E4M3FN bit semantics with nearest-even rounding, finite saturation and a
-/// canonical 0x7f NaN. No native float8 arithmetic capability is implied.
+/// Bootstrap-compatible entry points delegate to the shared scalar policy.
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
-import codegen.gpu.spirv_packed_float.{spirvFloatIsNan}
-import codegen.gpu.spirv_extended.{spirvGlslValue}
-import codegen.gpu.spirv_float_bits.{spirvRoundRightEven}
+import codegen.gpu.spirv_scalar_plan.{spirvScalarPlanValue}
+import codegen.gpu.scalar_packed.{scalarPayloadPlan}
+import codegen.gpu_precision_formats.{GPU_FORMAT_FP8_E4M3FN}
 
 fun spirvPackFp8(function: GpuSpirvFunction, value: Int) r: Int {
-    let context = function.context; let bits = spirvUnaryValue(function, 124, 3, value)
-    let magnitude = spirvBinaryValue(function, 199, 3, bits, context.constant(3, 2147483647))
-    let high = spirvRoundRightEven(function, magnitude, 20)
-    let normal = spirvBinaryValue(function, 130, 3, high, context.constant(3, 960))
-    let overflow = spirvBinaryValue(function, 172, 1, normal, context.constant(3, 126))
-    let saturated = spirvSelectValue(function, 3, overflow, context.constant(3, 126), normal)
-    let subnormal = spirvBinaryValue(function, 176, 1, magnitude, context.constant(3, 1015021568))
-    let smallBits = spirvSelectValue(function, 3, subnormal, magnitude, context.constant(3, 0))
-    let smallValue = spirvUnaryValue(function, 124, 4, smallBits)
-    let scaled = spirvBinaryValue(function, 133, 4, smallValue, context.constant(4, 1140850688))
-    let integral = spirvGlslValue(function, 2, 4, [scaled]); let subPayload = spirvUnaryValue(function, 109, 3, integral)
-    let payload = spirvSelectValue(function, 3, subnormal, subPayload, saturated)
-    let highSign = spirvBinaryValue(function, 194, 3, bits, context.constant(3, 24))
-    let sign = spirvBinaryValue(function, 199, 3, highSign, context.constant(3, 128))
-    let signed = spirvBinaryValue(function, 197, 3, payload, sign)
-    return spirvSelectValue(function, 3, spirvFloatIsNan(function, bits), context.constant(3, 127), signed)
+    return spirvScalarPlanValue(function, scalarPayloadPlan(GPU_FORMAT_FP8_E4M3FN, value, 0, true))
 }
 fun spirvUnpackFp8(function: GpuSpirvFunction, payload: Int) r: Int {
-    let context = function.context; let mantissa = spirvBinaryValue(function, 199, 3, payload, context.constant(3, 7))
-    let high = spirvBinaryValue(function, 194, 3, payload, context.constant(3, 3))
-    let exponent = spirvBinaryValue(function, 199, 3, high, context.constant(3, 15))
-    let biased = spirvBinaryValue(function, 128, 3, exponent, context.constant(3, 120))
-    let exponentBits = spirvBinaryValue(function, 196, 3, biased, context.constant(3, 23))
-    let mantissaBits = spirvBinaryValue(function, 196, 3, mantissa, context.constant(3, 20))
-    let normal = spirvBinaryValue(function, 197, 3, exponentBits, mantissaBits)
-    let subFloat = spirvBinaryValue(function, 133, 4, spirvUnaryValue(function, 112, 4, mantissa), context.constant(4, 989855744))
-    let isSubnormal = spirvBinaryValue(function, 170, 1, exponent, context.constant(3, 0))
-    let unsigned = spirvSelectValue(function, 3, isSubnormal, spirvUnaryValue(function, 124, 3, subFloat), normal)
-    let sign = spirvBinaryValue(function, 199, 3, payload, context.constant(3, 128))
-    let signBits = spirvBinaryValue(function, 196, 3, sign, context.constant(3, 24))
-    let bits = spirvBinaryValue(function, 197, 3, unsigned, signBits)
-    let magnitude = spirvBinaryValue(function, 199, 3, payload, context.constant(3, 127))
-    let nan = spirvBinaryValue(function, 170, 1, magnitude, context.constant(3, 127))
-    let canonical = spirvSelectValue(function, 3, nan, context.constant(3, 2143289344), bits)
-    return spirvUnaryValue(function, 124, 4, canonical)
+    return spirvScalarPlanValue(function, scalarPayloadPlan(GPU_FORMAT_FP8_E4M3FN, payload, 0, false))
 }

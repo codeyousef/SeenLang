@@ -531,10 +531,12 @@ execution through its explicit backend-unavailable diagnostic.
 
 The base emitter lowers fixed-width integer and Float32 values, vectors,
 resources, uniforms, checked faults, shared storage, structured loops and
-inlined device helpers. Atomics, subgroup operations, packed precision,
-specialization and cooperative matrices require separate capability lowering;
-unavailable instructions produce `E_GPU_PTX_CAPABILITY` rather than a substitute
-kernel. Wrong backend/target selection produces `E_GPU_PTX_TARGET` or the shared
+inlined device helpers. It also lowers scoped Int32/UInt32 atomics, execution
+and memory barriers, fixed-width subgroups, all 13 packed-word formats, bounded
+integer specialization and the native cooperative subset below. Capability
+admission follows each selected entry's helper closure. An unrelated unselected
+entry cannot impose its unsupported capability. Unavailable instructions produce
+`E_GPU_PTX_CAPABILITY` rather than a substitute kernel. Wrong backend/target selection produces `E_GPU_PTX_TARGET` or the shared
 strict-option diagnostic. Layout and emission ceilings use `E_GPU_PTX_LAYOUT`
 and `E_GPU_PTX_LIMIT`.
 
@@ -568,3 +570,62 @@ assembly, nested helper returns and bounded malformed-IR rejection. Artifacts
 remain **compile-only** with hardware/device verification false. A successful
 assembler check establishes accepted PTX syntax and layout, not numerical GPU
 execution, launch safety or production certification.
+
+### PTX capabilities, specialization and cooperative ownership
+
+CUDA subgroups have a fixed width of 32. Their synchronization masks come from
+launch geometry, including a partial final warp, rather than a scheduler's
+instantaneous active mask. Shuffle/broadcast sources outside the participating
+lanes yield zero and set bounds fault bit 1. Ordered reductions visit participating
+lanes in index order and seed from the first value, preserving floating signed
+zero. Invocation and subgroup memory ordering strengthen to CTA scope without
+introducing a rendezvous. Device ordering retains GPU scope; sequentially
+consistent operations use SC fences. Compare-exchange may strengthen failure
+ordering to its admitted success ordering. Invalid atomic indices execute no data
+atomic and retain the shared checked-fault behavior.
+
+Packed precision uses one bounded scalar conversion plan shared by PTX and
+SPIR-V. Each backend renders those operations in its own instruction set. The
+plan owns its arrays, borrows native input identities, and is consumed exactly
+once by a renderer; returned identities belong to the containing emitter. Dynamic
+lanes, finite scale admission, canonical NaNs and untouched neighboring fields
+retain the shared packed-word contract. Independent emitted-instruction witnesses
+check both backends against the same fixed payload and whole-word goldens.
+
+PTX emits specialization defaults as ordinary constants. The Seen API
+`materializeGpuSpecializations(module, ids, values)` validates explicit choices
+and returns a separately owned, verified module with those choices frozen into
+its canonical IR and hashes. Unknown or duplicate IDs, mismatched arrays, more
+than 64 overrides and values outside declared domains return
+`E_GPU_SPECIALIZATION_OVERRIDE`. The input module and override arrays remain
+borrowed and unchanged. An empty override list freezes defaults. The caller
+releases the returned module or validation exactly once, and may release the
+original independently. Materialized reflection has no remaining specialization
+domains; retain the original module when later choices are required. The CLI
+currently emits defaults and does not accept an override flag.
+
+Native WMMA supports `Tile16x16x16`, row-major A, column-major B and FP32
+accumulators. FP16 multiplicands work on every listed target. BF16 requires
+`sm_80` or later; it is never converted to FP16. Stores support either layout.
+All workgroups using these collectives must contain complete warps. Other
+precisions, tile shapes and input layouts return `E_GPU_PTX_CAPABILITY`. FP32
+multiplicands are not silently narrowed to TF32. Native fragment register counts are separate from ordinary vector lanes;
+fragments remain immutable SSA values.
+
+Cooperative resource offsets and input strides count UInt32 words; accumulator
+stores count Float32 elements. The emitter converts input strides to native
+16-bit element strides. Every access checks its full 16-row footprint using
+subtraction and division before address formation, with no overflowing
+`offset + stride * rows` expression. Stores require nonoverlapping leading
+dimensions. Binding base addresses, offsets and strides must align to the native
+fragment size: 32 bytes for FP16 inputs and FP32 stores, 16 bytes for BF16 inputs.
+An invalid footprint or alignment skips the collective access, yields a zero
+load fragment and sets bounds fault bit 1. Shared resources remain subject to
+these alignment checks. Source convergence validation requires all participating
+lanes to reach a collective with uniform resource geometry.
+
+`tests/misc_root_tests/seen_gpu_ptx_b.sh` checks numeric goldens, independent
+specialization ownership, native/unsupported capability boundaries, deterministic
+reflection and artifacts across four build profiles. The pinned assembler checks
+FP16 on all seven targets and BF16 on all five `sm_80+` targets. This is offline
+software evidence; numerical execution and device certification remain separate.

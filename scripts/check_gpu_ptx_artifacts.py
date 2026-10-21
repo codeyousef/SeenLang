@@ -18,8 +18,9 @@ def digest(data):
 
 
 def check_layout(text, reflection):
-    entries = list(re.finditer(r'\.visible \.entry ([A-Za-z_][A-Za-z0-9_]*)\(\n([^()]*)\n\)\n\.reqntid (\d+), (\d+), (\d+)\n\{([^{}]*)\n\}', text))
+    entries = list(re.finditer(r'\.visible \.entry ([A-Za-z_][A-Za-z0-9_]*)\(\n([^()]*)\n\)\n\.reqntid (\d+), (\d+), (\d+)\n\{((?:[^{}]|\{[^{}]*\})*)\n\}', text))
     require(1 <= len(entries) <= 256, 'entry count exceeds the module limit')
+    require(text.count('.visible .entry ') == len(entries), 'unparsed PTX entry declaration')
     require([match[1] for match in entries] == [entry['name'] for entry in reflection['entries']], 'entry identity differs')
     for match, entry in zip(entries, reflection['entries']):
         require([int(match[i]) for i in (3, 4, 5)] == entry['workgroup'], 'workgroup geometry differs')
@@ -81,7 +82,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('root', type=Path)
     parser.add_argument('names', nargs='+')
+    parser.add_argument('--sm80-minimum', action='append', default=[], metavar='FIXTURE',
+                        help='require all pinned sm_80+ targets for this fixture')
     args = parser.parse_args()
+    require(set(args.sm80_minimum) <= set(args.names), 'target floor refers to an unknown fixture')
     toolchain = load_profile(); identity = verify_installation(toolchain)
     baseline = None
     for profile in ('fast', 'release', 'undefined', 'address'):
@@ -107,7 +111,10 @@ def main():
                     require(status == 0 and not stdout and not diagnostic and output.is_file() and output.stat().st_size > 0,
                             'official assembly failed: ' + diagnostic)
                     records.append([record, reflection, manifest])
-            require(not pending and targets == toolchain['targets'], 'required target coverage differs')
+            expected_targets = toolchain['targets']
+            if name in args.sm80_minimum:
+                expected_targets = expected_targets[expected_targets.index('sm_80'):]
+            require(not pending and targets == expected_targets, 'required target coverage differs')
         if baseline is None: baseline = records
         require(records == baseline, 'PTX artifact or reflection differs across compiler profiles')
     evidence = {'schema': 'seen-ptx-validation-v1', 'official_assembly': True, 'device_execution': False,

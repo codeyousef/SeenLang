@@ -1,62 +1,27 @@
-/// Checked packed-word dispatch. Invalid lanes never reach an undefined bit
-/// extraction; failed insertion preserves the original neighboring fields.
+/// SPIR-V rendering and fault publication for the shared packed-word policy.
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu_ir_ops.{GPU_IR_PACK}
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
 import codegen.gpu_emission_frame.{GpuEmissionFrame}
-import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
-import codegen.gpu.spirv_packed_float.{spirvPackShortFloat, spirvUnpackShortFloat, spirvFloatIsNan}
-import codegen.gpu.spirv_fp8.{spirvPackFp8, spirvUnpackFp8}
-import codegen.gpu.spirv_mxfp4.{spirvPackMxfp4, spirvUnpackMxfp4}
-import codegen.gpu_precision_formats.{gpuPrecisionBits, gpuPrecisionWordLanes, gpuPrecisionValueType,
-    GPU_FORMAT_FP32, GPU_FORMAT_FP16, GPU_FORMAT_BF16, GPU_FORMAT_FP8_E4M3FN, GPU_FORMAT_MXFP4}
+import codegen.gpu.spirv_math.{spirvUnaryValue}
+import codegen.gpu.scalar_packed.{scalarPayloadPlan, scalarPackedPlan}
+import codegen.gpu.spirv_scalar_plan.{emitSpirvScalarPlan, spirvScalarPlanValue}
+import codegen.gpu_precision_formats.{GPU_FORMAT_MXFP4}
 
 fun spirvPackedPayload(function: GpuSpirvFunction, format: Int, value: Int, scale: Int, insert: Bool) r: Int {
-    let context = function.context; let valueType = gpuPrecisionValueType(format)
-    if valueType == 2 {
-        if insert { return spirvUnaryValue(function, 124, 3, value) }
-        let signed = spirvUnaryValue(function, 124, 2, value); let result = context.id()
-        function.emit(202, [context.valueType(2), result, signed, context.constant(3, 0), context.constant(3, gpuPrecisionBits(format))]); return result
-    }
-    if valueType == 3 { return value }
-    if format == GPU_FORMAT_FP32 {
-        if not insert { return spirvUnaryValue(function, 124, 4, value) }
-        let bits = spirvUnaryValue(function, 124, 3, value)
-        return spirvSelectValue(function, 3, spirvFloatIsNan(function, bits), context.constant(3, 2143289344), bits)
-    }
-    if format == GPU_FORMAT_FP16 or format == GPU_FORMAT_BF16 {
-        if insert { return spirvPackShortFloat(function, format, value) }; return spirvUnpackShortFloat(function, format, value)
-    }
-    if format == GPU_FORMAT_FP8_E4M3FN {
-        if insert { return spirvPackFp8(function, value) }; return spirvUnpackFp8(function, value)
-    }
-    if format == GPU_FORMAT_MXFP4 {
-        if insert { return spirvPackMxfp4(function, value, scale) }; return spirvUnpackMxfp4(function, value, scale)
-    }
-    context.error("E_GPU_SPIRV_PRECISION", "SPIR-V packed precision is unsupported"); return 0
+    return spirvScalarPlanValue(function, scalarPayloadPlan(format, value, scale, insert))
 }
 fun spirvPacked(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
-    let context = function.context; let insert = op.opcode == GPU_IR_PACK; let format = op.immediate
-    let word = frame.registers[op.operands[0]]; let lane = frame.registers[op.operands[1]]
-    let laneValid = spirvBinaryValue(function, 176, 1, lane, context.constant(3, gpuPrecisionWordLanes(format)))
-    let safeLane = spirvSelectValue(function, 3, laneValid, lane, context.constant(3, 0))
-    let bits = context.constant(3, gpuPrecisionBits(format)); let offset = spirvBinaryValue(function, 132, 3, safeLane, bits)
-    var scale = context.constant(3, 127); var scaleValid = context.constant(1, 1); var valid = laneValid
-    if format == GPU_FORMAT_MXFP4 {
-        var scaleOperand = 2; if insert { scaleOperand = 3 }; let raw = frame.registers[op.operands[scaleOperand]]
-        scaleValid = spirvBinaryValue(function, 176, 1, raw, context.constant(3, 255))
-        scale = spirvSelectValue(function, 3, scaleValid, raw, context.constant(3, 127)); valid = spirvBinaryValue(function, 167, 1, laneValid, scaleValid)
+    let insert = op.opcode == GPU_IR_PACK; var value = 0; var scale = 0
+    if insert { value = frame.registers[op.operands[2]] }
+    if op.immediate == GPU_FORMAT_MXFP4 {
+        var index = 2; if insert { index = 3 }; scale = frame.registers[op.operands[index]]
     }
-    var native = 0
-    if insert {
-        let payload = spirvPackedPayload(function, format, frame.registers[op.operands[2]], scale, true)
-        native = context.id(); function.emit(201, [context.valueType(3), native, word, payload, offset, bits])
-    } else {
-        let payload = context.id(); function.emit(203, [context.valueType(3), payload, word, offset, bits])
-        native = spirvPackedPayload(function, format, payload, scale, false)
+    let plan = scalarPackedPlan(op.immediate, insert, frame.registers[op.operands[0]], frame.registers[op.operands[1]], value, scale)
+    let output = emitSpirvScalarPlan(function, plan); let result = output.value
+    if function.context.validation.valid {
+        function.faultWhen(spirvUnaryValue(function, 168, 1, output.laneValid), 1)
+        if op.immediate == GPU_FORMAT_MXFP4 { function.faultWhen(spirvUnaryValue(function, 168, 1, output.scaleValid), 4) }
     }
-    var fallback = context.zero(op.typeCode); if insert { fallback = word }
-    let result = spirvSelectValue(function, op.typeCode, valid, native, fallback)
-    function.faultWhen(spirvUnaryValue(function, 168, 1, laneValid), 1)
-    if format == GPU_FORMAT_MXFP4 { function.faultWhen(spirvUnaryValue(function, 168, 1, scaleValid), 4) }; return result
+    output.free(); return result
 }

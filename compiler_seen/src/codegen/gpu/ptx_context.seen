@@ -12,6 +12,7 @@ class GpuPtxResource {
 }
 class GpuPtxFunction {
     var validation: GpuIrValidation
+    var target: String
     var body: GpuPtxText
     var initializers: GpuPtxText
     var sharedDeclarations: GpuPtxText
@@ -72,7 +73,7 @@ class GpuPtxFunction {
     }
 }
 fun createGpuPtxFunction(validation: GpuIrValidation, x: Int, y: Int, z: Int) r: GpuPtxFunction {
-    return GpuPtxFunction{validation: validation, body: GpuPtxText.create(validation), initializers: GpuPtxText.create(validation),
+    return GpuPtxFunction{validation: validation, target: "sm_80", body: GpuPtxText.create(validation), initializers: GpuPtxText.create(validation),
         sharedDeclarations: GpuPtxText.create(validation), resources: Array<GpuPtxResource>(), words: Array<Int>(), constants: Array<Int>(),
         nextRegister: 1, nextAddress: 1, nextPredicate: 1, nextLabel: 1, faultAddress: 0, sharedBytes: 0,
         workgroupX: x, workgroupY: y, workgroupZ: z, functionIndex: -1, blockIndex: -1, instructionIndex: -1}

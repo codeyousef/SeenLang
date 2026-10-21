@@ -6,6 +6,14 @@ fun ptxReadIndex(function: GpuPtxFunction, destination: Int, source: String) r: 
     function.initializers.literal(", "); function.initializers.literal(source); function.initializers.literal(";\n")
 }
 fun ptxBuiltin(function: GpuPtxFunction, code: Int) r: Int {
+    if code == 6 { return function.word(32) }
+    if code == 8 {
+        let lane = function.allocate(0, 1); ptxReadIndex(function, lane, "%laneid"); return lane
+    }
+    if code == 7 {
+        let group = function.allocate(0, 1)
+        function.initializers.binary("shr.u32", group, ptxBuiltin(function, 5), function.word(5)); return group
+    }
     if code == 5 {
         let local = ptxBuiltin(function, 2); let result = function.allocate(0, 1); let temporary = function.allocate(0, 1)
         let width = function.word(function.workgroupX); let height = function.word(function.workgroupY)

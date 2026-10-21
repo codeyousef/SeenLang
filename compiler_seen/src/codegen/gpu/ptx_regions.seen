@@ -5,11 +5,11 @@ import codegen.gpu_ir_ops.{GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_WHILE, GPU_IR_FOR,
 import codegen.gpu_emission_frame.{GpuEmissionFrame, createGpuEmissionFrame}
 import codegen.gpu.ptx_context.{GpuPtxFunction}
 import codegen.gpu.ptx_values.{ptxLowerValue, ptxCopyValue}
-import typechecker.gpu_types.{gpuTypeLanes}
+import codegen.gpu.ptx_matrix_plan.{ptxValueWords}
 fun ptxLowerConditional(borrow module: GpuIrModule, function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
     let yes = function.allocate(3, 1); let no = function.allocate(3, 1); let merge = function.allocate(3, 1)
     let predicate = function.allocate(2, 1); var result = 0
-    if op.opcode == GPU_IR_IF_VALUE { result = function.allocate(0, gpuTypeLanes(op.typeCode)) }
+    if op.opcode == GPU_IR_IF_VALUE { result = function.allocate(0, ptxValueWords(op.typeCode)) }
     function.body.predicate("setp.ne.u32", predicate, frame.registers[op.operands[0]], function.word(0))
     function.body.conditional(predicate, yes); function.body.branch(no); function.body.defineLabel(yes)
     ptxLowerRegion(module, function, frame, op.leftBlock, depth + 1); let left = frame.signal
@@ -59,8 +59,8 @@ fun ptxLowerCall(borrow module: GpuIrModule, function: GpuPtxFunction, frame: Gp
     let child = createGpuEmissionFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free()
     child.returnMerge = function.allocate(3, 1)
     if op.typeCode != 0 {
-        child.returnSlot = function.allocate(0, gpuTypeLanes(op.typeCode)); var lane = 0
-        while lane < gpuTypeLanes(op.typeCode) { function.body.unary("mov.b32", child.returnSlot + lane, function.word(0)); lane = lane + 1 }
+        child.returnSlot = function.allocate(0, ptxValueWords(op.typeCode)); var lane = 0
+        while lane < ptxValueWords(op.typeCode) { function.body.unary("mov.b32", child.returnSlot + lane, function.word(0)); lane = lane + 1 }
     }
     ptxLowerRegion(module, function, child, 0, depth + 1); function.body.defineLabel(child.returnMerge)
     if op.result > 0 { frame.registers[op.result] = child.returnSlot }; child.release()

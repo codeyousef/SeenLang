@@ -51,6 +51,10 @@ class GpuPtxText {
         this.literal(opcode); this.literal(" "); this.reg("p", destination); this.literal(", "); this.reg("r", left)
         this.literal(", "); this.reg("r", right); this.literal(";\n")
     }
+    fun logical(opcode: String, destination: Int, left: Int, right: Int) r: Void {
+        this.literal(opcode); this.literal(" "); this.reg("p", destination); this.literal(", "); this.reg("p", left)
+        this.literal(", "); this.reg("p", right); this.literal(";\n")
+    }
     fun select(destination: Int, yes: Int, no: Int, predicate: Int) r: Void {
         this.literal("selp.b32 "); this.reg("r", destination); this.literal(", "); this.reg("r", yes)
         this.literal(", "); this.reg("r", no); this.literal(", "); this.reg("p", predicate); this.literal(";\n")

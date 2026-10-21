@@ -1,0 +1,43 @@
+import codegen.gpu_ir_model.{GpuIrValidation}
+import codegen.gpu.ptx_context.{createGpuPtxFunction}
+import codegen.gpu.ptx_packed.{ptxPackedPayload}
+import packed_numeric_goldens.{packedNumericGoldens, PackedWordGolden, packedWordGoldens}
+import codegen.gpu.scalar_packed.{scalarPackedPlan}
+import codegen.gpu.ptx_scalar_plan.{emitPtxScalarPlan}
+import ptx_scalar_witness.{witnessPtxScalar, ptxWitnessRequire}
+import json.builder.{releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun printNumericValue(value: Int) r: Void { let text = value.toString(); println(text); releaseJsonText(text) }
+fun wordGolden(record: PackedWordGolden) r: Void {
+    let baseline = seen_memory_used_bytes(); let validation = GpuIrValidation.create()
+    let function = createGpuPtxFunction(validation, 1, 1, 1)
+    let plan = scalarPackedPlan(record.format, record.insert, function.word(record.word), function.word(record.lane), function.word(record.value), function.word(record.scale))
+    let output = emitPtxScalarPlan(function, plan); ptxWitnessRequire(validation.valid)
+    ptxWitnessRequire(witnessPtxScalar(function, output.value) == record.expected)
+    ptxWitnessRequire(witnessPtxScalar(function, output.laneValid) == record.laneValid)
+    ptxWitnessRequire(witnessPtxScalar(function, output.scaleValid) == record.scaleValid)
+    output.free(); function.release(); validation.release(); ptxWitnessRequire(seen_memory_used_bytes() == baseline)
+}
+fun main() r: Int {
+    let initial = seen_memory_used_bytes(); let records = packedNumericGoldens(); var index = 0
+    while index < records.length() {
+        let baseline = seen_memory_used_bytes(); let record = records[index]
+        let validation = GpuIrValidation.create(); let function = createGpuPtxFunction(validation, 1, 1, 1)
+        let input = function.word(record.word); let scale = function.word(record.scale)
+        let result = ptxPackedPayload(function, record.format, input, scale, record.insert)
+        ptxWitnessRequire(validation.valid); let actual = witnessPtxScalar(function, result)
+        if actual != record.expected {
+            println("FAIL: packed PTX numeric golden"); printNumericValue(record.format); printNumericValue(record.word)
+            printNumericValue(record.scale); printNumericValue(record.expected); printNumericValue(actual)
+            abort("packed PTX conversion differs from fixed format golden")
+        }
+        function.release(); validation.release(); ptxWitnessRequire(seen_memory_used_bytes() == baseline)
+        record.free(); index = index + 1
+    }
+    records.free(); let words = packedWordGoldens(); index = 0
+    while index < words.length() { wordGolden(words[index]); words[index].free(); index = index + 1 }
+    words.free(); ptxWitnessRequire(seen_memory_used_bytes() == initial)
+    println("PASS: emitted scalar PTX matches fixed IEEE packed goldens and allocation baseline")
+    return 0
+}

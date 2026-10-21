@@ -514,6 +514,7 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_spirv_c.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ptx_a.sh"
+    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ptx_b.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_integer_string_width_contract.sh"
 COMPILER="$REAL_COMPILER" \

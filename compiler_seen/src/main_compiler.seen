@@ -83,11 +83,18 @@ import codegen.gpu.ptx_builtins.{ptxBuiltin}
 import codegen.gpu.ptx_abi.{ptxReflectionEntryAbi}
 import codegen.gpu.ptx_layout.{ptxEntryParameters}
 import codegen.gpu.ptx_memory.{ptxCheckedMemory}
+import codegen.gpu.ptx_memory_plan.{ptxMemoryScope as _seedPtxMemoryPlan}
+import codegen.gpu.ptx_atomics.{ptxAtomic as _seedPtxAtomics}
+import codegen.gpu.ptx_subgroup.{ptxSubgroup as _seedPtxSubgroup}
+import codegen.gpu.ptx_scalar_plan.{emitPtxScalarPlan as _seedPtxScalarPlan}
+import codegen.gpu.ptx_packed.{ptxPacked as _seedPtxPacked}
 import codegen.gpu.ptx_math.{ptxBinary}
 import codegen.gpu.ptx_casts.{ptxCast}
 import codegen.gpu.ptx_intrinsics.{ptxIntrinsic}
 import codegen.gpu.ptx_values.{ptxLowerValue}
 import codegen.gpu.ptx_regions.{ptxLowerRegion}
+import codegen.gpu.ptx_matrix_plan.{ptxValueWords as _seedPtxMatrixPlan}
+import codegen.gpu.ptx_cooperative.{ptxCooperative as _seedPtxCooperative}
 import codegen.gpu.ptx_emitter.{emitGpuPtx}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv as _seedSpirv_emitter}
 import codegen.gpu.spirv_binary.{encodeGpuSpirvBinary as _seedSpirv_binary}
@@ -105,6 +112,16 @@ import codegen.gpu.spirv_fp16.{spirvPackFp16Magnitude as _seedSpirv_fp16}
 import codegen.gpu.spirv_fp8.{spirvPackFp8 as _seedSpirv_fp8}
 import codegen.gpu.spirv_mxfp4.{spirvPackMxfp4 as _seedSpirv_mxfp4}
 import codegen.gpu.spirv_packed.{spirvPacked as _seedSpirv_packed}
+import codegen.gpu.scalar_ops.{SCALAR_BITCAST as _seedScalarOps}
+import codegen.gpu.scalar_plan.{GpuScalarPlan as _seedScalarPlan}
+import codegen.gpu.scalar_float_bits.{scalarRoundRightEven as _seedScalarFloatBits}
+import codegen.gpu.scalar_fp16.{scalarPackFp16Magnitude as _seedScalarFp16}
+import codegen.gpu.scalar_packed_float.{scalarPackShortFloat as _seedScalarPackedFloat}
+import codegen.gpu.scalar_fp8.{scalarPackFp8 as _seedScalarFp8}
+import codegen.gpu.scalar_mxfp4.{scalarPackMxfp4 as _seedScalarMxfp4}
+import codegen.gpu.scalar_packed.{scalarPackedPlan as _seedScalarPacked}
+import codegen.gpu.scalar_support_plans.{scalarRoundPlan as _seedScalarSupport}
+import codegen.gpu.spirv_scalar_plan.{emitSpirvScalarPlan as _seedSpirvScalarPlan}
 import codegen.gpu.spirv_packed_float.{spirvPackShortFloat as _seedSpirv_packed_float}
 import codegen.gpu.spirv_capabilities.{spirvCapabilitiesSupported as _seedSpirv_capabilities}
 import crypto.sha256.{sha256 as _seedGpuSha256}
@@ -113,6 +130,7 @@ import codegen.gpu_matrix_types.{gpuMatrixShapeValid as _seedGpuMatrixTypes}
 import codegen.gpu_precision_call_plan.{gpuPrecisionCallFormat as _seedGpuPrecisionCallPlan}
 import codegen.gpu_precision_formats.{GPU_FORMAT_FP32 as _seedGpuPrecisionFormats}
 import codegen.gpu_precision_rules.{gpuIrPackedTypesValid as _seedGpuPrecisionRules}
+import codegen.gpu_ir_clone.{cloneGpuIr as _seedGpuIrClone}
 import codegen.gpu_specialization.{GpuSpecialization as _seedGpuSpecialization}
 import codegen.gpu_target_capabilities.{validateGpuTargetCapabilities as _seedGpuTargetCapabilities}
 import codegen.gpu_target_model.{GpuTargetCapabilities as _seedGpuTargetModel}
@@ -9015,11 +9033,18 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu.ptx_abi")
         modules.push("codegen.gpu.ptx_layout")
         modules.push("codegen.gpu.ptx_memory")
+        modules.push("codegen.gpu.ptx_memory_plan")
+        modules.push("codegen.gpu.ptx_atomics")
+        modules.push("codegen.gpu.ptx_subgroup")
+        modules.push("codegen.gpu.ptx_scalar_plan")
+        modules.push("codegen.gpu.ptx_packed")
         modules.push("codegen.gpu.ptx_math")
         modules.push("codegen.gpu.ptx_casts")
         modules.push("codegen.gpu.ptx_intrinsics")
         modules.push("codegen.gpu.ptx_values")
         modules.push("codegen.gpu.ptx_regions")
+        modules.push("codegen.gpu.ptx_matrix_plan")
+        modules.push("codegen.gpu.ptx_cooperative")
         modules.push("codegen.gpu.ptx_emitter")
         modules.push("codegen.gpu.spirv_emitter")
         modules.push("codegen.gpu.spirv_binary")
@@ -9037,6 +9062,16 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu.spirv_fp8")
         modules.push("codegen.gpu.spirv_mxfp4")
         modules.push("codegen.gpu.spirv_packed")
+        modules.push("codegen.gpu.scalar_ops")
+        modules.push("codegen.gpu.scalar_plan")
+        modules.push("codegen.gpu.scalar_float_bits")
+        modules.push("codegen.gpu.scalar_fp16")
+        modules.push("codegen.gpu.scalar_packed_float")
+        modules.push("codegen.gpu.scalar_fp8")
+        modules.push("codegen.gpu.scalar_mxfp4")
+        modules.push("codegen.gpu.scalar_packed")
+        modules.push("codegen.gpu.scalar_support_plans")
+        modules.push("codegen.gpu.spirv_scalar_plan")
         modules.push("codegen.gpu.spirv_packed_float")
         modules.push("codegen.gpu.spirv_capabilities")
         modules.push("crypto.sha256")
@@ -9044,6 +9079,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu_precision_call_plan")
         modules.push("codegen.gpu_precision_formats")
         modules.push("codegen.gpu_precision_rules")
+        modules.push("codegen.gpu_ir_clone")
         modules.push("codegen.gpu_specialization")
         modules.push("codegen.gpu_target_capabilities")
         modules.push("codegen.gpu_target_model")

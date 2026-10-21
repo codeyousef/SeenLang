@@ -1,7 +1,7 @@
 /// Portable core instructions and explicit word conversions are separate from
 /// native cooperative component formats. No unavailable precision is converted.
-import codegen.gpu_precision_formats.{GPU_CAP_COOPERATIVE, GPU_CAP_COOP_FP16, GPU_CAP_COOP_INT8, GPU_CAP_COOP_FP32}
+import codegen.gpu_precision_formats.{GPU_CAP_NON_COOPERATIVE, GPU_CAP_COOPERATIVE, GPU_CAP_COOP_FP16, GPU_CAP_COOP_INT8, GPU_CAP_COOP_FP32}
 fun spirvCapabilitiesSupported(required: UInt64) r: Bool {
-    let supported = (131071 as UInt64) | GPU_CAP_COOPERATIVE | GPU_CAP_COOP_FP16 | GPU_CAP_COOP_INT8 | GPU_CAP_COOP_FP32
+    let supported = GPU_CAP_NON_COOPERATIVE | GPU_CAP_COOPERATIVE | GPU_CAP_COOP_FP16 | GPU_CAP_COOP_INT8 | GPU_CAP_COOP_FP32
     return (required & supported) == required
 }

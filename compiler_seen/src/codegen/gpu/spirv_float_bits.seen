@@ -1,30 +1,11 @@
-/// Construct positive Float32 bits from a bounded biased exponent (-2..256)
-/// and mantissa. Callers provide exact binary fractions; no device denormal
-/// arithmetic or floating rounding mode participates in this representation.
+/// Bootstrap-compatible entry points delegate to the shared scalar policy.
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
+import codegen.gpu.spirv_scalar_plan.{spirvScalarPlanValue}
+import codegen.gpu.scalar_support_plans.{scalarRoundPlan, scalarPositiveBitsPlan}
 
 fun spirvRoundRightEven(function: GpuSpirvFunction, bits: Int, shift: Int) r: Int {
-    let context = function.context
-    if shift < 1 or shift > 31 { context.error("E_GPU_SPIRV_PRECISION", "SPIR-V rounding shift is outside its bit domain"); return 0 }
-    let high = spirvBinaryValue(function, 194, 3, bits, context.constant(3, shift))
-    let even = spirvBinaryValue(function, 199, 3, high, context.constant(3, 1))
-    let bias = spirvBinaryValue(function, 128, 3, context.constant(3, (1 << (shift - 1)) - 1), even)
-    let rounded = spirvBinaryValue(function, 128, 3, bits, bias)
-    return spirvBinaryValue(function, 194, 3, rounded, context.constant(3, shift))
+    return spirvScalarPlanValue(function, scalarRoundPlan(bits, shift))
 }
-
 fun spirvPositiveFloatBits(function: GpuSpirvFunction, exponent: Int, mantissa: Int) r: Int {
-    let context = function.context
-    let denormal = spirvBinaryValue(function, 179, 1, exponent, context.constant(2, 0))
-    let shift = spirvBinaryValue(function, 130, 2, context.constant(2, 1), exponent)
-    let safeShift = spirvSelectValue(function, 2, denormal, shift, context.constant(2, 1))
-    let significand = spirvBinaryValue(function, 197, 3, context.constant(3, 8388608), mantissa)
-    let smallBits = spirvBinaryValue(function, 194, 3, significand, safeShift)
-    let unsignedExponent = spirvUnaryValue(function, 124, 3, exponent)
-    let high = spirvBinaryValue(function, 196, 3, unsignedExponent, context.constant(3, 23))
-    let normalBits = spirvBinaryValue(function, 197, 3, high, mantissa)
-    let bits = spirvSelectValue(function, 3, denormal, smallBits, normalBits)
-    let overflow = spirvBinaryValue(function, 175, 1, exponent, context.constant(2, 255))
-    return spirvSelectValue(function, 3, overflow, context.constant(3, 2139095040), bits)
+    return spirvScalarPlanValue(function, scalarPositiveBitsPlan(exponent, mantissa))
 }

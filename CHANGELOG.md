@@ -34,14 +34,17 @@ Foundations**.
 - Add typed GPU frontend validation, structured GPU IR, explicit precision and
   cooperative-operation rules, reflection manifests and rejection fixtures.
   Add SPIR-V/Vulkan emission, capability validation and pinned-toolchain checks.
-- Add the experimental CUDA/PTX emitter foundation with shared GPU artifact
-  ownership, emission frames and floating-point literal handling. Add seven-target
-  launch-layout/reflection checks and a digest-pinned offline NVIDIA assembler.
+- Add the experimental CUDA/PTX emitter with shared GPU artifact ownership,
+  scoped atomics, subgroup collectives, packed precision, bounded specialization
+  materialization and checked native FP16/BF16 cooperative matrices. Add
+  seven-target launch/reflection checks and a digest-pinned NVIDIA assembler.
 - Add execution, cancellation, allocation and resource-lifetime regressions,
   sanitizer profiles, stress fixtures and machine-readable software evidence.
 
 ### Changed
 
+- Share bounded packed-number conversion plans between PTX and SPIR-V while
+  independently checking emitted instructions against common numeric goldens.
 - Bind the combined executor, completion I/O, SIMD and GPU foundations to
   runtime-v14 and standard-library 0.17.0 with complete module checksums.
 - Replace the untyped C work-stealing pool with Seen scheduling and ownership.

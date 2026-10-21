@@ -1,0 +1,137 @@
+/// Independent bounded interpreter for the scalar PTX actually emitted by a
+/// conversion. It reads instruction text and rejects undefined register reads;
+/// it does not consume the production conversion plan or its opcode mapping.
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import word_bits.{witnessFloat, witnessBits, witnessSigned, witnessRoundEven, witnessExtract, witnessInsert}
+import json.builder.{releaseJsonText}
+
+fun ptxWitnessRequire(value: Bool) r: Void { if not value { abort("PTX scalar witness rejected its instruction stream") } }
+fun ptxWitnessOpcode(text: String, start: Int, end: Int, expected: String) r: Bool {
+    if end - start != expected.length() { return false }; var index = 0
+    while index < expected.length() {
+        if text.byteAt(start + index) != expected.byteAt(index) { return false }; index = index + 1
+    }
+    return true
+}
+class PtxScalarWitness {
+    var values: Array<Int>
+    var predicates: Array<Int>
+    var defined: Array<Bool>
+    var predicateDefined: Array<Bool>
+    var operands: Array<Int>
+    var kinds: Array<Int>
+    var count: Int
+    var instructions: Int
+    fun read(index: Int) r: Int {
+        ptxWitnessRequire(index >= 0 and index < this.count)
+        let kind = this.kinds[index]; let value = this.operands[index]
+        if kind == 0 { return value }
+        if kind == 1 {
+            ptxWitnessRequire(value > 0 and value < this.values.length() and this.defined[value]); return this.values[value]
+        }
+        ptxWitnessRequire(kind == 2 and value > 0 and value < this.predicates.length() and this.predicateDefined[value])
+        return this.predicates[value]
+    }
+    fun write(value: Int) r: Void {
+        ptxWitnessRequire(this.count >= 2); let identity = this.operands[0]; let kind = this.kinds[0]
+        if kind == 1 {
+            ptxWitnessRequire(identity > 0 and identity < this.values.length()); this.values[identity] = value & 4294967295; this.defined[identity] = true
+        } else {
+            ptxWitnessRequire(kind == 2 and identity > 0 and identity < this.predicates.length() and (value == 0 or value == 1))
+            this.predicates[identity] = value; this.predicateDefined[identity] = true
+        }
+    }
+    fun parseOperands(text: String, start: Int, end: Int) r: Void {
+        var cursor = start; this.count = 0
+        while cursor < end {
+            let byte = text.byteAt(cursor)
+            if byte == 32 or byte == 9 or byte == 44 { cursor = cursor + 1; continue }
+            if byte == 59 { return }
+            ptxWitnessRequire(this.count < 5); var kind = 0; var value = 0; var base = 10
+            if byte == 37 {
+                ptxWitnessRequire(cursor + 2 < end)
+                let letter = text.byteAt(cursor + 1); ptxWitnessRequire(letter == 114 or letter == 112)
+                kind = 1; if letter == 112 { kind = 2 }; cursor = cursor + 2
+            } else if byte == 48 and cursor + 1 < end and text.byteAt(cursor + 1) == 120 { base = 16; cursor = cursor + 2 }
+            var digits = 0
+            while cursor < end {
+                let char = text.byteAt(cursor); var digit = -1
+                if char >= 48 and char <= 57 { digit = char - 48 }
+                if base == 16 and char >= 97 and char <= 102 { digit = char - 87 }
+                if digit < 0 or digit >= base { break }
+                value = value * base + digit; digits = digits + 1
+                ptxWitnessRequire(digits <= 10 and value <= 4294967295); cursor = cursor + 1
+            }
+            ptxWitnessRequire(digits > 0 and cursor < end and (text.byteAt(cursor) == 32 or text.byteAt(cursor) == 44 or text.byteAt(cursor) == 59))
+            this.operands[this.count] = value; this.kinds[this.count] = kind; this.count = this.count + 1
+        }
+    }
+    fun executeLine(text: String, start: Int, end: Int) r: Void {
+        var opcodeEnd = start
+        while opcodeEnd < end and text.byteAt(opcodeEnd) != 32 { opcodeEnd = opcodeEnd + 1 }
+        this.parseOperands(text, opcodeEnd, end); ptxWitnessRequire(this.count >= 2)
+        let left = this.read(1); var value = 0
+        if ptxWitnessOpcode(text, start, opcodeEnd, "mov.b32") { value = left }
+        else if ptxWitnessOpcode(text, start, opcodeEnd, "cvt.rni.f32.f32") { value = witnessRoundEven(left) }
+        else if ptxWitnessOpcode(text, start, opcodeEnd, "cvt.rzi.u32.f32") {
+            ptxWitnessRequire(left <= 1090519040); value = (witnessFloat(left) as UInt32) as Int
+        } else if ptxWitnessOpcode(text, start, opcodeEnd, "cvt.rn.f32.u32") { value = witnessBits((left as UInt32) as Float32) }
+        else if ptxWitnessOpcode(text, start, opcodeEnd, "selp.b32") {
+            ptxWitnessRequire(this.count == 4); value = this.read(2); if this.read(3) != 0 { value = left }
+        } else if ptxWitnessOpcode(text, start, opcodeEnd, "bfe.u32") or ptxWitnessOpcode(text, start, opcodeEnd, "bfe.s32") {
+            ptxWitnessRequire(this.count == 4)
+            value = witnessExtract(left, this.read(2), this.read(3), ptxWitnessOpcode(text, start, opcodeEnd, "bfe.s32"))
+        } else if ptxWitnessOpcode(text, start, opcodeEnd, "bfi.b32") {
+            ptxWitnessRequire(this.count == 5); value = witnessInsert(this.read(2), left, this.read(3), this.read(4))
+        } else {
+            ptxWitnessRequire(this.count == 3); let right = this.read(2); var known = true; var compared = false; var predicate = false
+            if ptxWitnessOpcode(text, start, opcodeEnd, "add.u32") { value = (left + right) & 4294967295 }
+            else if ptxWitnessOpcode(text, start, opcodeEnd, "sub.u32") { value = (left - right) & 4294967295 }
+            else if ptxWitnessOpcode(text, start, opcodeEnd, "mul.lo.u32") { value = (((left as UInt64) * (right as UInt64)) & (4294967295 as UInt64)) as Int }
+            else if ptxWitnessOpcode(text, start, opcodeEnd, "mul.rn.f32") { value = witnessBits(witnessFloat(left) * witnessFloat(right)) }
+            else if ptxWitnessOpcode(text, start, opcodeEnd, "shr.u32") { ptxWitnessRequire(right < 32); value = left >> right }
+            else if ptxWitnessOpcode(text, start, opcodeEnd, "shl.b32") { ptxWitnessRequire(right < 32); value = (left << right) & 4294967295 }
+            else if ptxWitnessOpcode(text, start, opcodeEnd, "or.b32") { value = left | right }
+            else if ptxWitnessOpcode(text, start, opcodeEnd, "xor.b32") { value = left ^ right }
+            else if ptxWitnessOpcode(text, start, opcodeEnd, "and.b32") { value = left & right }
+            else { compared = true }
+            if compared {
+                if ptxWitnessOpcode(text, start, opcodeEnd, "setp.eq.u32") { predicate = left == right }
+                else if ptxWitnessOpcode(text, start, opcodeEnd, "setp.ne.u32") { predicate = left != right }
+                else if ptxWitnessOpcode(text, start, opcodeEnd, "setp.gt.u32") { predicate = left > right }
+                else if ptxWitnessOpcode(text, start, opcodeEnd, "setp.ge.u32") { predicate = left >= right }
+                else if ptxWitnessOpcode(text, start, opcodeEnd, "setp.lt.u32") { predicate = left < right }
+                else if ptxWitnessOpcode(text, start, opcodeEnd, "setp.le.u32") { predicate = left <= right }
+                else if ptxWitnessOpcode(text, start, opcodeEnd, "setp.ge.s32") { predicate = witnessSigned(left) >= witnessSigned(right) }
+                else if ptxWitnessOpcode(text, start, opcodeEnd, "setp.lt.s32") { predicate = witnessSigned(left) < witnessSigned(right) }
+                else if ptxWitnessOpcode(text, start, opcodeEnd, "setp.le.s32") { predicate = witnessSigned(left) <= witnessSigned(right) }
+                else { known = false }
+                if predicate { value = 1 }
+            }
+            ptxWitnessRequire(known)
+        }
+        this.write(value); this.instructions = this.instructions + 1; ptxWitnessRequire(this.instructions <= 65536)
+    }
+    fun execute(text: String) r: Void {
+        ptxWitnessRequire(text.length() <= 2097152); var cursor = 0
+        while cursor < text.length() {
+            let start = cursor
+            while cursor < text.length() and text.byteAt(cursor) != 10 { cursor = cursor + 1 }
+            if cursor > start { this.executeLine(text, start, cursor) }; cursor = cursor + 1
+        }
+    }
+    fun release() r: Void {
+        this.values.free(); this.predicates.free(); this.defined.free(); this.predicateDefined.free()
+        this.operands.free(); this.kinds.free(); this.free()
+    }
+}
+fun witnessPtxScalar(function: GpuPtxFunction, result: Int) r: Int {
+    ptxWitnessRequire(function.validation.valid and function.nextRegister <= 32768 and function.nextPredicate <= 32768)
+    let witness = PtxScalarWitness{values: Array<Int>.withLength(function.nextRegister), predicates: Array<Int>.withLength(function.nextPredicate),
+        defined: Array<Bool>.withLength(function.nextRegister), predicateDefined: Array<Bool>.withLength(function.nextPredicate),
+        operands: Array<Int>.withLength(5), kinds: Array<Int>.withLength(5), count: 0, instructions: 0}
+    let constants = function.initializers.finish(); let body = function.body.finish()
+    witness.execute(constants); witness.execute(body); releaseJsonText(constants); releaseJsonText(body)
+    ptxWitnessRequire(result > 0 and result < witness.values.length() and witness.defined[result])
+    let value = witness.values[result]; witness.release(); return value
+}

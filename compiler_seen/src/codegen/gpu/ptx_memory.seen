@@ -1,9 +1,23 @@
 /// Bounds are proved by a branch before address arithmetic or a memory access.
 /// Invalid loads return zero; invalid stores do nothing; both set fault bit 1.
 import codegen.gpu.ptx_context.{GpuPtxFunction, GpuPtxResource}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
 import codegen.gpu.ptx_builtins.{ptxBuiltin}
 import codegen.gpu_ir_facts.{gpuIrElementStride}
 import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+fun ptxResourceIndex(function: GpuPtxFunction, frame: GpuEmissionFrame, operand: Int) r: Int {
+    let index = frame.resourceIndices[operand]
+    if index < 0 or index >= function.resources.length() { function.error("E_GPU_PTX_LAYOUT", "PTX resource identity is unavailable"); return -1 }; return index
+}
+fun ptxInvalidMemoryIndex(function: GpuPtxFunction, resource: GpuPtxResource, index: Int, indexType: Int) r: Int {
+    let predicate = function.allocate(2, 1)
+    function.body.predicate("setp.ge.u32", predicate, index, resource.length)
+    if indexType == 2 {
+        let negative = function.allocate(2, 1); function.body.predicate("setp.lt.s32", negative, index, function.word(0))
+        function.body.logical("or.pred", predicate, predicate, negative)
+    }
+    return predicate
+}
 fun ptxMemoryAddress(function: GpuPtxFunction, resource: GpuPtxResource, index: Int) r: Int {
     let offset = function.allocate(1, 1); let address = function.allocate(1, 1)
     function.body.literal("mul.wide.u32 "); function.body.reg("a", offset); function.body.literal(", ")
@@ -20,13 +34,8 @@ fun ptxCheckedMemory(function: GpuPtxFunction, resourceIndex: Int, index: Int, i
         result = function.allocate(0, lanes); var lane = 0
         while lane < lanes { function.body.unary("mov.b32", result + lane, function.word(0)); lane = lane + 1 }
     }
-    let bad = function.allocate(3, 1); let merge = function.allocate(3, 1); let predicate = function.allocate(2, 1)
-    function.body.predicate("setp.ge.u32", predicate, index, resource.length)
-    if indexType == 2 {
-        let negative = function.allocate(2, 1); function.body.predicate("setp.lt.s32", negative, index, function.word(0))
-        function.body.literal("or.pred "); function.body.reg("p", predicate); function.body.literal(", ")
-        function.body.reg("p", predicate); function.body.literal(", "); function.body.reg("p", negative); function.body.literal(";\n")
-    }
+    let bad = function.allocate(3, 1); let merge = function.allocate(3, 1)
+    let predicate = ptxInvalidMemoryIndex(function, resource, index, indexType)
     function.body.conditional(predicate, bad); let address = ptxMemoryAddress(function, resource, index); var lane = 0
     while lane < lanes {
         if store { if resource.shared { function.body.literal("st.shared.u32 [") } else { function.body.literal("st.global.u32 [") } }

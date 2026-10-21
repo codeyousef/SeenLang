@@ -17,7 +17,7 @@ source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 command -v spirv-val >/dev/null
 spirv-val --version > "$TMP_DIR/validator-version.log"
 for profile in fast release undefined address; do
-    compile_case "$profile" numeric "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_numeric_contract.seen"
+    compile_case "$profile" numeric "$ROOT_DIR/tests/gpu_scalar_words/spirv_numeric_contract.seen"
     rg -Fq 'PASS: GPU-002B emitted scalar SPIR-V matches fixed IEEE packed goldens and allocation baseline' "$TMP_DIR/numeric-$profile.log"
     compile_case "$profile" capabilities "$ROOT_DIR/tests/spir_v_vulkan_lowering/capabilities_contract.seen"
     rg -Fq 'PASS: GPU-002B atomic subgroup specialization native cooperative formats and typed rejection' "$TMP_DIR/capabilities-$profile.log"
@@ -36,6 +36,6 @@ for pair in native:E_GPU_SPIRV_CAPABILITY order:E_GPU_SPIRV_MEMORY; do
     rg -Fq "$code" "$TMP_DIR/rejected-$name.log"
     test ! -e "$TMP_DIR/rejected-$name.spv"
 done
-compile_case fast fuzz "$ROOT_DIR/tests/spir_v_vulkan_lowering/capabilities_fuzz.seen" "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
-rg -Fq 'PASS: GPU-002B capability fuzz 60s seed=1089 preserved typed rejection and ownership' "$TMP_DIR/fuzz-fast.log"
+compile_case fast fuzz "$ROOT_DIR/tests/gpu_scalar_words/packed_fuzz.seen" spirv "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
+rg -Fq 'PASS: packed capability fuzz 60s seed=1089 preserved typed rejection and artifact ownership' "$TMP_DIR/fuzz-fast.log"
 echo 'PASS: SPIR-V capability lowering numeric goldens official validation reflection and rejection fuzz'

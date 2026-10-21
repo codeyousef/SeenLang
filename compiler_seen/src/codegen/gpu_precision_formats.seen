@@ -32,6 +32,7 @@ let GPU_CAP_COOP_FP8: UInt64 = 8388608 as UInt64
 let GPU_CAP_COOP_MXFP4: UInt64 = 16777216 as UInt64
 let GPU_CAP_COOP_FP32: UInt64 = 33554432 as UInt64
 let GPU_CAP_ALL_KNOWN: UInt64 = 67108863 as UInt64
+let GPU_CAP_NON_COOPERATIVE: UInt64 = 131071 as UInt64
 
 fun gpuPrecisionValid(format: Int) r: Bool { return format >= 1 and format <= 13 }
 fun gpuPrecisionBits(format: Int) r: Int {

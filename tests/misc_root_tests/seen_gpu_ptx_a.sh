@@ -18,7 +18,7 @@ python3 "$ROOT_DIR/scripts/check_gpu_ptx_toolchain.py" > "$TMP_DIR/toolchain.jso
 for profile in fast release undefined address; do
     compile_case "$profile" layout "$ROOT_DIR/tests/cuda_ptx_lowering/layout_contract.seen" \
         "$ROOT_DIR/tests/cuda_ptx_lowering/layout_happy.seen"
-    rg -Fq 'PASS: PTX seven targets deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/layout-$profile.log"
+    rg -Fq 'PASS: PTX target coverage deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/layout-$profile.log"
 done
 python3 "$ROOT_DIR/scripts/check_gpu_ptx_artifacts.py" "$TMP_DIR" layout
 for target in sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 sm_100; do

@@ -1,0 +1,31 @@
+/// PTX packed conversions share all scalar rules and validity checks with
+/// SPIR-V. This adapter only publishes the target's checked fault predicates.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_PACK}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import codegen.gpu.scalar_packed.{scalarPayloadPlan, scalarPackedPlan}
+import codegen.gpu.ptx_scalar_plan.{emitPtxScalarPlan, ptxScalarPlanValue}
+import codegen.gpu_precision_formats.{GPU_FORMAT_MXFP4}
+
+fun ptxPackedPayload(function: GpuPtxFunction, format: Int, value: Int, scale: Int, insert: Bool) r: Int {
+    return ptxScalarPlanValue(function, scalarPayloadPlan(format, value, scale, insert))
+}
+fun ptxScalarFault(function: GpuPtxFunction, valid: Int, kind: Int) r: Void {
+    let invalid = function.allocate(2, 1)
+    function.body.predicate("setp.eq.u32", invalid, valid, function.word(0)); function.faultWhen(invalid, kind)
+}
+fun ptxPacked(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let insert = op.opcode == GPU_IR_PACK; var value = 0; var scale = 0
+    if insert { value = frame.registers[op.operands[2]] }
+    if op.immediate == GPU_FORMAT_MXFP4 {
+        var index = 2; if insert { index = 3 }; scale = frame.registers[op.operands[index]]
+    }
+    let plan = scalarPackedPlan(op.immediate, insert, frame.registers[op.operands[0]], frame.registers[op.operands[1]], value, scale)
+    let output = emitPtxScalarPlan(function, plan); let result = output.value
+    if function.validation.valid {
+        ptxScalarFault(function, output.laneValid, 1)
+        if op.immediate == GPU_FORMAT_MXFP4 { ptxScalarFault(function, output.scaleValid, 4) }
+    }
+    output.free(); return result
+}

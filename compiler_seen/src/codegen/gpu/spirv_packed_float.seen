@@ -1,38 +1,15 @@
-/// Exact FP32/FP16/BF16 packed conversions. Integer significands implement
-/// round-to-nearest-even conversion with explicit format overflow/NaN policy.
+/// Bootstrap-compatible entry points delegate to the shared scalar policy.
 import codegen.gpu.spirv_function.{GpuSpirvFunction}
-import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
-import codegen.gpu.spirv_float_bits.{spirvRoundRightEven}
-import codegen.gpu.spirv_fp16.{spirvPackFp16Magnitude, spirvUnpackFp16}
-import codegen.gpu_precision_formats.{GPU_FORMAT_FP32, GPU_FORMAT_FP16, GPU_FORMAT_BF16}
+import codegen.gpu.spirv_scalar_plan.{spirvScalarPlanValue}
+import codegen.gpu.scalar_support_plans.{scalarNanPlan}
+import codegen.gpu.scalar_packed.{scalarPayloadPlan}
 
 fun spirvFloatIsNan(function: GpuSpirvFunction, bits: Int) r: Int {
-    let context = function.context
-    let magnitude = spirvBinaryValue(function, 199, 3, bits, context.constant(3, 2147483647))
-    return spirvBinaryValue(function, 172, 1, magnitude, context.constant(3, 2139095040))
+    return spirvScalarPlanValue(function, scalarNanPlan(bits))
 }
 fun spirvPackShortFloat(function: GpuSpirvFunction, format: Int, value: Int) r: Int {
-    let context = function.context; let bits = spirvUnaryValue(function, 124, 3, value)
-    let high = spirvBinaryValue(function, 194, 3, bits, context.constant(3, 16))
-    let magnitude = spirvBinaryValue(function, 199, 3, bits, context.constant(3, 2147483647))
-    var packed = 0; var infinity = 32640; var maximum = 32639; var canonicalNan = 32704
-    if format == GPU_FORMAT_BF16 { packed = spirvRoundRightEven(function, magnitude, 16) }
-    else { packed = spirvPackFp16Magnitude(function, magnitude); infinity = 31744; maximum = 31743; canonicalNan = 32256 }
-    let finite = spirvBinaryValue(function, 176, 1, magnitude, context.constant(3, 2139095040))
-    let overflow = spirvBinaryValue(function, 174, 1, packed, context.constant(3, infinity))
-    let saturate = spirvBinaryValue(function, 167, 1, finite, overflow)
-    let sign = spirvBinaryValue(function, 199, 3, high, context.constant(3, 32768))
-    let limit = spirvBinaryValue(function, 197, 3, sign, context.constant(3, maximum))
-    let wasInfinity = spirvBinaryValue(function, 170, 1, magnitude, context.constant(3, 2139095040))
-    packed = spirvSelectValue(function, 3, wasInfinity, context.constant(3, infinity), packed)
-    let signed = spirvBinaryValue(function, 197, 3, packed, sign)
-    var result = spirvSelectValue(function, 3, saturate, limit, signed)
-    result = spirvSelectValue(function, 3, spirvFloatIsNan(function, bits), context.constant(3, canonicalNan), result); return result
+    return spirvScalarPlanValue(function, scalarPayloadPlan(format, value, 0, true))
 }
 fun spirvUnpackShortFloat(function: GpuSpirvFunction, format: Int, payload: Int) r: Int {
-    let context = function.context
-    if format == GPU_FORMAT_BF16 {
-        let bits = spirvBinaryValue(function, 196, 3, payload, context.constant(3, 16)); return spirvUnaryValue(function, 124, 4, bits)
-    }
-    return spirvUnpackFp16(function, payload)
+    return spirvScalarPlanValue(function, scalarPayloadPlan(format, payload, 0, false))
 }

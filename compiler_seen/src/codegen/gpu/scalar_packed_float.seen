@@ -1,0 +1,38 @@
+/// Exact FP32/FP16/BF16 packed conversions. Integer significands implement
+/// round-to-nearest-even conversion with explicit format overflow/NaN policy.
+import codegen.gpu.scalar_plan.{GpuScalarPlan}
+import codegen.gpu.scalar_ops.{SCALAR_BITCAST, SCALAR_BIT_AND, SCALAR_BIT_OR, SCALAR_BOOL_AND, SCALAR_EQUAL, SCALAR_SHIFT_LEFT, SCALAR_SHIFT_RIGHT, SCALAR_UNSIGNED_GREATER, SCALAR_UNSIGNED_GREATER_EQUAL, SCALAR_UNSIGNED_LESS}
+import codegen.gpu_precision_formats.{GPU_FORMAT_BF16}
+import codegen.gpu.scalar_float_bits.{scalarRoundRightEven}
+import codegen.gpu.scalar_fp16.{scalarPackFp16Magnitude, scalarUnpackFp16}
+
+fun scalarFloatIsNan(plan: GpuScalarPlan, bits: Int) r: Int {
+    let context = plan
+    let magnitude = plan.binary(SCALAR_BIT_AND, 3, bits, context.constant(3, 2147483647))
+    return plan.binary(SCALAR_UNSIGNED_GREATER, 1, magnitude, context.constant(3, 2139095040))
+}
+fun scalarPackShortFloat(plan: GpuScalarPlan, format: Int, value: Int) r: Int {
+    let context = plan; let bits = plan.unary(SCALAR_BITCAST, 3, value)
+    let high = plan.binary(SCALAR_SHIFT_RIGHT, 3, bits, context.constant(3, 16))
+    let magnitude = plan.binary(SCALAR_BIT_AND, 3, bits, context.constant(3, 2147483647))
+    var packed = 0; var infinity = 32640; var maximum = 32639; var canonicalNan = 32704
+    if format == GPU_FORMAT_BF16 { packed = scalarRoundRightEven(plan, magnitude, 16) }
+    else { packed = scalarPackFp16Magnitude(plan, magnitude); infinity = 31744; maximum = 31743; canonicalNan = 32256 }
+    let finite = plan.binary(SCALAR_UNSIGNED_LESS, 1, magnitude, context.constant(3, 2139095040))
+    let overflow = plan.binary(SCALAR_UNSIGNED_GREATER_EQUAL, 1, packed, context.constant(3, infinity))
+    let saturate = plan.binary(SCALAR_BOOL_AND, 1, finite, overflow)
+    let sign = plan.binary(SCALAR_BIT_AND, 3, high, context.constant(3, 32768))
+    let limit = plan.binary(SCALAR_BIT_OR, 3, sign, context.constant(3, maximum))
+    let wasInfinity = plan.binary(SCALAR_EQUAL, 1, magnitude, context.constant(3, 2139095040))
+    packed = plan.select(3, wasInfinity, context.constant(3, infinity), packed)
+    let signed = plan.binary(SCALAR_BIT_OR, 3, packed, sign)
+    var result = plan.select(3, saturate, limit, signed)
+    result = plan.select(3, scalarFloatIsNan(plan, bits), context.constant(3, canonicalNan), result); return result
+}
+fun scalarUnpackShortFloat(plan: GpuScalarPlan, format: Int, payload: Int) r: Int {
+    let context = plan
+    if format == GPU_FORMAT_BF16 {
+        let bits = plan.binary(SCALAR_SHIFT_LEFT, 3, payload, context.constant(3, 16)); return plan.unary(SCALAR_BITCAST, 4, bits)
+    }
+    return scalarUnpackFp16(plan, payload)
+}

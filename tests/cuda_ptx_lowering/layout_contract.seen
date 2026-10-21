@@ -36,7 +36,7 @@ fun checkPtxArtifact(borrow module: GpuIrModule, borrow options: GpuOptions, emi
 }
 
 fun main() r: Int {
-    let arguments = args(); ptxRequire(arguments.length() == 2)
+    let arguments = args(); ptxRequire(arguments.length() == 2 or arguments.length() == 3)
     let loaded = gpuReadBoundedText(arguments[1], 1048576); ptxRequire(loaded.isOkay())
     let source = loaded.unwrap(); loaded.releaseContainer()
     let lowered = lowerGpuSource(source, "ptx-layout-contract.seen"); releaseJsonText(source)
@@ -45,6 +45,7 @@ fun main() r: Int {
     let options = GpuOptions.create(); options.backend = "cuda"
     let targets = ["sm_70", "sm_75", "sm_80", "sm_86", "sm_89", "sm_90", "sm_100"]
     let baseline = seen_memory_used_bytes(); var target = 0
+    if arguments.length() == 3 { ptxRequire(arguments[2] == "sm_80+"); target = 2 }
     while target < targets.length() {
         options.target = targets[target]; var iteration = 0
         while iteration < 10 {
@@ -54,6 +55,6 @@ fun main() r: Int {
         target = target + 1
     }
     targets.free(); options.release(); module.release(); releaseArgs(arguments)
-    println("PASS: PTX seven targets deterministic artifacts reflection and repeated cleanup")
+    println("PASS: PTX target coverage deterministic artifacts reflection and repeated cleanup")
     return 0
 }

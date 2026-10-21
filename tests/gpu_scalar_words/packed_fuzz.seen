@@ -1,26 +1,28 @@
 import env.env.{args, releaseArgs}
 import tools.gpu_command.{gpuReadBoundedText}
 import codegen.gpu_source.{lowerGpuSource}
-import codegen.gpu.spirv_emitter.{emitGpuSpirv}
+import codegen.gpu_artifact.{buildGpuArtifact}
 import codegen.gpu_ir_ops.{GPU_IR_PACK}
 import codegen.gpu_options.{GpuOptions}
-import spirv_scalar_witness.{witnessRequire}
 import json.builder.{releaseJsonText}
 extern "C" fun seen_memory_used_bytes() r: Int64
 extern "C" fun seen_time_monotonic_nanos() r: Int64
+fun witnessRequire(value: Bool) r: Void { if not value { abort("GPU packed capability fuzz contract failed") } }
 fun main() r: Int {
-    let argv = args(); witnessRequire(argv.length() == 2)
-    let read = gpuReadBoundedText(argv[1], 1048576); witnessRequire(read.isOkay()); let text = read.unwrap(); read.releaseContainer()
-    let lowered = lowerGpuSource(text, "spirv-fuzz.seen"); releaseJsonText(text); witnessRequire(lowered.isOkay())
+    let initial = seen_memory_used_bytes(); let argv = args(); witnessRequire(argv.length() == 3)
+    witnessRequire(argv[1] == "spirv" or argv[1] == "cuda")
+    let read = gpuReadBoundedText(argv[2], 1048576); witnessRequire(read.isOkay()); let text = read.unwrap(); read.releaseContainer()
+    let lowered = lowerGpuSource(text, "packed-fuzz.seen"); releaseJsonText(text); witnessRequire(lowered.isOkay())
     let module = lowered.unwrap(); lowered.releaseContainer(); let root = module.functions[0].blocks[0]; var index = 0
     while index < root.instructions.length() and root.instructions[index].opcode != GPU_IR_PACK { index = index + 1 }
     witnessRequire(index < root.instructions.length()); let operation = root.instructions[index]
     let originalFormat = operation.immediate; let originalType = operation.typeCode; let originalOperand = operation.operands[1]
-    let options = GpuOptions.create(); options.backend = "spirv"; options.target = "vulkan1.2"
+    let options = GpuOptions.create(); options.backend = argv[1]; options.target = "vulkan1.2"
+    if argv[1] == "cuda" { options.target = "sm_80" }
     let baseline = seen_memory_used_bytes(); let start = seen_time_monotonic_nanos()
     witnessRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
     let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1089
-    while now < deadline and iterations < 10000000 {
+    while now < deadline and iterations < 1000000000 {
         seed = (seed * 48271) % 2147483647; let mode = seed % 8
         if mode == 0 { operation.immediate = 14 + seed % 10000 }
         if mode == 1 { operation.typeCode = 1 }
@@ -29,8 +31,8 @@ fun main() r: Int {
         if mode == 4 { operation.memoryOrder = 99 }
         if mode == 5 { module.requiresFaultBuffer = false }
         if mode == 7 { options.fallback = "cpu" }
-        let result = emitGpuSpirv(module, options)
-        if mode >= 6 { witnessRequire(result.isOkay()); let words = result.unwrap(); words.free() }
+        let result = buildGpuArtifact(module, options)
+        if mode >= 6 { witnessRequire(result.isOkay()); let artifact = result.unwrap(); artifact.release() }
         else {
             witnessRequire(result.isErr()); let error = result.unwrapErr()
             witnessRequire(not error.valid and error.diagnostics.length() > 0 and error.diagnostics.length() <= 64); error.release()
@@ -41,5 +43,6 @@ fun main() r: Int {
         if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); witnessRequire(next >= now); now = next }
     }
     witnessRequire(now >= deadline and iterations >= 32); options.release(); module.release(); releaseArgs(argv)
-    println("PASS: GPU-002B capability fuzz 60s seed=1089 preserved typed rejection and ownership"); return 0
+    witnessRequire(seen_memory_used_bytes() == initial)
+    println("PASS: packed capability fuzz 60s seed=1089 preserved typed rejection and artifact ownership"); return 0
 }

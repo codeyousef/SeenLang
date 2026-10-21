@@ -1,0 +1,70 @@
+/// CUDA subgroups are warps of 32 lanes. Every shuffle uses the converged launch
+/// membership before any per-lane fault branch. Reductions visit active lanes in index
+/// order and seed from the first value rather than introducing a floating zero.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import codegen.gpu.ptx_memory_plan.{ptxSubgroupMask}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+
+fun ptxShuffleWord(function: GpuPtxFunction, value: Int, lane: Int, mask: Int) r: Int {
+    let result = function.allocate(0, 1); let text = function.body
+    text.literal("shfl.sync.idx.b32 "); text.reg("r", result); text.literal(", "); text.reg("r", value)
+    text.literal(", "); text.reg("r", lane); text.literal(", 0x1f, "); text.reg("r", mask); text.literal(";\n"); return result
+}
+fun ptxSubgroupReduce(function: GpuPtxFunction, typeCode: Int, value: Int, mask: Int) r: Int {
+    let lanes = gpuTypeLanes(typeCode); let result = function.allocate(0, lanes); let text = function.body
+    let zero = function.word(0); let seen = function.allocate(2, 1); text.predicate("setp.ne.u32", seen, zero, zero)
+    var component = 0
+    while component < lanes { text.unary("mov.b32", result + component, zero); component = component + 1 }
+    var lane = 0
+    while lane < 32 {
+        let activeBits = function.allocate(0, 1); let active = function.allocate(2, 1)
+        text.binary("and.b32", activeBits, mask, function.word(1 << lane)); text.predicate("setp.ne.u32", active, activeBits, zero)
+        component = 0
+        while component < lanes {
+            let source = ptxShuffleWord(function, value + component, function.word(lane), mask)
+            let sum = function.allocate(0, 1); let candidate = function.allocate(0, 1)
+            var operation = "add.u32"; if gpuTypeScalar(typeCode) == 4 { operation = "add.rn.f32" }
+            text.binary(operation, sum, result + component, source); text.select(candidate, sum, source, seen)
+            text.select(result + component, candidate, result + component, active); component = component + 1
+        }
+        text.logical("or.pred", seen, seen, active); lane = lane + 1
+    }
+    return result
+}
+fun ptxSubgroup(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let mask = ptxSubgroupMask(function); let text = function.body; let zero = function.word(0); let one = function.word(1)
+    if op.immediate == 1 {
+        let lowerMask = function.allocate(0, 1); let activeLower = function.allocate(0, 1)
+        let elected = function.allocate(2, 1); let result = function.allocate(0, 1)
+        text.literal("mov.u32 "); text.reg("r", lowerMask); text.literal(", %lanemask_lt;\n")
+        text.binary("and.b32", activeLower, lowerMask, mask); text.predicate("setp.eq.u32", elected, activeLower, zero)
+        text.select(result, one, zero, elected); return result
+    }
+    if op.immediate == 2 or op.immediate == 3 {
+        let predicate = function.allocate(2, 1); let voted = function.allocate(2, 1); let result = function.allocate(0, 1)
+        text.predicate("setp.ne.u32", predicate, frame.registers[op.operands[0]], zero)
+        if op.immediate == 2 { text.literal("vote.sync.all.pred ") } else { text.literal("vote.sync.any.pred ") }
+        text.reg("p", voted); text.literal(", "); text.reg("p", predicate); text.literal(", "); text.reg("r", mask); text.literal(";\n")
+        text.select(result, one, zero, voted); return result
+    }
+    if op.immediate == 4 or op.immediate == 5 {
+        let lane = frame.registers[op.operands[1]]; let inRange = function.allocate(2, 1)
+        text.predicate("setp.lt.u32", inRange, lane, function.word(32))
+        let safeLane = function.allocate(0, 1); text.select(safeLane, lane, zero, inRange)
+        let bit = function.allocate(0, 1); let activeBits = function.allocate(0, 1)
+        text.binary("shl.b32", bit, one, safeLane); text.binary("and.b32", activeBits, mask, bit)
+        let active = function.allocate(2, 1); let valid = function.allocate(2, 1)
+        text.predicate("setp.ne.u32", active, activeBits, zero); text.logical("and.pred", valid, inRange, active)
+        let count = gpuTypeLanes(op.typeCode); let result = function.allocate(0, count); var component = 0
+        while component < count {
+            let native = ptxShuffleWord(function, frame.registers[op.operands[0]] + component, safeLane, mask)
+            text.select(result + component, native, zero, valid); component = component + 1
+        }
+        let invalid = function.allocate(2, 1); text.literal("not.pred "); text.reg("p", invalid)
+        text.literal(", "); text.reg("p", valid); text.literal(";\n"); function.faultWhen(invalid, 1); return result
+    }
+    if op.immediate == 6 { return ptxSubgroupReduce(function, op.typeCode, frame.registers[op.operands[0]], mask) }
+    function.error("E_GPU_PTX_CAPABILITY", "PTX subgroup operation is unsupported"); return 0
+}
