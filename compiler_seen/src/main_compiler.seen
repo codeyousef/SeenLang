@@ -109,6 +109,17 @@ import codegen.gpu.amdgpu_math.{amdBinary}
 import codegen.gpu.amdgpu_casts.{amdCast}
 import codegen.gpu.amdgpu_intrinsics.{amdIntrinsic}
 import codegen.gpu.amdgpu_sync.{amdSynchronization}
+import codegen.gpu.amdgpu_atomics.{amdAtomic}
+import codegen.gpu.amdgpu_scalar_bits.{amdScalarExtract}
+import codegen.gpu.amdgpu_scalar_plan.{emitAmdScalarPlan}
+import codegen.gpu.amdgpu_packed.{amdPacked}
+import codegen.gpu.amdgpu_subgroup_layout.{amdShuffleWord}
+import codegen.gpu.amdgpu_subgroup_reduce.{amdSubgroupReduce}
+import codegen.gpu.amdgpu_subgroup.{amdSubgroup}
+import codegen.gpu.amdgpu_matrix_plan.{amdValueWords}
+import codegen.gpu.amdgpu_matrix_memory.{amdMatrixMemory}
+import codegen.gpu.amdgpu_matrix_values.{amdMatrixInput}
+import codegen.gpu.amdgpu_cooperative.{amdCooperative}
 import codegen.gpu.amdgpu_values.{amdLowerValue}
 import codegen.gpu.amdgpu_regions.{amdLowerRegion}
 import codegen.gpu.amdgpu_emitter.{emitGpuAmdgpu}
@@ -9075,6 +9086,17 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu.amdgpu_casts")
         modules.push("codegen.gpu.amdgpu_intrinsics")
         modules.push("codegen.gpu.amdgpu_sync")
+        modules.push("codegen.gpu.amdgpu_atomics")
+        modules.push("codegen.gpu.amdgpu_scalar_bits")
+        modules.push("codegen.gpu.amdgpu_scalar_plan")
+        modules.push("codegen.gpu.amdgpu_packed")
+        modules.push("codegen.gpu.amdgpu_subgroup_layout")
+        modules.push("codegen.gpu.amdgpu_subgroup_reduce")
+        modules.push("codegen.gpu.amdgpu_subgroup")
+        modules.push("codegen.gpu.amdgpu_matrix_plan")
+        modules.push("codegen.gpu.amdgpu_matrix_memory")
+        modules.push("codegen.gpu.amdgpu_matrix_values")
+        modules.push("codegen.gpu.amdgpu_cooperative")
         modules.push("codegen.gpu.amdgpu_values")
         modules.push("codegen.gpu.amdgpu_regions")
         modules.push("codegen.gpu.amdgpu_emitter")

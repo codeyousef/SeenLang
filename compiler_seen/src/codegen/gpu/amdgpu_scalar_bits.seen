@@ -1,0 +1,35 @@
+/// Portable bitfield semantics with no LLVM shift-by-width poison. Returned
+/// identities belong to the entry; every temporary is a bounded private word.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction}
+
+fun amdScalarMask(function: GpuAmdFunction, width: Int) r: Int {
+    let shift = function.allocate(1); function.binary("sub", shift, function.word(32), width)
+    function.binary("and", shift, shift, function.word(31))
+    let mask = function.allocate(1); function.binary("lshr", mask, function.word(-1), shift)
+    function.select(mask, function.word(0), mask, function.compare("eq", width, function.word(0), false)); return mask
+}
+fun amdScalarFieldWidth(function: GpuAmdFunction, safeOffset: Int, bits: Int) r: Int {
+    let remaining = function.allocate(1); function.binary("sub", remaining, function.word(32), safeOffset)
+    let width = function.allocate(1); function.select(width, bits, remaining, function.compare("ule", bits, remaining, false)); return width
+}
+fun amdScalarExtract(function: GpuAmdFunction, word: Int, offset: Int, bits: Int, signed: Bool) r: Int {
+    let safeOffset = function.allocate(1); function.binary("and", safeOffset, offset, function.word(31))
+    let width = amdScalarFieldWidth(function, safeOffset, bits); let mask = amdScalarMask(function, width)
+    let result = function.allocate(1); function.binary("lshr", result, word, safeOffset); function.binary("and", result, result, mask)
+    if signed {
+        let shift = function.allocate(1); function.binary("sub", shift, function.word(32), width)
+        function.binary("and", shift, shift, function.word(31)); function.binary("shl", result, result, shift)
+        function.binary("ashr", result, result, shift)
+    }
+    function.select(result, result, function.word(0), function.compare("ult", offset, function.word(32), false)); return result
+}
+fun amdScalarInsert(function: GpuAmdFunction, word: Int, payload: Int, offset: Int, bits: Int) r: Int {
+    let safeOffset = function.allocate(1); function.binary("and", safeOffset, offset, function.word(31))
+    let width = amdScalarFieldWidth(function, safeOffset, bits); let mask = amdScalarMask(function, width)
+    function.binary("shl", mask, mask, safeOffset)
+    let preserve = function.allocate(1); function.binary("xor", preserve, mask, function.word(-1))
+    function.binary("and", preserve, preserve, word)
+    let result = function.allocate(1); function.binary("shl", result, payload, safeOffset)
+    function.binary("and", result, result, mask); function.binary("or", result, result, preserve)
+    function.select(result, result, word, function.compare("ult", offset, function.word(32), false)); return result
+}

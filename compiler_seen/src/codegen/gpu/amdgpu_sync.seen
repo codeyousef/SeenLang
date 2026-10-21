@@ -1,5 +1,5 @@
-/// LLVM scope/order names are backend details. The foundation execution
-/// rendezvous is workgroup-wide; unsupported subgroup barriers reject.
+/// LLVM scope/order names are backend details. Execution rendezvous stays
+/// within its declared wave or workgroup; it never strengthens to another group.
 import codegen.gpu.amdgpu_context.{GpuAmdFunction}
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu_ir_ops.{GPU_IR_BARRIER}
@@ -18,11 +18,13 @@ fun amdMemoryFence(function: GpuAmdFunction, scope: Int, order: Int) r: Void {
     function.body.literal(ordering); function.body.literal("\n")
 }
 fun amdSynchronization(function: GpuAmdFunction, borrow op: GpuIrInstruction) r: Void {
-    if op.opcode == GPU_IR_BARRIER and op.memoryScope != 3 {
-        function.error("E_GPU_AMDGPU_CAPABILITY", "AMDGPU foundation execution barriers require workgroup scope"); return
+    if op.opcode == GPU_IR_BARRIER and op.memoryScope != 2 and op.memoryScope != 3 {
+        function.error("E_GPU_AMDGPU_CAPABILITY", "AMDGPU execution barriers require subgroup or workgroup scope"); return
     }
     amdMemoryFence(function, op.memoryScope, op.memoryOrder)
     if op.opcode == GPU_IR_BARRIER {
-        function.body.literal("  call void @llvm.amdgcn.s.barrier()\n"); amdMemoryFence(function, op.memoryScope, op.memoryOrder)
+        if op.memoryScope == 2 { function.body.literal("  call void @llvm.amdgcn.wave.barrier()\n") }
+        else { function.body.literal("  call void @llvm.amdgcn.s.barrier()\n") }
+        amdMemoryFence(function, op.memoryScope, op.memoryOrder)
     }
 }

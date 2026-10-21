@@ -647,16 +647,16 @@ ceilings, reject symlinks/nonregular files, close descriptors on every path and
 reject metadata changes during a read. This software certificate establishes
 neither numerical device execution nor production readiness.
 
-### HIP/AMDGPU offline scalar emission
+### HIP/AMDGPU offline emission
 
 `seen gpu emit source.seen --gpu-backend=hip --gpu-target=gfx90a --output=kernel.ll`
 emits LLVM IR for the HSA v5 ABI. Targets are `gfx90a` (the default), `gfx942`,
 `gfx1100`, `gfx1101` and `gfx1200`. The first two use wave64 and the remaining
-targets use wave32. This initial emitter supports storage, padded uniforms,
-workgroup storage, scalar and vector arithmetic, checked conversions, helper
-inlining and structured control. Unsupported atomics, subgroups, packed
-precision, specialization and cooperative operations reject with
-`E_GPU_AMDGPU_CAPABILITY`; target and layout errors remain explicit.
+targets use wave32. The emitter supports storage, padded uniforms, workgroup
+storage, scalar and vector arithmetic, checked conversions, helper inlining,
+structured control, scoped atomic operations, subgroup operations, packed
+precision and bounded specialization. Unsupported native capabilities reject
+with `E_GPU_AMDGPU_CAPABILITY`; target and layout errors remain explicit.
 
 The Seen emitter owns bounded text fragments and private value identities.
 Shared helpers pack CUDA/HSA explicit arguments: each storage binding supplies
@@ -687,8 +687,9 @@ return `E_GPU_AMDGPU_ARTIFACT`.
 Ubuntu LLVM package version, tool/library digests and compilation pipeline:
 verify, `default<O2>`, verify, AMDGPU object generation, HSA linking and metadata
 inspection. Validation checks physical arguments, wave size, workgroup size,
-implicit bytes, shared limits and the private-memory ceiling. CI retains LLVM
-IR, objects, HSA code objects and inspection records across four build profiles.
+implicit bytes, shared limits and the private-memory ceiling. Required fixtures
+validate LLVM IR, objects, HSA code objects and inspection records across four
+build profiles; failed runs retain available diagnostics and artifacts.
 Adverse metadata tests reject changed identities, argument offsets, sizes,
 storage classes, launch geometry, storage ceilings and duplicate fields.
 `tests/misc_root_tests/seen_gpu_amdgpu_a.sh` also executes fixed emitted-LLVM
@@ -696,3 +697,37 @@ fixtures after explicit normalization for CPU execution, comparing raw numeric
 bits, checked faults, padding and invalid geometry against independent goldens.
 These results remain **compile-only** with hardware and GPU execution verification
 false; CPU normalization is not GPU execution.
+
+Atomics retain their declared memory order and workgroup/device scope. Checked
+invalid addresses produce zero for returned values and skip writes. Subgroups
+use native wave permutations and wave barriers. Participation follows the
+logical workgroup, including a partial final wave; invalid requested lanes
+produce zero and fault bit 1. Floating reductions visit participating lanes in
+order and seed from the first value, preserving a lone negative zero.
+Specialization uses the shared bounded clone/materialization contract and leaves
+the source IR and independently owned clones unchanged.
+
+Native cooperative multiplication is available only on `gfx90a` and `gfx942`:
+16×16×16, row-major A, column-major B, FP16 or BF16 multiplicands, and FP32
+accumulators in complete wave64 workgroups. RDNA targets, other shapes,
+precisions, operand layouts and partial waves reject explicitly. Fragments are
+immutable SSA values. Each input fragment holds two packed words; each
+accumulator holds four FP32 words. For lane `l`, A row and B column are `l % 16`,
+and its four input elements start at K=`4*(l/16)`. Accumulator register `r`
+corresponds to row `4*(l/16)+r`, column `l % 16`. These register facts follow the
+[AMD matrix instruction reference](https://github.com/ROCm/amd_matrix_instruction_calculator/tree/2ef91896bcdc4d26624f952e5c905c787cd9bc9e).
+
+Matrix buffers require natural 4-byte word alignment. Register gathers impose
+no extra hardware matrix-load alignment. Whole-footprint checks precede pointer
+formation; invalid loads zero the entire fragment, while invalid stores leave
+the entire backing buffer unchanged and set fault bit 1. Output strides must
+prevent aliasing between rows or columns. Each wave owns its writable matrix
+footprint; concurrently executing waves require disjoint output ranges.
+
+`tests/misc_root_tests/seen_gpu_amdgpu_b.sh` validates official code objects across
+four compiler profiles and requires real native FP16/BF16 MFMA instructions.
+Independent CPU fixtures cover atomic semantics, the shared fixed packed-number
+corpus, wave membership and matrix address/fragment routing. Native permutation
+and MFMA instructions use explicit fixed operand/result oracles in those CPU
+fixtures; these do not certify GPU execution or matrix numerical accuracy.
+Hardware execution and numerical certification remain pending.

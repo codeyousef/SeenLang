@@ -361,6 +361,13 @@ grep -Fq 'bubblewrap ripgrep libvulkan-dev' "$PROVISION" || fail "CI host provis
 for package in llvm-20 clang-20 lld-20 libllvm20 libclang-rt-20-dev; do
     grep -Fq "\"$package=\$llvm_package_version\"" "$PROVISION" || fail "CI host provisioner omits exact LLVM package pin: $package"
 done
+for harness in seen_gpu_amdgpu_a.sh seen_gpu_amdgpu_b.sh; do
+    grep -Fq "$harness" "$REQUIRED" || fail "required gate omits $harness"
+    grep -Fq "$harness" "$STAGE1" || fail "fresh-compiler acceptance omits $harness"
+done
+for checker in capabilities numerics subgroups cooperative native; do
+    grep -Fq "scripts/check_gpu_amdgpu_$checker.py" "$REQUIRED" || fail "required syntax checks omit AMDGPU $checker"
+done
 grep -Fq 'docs/architecture/amdgpu-toolchain.json' "$PROVISION" || fail "CI host provisioner omits the LLVM version policy"
 grep -Fq 'scripts/check_gpu_amdgpu_toolchain.py' "$PROVISION" || fail "CI host provisioner omits LLVM executable/library verification"
 grep -Fq 'libclang-rt-20-dev' "$PROVISION" ||

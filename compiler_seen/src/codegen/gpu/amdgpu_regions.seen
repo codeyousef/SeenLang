@@ -5,18 +5,18 @@ import codegen.gpu_ir_ops.{GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_WHILE, GPU_IR_FOR,
 import codegen.gpu_emission_frame.{GpuEmissionFrame, createGpuEmissionFrame}
 import codegen.gpu.amdgpu_context.{GpuAmdFunction}
 import codegen.gpu.amdgpu_values.{amdLowerValue}
-import typechecker.gpu_types.{gpuTypeLanes}
+import codegen.gpu.amdgpu_matrix_plan.{amdValueWords}
 
 fun amdLowerConditional(borrow module: GpuIrModule, function: GpuAmdFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
     let yes = function.label(); let no = function.label(); let merge = function.label(); var result = 0
-    if op.opcode == GPU_IR_IF_VALUE { result = function.allocate(gpuTypeLanes(op.typeCode)) }
+    if op.opcode == GPU_IR_IF_VALUE { result = function.allocate(amdValueWords(op.typeCode)) }
     let predicate = function.compare("ne", frame.registers[op.operands[0]], function.word(0), false)
     function.conditional(predicate, yes, no); function.defineLabel(yes)
     amdLowerRegion(module, function, frame, op.leftBlock, depth + 1); let left = frame.signal
-    if op.opcode == GPU_IR_IF_VALUE and left == 5 { function.copy(result, frame.yielded, gpuTypeLanes(op.typeCode)) }
+    if op.opcode == GPU_IR_IF_VALUE and left == 5 { function.copy(result, frame.yielded, amdValueWords(op.typeCode)) }
     if left == 0 or left == 5 { function.branch(merge) }; frame.signal = 0; function.defineLabel(no)
     if op.rightBlock >= 0 { amdLowerRegion(module, function, frame, op.rightBlock, depth + 1) }; let right = frame.signal
-    if op.opcode == GPU_IR_IF_VALUE and right == 5 { function.copy(result, frame.yielded, gpuTypeLanes(op.typeCode)) }
+    if op.opcode == GPU_IR_IF_VALUE and right == 5 { function.copy(result, frame.yielded, amdValueWords(op.typeCode)) }
     if right == 0 or right == 5 { function.branch(merge) }; function.defineLabel(merge); frame.signal = 0
     if op.result > 0 { frame.registers[op.result] = result }
 }
@@ -48,7 +48,7 @@ fun amdLowerCall(borrow module: GpuIrModule, function: GpuAmdFunction, frame: Gp
     let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
     while i < op.operands.length() { arguments.push(frame.registers[op.operands[i]]); resources.push(frame.resourceIndices[op.operands[i]]); i = i + 1 }
     let child = createGpuEmissionFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free(); child.returnMerge = function.label()
-    if op.typeCode != 0 { child.returnSlot = function.allocate(gpuTypeLanes(op.typeCode)) }
+    if op.typeCode != 0 { child.returnSlot = function.allocate(amdValueWords(op.typeCode)) }
     amdLowerRegion(module, function, child, 0, depth + 1); function.defineLabel(child.returnMerge)
     if op.result > 0 { frame.registers[op.result] = child.returnSlot }; child.release()
 }
@@ -69,7 +69,7 @@ fun amdLowerRegion(borrow module: GpuIrModule, function: GpuAmdFunction, frame: 
             if op.opcode == GPU_IR_BREAK { function.branch(frame.loopMerges[index]); frame.signal = 2 }
             else { function.branch(frame.loopContinues[index]); frame.signal = 3 }
         } else if op.opcode == GPU_IR_RETURN {
-            if frame.returnSlot != 0 { function.copy(frame.returnSlot, frame.registers[op.operands[0]], gpuTypeLanes(source.returnType)) }
+            if frame.returnSlot != 0 { function.copy(frame.returnSlot, frame.registers[op.operands[0]], amdValueWords(source.returnType)) }
             function.branch(frame.returnMerge); frame.signal = 1
         } else { amdLowerValue(function, frame, op) }; i = i + 1
     }

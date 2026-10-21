@@ -2,6 +2,25 @@
 /// poison-producing float-to-int instructions. Invalid conversions use zero.
 import codegen.gpu.amdgpu_context.{GpuAmdFunction, amdValue, amdDefinition}
 import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+fun amdFloatIntegerValid(function: GpuAmdFunction, value: Int, target: Int) r: Int {
+    let magnitude = function.allocate(1); let sign = function.allocate(1)
+    function.binary("and", magnitude, value, function.word(2147483647)); function.binary("and", sign, value, function.word(2147483648))
+    var upper = 1333788672; if target == 2 { upper = 1325400064 }
+    var valid = function.compare("ult", magnitude, function.word(upper), false)
+    if target == 2 {
+        let boundary = function.compare("eq", magnitude, function.word(upper), false); let negative = function.compare("ne", sign, function.word(0), false)
+        let allowed = function.predicateBinary("and", boundary, negative); valid = function.predicateBinary("or", valid, allowed)
+    } else {
+        let positive = function.compare("eq", sign, function.word(0), false); let zero = function.compare("eq", magnitude, function.word(0), false)
+        let allowed = function.predicateBinary("or", positive, zero); valid = function.predicateBinary("and", valid, allowed)
+    }; return valid
+}
+fun amdConvertFloatInteger(function: GpuAmdFunction, destination: Int, value: Int, target: Int, valid: Int) r: Void {
+    let safe = function.allocate(1); function.select(safe, value, function.word(0), valid)
+    let floating = function.asFloat(safe); let converted = function.value(); amdDefinition(function.body, converted)
+    if target == 2 { function.body.literal("fptosi float ") } else { function.body.literal("fptoui float ") }
+    amdValue(function.body, floating); function.body.literal(" to i32\n"); function.write(destination, converted)
+}
 fun amdCast(function: GpuAmdFunction, sourceType: Int, targetType: Int, value: Int, bitcast: Bool) r: Int {
     let source = gpuTypeScalar(sourceType); let target = gpuTypeScalar(targetType)
     if bitcast or source == target or (source != 4 and target != 4) { return value }
@@ -12,21 +31,8 @@ fun amdCast(function: GpuAmdFunction, sourceType: Int, targetType: Int, value: I
             if source == 2 { function.body.literal("sitofp i32 ") } else { function.body.literal("uitofp i32 ") }
             amdValue(function.body, word); function.body.literal(" to float\n"); function.writeFloat(result + lane, converted)
         } else {
-            let magnitude = function.allocate(1); let sign = function.allocate(1)
-            function.binary("and", magnitude, value + lane, function.word(2147483647)); function.binary("and", sign, value + lane, function.word(2147483648))
-            var upper = 1333788672; if target == 2 { upper = 1325400064 }
-            var valid = function.compare("ult", magnitude, function.word(upper), false)
-            if target == 2 {
-                let boundary = function.compare("eq", magnitude, function.word(upper), false); let negative = function.compare("ne", sign, function.word(0), false)
-                let allowed = function.predicateBinary("and", boundary, negative); valid = function.predicateBinary("or", valid, allowed)
-            } else {
-                let positive = function.compare("eq", sign, function.word(0), false); let zero = function.compare("eq", magnitude, function.word(0), false)
-                let allowed = function.predicateBinary("or", positive, zero); valid = function.predicateBinary("and", valid, allowed)
-            }
-            let safe = function.allocate(1); function.select(safe, value + lane, function.word(0), valid)
-            let floating = function.asFloat(safe); let converted = function.value(); amdDefinition(function.body, converted)
-            if target == 2 { function.body.literal("fptosi float ") } else { function.body.literal("fptoui float ") }
-            amdValue(function.body, floating); function.body.literal(" to i32\n"); function.write(result + lane, converted)
+            let valid = amdFloatIntegerValid(function, value + lane, target)
+            amdConvertFloatInteger(function, result + lane, value + lane, target, valid)
             function.faultWhen(function.invertPredicate(valid), 4)
         }; lane = lane + 1
     }; return result

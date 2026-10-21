@@ -1,0 +1,67 @@
+/// MFMA loads are register gathers, with no hardware matrix-load alignment
+/// beyond the resource's natural word alignment. Whole footprints validate
+/// before address formation; output leading dimensions must not alias rows.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_COOP_LOAD}
+import codegen.gpu_matrix_types.{gpuMatrixRole, gpuMatrixFormat}
+import codegen.gpu_precision_formats.{GPU_FORMAT_FP32}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, GpuAmdResource, amdValue, amdDefinition}
+import codegen.gpu.amdgpu_memory.{amdResourceIndex, amdMemoryAddress, amdStoreMemoryWord}
+import codegen.gpu.amdgpu_builtins.{amdBuiltin}
+import codegen.gpu.amdgpu_matrix_plan.{amdValueWords}
+
+fun amdMatrixInvalid(function: GpuAmdFunction, resource: GpuAmdResource, offset: Int, stride: Int, rowWords: Int, store: Bool) r: Int {
+    var invalid = function.compare("ugt", offset, resource.length, false)
+    let available = function.allocate(1); function.binary("sub", available, resource.length, offset)
+    invalid = function.predicateBinary("or", invalid, function.compare("ult", available, function.word(rowWords), false))
+    let maximum = function.allocate(1); function.binary("sub", maximum, available, function.word(rowWords))
+    function.binary("udiv", maximum, maximum, function.word(15))
+    invalid = function.predicateBinary("or", invalid, function.compare("ugt", stride, maximum, false))
+    if store { invalid = function.predicateBinary("or", invalid, function.compare("ult", stride, function.word(rowWords), false)) }
+    return invalid
+}
+fun amdMatrixElement(function: GpuAmdFunction, lane: Int, element: Int, accumulator: Bool, rowMajor: Bool, offset: Int, stride: Int) r: Int {
+    let low = function.allocate(1); function.binary("and", low, lane, function.word(15))
+    let high = function.allocate(1); function.binary("lshr", high, lane, function.word(4))
+    let result = function.allocate(1)
+    if not accumulator {
+        // A row and B column both use lane%16. Each lane owns four K values,
+        // packed into two words beginning at 2*floor(lane/16).
+        function.binary("mul", result, low, stride); function.binary("mul", high, high, function.word(2))
+        function.binary("add", result, result, high); function.binary("add", result, result, function.word(element))
+    } else {
+        // C/D: row=4*floor(lane/16)+register, column=lane%16.
+        function.binary("mul", high, high, function.word(4)); function.binary("add", high, high, function.word(element))
+        if rowMajor { function.binary("mul", result, high, stride); function.binary("add", result, result, low) }
+        else { function.binary("mul", result, low, stride); function.binary("add", result, result, high) }
+    }
+    function.binary("add", result, result, offset); return result
+}
+fun amdMatrixMemory(function: GpuAmdFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let load = op.opcode == GPU_IR_COOP_LOAD; var resourceOperand = 0; var typeCode = op.typeCode
+    if not load { resourceOperand = 1; typeCode = frame.registerTypes[op.operands[0]] }
+    let role = gpuMatrixRole(typeCode); let accumulator = gpuMatrixFormat(typeCode) == GPU_FORMAT_FP32
+    if load and ((role == 0 and op.immediate != 1) or (role == 1 and op.immediate != 2)) {
+        function.error("E_GPU_AMDGPU_CAPABILITY", "AMDGPU MFMA inputs require row-major A and column-major B"); return 0
+    }
+    let resourceIndex = amdResourceIndex(function, frame, op.operands[resourceOperand]); if resourceIndex < 0 { return 0 }
+    let resource = function.resources[resourceIndex]; let offset = frame.registers[op.operands[resourceOperand + 1]]
+    let stride = frame.registers[op.operands[resourceOperand + 2]]; var rowWords = 8; if accumulator { rowWords = 16 }
+    let count = amdValueWords(typeCode); var result = 0; var element = 0
+    if load { result = function.allocate(count); while element < count { function.copy(result + element, function.word(0), 1); element = element + 1 } }
+    let invalid = amdMatrixInvalid(function, resource, offset, stride, rowWords, not load)
+    let bad = function.label(); let good = function.label(); let merge = function.label()
+    function.conditional(invalid, bad, good); function.defineLabel(good); let lane = amdBuiltin(function, 8); element = 0
+    while element < count {
+        let index = amdMatrixElement(function, lane, element, accumulator, op.immediate == 1, offset, stride)
+        let pointer = amdMemoryAddress(function, resource, index)
+        if load {
+            let native = function.value(); amdDefinition(function.body, native); function.body.literal("load i32, ptr addrspace(")
+            if resource.shared { function.body.number(3) } else { function.body.number(1) }; function.body.literal(") ")
+            amdValue(function.body, pointer); function.body.literal(", align 4\n"); function.write(result + element, native)
+        } else { amdStoreMemoryWord(function, pointer, frame.registers[op.operands[0]] + element, resource.shared) }
+        element = element + 1
+    }
+    function.branch(merge); function.defineLabel(bad); function.fault(1); function.branch(merge); function.defineLabel(merge); return result
+}

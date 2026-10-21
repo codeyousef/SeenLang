@@ -1,0 +1,27 @@
+/// Execute every native permute before per-lane fault branches. Invalid source
+/// lanes use a safe native index, yield zero, then publish the bounds fault.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.amdgpu_context.{GpuAmdFunction}
+import codegen.gpu.amdgpu_builtins.{amdBuiltin}
+import codegen.gpu.amdgpu_subgroup_layout.{amdShuffleWord, amdSubgroupCount}
+import codegen.gpu.amdgpu_subgroup_reduce.{amdSubgroupReduce, amdSubgroupVote}
+import typechecker.gpu_types.{gpuTypeLanes}
+fun amdSubgroup(function: GpuAmdFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    if op.immediate == 1 {
+        let result = function.allocate(1); function.boolean(result, function.compare("eq", amdBuiltin(function, 8), function.word(0), false)); return result
+    }
+    let count = amdSubgroupCount(function)
+    if op.immediate == 2 or op.immediate == 3 { return amdSubgroupVote(function, frame.registers[op.operands[0]], count, op.immediate == 2) }
+    if op.immediate == 4 or op.immediate == 5 {
+        let lane = frame.registers[op.operands[1]]; let valid = function.compare("ult", lane, count, false)
+        let safe = function.allocate(1); function.select(safe, lane, function.word(0), valid)
+        let lanes = gpuTypeLanes(op.typeCode); let result = function.allocate(lanes); var component = 0
+        while component < lanes {
+            let native = amdShuffleWord(function, frame.registers[op.operands[0]] + component, safe)
+            function.select(result + component, native, function.word(0), valid); component = component + 1
+        }; function.faultWhen(function.invertPredicate(valid), 1); return result
+    }
+    if op.immediate == 6 { return amdSubgroupReduce(function, op.typeCode, frame.registers[op.operands[0]], count) }
+    function.error("E_GPU_AMDGPU_CAPABILITY", "AMDGPU subgroup identity is unsupported"); return 0
+}

@@ -10,7 +10,7 @@ extern "C" fun seen_time_monotonic_nanos() r: Int64
 fun witnessRequire(value: Bool) r: Void { if not value { abort("GPU packed capability fuzz contract failed") } }
 fun main() r: Int {
     let initial = seen_memory_used_bytes(); let argv = args(); witnessRequire(argv.length() == 3)
-    witnessRequire(argv[1] == "spirv" or argv[1] == "cuda")
+    witnessRequire(argv[1] == "spirv" or argv[1] == "cuda" or argv[1] == "hip")
     let read = gpuReadBoundedText(argv[2], 1048576); witnessRequire(read.isOkay()); let text = read.unwrap(); read.releaseContainer()
     let lowered = lowerGpuSource(text, "packed-fuzz.seen"); releaseJsonText(text); witnessRequire(lowered.isOkay())
     let module = lowered.unwrap(); lowered.releaseContainer(); let root = module.functions[0].blocks[0]; var index = 0
@@ -19,6 +19,7 @@ fun main() r: Int {
     let originalFormat = operation.immediate; let originalType = operation.typeCode; let originalOperand = operation.operands[1]
     let options = GpuOptions.create(); options.backend = argv[1]; options.target = "vulkan1.2"
     if argv[1] == "cuda" { options.target = "sm_80" }
+    if argv[1] == "hip" { options.target = "gfx90a" }
     let baseline = seen_memory_used_bytes(); let start = seen_time_monotonic_nanos()
     witnessRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
     let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1089

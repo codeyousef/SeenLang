@@ -16,15 +16,15 @@ from gpu_launch_contract import require, digest
 
 SENTINEL = 0x6d6d6d6d
 INTRINSICS = {'llvm.amdgcn.workitem.id.' + axis for axis in 'xyz'} | {'llvm.amdgcn.workgroup.id.' + axis for axis in 'xyz'}
-INTRINSICS |= {'llvm.amdgcn.implicitarg.ptr', 'llvm.amdgcn.s.barrier', 'llvm.sqrt.f32'}
+INTRINSICS |= {'llvm.amdgcn.implicitarg.ptr', 'llvm.amdgcn.s.barrier', 'llvm.sqrt.f32', 'llvm.roundeven.f32'}
 
 
-def normalize(text):
+def normalize(text, extra_intrinsics=()):
     require(not re.search(r'\b(asm|inttoptr|ptrtoint|invoke|callbr|indirectbr|blockaddress|personality)\b', text), 'unexpected test instruction')
     for line in text.splitlines():
         if re.search(r'\bcall\b', line):
             call = re.search(r'@([A-Za-z0-9_.]+)\(', line)
-            require(call is not None and call[1] in INTRINSICS, 'unexpected test call')
+            require(call is not None and call[1] in INTRINSICS | set(extra_intrinsics), 'unexpected test call')
         if line.startswith('@'):
             require(re.fullmatch(r'@seen\.shared\.\d+\.\d+ = internal addrspace\(3\) global \[\d+ x i8\] undef, align 16', line), 'unexpected test global')
     text = text.replace('target triple = "amdgcn-amd-amdhsa"', 'target triple = "x86_64-unknown-linux-gnu"')
@@ -170,14 +170,15 @@ def splat_cases(harness):
     harness.check_array('empty_output', [0] * 3 + [SENTINEL]); harness.fault(1)
 
 
-def run(source, cases, profile):
+def run(source, cases, profile, normalizer=normalize, harness_type=Harness, label='host'):
+    require(re.fullmatch('[a-z0-9-]{1,64}', label) is not None, 'invalid host evidence label')
     raw = read_bounded(source, 33554432)
     reflection = json.loads(read_bounded(source.with_suffix('.json'), 4194304))
     manifest = json.loads(read_bounded(source.with_suffix('.manifest.json'), 1048576))
     check_artifact({'text': raw.decode('ascii'), 'target': reflection['target']}, reflection, manifest)
-    harness = Harness(reflection); cases(harness)
-    program = (normalize(raw.decode('ascii')) + harness.finish()).encode('ascii')
-    host = source.with_suffix('.host.ll'); optimized = source.with_suffix('.host.opt.ll')
+    harness = harness_type(reflection); cases(harness)
+    program = (normalizer(raw.decode('ascii')) + harness.finish()).encode('ascii')
+    host = source.with_suffix('.' + label + '.ll'); optimized = source.with_suffix('.' + label + '.opt.ll')
     prepare_output(host); prepare_output(optimized); host.write_bytes(program)
     status, output, diagnostic = invoke_with_snapshot(host, 33554432,
         lambda: invoke(profile, 'opt', ['-passes=verify,default<O2>,verify', '-S', str(host), '-o', str(optimized)]), program)
@@ -187,7 +188,8 @@ def run(source, cases, profile):
         lambda: invoke(profile, 'lli', ['--jit-kind=orc', str(optimized)]), optimized_bytes)
     failure = harness.checks[status - 1] if 1 <= status <= len(harness.checks) else None
     require(status == 0 and not output and not diagnostic, 'host scalar/geometry witness failed: ' + str(failure) + diagnostic)
-    return {'input_sha256': digest(raw), 'normalized_sha256': digest(program), 'checks': len(harness.checks)}
+    return {'input_sha256': digest(raw), 'normalized_sha256': digest(program), 'checks': len(harness.checks),
+            'word_comparisons': getattr(harness, 'word_comparisons', len(harness.checks))}
 
 
 if __name__ == '__main__':

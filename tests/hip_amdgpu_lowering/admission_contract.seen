@@ -42,11 +42,10 @@ fun checkLimits(mode: Int) r: Void {
 }
 fun main() r: Int {
     let initial = seen_memory_used_bytes()
-    checkSource("@compute(1) fun unsupported(data: Buffer<UInt32>) { let old = atomicAdd(data, 0, 1 as UInt32, Relaxed, DeviceScope) }", "E_GPU_AMDGPU_CAPABILITY", "")
-    checkSource("@compute(1) fun unsupported(output: WriteBuffer<UInt32>) { output[0] = subgroupSize }", "E_GPU_AMDGPU_CAPABILITY", "")
-    checkSource("@compute(1) fun unsupported(output: WriteBuffer<Int32>) { output[0] = specializeInt32(7, 4, 1, 8) }", "E_GPU_AMDGPU_CAPABILITY", "")
+    checkSource("@compute(64) fun unsupported(input: ReadBuffer<UInt32>) { let matrix = coopLoadA(input, 0 as UInt32, 16 as UInt32, FP32, Tile16x16x16, RowMajor) }", "E_GPU_AMDGPU_CAPABILITY", "")
+    checkSource("@compute(64) fun unsupported(input: ReadBuffer<UInt32>) { let matrix = coopLoadA(input, 0 as UInt32, 1 as UInt32, INT2, Tile8x8x8, RowMajor) }", "E_GPU_AMDGPU_CAPABILITY", "")
     checkSource("@compute(1) fun too_large(output: WriteBuffer<Int32>) { let a: SharedBuffer<Int32> = sharedBuffer(16383); let b: SharedBuffer<Int32> = sharedBuffer(1); output[0] = a[0] + b[0] }", "E_GPU_AMDGPU_LAYOUT", "")
-    checkSource("@compute(1) fun unavailable(data: Buffer<UInt32>) { let old = atomicAdd(data, 0, 1 as UInt32, Relaxed, DeviceScope) } @compute(1) fun plain(output: WriteBuffer<UInt32>) { output[0] = 7 as UInt32 }", "", "plain")
+    checkSource("@compute(64) fun unavailable(input: ReadBuffer<UInt32>) { let matrix = coopLoadA(input, 0 as UInt32, 1 as UInt32, INT2, Tile8x8x8, RowMajor) } @compute(1) fun plain(output: WriteBuffer<UInt32>) { output[0] = 7 as UInt32 }", "", "plain")
     var mode = 0; while mode < 5 { checkLimits(mode); require(seen_memory_used_bytes() == initial); mode = mode + 1 }
     println("PASS: AMDGPU selected-entry capabilities padded shared limits implicit geometry and bounded identities restore ownership"); return 0
 }

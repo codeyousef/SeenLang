@@ -67,6 +67,7 @@ bash -n \
     tests/misc_root_tests/seen_gpu_ptx_b.sh \
     tests/misc_root_tests/seen_gpu_ptx_c.sh \
     tests/misc_root_tests/seen_gpu_amdgpu_a.sh \
+    tests/misc_root_tests/seen_gpu_amdgpu_b.sh \
     scripts/compiled_fixture_support.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \
@@ -117,6 +118,11 @@ python3 -m py_compile \
     scripts/check_gpu_amdgpu_toolchain.py \
     scripts/check_gpu_amdgpu_artifacts.py \
     scripts/check_gpu_amdgpu_scalar.py \
+    scripts/check_gpu_amdgpu_capabilities.py \
+    scripts/check_gpu_amdgpu_numerics.py \
+    scripts/check_gpu_amdgpu_subgroups.py \
+    scripts/check_gpu_amdgpu_cooperative.py \
+    scripts/check_gpu_amdgpu_native.py \
     scripts/gpu_launch_contract.py \
     scripts/gpu_certification_io.py \
     tests/gpu_artifacts/certification_io_contract.py \

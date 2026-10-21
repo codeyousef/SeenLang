@@ -176,15 +176,18 @@ def log_artifacts(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('root', type=Path); parser.add_argument('names', nargs='+')
+    parser.add_argument('--cdna-only', action='append', default=[], metavar='FIXTURE')
     parser.add_argument('--profiles', nargs='+', choices=('fast', 'release', 'undefined', 'address'), default=['fast', 'release', 'undefined', 'address'])
     args = parser.parse_args()
     require(all(re.fullmatch('[A-Za-z0-9_-]{1,64}', name) for name in args.names), 'invalid fixture name')
+    require(set(args.cdna_only) <= set(args.names), 'CDNA subset refers to an unknown fixture')
     profile = load_profile(); identity = verify_installation(profile); baseline = None; outputs = []; code_objects = {}
     for mode in args.profiles:
         records = []
         for name in args.names:
             current = log_artifacts(args.root / f'{name}-{mode}.log')
-            require([item[0]['target'] for item in current] == profile['targets'], 'AMDGPU target coverage differs')
+            targets = profile['targets'][:2] if name in args.cdna_only else profile['targets']
+            require([item[0]['target'] for item in current] == targets, 'AMDGPU target coverage differs')
             for record, reflection, manifest in current:
                 check_artifact(record, reflection, manifest)
                 source = args.root / f"{name}-{mode}-{record['target']}.ll"; prepare_output(source)
@@ -200,7 +203,8 @@ def main():
         if baseline is None: baseline = records
         require(records == baseline, 'AMDGPU artifact or reflection differs across compiler profiles')
     evidence = {'schema': 'seen-amdgpu-validation-v1', 'classification': 'compile-only', 'official_validation': True,
-                'hardware_verified': False, 'gpu_execution_verified': False, 'toolchain': identity, 'profiles': args.profiles, 'artifacts': outputs}
+                'hardware_verified': False, 'gpu_execution_verified': False, 'toolchain': identity, 'profiles': args.profiles,
+                'cdna_only_fixtures': args.cdna_only, 'artifacts': outputs}
     (args.root / 'validation.json').write_text(json.dumps(evidence, sort_keys=True) + '\n')
     print('PASS: AMDGPU official LLVM and HSA code-object ABI hashes geometry storage and profile identity')
 

@@ -1,0 +1,34 @@
+/// Native CDNA MFMA only: 16x16x16 FP16/BF16, FP32 accumulation, row-major A
+/// and column-major B, with complete wave64 participation. No scalar fallback.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_COOP_LOAD, GPU_IR_COOP_STORE, GPU_IR_COOP_FILL}
+import codegen.gpu_matrix_types.{gpuMatrixFormat}
+import codegen.gpu_precision_formats.{GPU_FORMAT_BF16}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, amdValue, amdDefinition}
+import codegen.gpu.amdgpu_matrix_plan.{amdValueWords, amdMatrixTargetValid}
+import codegen.gpu.amdgpu_matrix_memory.{amdMatrixMemory}
+import codegen.gpu.amdgpu_matrix_values.{amdMatrixInput, amdFragmentVector, amdMatrixResult}
+fun amdCooperative(function: GpuAmdFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    var typeCode = op.typeCode; if typeCode == 0 { typeCode = frame.registerTypes[op.operands[0]] }
+    if not amdMatrixTargetValid(typeCode, function.target) or (function.workgroupX * function.workgroupY * function.workgroupZ) % 64 != 0 {
+        function.error("E_GPU_AMDGPU_CAPABILITY", "AMDGPU MFMA requires supported 16x16x16 precision and complete CDNA wave64 groups"); return 0
+    }
+    if op.opcode == GPU_IR_COOP_LOAD or op.opcode == GPU_IR_COOP_STORE { return amdMatrixMemory(function, frame, op) }
+    let result = function.allocate(amdValueWords(typeCode))
+    if op.opcode == GPU_IR_COOP_FILL {
+        var element = 0; while element < amdValueWords(typeCode) { function.copy(result + element, frame.registers[op.operands[0]], 1); element = element + 1 }; return result
+    }
+    let inputType = frame.registerTypes[op.operands[0]]
+    if not amdMatrixTargetValid(inputType, function.target) {
+        function.error("E_GPU_AMDGPU_CAPABILITY", "AMDGPU MFMA multiplicand precision is unavailable at this target"); return 0
+    }
+    let format = gpuMatrixFormat(inputType); let left = amdMatrixInput(function, frame.registers[op.operands[0]], format)
+    let right = amdMatrixInput(function, frame.registers[op.operands[1]], format)
+    let accumulator = amdFragmentVector(function, frame.registers[op.operands[2]], 4, true); let native = function.value(); amdDefinition(function.body, native)
+    function.body.literal("call <4 x float> @llvm.amdgcn.mfma.f32.16x16x16")
+    if format == GPU_FORMAT_BF16 { function.body.literal("bf16.1k(<4 x i16> ") } else { function.body.literal("f16(<4 x half> ") }
+    amdValue(function.body, left); if format == GPU_FORMAT_BF16 { function.body.literal(", <4 x i16> ") } else { function.body.literal(", <4 x half> ") }
+    amdValue(function.body, right); function.body.literal(", <4 x float> "); amdValue(function.body, accumulator)
+    function.body.literal(", i32 0, i32 0, i32 0)\n"); amdMatrixResult(function, result, native); return result
+}

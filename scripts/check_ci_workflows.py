@@ -100,6 +100,7 @@ jobs:
             .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.ll
             .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.o
             .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.hsaco
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.native.s
             .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*-ir/*.ll
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.log
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.jsonl

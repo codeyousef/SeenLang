@@ -18,7 +18,7 @@ python3 "$ROOT_DIR/scripts/check_gpu_ptx_toolchain.py" > "$TMP_DIR/toolchain.jso
 for profile in fast release undefined address; do
     compile_case "$profile" numeric "$ROOT_DIR/tests/gpu_scalar_words/ptx_numeric_contract.seen"
     rg -Fq 'PASS: emitted scalar PTX matches fixed IEEE packed goldens and allocation baseline' "$TMP_DIR/numeric-$profile.log"
-    compile_case "$profile" specialization "$ROOT_DIR/tests/cuda_ptx_lowering/specialization_contract.seen"
+    compile_case "$profile" specialization "$ROOT_DIR/tests/gpu_artifacts/specialization_contract.seen" cuda
     rg -Fq 'PASS: PTX bounded specialization overrides preserve source and independent clone ownership' "$TMP_DIR/specialization-$profile.log"
     compile_case "$profile" rejection "$ROOT_DIR/tests/cuda_ptx_lowering/capabilities_contract.seen"
     rg -Fq 'PASS: PTX native target shape layout and full-warp rejection preserve selected-entry isolation' "$TMP_DIR/rejection-$profile.log"

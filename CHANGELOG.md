@@ -42,6 +42,9 @@ Foundations**.
   launch arguments, checked scalar/vector memory and structured control flow.
   Add pinned LLVM code-object validation and independent CPU execution of
   normalized emitted LLVM for numeric, bounds and launch-geometry checks.
+- Add HIP scoped atomics, packed conversions, bounded specialization, native
+  wave collectives and checked FP16/BF16 cooperative matrices on CDNA targets.
+  Verify native MFMA instructions and independent scalar/addressing goldens.
 - Add execution, cancellation, allocation and resource-lifetime regressions,
   sanitizer profiles, stress fixtures and machine-readable software evidence.
 
@@ -49,7 +52,7 @@ Foundations**.
 
 - Share bounded text construction and explicit launch-argument packing between
   CUDA and AMDGPU. Describe both launch ABIs in the published GPU JSON schemas.
-- Share bounded packed-number conversion plans between PTX and SPIR-V while
+- Share bounded packed-number conversion plans across PTX, SPIR-V and AMDGPU while
   independently checking emitted instructions against common numeric goldens.
 - Bind the combined executor, completion I/O, SIMD and GPU foundations to
   runtime-v14 and standard-library 0.17.0 with complete module checksums.

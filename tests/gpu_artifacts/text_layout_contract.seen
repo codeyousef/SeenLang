@@ -52,9 +52,12 @@ fun main() r: Int {
         targets.push("sm_70"); targets.push("sm_75"); targets.push("sm_80"); targets.push("sm_86")
         targets.push("sm_89"); targets.push("sm_90"); targets.push("sm_100")
     } else { targets.push("gfx90a"); targets.push("gfx942"); targets.push("gfx1100"); targets.push("gfx1101"); targets.push("gfx1200") }
-    let baseline = seen_memory_used_bytes(); var target = 0
-    if arguments.length() == 4 { textRequire(cuda and arguments[3] == "sm_80+"); target = 2 }
-    while target < targets.length() {
+    let baseline = seen_memory_used_bytes(); var target = 0; var targetLimit = targets.length()
+    if arguments.length() == 4 {
+        if cuda { textRequire(arguments[3] == "sm_80+"); target = 2 }
+        else { textRequire(arguments[3] == "cdna"); targetLimit = 2 }
+    }
+    while target < targetLimit {
         options.target = targets[target]; var iteration = 0
         while iteration < 10 {
             checkTextArtifact(module, options, iteration == 0)
