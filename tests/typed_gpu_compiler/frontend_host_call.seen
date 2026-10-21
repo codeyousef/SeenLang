@@ -1,0 +1,3 @@
+@compute(64)
+fun kernel(output: WriteBuffer<Int32>) { println(1) }
+fun main() r: Int { return 0 }
