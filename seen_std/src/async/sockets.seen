@@ -1,0 +1,216 @@
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import async.executor_core.{executorFailure}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{OwnedHandle}
+
+extern "C" fun seen_async_socket_open(family: Int32, handle: *Int64) r: Int32
+extern "C" fun seen_async_socket_bind(handle: Int64, address: *UInt8,
+    length: UInt64, port: UInt16) r: Int32
+extern "C" fun seen_async_socket_listen(handle: Int64, backlog: Int32) r: Int32
+extern "C" fun seen_async_socket_accept(handle: Int64, client: *Int64) r: Int32
+extern "C" fun seen_async_socket_connect(handle: Int64, address: *UInt8,
+    length: UInt64, port: UInt16) r: Int32
+extern "C" fun seen_async_socket_connect_status(handle: Int64) r: Int32
+extern "C" fun seen_async_socket_read(handle: Int64, data: *Void,
+    length: UInt64, completed: *UInt64) r: Int32
+extern "C" fun seen_async_socket_write(handle: Int64, data: *Void,
+    length: UInt64, completed: *UInt64) r: Int32
+extern "C" fun seen_async_socket_bound_port(handle: Int64, port: *UInt16) r: Int32
+
+fun asyncSocketFailure(status: Int32, operation: String, progress: UInt64)
+    r: AsyncError {
+    var mapped = status
+    if status == (8 as Int32) { mapped = 3 as Int32 }
+    return executorFailure(mapped, operation, progress)
+}
+
+@move
+class SocketAddress {
+    var packed: OwnedBuffer<UInt8>
+    var port: UInt16
+
+    static fun fromBytes(bytes: Array<Int>, port: Int) r: Result<SocketAddress, AsyncError> {
+        if (bytes.length() != 4 and bytes.length() != 16) or port < 0 or port > 65535 {
+            return Err<SocketAddress, AsyncError>(executorFailure(1 as Int32, "socket.address", 0 as UInt64))
+        }
+        var i = 0
+        while i < bytes.length() {
+            if bytes[i] < 0 or bytes[i] > 255 {
+                return Err<SocketAddress, AsyncError>(executorFailure(1 as Int32,
+                    "socket.address", i as UInt64))
+            }
+            i = i + 1
+        }
+        let allocated = OwnedBuffer<UInt8>.allocate(bytes.length() as UInt64, 1 as UInt64, 16 as UInt64)
+        if allocated.isErr() {
+            allocated.unwrapErr().free(); allocated.releaseContainer()
+            return Err<SocketAddress, AsyncError>(executorFailure(2 as Int32, "socket.address", 0 as UInt64))
+        }
+        let packed = allocated.unwrap(); allocated.releaseContainer()
+        i = 0
+        while i < bytes.length() {
+            ptr_store_i8((packed.data as Int) + i, bytes[i] as Int8)
+            i = i + 1
+        }
+        return Ok<SocketAddress, AsyncError>(SocketAddress{packed: packed, port: port as UInt16})
+    }
+    fun release() r: Void { this.packed.close(); this.packed.free(); this.free() }
+}
+
+enum SocketConnectState { Ready; Pending }
+class SocketProgress {
+    var bytes: UInt64
+    var eof: Bool
+}
+
+@move
+class AsyncTcpSocket {
+    var descriptor: OwnedHandle
+    var maxTransferBytes: UInt64
+
+    static fun create(family: Int, maxTransferBytes: UInt64)
+        r: Result<AsyncTcpSocket, AsyncError> {
+        if (family != 4 and family != 6) or maxTransferBytes == (0 as UInt64) or
+            maxTransferBytes > (16777216 as UInt64) {
+            return Err<AsyncTcpSocket, AsyncError>(executorFailure(2 as Int32, "socket.create", 0 as UInt64))
+        }
+        var handle = -1 as Int64
+        let status = seen_async_socket_open(family as Int32, &handle)
+        if status != (0 as Int32) {
+            return Err<AsyncTcpSocket, AsyncError>(asyncSocketFailure(status, "socket.create", 0 as UInt64))
+        }
+        return Ok<AsyncTcpSocket, AsyncError>(AsyncTcpSocket{descriptor:
+            OwnedHandle{native: handle, owned: true, valid: true}, maxTransferBytes: maxTransferBytes})
+    }
+
+    fun bind(address: SocketAddress, context: AsyncOperationContext) r: Result<Bool, AsyncError> {
+        let valid = validateAsyncContext(context, "socket.bind", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer(); return Err<Bool, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        if not this.descriptor.valid {
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "socket.bind", 0 as UInt64))
+        }
+        let status = seen_async_socket_bind(this.descriptor.native, address.packed.data,
+            address.packed.byteLength, address.port)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(asyncSocketFailure(status, "socket.bind", 0 as UInt64))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun listen(backlog: Int) r: Result<Bool, AsyncError> {
+        if not this.descriptor.valid or backlog <= 0 or backlog > 1024 {
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "socket.listen", 0 as UInt64))
+        }
+        let status = seen_async_socket_listen(this.descriptor.native, backlog as Int32)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(asyncSocketFailure(status, "socket.listen", 0 as UInt64))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun accept(context: AsyncOperationContext) r: Result<AsyncTcpSocket, AsyncError> {
+        let valid = validateAsyncContext(context, "socket.accept", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer(); return Err<AsyncTcpSocket, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        if not this.descriptor.valid {
+            return Err<AsyncTcpSocket, AsyncError>(executorFailure(1 as Int32, "socket.accept", 0 as UInt64))
+        }
+        var client = -1 as Int64
+        let status = seen_async_socket_accept(this.descriptor.native, &client)
+        if status != (0 as Int32) {
+            return Err<AsyncTcpSocket, AsyncError>(asyncSocketFailure(status, "socket.accept", 0 as UInt64))
+        }
+        return Ok<AsyncTcpSocket, AsyncError>(AsyncTcpSocket{descriptor:
+            OwnedHandle{native: client, owned: true, valid: true}, maxTransferBytes: this.maxTransferBytes})
+    }
+
+    fun beginConnect(address: SocketAddress, context: AsyncOperationContext)
+        r: Result<SocketConnectState, AsyncError> {
+        let valid = validateAsyncContext(context, "socket.connect", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer(); return Err<SocketConnectState, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        if not this.descriptor.valid {
+            return Err<SocketConnectState, AsyncError>(executorFailure(1 as Int32, "socket.connect", 0 as UInt64))
+        }
+        let status = seen_async_socket_connect(this.descriptor.native, address.packed.data,
+            address.packed.byteLength, address.port)
+        if status == (8 as Int32) { return Ok<SocketConnectState, AsyncError>(SocketConnectState.Pending) }
+        if status != (0 as Int32) {
+            return Err<SocketConnectState, AsyncError>(asyncSocketFailure(status, "socket.connect", 0 as UInt64))
+        }
+        return Ok<SocketConnectState, AsyncError>(SocketConnectState.Ready)
+    }
+
+    fun finishConnect() r: Result<Bool, AsyncError> {
+        if not this.descriptor.valid {
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "socket.connect-status", 0 as UInt64))
+        }
+        let status = seen_async_socket_connect_status(this.descriptor.native)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(asyncSocketFailure(status, "socket.connect-status", 0 as UInt64))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun transfer(write: Bool, buffer: OwnedBuffer<UInt8>, bytes: UInt64,
+        context: AsyncOperationContext) r: Result<SocketProgress, AsyncError> {
+        let valid = validateAsyncContext(context, "socket.transfer", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer(); return Err<SocketProgress, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        if not this.descriptor.valid or buffer.data == (null as *UInt8) or
+            bytes == (0 as UInt64) or bytes > buffer.byteLength or bytes > this.maxTransferBytes {
+            return Err<SocketProgress, AsyncError>(executorFailure(2 as Int32, "socket.transfer", 0 as UInt64))
+        }
+        var completed = 0 as UInt64
+        var status = 0 as Int32
+        if write {
+            status = seen_async_socket_write(this.descriptor.native, buffer.data as *Void, bytes, &completed)
+        } else {
+            status = seen_async_socket_read(this.descriptor.native, buffer.data as *Void, bytes, &completed)
+        }
+        if status != (0 as Int32) {
+            return Err<SocketProgress, AsyncError>(asyncSocketFailure(status, "socket.transfer", completed))
+        }
+        return Ok<SocketProgress, AsyncError>(SocketProgress{bytes: completed,
+            eof: not write and completed == (0 as UInt64)})
+    }
+    fun read(buffer: OwnedBuffer<UInt8>, bytes: UInt64, context: AsyncOperationContext)
+        r: Result<SocketProgress, AsyncError> { return this.transfer(false, buffer, bytes, context) }
+    fun write(buffer: OwnedBuffer<UInt8>, bytes: UInt64, context: AsyncOperationContext)
+        r: Result<SocketProgress, AsyncError> { return this.transfer(true, buffer, bytes, context) }
+
+    fun boundPort() r: Result<Int, AsyncError> {
+        if not this.descriptor.valid {
+            return Err<Int, AsyncError>(executorFailure(1 as Int32, "socket.port", 0 as UInt64))
+        }
+        var port = 0 as UInt16
+        let status = seen_async_socket_bound_port(this.descriptor.native, &port)
+        if status != (0 as Int32) {
+            return Err<Int, AsyncError>(asyncSocketFailure(status, "socket.port", 0 as UInt64))
+        }
+        return Ok<Int, AsyncError>(port as Int)
+    }
+
+    fun intoHandle() r: OwnedHandle {
+        let descriptor = this.descriptor; this.free(); return descriptor
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.descriptor.close()
+        if closed.isErr() {
+            closed.unwrapErr().free(); closed.releaseContainer()
+            return Err<Bool, AsyncError>(executorFailure(3 as Int32, "socket.close", 0 as UInt64))
+        }
+        closed.releaseContainer(); this.descriptor.free(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

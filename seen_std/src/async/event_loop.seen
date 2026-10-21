@@ -1,0 +1,425 @@
+// Exclusive coordinator policy. Workers own only jobs removed from this loop.
+// The fixed executor is borrowed, never expanded by an I/O registration.
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import sync.contracts.{Send}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext, seen_time_monotonic_nanos}
+import async.executor_core.{ExecutorTaskContext, executorFailure, executorCopyContext,
+    executorReleaseSnapshot, EXECUTOR_FOREVER}
+import async.multithread.{MultithreadExecutor, ExecutorJoinHandle}
+import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
+import async.deadline_heap.{AsyncDeadlineHeap}
+import reactor.reactor.{OwnedHandle, Interest, interestFlags}
+import memory.aligned_buffer.{OwnedBuffer}
+import async.readiness_native.{seen_async_readiness_create, seen_async_readiness_register,
+    seen_async_readiness_deregister, seen_async_readiness_poll, seen_async_readiness_event,
+    seen_async_readiness_wakeup, seen_async_readiness_consume_wake, seen_async_readiness_close}
+import async.io_wakeup.{AsyncIoWakeHandle}
+import async.io_lease.{AsyncIoLeaseCounter}
+
+trait AsyncIoJob {
+    fun onEvent(this: AsyncIoJob, event: AsyncIoEvent, descriptor: Int64, context: ExecutorTaskContext) r: Bool
+    fun release(this: AsyncIoJob) r: Bool
+}
+
+@send
+class AsyncIoEvent {
+    var flags: Int32
+    var nativeStatus: Int64
+    var progress: UInt64
+    var timer: Bool
+}
+
+@send
+class ReadyIoJob<T: Send + AsyncIoJob> {
+    var task: T
+    var descriptor: OwnedHandle
+    var event: AsyncIoEvent
+
+    fun run(context: ExecutorTaskContext) r: Bool {
+        return this.task.onEvent(this.event, this.descriptor.native, context)
+    }
+    fun release() r: Bool {
+        // Callback storage can contain borrowed descriptor views. Release it
+        // before the descriptor, including failed/cancelled executor work.
+        let released = this.task.release()
+        let closed = this.descriptor.close()
+        if closed.isErr() { abort("I/O job descriptor cleanup failed") }
+        closed.releaseContainer()
+        this.descriptor.free(); this.event.free(); this.free()
+        return released
+    }
+}
+
+class AsyncIoRegistration {
+    var slot: Int
+    var generation: UInt64
+}
+
+class AsyncIoEntry<T: Send + AsyncIoJob> {
+    var job: ReadyIoJob<T>
+    var context: AsyncOperationContext
+    var generation: UInt64
+    var watching: Bool
+    var ready: Bool
+    var previous: Int
+    var next: Int
+}
+
+@move
+class AsyncEventLoop<T: Send + AsyncIoJob> {
+    var executor: MultithreadExecutor<ReadyIoJob<T>>
+    var native: Int64
+    var wake: Int64
+    var eventStorage: OwnedBuffer<UInt8>
+    var wakeLeases: AsyncIoLeaseCounter
+    var capacity: Int
+    var entries: Array<Option<AsyncIoEntry<T>>>
+    var generations: Array<UInt64>
+    var freeSlots: Array<Int>
+    var freeCount: Int
+    var deadlines: AsyncDeadlineHeap
+    var readyHead: Int
+    var readyTail: Int
+    var active: Int
+    var closed: Bool
+
+    static fun create(executor: MultithreadExecutor<ReadyIoJob<T>>, capacity: Int)
+        r: Result<AsyncEventLoop<T>, AsyncError> {
+        if capacity <= 0 or capacity > 1048576 {
+            return Err<AsyncEventLoop<T>, AsyncError>(executorFailure(2 as Int32, "io.create", 0 as UInt64))
+        }
+        let attached = asyncSyncAttach(executor.core)
+        if attached != (0 as Int32) {
+            return Err<AsyncEventLoop<T>, AsyncError>(executorFailure(attached, "io.create", 0 as UInt64))
+        }
+        let heapResult = AsyncDeadlineHeap.create(capacity)
+        if heapResult.isErr() { abort("validated I/O heap capacity rejected") }
+        let deadlines = heapResult.unwrap(); heapResult.releaseContainer()
+        let storageResult = OwnedBuffer<UInt8>.allocate(capacity as UInt64, 16 as UInt64, 16 as UInt64)
+        if storageResult.isErr() {
+            storageResult.unwrapErr().free(); storageResult.releaseContainer()
+            deadlines.release(); asyncSyncDetach(executor.core)
+            return Err<AsyncEventLoop<T>, AsyncError>(executorFailure(2 as Int32, "io.create", 0 as UInt64))
+        }
+        let storage = storageResult.unwrap(); storageResult.releaseContainer()
+        let leaseResult = AsyncIoLeaseCounter.create(capacity)
+        if leaseResult.isErr() {
+            let error = leaseResult.unwrapErr(); leaseResult.releaseContainer()
+            storage.close(); storage.free(); deadlines.release(); asyncSyncDetach(executor.core)
+            return Err<AsyncEventLoop<T>, AsyncError>(error)
+        }
+        let wakeLeases = leaseResult.unwrap(); leaseResult.releaseContainer()
+        let entries = Array<Option<AsyncIoEntry<T>>>()
+        let generations = Array<UInt64>(); let freeSlots = Array<Int>()
+        var i = 0
+        while i < capacity {
+            entries.push(None<AsyncIoEntry<T>>()); generations.push(0 as UInt64)
+            freeSlots.push(capacity - i - 1); i = i + 1
+        }
+        let reactor = AsyncEventLoop<T>{executor: executor, native: -1 as Int64, wake: -1 as Int64,
+            eventStorage: storage, wakeLeases: wakeLeases, capacity: capacity,
+            entries: entries, generations: generations, freeSlots: freeSlots,
+            freeCount: capacity, deadlines: deadlines, readyHead: -1, readyTail: -1,
+            active: 0, closed: false}
+        var native = -1 as Int64; var wake = -1 as Int64
+        let status = seen_async_readiness_create(&native, &wake)
+        reactor.native = native; reactor.wake = wake
+        if status != (0 as Int32) {
+            let released = reactor.release()
+            if released.isErr() { abort("I/O construction rollback failed") }
+            released.releaseContainer()
+            return Err<AsyncEventLoop<T>, AsyncError>(executorFailure(status, "io.create", 0 as UInt64))
+        }
+        return Ok<AsyncEventLoop<T>, AsyncError>(reactor)
+    }
+
+    fun matches(registration: AsyncIoRegistration) r: Bool {
+        let slot = registration.slot
+        if this.closed or slot < 0 or slot >= this.capacity { return false }
+        return this.entries[slot].isSome() and this.generations[slot] == registration.generation
+    }
+
+    // Success transfers task and descriptor; rejection retains both owners.
+    // A timer uses an invalid, unowned descriptor and a nonnegative deadline.
+    fun register(task: T, descriptor: OwnedHandle, interest: Interest,
+        timerDeadline: Int64, context: AsyncOperationContext)
+        r: Result<AsyncIoRegistration, AsyncError> {
+        let valid = validateAsyncContext(context, "io.register", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<AsyncIoRegistration, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        let timer = timerDeadline >= (0 as Int64)
+        if this.closed or timerDeadline < (-1 as Int64) or (not timer and not descriptor.valid) or
+            (timer and descriptor.valid) or interest == Interest.Completion {
+            return Err<AsyncIoRegistration, AsyncError>(executorFailure(1 as Int32, "io.register", 0 as UInt64))
+        }
+        if this.freeCount == 0 {
+            return Err<AsyncIoRegistration, AsyncError>(executorFailure(2 as Int32, "io.register", 0 as UInt64))
+        }
+        let slot = this.freeSlots[this.freeCount - 1]
+        let generation = this.generations[slot] + (1 as UInt64)
+        if not timer {
+            let status = seen_async_readiness_register(this.native, descriptor.native, interestFlags(interest),
+                generation * (4294967296 as UInt64) + ((slot + 1) as UInt64))
+            if status != (0 as Int32) {
+                return Err<AsyncIoRegistration, AsyncError>(executorFailure(status, "io.register", 0 as UInt64))
+            }
+        }
+        let snapshot = executorCopyContext(context)
+        var deadline = snapshot.operation.monotonicDeadline
+        if timer and timerDeadline < deadline { deadline = timerDeadline }
+        let entry = AsyncIoEntry<T>{job: ReadyIoJob<T>{task: task, descriptor: descriptor,
+            event: AsyncIoEvent{flags: 0 as Int32, nativeStatus: 0 as Int64,
+                progress: 0 as UInt64, timer: timer}}, context: snapshot,
+            generation: generation, watching: not timer, ready: false, previous: -1, next: -1}
+        this.entries[slot].free(); this.entries[slot] = Some<AsyncIoEntry<T>>(entry)
+        this.generations[slot] = generation; this.freeCount = this.freeCount - 1
+        this.active = this.active + 1
+        if deadline != EXECUTOR_FOREVER {
+            if not this.deadlines.insert(slot, deadline) { abort("I/O deadline capacity invariant") }
+        }
+        return Ok<AsyncIoRegistration, AsyncError>(AsyncIoRegistration{slot: slot, generation: generation})
+    }
+
+    fun unlinkReady(slot: Int) r: Void {
+        let entry = this.entries[slot].unwrap()
+        if not entry.ready { return }
+        if entry.previous < 0 { this.readyHead = entry.next }
+        else { this.entries[entry.previous].unwrap().next = entry.next }
+        if entry.next < 0 { this.readyTail = entry.previous }
+        else { this.entries[entry.next].unwrap().previous = entry.previous }
+        entry.ready = false; entry.previous = -1; entry.next = -1
+    }
+
+    fun stopWatching(slot: Int) r: Int32 {
+        let entry = this.entries[slot].unwrap()
+        if not entry.watching { return 0 as Int32 }
+        let status = seen_async_readiness_deregister(this.native, entry.job.descriptor.native)
+        if status == (0 as Int32) or status == (6 as Int32) {
+            entry.watching = false; return 0 as Int32
+        }
+        return status
+    }
+
+    fun markReady(slot: Int) r: Int32 {
+        let entry = this.entries[slot].unwrap()
+        if entry.ready { return 0 as Int32 }
+        let status = this.stopWatching(slot)
+        if status != (0 as Int32) { return status }
+        entry.ready = true; entry.previous = this.readyTail
+        if this.readyTail < 0 { this.readyHead = slot }
+        else { this.entries[this.readyTail].unwrap().next = slot }
+        this.readyTail = slot
+        // Retain operation deadlines while queued for worker admission.
+        let removed = this.deadlines.remove(slot)
+        if entry.context.operation.monotonicDeadline != EXECUTOR_FOREVER {
+            let inserted = this.deadlines.insert(slot, entry.context.operation.monotonicDeadline)
+        }
+        return 0 as Int32
+    }
+
+    fun forget(slot: Int, releaseJob: Bool) r: Void {
+        let entry = this.entries[slot].unwrap()
+        this.unlinkReady(slot); let removed = this.deadlines.remove(slot)
+        if releaseJob { let released = entry.job.release() }
+        executorReleaseSnapshot(entry.context); entry.free()
+        this.entries[slot].free(); this.entries[slot] = None<AsyncIoEntry<T>>()
+        this.active = this.active - 1
+        // Never wrap the 32-bit generation carried by the platform ABI.
+        if this.generations[slot] < (4294967295 as UInt64) {
+            this.freeSlots[this.freeCount] = slot; this.freeCount = this.freeCount + 1
+        }
+    }
+
+    fun cancel(registration: AsyncIoRegistration) r: Result<Bool, AsyncError> {
+        if not this.matches(registration) {
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "io.cancel", 0 as UInt64))
+        }
+        let status = this.stopWatching(registration.slot)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "io.cancel", 0 as UInt64))
+        }
+        this.forget(registration.slot, true)
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    // Readiness includes sockets, eventfd completion queues and device fds.
+    // External producers wake through the native eventfd; no dormant scan.
+    fun wakeHandle() r: Result<AsyncIoWakeHandle, AsyncError> {
+        if this.closed {
+            return Err<AsyncIoWakeHandle, AsyncError>(executorFailure(1 as Int32, "io.wakeHandle", 0 as UInt64))
+        }
+        let acquired = this.wakeLeases.acquire(this.wake as UInt64)
+        if acquired.isErr() {
+            let error = acquired.unwrapErr(); acquired.releaseContainer()
+            return Err<AsyncIoWakeHandle, AsyncError>(error)
+        }
+        let lease = acquired.unwrap(); acquired.releaseContainer()
+        return Ok<AsyncIoWakeHandle, AsyncError>(AsyncIoWakeHandle{lease: lease})
+    }
+
+    fun wakeup() r: Result<Bool, AsyncError> {
+        if this.closed {
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "io.wakeup", 0 as UInt64))
+        }
+        let status = seen_async_readiness_wakeup(this.wake)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "io.wakeup", 0 as UInt64))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun expire(now: Int64) r: Int32 {
+        var slot = this.deadlines.first()
+        while slot >= 0 {
+            if this.deadlines.deadlines[slot] > now { return 0 as Int32 }
+            let entry = this.entries[slot].unwrap()
+            if entry.context.operation.monotonicDeadline <= now {
+                let status = this.stopWatching(slot)
+                if status != (0 as Int32) { return status }
+                this.forget(slot, true); return 7 as Int32
+            }
+            let status = this.markReady(slot)
+            if status != (0 as Int32) { return status }
+            slot = this.deadlines.first()
+        }
+        return 0 as Int32
+    }
+
+    fun pollOnce(maxEvents: Int, context: AsyncOperationContext) r: Result<Int, AsyncError> {
+        let valid = validateAsyncContext(context, "io.poll", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer(); return Err<Int, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        if this.closed or maxEvents <= 0 or maxEvents > this.capacity {
+            return Err<Int, AsyncError>(executorFailure(2 as Int32, "io.poll", 0 as UInt64))
+        }
+        let now = seen_time_monotonic_nanos()
+        if now < (0 as Int64) {
+            return Err<Int, AsyncError>(executorFailure(3 as Int32, "io.clock", 0 as UInt64))
+        }
+        var status = this.expire(now)
+        if status != (0 as Int32) {
+            return Err<Int, AsyncError>(executorFailure(status, "io.poll", 0 as UInt64))
+        }
+        var deadline = context.operation.monotonicDeadline
+        let first = this.deadlines.first()
+        if first >= 0 and this.deadlines.deadlines[first] < deadline {
+            deadline = this.deadlines.deadlines[first]
+        }
+        var timeout = 0 as Int64
+        if this.readyHead < 0 and deadline > now { timeout = deadline - now }
+        var count = 0 as UInt64
+        status = seen_async_readiness_poll(this.native, this.eventStorage.data as *Void,
+            this.eventStorage.byteLength, maxEvents as UInt64, timeout, &count)
+        if status != (0 as Int32) {
+            return Err<Int, AsyncError>(executorFailure(status, "io.poll", 0 as UInt64))
+        }
+        var i = 0 as UInt64
+        while i < count {
+            var identity = 0 as UInt64; var flags = 0 as Int32
+            status = seen_async_readiness_event(this.eventStorage.data as *Void,
+                this.eventStorage.byteLength, i, &identity, &flags)
+            let token = identity % (4294967296 as UInt64)
+            let generation = identity / (4294967296 as UInt64)
+            if status != (0 as Int32) {
+                return Err<Int, AsyncError>(executorFailure(status, "io.event", i))
+            }
+            if identity == (0 as UInt64) {
+                let consumed = seen_async_readiness_consume_wake(this.wake)
+                if consumed != (0 as Int32) {
+                    return Err<Int, AsyncError>(executorFailure(consumed, "io.consumeWake", i))
+                }
+            }
+            if token > (0 as UInt64) and token <= (this.capacity as UInt64) {
+                let slot = (token as Int) - 1
+                if this.entries[slot].isSome() and this.generations[slot] == generation {
+                    let entry = this.entries[slot].unwrap()
+                    if entry.watching {
+                        entry.job.event.flags = flags
+                        status = this.markReady(slot)
+                        if status != (0 as Int32) {
+                            return Err<Int, AsyncError>(executorFailure(status, "io.ready", i))
+                        }
+                    }
+                }
+            }
+            i = i + (1 as UInt64)
+        }
+        status = this.expire(seen_time_monotonic_nanos())
+        if status != (0 as Int32) {
+            return Err<Int, AsyncError>(executorFailure(status, "io.poll", count))
+        }
+        let after = validateAsyncContext(context, "io.poll", count)
+        if after.isErr() {
+            let error = after.unwrapErr(); after.releaseContainer(); return Err<Int, AsyncError>(error)
+        }
+        after.releaseContainer()
+        return Ok<Int, AsyncError>(count as Int)
+    }
+
+    // Admission failure retains the ready job and its descriptor for retry.
+    // Success transfers both to the executor join handle; it must be reaped.
+    fun dispatchNext() r: Result<ExecutorJoinHandle<ReadyIoJob<T>>, AsyncError> {
+        if this.closed or this.readyHead < 0 {
+            return Err<ExecutorJoinHandle<ReadyIoJob<T>>, AsyncError>(executorFailure(3 as Int32,
+                "io.dispatch", 0 as UInt64))
+        }
+        let slot = this.readyHead; let entry = this.entries[slot].unwrap()
+        let admitted = this.executor.spawn(entry.job, entry.context)
+        if admitted.isErr() { return admitted }
+        this.forget(slot, false)
+        return admitted
+    }
+
+    fun close() r: Result<Bool, AsyncError> {
+        if this.closed { return Ok<Bool, AsyncError>(true) }
+        let leaseStatus = this.wakeLeases.idleStatus()
+        if leaseStatus != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(leaseStatus, "io.close.wakeLeases", 0 as UInt64))
+        }
+        // Shutdown is the only capacity scan. Normal poll/admission/cancel
+        // operate on ready events, indexed slots and the deadline heap.
+        var i = 0
+        while i < this.capacity {
+            if this.entries[i].isSome() {
+                let status = this.stopWatching(i)
+                if status != (0 as Int32) {
+                    return Err<Bool, AsyncError>(executorFailure(status, "io.close", i as UInt64))
+                }
+                this.forget(i, true)
+            }
+            i = i + 1
+        }
+        var status = 0 as Int32
+        if this.native >= (0 as Int64) or this.wake >= (0 as Int64) {
+            var native = this.native; var wake = this.wake
+            status = seen_async_readiness_close(&native, &wake)
+            this.native = native; this.wake = wake
+        }
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "io.close", 0 as UInt64))
+        }
+        let destroyed = this.wakeLeases.release()
+        if destroyed != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(destroyed, "io.close.wakeLeases", 0 as UInt64))
+        }
+        asyncSyncDetach(this.executor.core); this.closed = true
+        return Ok<Bool, AsyncError>(true)
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer()
+        var i = 0
+        while i < this.capacity { this.entries[i].free(); i = i + 1 }
+        this.entries.free(); this.generations.free(); this.freeSlots.free()
+        this.eventStorage.close(); this.eventStorage.free()
+        this.deadlines.release(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

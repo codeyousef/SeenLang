@@ -1,0 +1,7 @@
+import async.event_loop.{AsyncEventLoop, ReadyIoJob}
+import async.multithread.{MultithreadExecutor}
+fun unsafeIo(executor: MultithreadExecutor<ReadyIoJob<*Void>>) r: Int {
+    let reactor = AsyncEventLoop<*Void>.create(executor, 1)
+    return 0
+}
+fun main() r: Int { return 0 }

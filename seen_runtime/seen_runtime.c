@@ -89,6 +89,9 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 #include "reactor_abi.c"
 #include "sync_abi.c"
 #include "src/executor_abi.c"
+#include "src/executor_socket_abi.c"
+#include "src/executor_completion_abi.c"
+#include "src/executor_readiness_abi.c"
 
 /* Allocation and reservation form one transaction across worker threads.
  * Nested allocator helpers reuse the owning thread's guard. In particular,
@@ -11279,6 +11282,24 @@ typedef struct SeenFsFile {
     uint64_t alignment;
     bool direct_active;
 } SeenFsFile;
+
+// Duplicate one explicitly direct-I/O file descriptor for an independent
+// completion owner. Seen retains all queue, buffer and cancellation policy.
+int32_t seen_async_completion_duplicate_file(uint64_t source, int64_t *descriptor) {
+#if defined(__linux__) && defined(__x86_64__)
+    if (!source || !descriptor || *descriptor != -1) return 1;
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)source;
+    if (!file->direct_active || file->fd < 0) return 4;
+    int flags = fcntl(file->fd, F_GETFL);
+    if (flags < 0) return seen_async_completion_errno(errno);
+    if (!(flags & O_DIRECT)) return 4;
+    int duplicate = fcntl(file->fd, F_DUPFD_CLOEXEC, 3);
+    if (duplicate < 0) return seen_async_completion_errno(errno);
+    *descriptor = duplicate; return 0;
+#else
+    (void)source; (void)descriptor; return 4;
+#endif
+}
 
 typedef struct SeenFsDirectory {
 #ifdef _WIN32

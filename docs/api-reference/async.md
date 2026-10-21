@@ -46,7 +46,7 @@ See [the compiling structured-async example](../../seen_std/examples/structured_
 ## Fixed-worker execution
 
 Module: `async.multithread`. Contract: `seen-multithread-executor-v1`,
-runtime compatibility: `runtime-v6`.
+runtime compatibility: `runtime-v7`.
 
 `MultithreadExecutor<T: Send + ExecutorJob>` starts exactly the explicitly
 configured worker count and reuses those threads until shutdown. `T` is the
@@ -240,3 +240,104 @@ they do not certify real CPU/NUMA hardware placement. Run software fixtures:
 ```sh
 bash tests/misc_root_tests/seen_cpu_blocking_pools_contract.sh
 ```
+
+### Bounded reactor integration (ASYNC-002D)
+
+`async.event_loop.AsyncEventLoop<T: Send + AsyncIoJob>` borrows a
+`MultithreadExecutor<ReadyIoJob<T>>`. The coordinator exclusively owns the loop
+and registration operations. Workers receive only transferred callback jobs;
+registration never creates threads. The executor refuses destruction while a
+loop borrows it. Close the loop before releasing the executor and reap every
+returned executor join handle.
+
+`register(task, descriptor, interest, timerDeadline, ctx)` transfers ownership
+only on success. Use `timerDeadline = -1` for descriptor readiness, or an invalid
+unowned `OwnedHandle` and a nonnegative monotonic deadline for a timer. All
+registrations share the explicit capacity (1..1,048,576). A fixed indexed heap
+orders timers and operation deadlines; an intrusive FIFO holds ready work.
+Normal poll, cancellation and dispatch do not scan dormant registrations.
+Generation checks reject stale handles; exhausted 32-bit generations retire
+slots instead of wrapping.
+
+`pollOnce(maxEvents, ctx)` waits for OS readiness, a timer or a bounded native
+wakeup, then queues one-shot callbacks. `dispatchNext()` admits one ready callback
+to the borrowed executor and returns its typed join handle. Backpressure retains
+the callback and descriptor for retry. Reap the join and call `ReadyIoJob.release`
+to release callback storage before closing its descriptor. `cancel(registration)`
+deregisters and releases pending work; cancellation after dispatch uses the
+executor join handle. `close()` releases pending registrations and is idempotent.
+Already dispatched work belongs to the executor, not the loop. Immutable context
+snapshots own their string storage. A timed-out pending registration is cleaned
+before `pollOnce` returns `async.timeout`.
+
+Linux x86-64 uses direct epoll calls with a Seen-owned event buffer and no native
+registration lookup table. It supports sockets, device notification descriptors and
+completion-queue notification descriptors. A readiness notification transfers
+no device or kernel request buffer ownership: the callback must retain request
+storage until its completion protocol finishes. Native overlapped/IOCP request
+submission is not exposed by this readiness API. Direct-file completion requests
+use `AsyncFileCompletionQueue`, described below. Other platforms return
+`async.unsupported_platform`; `Interest.Completion` is rejected rather than
+misrepresented as readiness. `wakeHandle()` creates a bounded move-only producer
+lease. Move each handle to its producer, call `wakeup()` there, then release it
+after its final wake. The loop refuses to close while any producer lease remains.
+The loop object itself stays on the coordinator.
+
+`async.sockets.AsyncTcpSocket` owns a nonblocking, close-on-exec TCP descriptor.
+`SocketAddress.fromBytes` validates packed IPv4/IPv6 bytes and a port; it performs
+no name resolution. `bind`, `accept`, `beginConnect`, `read` and `write` accept a
+context. `beginConnect` returns `Pending` for an in-progress connection; wait for
+writability before `finishConnect`. Each transfer performs one nonblocking OS
+call, bounded by the buffer and explicit maximum (1..16 MiB). Success reports
+actual partial bytes and read EOF; would-block returns retryable
+`async.unavailable` with zero progress. Use readiness before retrying. Transfer
+socket ownership with `intoHandle()` when registering it. Retain buffer ownership
+until the callback completes. Linux x86-64 is implemented; other platforms return
+`async.unsupported_platform`.
+
+
+`async.completion_io.AsyncFileCompletionQueue` owns a fixed-capacity Linux kernel
+AIO context and a semaphore eventfd. `submit` accepts an explicit direct-I/O file
+descriptor, an owned aligned buffer, byte/offset bounds, operation and context.
+Success transfers descriptor and buffer ownership and allocates one 64-byte
+kernel request from Seen storage. Rejection retains both caller owners. Byte
+counts and addresses require at least 512-byte alignment; filesystems can require
+stricter alignment, so use their reported direct-I/O requirement (4096-byte
+`OwnedBuffer` alignment is supported). Buffered descriptors are explicitly
+unsupported because Linux AIO submission can otherwise perform buffered work
+synchronously.
+
+Use `notificationLease()` to borrow the completion eventfd. Register an unowned
+handle for that fd with the readiness loop and retain the lease in the callback
+job until the registration is removed. Completion reaping belongs to the queue's
+exclusive coordinator. Each `reap()` is nonblocking and returns `None` or a
+`CompletedFileIo` owner. Its `outcome()` returns actual partial byte progress or
+a typed error; the owner retains the buffer even on an error. Release completed
+owners after consuming their buffers. The semaphore notification preserves
+readiness when a caller reaps only part of a completion batch.
+
+`cancel(registration)` marks the operation cancelled and requests kernel
+cancellation. `None` means the kernel still borrows the request and buffer;
+continue waiting and reaping. A returned completion owner confirms those borrows
+have ended. Never release in-flight storage merely because a deadline expired.
+Deadline/cancellation outcomes preserve completed byte progress. Queue close
+returns `async.unavailable` while requests or notification leases remain, and
+preserves the owner for retry. Drain owned requests, release leases, then close.
+Generation tokens never wrap. Other platforms return
+`async.unsupported_platform`. Native software probes cover OS struct marshalling,
+partial results, deferred cancellation, notification retention and failed-close
+retry; these probes do not certify a physical storage device.
+
+
+Linux descriptor close errors consume ownership even when delayed I/O errors are
+reported. The shared `OwnedHandle` marks such descriptors invalid before returning
+the error, so a retry cannot close a descriptor number reused by another owner.
+The typed owner remains available to finish metadata cleanup.
+
+
+`async.completion_io.completionFileHandle(file)` borrows an open
+`fs.file.File` with required direct I/O and returns an independently owned,
+close-on-exec duplicate descriptor. Close the source File normally after this
+call; the completion owner remains valid. Buffered files return
+`async.unsupported_platform`. The filesystem's opaque wrapper is never treated
+as a raw descriptor number.

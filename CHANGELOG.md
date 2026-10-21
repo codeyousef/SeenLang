@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add bounded Seen reactor dispatch with indexed deadlines, one-shot readiness,
+  generation-checked registrations and typed callback ownership. Add nonblocking
+  TCP socket OS normalization; `runtime-v7` includes these narrow exports.
+
 ### Added
 
 - Added reusable typed CPU/blocking pools with independent bounded workers,

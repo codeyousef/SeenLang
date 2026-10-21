@@ -462,9 +462,13 @@ int32_t seen_reactor_native_handle_close(int64_t native_handle) {
 #if defined(_WIN32)
     return CloseHandle((HANDLE)(uintptr_t)native_handle) ? SEEN_REACTOR_OK :
         SEEN_REACTOR_UNAVAILABLE;
-#elif defined(__linux__) || defined(__APPLE__)
-    return close((int)native_handle) == 0 ? SEEN_REACTOR_OK :
-        SEEN_REACTOR_UNAVAILABLE;
+#elif defined(__linux__)
+    if (native_handle > INT_MAX) return SEEN_REACTOR_INVALID;
+    // Linux consumes the descriptor even on delayed EIO/EINTR. Distinguish
+    // consumed ownership so Seen must not retry a reused descriptor number.
+    return close((int)native_handle) == 0 ? SEEN_REACTOR_OK : SEEN_REACTOR_CLOSED_ERROR;
+#elif defined(__APPLE__)
+    return close((int)native_handle) == 0 ? SEEN_REACTOR_OK : SEEN_REACTOR_UNAVAILABLE;
 #else
     return SEEN_REACTOR_UNSUPPORTED;
 #endif

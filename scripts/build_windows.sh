@@ -105,6 +105,12 @@ compile_runtime() {
         "$RUNTIME_DIR/seen_runtime.h" \
         "$RUNTIME_DIR/src/executor_abi.c" \
         "$RUNTIME_DIR/src/executor_abi.h" \
+        "$RUNTIME_DIR/src/executor_socket_abi.c" \
+        "$RUNTIME_DIR/src/executor_socket_abi.h" \
+        "$RUNTIME_DIR/src/executor_completion_abi.c" \
+        "$RUNTIME_DIR/src/executor_completion_abi.h" \
+        "$RUNTIME_DIR/src/executor_readiness_abi.c" \
+        "$RUNTIME_DIR/src/executor_readiness_abi.h" \
         "$RUNTIME_DIR/seen_region.c" \
         "$RUNTIME_DIR/seen_region.h" \
         "$RUNTIME_DIR/seen_tee_common.c" \
