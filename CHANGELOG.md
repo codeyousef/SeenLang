@@ -65,6 +65,7 @@ Foundations**.
 - Broadcast scalar vector constructors to every lane in SPIR-V, PTX and AMDGPU.
 - Preserve owning Result constructors when repairing frozen bootstrap IR, with
   bit-preserving scalar payloads and owned string boxing.
+- Keep generic Result error unwrapping on its erased-word ABI during bootstrap.
 - Keep GPU byte access and owned-wrapper cleanup compatible with the frozen
   bootstrap compiler so the version branch can link during CI rebuilds.
 - Return backend-specific CUDA artifact integrity errors, preserve SPIR-V

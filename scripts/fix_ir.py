@@ -3007,8 +3007,9 @@ RUNTIME_SEENSTRING_RETURNS = {
     # I/O
     '__ReadFile', '__FileError', '__GetEnv', '__FloatToString',
     '__ReadStdinLine', '__ReadStdinBytes', 'readText',
-    # Option/Result
-    'Option_unwrap_string', 'Result_unwrapErr',
+    # Concrete runtime Option helper. Generic Seen Result methods return an
+    # erased word; a String payload is unboxed by the caller, not this table.
+    'Option_unwrap_string',
     # Vec
     'Vec_get_str', 'Vec_pop_str', 'Vec_remove_str', 'Vec_first_str', 'Vec_last_str',
     # HashMap

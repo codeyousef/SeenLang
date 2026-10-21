@@ -28,6 +28,13 @@ define i64 @Err(i64 %payload) {
   ret i64 %result
 }
 
+; Generic Seen methods return an erased word, including String errors. They
+; must never be classified as concrete String-returning C runtime helpers.
+define i64 @Result_unwrapErr(ptr %storage) {
+  %payload = load i64, ptr %storage
+  ret i64 %payload
+}
+
 define void @check(i64 %actual, i64 %expected) {
   %equal = icmp eq i64 %actual, %expected
   br i1 %equal, label %done, label %fail
@@ -98,7 +105,18 @@ entry:
   %24 = tail call i64 @Err(%SeenString { i64 3, ptr @text })
   %25 = xor i64 %24, -1
   call void @checkString(i64 %25)
-  %26 = load i64, ptr @calls
-  call void @check(i64 %26, i64 20)
+  %26 = call ptr @seen_checked_malloc(i64 16)
+  store %SeenString { i64 3, ptr @text }, ptr %26
+  %27 = ptrtoint ptr %26 to i64
+  %28 = alloca i64
+  store i64 %27, ptr %28
+  %29 = call i64 @Result_unwrapErr(ptr %28)
+  %30 = inttoptr i64 %29 to ptr
+  %31 = load %SeenString, ptr %30
+  %32 = extractvalue %SeenString %31, 0
+  call void @check(i64 %32, i64 3)
+  call void @checkString(i64 %29)
+  %33 = load i64, ptr @calls
+  call void @check(i64 %33, i64 20)
   ret i32 0
 }
