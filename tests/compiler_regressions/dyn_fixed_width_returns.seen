@@ -9,11 +9,11 @@ trait ScalarProvider {
 }
 class ScalarProbe {
     var reserved: Int
+    fun double() r: Float64 { return -2.5 as Float64 }
+    fun single() r: Float32 { return 1.25 as Float32 }
+    fun wide() r: UInt32 { return 4000000001 as UInt32 }
     fun narrow() r: Int8 { return -7 as Int8 }
     fun medium() r: UInt16 { return 65001 as UInt16 }
-    fun wide() r: UInt32 { return 4000000001 as UInt32 }
-    fun single() r: Float32 { return 1.25 as Float32 }
-    fun double() r: Float64 { return -2.5 as Float64 }
 }
 fun verifyScalars(provider: dyn ScalarProvider) r: Bool {
     let valid = provider.narrow() == (-7 as Int8) and provider.medium() == (65001 as UInt16) and
