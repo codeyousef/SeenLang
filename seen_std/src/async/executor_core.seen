@@ -58,7 +58,10 @@ trait ExecutorJob {
 @send
 class ExecutorOwnedJob<T: Send + ExecutorJob> {
     var value: T
-    var dispatch: dyn ExecutorJob
+    // Opaque address of the immutable box validated by bind. The payload is
+    // exactly value (whose Send bound is proved); this is not another job or
+    // an independently supplied Send assertion. Never mutate this address.
+    var dispatchAddress: UInt64
 
     static fun bind(value: T, dispatch: dyn ExecutorJob) r: Result<ExecutorOwnedJob<T>, AsyncError> {
         let words = dispatch as *UInt64
@@ -66,16 +69,20 @@ class ExecutorOwnedJob<T: Send + ExecutorJob> {
             seen_pool_free(dispatch as *Void, 16 as Int64)
             return Err<ExecutorOwnedJob<T>, AsyncError>(executorFailure(1 as Int32, "executor.job.alias", 0 as UInt64))
         }
-        return Ok<ExecutorOwnedJob<T>, AsyncError>(ExecutorOwnedJob<T>{value: value, dispatch: dispatch})
+        return Ok<ExecutorOwnedJob<T>, AsyncError>(ExecutorOwnedJob<T>{value: value, dispatchAddress: dispatch as UInt64})
     }
-    fun run(context: ExecutorTaskContext) r: Bool { return this.dispatch.run(context) }
+    fun run(context: ExecutorTaskContext) r: Bool {
+        let dispatch: dyn ExecutorJob = this.dispatchAddress as dyn ExecutorJob
+        return dispatch.run(context)
+    }
     fun take() r: T {
         let value = this.value
-        seen_pool_free(this.dispatch as *Void, 16 as Int64); this.free(); return value
+        seen_pool_free(this.dispatchAddress as *Void, 16 as Int64); this.free(); return value
     }
     fun release() r: Bool {
-        let released = this.dispatch.release()
-        seen_pool_free(this.dispatch as *Void, 16 as Int64); this.free(); return released
+        let dispatch: dyn ExecutorJob = this.dispatchAddress as dyn ExecutorJob
+        let released = dispatch.release()
+        seen_pool_free(this.dispatchAddress as *Void, 16 as Int64); this.free(); return released
     }
 }
 

@@ -63,8 +63,9 @@ Before submission, bind the concrete job and its trait view with
 `ExecutorOwnedJob<Job>.bind(job, job)`. The second argument captures dispatch
 while the concrete type is available; the factory rejects views of different
 objects with `async.invalid` and releases only that trait box. On success the
-returned owner exclusively owns the job and box. Pass this owner to `spawn`
-or `spawnExecutorTask`. Failed admission retains the owner for retry or
+returned owner exclusively owns the job and box. Pass this owner to `spawnOwned`
+or `spawnExecutorTask`. Alternatively, `spawn(job, job, context)` captures the
+concrete witness and retains the concrete job if admission fails. Failed admission retains the owner for retry or
 `release()`. Successful join returns the concrete job and consumes its wrapper
 and dispatch box; failed/cancelled/unjoined work releases them through the same
 owner. Generic scheduling code never calls unresolved methods on `T`.
