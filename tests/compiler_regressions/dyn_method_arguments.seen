@@ -19,6 +19,7 @@ class MethodValueHandle {
 fun ownedMethodValue(provider: dyn MethodValue) r: Int {
     let value = provider.value(); seen_pool_free(provider as *Void, 16 as Int64); return value
 }
+fun genericMethodValue<T>(identity: T, provider: dyn MethodValue) r: Int { return ownedMethodValue(provider) }
 class MethodValueReader {
     var reserved: Int
     fun consume(provider: dyn MethodValue, expected: Int) r: Bool {
@@ -39,6 +40,7 @@ fun main() r: Int {
         if forwarded.value() != i + 41 { abort("forwarded trait argument changed identity") }; forwarded.release()
         if not reader.consume(provider, i + 41) { abort("instance trait argument was not boxed") }
         if prefixedreadMethodValue(provider) != i + 41 or readMethodValue(provider) != i + 41 { abort("trait parameter name boundary changed argument ABI") }
+        if genericMethodValue<Int>(i, provider) != i + 41 { abort("generic trait argument changed identity") }
         provider.free()
         if seen_memory_used_bytes() != baseline { abort("method trait box did not return to allocation baseline") }; i = i + 1
     }
