@@ -24,6 +24,7 @@ fun appendTraitImplEntryImpl(entry: String, traitImplRegistryBox: Array<String>,
 
     ensureTraitStringBoxValue(traitImplRegistryBox)
     ensureTraitIntBoxValue(traitImplCountBox)
+    if ("|" + traitImplRegistryBox[0]).contains("|" + entry + "|") { return }
     traitImplRegistryBox[0] = traitImplRegistryBox[0] + entry + "|"
     traitImplCountBox[0] = traitImplCountBox[0] + 1
 }
@@ -69,22 +70,29 @@ fun registerClassTraitImplsImpl(receiverType: String, dynTraitNames: String,
         var index = 0
         while index < structNames.length() and structNames[index] != traitName { index = index + 1 }
         if index < structNames.length() and traitName != receiverType {
-            let methods = structMethodNames[index]; var position = 0; var entries = ""; var count = 0; var complete = methods != ""
+            let methods = structMethodNames[index]; var position = 0; let planned = Array<String>(); var complete = methods != ""
             while position < methods.length() and complete {
                 var next = methods.indexOf(",", position)
                 if next < 0 { next = methods.length() }
                 let method = methods.substring(position, next)
-                let expected = getMethodReturnTypeImpl(traitName, method, structNames, structMethodNames, structMethodRetTypes)
-                let actual = getMethodReturnTypeImpl(receiverType, method, structNames, structMethodNames, structMethodRetTypes)
-                if expected == "" or actual != expected { complete = false }
-                else { entries = entries + traitName + ":" + receiverType + ":" + receiverType + "_" + method + "|"; count = count + 1 }
+                var seen = 0; var duplicate = false
+                while seen < planned.length() { if planned[seen] == method { duplicate = true }; seen = seen + 1 }
+                if not duplicate {
+                    let expected = getMethodReturnTypeImpl(traitName, method, structNames, structMethodNames, structMethodRetTypes)
+                    let actual = getMethodReturnTypeImpl(receiverType, method, structNames, structMethodNames, structMethodRetTypes)
+                    if expected == "" or actual != expected { complete = false }
+                    else { planned.push(method) }
+                }
                 position = next + 1
             }
             if complete {
-                ensureTraitStringBoxValue(traitImplRegistryBox); ensureTraitIntBoxValue(traitImplCountBox)
-                traitImplRegistryBox[0] = traitImplRegistryBox[0] + entries
-                traitImplCountBox[0] = traitImplCountBox[0] + count
+                var slot = 0
+                while slot < planned.length() {
+                    appendTraitImplEntryImpl(traitName + ":" + receiverType + ":" + receiverType + "_" + planned[slot], traitImplRegistryBox, traitImplCountBox)
+                    slot = slot + 1
+                }
             }
+            planned.free()
         }
         scan = end + 1
     }
