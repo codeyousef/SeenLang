@@ -715,4 +715,14 @@ grep -q 'ret i1 %2' "$IR_FILE"
 llvm-as "$IR_FILE" -o "$BC_FILE"
 opt -O2 -S "$BC_FILE" -o "$OPT_FILE"
 
+# Execute the normalized calls: constructors must run once, retain their result,
+# and receive the same erased payload bits as the current Seen compiler.
+RESULT_IR="$TMP_DIR/result_constructors.ll"
+cp "$ROOT_DIR/tests/fixtures/frozen-result/constructors.ll.in" "$RESULT_IR"
+python3 "$ROOT_DIR/scripts/fix_ir.py" "$RESULT_IR"
+llvm-as "$RESULT_IR" -o "$TMP_DIR/result_constructors.bc"
+timeout --kill-after=5s 30s lli "$TMP_DIR/result_constructors.bc"
+opt -O2 "$TMP_DIR/result_constructors.bc" -o "$TMP_DIR/result_constructors.opt.bc"
+timeout --kill-after=5s 30s lli "$TMP_DIR/result_constructors.opt.bc"
+
 echo "PASS: Stage2 fix_ir pattern repairs"

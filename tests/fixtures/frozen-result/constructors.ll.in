@@ -1,0 +1,104 @@
+; Frozen calls have concrete payload types; Result constructors take erased words.
+%SeenString = type { i64, ptr }
+@calls = global i64 0
+@text = private constant [3 x i8] c"abc"
+declare ptr @malloc(i64)
+declare void @free(ptr)
+declare void @abort() noreturn
+
+define ptr @seen_checked_malloc(i64 %size) {
+  %memory = call ptr @malloc(i64 %size)
+  ret ptr %memory
+}
+
+; A changed return value and a counter make dropping a constructor observable.
+define i64 @Ok(i64 %payload) {
+  %count = load i64, ptr @calls
+  %next = add i64 %count, 1
+  store i64 %next, ptr @calls
+  %result = add i64 %payload, 17
+  ret i64 %result
+}
+
+define i64 @Err(i64 %payload) {
+  %count = load i64, ptr @calls
+  %next = add i64 %count, 1
+  store i64 %next, ptr @calls
+  %result = xor i64 %payload, -1
+  ret i64 %result
+}
+
+define void @check(i64 %actual, i64 %expected) {
+  %equal = icmp eq i64 %actual, %expected
+  br i1 %equal, label %done, label %fail
+fail:
+  call void @abort()
+  unreachable
+done:
+  ret void
+}
+
+define void @checkString(i64 %handle) {
+  %box = inttoptr i64 %handle to ptr
+  %string = load %SeenString, ptr %box
+  %length = extractvalue %SeenString %string, 0
+  call void @check(i64 %length, i64 3)
+  %data = extractvalue %SeenString %string, 1
+  %actual = ptrtoint ptr %data to i64
+  %expected = ptrtoint ptr @text to i64
+  call void @check(i64 %actual, i64 %expected)
+  call void @free(ptr %box)
+  ret void
+}
+
+define i32 @main() {
+entry:
+  %1 = call i64 @Ok(i64 42)
+  call void @check(i64 %1, i64 59)
+  %2 = call i64 @Err(i64 42)
+  call void @check(i64 %2, i64 -43)
+  %3 = call i64 @Ok(i1 true)
+  call void @check(i64 %3, i64 18)
+  %4 = call i64 @Err(i1 true)
+  call void @check(i64 %4, i64 -2)
+  %5 = call i64 @Ok(i8 -1)
+  call void @check(i64 %5, i64 272)
+  %6 = call i64 @Err(i8 -1)
+  call void @check(i64 %6, i64 -256)
+  %7 = call i64 @Ok(i16 -1)
+  call void @check(i64 %7, i64 65552)
+  %8 = call i64 @Err(i16 -1)
+  call void @check(i64 %8, i64 -65536)
+  %9 = call i64 @Ok(i32 -1)
+  call void @check(i64 %9, i64 4294967312)
+  %10 = call i64 @Err(i32 -1)
+  call void @check(i64 %10, i64 -4294967296)
+  %11 = call i64 @Ok(ptr null)
+  call void @check(i64 %11, i64 17)
+  %12 = call i64 @Err(ptr null)
+  call void @check(i64 %12, i64 -1)
+  %13 = ptrtoint ptr @text to i64
+  %14 = call i64 @Ok(ptr @text)
+  %15 = sub i64 %14, 17
+  call void @check(i64 %15, i64 %13)
+  %16 = call i64 @Err(ptr @text)
+  %17 = xor i64 %16, -1
+  call void @check(i64 %17, i64 %13)
+  %18 = call i64 @Ok(float -0.000000e+00)
+  call void @check(i64 %18, i64 2147483665)
+  %19 = call i64 @Err(float -0.000000e+00)
+  call void @check(i64 %19, i64 -2147483649)
+  %20 = call i64 @Ok(double -0.000000e+00)
+  call void @check(i64 %20, i64 -9223372036854775791)
+  %21 = call i64 @Err(double -0.000000e+00)
+  call void @check(i64 %21, i64 9223372036854775807)
+  %22 = call i64 @Ok(%SeenString { i64 3, ptr @text })
+  %23 = sub i64 %22, 17
+  call void @checkString(i64 %23)
+  %24 = tail call i64 @Err(%SeenString { i64 3, ptr @text })
+  %25 = xor i64 %24, -1
+  call void @checkString(i64 %25)
+  %26 = load i64, ptr @calls
+  call void @check(i64 %26, i64 20)
+  ret i32 0
+}
