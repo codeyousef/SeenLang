@@ -1,0 +1,95 @@
+/// Closed GPU selection policy shared by manifest and command-line parsing.
+/// Entries own cloned names; backend/target/fallback strings are static labels.
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+
+@move
+class GpuOptions {
+    var backend: String
+    var target: String
+    var fallback: String
+    var entries: Array<String>
+    var specified: Bool
+    static fun create() r: GpuOptions {
+        return GpuOptions{backend: "none", target: "", fallback: "error", entries: Array<String>(), specified: false}
+    }
+    fun clearEntries() r: Void {
+        var i = 0
+        while i < this.entries.length() { seen_string_release_owned(this.entries[i]); i = i + 1 }
+        this.entries.free(); this.entries = Array<String>()
+    }
+    fun release() r: Void { this.clearEntries(); this.entries.free(); this.free() }
+}
+fun gpuEntryNameValid(name: String) r: Bool {
+    if name.length() < 1 or name.length() > 128 { return false }; var i = 0
+    while i < name.length() {
+        let c = name.byteAt(i)
+        if not ((c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95 or (i > 0 and c >= 48 and c <= 57)) { return false }
+        i = i + 1
+    }
+    return true
+}
+fun gpuBackendLabel(value: String) r: String {
+    if value == "none" { return "none" }; if value == "spirv" { return "spirv" }; if value == "cuda" { return "cuda" }
+    if value == "hip" { return "hip" }; if value == "metal" { return "metal" }; return ""
+}
+fun gpuTargetLabel(value: String) r: String {
+    if value == "vulkan1.2" { return "vulkan1.2" }; if value == "vulkan1.3" { return "vulkan1.3" }
+    if value == "sm_70" { return "sm_70" }; if value == "sm_75" { return "sm_75" }; if value == "sm_80" { return "sm_80" }
+    if value == "sm_86" { return "sm_86" }; if value == "sm_89" { return "sm_89" }; if value == "sm_90" { return "sm_90" }; if value == "sm_100" { return "sm_100" }
+    if value == "gfx90a" { return "gfx90a" }; if value == "gfx942" { return "gfx942" }; if value == "gfx1100" { return "gfx1100" }
+    if value == "gfx1101" { return "gfx1101" }; if value == "gfx1200" { return "gfx1200" }
+    if value == "macos13" { return "macos13" }; if value == "macos14" { return "macos14" }; if value == "macos15" { return "macos15" }; return ""
+}
+fun gpuOptionsError(line: Int, message: String) r: GpuIrDiagnostic {
+    let error = gpuIrDiagnostic("E_GPU_OPTIONS", message); error.line = line; return error
+}
+// Empty error code means success; the caller always owns the diagnostic.
+fun gpuSetOption(borrow options: GpuOptions, key: String, value: String, line: Int) r: GpuIrDiagnostic {
+    if value.length() > 128 { return gpuOptionsError(line, "GPU option value exceeds its byte ceiling") }
+    if key == "backend" {
+        let label = gpuBackendLabel(value)
+        if label == "" { return gpuOptionsError(line, "unknown GPU backend") }; options.backend = label
+    } else if key == "target" {
+        let label = gpuTargetLabel(value)
+        if label == "" { return gpuOptionsError(line, "unknown GPU target") }; options.target = label
+    } else if key == "fallback" {
+        if value == "error" { options.fallback = "error" }
+        else if value == "cpu" { options.fallback = "cpu" }
+        else { return gpuOptionsError(line, "GPU fallback must be error or explicit cpu") }
+    } else if key == "entry" {
+        if not gpuEntryNameValid(value) or options.entries.length() >= 256 { return gpuOptionsError(line, "GPU entry identity or count is invalid") }
+        var i = 0
+        while i < options.entries.length() {
+            if options.entries[i] == value { return gpuOptionsError(line, "duplicate GPU entry selection") }; i = i + 1
+        }
+        options.entries.push(seen_string_clone_owned(value))
+    } else { return gpuOptionsError(line, "unknown GPU option") }
+    options.specified = true; return gpuIrDiagnostic("", "")
+}
+fun validateGpuOptions(borrow options: GpuOptions) r: GpuIrDiagnostic {
+    if gpuBackendLabel(options.backend) == "" or (options.target != "" and gpuTargetLabel(options.target) == "") or
+        (options.fallback != "error" and options.fallback != "cpu") or options.entries.length() > 256 {
+        return gpuOptionsError(0, "GPU options exceed the closed selection vocabulary")
+    }
+    var i = 0
+    while i < options.entries.length() {
+        if not gpuEntryNameValid(options.entries[i]) { return gpuOptionsError(0, "invalid GPU entry identity") }
+        var previous = 0
+        while previous < i {
+            if options.entries[previous] == options.entries[i] { return gpuOptionsError(0, "duplicate GPU entry selection") }; previous = previous + 1
+        }
+        i = i + 1
+    }
+    if options.backend == "none" and options.target != "" { return gpuOptionsError(0, "a GPU target requires an explicit backend") }
+    if options.target != "" {
+        var valid = false
+        if options.backend == "spirv" { valid = options.target.startsWith("vulkan") }
+        if options.backend == "cuda" { valid = options.target.startsWith("sm_") }
+        if options.backend == "hip" { valid = options.target.startsWith("gfx") }
+        if options.backend == "metal" { valid = options.target.startsWith("macos") }
+        if not valid { return gpuOptionsError(0, "GPU target does not belong to the selected backend") }
+    }
+    if options.backend == "none" and options.fallback != "error" { return gpuOptionsError(0, "GPU fallback policy requires an explicit backend") }
+    return gpuIrDiagnostic("", "")
+}

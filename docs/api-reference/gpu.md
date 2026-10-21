@@ -246,6 +246,81 @@ a backend implements them. `tests/misc_root_tests/seen_gpu_ir_c.sh` runs the
 precision contracts under four profiles and seeded metadata fuzz for 60 seconds.
 Its evidence explicitly leaves GPU execution and hardware verification false.
 
+## Reflection, manifest and strict selection
+
+`seen gpu reflect source.seen --output reflection.json` runs the parsed-source
+lowerer and IR verifier without LLVM, backend initialization or device discovery.
+It emits every compute entry in source order. Repeat `--gpu-entry <name>` to
+select a subset; selection order does not change output order. Unknown entries,
+helper names and duplicate selections are errors. Helpers must currently be
+defined in the same module. Source input is bounded to 1 MiB and output to 4 MiB.
+The JSON output is written atomically only after all validation succeeds.
+
+The command discovers the nearest `seen.toml`, or accepts `--manifest <path>`
+(`--gpu-manifest` is the same option). `[gpu]` supports these fields:
+
+```toml
+[gpu]
+backend = "cuda"
+target = "sm_80"
+fallback = "error"
+entries = ["first", "second"]
+```
+
+Backend defaults to `none`, fallback defaults to `error`, and an empty entry list
+selects all kernels for reflection. Manifest selection values must be quoted
+ASCII literals without escapes. Entries use a single-line array of identifiers.
+Whitespace and trailing comments are accepted. Unknown keys, duplicate keys or
+tables, nested GPU tables, duplicate entries and mismatched targets fail with
+`E_GPU_OPTIONS`. Limits are 64 KiB manifest bytes, 2048 lines, 4096 bytes per
+line, 128 bytes per selection value and 256 entries. Other project tables remain
+owned by their existing parsers.
+
+`--gpu-backend`, `--gpu-target`, `--gpu-fallback` and repeated `--gpu-entry`
+override the corresponding manifest fields. The manifest must itself be valid;
+CLI overrides are validated again. CLI entry selection replaces the manifest
+entry list. Backend labels are `none`, `spirv`, `cuda`, `hip` and `metal`.
+Recognized target labels are Vulkan 1.2/1.3 (`vulkan1.2`, `vulkan1.3`), CUDA
+`sm_70/75/80/86/89/90/100`, HIP `gfx90a`, `gfx942`, `gfx1100/1101/1200`, and Metal
+`macos13/14/15`. A target requires its matching explicit backend. Fallback is
+`error` or explicitly requested `cpu`. Selecting a policy never implements a
+fallback or supplies capability evidence.
+
+The same strict options apply to `seen compile`. Until typed backend execution
+is implemented, selecting a GPU backend returns `E_GPU_BACKEND_UNAVAILABLE`
+before creating a binary. CPU-only compilation with the default `none` policy
+continues through the existing compiler path. `--emit-glsl` remains recognized
+for one release and emits `W_GPU_LEGACY_GLSL`, followed by the existing explicit
+backend-unavailable error; it does not restore legacy shader substitution.
+
+[Reflection v1](../schemas/seen-gpu-reflection-v1.schema.json) includes each entry's
+workgroup geometry, ordered resource bindings, scalar/element layout, required
+capabilities, shared bytes and checked-fault binding. User bindings use group 0
+in parameter order. Storage element strides are 4/8/16 bytes; vec3 has stride 16.
+A scalar/vector uniform occupies a separately bound, 16-byte padded block.
+Storage minimum size is zero because runtime lengths remain checked. A required
+fault sink uses the next binding after the user parameters; otherwise its binding
+is -1. These descriptors define backend obligations rather than device support.
+Per-entry requirements include reachable helpers and exclude unrelated kernels.
+Bounded specialization records retain their IDs, defaults and admitted domains.
+
+`ir_sha256` hashes the exact canonical `seen-gpu-ir-v1` UTF-8 serialization.
+`abi_sha256` hashes the compact JSON object containing, in order, `workgroup`,
+`bindings`, `required_capabilities`, `shared_bytes`, `requires_fault_buffer`,
+`fault_binding`, and the module's `specializations` array. Hashes use Seen's
+shared SHA-256 implementation. `--module-id <stable-id>` controls canonical source
+identity (default `module`); use a stable project-relative identity for exported
+artifacts. Source locations are part of canonical IR, so formatting can change
+the IR hash. ABI hashes describe the emitted layout/domain contract.
+
+`reflectGpuModule` borrows the immutable IR and options and returns owned JSON or
+owned validation diagnostics. Release JSON with `releaseJsonText` and validation
+with `release()`. `GpuOptions` owns cloned entry names; its creator calls
+`release()`. Reflection always records `hardware_verified: false` and
+`gpu_execution_verified: false`. The regression harness independently recomputes
+IR/ABI hashes, compares four execution profiles, checks deterministic CLI output,
+exercises adverse selection and includes 60 seconds of seeded metadata fuzz.
+
 ## Runtime C API
 
 The authoritative declarations are in `seen_runtime/seen_gpu.h`:
