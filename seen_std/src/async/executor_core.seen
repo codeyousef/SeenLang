@@ -158,6 +158,8 @@ class ExecutorCore {
     var stopping: Bool
     var stopped: Bool
     var closed: Bool
+    var syncOwners: Int
+    var syncWaiters: Int
 
     fun lock(deadline: Int64) r: Int32 {
         return seen_sync_mutex_lock_until(this.mutex, deadline)
@@ -222,7 +224,7 @@ class ExecutorCore {
         let ticket = this.tickets[slot].unwrap()
         let context = ExecutorTaskContext{core: this, slot: slot,
             id: ticket.id, depth: depth, operation: ticket.operation}
-        let previousTask = seen_executor_swap_task(ticket.id)
+        let previousTask = seen_executor_swap_task((slot + 1) * 128 + depth)
         var succeeded = false
         var failure = 3 as Int32
         if not context.isCancelled() {
@@ -353,7 +355,7 @@ class ExecutorCore {
     fun wait(slot: Int, id: Int, context: AsyncOperationContext, depth: Int)
         r: Int32 {
         if this.closed { return 1 as Int32 }
-        if this.ownsWorker() and seen_executor_current_task() == id {
+        if this.ownsWorker() and executorCurrentSlot() == slot {
             return 1 as Int32
         }
         var status = this.lock(context.operation.monotonicDeadline)
@@ -384,24 +386,10 @@ class ExecutorCore {
                 return failure
             }
             valid.releaseContainer()
-            if this.ownsWorker() and this.queued > 0 {
-                if depth >= this.limits.helpDepth or
-                    depth >= context.limits.maxTreeDepth {
-                    this.unlock()
-                    return 2 as Int32
-                }
-                let next = this.takeLocked()
+            status = executorParkOrHelpLocked(this, context)
+            if status != (0 as Int32) {
                 this.unlock()
-                this.execute(next, depth + 1)
-                status = this.lock(context.operation.monotonicDeadline)
-                if status != (0 as Int32) { return status }
-            } else {
-                status = seen_sync_condition_wait_until(this.changed,
-                    this.mutex, context.operation.monotonicDeadline)
-                if status != (0 as Int32) {
-                    this.unlock()
-                    return status
-                }
+                return status
             }
         }
         return 1 as Int32
@@ -473,6 +461,13 @@ class ExecutorCore {
 
     fun close() r: Int32 {
         if this.closed { return 0 as Int32 }
+        if this.mutex != (0 as UInt64) {
+            let locked = this.lock(EXECUTOR_FOREVER)
+            if locked != (0 as Int32) { return locked }
+            let borrowed = this.syncOwners > 0
+            this.unlock()
+            if borrowed { return 6 as Int32 }
+        }
         let stopped = this.shutdown(true)
         if stopped != (0 as Int32) { return stopped }
         // Destroy native resources before discarding arrays so a failed
@@ -519,3 +514,52 @@ class ExecutorTaskContext {
     }
 }
 
+
+// Task slot and bounded helping depth share the existing opaque OS TLS
+// integer. Encoding belongs to Seen; no scheduler metadata policy enters C.
+fun executorCurrentSlot() r: Int { return seen_executor_current_task() / 128 - 1 }
+fun executorCurrentDepth() r: Int { return seen_executor_current_task() % 128 }
+
+fun executorStopStatusLocked(core: ExecutorCore, context: AsyncOperationContext)
+    r: Int32 {
+    if context.operation.cancellation or
+        (core.stopping and not core.ownsWorker()) { return 9 as Int32 }
+    if core.ownsWorker() {
+        let slot = executorCurrentSlot()
+        if slot < 0 or slot >= core.tickets.length() { return 1 as Int32 }
+        if core.tickets[slot].isNone() { return 1 as Int32 }
+        if core.tickets[slot].unwrap().cancelled { return 9 as Int32 }
+    }
+    return asyncDeadlineStatus(context)
+}
+
+// Called with core.mutex held; always returns with that mutex held. User jobs
+// execute outside it. A failed helping relock is an unrecoverable invariant
+// failure, rather than returning to a caller that assumes ownership of a lock.
+fun executorParkOrHelpLocked(core: ExecutorCore, context: AsyncOperationContext)
+    r: Int32 {
+    let stop = executorStopStatusLocked(core, context)
+    if stop != (0 as Int32) { return stop }
+    if core.ownsWorker() and core.queued > 0 {
+        let depth = executorCurrentDepth()
+        if depth >= core.limits.helpDepth or depth >= context.limits.maxTreeDepth {
+            return 2 as Int32
+        }
+        let next = core.takeLocked()
+        core.unlock()
+        core.execute(next, depth + 1)
+        if core.lock(EXECUTOR_FOREVER) != (0 as Int32) {
+            abort("async synchronization helping could not reacquire executor")
+        }
+        return 0 as Int32
+    }
+    // A nested helping frame cannot suspend its outer producer/participant.
+    // With no ready work, reject instead of deadlocking that dependency.
+    if core.ownsWorker() and executorCurrentDepth() > 0 { return 2 as Int32 }
+    if core.syncWaiters >= core.limits.tasks { return 2 as Int32 }
+    core.syncWaiters = core.syncWaiters + 1
+    let status = seen_sync_condition_wait_until(core.changed, core.mutex,
+        context.operation.monotonicDeadline)
+    core.syncWaiters = core.syncWaiters - 1
+    return status
+}

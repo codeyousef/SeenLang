@@ -588,19 +588,19 @@ fun boundedFanOut<T>(executor: DeterministicExecutor<T>, values: Array<T>,
         maxFanOut)
 }
 
-class AsyncWaitGroup {
+class DeterministicWaitGroup {
     var remaining: Int
     var limit: Int
 
     static fun create(count: Int, limit: Int)
-        r: Result<AsyncWaitGroup, AsyncError> {
+        r: Result<DeterministicWaitGroup, AsyncError> {
 
         if count < 0 or limit <= 0 or count > limit {
-            return Err<AsyncWaitGroup, AsyncError>(asyncFailure("async.limit",
+            return Err<DeterministicWaitGroup, AsyncError>(asyncFailure("async.limit",
                 "wait_group.create", "wait count exceeds its bound", false,
                 count as UInt64, "wait-group"))
         }
-        return Ok<AsyncWaitGroup, AsyncError>(AsyncWaitGroup{
+        return Ok<DeterministicWaitGroup, AsyncError>(DeterministicWaitGroup{
             remaining: count, limit: limit})
     }
 
@@ -615,18 +615,18 @@ class AsyncWaitGroup {
     }
 }
 
-class AsyncBarrier {
+class DeterministicBarrier {
     var parties: Int
     var arrived: Int
     var generation: Int
 
-    static fun create(parties: Int) r: Result<AsyncBarrier, AsyncError> {
+    static fun create(parties: Int) r: Result<DeterministicBarrier, AsyncError> {
         if parties <= 0 or parties > ASYNC_MAX_FAN_OUT {
-            return Err<AsyncBarrier, AsyncError>(asyncFailure("async.limit",
+            return Err<DeterministicBarrier, AsyncError>(asyncFailure("async.limit",
                 "barrier.create", "barrier parties exceed the bound", false,
                 0 as UInt64, "barrier"))
         }
-        return Ok<AsyncBarrier, AsyncError>(AsyncBarrier{parties: parties,
+        return Ok<DeterministicBarrier, AsyncError>(DeterministicBarrier{parties: parties,
             arrived: 0, generation: 0})
     }
 
@@ -641,6 +641,12 @@ class AsyncBarrier {
     }
 }
 
+fun asyncSumWouldOverflow(sum: Int, value: Int) r: Bool {
+    if value > 0 { return sum > 9223372036854775807 - value }
+    if value < 0 { return sum < (-9223372036854775807 - 1) - value }
+    return false
+}
+
 fun deterministicReduceSum(values: Array<Int>, maxItems: Int)
     r: Result<Int, AsyncError> {
 
@@ -652,6 +658,10 @@ fun deterministicReduceSum(values: Array<Int>, maxItems: Int)
     var sum = 0
     var i = 0
     while i < values.length() {
+        if asyncSumWouldOverflow(sum, values[i]) {
+            return Err<Int, AsyncError>(asyncFailure("async.limit", "reduce",
+                "integer reduction overflow", false, i as UInt64, "reduce"))
+        }
         sum = sum + values[i]
         i = i + 1
     }

@@ -1,0 +1,133 @@
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext,
+    asyncSumWouldOverflow}
+import async.executor_core.{ExecutorCore, executorFailure, executorContextFailure,
+    EXECUTOR_FOREVER, executorParkOrHelpLocked, executorStopStatusLocked}
+import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
+
+// Each producer owns one explicit index. Completion order cannot change the
+// fold order. The storage contains scalar copies and owns no task payloads.
+@move
+class AsyncIntReduction {
+    var core: ExecutorCore
+    var values: Array<Int>
+    var present: Array<Bool>
+    var count: Int
+    var capacity: Int
+    var waiters: Int
+    var closed: Bool
+
+    static fun create(core: ExecutorCore, capacity: Int)
+        r: Result<AsyncIntReduction, AsyncError> {
+        if capacity <= 0 or capacity > core.limits.tasks {
+            return Err<AsyncIntReduction, AsyncError>(executorFailure(2 as Int32,
+                "reduction.create", 0 as UInt64))
+        }
+        let status = asyncSyncAttach(core)
+        if status != (0 as Int32) {
+            return Err<AsyncIntReduction, AsyncError>(executorFailure(status,
+                "reduction.create", 0 as UInt64))
+        }
+        let values = Array<Int>(); let present = Array<Bool>()
+        var i = 0
+        while i < capacity { values.push(0); present.push(false); i = i + 1 }
+        return Ok<AsyncIntReduction, AsyncError>(AsyncIntReduction{core: core,
+            values: values, present: present, count: 0, capacity: capacity,
+            waiters: 0, closed: false})
+    }
+
+    fun submit(index: Int, value: Int, context: AsyncOperationContext)
+        r: Result<Bool, AsyncError> {
+        let valid = validateAsyncContext(context, "reduction.submit", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<Bool, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        var status = this.core.lock(context.operation.monotonicDeadline)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorContextFailure(status,
+                "reduction.submit", 0 as UInt64, context))
+        }
+        status = executorStopStatusLocked(this.core, context)
+        if this.closed or index < 0 or index >= this.capacity {
+            status = 1 as Int32
+        } else {
+            if this.present[index] { status = 1 as Int32 }
+        }
+        if status != (0 as Int32) {
+            let progress = this.count as UInt64
+            this.core.unlock()
+            return Err<Bool, AsyncError>(executorContextFailure(status,
+                "reduction.submit", progress, context))
+        }
+        this.values[index] = value
+        this.present[index] = true
+        this.count = this.count + 1
+        this.core.notify()
+        this.core.unlock()
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun finish(context: AsyncOperationContext) r: Result<Int, AsyncError> {
+        let valid = validateAsyncContext(context, "reduction.finish", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<Int, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        var status = this.core.lock(context.operation.monotonicDeadline)
+        if status != (0 as Int32) {
+            return Err<Int, AsyncError>(executorContextFailure(status,
+                "reduction.finish", 0 as UInt64, context))
+        }
+        this.waiters = this.waiters + 1
+        while this.count < this.capacity and not this.closed and status == (0 as Int32) {
+            status = executorParkOrHelpLocked(this.core, context)
+        }
+        this.waiters = this.waiters - 1
+        if this.closed { status = 9 as Int32 }
+        var sum = 0
+        var i = 0
+        while i < this.capacity and status == (0 as Int32) {
+            if i % 256 == 0 { status = executorStopStatusLocked(this.core, context) }
+            if status == (0 as Int32) {
+                if asyncSumWouldOverflow(sum, this.values[i]) { status = 2 as Int32 }
+                else { sum = sum + this.values[i]; i = i + 1 }
+            }
+        }
+        this.core.unlock()
+        if status != (0 as Int32) {
+            return Err<Int, AsyncError>(executorContextFailure(status,
+                "reduction.finish", i as UInt64, context))
+        }
+        return Ok<Int, AsyncError>(sum)
+    }
+
+    fun close() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "reduction.close", 0 as UInt64))
+        }
+        this.closed = true
+        this.core.notify()
+        this.core.unlock()
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun release() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "reduction.release", 0 as UInt64))
+        }
+        if not this.closed or this.waiters != 0 {
+            this.core.unlock()
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "reduction.release", 0 as UInt64))
+        }
+        this.core.unlock()
+        this.values.free(); this.present.free()
+        asyncSyncDetach(this.core)
+        this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

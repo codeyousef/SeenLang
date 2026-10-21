@@ -23,6 +23,7 @@ CAPABILITY_CALLERS=(
 )
 TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_multithread_executor_contract.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_synchronization_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"

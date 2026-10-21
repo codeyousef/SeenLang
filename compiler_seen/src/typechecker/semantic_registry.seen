@@ -180,6 +180,14 @@ fun semanticFoundationThreadProperty(name: String, propertyName: String)
         return 0
     }
     if semanticFoundationCanonicalType(base,
+            "seen_std.src.async.wait_group", "AsyncWaitGroup") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.async.barrier", "AsyncBarrier") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.async.queue", "AsyncQueue") or
+        semanticFoundationCanonicalType(base,
+            "seen_std.src.async.reduction", "AsyncIntReduction") or
+        semanticFoundationCanonicalType(base,
             "seen_std.src.sync.arc", "Arc") or
         semanticFoundationCanonicalType(base,
             "seen_std.src.sync.atomic", "Atomic") or

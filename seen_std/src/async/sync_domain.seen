@@ -1,0 +1,30 @@
+// Shared executor synchronization domain. Every predicate is protected by
+// core.mutex and every state transition notifies core.changed under that lock.
+// This prevents missed wakes without per-primitive native handles or polling.
+
+import async.executor_core.{ExecutorCore, EXECUTOR_FOREVER}
+
+fun asyncSyncAttach(core: ExecutorCore) r: Int32 {
+    if core.closed { return 1 as Int32 }
+    let status = core.lock(EXECUTOR_FOREVER)
+    if status != (0 as Int32) { return status }
+    var result = 0 as Int32
+    if core.stopping { result = 1 as Int32 }
+    else {
+        if core.syncOwners >= core.limits.tasks { result = 2 as Int32 }
+        else { core.syncOwners = core.syncOwners + 1 }
+    }
+    core.unlock()
+    return result
+}
+
+fun asyncSyncDetach(core: ExecutorCore) r: Void {
+    if core.closed or core.lock(EXECUTOR_FOREVER) != (0 as Int32) {
+        abort("async synchronization owner outlived its executor")
+    }
+    if core.syncOwners <= 0 { abort("async synchronization owner released twice") }
+    core.syncOwners = core.syncOwners - 1
+    core.notify()
+    core.unlock()
+}
+

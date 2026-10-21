@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `seen-async-sync-v1`: Seen task-group ownership and failure drain,
+  executor-aware wait groups, single-phase barriers, bounded typed queues,
+  and deterministic checked integer reductions. Counter-only models now
+  use explicit Deterministic names.
+
+### Added
+
 - Added a native Seen fixed-worker executor with typed `Send` task admission,
   bounded FIFO scheduling, worker-assisted nested joins, cooperative
   cancellation, deadline-aware waits, and deterministic resource release.

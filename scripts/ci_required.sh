@@ -64,6 +64,7 @@ bash -n \
     tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh \
     tests/misc_root_tests/seen_async_structured_contract.sh \
     tests/misc_root_tests/seen_multithread_executor_contract.sh \
+    tests/misc_root_tests/seen_async_synchronization_contract.sh \
     tests/misc_root_tests/seen_stdlib_component_payload.sh \
     tests/misc_root_tests/seen_mapped_close_ownership.sh \
     tests/misc_root_tests/seen_open_issue_regressions.sh \

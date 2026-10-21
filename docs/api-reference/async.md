@@ -18,7 +18,7 @@ class are not compatibility surfaces.
 | `DeterministicExecutor<T>` | Typed wake-driven task state and deterministic scheduling |
 | `Scope<T>` | Move-only owner that spawns, joins, cancels, and closes child work |
 | `JoinHandle<T>` | Move-only typed task identity with exactly-once join state |
-| `AsyncWaitGroup`, `AsyncBarrier` | Bounded coordination helpers |
+| `DeterministicWaitGroup`, `DeterministicBarrier` | Single-thread coordination models |
 
 Fallible operations return `Result<T, AsyncError>`. Stable error codes are
 `async.invalid`, `async.limit`, `async.cancelled`, `async.timeout`,
@@ -111,3 +111,75 @@ entrypoints are `tests/misc_root_tests/seen_multithread_executor_contract.sh`
 and `tests/misc_root_tests/seen_executor_native_abi.sh`. Set
 `SEEN_EXECUTOR_TSAN=1` on a host with the required TSan address-space policy
 to include its allocator race run; an omitted TSan run is not certification.
+
+## Worker synchronization (`seen-async-sync-v1`)
+
+`async.task_group.TaskGroup<T: Send + ExecutorJob>` is an exclusive coordinator
+owner for a bounded set of child jobs. `create(core, limit, context)` reserves
+its handle table. `spawn` transfers a job only on success. `barrier(context)`
+seals admission, joins in submission order, and transfers `Array<T>` exactly
+once. On the first error it cancels remaining children, drains owned work with
+an uncancelled cleanup context, and releases successful partial results.
+The error records completed group results as progress. `close` cancels and
+drains; `release` consumes the group and its context/table owners.
+Creating a coordinator group inside a worker is rejected; workers use typed
+nested spawn/join and the synchronization primitives below.
+
+`AsyncWaitGroup.create(core, count, limit)` supplies checked `done`, `wait(ctx)`,
+`cancel`, `close` and `release`. A wait timeout leaves its owner intact for a
+later observation. Counts cannot underflow. Progress counts completed items,
+not unused capacity.
+
+`AsyncBarrier.create(core, parties)` creates a **single-use** phase barrier.
+`arrive(ctx)` waits for every participant and returns phase 0. A failed wait
+breaks the phase for all participants; another arrival after completion is
+invalid. Create a fresh barrier for another phase. This explicit lifecycle
+avoids a later phase blocking a participant whose outer helping frame has
+not yet resumed.
+
+`AsyncQueue<T: Send>.create(core, capacity)` preallocates its bounded FIFO.
+`put(value, ctx)` transfers ownership on success and backpressures when full;
+`take(ctx)` transfers one value. Closing rejects producers, wakes waiters and
+allows existing values to be drained. Release rejects nonempty storage or
+active waiters: payloads are never silently discarded. Drain and dispose of
+owned values before final release.
+
+`AsyncIntReduction.create(core, capacity)` reserves scalar result slots.
+`submit(index, value, ctx)` fills each index once. `finish(ctx)` waits for all
+slots and folds in index order with checked signed addition. Duplicates,
+invalid indices and overflow fail with stable `async.invalid`/`async.limit`
+diagnostics. The fold allocates no per-item state and observes stop requests
+at bounded intervals. `close` wakes observers; release requires no waiters.
+
+All primitives borrow the executor core, use its mutex/condition, and notify
+state changes under that mutex. Workers help ready work outside the lock;
+there is no dormant-task polling scan or thread creation per wait. Helping
+uses the current TLS slot/depth and enforces stack/tree limits. A nested
+helping frame with no ready work fails with `async.limit` rather than blocking
+an outer producer or participant needed for progress. Callers should keep
+producer steps bounded and size capacity/workers for their dependency graph.
+Task cancellation, deadlines, closed state and saturation remain explicit.
+Errors are typed `AsyncError` values; retries remain caller policy.
+
+At most `core.limits.tasks` synchronization owners and native parked waiters
+are admitted. The core refuses final close while synchronization borrowers
+exist. Close/wake primitives, join every caller, drain payloads, release
+primitives/groups, then release the executor. The owner excludes concurrent
+calls during final destruction. Shared method calls are protected; copying a
+borrowed handle does not extend its lifetime or authorize another destructor.
+The compiler recognizes these exact canonical foundation types as synchronized
+Send/Share boundaries; similarly named user classes receive no exemption.
+
+The previous counter-only coordination models are now explicitly named
+`DeterministicWaitGroup` and `DeterministicBarrier`. They remain single-thread
+models for the deterministic executor and are not worker synchronization APIs.
+Integer deterministic reductions now reject overflow as well.
+
+Linux x86-64 uses the existing executor and synchronization OS adapters. No new
+foreign symbol or foreign scheduling/queue/reduction algorithm is introduced.
+Other platforms retain the executor's explicit unsupported classification;
+no platform or hardware certification is implied. Run software regressions:
+
+```sh
+bash tests/misc_root_tests/seen_async_synchronization_contract.sh
+```
