@@ -66,12 +66,17 @@ fun getSemanticFieldTypeState(structName: String, fieldName: String)
 fun getMethodReturnTypeState(structName: String, methodName: String)
     r: String {
 
-    let baseType = getBaseTypeNameImpl(structName)
+    // Dynamic dispatch and expression inference must consult the same trait
+    // declaration. The `dyn ` receiver prefix is representation metadata,
+    // rather than part of the registered trait identity.
+    var receiverType = structName
+    if receiverType.startsWith("dyn ") { receiverType = receiverType.substring(4, receiverType.length()) }
+    let baseType = getBaseTypeNameImpl(receiverType)
     var retType = getMethodReturnTypeImpl(baseType, methodName,
         getGlobalStructNamesImpl(), getGlobalStructMethodNamesImpl(),
         getGlobalStructMethodRetTypesImpl())
-    if retType != "" and baseType != structName {
-        retType = specializeGenericTypeImpl(structName, baseType,
+    if retType != "" and baseType != receiverType {
+        retType = specializeGenericTypeImpl(receiverType, baseType,
             retType)
     }
     if retType == "Unknown" {
