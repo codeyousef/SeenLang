@@ -70,6 +70,7 @@ jobs:
             .seen/agent-tools/safe-rebuild/run.*/stage2-failure.*/*
             .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/*.log
             .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/pointer-index-*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/inf-simd-b.*/contract-*-ir/*.ll
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.log
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.jsonl
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*-ir/*.ll
