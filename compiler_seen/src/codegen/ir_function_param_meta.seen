@@ -1,3 +1,4 @@
+import codegen.ir_dyn_parameter_metadata.{recordPreRegisteredDynParameterImpl}
 ///
 ir_function_param_meta.seen — parameter metadata helpers extracted from
 llvm_ir_gen.seen to keep function pre-registration bookkeeping localized.
@@ -249,17 +250,6 @@ fun recordPreRegisteredDefaultParameterImpl(implFuncName: String,
     }
 }
 
-fun recordPreRegisteredDynParameterImpl(implFuncName: String, paramIdx: Int,
-    preTypeName: String, dynParamFuncsBox: Array<String>) r: Void {
-
-    ensureFunctionParamMetaStringBoxValue(dynParamFuncsBox)
-
-    if preTypeName.startsWith("dyn ") {
-        let dynTraitParam = preTypeName.substring(4, preTypeName.length())
-        dynParamFuncsBox[0] = dynParamFuncsBox[0] + implFuncName + ":" +
-            paramIdx.toString() + ":" + dynTraitParam + "|"
-    }
-}
 
 fun preRegisterFunctionParametersImpl(fn: FunctionNode, implFuncName: String,
     varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
