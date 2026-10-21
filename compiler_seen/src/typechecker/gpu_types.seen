@@ -105,17 +105,19 @@ fun gpuWorkgroupValid(x: Int, y: Int, z: Int) r: Bool {
 
 /// Parse a lexer-produced decimal float without host-width integer overflow.
 /// The bounded mantissa/exponent fit Float64; the final GPU value must be finite.
+/// Use the bootstrap compiler's native double spelling for these internal
+/// temporaries; the device's declared type remains explicitly Float32.
 fun gpuFloatLiteralValid(text: String) r: Bool {
     if text.length() == 0 or text.length() > 128 { return false }
-    var value = 0.0 as Float64; var divisor = 1.0 as Float64
+    var value = 0.0 as Float; var divisor = 1.0 as Float
     var decimal = false; var digits = 0; var i = 0
     while i < text.length() and text.byteAt(i) != 101 and text.byteAt(i) != 69 {
         let byte = text.byteAt(i)
         if byte == 46 { if decimal { return false }; decimal = true }
         else if byte >= 48 and byte <= 57 {
             digits = digits + 1
-            if decimal { divisor = divisor * (10.0 as Float64); value = value + ((byte - 48) as Float64) / divisor }
-            else { value = value * (10.0 as Float64) + ((byte - 48) as Float64) }
+            if decimal { divisor = divisor * (10.0 as Float); value = value + ((byte - 48) as Float) / divisor }
+            else { value = value * (10.0 as Float) + ((byte - 48) as Float) }
         } else { return false }
         i = i + 1
     }
@@ -129,13 +131,13 @@ fun gpuFloatLiteralValid(text: String) r: Bool {
         if exponent < 0 { return false }
         var step = 0
         while step < exponent {
-            if negative { value = value / (10.0 as Float64) }
+            if negative { value = value / (10.0 as Float) }
             else {
-                if value > (3.4028234663852886e37 as Float64) { return false }
-                value = value * (10.0 as Float64)
+                if value > (3.4028234663852886e37 as Float) { return false }
+                value = value * (10.0 as Float)
             }
             step = step + 1
         }
     }
-    return value == value and value <= (3.4028234663852886e38 as Float64)
+    return value == value and value <= (3.4028234663852886e38 as Float)
 }
