@@ -2,9 +2,9 @@ import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import sync.contracts.{Send}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
-import async.executor_core.{ExecutorCore, ExecutorJob, executorFailure,
+import async.executor_core.{ExecutorCore, ExecutorJob, ExecutorOwnedJob, executorFailure, executorDropWitness,
     executorCopyContext, executorReleaseSnapshot, EXECUTOR_FOREVER}
-import async.multithread.{ExecutorJoinHandle, executorSubmit}
+import async.multithread.{ExecutorJoinHandle, executorSubmitWitness}
 import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
 
 // Coordinator-owned group. Its children run concurrently; group mutation is
@@ -51,13 +51,14 @@ class TaskGroup<T: Send + ExecutorJob> {
             cancelled: false, sealed: false, closed: false})
     }
 
-    fun spawn(task: T, context: AsyncOperationContext) r: Result<Bool, AsyncError> {
+    fun spawn(task: T, witness: dyn ExecutorJob, context: AsyncOperationContext) r: Result<Bool, AsyncError> {
         if this.sealed or this.closed or this.count >= this.limit {
             var status = 2 as Int32
             if this.sealed or this.closed { status = 1 as Int32 }
+            executorDropWitness(witness)
             return Err<Bool, AsyncError>(executorFailure(status, "task_group.spawn", this.count as UInt64))
         }
-        let submitted = executorSubmit<T>(this.core, task, context, 0)
+        let submitted = executorSubmitWitness<T>(this.core, task, witness, context, 0)
         if submitted.isErr() {
             let error = submitted.unwrapErr(); submitted.releaseContainer()
             return Err<Bool, AsyncError>(error)
@@ -84,12 +85,20 @@ class TaskGroup<T: Send + ExecutorJob> {
     }
 
     fun barrier(context: AsyncOperationContext) r: Result<Array<T>, AsyncError> {
+        let drained = this.barrierOwned(context)
+        if drained.isErr() { let error = drained.unwrapErr(); drained.releaseContainer(); return Err<Array<T>, AsyncError>(error) }
+        let owners = drained.unwrap(); drained.releaseContainer(); let values = Array<T>(); var i = 0
+        while i < owners.length() { values.push(owners[i].take()); i = i + 1 }; owners.free()
+        return Ok<Array<T>, AsyncError>(values)
+    }
+
+    fun barrierOwned(context: AsyncOperationContext) r: Result<Array<ExecutorOwnedJob<T>>, AsyncError> {
         if this.closed {
-            return Err<Array<T>, AsyncError>(executorFailure(1 as Int32,
+            return Err<Array<ExecutorOwnedJob<T>>, AsyncError>(executorFailure(1 as Int32,
                 "task_group.barrier", 0 as UInt64))
         }
         this.sealed = true
-        let values = Array<T>()
+        let values = Array<ExecutorOwnedJob<T>>()
         var firstError = None<AsyncError>()
         let valid = validateAsyncContext(context, "task_group.barrier", 0 as UInt64)
         if valid.isErr() {
@@ -106,7 +115,7 @@ class TaskGroup<T: Send + ExecutorJob> {
             let handle = this.handles[i].unwrap()
             var joinContext = context
             if firstError.isSome() { joinContext = this.cleanup }
-            let joined = handle.join(joinContext)
+            let joined = handle.joinOwned(joinContext)
             if joined.isErr() {
                 let error = joined.unwrapErr()
                 if firstError.isNone() {
@@ -118,7 +127,7 @@ class TaskGroup<T: Send + ExecutorJob> {
                 // A cancelled wait keeps its join owner. Drain cooperatively
                 // with an uncancelled cleanup context before returning error.
                 if handle.active {
-                    let drained = handle.join(this.cleanup)
+                    let drained = handle.joinOwned(this.cleanup)
                     if drained.isOkay() {
                         if not drained.unwrap().release() { abort("task group job cleanup failed") }
                     } else { drained.unwrapErr().free() }
@@ -146,16 +155,16 @@ class TaskGroup<T: Send + ExecutorJob> {
             }
             values.free()
             let error = firstError.unwrap(); firstError.free()
-            return Err<Array<T>, AsyncError>(error)
+            return Err<Array<ExecutorOwnedJob<T>>, AsyncError>(error)
         }
         firstError.free()
-        return Ok<Array<T>, AsyncError>(values)
+        return Ok<Array<ExecutorOwnedJob<T>>, AsyncError>(values)
     }
 
     fun close() r: Result<Bool, AsyncError> {
         if not this.closed {
             this.cancel()
-            let drained = this.barrier(this.cleanup)
+            let drained = this.barrierOwned(this.cleanup)
             if drained.isOkay() {
                 let values = drained.unwrap()
                 var i = 0

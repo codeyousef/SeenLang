@@ -1,7 +1,7 @@
 import core.result.{Result, Ok, Err}
 import sync.contracts.{Send}
 import async.structured.{AsyncError, AsyncOperationContext}
-import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
+import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorOwnedJob, ExecutorTaskContext,
     executorFailure}
 import async.multithread.{MultithreadExecutor, ExecutorJoinHandle}
 import async.executor_native.{seen_executor_apply_placement}
@@ -9,7 +9,7 @@ import async.pool_placement.{PoolPlacement}
 
 @send
 class PlacedJob<T: Send + ExecutorJob> {
-    var task: T
+    var task: ExecutorOwnedJob<T>
     var cpu: Int
     var numaNode: Int
 
@@ -42,7 +42,7 @@ class PoolJoinHandle<T: Send + ExecutorJob> {
             return Err<T, AsyncError>(error)
         }
         let wrapped = joined.unwrap(); joined.releaseContainer()
-        let task = wrapped.task
+        let task = wrapped.task.take()
         wrapped.free()
         return Ok<T, AsyncError>(task)
     }
@@ -96,13 +96,22 @@ class TypedWorkerPool<T: Send + ExecutorJob> {
             executor: executor, placement: snapshot, nextPlacement: 0})
     }
 
-    fun submit(task: T, context: AsyncOperationContext)
+    fun submit(task: T, witness: dyn ExecutorJob, context: AsyncOperationContext)
+        r: Result<PoolJoinHandle<T>, AsyncError> {
+        let bound = ExecutorOwnedJob<T>.bind(task, witness)
+        if bound.isErr() { let error = bound.unwrapErr(); bound.releaseContainer(); return Err<PoolJoinHandle<T>, AsyncError>(error) }
+        let owner = bound.unwrap(); bound.releaseContainer()
+        let submitted = this.submitOwned(owner, context)
+        if submitted.isErr() { owner.take() }; return submitted
+    }
+
+    fun submitOwned(task: ExecutorOwnedJob<T>, context: AsyncOperationContext)
         r: Result<PoolJoinHandle<T>, AsyncError> {
         var cpu = -1
         if this.placement.cpus.length() > 0 { cpu = this.placement.cpus[this.nextPlacement] }
         let wrapped = PlacedJob<T>{task: task, cpu: cpu,
             numaNode: this.placement.numaNode}
-        let admitted = this.executor.spawn(wrapped, context)
+        let admitted = this.executor.spawn(wrapped, wrapped, context)
         if admitted.isErr() {
             // Failed admission retains the caller's task owner. Only the
             // newly allocated wrapper is consumed here.
