@@ -36,7 +36,13 @@ fun main() r: Int {
                 } else { ioRequire(ioErrorIs(queue.submission(token), "async.invalid")) }
             }
             if mode == 5 {
-                if queue.states[index] == 4 { ioMust(queue.submitted(token)) }
+                if queue.states[index] == 4 and queue.cancellation[index] != (0 as Int32) {
+                    // Stopping a prepared request prevents native publication.
+                    // The rejected handoff is also the terminal acknowledgement.
+                    let nativeBefore = queue.nativeActive
+                    ioRequire(ioErrorIs(queue.submitted(token), "async.cancelled"))
+                    ioRequire(queue.states[index] == 3 and queue.nativeActive == nativeBefore)
+                } else if queue.states[index] == 4 { ioMust(queue.submitted(token)) }
                 else { ioRequire(ioErrorIs(queue.submitted(token), "async.invalid")) }
             }
             if mode == 6 {
