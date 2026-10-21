@@ -4,6 +4,7 @@ import codegen.gpu_ir_model.{GpuIrModule}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv}
 import codegen.gpu_options.{GpuOptions}
 import codegen.gpu_reflection.{reflectGpuModule}
+import tools.gpu_emit_command.{gpuSpirvBinary}
 import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
 extern "C" fun seen_memory_used_bytes() r: Int64
 
@@ -11,6 +12,11 @@ fun require(value: Bool) r: Void { if not value { abort("SPIR-V emitter contract
 fun checkEmission(borrow module: GpuIrModule, borrow options: GpuOptions, emit: Bool) r: Void {
     let result = emitGpuSpirv(module, options); require(result.isOkay())
     let words = result.unwrap(); result.releaseContainer()
+    let encoded = gpuSpirvBinary(words); require(encoded.isOkay())
+    let binary = encoded.unwrap(); encoded.releaseContainer(); require(binary.length() == words.length() * 4); var byteIndex = 0
+    while byteIndex < binary.length() {
+        require(binary.byteAt(byteIndex) == ((words[byteIndex / 4] >> ((byteIndex % 4) * 8)) & 255)); byteIndex = byteIndex + 1
+    }; releaseJsonText(binary)
     let repeated = emitGpuSpirv(module, options); require(repeated.isOkay())
     let again = repeated.unwrap(); repeated.releaseContainer(); require(words.length() == again.length()); var i = 0
     while i < words.length() { require(words[i] == again[i]); i = i + 1 }; again.free()

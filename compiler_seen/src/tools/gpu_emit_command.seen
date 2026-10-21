@@ -6,17 +6,28 @@ import bootstrap.frontend.{runFrontendCompat}
 import codegen.gpu_lower_program.{lowerGpuProgram}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv}
 import codegen.gpu_reflection.{reflectGpuModule}
-import crypto.sha256.{seen_string_view_bytes, seen_string_clone_owned}
+import core.result.{Result, Err}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+import codegen.gpu_bytes.{consumeGpuBytes}
 import json.builder.{releaseJsonText}
 import io.file.{writeTextAtomically}
 
-fun gpuSpirvBinary(words: Array<Int>) r: String {
-    let bytes = Array<UInt8>(); var i = 0
+fun gpuSpirvBinary(words: Array<Int>) r: Result<String, GpuIrDiagnostic> {
+    if words.length() < 5 or words.length() > 8388608 {
+        return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_BINARY", "SPIR-V binary word count exceeds its header or byte ceiling"))
+    }
+    var i = 0
+    while i < words.length() {
+        if words[i] < 0 or words[i] > 4294967295 {
+            return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_BINARY", "SPIR-V binary word exceeds its unsigned 32-bit domain"))
+        }; i = i + 1
+    }
+    let bytes = Array<Int>(); i = 0
     while i < words.length() {
         let word = words[i]; var shift = 0
-        while shift < 32 { bytes.push(((word >> shift) & 255) as UInt8); shift = shift + 8 }; i = i + 1
+        while shift < 32 { bytes.push((word >> shift) & 255); shift = shift + 8 }; i = i + 1
     }
-    let binary = seen_string_clone_owned(seen_string_view_bytes(bytes.data(), bytes.length() as Int64)); bytes.free(); return binary
+    return consumeGpuBytes(bytes)
 }
 fun gpuEmitCommand(parsed: CliArguments, defaultManifest: String) r: Int {
     if parsed.help {
@@ -45,7 +56,11 @@ fun gpuEmitCommand(parsed: CliArguments, defaultManifest: String) r: Int {
     }
     let words = emitted.unwrap(); emitted.releaseContainer(); let reflected = reflectGpuModule(module, options); module.release(); options.release()
     if reflected.isErr() { let error = reflected.unwrapErr(); reflected.releaseContainer(); gpuPrintValidation(error); error.release(); words.free(); return 1 }
-    let reflection = reflected.unwrap(); reflected.releaseContainer(); let binary = gpuSpirvBinary(words); words.free()
+    let reflection = reflected.unwrap(); reflected.releaseContainer(); let encoded = gpuSpirvBinary(words); words.free()
+    if encoded.isErr() {
+        let error = encoded.unwrapErr(); encoded.releaseContainer(); gpuPrintError(error); error.free(); releaseJsonText(reflection); return 1
+    }
+    let binary = encoded.unwrap(); encoded.releaseContainer()
     let written = writeTextAtomically(outputPath, binary); releaseJsonText(binary)
     if not written { releaseJsonText(reflection); println("Error: [E_GPU_OUTPUT] SPIR-V atomic write failed"); return 1 }
     var reflectedWritten = true
