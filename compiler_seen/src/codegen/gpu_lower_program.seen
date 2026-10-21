@@ -97,17 +97,13 @@ fun gpuIrAttachLocations(borrow module: GpuIrModule, validation: GpuIrValidation
         i = i + 1
     }
 }
-fun gpuFinishLowering(module: GpuIrModule, sources: Array<FunctionNode>, validation: GpuIrValidation) r: Result<GpuIrModule, GpuIrValidation> {
+fun gpuPopulateLowering(borrow module: GpuIrModule, sources: Array<FunctionNode>, validation: GpuIrValidation) r: Void {
     let budget = Array<Int>(); budget.push(0); budget.push(0); var i = 0
     while i < sources.length() and validation.valid {
         let context = gpuCreateLowerContext(module, module.functions[i], validation, i, budget)
         gpuLowerFunction(context, sources[i]); context.release(); i = i + 1
     }
     budget.free()
-    if not validation.valid { gpuIrAttachLocations(module, validation); module.release(); return Err<GpuIrModule, GpuIrValidation>(validation) }
-    validation.release(); let verified = verifyGpuIr(module)
-    if not verified.valid { gpuIrAttachLocations(module, verified); module.release(); return Err<GpuIrModule, GpuIrValidation>(verified) }
-    verified.release(); return Ok<GpuIrModule, GpuIrValidation>(module)
 }
 
 fun lowerGpuFunctions(sources: Array<FunctionNode>, path: String) r: Result<GpuIrModule, GpuIrValidation> {
@@ -122,7 +118,11 @@ fun lowerGpuFunctions(sources: Array<FunctionNode>, path: String) r: Result<GpuI
         let signature = gpuLowerSignature(sources[i], validation, i)
         if signature.isOkay() { module.functions.push(signature.unwrap()) }; signature.releaseContainer(); i = i + 1
     }
-    return gpuFinishLowering(module, sources, validation)
+    gpuPopulateLowering(module, sources, validation)
+    if not validation.valid { gpuIrAttachLocations(module, validation); module.release(); return Err<GpuIrModule, GpuIrValidation>(validation) }
+    validation.release(); let verified = verifyGpuIr(module)
+    if not verified.valid { gpuIrAttachLocations(module, verified); module.release(); return Err<GpuIrModule, GpuIrValidation>(verified) }
+    verified.release(); return Ok<GpuIrModule, GpuIrValidation>(module)
 }
 fun lowerGpuProgram(program: ProgramNode, path: String) r: Result<GpuIrModule, GpuIrValidation> {
     let validation = GpuIrValidation.create(); let sources = Array<FunctionNode>(); var i = 0
