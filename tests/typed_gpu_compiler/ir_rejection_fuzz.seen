@@ -1,0 +1,40 @@
+import bootstrap.frontend.{runFrontendCompat}
+import ir_fixture_support.{irRequire}
+import ir_rejection_support.{rejectionExpect, rejectionObserve}
+import json.builder.{releaseJsonText}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let frontend = runFrontendCompat("@compute(1) fun copy(output: WriteBuffer<Int32>) { output[0] = 7 }", "rejection.seen", "en"); irRequire(frontend.success)
+    let function = frontend.program.items[0].function; let statement = function.body.statements[0]
+    let statementKind = statement.kind; let expressionKind = statement.expression.kind
+    let parameterType = function.params[0].paramType.typeName; let baseline = seen_memory_used_bytes()
+    let start = seen_time_monotonic_nanos(); irRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
+    let deadline = start + (60000000000 as Int64); var now = start; var seed = 1087; var iterations = 0
+    while now < deadline and iterations < 10000000 {
+        seed = (seed * 48271) % 2147483647; let mode = seed % 8
+        let number = seed.toString(); let unknown = "UnsupportedNode_" + number
+        statement.line = 7 + seed % 100; statement.column = 1 + seed % 80
+        if mode == 0 or mode == 6 {
+            statement.kind = unknown; rejectionExpect(frontend.program, "E_GPU_UNSUPPORTED", "unsupported GPU statement or host effect", statement.line, statement.column, false)
+        } else if mode == 1 {
+            statement.expression.kind = unknown; rejectionExpect(frontend.program, "E_GPU_UNSUPPORTED", "unsupported GPU expression or host effect", statement.line, statement.column, false)
+        } else if mode == 2 or mode == 3 {
+            function.decorators[0].name = "vertex"; if mode == 3 { function.decorators[0].name = "fragment" }
+            rejectionExpect(frontend.program, "E_GPU_SIGNATURE", "", 0, 0, false)
+        } else if mode == 4 {
+            function.isAsync = true; rejectionExpect(frontend.program, "E_GPU_SIGNATURE", "", 0, 0, false)
+        } else if mode == 5 {
+            function.params[0].paramType.typeName = "WriteBuffer<Int64>"; rejectionExpect(frontend.program, "E_GPU_RESOURCE", "", 0, 0, false)
+        } else { rejectionObserve(frontend.program, 7) }
+        statement.kind = statementKind; statement.expression.kind = expressionKind; function.decorators[0].name = "compute"
+        function.isAsync = false; function.params[0].paramType.typeName = parameterType
+        releaseJsonText(unknown); releaseJsonText(number); irRequire(seen_memory_used_bytes() == baseline)
+        iterations = iterations + 1
+        if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); irRequire(next >= now); now = next }
+    }
+    irRequire(now >= deadline and iterations >= 32)
+    println("PASS: GPU-001E rejection fuzz 60s seed=1087 preserved diagnostics source positions and allocation baseline")
+    return 0
+}
