@@ -11,6 +11,7 @@ import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, setFeatureCurrent
 import codegen.ir_codegen_metrics_state.{cseClear}
 import codegen.ir_codegen_global_state.{getStringConstantPrefixWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructSizesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl}
+import codegen.ir_codegen_global_state.{registerClassTraitImplsWithGlobalStateImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_decl_features.{generateHotReloadMethodsImpl}
 import codegen.ir_type_mapping.{normalizeDeclaredTypeNodeImpl}
@@ -146,6 +147,7 @@ fun generatePlainLargeClassState(ctx: CodegenLoweringContext,
         methodIdx = methodIdx + 1
     }
 
+    registerClassTraitImplsWithGlobalStateImpl(className)
     setFeatureCurrentClassParentNameImpl("")
 }
 
@@ -177,6 +179,7 @@ fun generateClassState(ctx: CodegenLoweringContext,
     let decoratorSnapshot =
         prepareGeneratedClassDecoratorSnapshotImpl(classNode)
     generateRegularClassMethodsState(ctx, classNode, isStringBuilder)
+    registerClassTraitImplsWithGlobalStateImpl(className)
 
     if decoratorSnapshot.isHotReload == 1 {
         generateHotReloadMethodsImpl(output, classNode)
