@@ -2,7 +2,8 @@
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl}
+import codegen.ir_call_args.{fillDefaultParamsImpl, appendPreparedCallArgImpl, lookupDynParamTraitImpl, trimGenericTypeNameImpl}
+import codegen.ir_codegen_global_state.{registerBoxedTraitImplWithGlobalStateImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, setDefaultFillArgsImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, getFeatureDynParamFuncsImpl, getFeatureFloatParamFuncNamesImpl, getFeatureFloatParamParamIdxsImpl, getFeatureMoveOnlyClassesImpl, getFeatureFuncParamCountArrImpl, getFeatureFuncDefaultsArrImpl, getFeatureFuncBorrowParamsImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getStringConstantPrefixWithGlobalStateImpl}
 import codegen.ir_codegen_global_state.{getModuleConstantNamesWithGlobalStateImpl, getModuleConstantValuesWithGlobalStateImpl, getModuleConstantTypesWithGlobalStateImpl}
@@ -29,6 +30,12 @@ fun prepareCallArgumentsState(ctx: CodegenLoweringContext,
         let argReg = lowerExpression(ctx, argExpr)
         let argType = inferLoweredExpressionType(ctx, argExpr)
         let argLlvmType = mapTypeState(argType)
+        if enableDynBoxing and not argType.startsWith("dyn ") {
+            let traitName = lookupDynParamTraitImpl(funcName, argIdx, dynParamFuncs)
+            if traitName != "" {
+                registerBoxedTraitImplWithGlobalStateImpl(trimGenericTypeNameImpl(argType), traitName)
+            }
+        }
         appendPreparedCallArgImpl(output, getFeatureRegBoxImpl(), funcName,
             argReg, argType, argLlvmType, argExpr.kind,
             isReprCDataTypeState(argType), argIdx, argRegs, argTypeStrs,
