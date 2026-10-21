@@ -126,7 +126,10 @@ class GpuIrValidation {
     }
     fun release() r: Void {
         var i = 0
-        while i < this.diagnostics.length() { this.diagnostics[i].free(); i = i + 1 }
+        while i < this.diagnostics.length() {
+            let diagnostic: GpuIrDiagnostic = this.diagnostics[i]
+            diagnostic.free(); i = i + 1
+        }
         this.diagnostics.free(); this.free()
     }
 }
