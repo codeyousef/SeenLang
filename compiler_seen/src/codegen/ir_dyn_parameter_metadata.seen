@@ -1,0 +1,39 @@
+/// Canonical bounded trait-parameter metadata, independent of body lowering.
+/// Declaration scanning and call emission share this registry without importing
+/// mutable feature-state drivers into declaration helpers.
+import parser.real_parser.{FunctionNode}
+import codegen.ir_type_mapping.{normalizeDeclaredTypeNodeImpl}
+var g_dynParameterMetadata: String = ""
+fun getDynParameterMetadataImpl() r: String { return g_dynParameterMetadata }
+fun setDynParameterMetadataImpl(metadata: String) r: Void { g_dynParameterMetadata = metadata }
+
+fun recordPreRegisteredDynParameterImpl(implFuncName: String, paramIdx: Int,
+    preTypeName: String, dynParamFuncsBox: Array<String>) r: Void {
+
+    if dynParamFuncsBox.length() == 0 { dynParamFuncsBox.push("") }
+
+    if preTypeName.startsWith("dyn ") {
+        let dynTraitParam = preTypeName.substring(4, preTypeName.length())
+        let entry = implFuncName + ":" + paramIdx.toString() + ":" + dynTraitParam + "|"
+        // Pass 1 and streamed function lowering may register the same slot.
+        if ("|" + dynParamFuncsBox[0]).contains("|" + entry) { return }
+        if dynParamFuncsBox[0].length() + entry.length() > 8388608 {
+            abort("Error: [E_DYN_PARAMETER_LIMIT] trait parameter metadata exceeds its byte ceiling")
+        }
+        dynParamFuncsBox[0] = dynParamFuncsBox[0] + entry
+    }
+}
+
+/// Register call-site-visible trait parameters during Pass 1, before bodies
+/// are streamed or discarded. Indices exclude an explicit method receiver.
+fun registerDeclaredDynParametersImpl(fn: FunctionNode,
+    name: String, receiverOffset: Int) r: Void {
+    let metadata = Array<String>(); metadata.push(g_dynParameterMetadata)
+    var i = receiverOffset
+    while i < fn.params.length() {
+        let parameterType = normalizeDeclaredTypeNodeImpl(fn.params[i].paramType)
+        recordPreRegisteredDynParameterImpl(name, i - receiverOffset, parameterType, metadata)
+        i = i + 1
+    }
+    g_dynParameterMetadata = metadata[0]; metadata.free()
+}
