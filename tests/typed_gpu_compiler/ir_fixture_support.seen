@@ -4,7 +4,8 @@ import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrBlock, GpuIrInstru
 import codegen.gpu_ir_verify.{verifyGpuIr}
 import codegen.gpu_ir_ops.{GPU_IR_PARAM, GPU_IR_BUILTIN, GPU_IR_EXTRACT, GPU_IR_UNIFORM, GPU_IR_BINARY,
     GPU_IR_IF, GPU_IR_LOAD, GPU_IR_STORE, GPU_IR_BOOL, GPU_IR_IF_VALUE, GPU_IR_YIELD_VALUE,
-    GPU_IR_BARRIER, GPU_IR_SHARED, GPU_IR_INT}
+    GPU_IR_BARRIER, GPU_IR_SHARED, GPU_IR_INT, GPU_IR_CALL}
+import json.builder.{releaseJsonText}
 
 fun irRequire(value: Bool) r: Void { if not value { abort("structured GPU IR contract failed") } }
 fun irFunction(name: String, kernel: Bool, returnType: Int) r: GpuIrFunction {
@@ -78,5 +79,19 @@ fun irBarrierFixture(varying: Bool) r: GpuIrModule {
     let barrier = GpuIrInstruction.create(GPU_IR_BARRIER, 0, 0)
     barrier.memoryScope = 3; barrier.memoryOrder = 4; barrier.memorySpaces = 2; yes.instructions.push(barrier)
     function.registerCount = 5; module.requiredCapabilities = 4 as UInt64; module.sharedBytes = 256 as UInt64
+    return module
+}
+fun irCallChainFixture(helpers: Int) r: GpuIrModule {
+    irRequire(helpers >= 1 and helpers <= 20)
+    let module = irModule("helper-chain"); var i = 0
+    while i <= helpers {
+        let number = i.toString(); let name = "helper_" + number
+        let function = irFunction(name, i == helpers, 0); releaseJsonText(name); releaseJsonText(number)
+        module.functions.push(function); let block = GpuIrBlock.create(-1, -1); function.blocks.push(block)
+        if i > 0 {
+            let call = GpuIrInstruction.create(GPU_IR_CALL, 0, 0); call.immediate = i - 1; block.instructions.push(call)
+        }
+        i = i + 1
+    }
     return module
 }

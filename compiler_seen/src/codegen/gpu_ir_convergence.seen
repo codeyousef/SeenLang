@@ -24,7 +24,7 @@ fun gpuIrValueUniformity(borrow function: GpuIrFunction, borrow op: GpuIrInstruc
     if op.opcode == GPU_IR_INT or op.opcode == GPU_IR_FLOAT or op.opcode == GPU_IR_BOOL or
         op.opcode == GPU_IR_LENGTH or op.opcode == GPU_IR_UNIFORM or op.opcode == GPU_IR_SHARED { return 0 }
     if op.opcode == GPU_IR_BUILTIN {
-        if op.immediate == 4 { return 0 }; if op.immediate == 3 { return 1 }
+        if op.immediate == 4 or op.immediate == 9 { return 0 }; if op.immediate == 3 { return 1 }
         if op.immediate == 6 or op.immediate == 7 { return 2 }; return 3
     }
     if op.opcode == GPU_IR_LOAD or op.opcode == GPU_IR_LOCAL_LOAD or op.opcode == GPU_IR_CALL or

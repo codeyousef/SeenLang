@@ -21,6 +21,12 @@ for profile in fast release undefined address; do
         'verifier success and rejection release all owned allocations'; do
         rg -Fq "PASS: GPU-001B $expectation" "$TMP_DIR/verifier-$profile.log"
     done
+    compile_case "$profile" lowering "$ROOT_DIR/tests/typed_gpu_compiler/ir_lowering_contract.seen"
+    for expectation in 'parsed helpers loops lazy values synchronization atomics and subgroup lowering' \
+        'source effects recursion divergent collectives and shared limits rejected' \
+        'borrowed AST ownership deterministic export and repeated cleanup'; do
+        rg -Fq "PASS: GPU-001B $expectation" "$TMP_DIR/lowering-$profile.log"
+    done
 done
 compile_case fast fuzz "$ROOT_DIR/tests/typed_gpu_compiler/ir_metadata_fuzz.seen"
 rg -Fq 'PASS: GPU-001B IR metadata fuzz 60s seed=1081 checked identities limits and allocation baseline' "$TMP_DIR/fuzz-fast.log"

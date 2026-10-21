@@ -16,7 +16,7 @@ fun hasGpuFunctions(program: ProgramNode) r: Bool {
             let fn = program.items[i].function
             var di = 0
             while di < fn.decorators.length() {
-                if fn.decorators[di].name == "compute" or fn.decorators[di].name == "vertex" or fn.decorators[di].name == "fragment" {
+                if fn.decorators[di].name == "compute" or fn.decorators[di].name == "device" or fn.decorators[di].name == "vertex" or fn.decorators[di].name == "fragment" {
                     return true
                 }
                 di = di + 1

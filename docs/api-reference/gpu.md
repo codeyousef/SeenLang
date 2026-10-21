@@ -46,13 +46,66 @@ constructors, typed `min`/`max`/`clamp`/`abs`/`sqrt`, mutable locals, `if`, `whi
 and Void returns are checked. Unknown calls, host effects, unsafe operations,
 resource escapes and unsupported constructs fail with a stable `E_GPU_*` code.
 
-Modules contain at most 256 compute kernels. Bindings are scoped and bounded to
+Modules contain at most 256 compute kernels and device helpers combined. Bindings are scoped and bounded to
 4096; signatures have at most 64 parameters.
 Traversal stops at 65536 nodes or 128 levels, and each kernel stops at 64 diagnostic records.
 Type/workgroup parsing uses bounded byte ranges without temporary string
 allocations. The checking context owns its arrays and diagnostic records;
 source names and paths remain borrowed from the parsed module. A caller that
 retains diagnostics must keep that module/path alive or copy them.
+
+## Structured control and memory semantics
+
+`seen check` lowers the whole parsed GPU module into shared IR and verifies it.
+Concrete top-level `@device` helpers can accept fixed-width values or borrowed
+resources and return a value or Void. Calls cannot recurse, capture host state,
+return resources, or invoke ordinary host functions. Helpers are resolved within
+the same module; imported device-helper linkage is currently unsupported.
+
+Half-open integer ranges (`for i in 0..4`), `while`, `if`, `break`, `continue`,
+and returns retain their actual bodies. Boolean `and`/`or` use lazy result
+regions. Integer arithmetic uses 32-bit wrapping add/subtract/multiply; invalid
+integer division, shifts and float-to-integer conversion report checked faults.
+Each loop has a one-million-iteration ceiling. A checked buffer fault yields
+zero for a read and skips a write while recording the fault; lanes continue
+through subsequent collectives. A backend must provide the hidden checked-fault
+sink and report it after completion, retaining partial writes and progress.
+
+Shared storage is declared in the kernel prologue with a static extent:
+
+```seen
+@device
+fun increment(value: Int32) r: Int32 { return value + 1 }
+
+@compute(64)
+fun count(output: WriteBuffer<Int32>) {
+    let scratch: SharedBuffer<Int32> = sharedBuffer(64)
+    for i in 0..4 {
+        let previous = atomicAdd(scratch, i, 1, Relaxed, WorkgroupScope)
+    }
+    barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory)
+    output[0] = increment(atomicLoad(scratch, 0, Acquire, WorkgroupScope))
+}
+```
+
+Shared storage is collectively zero-initialized before source operations and
+cannot be replaced or aliased by locals. Atomic load/store, exchange,
+add/subtract, min/max, bitwise operations and compare/exchange use scalar
+Int32/UInt32 elements. Atomic calls take resource, index, optional value operands,
+ordering and scope. Compare/exchange takes expected and replacement values,
+success ordering, failure ordering and scope, and returns the prior value.
+Scope identities are `InvocationScope`, `SubgroupScope`, `WorkgroupScope` and
+`DeviceScope`. Ordering identities are `Relaxed`, `Acquire`, `Release`,
+`AcquireRelease` and `SequentiallyConsistent`. Unsupported combinations,
+including release loads and acquire stores, are rejected.
+
+`barrier(scope, order, spaces)` is collective execution synchronization;
+`memoryBarrier(scope, order, spaces)` is a memory fence. Spaces are
+`StorageMemory`, `WorkgroupMemory` or `StorageAndWorkgroupMemory`. Execution
+barriers support subgroup/workgroup scopes. Relaxed fences and device-wide
+execution barriers are unsupported. Subgroup elect/all/any/shuffle/broadcast/add
+have explicit capability requirements and convergence checks. Memory enum
+identities must be unshadowed compile-time identifiers.
 
 ## Backend boundary and verification
 
@@ -78,8 +131,16 @@ analysis conservatively treats storage reads, mutable locals and scalar helper
 parameters as varying; uncertain collective control is an explicit rejection.
 Module capability, shared-byte and checked-fault requirements must exactly match
 the instructions. Backend implementations must provide the declared fault sink
-and verify the module immediately before consuming it. This internal verifier
-does not yet expose additional source constructs or enable device execution.
+and verify the module immediately before consuming it. These checks do not
+enable device execution.
+
+`serializeGpuIr` revalidates the module and returns a deterministic owned JSON
+string, bounded to 32 MiB. Release that string with `releaseJsonText`. Keys and
+arrays have a fixed order and payloads are escaped. Callers supply a stable
+module identity to obtain stable artifacts across workspaces. The
+[IR schema](../schemas/seen-gpu-ir-v1.schema.json) describes the data format;
+consumers must also enforce byte ceilings and semantic validation. Schema
+validation alone cannot prove resource access, dominance or convergence.
 
 `seen check app.seen` checks compute bodies without creating a GPU device or
 entering LLVM/backend generation. Until typed backend lowering is available,

@@ -1,4 +1,4 @@
-import ir_fixture_support.{irRequire, irExpect, irCopyFixture, irValueFixture, irBarrierFixture, irConstant}
+import ir_fixture_support.{irRequire, irExpect, irCopyFixture, irValueFixture, irBarrierFixture, irConstant, irCallChainFixture}
 import codegen.gpu_ir_ops.{GPU_IR_INT, GPU_IR_RETURN, GPU_IR_BREAK, GPU_IR_ATOMIC_LOAD}
 import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu_ir_value_rules.{gpuIrIntegerLiteralValid, gpuIrFloatLiteralValid, gpuIrBinaryType}
@@ -14,6 +14,8 @@ fun main() r: Int {
     let value = irValueFixture(); irExpect(value, ""); value.release()
     let group = irBarrierFixture(false); irExpect(group, ""); group.release()
     let varying = irBarrierFixture(true); irExpect(varying, "E_GPU_IR_CONVERGENCE"); varying.release()
+    let permittedChain = irCallChainFixture(15); irExpect(permittedChain, ""); permittedChain.release()
+    let deepChain = irCallChainFixture(16); irExpect(deepChain, "E_GPU_IR_CALL_GRAPH"); deepChain.release()
     println("PASS: GPU-001B typed values owned regions and collective convergence")
     var mutation = 0
     while mutation < 19 {

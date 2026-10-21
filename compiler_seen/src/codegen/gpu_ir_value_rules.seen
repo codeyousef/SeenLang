@@ -4,6 +4,14 @@ import codegen.gpu_ir_model.{GpuIrInstruction}
 import codegen.gpu_ir_facts.{GpuIrFacts, gpuIrValueTypeValid}
 import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes, gpuBoundedDecimalRange, gpuFloatLiteralValid}
 
+fun gpuIrBuiltinCode(name: String) r: Int {
+    if name == "globalInvocationId" { return 1 }; if name == "localInvocationId" { return 2 }
+    if name == "workgroupId" { return 3 }; if name == "numWorkgroups" { return 4 }
+    if name == "localInvocationIndex" { return 5 }; if name == "subgroupSize" { return 6 }
+    if name == "subgroupId" { return 7 }; if name == "subgroupLocalInvocationId" { return 8 }
+    if name == "workgroupSize" { return 9 }; return 0
+}
+
 fun gpuIrUnaryCode(name: String) r: Int {
     if name == "-" { return 1 }
     if name == "not" or name == "!" { return 2 }

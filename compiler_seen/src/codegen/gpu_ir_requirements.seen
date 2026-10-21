@@ -18,7 +18,7 @@ fun gpuIrInstructionCapabilities(borrow op: GpuIrInstruction) r: UInt64 {
         if op.memoryScope == 4 { capabilities = capabilities | (16 as UInt64) }
         if (op.memorySpaces & 2) != 0 { capabilities = capabilities | (4 as UInt64) }
     }
-    if op.opcode == GPU_IR_SUBGROUP or (op.opcode == GPU_IR_BUILTIN and op.immediate >= 6) or
+    if op.opcode == GPU_IR_SUBGROUP or (op.opcode == GPU_IR_BUILTIN and op.immediate >= 6 and op.immediate <= 8) or
         (op.opcode == GPU_IR_BARRIER and op.memoryScope == 2) { capabilities = capabilities | (32 as UInt64) }
     if op.opcode == GPU_IR_SUBGROUP {
         if op.immediate == 2 or op.immediate == 3 { capabilities = capabilities | (64 as UInt64) }

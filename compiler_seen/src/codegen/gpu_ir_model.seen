@@ -104,9 +104,11 @@ class GpuIrDiagnostic {
     var functionIndex: Int
     var blockIndex: Int
     var instructionIndex: Int
+    var line: Int
+    var column: Int
 }
 fun gpuIrDiagnostic(code: String, message: String) r: GpuIrDiagnostic {
-    return GpuIrDiagnostic{code: code, message: message, functionIndex: -1, blockIndex: -1, instructionIndex: -1}
+    return GpuIrDiagnostic{code: code, message: message, functionIndex: -1, blockIndex: -1, instructionIndex: -1, line: 0, column: 0}
 }
 class GpuIrValidation {
     var valid: Bool
@@ -119,7 +121,7 @@ class GpuIrValidation {
         this.valid = false
         if this.diagnostics.length() < 64 {
             this.diagnostics.push(GpuIrDiagnostic{code: code, message: message, functionIndex: functionIndex,
-                blockIndex: blockIndex, instructionIndex: instructionIndex})
+                blockIndex: blockIndex, instructionIndex: instructionIndex, line: 0, column: 0})
         }
     }
     fun release() r: Void {

@@ -34,7 +34,7 @@ fun gpuIrInstructionValueTypes(borrow module: GpuIrModule, borrow function: GpuI
     if op.opcode == GPU_IR_FLOAT { return op.immediate == 0 and op.typeCode == 4 and gpuIrFloatLiteralValid(op.text) }
     if op.opcode == GPU_IR_BOOL { return op.immediate == 0 and op.typeCode == 1 and (op.text == "true" or op.text == "false") }
     if op.opcode == GPU_IR_BUILTIN {
-        if op.immediate >= 1 and op.immediate <= 4 { return op.typeCode == 35 }
+        if (op.immediate >= 1 and op.immediate <= 4) or op.immediate == 9 { return op.typeCode == 35 }
         return op.immediate >= 5 and op.immediate <= 8 and op.typeCode == 3
     }
     if op.opcode == GPU_IR_EXTRACT {

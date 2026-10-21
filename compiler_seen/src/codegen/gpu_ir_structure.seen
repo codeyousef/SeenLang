@@ -10,7 +10,8 @@ import typechecker.gpu_types.{gpuTypeResource, gpuWorkgroupValid}
 fun gpuIrFunctionCountsValid(borrow function: GpuIrFunction, validation: GpuIrValidation, index: Int) r: Bool {
     if not gpuIrLabelValid(function.name, 256) or function.parameterTypes.length() > 64 or
         function.blocks.length() < 1 or function.blocks.length() > 4096 or
-        function.registerCount < 0 or function.registerCount > 65536 or function.localCount < 0 or function.localCount > 4096 {
+        function.registerCount < 0 or function.registerCount > 65536 or function.localCount < 0 or function.localCount > 4096 or
+        function.line < 0 or function.line > 2147483647 {
         validation.reject("E_GPU_IR_LIMIT", "GPU function counts or identity exceed a hard ceiling", index, -1, -1); return false
     }
     if function.returnType != 0 and not gpuIrValueTypeValid(function.returnType) {

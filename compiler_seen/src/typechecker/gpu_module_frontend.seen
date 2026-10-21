@@ -1,0 +1,34 @@
+/// Module-wide GPU checking shares the actual lowering/verifier pipeline.
+/// Returned semantic diagnostics own their records and borrow the caller path.
+import parser.real_parser.{ProgramNode}
+import codegen.gpu_lower_program.{gpuFunctionStage, lowerGpuProgram}
+import typechecker.semantic_registry.{SemanticDiagnostic}
+
+fun gpuProgramHasStage(program: ProgramNode) r: Bool {
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" and gpuFunctionStage(item.function) != 0 { return true }
+        if item.itemType == "Class" {
+            var method = 0
+            while method < item.classNode.methods.length() {
+                if gpuFunctionStage(item.classNode.methods[method]) != 0 { return true }; method = method + 1
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+fun gpuCheckModule(program: ProgramNode, file: String) r: Array<SemanticDiagnostic> {
+    let diagnostics = Array<SemanticDiagnostic>()
+    if not gpuProgramHasStage(program) { return diagnostics }
+    let result = lowerGpuProgram(program, file)
+    if result.isOkay() { let module = result.unwrap(); result.releaseContainer(); module.release(); return diagnostics }
+    let validation = result.unwrapErr(); result.releaseContainer(); var i = 0
+    while i < validation.diagnostics.length() {
+        let diagnostic = validation.diagnostics[i]; var line = diagnostic.line; var column = diagnostic.column
+        if line < 1 { line = 1 }; if column < 1 { column = 1 }
+        diagnostics.push(SemanticDiagnostic.new(diagnostic.code, diagnostic.message, file, line, column)); i = i + 1
+    }
+    validation.release(); return diagnostics
+}
