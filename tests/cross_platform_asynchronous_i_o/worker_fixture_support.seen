@@ -1,3 +1,4 @@
+import async.executor_core.{ExecutorOwnedJob}
 import io.completion_types.{IoQueueLimits, IoRegistration, IoCompletion}
 import io.worker_queue.{WorkerCompletionQueue}
 import io.worker_completion.{WorkerIoOutcome, WorkerIoSubmission}
@@ -52,7 +53,7 @@ fun workerFixtureSubmit(borrow queue: WorkerCompletionQueue<WorkerMockJob>, cont
     let prepared: WorkerIoSubmission = ioMust(queue.prepare(registration.token))
     let job = WorkerMockJob{outcome: prepared.outcome, bufferAddress: prepared.view.buffer as UInt64,
         started: started, released: released, progressValue: progress, statusValue: status}
-    prepared.release(); ioMust(queue.submit(registration.token, job)); return registration
+    prepared.release(); ioMust(queue.submit(registration.token, ioMust(ExecutorOwnedJob<WorkerMockJob>.bind(job, job)))); return registration
 }
 fun workerDrain(borrow queue: WorkerCompletionQueue<WorkerMockJob>, invalid: Bool) r: Void {
     let start = seen_time_monotonic_nanos(); ioRequire(start >= (0 as Int64) and start <= (9223372031854775807 as Int64))

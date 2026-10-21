@@ -1,3 +1,4 @@
+import async.executor_core.{ExecutorOwnedJob}
 /// Explicit Darwin positional I/O on fixed blocking workers; not kernel AIO.
 import core.result.{Result, Ok, Err}
 import core.option.{Option}
@@ -80,7 +81,10 @@ class MacPositionalQueue {
         if submission.view.operation == IoOperation.Write { write = 1 as UInt32 }
         let job = MacPositionalJob{descriptor: submission.view.descriptor, bufferAddress: submission.view.buffer as UInt64,
             bytes: submission.view.bytes, offset: submission.view.fileOffset, write: write, outcome: submission.outcome}
-        submission.release(); return this.worker.submit(token, job)
+        submission.release()
+        let bound = ExecutorOwnedJob<MacPositionalJob>.bind(job, job)
+        if bound.isErr() { let error = bound.unwrapErr(); bound.releaseContainer(); job.release(); return Err<Bool, AsyncError>(error) }
+        let owner = bound.unwrap(); bound.releaseContainer(); return this.worker.submit(token, owner)
     }
     fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.worker.cancel(token) }
     fun publishCancellation() r: Result<Bool, AsyncError> { return this.worker.publishCancellation() }
