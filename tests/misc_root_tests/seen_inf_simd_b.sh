@@ -20,6 +20,20 @@ done
 compile_case fast trait-registry "$ROOT_DIR/tests/compiler_regressions/trait_registry_identity.seen"
 rg -Fq 'PASS: trait registration identity deduplicates scans and preserves declared slots' "$TMP_DIR/trait-registry-fast.log"
 for profile in fast release undefined address; do
+    compile_case "$profile" mutual-recursion "$ROOT_DIR/tests/compiler_regressions/mutual_recursion_attributes.seen"
+    rg -Fq 'PASS: mutual recursion preserves free function and method semantics' "$TMP_DIR/mutual-recursion-$profile.log"
+    python3 - "$TMP_DIR/mutual-recursion-$profile-ir" <<'PY'
+import pathlib
+import re
+import sys
+
+headers = [line for path in pathlib.Path(sys.argv[1]).glob('*.ll')
+           for line in path.read_text().splitlines() if line.startswith('define ')]
+for name in ('recursionEven', 'recursionOdd', 'RecursionProbe_even', 'RecursionProbe_odd'):
+    matches = [line for line in headers if re.search(r'@"?' + re.escape(name) + r'"?\(', line)]
+    if not matches or any(re.search(r'\bnorecurse\b', line) for line in matches):
+        raise SystemExit(f'FAIL: unsupported recursion attribute or missing definition: {name}')
+PY
     compile_case "$profile" trait-scalars "$ROOT_DIR/tests/compiler_regressions/dyn_fixed_width_returns.seen"
     compile_case "$profile" pointer-index "$ROOT_DIR/tests/compiler_regressions/typed_pointer_index.seen"
     compile_case "$profile" contract "$ROOT_DIR/tests/inference_simd/x86_dot_contract.seen"
