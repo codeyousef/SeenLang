@@ -2,7 +2,7 @@
 /// every selected body. No source name supplies a body or suppresses an error.
 import parser.real_parser.{ProgramNode, FunctionNode, genericParameterCount}
 import core.result.{Result, Ok, Err}
-import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrBlock, GpuIrValidation}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrBlock, GpuIrDiagnostic, GpuIrValidation}
 import codegen.gpu_ir_ops.{GPU_IR_PARAM}
 import codegen.gpu_ir_verify.{verifyGpuIr}
 import codegen.gpu_lower_context.{GpuLowerContext}
@@ -41,10 +41,10 @@ fun gpuLowerSignature(source: FunctionNode, validation: GpuIrValidation, index: 
     }
     let created = GpuIrFunction.create(source.name, stage == 1, returnType)
     if created.isErr() {
-        let error = created.unwrapErr(); validation.reject(error.code, error.message, index, -1, -1)
+        let error: GpuIrDiagnostic = created.unwrapErr(); validation.reject(error.code, error.message, index, -1, -1)
         error.free(); created.releaseContainer(); return Err<GpuIrFunction, GpuIrValidation>(validation)
     }
-    let function = created.unwrap(); created.releaseContainer(); function.line = source.line
+    let function: GpuIrFunction = created.unwrap(); created.releaseContainer(); function.line = source.line
     var annotations = 0; var i = 0
     while i < source.decorators.length() {
         let annotation = source.decorators[i]
@@ -102,7 +102,7 @@ fun gpuIrAttachLocations(borrow module: GpuIrModule, validation: GpuIrValidation
 fun lowerGpuProgram(program: ProgramNode, path: String) r: Result<GpuIrModule, GpuIrValidation> {
     let validation = GpuIrValidation.create(); let created = GpuIrModule.create(path)
     if created.isErr() {
-        let error = created.unwrapErr(); validation.reject(error.code, error.message, -1, -1, -1)
+        let error: GpuIrDiagnostic = created.unwrapErr(); validation.reject(error.code, error.message, -1, -1, -1)
         error.free(); created.releaseContainer(); return Err<GpuIrModule, GpuIrValidation>(validation)
     }
     let module = created.unwrap(); created.releaseContainer(); let sources = Array<FunctionNode>(); var i = 0

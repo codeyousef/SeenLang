@@ -32,6 +32,7 @@ limitation where boolean variables generate invalid IR.
 ///
 
 import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, runFrontendCompat, runFrontendDeclarationsCompat, encodeDiagMessage, parseDiagBaseMessage, parseDiagCode, parseDiagSuggestion, parseDiagNote, parseDiagEndColumn}
+import core.result.{Result as _seedResult}
 import io.file.{readText, readTextChecked, writeText, writeTextAtomically, appendText, exists, deleteFile}
 import process.process.{runCommand, runProgram, runProgramRequest, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
 import env.env.{args, getOrDefault, set, removeEnv}
