@@ -1,0 +1,10 @@
+import async.executor_core.{ExecutorOwnedJob, ExecutorTaskContext}
+import async.multithread.{ExecutorJob}
+class UnsafeOwnedJob { var borrowed: *Int }
+impl ExecutorJob for UnsafeOwnedJob {
+    fun run(this: UnsafeOwnedJob, context: ExecutorTaskContext) r: Bool { return true }
+    fun release(this: UnsafeOwnedJob) r: Bool { this.free(); return true }
+}
+// Capturing dispatch metadata cannot make the concrete payload Send.
+fun reject(owner: ExecutorOwnedJob<UnsafeOwnedJob>) r: Int { return 0 }
+fun main() r: Int { return 0 }
