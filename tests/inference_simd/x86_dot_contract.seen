@@ -3,7 +3,7 @@ import core.operation_context.{OperationContext}
 import memory.aligned_buffer.{OwnedBuffer}
 import simd.x86_dispatch.{X86SimdCapabilities, selectX86Variant}
 import simd.x86_kernels.{X86DotOperation, X86DotProgress, executeX86Dot, executeX86DotWithClock}
-import simd.dot_clock.{DotClockHandle}
+import simd.dot_clock.{DotClockHandle, NativeDotClock}
 extern "C" fun seen_memory_used_bytes() r: Int64
 class ProbeClock {
     var reads: Int
@@ -13,6 +13,20 @@ class ProbeClock {
         if this.reads == 1 { return 100 as Int64 }
         if this.reverse { return 99 as Int64 }
         return 201 as Int64
+    }
+}
+fun memoryUnchanged(before: Int64, phase: String) r: Void {
+    let after = seen_memory_used_bytes()
+    if after != before {
+        println("FAIL: x86 allocation baseline changed"); println(phase); println(before); println(after)
+        abort("x86 allocation ownership regression")
+    }
+}
+fun clockOwnership() r: Void {
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 16 {
+        let provider = NativeDotClock{reserved: 0}; let clock = DotClockHandle.create(provider)
+        clock.release(); provider.free(); memoryUnchanged(baseline, "clock handle and borrowed provider"); i = i + 1
     }
 }
 fun capabilitiesMatrix() r: Void {
@@ -78,6 +92,7 @@ fun parity(operation: X86DotOperation, context: OperationContext,
     }
 }
 fun main() r: Int {
+    clockOwnership()
     let ctx = context(); let left: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
     let right: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
     let reference = X86DotProgress.create(); let actual = X86DotProgress.create()
@@ -87,10 +102,13 @@ fun main() r: Int {
     parity(X86DotOperation.BFloat16, ctx, left, right, reference, actual)
     let memory = seen_memory_used_bytes()
     capabilitiesMatrix()
+    memoryUnchanged(memory, "capability selection and result cleanup")
     parity(X86DotOperation.Float32, ctx, left, right, reference, actual)
+    memoryUnchanged(memory, "Float32 scalar and native dispatch")
     parity(X86DotOperation.UnsignedSignedByte, ctx, left, right, reference, actual)
+    memoryUnchanged(memory, "byte scalar and native dispatch")
     parity(X86DotOperation.BFloat16, ctx, left, right, reference, actual)
-    if seen_memory_used_bytes() != memory { return 1 }
+    memoryUnchanged(memory, "BF16 scalar and native dispatch")
     println("PASS: SEEN-INF-002B_happy")
     let none = X86SimdCapabilities{avx2: false, fma: false, avx512: false, vnni: false, bf16: false}
     if not errorIs(selectX86Variant(none, "dot-u8s8", "vnni", false, false), "simd.unsupported_capability") { return 2 }
