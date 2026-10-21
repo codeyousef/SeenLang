@@ -1,4 +1,5 @@
-import io.uring_layout.{UringLayout, uringWrite32}
+import io.completion_bytes.{completionWrite32}
+import io.uring_layout.{UringLayout}
 import fixture_support.{ioRequire}
 import uring_fixture_support.{uringFixtureParameters}
 extern "C" fun seen_time_monotonic_nanos() r: Int64
@@ -12,7 +13,7 @@ fun main() r: Int {
         seed = (seed * 1103515245 + 12345) % 2147483647
         let offset = (seed % 30) * 4; let previous = Array<UInt8>(); var i = 0
         while i < 4 { previous.push(parameters.data[offset + i]); i = i + 1 }
-        uringWrite32(parameters.data, offset, seed as UInt64)
+        completionWrite32(parameters.data, offset, seed as UInt64)
         let parsed = UringLayout.read(parameters.data, 120 as UInt64, 2, 8192 as UInt64, 4096 as UInt64)
         if parsed.isOkay() {
             let layout: UringLayout = parsed.unwrap()

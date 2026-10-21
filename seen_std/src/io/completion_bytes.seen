@@ -1,0 +1,19 @@
+/// Little-endian ABI byte access. Callers validate the borrowed extent first.
+// Use explicit byte addresses; no dependence on an implicit pointee stride.
+fun completionByteAddress(bytes: *UInt8, offset: UInt64) r: *UInt8 {
+    return ((bytes as UInt64) + offset) as *UInt8
+}
+fun completionRead32(bytes: *UInt8, offset: Int) r: UInt64 {
+    return (bytes[offset] as UInt64) | ((bytes[offset + 1] as UInt64) << 8) |
+        ((bytes[offset + 2] as UInt64) << 16) | ((bytes[offset + 3] as UInt64) << 24)
+}
+fun completionRead64(bytes: *UInt8, offset: Int) r: UInt64 {
+    return completionRead32(bytes, offset) | (completionRead32(bytes, offset + 4) << 32)
+}
+fun completionWrite32(bytes: *UInt8, offset: Int, value: UInt64) r: Void {
+    var index = 0
+    while index < 4 { bytes[offset + index] = ((value >> (index * 8)) & (255 as UInt64)) as UInt8; index = index + 1 }
+}
+fun completionWrite64(bytes: *UInt8, offset: Int, value: UInt64) r: Void {
+    completionWrite32(bytes, offset, value); completionWrite32(bytes, offset + 4, value >> 32)
+}

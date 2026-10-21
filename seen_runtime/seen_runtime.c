@@ -92,6 +92,7 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 #include "src/executor_socket_abi.c"
 #include "src/executor_completion_abi.c"
 #include "src/io_uring_abi.c"
+#include "src/iocp_abi.c"
 #include "src/executor_readiness_abi.c"
 #include "src/executor_process_abi.c"
 #include "src/executor_stream_abi.c"

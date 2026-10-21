@@ -394,3 +394,11 @@ not authorize retention, synchronization, destruction, or device changes.
 - `io/uring_layout`
 - `io/linux_uring`
 - `io/uring_file`
+
+## Windows completion and shared encoding modules
+
+- `io/completion_bytes`
+- `io/iocp_native`
+- `io/iocp_layout`
+- `io/iocp_file`
+- `io/windows_iocp`

@@ -2,9 +2,9 @@
 /// submission, acknowledgement and cancellation are explicit transitions.
 import core.result.{Result, Ok, Err}
 import core.option.{Option, Some, None}
-import async.structured.{AsyncError, validateAsyncContext, asyncDeadlineStatus}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext, asyncDeadlineStatus}
 import async.executor_core.{executorCopyContext}
-import memory.aligned_buffer.{ownedBufferByteRangeValid}
+import memory.aligned_buffer.{OwnedBuffer, ownedBufferByteRangeValid}
 import io.completion_types.{IoQueueLimits, IoOperation, IoRegistration, IoRequest,
     IoRejectedSubmission, IoCompletion, IoSubmissionView, ioQueueFailure, ioCompletionStatusValid}
 
@@ -78,26 +78,16 @@ class IoQueue {
         return false
     }
     fun reserve(request: IoRequest) r: Result<IoRegistration, IoRejectedSubmission> {
-        let validation = validateAsyncContext(request.context, "io.queue.reserve", 0 as UInt64)
+        let descriptor = request.resources.descriptor; let buffer = request.resources.buffer
+        if request.contextOwned or not descriptor.valid or not descriptor.owned or descriptor.native == (-1 as Int64) {
+            return this.reject(request, ioQueueFailure(1 as Int32, "io.queue.reserve", 0 as UInt64))
+        }
+        let validation = ioQueuePreflight(this, buffer, request.operation, request.fileOffset, request.bytes, request.context, descriptor.native)
         if validation.isErr() {
             let error = validation.unwrapErr(); validation.releaseContainer(); return this.reject(request, error)
         }
         validation.releaseContainer()
-        let buffer = request.resources.buffer; let descriptor = request.resources.descriptor
-        if this.closed or not this.accepting or request.contextOwned or not descriptor.valid or not descriptor.owned or
-            descriptor.native == (-1 as Int64) or buffer.data == (null as *UInt8) or request.bytes == (0 as UInt64) or
-            not ownedBufferByteRangeValid(buffer, 0 as UInt64, buffer.byteLength) or request.bytes > buffer.byteLength or request.bytes > this.maxTransferBytes or request.fileOffset < (0 as Int64) or
-            request.bytes > ((9223372036854775807 as Int64) - request.fileOffset) as UInt64 or
-            (request.operation != IoOperation.Read and request.operation != IoOperation.Write) {
-            return this.reject(request, ioQueueFailure(1 as Int32, "io.queue.reserve", 0 as UInt64))
-        }
-        if this.aliases(buffer.data as UInt64, (buffer.data as UInt64) + buffer.byteLength, descriptor.native) { return this.reject(request, ioQueueFailure(1 as Int32, "io.queue.alias", 0 as UInt64)) }
         let metadata = (request.context.resourceId.length() as UInt64) + (request.context.operation.traceId.value.length() as UInt64)
-        if this.freeCount == 0 or buffer.byteLength > this.maxOwnedBytes - this.ownedBytes or metadata > this.maxMetadataBytes - this.metadataBytes {
-            return this.reject(request, ioQueueFailure(2 as Int32, "io.queue.reserve", 0 as UInt64))
-        }
-        let deadline = asyncDeadlineStatus(request.context)
-        if deadline != (0 as Int32) { return this.reject(request, ioQueueFailure(deadline, "io.queue.reserve", 0 as UInt64)) }
         request.context = executorCopyContext(request.context); request.contextOwned = true
         let index = this.freeSlots[this.freeCount - 1]; this.freeCount = this.freeCount - 1
         this.generations[index] = this.generations[index] + (1 as UInt64)
@@ -211,4 +201,30 @@ class IoQueue {
         this.cancellationNotified.free(); this.freeSlots.free(); this.terminalSlots.free(); this.free()
         return Ok<Bool, AsyncError>(true)
     }
+}
+
+/// Shared borrow-only admission before an adapter acquires external resources.
+/// The serialized coordinator revalidates on reserve; preflight owns no lease.
+fun ioQueuePreflight(borrow queue: IoQueue, borrow buffer: OwnedBuffer<UInt8>, operation: IoOperation,
+    offset: Int64, bytes: UInt64, context: AsyncOperationContext, descriptor: Int64) r: Result<Bool, AsyncError> {
+    let validation = validateAsyncContext(context, "io.queue.reserve", 0 as UInt64)
+    if validation.isErr() { let error = validation.unwrapErr(); validation.releaseContainer(); return Err<Bool, AsyncError>(error) }
+    validation.releaseContainer()
+    if queue.closed or not queue.accepting or bytes == (0 as UInt64) or
+        not ownedBufferByteRangeValid(buffer, 0 as UInt64, buffer.byteLength) or bytes > buffer.byteLength or
+        bytes > queue.maxTransferBytes or offset < (0 as Int64) or
+        bytes > ((9223372036854775807 as Int64) - offset) as UInt64 or
+        (operation != IoOperation.Read and operation != IoOperation.Write) {
+        return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.reserve", 0 as UInt64))
+    }
+    if queue.aliases(buffer.data as UInt64, (buffer.data as UInt64) + buffer.byteLength, descriptor) {
+        return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.alias", 0 as UInt64))
+    }
+    let metadata = (context.resourceId.length() as UInt64) + (context.operation.traceId.value.length() as UInt64)
+    if queue.freeCount == 0 or buffer.byteLength > queue.maxOwnedBytes - queue.ownedBytes or metadata > queue.maxMetadataBytes - queue.metadataBytes {
+        return Err<Bool, AsyncError>(ioQueueFailure(2 as Int32, "io.queue.reserve", 0 as UInt64))
+    }
+    let deadline = asyncDeadlineStatus(context)
+    if deadline != (0 as Int32) { return Err<Bool, AsyncError>(ioQueueFailure(deadline, "io.queue.reserve", 0 as UInt64)) }
+    return Ok<Bool, AsyncError>(true)
 }

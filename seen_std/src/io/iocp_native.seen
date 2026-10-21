@@ -1,0 +1,8 @@
+/// Win32 error numbers are preserved, including ERROR_IO_PENDING (997).
+extern "C" fun seen_iocp_create(concurrency: UInt32, port: *Int64) r: UInt32
+extern "C" fun seen_iocp_associate(port: Int64, file: Int64, key: UInt64) r: UInt32
+extern "C" fun seen_iocp_utf16(input: *UInt8, bytes: UInt32, output: *UInt16, capacity: UInt32) r: Int64
+extern "C" fun seen_iocp_open(path: *UInt16, access: UInt32, share: UInt32, creation: UInt32, flags: UInt32, file: *Int64) r: UInt32
+extern "C" fun seen_iocp_transfer(file: Int64, buffer: *UInt8, bytes: UInt32, overlapped: *UInt8, overlappedBytes: UInt64, write: UInt32) r: UInt32
+extern "C" fun seen_iocp_cancel(file: Int64, overlapped: *UInt8) r: UInt32
+extern "C" fun seen_iocp_dequeue(port: Int64, bytes: *UInt32, key: *UInt64, overlapped: *UInt64) r: UInt32

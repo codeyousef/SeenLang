@@ -32,6 +32,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_async_io_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_async_io_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_io_c.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_checked_allocation_codegen.sh"

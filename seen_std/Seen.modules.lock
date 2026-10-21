@@ -111,7 +111,7 @@ hash = "75ae1ef8367915ad61b2148e06829c806451630d530afdefb2f54e49f367b144"
 
 [[modules]]
 path = "src/io/completion_queue.seen"
-hash = "a65a7de0b11cf16e7089917f16825391b3f952647d3ee6b56e8e1e09cccbaff1"
+hash = "8e10b30264b5c6ec94cdec04c2a42e1ac51931ef48a1ca4ff6293e965e1cbe75"
 
 [[modules]]
 path = "src/io/uring_native.seen"
@@ -119,12 +119,32 @@ hash = "1bec011d849f84a3feb3273eb5cd4ee9f621a1c48e52d2e85a9c9da038a36bb2"
 
 [[modules]]
 path = "src/io/uring_layout.seen"
-hash = "0876bdca813bab5f3bb4671c55d448e0c60c658273ef9602242b6785877f1b46"
+hash = "0d316ddf2bcaf6784c6fdfc4a760658317f11eac02e4d61fa099ea45f03c1a0a"
 
 [[modules]]
 path = "src/io/linux_uring.seen"
-hash = "53f1a3de3e52ab55837981f0564b3e7a0b498454be3dbb3472754ecc6e2961b9"
+hash = "be0141de13d887f3eb738deb80c63e6be1789ea623e384b977247268c823c6ed"
 
 [[modules]]
 path = "src/io/uring_file.seen"
 hash = "1842002d465abaa473df1787407bbc5d7da336edce80759e95aaf1771f4ca967"
+
+[[modules]]
+path = "src/io/completion_bytes.seen"
+hash = "03fb1caab9f9a530445524e11471475717e7ecbbe6712d67fd471e9e996f492e"
+
+[[modules]]
+path = "src/io/iocp_native.seen"
+hash = "b77376e4c4694a143b4229acf0c1813f3b0933efef9a3d25e90415d017db4a4e"
+
+[[modules]]
+path = "src/io/iocp_layout.seen"
+hash = "dbe2825816e06df7da99316780b9a4f1e0ddbc8588878028940fd240ce0ed3f2"
+
+[[modules]]
+path = "src/io/iocp_file.seen"
+hash = "395b11dcefdec3a03a42a5e516f12767be2b46b114c93d0b6d60263a7b41aac1"
+
+[[modules]]
+path = "src/io/windows_iocp.seen"
+hash = "cbb5d9f1506b322c38217e11a08412ef8e6328c7617eee14af40689402482673"
