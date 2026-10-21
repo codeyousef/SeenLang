@@ -190,7 +190,9 @@ fun normalizeRecursiveFunctionAttrsImpl(fnName: String, funcAttrs: String,
         normalizedAttrs = normalizedAttrs + " noinline"
         return normalizedAttrs
     }
-    return normalizedAttrs + " norecurse"
+    // A direct-call scan cannot exclude mutual recursion or callbacks.
+    // Leave norecurse inference to LLVM's whole-call-graph analysis.
+    return normalizedAttrs
 }
 
 fun countFunctionRegisterPressureImpl(fn: FunctionNode) r: Int {
