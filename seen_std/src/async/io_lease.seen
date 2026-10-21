@@ -23,6 +23,7 @@ class AsyncIoLease {
     }
 }
 
+@send
 @move
 class AsyncIoLeaseCounter {
     var native: UInt64

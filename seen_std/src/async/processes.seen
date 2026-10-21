@@ -1,0 +1,345 @@
+import core.result.{Result, Ok, Err}
+import core.option.{Option, Some, None}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import async.executor_core.{ExecutorTaskContext, executorFailure}
+import async.pools.{TypedWorkerPool, PoolJoinHandle}
+import async.process_arguments.{ProcessArguments, validProcessProgram, validProcessEnvironment}
+import async.process_native.{seen_async_process_pipe, seen_async_process_spawn, seen_async_process_pidfd,
+    seen_async_process_signal, seen_async_process_kill_unreaped, seen_async_process_wait}
+import async.io_lease.{AsyncIoLeaseCounter, AsyncIoLease}
+import async.streams.{AsyncFdStream}
+import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
+import reactor.reactor.{OwnedHandle}
+
+class AsyncProcessExit {
+    var code: Int
+    var signal: Int
+}
+
+@send
+@move
+class AsyncProcess {
+    var pid: Int64
+    var descriptor: OwnedHandle
+    var input: OwnedHandle
+    var output: OwnedHandle
+    var error: OwnedHandle
+    var leases: AsyncIoLeaseCounter
+    var childQuota: AsyncIoLease
+    var maxTransferBytes: UInt64
+    var reaped: Bool
+    var exitCode: Int
+    var exitSignal: Int
+
+    fun notificationLease() r: Result<AsyncIoLease, AsyncError> {
+        if not this.descriptor.valid {
+            return Err<AsyncIoLease, AsyncError>(executorFailure(1 as Int32, "process.notification", 0 as UInt64))
+        }
+        return this.leases.acquire(this.descriptor.native as UInt64)
+    }
+    // 0=stdin, 1=stdout, 2=stderr. Success moves just that pipe endpoint.
+    fun takeStream(which: Int) r: Result<AsyncFdStream, AsyncError> {
+        if which < 0 or which > 2 {
+            return Err<AsyncFdStream, AsyncError>(executorFailure(1 as Int32, "process.stream", 0 as UInt64))
+        }
+        var handle = this.input
+        if which == 1 { handle = this.output }
+        if which == 2 { handle = this.error }
+        let stream = AsyncFdStream.take(handle, this.maxTransferBytes)
+        if stream.isErr() { return stream }
+        let empty = OwnedHandle{native: -1 as Int64, valid: false, owned: false}
+        if which == 0 { this.input = empty }
+        if which == 1 { this.output = empty }
+        if which == 2 { this.error = empty }
+        return stream
+    }
+    fun pollExit() r: Result<Option<AsyncProcessExit>, AsyncError> {
+        if not this.reaped {
+            var done = 0 as Int32; var code = 0 as Int32; var signal = 0 as Int32
+            let status = seen_async_process_wait(this.pid, 0 as Int32, &done, &code, &signal)
+            if status != (0 as Int32) {
+                return Err<Option<AsyncProcessExit>, AsyncError>(executorFailure(status, "process.wait", 0 as UInt64))
+            }
+            if done == (0 as Int32) {
+                return Ok<Option<AsyncProcessExit>, AsyncError>(None<AsyncProcessExit>())
+            }
+            this.reaped = true; this.exitCode = code as Int; this.exitSignal = signal as Int
+        }
+        return Ok<Option<AsyncProcessExit>, AsyncError>(Some<AsyncProcessExit>(AsyncProcessExit{
+            code: this.exitCode, signal: this.exitSignal}))
+    }
+    fun cancel() r: Result<Bool, AsyncError> {
+        if this.reaped { return Ok<Bool, AsyncError>(true) }
+        let status = seen_async_process_signal(this.descriptor.native, 9 as Int32)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "process.cancel", 0 as UInt64))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let idle = this.leases.idleStatus()
+        if not this.reaped or idle != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(3 as Int32, "process.release", 0 as UInt64))
+        }
+        let input = this.input.close()
+        if input.isErr() {
+            input.unwrapErr().free(); input.releaseContainer()
+            return Err<Bool, AsyncError>(executorFailure(3 as Int32, "process.close.stdin", 0 as UInt64))
+        }
+        input.releaseContainer()
+        let output = this.output.close()
+        if output.isErr() {
+            output.unwrapErr().free(); output.releaseContainer()
+            return Err<Bool, AsyncError>(executorFailure(3 as Int32, "process.close.stdout", 0 as UInt64))
+        }
+        output.releaseContainer()
+        let error = this.error.close()
+        if error.isErr() {
+            error.unwrapErr().free(); error.releaseContainer()
+            return Err<Bool, AsyncError>(executorFailure(3 as Int32, "process.close.stderr", 0 as UInt64))
+        }
+        error.releaseContainer()
+        let descriptor = this.descriptor.close()
+        if descriptor.isErr() {
+            descriptor.unwrapErr().free(); descriptor.releaseContainer()
+            return Err<Bool, AsyncError>(executorFailure(3 as Int32, "process.close.pidfd", 0 as UInt64))
+        }
+        descriptor.releaseContainer()
+        let status = this.leases.release()
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "process.release", 0 as UInt64))
+        }
+        this.childQuota.release()
+        this.input.free(); this.output.free(); this.error.free(); this.descriptor.free(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}
+
+// Construction owns at most six pipe endpoints. The same owner handles every
+// prefix failure; successful endpoints move out before remaining ones close.
+class ProcessConstruction {
+    var handles: Array<Option<OwnedHandle>>
+
+    fun pipe(parentWrite: Int32) r: Int32 {
+        if this.handles.length() >= 6 { return 2 as Int32 }
+        var readFd = -1 as Int64; var writeFd = -1 as Int64
+        let status = seen_async_process_pipe(parentWrite, &readFd, &writeFd)
+        if status != (0 as Int32) { return status }
+        this.handles.push(Some<OwnedHandle>(OwnedHandle{native: readFd, valid: true, owned: true}))
+        this.handles.push(Some<OwnedHandle>(OwnedHandle{native: writeFd, valid: true, owned: true}))
+        return 0 as Int32
+    }
+    fun take(index: Int) r: OwnedHandle {
+        let handle = this.handles[index].unwrap()
+        this.handles[index].free(); this.handles[index] = None<OwnedHandle>()
+        return handle
+    }
+    fun closeAt(index: Int) r: Void {
+        if this.handles[index].isSome() {
+            let handle = this.take(index)
+            let closed = handle.close()
+            if closed.isErr() {
+                closed.unwrapErr().free()
+                if handle.valid { abort("process construction descriptor cleanup failed") }
+            }
+            closed.releaseContainer(); handle.free()
+        }
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.handles.length() {
+            this.closeAt(i); this.handles[i].free(); i = i + 1
+        }
+        this.handles.free(); this.free()
+    }
+}
+
+// Cleanup only: called on a blocking worker or while draining owned jobs.
+// No PID can be reused while this exclusive child owner has not reaped it.
+fun processKillAndReap(pid: Int64) r: Void {
+    let killed = seen_async_process_kill_unreaped(pid)
+    if killed != (0 as Int32) { abort("owned child could not be terminated") }
+    var done = 0 as Int32; var code = 0 as Int32; var signal = 0 as Int32
+    var status = seen_async_process_wait(pid, 1 as Int32, &done, &code, &signal)
+    while status == (5 as Int32) {
+        status = seen_async_process_wait(pid, 1 as Int32, &done, &code, &signal)
+    }
+    if status != (0 as Int32) or done != (1 as Int32) { abort("owned child could not be reaped") }
+}
+
+@send
+@move
+class ProcessSpawnJob {
+    var arguments: ProcessArguments
+    var environment: ProcessArguments
+    var maxTransferBytes: UInt64
+    var childQuota: Option<AsyncIoLease>
+    var leases: Option<AsyncIoLeaseCounter>
+    var process: Option<AsyncProcess>
+
+    static fun create(program: String, arguments: Array<String>, environment: Array<String>,
+        maxTransferBytes: UInt64, childQuota: AsyncIoLease) r: Result<ProcessSpawnJob, AsyncError> {
+        if not childQuota.active {
+            return Err<ProcessSpawnJob, AsyncError>(executorFailure(1 as Int32, "process.quota", 0 as UInt64))
+        }
+        if not validProcessProgram(program) or not validProcessEnvironment(environment) {
+            return Err<ProcessSpawnJob, AsyncError>(executorFailure(1 as Int32, "process.create", 0 as UInt64))
+        }
+        if arguments.length() > 255 or maxTransferBytes == (0 as UInt64) or maxTransferBytes > (16777216 as UInt64) {
+            return Err<ProcessSpawnJob, AsyncError>(executorFailure(2 as Int32, "process.create", 0 as UInt64))
+        }
+        let command = Array<String>(); command.push(program)
+        var i = 0
+        while i < arguments.length() { command.push(arguments[i]); i = i + 1 }
+        let packed = ProcessArguments.pack(command); command.free()
+        if packed.isErr() {
+            let error = packed.unwrapErr(); packed.releaseContainer(); return Err<ProcessSpawnJob, AsyncError>(error)
+        }
+        let argv = packed.unwrap(); packed.releaseContainer()
+        let env = ProcessArguments.pack(environment)
+        if env.isErr() {
+            let error = env.unwrapErr(); env.releaseContainer(); argv.release()
+            return Err<ProcessSpawnJob, AsyncError>(error)
+        }
+        let envp = env.unwrap(); env.releaseContainer()
+        let created = AsyncIoLeaseCounter.create(1)
+        if created.isErr() {
+            let error = created.unwrapErr(); created.releaseContainer(); argv.release(); envp.release()
+            return Err<ProcessSpawnJob, AsyncError>(error)
+        }
+        let leases = created.unwrap(); created.releaseContainer()
+        return Ok<ProcessSpawnJob, AsyncError>(ProcessSpawnJob{arguments: argv, environment: envp,
+            maxTransferBytes: maxTransferBytes, childQuota: Some<AsyncIoLease>(childQuota),
+            leases: Some<AsyncIoLeaseCounter>(leases), process: None<AsyncProcess>()})
+    }
+    fun run(context: ExecutorTaskContext) r: Bool {
+        if context.isCancelled() or this.process.isSome() or this.leases.isNone() or this.childQuota.isNone() { return false }
+        let construction = ProcessConstruction{handles: Array<Option<OwnedHandle>>()}
+        var status = construction.pipe(1 as Int32)
+        if status == (0 as Int32) { status = construction.pipe(0 as Int32) }
+        if status == (0 as Int32) { status = construction.pipe(0 as Int32) }
+        var pid = -1 as Int64; var pidfd = -1 as Int64
+        if status == (0 as Int32) and context.isCancelled() { status = 9 as Int32 }
+        if status == (0 as Int32) {
+            status = seen_async_process_spawn(this.arguments.strings.data as *Void,
+                this.arguments.pointers.data as *Void, this.environment.pointers.data as *Void,
+                construction.handles[0].unwrap().native, construction.handles[3].unwrap().native,
+                construction.handles[5].unwrap().native, &pid)
+        }
+        if status == (0 as Int32) { status = seen_async_process_pidfd(pid, &pidfd) }
+        if status == (0 as Int32) and context.isCancelled() { status = 9 as Int32 }
+        if status != (0 as Int32) {
+            if pid > (0 as Int64) { processKillAndReap(pid) }
+            if pidfd >= (0 as Int64) {
+                let handle = OwnedHandle{native: pidfd, valid: true, owned: true}
+                let closed = handle.close()
+                if closed.isErr() { closed.unwrapErr().free() }
+                closed.releaseContainer(); handle.free()
+            }
+            construction.release(); context.fail(status); return false
+        }
+        let leases = this.leases.unwrap(); this.leases.free(); this.leases = None<AsyncIoLeaseCounter>()
+        let quota = this.childQuota.unwrap(); this.childQuota.free(); this.childQuota = None<AsyncIoLease>()
+        let process = AsyncProcess{pid: pid, descriptor: OwnedHandle{native: pidfd, valid: true, owned: true},
+            input: construction.take(1), output: construction.take(2), error: construction.take(4),
+            leases: leases, childQuota: quota, maxTransferBytes: this.maxTransferBytes, reaped: false, exitCode: 0, exitSignal: 0}
+        construction.release()
+        this.process.free(); this.process = Some<AsyncProcess>(process)
+        return true
+    }
+    fun takeProcess() r: Result<AsyncProcess, AsyncError> {
+        if this.process.isNone() {
+            return Err<AsyncProcess, AsyncError>(executorFailure(1 as Int32, "process.take", 0 as UInt64))
+        }
+        let process = this.process.unwrap(); this.process.free(); this.process = None<AsyncProcess>()
+        return Ok<AsyncProcess, AsyncError>(process)
+    }
+    fun release() r: Bool {
+        if this.process.isSome() {
+            let process = this.process.unwrap()
+            if not process.reaped { processKillAndReap(process.pid); process.reaped = true }
+            let released = process.release()
+            if released.isErr() { abort("unclaimed process owner could not be released") }
+            released.releaseContainer()
+        }
+        this.process.free()
+        if this.leases.isSome() {
+            if this.leases.unwrap().release() != (0 as Int32) { abort("unclaimed process lease could not be released") }
+        }
+        this.leases.free()
+        if this.childQuota.isSome() { this.childQuota.unwrap().release() }
+        this.childQuota.free(); this.arguments.release(); this.environment.release(); this.free()
+        return true
+    }
+}
+
+fun spawnAsyncProcess(pool: TypedWorkerPool<ProcessSpawnJob>, job: ProcessSpawnJob,
+    context: AsyncOperationContext) r: Result<PoolJoinHandle<ProcessSpawnJob>, AsyncError> {
+    if pool.kind != "blocking" {
+        return Err<PoolJoinHandle<ProcessSpawnJob>, AsyncError>(executorFailure(1 as Int32, "process.spawn", 0 as UInt64))
+    }
+    return pool.submit(job, job, context)
+}
+
+
+@move
+class AsyncProcessSpawner {
+    var pool: TypedWorkerPool<ProcessSpawnJob>
+    var quota: AsyncIoLeaseCounter
+    var maxTransferBytes: UInt64
+
+    static fun create(pool: TypedWorkerPool<ProcessSpawnJob>, maxChildren: Int,
+        maxTransferBytes: UInt64) r: Result<AsyncProcessSpawner, AsyncError> {
+        if pool.kind != "blocking" {
+            return Err<AsyncProcessSpawner, AsyncError>(executorFailure(1 as Int32, "process.spawner", 0 as UInt64))
+        }
+        if maxChildren <= 0 or maxChildren > 1024 or maxTransferBytes == (0 as UInt64) or
+            maxTransferBytes > (16777216 as UInt64) {
+            return Err<AsyncProcessSpawner, AsyncError>(executorFailure(2 as Int32, "process.spawner", 0 as UInt64))
+        }
+        let attached = asyncSyncAttach(pool.executor.core)
+        if attached != (0 as Int32) {
+            return Err<AsyncProcessSpawner, AsyncError>(executorFailure(attached, "process.spawner", 0 as UInt64))
+        }
+        let created = AsyncIoLeaseCounter.create(maxChildren)
+        if created.isErr() {
+            let error = created.unwrapErr(); created.releaseContainer(); asyncSyncDetach(pool.executor.core)
+            return Err<AsyncProcessSpawner, AsyncError>(error)
+        }
+        let quota = created.unwrap(); created.releaseContainer()
+        return Ok<AsyncProcessSpawner, AsyncError>(AsyncProcessSpawner{pool: pool, quota: quota,
+            maxTransferBytes: maxTransferBytes})
+    }
+    fun spawn(program: String, arguments: Array<String>, environment: Array<String>,
+        context: AsyncOperationContext) r: Result<PoolJoinHandle<ProcessSpawnJob>, AsyncError> {
+        let valid = validateAsyncContext(context, "process.spawn", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<PoolJoinHandle<ProcessSpawnJob>, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        let acquired = this.quota.acquire(0 as UInt64)
+        if acquired.isErr() {
+            let error = acquired.unwrapErr(); acquired.releaseContainer()
+            return Err<PoolJoinHandle<ProcessSpawnJob>, AsyncError>(error)
+        }
+        let quota = acquired.unwrap(); acquired.releaseContainer()
+        let created = ProcessSpawnJob.create(program, arguments, environment, this.maxTransferBytes, quota)
+        if created.isErr() {
+            let error = created.unwrapErr(); created.releaseContainer(); quota.release()
+            return Err<PoolJoinHandle<ProcessSpawnJob>, AsyncError>(error)
+        }
+        let job = created.unwrap(); created.releaseContainer()
+        let submitted = spawnAsyncProcess(this.pool, job, context)
+        if submitted.isErr() { job.release() }
+        return submitted
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let status = this.quota.release()
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "process.spawner.release", 0 as UInt64))
+        }
+        asyncSyncDetach(this.pool.executor.core); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

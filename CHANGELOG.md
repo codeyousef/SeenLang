@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add checked owning async byte spans, nonblocking pipe/socket streams, bounded
+  process spawning with explicit argv/envp and pidfd reaping, and a Seen DNS
+  query/parser path with explicit server and resource budgets (`runtime-v8`).
+
 - Add bounded Seen reactor dispatch with indexed deadlines, one-shot readiness,
   generation-checked registrations and typed callback ownership. Add nonblocking
   TCP socket OS normalization; `runtime-v7` includes these narrow exports.

@@ -46,7 +46,7 @@ See [the compiling structured-async example](../../seen_std/examples/structured_
 ## Fixed-worker execution
 
 Module: `async.multithread`. Contract: `seen-multithread-executor-v1`,
-runtime compatibility: `runtime-v7`.
+runtime compatibility: `runtime-v8`.
 
 `MultithreadExecutor<T: Send + ExecutorJob>` starts exactly the explicitly
 configured worker count and reuses those threads until shutdown. `T` is the
@@ -346,6 +346,73 @@ reported. The shared `OwnedHandle` marks such descriptors invalid before returni
 the error, so a retry cannot close a descriptor number reused by another owner.
 The typed owner remains available to finish metadata cleanup.
 
+### Streams, processes and DNS (ASYNC-002E)
+
+`async.streams.AsyncByteSpan.take(buffer, offset, length)` validates a 64-bit
+range and transfers its aligned buffer on success. Rejection retains the caller's
+buffer. Move the owning span into a callback when suspending; a raw pointer to a
+caller's temporary buffer is never retained. `AsyncFdStream.take(descriptor,
+maxTransferBytes)` accepts a nonblocking pipe or socket. Each `read`/`write`
+performs one bounded OS call and reports actual bytes, read EOF, or a typed error.
+Would-block is retryable `async.unavailable`; a closed peer is unavailable and
+permanent. Context failures include cumulative 64-bit progress. Transfer limits
+are 1..16 MiB, and cumulative progress has an explicit signed-64-bit ceiling.
+Zero-length spans return zero without reporting EOF. OS SIGPIPE normalization
+preserves the calling thread's mask and any signal pending before the write.
+
+`async.processes.AsyncProcessSpawner.create(blockingPool, maxChildren,
+maxTransferBytes)` borrows a typed blocking pool and owns a live-child quota
+(1..1024). Its `spawn(absoluteProgram, arguments, environment, ctx)` snapshots
+at most 256 argument strings including argv[0], and at most 256 environment
+strings. Each vector has a 64 KiB packed-byte ceiling. NULs, relative/traversal
+program paths and malformed environment keys are rejected before spawning.
+The supplied environment is complete; callers choose every entry. The OS uses
+that program directly. Child stdin/stdout/stderr have independent pipes; parent
+endpoints are nonblocking and close-on-exec. Spawn work runs on the existing
+blocking pool. Child close-from actions prevent inheritance of unrelated file
+descriptors. SIGCHLD auto-reaping is unsupported because it would break exclusive
+child ownership.
+
+Join the returned `PoolJoinHandle<ProcessSpawnJob>`, call `takeProcess()`, then
+release the job and join handle. `takeStream(0|1|2)` moves stdin/stdout/stderr to
+an `AsyncFdStream`. Move spans with the corresponding readiness callback when
+waiting for pipe I/O. `notificationLease()` borrows a pidfd for a readable
+registration; retain the lease in its callback. After notification, `pollExit()`
+reaps that exact child and returns its exit code or signal. `cancel()` sends
+SIGKILL through the pidfd; keep ownership until the exit is reaped. Release
+notification leases and remaining pipe endpoints before releasing the process.
+The live-child quota remains held through this cleanup. Spawner destruction is
+rejected while jobs or child owners remain. Unclaimed failed, cancelled or
+unjoined spawn jobs terminate and reap their children during cleanup. They never
+detach them. Applications exclusively own child reaping and process signal policy.
+
+`async.dns.AsyncDnsResolver.create(serverAddress, maxQueries, maxAnswers,
+maxResponseBytes)` clones an explicit server address and owns a fixed live-query
+quota (1..1024). Answer limits are 1..128 and packet limits 512..4096 bytes.
+`start(hostname, kind, ctx)` supports A (1) and AAAA (28), ASCII hostnames and
+explicit punycode labels. Query IDs use OS entropy; connected UDP pins the peer.
+`AsyncDnsQuery.step()` performs one send and one receive at most. Would-block
+retains the query owner. Use a notification lease and readiness registration to
+wait, keeping query mutation on its coordinator. Remove borrowed registrations,
+release their leases, and release the query before destroying the resolver.
+Cancellation/deadline results retain cleanup owners until these borrows end.
+
+`async.dns_wire` validates transaction identity, echoed question, response flags,
+record lengths, compression targets and bounded expansion in Seen. Packets have
+at most 128 records; compression traversal has 128 steps and 255 expanded wire
+bytes; CNAME traversal has at most eight hops and rejects cycles. Answers match
+the validated canonical chain and requested address family. TTLs are bounded by
+the alias chain. A canonical name with no included address is returned for caller
+policy to follow explicitly. Truncated UDP responses return
+`async.unsupported_platform`; TCP DNS transport is not exposed. NXDOMAIN and
+permanent response failures are non-retryable unavailable errors; server failure
+is retryable. DNS names or packet contents are omitted from diagnostics.
+
+These OS integrations implement Linux x86-64. Other platforms fail explicitly
+with `async.unsupported_platform`. Software fixtures exercise real loopback
+sockets, partial pipe progress, child exit/cancellation, malformed source input,
+DNS compression attacks and a 60-second seed-1101 parser fuzz run. Hardware
+certification is separate from these API contracts.
 
 `async.completion_io.completionFileHandle(file)` borrows an open
 `fs.file.File` with required direct I/O and returns an independently owned,

@@ -8,6 +8,7 @@
 #if defined(__linux__) && defined(__x86_64__)
 #include <errno.h>
 #include <sys/socket.h>
+#include <sys/random.h>
 #include <netinet/in.h>
 #include <unistd.h>
 
@@ -114,6 +115,36 @@ int32_t seen_async_socket_bound_port(int64_t handle, uint16_t *port) {
     }
     return 4;
 }
+int32_t seen_async_datagram_open(const uint8_t *address, uint64_t length,
+    uint16_t port, int64_t *descriptor) {
+    if (!descriptor || *descriptor != -1 || !port) return 1;
+    struct sockaddr_storage storage; socklen_t size = 0;
+    int32_t status = seen_async_socket_address(address, length, port, &storage, &size);
+    if (status) return status;
+    int fd = socket(length == 4 ? AF_INET : AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (fd < 0) return seen_async_socket_errno(errno);
+    if (connect(fd, (struct sockaddr *)&storage, size) != 0) {
+        int error = errno; close(fd); return seen_async_socket_errno(error);
+    }
+    *descriptor = fd; return 0;
+}
+int32_t seen_async_datagram_receive(int64_t descriptor, void *buffer,
+    uint64_t capacity, uint64_t *completed) {
+    if (!seen_async_socket_fd(descriptor) || !buffer || !completed ||
+        !capacity || capacity > SSIZE_MAX) return 1;
+    *completed = 0;
+    ssize_t received = recv((int)descriptor, buffer, (size_t)capacity, MSG_DONTWAIT | MSG_TRUNC);
+    if (received < 0) return seen_async_socket_errno(errno);
+    if ((uint64_t)received > capacity) return 2;
+    *completed = (uint64_t)received; return 0;
+}
+int32_t seen_async_datagram_nonce(uint16_t *value) {
+    if (!value) return 1;
+    ssize_t count = getrandom(value, sizeof(*value), GRND_NONBLOCK);
+    if (count < 0) return seen_async_socket_errno(errno);
+    return count == sizeof(*value) ? 0 : 3;
+}
+
 #else
 int32_t seen_async_socket_open(int32_t f, int64_t *h) {(void)f;(void)h;return 4;}
 int32_t seen_async_socket_bind(int64_t h,const uint8_t*a,uint64_t l,uint16_t p) {(void)h;(void)a;(void)l;(void)p;return 4;}
@@ -124,4 +155,7 @@ int32_t seen_async_socket_connect_status(int64_t h) {(void)h;return 4;}
 int32_t seen_async_socket_read(int64_t h,void*d,uint64_t l,uint64_t*c) {(void)h;(void)d;(void)l;(void)c;return 4;}
 int32_t seen_async_socket_write(int64_t h,const void*d,uint64_t l,uint64_t*c) {(void)h;(void)d;(void)l;(void)c;return 4;}
 int32_t seen_async_socket_bound_port(int64_t h,uint16_t*p) {(void)h;(void)p;return 4;}
+int32_t seen_async_datagram_open(const uint8_t*a,uint64_t n,uint16_t p,int64_t*d) {(void)a;(void)n;(void)p;(void)d;return 4;}
+int32_t seen_async_datagram_receive(int64_t d,void*b,uint64_t n,uint64_t*c) {(void)d;(void)b;(void)n;(void)c;return 4;}
+int32_t seen_async_datagram_nonce(uint16_t*v) {(void)v;return 4;}
 #endif

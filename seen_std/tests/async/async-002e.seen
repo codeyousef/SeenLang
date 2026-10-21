@@ -1,0 +1,149 @@
+import core.result.{Result}
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import async.structured.{AsyncError, AsyncLimits, AsyncOperationContext}
+import async.executor_core.{ExecutorLimits, ExecutorTaskContext, executorReleaseContext}
+import async.multithread.{MultithreadExecutor}
+import async.event_loop.{AsyncIoJob, AsyncIoEvent, ReadyIoJob, AsyncEventLoop}
+import async.io_lease.{AsyncIoLease}
+import async.pools.{TypedWorkerPool}
+import async.pool_placement.{PoolPlacement}
+import async.processes.{ProcessSpawnJob, AsyncProcessSpawner}
+import async.streams.{AsyncByteSpan}
+import async.sockets.{SocketAddress}
+import async.dns.{AsyncDnsResolver}
+import async.dns_wire.{DnsQuestion, decodeDnsResponse}
+import reactor.reactor.{OwnedHandle, Interest}
+import memory.aligned_buffer.{OwnedBuffer}
+import dns_fixture_support.{dnsFixtureAnswer}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_async_process_live_children() r: UInt64
+extern "C" fun seen_async_readiness_live_handles() r: UInt64
+extern "C" fun seen_sync_atomic_load(handle: UInt64, order: Int32, value: *Int64) r: Int32
+fun must<T, E>(result: Result<T, E>) r: T {
+    if result.isErr() { abort("reactor fixture failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun errorIs<T>(result: Result<T, AsyncError>, code: String) r: Bool {
+    if result.isOkay() { result.releaseContainer(); return false }
+    let error = result.unwrapErr(); result.releaseContainer()
+    let matches = error.code == code
+    error.free(); return matches
+}
+fun context() r: AsyncOperationContext {
+    return AsyncOperationContext{operation: OperationContext{
+        cancellation: false, monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096, maxPathBytes: 4095,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "async-002e"}}, resourceId: "stream-process-dns",
+        fallbackPolicy: 0, limits: AsyncLimits.bounded(16, 16, 8, 16, 128)}
+}
+fun limits() r: ExecutorLimits {
+    return ExecutorLimits{workers: 1, tasks: 8, queued: 8,
+        helpDepth: 8, stackBytes: 1048576 as UInt64}
+}
+@send
+class Notice {
+    var lease: AsyncIoLease
+    var observed: Bool
+    fun onEvent(event: AsyncIoEvent, descriptor: Int64, context: ExecutorTaskContext) r: Bool {
+        this.observed = (event.flags & (1 as Int32)) != (0 as Int32)
+        return not context.isCancelled()
+    }
+    fun release() r: Bool { this.lease.release(); this.free(); return true }
+}
+fun awaitNotice(reactor: AsyncEventLoop<Notice>, lease: AsyncIoLease, context: AsyncOperationContext) r: Void {
+    let descriptor = must(OwnedHandle.borrow(lease.native as Int64))
+    let registration = must(reactor.register(Notice{lease: lease, observed: false}, descriptor,
+        Interest.Readable, -1 as Int64, context))
+    must(reactor.pollOnce(2, context))
+    let handle = must(reactor.dispatchNext()); let job = must(handle.join(context))
+    if not job.task.observed { abort("readiness notification missing") }
+    job.release(); handle.free(); registration.free()
+}
+fun main() r: Int {
+    let children = seen_async_process_live_children(); let threads = seen_executor_live_threads()
+    let mutexes = seen_sync_live_mutexes(); let conditions = seen_sync_live_conditions()
+    let atomics = seen_sync_live_atomics(); let readiness = seen_async_readiness_live_handles()
+    let ctx = context(); ctx.operation.monotonicDeadline = seen_time_monotonic_nanos() + (30000000000 as Int64)
+    let config = limits(); let placement = PoolPlacement.inherited()
+    let pool = must(TypedWorkerPool<ProcessSpawnJob>.create("blocking", config, placement))
+    placement.release()
+    let executor = must(MultithreadExecutor<ReadyIoJob<Notice>>.create(config)); config.free()
+    let reactor = must(AsyncEventLoop<Notice>.create(executor, 2))
+    let spawner = must(AsyncProcessSpawner.create(pool, 1, 4096 as UInt64))
+    let arguments = Array<String>(); let environment = Array<String>()
+    if not errorIs(spawner.spawn("../bin/cat", arguments, environment, ctx), "async.invalid") { return 1 }
+    println("PASS: ASYNC-002E_invalid")
+    let handle = must(spawner.spawn("/bin/cat", arguments, environment, ctx))
+    let job = must(handle.join(ctx)); let process = must(job.takeProcess())
+    job.release(); must(handle.release())
+    if not errorIs(spawner.spawn("/bin/cat", arguments, environment, ctx), "async.limit") { return 2 }
+    if not errorIs(spawner.release(), "async.unavailable") { return 3 }
+    println("PASS: ASYNC-002E_limit")
+    let input = must(process.takeStream(0)); let output = must(process.takeStream(1))
+    let buffer = must(OwnedBuffer<UInt8>.allocate(16 as UInt64, 1 as UInt64, 16 as UInt64))
+    ptr_store_i8(buffer.data as Int, 97 as Int8)
+    ptr_store_i8((buffer.data as Int) + 1, 98 as Int8); ptr_store_i8((buffer.data as Int) + 2, 99 as Int8)
+    let span = must(AsyncByteSpan.take(buffer, 0 as UInt64, 3 as UInt64))
+    let written = must(input.write(span, ctx))
+    if written.bytes != (3 as UInt64) { return 4 }
+    written.free(); must(input.release())
+    awaitNotice(reactor, must(process.notificationLease()), ctx)
+    let read = must(output.read(span, ctx))
+    if read.bytes != (3 as UInt64) or read.eof or output.readProgress != (3 as UInt64) { return 5 }
+    read.free()
+    let eof = must(output.read(span, ctx))
+    if not eof.eof or eof.bytes != (0 as UInt64) { return 6 }
+    eof.free(); must(output.release()); span.release()
+    let exited = must(process.pollExit())
+    if exited.isNone() or exited.unwrap().code != 0 { return 7 }
+    exited.unwrap().free(); exited.free(); must(process.release())
+    println("PASS: ASYNC-002E_happy")
+
+    arguments.push("60")
+    let sleeping = must(spawner.spawn("/bin/sleep", arguments, environment, ctx))
+    let sleepJob = must(sleeping.join(ctx)); let sleeper = must(sleepJob.takeProcess())
+    sleepJob.release(); must(sleeping.release())
+    must(sleeper.cancel()); awaitNotice(reactor, must(sleeper.notificationLease()), ctx)
+    let killed = must(sleeper.pollExit())
+    if killed.isNone() or killed.unwrap().signal != 9 { return 8 }
+    killed.unwrap().free(); killed.free(); must(sleeper.release())
+    println("PASS: ASYNC-002E_cancel")
+    arguments.free(); environment.free(); must(spawner.release()); must(pool.release())
+
+    let question = must(DnsQuestion.create("Example.Test.", 1, 1101))
+    if question.name != "example.test" { return 9 }
+    let wire = dnsFixtureAnswer(question)
+    let response = must(decodeDnsResponse(wire, question, 4))
+    if response.addresses.length() != 1 or response.addresses[0].bytes[0] != 127 or
+        response.addresses[0].ttl != (60 as UInt64) { return 10 }
+    response.release()
+    wire.put(2, 131)
+    if not errorIs(decodeDnsResponse(wire, question, 4), "async.unsupported_platform") { return 11 }
+    wire.put(2, 129); wire.put(question.wire.length + 1, question.wire.length)
+    if not errorIs(decodeDnsResponse(wire, question, 4), "async.invalid") { return 12 }
+    wire.release(); question.release()
+    if not errorIs(DnsQuestion.create("bad..name", 1, 0), "async.invalid") { return 13 }
+    let addressBytes = Array<Int>(); addressBytes.push(127); addressBytes.push(0); addressBytes.push(0); addressBytes.push(1)
+    let server = must(SocketAddress.fromBytes(addressBytes, 53)); addressBytes.free()
+    let resolver = must(AsyncDnsResolver.create(server, 1, 4, 512)); server.release()
+    let query = must(resolver.start("example.test", 1, ctx))
+    if not errorIs(resolver.start("example.test", 1, ctx), "async.limit") { return 14 }
+    if not errorIs(resolver.release(), "async.unavailable") { return 15 }
+    let lease = must(query.notificationLease())
+    if not errorIs(query.release(), "async.unavailable") { return 16 }
+    lease.release(); must(query.release()); must(resolver.release())
+    println("PASS: ASYNC-002E_partial")
+    must(reactor.release()); must(executor.release()); executorReleaseContext(ctx)
+    if seen_async_process_live_children() != children or seen_executor_live_threads() != threads or
+        seen_sync_live_mutexes() != mutexes or seen_sync_live_conditions() != conditions or
+        seen_sync_live_atomics() != atomics or seen_async_readiness_live_handles() != readiness { return 17 }
+    println("PASS: ASYNC-002E_cleanup")
+    return 0
+}

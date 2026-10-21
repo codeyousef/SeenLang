@@ -1,0 +1,20 @@
+import async.dns_wire.{DnsWire, DnsQuestion}
+import memory.aligned_buffer.{OwnedBuffer}
+fun dnsFixtureAnswer(borrow question: DnsQuestion) r: DnsWire {
+    let allocated = OwnedBuffer<UInt8>.allocate(512 as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { abort("DNS fixture allocation failed") }
+    let storage = allocated.unwrap(); allocated.releaseContainer()
+    let wire = DnsWire{storage: storage, length: 512}
+    var i = 0
+    while i < 512 { wire.put(i, 0); i = i + 1 }
+    i = 0
+    while i < question.wire.length { wire.put(i, question.wire.byte(i)); i = i + 1 }
+    wire.put(2, 129); wire.put(3, 128); wire.put(7, 1)
+    let at = question.wire.length
+    wire.put(at, 192); wire.put(at + 1, 12)
+    wire.put(at + 2, 0); wire.put(at + 3, 1); wire.put(at + 4, 0); wire.put(at + 5, 1)
+    wire.put(at + 6, 0); wire.put(at + 7, 0); wire.put(at + 8, 0); wire.put(at + 9, 60)
+    wire.put(at + 10, 0); wire.put(at + 11, 4)
+    wire.put(at + 12, 127); wire.put(at + 13, 0); wire.put(at + 14, 0); wire.put(at + 15, 1)
+    wire.length = at + 16; return wire
+}
