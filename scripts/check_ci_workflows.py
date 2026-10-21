@@ -67,6 +67,7 @@ jobs:
             .seen/agent-tools/safe-rebuild/run.*/stage2_safe_rebuild
             .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild
             .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild_recovery
+            .seen/agent-tools/safe-rebuild/run.*/stage2-failure.*/*
             .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/*.log
             .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/pointer-index-*-ir/*.ll
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.log

@@ -1702,7 +1702,29 @@ preserve_stage2_failure_artifacts() {
         cp "$snapshot_dir"/seen_module_* "$preserve_dir/" 2>/dev/null || true
     fi
     cp /tmp/seen_module_* "$preserve_dir/" 2>/dev/null || true
+    preserve_stage2_diagnostics
     echo -e "${YELLOW}Preserved Stage2 failure artifacts: $preserve_dir${NC}"
+}
+
+# Private /tmp is destroyed with the build namespace. Keep bounded diagnostics
+# and the rejected module in the ignored run directory for CI artifact upload.
+preserve_stage2_diagnostics() {
+    local diagnostics_dir candidate bytes retained=0
+    diagnostics_dir=$(mktemp -d "$REBUILD_WORK_ROOT/stage2-failure.XXXXXX") || return 0
+    tail -c 262144 /tmp/safe_rebuild_stage2.log >"$diagnostics_dir/stage2.log" 2>/dev/null || true
+    tail -c 65536 /tmp/safe_rebuild_stage2.guard.log >"$diagnostics_dir/guard.log" 2>/dev/null || true
+    while IFS= read -r candidate; do
+        case "$candidate" in
+            "$COMPILER_ARTIFACT_ROOT"/seen_compile_*/seen_module_[0-9]*.ll) ;;
+            *) continue ;;
+        esac
+        [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+        bytes=$(wc -c <"$candidate")
+        [ "$bytes" -le 33554432 ] || continue
+        cp -- "$candidate" "$diagnostics_dir/$(basename -- "$candidate")" || true
+        retained=$((retained + 1))
+        [ "$retained" -lt 8 ] || break
+    done < <(sed -nE 's#^.*llvm-as: ([^:]+[.]ll):[0-9]+:.*#\1#p' /tmp/safe_rebuild_stage2.log 2>/dev/null)
 }
 
 is_positive_integer() {
