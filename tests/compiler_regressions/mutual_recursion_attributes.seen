@@ -1,0 +1,22 @@
+fun recursionEven(value: Int) r: Bool {
+    if value == 0 { return true }; return recursionOdd(value - 1)
+}
+fun recursionOdd(value: Int) r: Bool {
+    if value == 0 { return false }; return recursionEven(value - 1)
+}
+class RecursionProbe {
+    var value: Int
+    fun even(value: Int) r: Bool { if value == 0 { return true }; return this.odd(value - 1) }
+    fun odd(value: Int) r: Bool { if value == 0 { return false }; return this.even(value - 1) }
+}
+fun main() r: Int {
+    let probe = RecursionProbe{value: 0}; var i = 0
+    while i < 512 {
+        let expected = i % 2 == 0
+        if recursionEven(i) != expected or recursionOdd(i) == expected or probe.even(i) != expected or probe.odd(i) == expected {
+            abort("mutual recursion changed observable results")
+        }
+        i = i + 1
+    }
+    probe.free(); println("PASS: mutual recursion preserves free function and method semantics"); return 0
+}
