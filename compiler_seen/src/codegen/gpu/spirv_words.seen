@@ -18,13 +18,13 @@ let SPV_MAX_IDS: Int = 1048576
 
 @move
 class GpuSpirvWords {
-    var sections: Array<Array<Int>>
+    var sections: Array<Array<Int> >
     var nextId: Int
     var wordCount: Int
     var failed: Bool
     var message: String
     static fun create() r: GpuSpirvWords {
-        let sections = Array<Array<Int>>(); var i = 0
+        let sections = Array<Array<Int> >(); var i = 0
         while i < 10 { sections.push(Array<Int>()); i = i + 1 }
         return GpuSpirvWords{sections: sections, nextId: 1, wordCount: 5, failed: false, message: ""}
     }
