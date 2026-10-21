@@ -174,10 +174,11 @@ fun lookupDynParamTraitImpl(funcName: String, paramIdx: Int, dynParamFuncs: Stri
         return ""
     }
     let dynLookup = funcName + ":" + paramIdx.toString() + ":"
-    let dynLookupPos = dynParamFuncs.indexOf(dynLookup, 0)
-    if dynLookupPos < 0 {
-        return ""
+    var dynLookupPos = dynParamFuncs.indexOf(dynLookup, 0)
+    while dynLookupPos > 0 and dynParamFuncs.byteAt(dynLookupPos - 1) != 124 {
+        dynLookupPos = dynParamFuncs.indexOf(dynLookup, dynLookupPos + 1)
     }
+    if dynLookupPos < 0 { return "" }
     let dynTraitStart = dynLookupPos + dynLookup.length()
     var dynTraitEnd = dynParamFuncs.indexOf("|", dynTraitStart)
     if dynTraitEnd < 0 {
@@ -221,7 +222,7 @@ fun appendPreparedCallArgImpl(output: StringBuilder, regBox: Array<Int>,
         return
     }
 
-    if enableDynBoxing {
+    if enableDynBoxing and not argType.startsWith("dyn ") {
         let dynTraitName = lookupDynParamTraitImpl(funcName, argIdx, dynParamFuncs)
         if dynTraitName != "" {
             let dataPtrReg = getNextRegFn(regBox)
