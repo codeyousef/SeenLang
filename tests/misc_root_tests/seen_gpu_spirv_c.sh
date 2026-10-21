@@ -16,8 +16,19 @@ FIXTURE_ARTIFACT_PREFIX=gpu-spirv-c
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 python3 "$ROOT_DIR/scripts/check_gpu_spirv_toolchain.py" > "$TMP_DIR/toolchain.json"
 for profile in fast release undefined address; do
+    compile_case "$profile" array-fill "$ROOT_DIR/tests/compiler_regressions/fixed_width_array_fill.seen"
+    rg -Fq 'PASS: fixed-width filled arrays preserve zeroing strides and ownership' "$TMP_DIR/array-fill-$profile.log"
+    compile_case "$profile" sha256-vectors "$ROOT_DIR/tests/fixtures/sha256_finalize_ownership.seen"
+    rg -Fq 'PASS: SHA-256 allocator baseline' "$TMP_DIR/sha256-vectors-$profile.log"
     compile_case "$profile" artifact "$ROOT_DIR/tests/spir_v_vulkan_lowering/artifact_contract.seen" "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
     rg -Fq 'PASS: GPU-002C artifact hashes manifests mutation rejection and allocation baseline' "$TMP_DIR/artifact-$profile.log"
+done
+for invalid in negative overflow; do
+    status=0
+    timeout --foreground --kill-after=5s 30s "$TMP_DIR/array-fill-fast" "$invalid" > "$TMP_DIR/array-fill-$invalid.log" 2>&1 || status=$?
+    if [ "$status" -eq 0 ]; then echo "FAIL: invalid filled array length accepted: $invalid" >&2; exit 1; fi
+    case "$status" in 124|125|126|127|137|143) exit "$status" ;; esac
+    rg -Fq 'PANIC: index out of bounds:' "$TMP_DIR/array-fill-$invalid.log"
 done
 mkdir "$TMP_DIR/relocated"
 cp "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen" "$TMP_DIR/relocated/source.seen"
