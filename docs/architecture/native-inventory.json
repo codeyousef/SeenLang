@@ -5915,6 +5915,7 @@
       "name": "seen_string_builder_flatten_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/crypto/sha256.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/parser.seen"
       ]
