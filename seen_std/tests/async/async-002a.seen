@@ -117,9 +117,9 @@ fun happy(context: AsyncOperationContext) r: Bool {
     if seen_executor_live_threads() != (2 as UInt64) { return false }
     var round = 0
     while round < 100 {
-        let first = must(pool.spawn(ownProbe(ExecutorProbe{mode: 0, number: round,
+        let first = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 0, number: round,
             result: 0, releases: 0 as UInt64}), context))
-        let second = must(pool.spawn(ownProbe(ExecutorProbe{mode: 0, number: round + 1,
+        let second = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 0, number: round + 1,
             result: 0, releases: 0 as UInt64}), context))
         let a = must(first.join(context))
         let b = must(second.join(context))
@@ -140,7 +140,7 @@ fun nested(context: AsyncOperationContext) r: Bool {
     let limits = poolLimits(1, 4)
     let pool = must(MultithreadExecutor<ExecutorProbe>.create(limits))
     limits.free()
-    let handle = must(pool.spawn(ownProbe(ExecutorProbe{mode: 1, number: 20,
+    let handle = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 1, number: 20,
         result: 0, releases: 0 as UInt64}), context))
     let value = must(handle.join(context))
     let valid = value.result == 41 and
@@ -157,18 +157,18 @@ fun limitsAndInvalid(context: AsyncOperationContext) r: Bool {
     let limits = poolLimits(1, 1)
     let pool = must(MultithreadExecutor<ExecutorProbe>.create(limits))
     limits.free()
-    let first = must(pool.spawn(ownProbe(ExecutorProbe{mode: 0, number: 1,
+    let first = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 0, number: 1,
         result: 0, releases: 0 as UInt64}), context))
     let rejected = ownProbe(ExecutorProbe{mode: 0, number: 2, result: 0,
         releases: 0 as UInt64})
-    if not hasError(pool.spawn(rejected, context), "async.limit") { return false }
+    if not hasError(pool.spawnOwned(rejected, context), "async.limit") { return false }
     rejected.release()
     let value = must(first.join(context))
     value.release(); first.free()
     must(pool.shutdown(false))
     let late = ownProbe(ExecutorProbe{mode: 0, number: 3, result: 0,
         releases: 0 as UInt64})
-    if not hasError(pool.spawn(late, context), "async.invalid") { return false }
+    if not hasError(pool.spawnOwned(late, context), "async.invalid") { return false }
     late.release()
     must(pool.release())
     return true
@@ -180,12 +180,12 @@ fun cancellationAndCleanup(context: AsyncOperationContext) r: Bool {
     let limits = poolLimits(1, 2)
     let pool = must(MultithreadExecutor<ExecutorProbe>.create(limits))
     limits.free()
-    let handle = must(pool.spawn(ownProbe(ExecutorProbe{mode: 2, number: 0,
+    let handle = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 2, number: 0,
         result: 0, releases: counter}), context))
     must(handle.cancel())
     if not hasError(handle.join(context), "async.cancelled") { return false }
     handle.free()
-    let failed = must(pool.spawn(ownProbe(ExecutorProbe{mode: 3, number: 0,
+    let failed = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 3, number: 0,
         result: 0, releases: counter}), context))
     if not hasError(failed.join(context), "async.unavailable") { return false }
     failed.free()
@@ -195,12 +195,12 @@ fun cancellationAndCleanup(context: AsyncOperationContext) r: Bool {
         return false
     }
     deadlineContext.operation.monotonicDeadline = now + (1000000000 as Int64)
-    let timed = must(pool.spawn(ownProbe(ExecutorProbe{mode: 4, number: 0,
+    let timed = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 4, number: 0,
         result: 0, releases: counter}), deadlineContext))
     if not hasError(timed.join(context), "async.timeout") { return false }
     timed.free()
     executorReleaseContext(deadlineContext)
-    let abandoned = must(pool.spawn(ownProbe(ExecutorProbe{mode: 0, number: 3,
+    let abandoned = must(pool.spawnOwned(ownProbe(ExecutorProbe{mode: 0, number: 3,
         result: 0, releases: counter}), context))
     must(pool.shutdown(false))
     must(pool.close())
