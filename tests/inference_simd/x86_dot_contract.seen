@@ -6,10 +6,13 @@ import simd.x86_dispatch.{X86SimdCapabilities, selectX86Variant}
 import simd.dot_contract.{DotOperation, DotProgress}
 import simd.x86_kernels.{executeX86Dot, executeX86DotWithClock, X86DotBackend}
 extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_string_release_owned(value: String) r: Void
 fun memoryUnchanged(before: Int64, phase: String) r: Void {
     let after = seen_memory_used_bytes()
     if after != before {
-        println("FAIL: x86 allocation baseline changed"); println(phase); println(before); println(after)
+        let beforeText = before.toString(); let afterText = after.toString()
+        println("FAIL: x86 allocation baseline changed"); println(phase); println(beforeText); println(afterText)
+        seen_string_release_owned(beforeText); seen_string_release_owned(afterText)
         abort("x86 allocation ownership regression")
     }
 }
