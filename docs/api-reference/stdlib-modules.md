@@ -45,10 +45,24 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ## Modules
 
+### `accelerator`
+
+- `accelerator/cuda/error`
+- `accelerator/cuda/mod`
+
 ### `async`
 
-- `async/future`
-- `async/runtime`
+- `async/barrier`
+- `async/executor_core`
+- `async/executor_native`
+- `async/mod`
+- `async/multithread`
+- `async/queue`
+- `async/reduction`
+- `async/structured`
+- `async/sync_domain`
+- `async/task_group`
+- `async/wait_group`
 
 ### `audio`
 
@@ -57,6 +71,7 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ### `collections`
 
+- `collections/algorithms`
 - `collections/bit_set`
 - `collections/btree_map`
 - `collections/btree_set`
@@ -80,14 +95,18 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `core/bitfield`
 - `core/compress`
 - `core/convert`
+- `core/error`
 - `core/intrinsics`
 - `core/json_derive`
+- `core/operation_context`
 - `core/option`
 - `core/ord`
+- `core/ownership`
 - `core/packet`
 - `core/prelude`
 - `core/reflect`
 - `core/result`
+- `core/secret`
 - `core/to_string`
 - `core/unit`
 
@@ -95,6 +114,11 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 - `crypto/md5`
 - `crypto/sha256`
+
+### `determinism`
+
+- `determinism/context`
+- `determinism/policy`
 
 ### `env`
 
@@ -104,6 +128,10 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 - `ffi/c_types`
 - `ffi/cinterop`
+
+### `formats`
+
+- `formats/safetensors`
 
 ### `framework`
 
@@ -134,6 +162,11 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 - `hash/mod`
 
+### `inference`
+
+- `inference/scalars`
+- `inference/span`
+
 ### `input`
 
 - `input/gamepad`
@@ -147,69 +180,6 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `io/file`
 - `io/stdio`
 
-`io/bytes` defines the native `ByteBuffer`, `ByteSlice`, and
-`MutableByteSlice` ownership contract. Byte ranges use checked nonnegative
-64-bit `Int` geometry, including offsets above 4 GiB. Immutable views share an
-owner generation; mutable views are exclusive. Closing views and releasing the
-owner are idempotent, and any view whose owner was released is rejected with
-the stable `byte.invalid` code. Cancellation-aware acquisition reports
-`byte.cancelled`. See `seen_std/examples/byte_slices.seen` for a compiling
-example.
-
-`ByteBuffer` also provides bounded growable storage. Call
-`tryByteBufferWithCapacity` or `tryZeroedByteBuffer` to select a checked
-logical capacity and power-of-two alignment up to 32 bytes. `reserve`, `push`,
-and `append` reject growth while any view is borrowed, preserve existing
-bytes, and cap every allocation at `BYTE_MAX_CAPACITY`. Native Seen arrays are
-32-byte aligned by the runtime; smaller requested alignments are compatibility
-requirements satisfied by that storage. `toArray` is the explicit copying
-escape hatch; slices remain generation-checked zero-copy views.
-
-Synchronous byte I/O is specified by the `Reader`, `Writer`, `Seeker`,
-`BufRead`, and `Flush` traits. The native Seen `ByteReader` and `ByteWriter`
-implement the same concrete contracts without foreign policy: each operation
-accepts an `OperationContext`, returns exact partial progress, rejects stale
-views and checked-limit overflow, and reports cancellation or expiration before
-side effects. `ByteWriter` is created with `tryByteWriterWithLimit`; it never
-grows beyond the caller's bound. See `seen_std/examples/byte_streams.seen`.
-
-Bounded adapters include `LimitedReader`, `CountingReader`, `TeeReader`,
-`HashingWriter`, `BufferedReader`, and `BufferedWriter`. `copyLimited` uses a
-caller-bounded scratch buffer and returns `CopyResult` with separate read and
-write progress, an explicit limit marker, and completion state. Tee, hash, and
-copy accounting covers only bytes actually accepted; cancellation is checked
-before progress and every owned adapter closes idempotently. See
-`seen_std/examples/byte_adapters.seen`.
-
-UTF-8 codecs provide strict validation, lossy U+FFFD replacement, bounded
-encoding, and cancellation before side effects. Endian codecs read and write
-checked 16-, 32-, and 64-bit integer storage in both byte orders. Float16,
-BFloat16, and Float64 helpers deliberately preserve raw IEEE bit patterns so
-NaN payloads and signed zero round-trip exactly; scalar interpretation belongs
-to the scalar type layer. Every codec validates its complete range before
-mutation. See `seen_std/examples/byte_codecs.seen`.
-
-Asynchronous byte I/O is specified by `AsyncReader`, `AsyncWriter`,
-`AsyncSeeker`, `AsyncBufRead`, and `AsyncFlush`. The native Seen
-`AsyncByteReader` and `AsyncByteWriter` preserve checked borrowed spans,
-nonnegative 64-bit progress, exact partial completion, cancellation before side
-effects, and idempotent cleanup. Memory-backed operations are direct-ready
-coroutines; readiness scheduling and operating-system queues remain the
-responsibility of backend implementations. See
-`seen_std/examples/async_byte_streams.seen`.
-
-### `reactor`
-
-- `reactor/mod`
-- `reactor/reactor`
-
-The reactor provides move-only native handles, generation-safe registrations,
-finite event batches, prompt wakeups, monotonic timers, fair diagnostics, and a
-fixed-worker bounded blocking pool. Linux epoll, macOS kqueue readiness, and
-Windows IOCP completion share one event contract while retaining explicit
-capability and unsupported-platform diagnostics. See
-`docs/api-reference/reactor.md`.
-
 ### `json`
 
 - `json/builder`
@@ -219,15 +189,6 @@ capability and unsupported-platform diagnostics. See
 - `json/strict`
 - `json/value`
 
-### `formats`
-
-- `formats/safetensors`
-
-### `inference`
-
-- `inference/scalars`
-- `inference/span`
-
 ### `math`
 
 - `math/math`
@@ -236,19 +197,10 @@ capability and unsupported-platform diagnostics. See
 
 - `memory/aligned_buffer`
 - `memory/allocation`
+- `memory/mapped_file`
 - `memory/mapped_region`
 - `memory/pool_region`
 - `memory/stack_region`
-
-### `accelerator`
-
-- `accelerator/cuda/error` (explicit Linux x86-64 CUDA dependency)
-- `accelerator/cuda/mod` (experimental hardware maturity)
-
-`CudaStream.borrowLaunchToken()` returns a non-owning
-`CudaStreamLaunchToken` for one immediately nested model-kernel adapter call.
-The token is generation- and device-checked, supports graph capture, and does
-not authorize retention, synchronization, destruction, or device changes.
 
 ### `net`
 
@@ -286,6 +238,18 @@ not authorize retention, synchronization, destruction, or device changes.
 
 - `random/rng`
 
+### `reactor`
+
+- `reactor/mod`
+- `reactor/reactor`
+
+### `root`
+
+- `error`
+- `operation_context`
+- `ownership`
+- `secret`
+
 ### `scripting`
 
 - `scripting/lua`
@@ -296,6 +260,8 @@ not authorize retention, synchronization, destruction, or device changes.
 
 ### `simd`
 
+- `simd/dispatch_plan`
+- `simd/ir_types`
 - `simd/simd_math`
 - `simd/simd_types`
 
@@ -307,23 +273,22 @@ not authorize retention, synchronization, destruction, or device changes.
 
 ### `sync`
 
+- `sync/arc`
 - `sync/atomic`
-- `sync/atomic_queue`
-- `sync/atomic_stack`
-- `sync/barrier`
 - `sync/channel`
-- `sync/mpsc_queue`
+- `sync/contracts`
+- `sync/lock_order`
+- `sync/mod`
 - `sync/mutex`
-- `sync/ordering`
-- `sync/rwlock`
-- `sync/spsc_queue`
-- `sync/thread_local`
+
+### `testing`
+
+- `testing/categories`
 
 ### `thread`
 
 - `thread/affinity`
 - `thread/mod`
-- `thread/pool`
 
 ### `time`
 
