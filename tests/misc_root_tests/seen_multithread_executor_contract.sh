@@ -54,6 +54,8 @@ compile_case() {
 for profile in fast release; do
     compile_case "$profile" pointer-index "$ROOT_DIR/tests/compiler_regressions/typed_pointer_index.seen"
     compile_case "$profile" trait-scalars "$ROOT_DIR/tests/compiler_regressions/dyn_fixed_width_returns.seen"
+    compile_case "$profile" trait-methods "$ROOT_DIR/tests/compiler_regressions/dyn_method_arguments.seen"
+    rg -Fq 'PASS: static instance and forwarded trait arguments preserve identity and box ownership' "$TMP_DIR/trait-methods-$profile.log"
     compile_case "$profile" generic-array "$ROOT_DIR/tests/fixtures/async/generic_array_field_cleanup.seen"
     compile_case "$profile" generic-field-type "$ROOT_DIR/compiler_seen/tests/generic_field_type.seen"
     compile_case "$profile" generic-result-inference "$ROOT_DIR/tests/fixtures/async/generic_result_inference.seen"
