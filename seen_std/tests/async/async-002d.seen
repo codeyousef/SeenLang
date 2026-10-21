@@ -85,10 +85,10 @@ fun main() r: Int {
     wake.release()
     var releases = 0 as UInt64
     if seen_sync_atomic_create(0 as Int64, &releases) != (0 as Int32) { return 2 }
-    let first = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable, 0 as Int64, ctx))
+    let first = must(registerIoProbe(reactor,probe(releases), emptyHandle(), Interest.Readable, 0 as Int64, ctx))
     must(reactor.pollOnce(2, ctx))
     let joined = must(reactor.dispatchNext()); let completed = must(joined.join(ctx))
-    if not completed.task.observed { return 3 }
+    if not completed.task.value.observed { return 3 }
     completed.release(); joined.free()
     if reactor.matches(first) { return 4 }
     first.free()
@@ -123,15 +123,15 @@ fun main() r: Int {
     println("PASS: ASYNC-002D_partial")
 
     let invalidTask = probe(releases); let invalidDescriptor = emptyHandle()
-    if not errorIs(reactor.register(invalidTask, invalidDescriptor, Interest.Readable,
+    if not errorIs(registerIoProbe(reactor,invalidTask, invalidDescriptor, Interest.Readable,
         -1 as Int64, ctx), "async.invalid") { return 10 }
     invalidTask.release(); invalidDescriptor.free()
-    let a = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable,
+    let a = must(registerIoProbe(reactor,probe(releases), emptyHandle(), Interest.Readable,
         9223372036854775807 as Int64, ctx))
-    let b = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable,
+    let b = must(registerIoProbe(reactor,probe(releases), emptyHandle(), Interest.Readable,
         9223372036854775807 as Int64, ctx))
     let excess = probe(releases); let excessDescriptor = emptyHandle()
-    if not errorIs(reactor.register(excess, excessDescriptor, Interest.Readable,
+    if not errorIs(registerIoProbe(reactor,excess, excessDescriptor, Interest.Readable,
         0 as Int64, ctx), "async.limit") { return 11 }
     excess.release(); excessDescriptor.free()
     if not errorIs(executor.close(), "async.invalid") { return 12 }
@@ -142,11 +142,11 @@ fun main() r: Int {
     println("PASS: ASYNC-002D_invalid")
     // Removing a ready entry unlinks it in O(1), without stale queue slots.
     must(reactor.cancel(b)); b.free()
-    let ready = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable, 0 as Int64, ctx))
+    let ready = must(registerIoProbe(reactor,probe(releases), emptyHandle(), Interest.Readable, 0 as Int64, ctx))
     must(reactor.pollOnce(2, ctx)); must(reactor.cancel(ready)); ready.free()
     if not errorIs(reactor.dispatchNext(), "async.unavailable") { return 14 }
     println("PASS: ASYNC-002D_cancel")
-    let pending = must(reactor.register(probe(releases), emptyHandle(), Interest.Readable,
+    let pending = must(registerIoProbe(reactor,probe(releases), emptyHandle(), Interest.Readable,
         9223372036854775807 as Int64, ctx))
     pending.free()
     must(reactor.close()); must(reactor.close()); must(reactor.release())
@@ -160,4 +160,11 @@ fun main() r: Int {
         seen_sync_live_conditions() != conditions { return 17 }
     println("PASS: ASYNC-002D_cleanup")
     return 0
+}
+
+
+import async.event_loop.{AsyncIoRegistration}
+fun registerIoProbe(loop: AsyncEventLoop<IoProbe>, task: IoProbe, descriptor: OwnedHandle,
+    interest: Interest, deadline: Int64, context: AsyncOperationContext) r: Result<AsyncIoRegistration, AsyncError> {
+    return loop.register(task, task, descriptor, interest, deadline, context)
 }

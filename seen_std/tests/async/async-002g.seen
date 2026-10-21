@@ -39,7 +39,7 @@ class StressTask {
             let childUnique = counter()
             let child = stressTask(this.number, this.depth - 1, 0, childUnique,
                 this.executions, this.releases, this.started)
-            let submitted = spawnExecutorTask<StressTask>(context, child)
+            let submitted = spawnStressChild(context, child)
             if submitted.isErr() { abort("nested stress task admission failed") }
             let handle = submitted.unwrap(); submitted.releaseContainer()
             let joined = handle.join(context.operation)
@@ -67,7 +67,7 @@ fun runBatch(executor: MultithreadExecutor<StressTask>, unique: Array<UInt64>,
     let before = seen_time_monotonic_nanos(); var i = 0
     while i < unique.length() {
         if seen_sync_atomic_store(unique[i], 0 as Int64, 4 as Int32) != (0 as Int32) { abort("stress reset failed") }
-        handles.push(must(executor.spawn(stressTask(i, 0, 0, unique[i], executions, releases, started), ctx)))
+        handles.push(must(spawnStressTask(executor,stressTask(i, 0, 0, unique[i], executions, releases, started), ctx)))
         i = i + 1
     }
     i = 0
@@ -125,12 +125,12 @@ fun main() r: Int {
     println("PASS: ASYNC-002G_happy")
     // One parent at a time isolates nested helping from queue-depth limits.
     let nestedUnique = counter()
-    let nested = must(executor.spawn(stressTask(5, 4, 0, nestedUnique, executions, releases, started), ctx))
+    let nested = must(spawnStressTask(executor,stressTask(5, 4, 0, nestedUnique, executions, releases, started), ctx))
     let nestedValue = must(nested.join(ctx))
     if nestedValue.result != 18 or atomicValue(nestedUnique) != (1 as Int64) { return 4 }
     nestedValue.release(); nested.free(); closeCounter(nestedUnique)
     let failedUnique = counter()
-    let failed = must(executor.spawn(stressTask(0, 0, 2, failedUnique, executions, releases, started), ctx))
+    let failed = must(spawnStressTask(executor,stressTask(0, 0, 2, failedUnique, executions, releases, started), ctx))
     let report = must(failed.joinDetailed(ctx)); failed.free()
     if report.error.isNone() or report.error.unwrap().code != "async.unavailable" or report.progress != (1 as UInt64) { return 5 }
     report.release(); closeCounter(failedUnique)
@@ -145,7 +145,7 @@ fun main() r: Int {
     i = 0
     while i < 2 {
         let once = counter(); blockedUnique.push(once)
-        blocked.push(must(executor.spawn(stressTask(i, 0, 1, once, executions, releases, started), ctx)))
+        blocked.push(must(spawnStressTask(executor,stressTask(i, 0, 1, once, executions, releases, started), ctx)))
         i = i + 1
     }
     var spins = 0
@@ -155,7 +155,7 @@ fun main() r: Int {
     i = 0
     while i < 8 {
         let once = counter(); pendingUnique.push(once)
-        pending.push(must(executor.spawn(stressTask(i, 0, 0, once, executions, releases, started), ctx)))
+        pending.push(must(spawnStressTask(executor,stressTask(i, 0, 0, once, executions, releases, started), ctx)))
         i = i + 1
     }
     i = 0
@@ -177,10 +177,10 @@ fun main() r: Int {
     let tinyConfig = ExecutorLimits{workers: 1, tasks: 1, queued: 1, helpDepth: 1, stackBytes: 1048576 as UInt64}
     let tiny = must(MultithreadExecutor<StressTask>.create(tinyConfig)); tinyConfig.free()
     let occupiedUnique = counter()
-    let occupied = must(tiny.spawn(stressTask(0, 0, 1, occupiedUnique, executions, releases, started), ctx))
+    let occupied = must(spawnStressTask(tiny,stressTask(0, 0, 1, occupiedUnique, executions, releases, started), ctx))
     let rejectedUnique = counter()
     let rejected = stressTask(0, 0, 0, rejectedUnique, executions, releases, started)
-    if not errorIs(tiny.spawn(rejected, ctx), "async.limit") { return 10 }
+    if not errorIs(spawnStressTask(tiny,rejected, ctx), "async.limit") { return 10 }
     rejected.release(); closeCounter(rejectedUnique)
     must(occupied.cancel())
     if not errorIs(occupied.join(ctx), "async.cancelled") { return 11 }
@@ -194,4 +194,15 @@ fun main() r: Int {
         seen_sync_live_conditions() != conditions or seen_sync_live_atomics() != atomics { return 12 }
     println("PASS: ASYNC-002G_cleanup")
     return 0
+}
+
+
+import core.result.{Result}
+import async.structured.{AsyncError}
+import async.multithread.{spawnExecutorTaskWitness}
+fun spawnStressTask(pool: MultithreadExecutor<StressTask>, task: StressTask, context: AsyncOperationContext) r: Result<ExecutorJoinHandle<StressTask>, AsyncError> {
+    return pool.spawn(task, task, context)
+}
+fun spawnStressChild(context: ExecutorTaskContext, task: StressTask) r: Result<ExecutorJoinHandle<StressTask>, AsyncError> {
+    return spawnExecutorTaskWitness<StressTask>(context, task, task)
 }
