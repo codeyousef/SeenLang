@@ -1,0 +1,557 @@
+/// Fixed-worker execution. Scheduling and task ownership are native Seen;
+/// executor_abi only creates and joins OS threads. Internal state is guarded
+/// by one mutex. User jobs always run with that mutex released.
+
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import core.error.{AsciiString}
+import core.operation_context.{OperationContext, OperationLimits}
+import async.structured.{AsyncError, AsyncOperationContext, asyncFailure,
+    AsyncLimits, validateAsyncContext, asyncDeadlineStatus}
+import sync.contracts.{Send}
+
+import async.executor_native.{seen_sync_mutex_create, seen_sync_mutex_lock_until, seen_sync_mutex_unlock,
+    seen_sync_mutex_destroy, seen_sync_condition_create, seen_sync_condition_wait_until,
+    seen_sync_condition_notify_all, seen_sync_condition_destroy, seen_executor_thread_create,
+    seen_executor_thread_join, seen_executor_current_owner, seen_executor_current_task,
+    seen_executor_swap_task, seen_executor_live_threads, seen_pool_free,
+    seen_string_clone_owned, seen_string_release_owned}
+
+let EXECUTOR_PENDING: Int = 0
+let EXECUTOR_RUNNING: Int = 1
+let EXECUTOR_READY: Int = 2
+let EXECUTOR_FAILED: Int = 3
+let EXECUTOR_CANCELLED: Int = 4
+let EXECUTOR_FOREVER: Int64 = 9223372036854775807 as Int64
+
+class ExecutorLimits {
+    var workers: Int
+    var tasks: Int
+    var queued: Int
+    var helpDepth: Int
+    var stackBytes: UInt64
+
+    fun valid() r: Bool {
+        return this.workers > 0 and this.workers <= 16 and
+            this.tasks > 0 and this.tasks <= 1048576 and
+            this.queued > 0 and this.queued <= this.tasks and
+            this.helpDepth > 0 and this.helpDepth <= 64 and
+            this.stackBytes >= ((65536 + this.helpDepth * 16384) as UInt64) and
+            this.stackBytes <= (8388608 as UInt64)
+    }
+}
+
+/// run borrows the task exclusively until return. release consumes all task
+/// resources, including the concrete object. It is called exactly once for
+/// failed/cancelled/unjoined jobs; successful join transfers that duty to the
+/// caller. A job must not retain its borrowed ExecutorTaskContext.
+trait ExecutorJob {
+    fun run(this: ExecutorJob, context: ExecutorTaskContext) r: Bool
+    fun release(this: ExecutorJob) r: Bool
+}
+
+
+/// Capture a concrete trait witness before crossing an erased generic ABI.
+/// bind consumes the dyn box on every path and the concrete job on success.
+/// The caller must exclusively own both views of the same job. Failed spawn
+/// retains this owner; successful join takes the concrete job back out.
+@send
+class ExecutorOwnedJob<T: Send + ExecutorJob> {
+    var value: T
+    // Opaque address of the immutable box validated by bind. The payload is
+    // exactly value (whose Send bound is proved); this is not another job or
+    // an independently supplied Send assertion. Never mutate this address.
+    var dispatchAddress: UInt64
+
+    static fun bind(value: T, dispatch: dyn ExecutorJob) r: Result<ExecutorOwnedJob<T>, AsyncError> {
+        let words = dispatch as *UInt64
+        if words[0] != (value as UInt64) {
+            seen_pool_free(dispatch as *Void, 16 as Int64)
+            return Err<ExecutorOwnedJob<T>, AsyncError>(executorFailure(1 as Int32, "executor.job.alias", 0 as UInt64))
+        }
+        return Ok<ExecutorOwnedJob<T>, AsyncError>(ExecutorOwnedJob<T>{value: value, dispatchAddress: dispatch as UInt64})
+    }
+    fun run(context: ExecutorTaskContext) r: Bool {
+        let dispatch: dyn ExecutorJob = this.dispatchAddress as dyn ExecutorJob
+        return dispatch.run(context)
+    }
+    fun take() r: T {
+        let value = this.value
+        seen_pool_free(this.dispatchAddress as *Void, 16 as Int64); this.free(); return value
+    }
+    fun release() r: Bool {
+        let dispatch: dyn ExecutorJob = this.dispatchAddress as dyn ExecutorJob
+        let released = dispatch.release()
+        seen_pool_free(this.dispatchAddress as *Void, 16 as Int64); this.free(); return released
+    }
+}
+
+fun executorFailure(status: Int32, operation: String, progress: UInt64)
+    r: AsyncError {
+    var code = "async.invalid"
+    if status == (2 as Int32) { code = "async.limit" }
+    if status == (3 as Int32) or status == (5 as Int32) {
+        code = "async.unavailable"
+    }
+    if status == (4 as Int32) { code = "async.unsupported_platform" }
+    if status == (7 as Int32) { code = "async.timeout" }
+    if status == (9 as Int32) { code = "async.cancelled" }
+    return asyncFailure(code, operation, "fixed-worker executor operation failed",
+        code == "async.unavailable", progress, "executor")
+}
+
+fun executorContextFailure(status: Int32, operation: String, progress: UInt64,
+    context: AsyncOperationContext) r: AsyncError {
+    let error = executorFailure(status, operation, progress)
+    error.traceId = context.operation.traceId.value
+    return error
+}
+
+class ExecutorTicket {
+    var id: Int
+    var job: dyn ExecutorJob
+    var operation: AsyncOperationContext
+    var state: Int
+    var cancelled: Bool
+    var failure: Int32
+}
+
+/// Each admission owns its metadata snapshot; callers may reuse or change
+/// their original contexts after submission without racing a worker.
+fun executorCopyContext(source: AsyncOperationContext) r: AsyncOperationContext {
+    let limits = source.operation.limits
+    let asyncLimits = source.limits
+    return AsyncOperationContext{operation: OperationContext{
+        cancellation: source.operation.cancellation,
+        monotonicDeadline: source.operation.monotonicDeadline,
+        limits: OperationLimits{maxTargets: limits.maxTargets,
+            maxIdentityBytes: limits.maxIdentityBytes,
+            maxVersionBytes: limits.maxVersionBytes,
+            maxManifestBytes: limits.maxManifestBytes,
+            maxPathBytes: limits.maxPathBytes,
+            maxGraphModules: limits.maxGraphModules,
+            maxGraphEdges: limits.maxGraphEdges,
+            maxGraphDepth: limits.maxGraphDepth},
+        traceId: AsciiString{value: seen_string_clone_owned(source.operation.traceId.value)}},
+        resourceId: seen_string_clone_owned(source.resourceId), fallbackPolicy: source.fallbackPolicy,
+        limits: AsyncLimits.bounded(asyncLimits.maxTasks, asyncLimits.maxReady,
+            asyncLimits.maxTreeDepth, asyncLimits.maxFanOut, asyncLimits.maxPolls)}
+}
+
+fun executorReleaseContext(context: AsyncOperationContext) r: Void {
+    context.operation.limits.free()
+    context.operation.traceId.free()
+    context.operation.free()
+    context.limits.free()
+    context.free()
+}
+
+// Only snapshots created by executorCopyContext own their string storage.
+// Caller-created contexts may borrow literals and use executorReleaseContext.
+fun executorReleaseSnapshot(context: AsyncOperationContext) r: Void {
+    seen_string_release_owned(context.operation.traceId.value)
+    seen_string_release_owned(context.resourceId)
+    executorReleaseContext(context)
+}
+
+fun executorErrorStatus(error: AsyncError) r: Int32 {
+    if error.code == "async.cancelled" { return 9 as Int32 }
+    if error.code == "async.timeout" { return 7 as Int32 }
+    if error.code == "async.limit" { return 2 as Int32 }
+    if error.code == "async.unavailable" { return 3 as Int32 }
+    return 1 as Int32
+}
+
+fun executorReleaseTicket(ticket: ExecutorTicket, releaseJob: Bool) r: Void {
+    // Job destructors consume their resources and must not fail. Bool is
+    // retained as the concrete vtable return ABI, rather than a void result.
+    if releaseJob and not ticket.job.release() {
+        abort("executor job destructor violated its ownership contract")
+    }
+    seen_pool_free(ticket.job as *Void, 16 as Int64)
+    executorReleaseSnapshot(ticket.operation)
+    ticket.free()
+}
+
+/// Internal core. Callers use MultithreadExecutor<T: Send + ExecutorJob> or
+/// spawnExecutorTask; erased admission is not a public submission boundary.
+class ExecutorCore {
+    var limits: ExecutorLimits
+    var mutex: UInt64
+    var changed: UInt64
+    var threads: Array<UInt64>
+    var tickets: Array<Option<ExecutorTicket>>
+    var freeSlots: Array<Int>
+    var freeCount: Int
+    var queue: Array<Int>
+    var head: Int
+    var tail: Int
+    var queued: Int
+    var outstanding: Int
+    var running: Int
+    var nextId: Int
+    var completed: UInt64
+    var stopping: Bool
+    var stopped: Bool
+    var closed: Bool
+
+    fun lock(deadline: Int64) r: Int32 {
+        return seen_sync_mutex_lock_until(this.mutex, deadline)
+    }
+
+    fun unlock() r: Void {
+        if seen_sync_mutex_unlock(this.mutex) != (0 as Int32) {
+            abort("executor mutex ownership was violated")
+        }
+    }
+
+    fun notify() r: Void {
+        if seen_sync_condition_notify_all(this.changed) != (0 as Int32) {
+            abort("executor condition ownership was violated")
+        }
+    }
+
+    fun ownsWorker() r: Bool {
+        return seen_executor_current_owner() == (this as UInt64)
+    }
+
+    fun progress() r: UInt64 {
+        if this.closed { return this.completed }
+        if this.lock(EXECUTOR_FOREVER) != (0 as Int32) { return 0 as UInt64 }
+        let completed = this.completed
+        this.unlock()
+        return completed
+    }
+
+    /// Called only while locked. Slots are reused only after terminal reap;
+    /// the monotonic id prevents an old handle from observing a new task.
+    fun matches(slot: Int, id: Int) r: Bool {
+        if slot < 0 or slot >= this.tickets.length() { return false }
+        if this.tickets[slot].isNone() { return false }
+        return this.tickets[slot].unwrap().id == id
+    }
+
+    fun takeLocked() r: Int {
+        if this.queued == 0 { return -1 }
+        let slot = this.queue[this.head]
+        this.head = (this.head + 1) % this.limits.queued
+        this.queued = this.queued - 1
+        this.tickets[slot].unwrap().state = EXECUTOR_RUNNING
+        this.running = this.running + 1
+        return slot
+    }
+
+    fun isCancelled(slot: Int, id: Int) r: Bool {
+        if this.closed { return true }
+        if this.lock(EXECUTOR_FOREVER) != (0 as Int32) { return true }
+        var cancelled = true
+        if this.matches(slot, id) {
+            cancelled = this.tickets[slot].unwrap().cancelled
+        }
+        this.unlock()
+        return cancelled
+    }
+
+    /// No pool mutex is held across virtual user code. The ticket stays
+    /// owned by the core until a terminal state is published under the lock.
+    fun execute(slot: Int, depth: Int) r: Void {
+        let ticket = this.tickets[slot].unwrap()
+        let context = ExecutorTaskContext{core: this, slot: slot,
+            id: ticket.id, depth: depth, operation: ticket.operation}
+        let previousTask = seen_executor_swap_task(ticket.id)
+        var succeeded = false
+        var failure = 3 as Int32
+        if not context.isCancelled() {
+            let checked = validateAsyncContext(ticket.operation,
+                "executor.run", 0 as UInt64)
+            if checked.isOkay() { succeeded = ticket.job.run(context) }
+            else {
+                let error = checked.unwrapErr()
+                failure = executorErrorStatus(error)
+                error.free()
+            }
+            checked.releaseContainer()
+        }
+        // A late return retains executor ownership and is reaped as timeout,
+        // even when user code returned success after its deadline.
+        let deadlineStatus = asyncDeadlineStatus(ticket.operation)
+        if deadlineStatus != (0 as Int32) {
+            succeeded = false
+            failure = deadlineStatus
+        }
+        seen_executor_swap_task(previousTask)
+        context.free()
+        if this.lock(EXECUTOR_FOREVER) != (0 as Int32) {
+            abort("executor could not publish task completion")
+        }
+        if ticket.cancelled {
+            ticket.state = EXECUTOR_CANCELLED
+            ticket.failure = 9 as Int32
+        } else {
+            if succeeded { ticket.state = EXECUTOR_READY }
+            else {
+                ticket.state = EXECUTOR_FAILED
+                ticket.failure = failure
+            }
+        }
+        this.running = this.running - 1
+        this.completed = this.completed + (1 as UInt64)
+        this.notify()
+        this.unlock()
+    }
+
+    fun workerLoop() r: Int {
+        while true {
+            if this.lock(EXECUTOR_FOREVER) != (0 as Int32) { return 1 }
+            while this.queued == 0 and not this.stopping {
+                let status = seen_sync_condition_wait_until(this.changed,
+                    this.mutex, EXECUTOR_FOREVER)
+                if status != (0 as Int32) {
+                    this.unlock()
+                    abort("executor worker wait failed")
+                }
+            }
+            if this.queued == 0 and this.stopping {
+                this.unlock()
+                return 0
+            }
+            let slot = this.takeLocked()
+            this.unlock()
+            this.execute(slot, 0)
+        }
+        return 0
+    }
+
+    /// Ownership of the compiler-created dyn box transfers on entry, even
+    /// on rejection. Ownership of the concrete task transfers only on success.
+    fun admit(job: dyn ExecutorJob, operation: AsyncOperationContext)
+        r: Result<Int, AsyncError> {
+        if this.closed {
+            seen_pool_free(job as *Void, 16 as Int64)
+            return Err<Int, AsyncError>(executorFailure(1 as Int32,
+                "executor.spawn", 0 as UInt64))
+        }
+        let status = this.lock(operation.operation.monotonicDeadline)
+        if status != (0 as Int32) {
+            seen_pool_free(job as *Void, 16 as Int64)
+            return Err<Int, AsyncError>(executorFailure(status,
+                "executor.spawn", 0 as UInt64))
+        }
+        if this.stopping or this.outstanding >= this.limits.tasks or
+            this.queued >= this.limits.queued or
+            this.outstanding >= operation.limits.maxTasks or
+            this.queued >= operation.limits.maxReady or
+            this.nextId >= 9223372036854775807 {
+            var failed = 2 as Int32
+            if this.stopping { failed = 1 as Int32 }
+            let progress = this.completed
+            this.unlock()
+            seen_pool_free(job as *Void, 16 as Int64)
+            return Err<Int, AsyncError>(executorContextFailure(failed,
+                "executor.spawn", progress, operation))
+        }
+        // A preallocated free-slot stack keeps admission O(1); no dormant
+        // task scan is needed to locate space in the bounded ticket table.
+        this.freeCount = this.freeCount - 1
+        let slot = this.freeSlots[this.freeCount]
+        let id = this.nextId
+        this.nextId = this.nextId + 1
+        let ticket = ExecutorTicket{id: id, job: job, operation: operation,
+            state: EXECUTOR_PENDING, cancelled: false, failure: 0 as Int32}
+        this.tickets[slot].free()
+        this.tickets[slot] = Some<ExecutorTicket>(ticket)
+        this.queue[this.tail] = slot
+        this.tail = (this.tail + 1) % this.limits.queued
+        this.queued = this.queued + 1
+        this.outstanding = this.outstanding + 1
+        this.notify()
+        this.unlock()
+        return Ok<Int, AsyncError>(slot)
+    }
+
+    fun cancel(slot: Int, id: Int) r: Int32 {
+        if this.closed { return 1 as Int32 }
+        let status = this.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) { return status }
+        if not this.matches(slot, id) {
+            this.unlock()
+            return 1 as Int32
+        }
+        this.tickets[slot].unwrap().cancelled = true
+        this.notify()
+        this.unlock()
+        return 0 as Int32
+    }
+
+    /// A worker waiting on its own pool helps ready work instead of blocking
+    /// an OS worker. The explicit depth bound prevents recursive stack growth.
+    /// Queue admission never waits, so a saturated nested spawn returns limit.
+    fun wait(slot: Int, id: Int, context: AsyncOperationContext, depth: Int)
+        r: Int32 {
+        if this.closed { return 1 as Int32 }
+        if this.ownsWorker() and seen_executor_current_task() == id {
+            return 1 as Int32
+        }
+        var status = this.lock(context.operation.monotonicDeadline)
+        if status != (0 as Int32) { return status }
+        while true {
+            if not this.matches(slot, id) {
+                this.unlock()
+                return 1 as Int32
+            }
+            let ticket = this.tickets[slot].unwrap()
+            if ticket.state >= EXECUTOR_READY {
+                var result = 0 as Int32
+                if ticket.state == EXECUTOR_FAILED {
+                    result = ticket.failure + (100 as Int32)
+                }
+                if ticket.state == EXECUTOR_CANCELLED { result = 109 as Int32 }
+                this.unlock()
+                return result
+            }
+            let valid = validateAsyncContext(context, "executor.await",
+                this.completed)
+            if valid.isErr() {
+                let error = valid.unwrapErr()
+                let failure = executorErrorStatus(error)
+                error.free()
+                valid.releaseContainer()
+                this.unlock()
+                return failure
+            }
+            valid.releaseContainer()
+            if this.ownsWorker() and this.queued > 0 {
+                if depth >= this.limits.helpDepth or
+                    depth >= context.limits.maxTreeDepth {
+                    this.unlock()
+                    return 2 as Int32
+                }
+                let next = this.takeLocked()
+                this.unlock()
+                this.execute(next, depth + 1)
+                status = this.lock(context.operation.monotonicDeadline)
+                if status != (0 as Int32) { return status }
+            } else {
+                status = seen_sync_condition_wait_until(this.changed,
+                    this.mutex, context.operation.monotonicDeadline)
+                if status != (0 as Int32) {
+                    this.unlock()
+                    return status
+                }
+            }
+        }
+        return 1 as Int32
+    }
+
+    /// Caller owns the join handle exclusively. A terminal task can be
+    /// reaped exactly once; a cancelled wait never reaps a running task.
+    fun reap(slot: Int, id: Int, releaseJob: Bool) r: Bool {
+        if this.closed { return false }
+        if this.lock(EXECUTOR_FOREVER) != (0 as Int32) { return false }
+        if not this.matches(slot, id) {
+            this.unlock()
+            return false
+        }
+        let ticket = this.tickets[slot].unwrap()
+        if ticket.state < EXECUTOR_READY {
+            this.unlock()
+            return false
+        }
+        this.tickets[slot].free()
+        this.tickets[slot] = None<ExecutorTicket>()
+        this.outstanding = this.outstanding - 1
+        this.freeSlots[this.freeCount] = slot
+        this.freeCount = this.freeCount + 1
+        this.unlock()
+        // Destructors may allocate; never run them under the scheduler lock.
+        executorReleaseTicket(ticket, releaseJob)
+        return true
+    }
+
+    /// Exclusive owner operation: no external submit/join/close may race it.
+    /// Worker callbacks may still submit until stopping is published. A
+    /// failed native join preserves the handle and all storage for retry.
+    fun shutdown(cancelPending: Bool) r: Int32 {
+        if this.closed or this.stopped { return 0 as Int32 }
+        if this.ownsWorker() { return 1 as Int32 }
+        // Construction acquires synchronization before starting any worker.
+        // The same shutdown path can therefore roll back every prefix.
+        if this.mutex == (0 as UInt64) {
+            this.stopping = true
+            this.stopped = true
+            return 0 as Int32
+        }
+        let locked = this.lock(EXECUTOR_FOREVER)
+        if locked != (0 as Int32) { return locked }
+        this.stopping = true
+        if cancelPending {
+            var i = 0
+            while i < this.tickets.length() {
+                if this.tickets[i].isSome() {
+                    this.tickets[i].unwrap().cancelled = true
+                }
+                i = i + 1
+            }
+        }
+        if this.changed != (0 as UInt64) { this.notify() }
+        this.unlock()
+        var i = 0
+        while i < this.threads.length() {
+            var handle = this.threads[i]
+            let status = seen_executor_thread_join(&handle)
+            this.threads[i] = handle
+            if status != (0 as Int32) { return status }
+            i = i + 1
+        }
+        this.stopped = true
+        return 0 as Int32
+    }
+
+    fun close() r: Int32 {
+        if this.closed { return 0 as Int32 }
+        let stopped = this.shutdown(true)
+        if stopped != (0 as Int32) { return stopped }
+        // Destroy native resources before discarding arrays so a failed
+        // destroy preserves a fully retryable, stopped core.
+        let conditionStatus = seen_sync_condition_destroy(&this.changed)
+        if conditionStatus != (0 as Int32) { return conditionStatus }
+        let mutexStatus = seen_sync_mutex_destroy(&this.mutex)
+        if mutexStatus != (0 as Int32) { return mutexStatus }
+        var i = 0
+        while i < this.tickets.length() {
+            if this.tickets[i].isSome() {
+                let ticket = this.tickets[i].unwrap()
+                executorReleaseTicket(ticket, true)
+            }
+            this.tickets[i].free()
+            i = i + 1
+        }
+        this.threads.free()
+        this.queue.free()
+        this.tickets.free()
+        this.freeSlots.free()
+        this.closed = true
+        this.outstanding = 0
+        return 0 as Int32
+    }
+}
+
+fun executorWorkerEntry(argument: Int) r: Int {
+    let core = argument as ExecutorCore
+    return core.workerLoop()
+}
+
+class ExecutorTaskContext {
+    var core: ExecutorCore
+    var slot: Int
+    var id: Int
+    var depth: Int
+    var operation: AsyncOperationContext
+
+    fun isCancelled() r: Bool {
+        return this.core.isCancelled(this.slot, this.id) or
+            this.operation.operation.cancellation or
+            asyncDeadlineStatus(this.operation) != (0 as Int32)
+    }
+}
+

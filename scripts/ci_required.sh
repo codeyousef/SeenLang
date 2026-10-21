@@ -63,6 +63,7 @@ bash -n \
     tests/misc_root_tests/seen_bundled_cuda_link.sh \
     tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh \
     tests/misc_root_tests/seen_async_structured_contract.sh \
+    tests/misc_root_tests/seen_multithread_executor_contract.sh \
     tests/misc_root_tests/seen_stdlib_component_payload.sh \
     tests/misc_root_tests/seen_mapped_close_ownership.sh \
     tests/misc_root_tests/seen_open_issue_regressions.sh \
@@ -204,6 +205,7 @@ tests/misc_root_tests/seen_native_boundaries_ledger.sh
 tests/misc_root_tests/seen_native_inventory_gate.sh
 tests/misc_root_tests/seen_sync_contract.sh
 tests/misc_root_tests/seen_sync_native_abi.sh
+tests/misc_root_tests/seen_executor_native_abi.sh
 tests/misc_root_tests/seen_ci_workflow_contract.sh
 tests/misc_root_tests/seen_ci_containment_contract.sh
 tests/misc_root_tests/seen_ci_required_wiring.sh

@@ -9,10 +9,13 @@ Each impl function returns a result register string, or "" for fallthrough.
 
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_simd_type_helpers.{simdScalarTypeImpl, simdLlvmSuffixImpl, isSimdVectorTypeImpl, simdLaneCountImpl}
+import codegen.ir_type_mapping.{getFixedWidthScalarLlvmTypeImpl}
 import str.string.{StringBuilder}
 
 // Simple LLVM type mapping for common Seen types (no struct registry needed)
 fun simpleMapType(seenType: String) r: String {
+    let scalar = getFixedWidthScalarLlvmTypeImpl(seenType)
+    if scalar != "" { return scalar }
     let vector = simdBuiltinLlvmType(seenType)
     if vector != "" { return vector }
     if seenType == "Int" or seenType == "Char" { return "i64" }
@@ -187,7 +190,7 @@ fun emitDynTraitVtableCallImpl(output: StringBuilder, regBox: Array<Int>, receiv
     }
     // GEP into vtable to get function pointer
     let fnPtrGep = getNextRegFn(regBox)
-    output.append("  " + fnPtrGep + " = getelementptr %" + quoteIdentImpl(dynTraitName + "_vtable") + ", ptr " + vtPtrReg + ", i32 0, i32 " + methodIdx.toString() + "\n")
+    output.append("  " + fnPtrGep + " = getelementptr ptr, ptr " + vtPtrReg + ", i64 " + methodIdx.toString() + "\n")
     let fnPtrReg = getNextRegFn(regBox)
     output.append("  " + fnPtrReg + " = load ptr, ptr " + fnPtrGep + "\n")
     // Build argument string

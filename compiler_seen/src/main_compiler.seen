@@ -95,6 +95,8 @@ import codegen.ir_string_concat_emit.{coerceStringConcatPieceRegImpl}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
 import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getMethodReturnTypeState}
+import codegen.ir_generic_type_specialize.{specializeGenericTypeImpl}
+import codegen.ir_generic_call_type.{registerGenericCallTypeImpl, specializeGenericCallReturnImpl}
 import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
@@ -250,6 +252,7 @@ import codegen.ir_function_decorator_driver.{prepareFunctionAttributeGlobalState
 import codegen.ir_function_start_driver.{beginFunctionGenerationState}
 import codegen.ir_function_driver.{generateFunctionState}
 import codegen.ir_function_param_meta.{preRegisterFunctionParametersImpl}
+import codegen.ir_dyn_parameter_metadata.{registerDeclaredDynParametersImpl}
 import codegen.ir_function_prebody.{isMainFunctionNameImpl, prepareFunctionPreBodyStateSnapshotImpl, mapFunctionPreBodyReturnTypeImpl}
 import codegen.ir_function_body.{captureFunctionBodyBlockScopeImpl, scanFunctionBodyDeadStorePatternsSnapshotImpl, emitFunctionBodyTrailingDeadCodeNoticeSnapshotImpl, beginFunctionBodyBlockDeferredCleanupImpl, beginFunctionBodyReturnDeferCleanupImpl, beginFunctionBodyVoidErrdeferCleanupImpl, beginFunctionBodyValueErrdeferCleanupImpl, finishFunctionBodyValueErrdeferCleanupImpl, bindFunctionBodyCatchVariableImpl, planFunctionBodyExpressionStatementImpl, emitFunctionBodyPairedSelectStoreImpl, emitFunctionBodySingleArmSelectStoreImpl, planFunctionBodyConstantIfImpl, emitFunctionBodyConstantIfNoteImpl, emitFunctionBodyIfBranchingImpl, beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl, resolveFunctionBodyForInLoopVariableStorageImpl, resolveFunctionBodyForInIndexAllocaImpl, emitFunctionBodyMemcpyOptimizedLoopImpl}
 import codegen.ir_block_driver.{generateBlockState}
@@ -542,6 +545,8 @@ fun runtimeSourceSignatureForCache() r: String {
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/reactor_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/sync_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/sync_abi.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_abi.c"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_region.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/seen_gpu.c"))
@@ -1703,7 +1708,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                 packageObjectManifestSchema:
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
-            runtimeAbi: "runtime-v4",
+            runtimeAbi: "runtime-v5",
             standardLibraryVersion: "0.5.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
@@ -8476,6 +8481,8 @@ fun programRuntimeInputIdentity() r: String {
     names.push("reactor_abi.h")
     names.push("sync_abi.c")
     names.push("sync_abi.h")
+    names.push("src/executor_abi.c")
+    names.push("src/executor_abi.h")
     names.push("seen_region.c")
     names.push("seen_region.h")
     names.push("seen_gpu.c")
@@ -9000,6 +9007,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_function_driver")
         modules.push("codegen.ir_function_usage")
         modules.push("codegen.ir_function_param_meta")
+        modules.push("codegen.ir_dyn_parameter_metadata")
         modules.push("codegen.ir_function_prebody")
         modules.push("codegen.ir_function_body")
         modules.push("codegen.ir_block_driver")
@@ -9024,6 +9032,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_struct_layout_state")
         modules.push("codegen.ir_autofree_state")
         modules.push("codegen.ir_field_lookup_state")
+        modules.push("codegen.ir_generic_type_specialize")
+        modules.push("codegen.ir_generic_call_type")
         modules.push("codegen.ir_struct_gen")
         modules.push("codegen.ir_struct_literal_driver")
         modules.push("codegen.ir_struct_layout_build")

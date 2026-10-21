@@ -12,6 +12,15 @@
       "production": false
     },
     {
+      "id": "async-executor-thread-adapter",
+      "subsystem": "stdlib.async",
+      "purpose": "Generation-checked OS thread creation/join and thread-local callback identity. Seen owns the fixed pool, typed Send admission, FIFO queue, helping joins, cancellation, deadlines, and shutdown. Handles own one joinable thread; failed joins preserve ownership. No queue, task algorithm, or fallback lives in this adapter. Linux x86-64 only; other targets fail explicitly. Lifecycle, partial-create, stale-handle and allocator-race fixtures are in the executor contract suites.",
+      "abi": "OS thread C",
+      "platforms": ["linux-x86_64"],
+      "symbols": ["seen_executor_current_owner", "seen_executor_current_task", "seen_executor_live_threads", "seen_executor_swap_task", "seen_executor_thread_create", "seen_executor_thread_join"],
+      "production": false
+    },
+    {
       "id": "c-string-conversion-memory",
       "subsystem": "runtime.ffi",
       "purpose": "Explicit C-string conversion ownership boundary. Converting a Seen string to a C string allocates a NUL-terminated copy that Seen code releases exactly once through the paired free symbol; converting a C string to Seen produces a borrowed view and never takes ownership. Exercised by packaged standard-library executable tests with non-null CUDA diagnostic strings and deterministic cleanup.",
@@ -19,6 +28,15 @@
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_cstr_free", "seen_cstr_to_str", "seen_str_to_cstr"],
       "production": true
+    },
+    {
+      "id": "compiler-trait-box-ownership",
+      "subsystem": "stdlib.async",
+      "purpose": "Seen job owners capture the compiler's immutable two-pointer dyn box. bind checks its first data word against the concrete Send job before transport; only that owner restores dispatch and frees the 16-byte box. take transfers the concrete job; release calls its destructor first. Existing pool ABI only; no native policy. Alias, rejection, cancellation and live-allocation regressions cover ownership. Retain until the compiler provides an owned existential ABI.",
+      "abi": "Seen compiler dyn box (64-bit)",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_pool_free"],
+      "production": false
     },
     {
       "id": "deterministic-process-input-adapter",
@@ -89,7 +107,7 @@
       "purpose": "Read live checked-out allocation bytes independently from recyclable slab reserve without changing the physical memory limit or swap policy. The runtime reports a nonallocating fixed-layout snapshot and retained slab capacity; native Seen owns resource lifetime, failure policy, and cleanup tests.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
-      "symbols": ["seen_memory_reserved_bytes", "seen_memory_snapshot"],
+      "symbols": ["seen_memory_reserved_bytes", "seen_memory_snapshot", "seen_pool_free"],
       "production": true
     },
     {

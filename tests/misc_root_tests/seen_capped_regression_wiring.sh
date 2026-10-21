@@ -22,6 +22,7 @@ CAPABILITY_CALLERS=(
     "$ROOT_DIR/scripts/safe_rebuild.sh"
 )
 TARGETS=(
+    "$ROOT_DIR/tests/misc_root_tests/seen_multithread_executor_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"
@@ -66,6 +67,7 @@ STANDALONE_COMPILER_TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_parallel_for_codegen_regression.sh"
 )
 PLATFORM_TARGETS=(
+    "$ROOT_DIR/tests/misc_root_tests/seen_executor_native_abi.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_vk_readback_shim.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_macos_package_client_packaging.sh"
 )

@@ -1,5 +1,8 @@
 /// Public structured-async surface.
 
+import async.multithread.{ExecutorLimits, ExecutorJob, ExecutorTaskContext,
+    ExecutorJoinHandle, MultithreadExecutor, spawnExecutorTask}
+
 import async.structured.{AsyncError, AsyncLimits, AsyncOperationContext,
     CancellationSource, ReadyQueue, JoinHandle,
     DeterministicExecutor, Scope, AsyncWaitGroup, AsyncBarrier,
@@ -9,3 +12,5 @@ import async.structured.{AsyncError, AsyncLimits, AsyncOperationContext,
     ASYNC_TASK_CANCELLED, ASYNC_TASK_JOINED, asyncFailure, asyncUnsupported,
     validateAsyncContext, selectTaskId, raceTaskId, timeoutJoin,
     boundedFanOut, deterministicReduceSum}
+
+import async.executor_core.{ExecutorOwnedJob}

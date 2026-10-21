@@ -60,6 +60,9 @@ modules = [
     "src/time/time.seen",
     "src/time/timer.seen",
     "src/async/structured.seen",
+    "src/async/multithread.seen",
+    "src/async/executor_core.seen",
+    "src/async/executor_native.seen",
     "src/async/mod.seen",
 
     # Synchronization and shared ownership

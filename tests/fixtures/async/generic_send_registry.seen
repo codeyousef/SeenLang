@@ -1,0 +1,43 @@
+import typechecker.semantic_registry.{SemanticDeclarationRegistry}
+import typechecker.type_ref.{parseTypeRef}
+fun declaration(registry: SemanticDeclarationRegistry, name: String,
+    field: String, generic: Bool) r: Void {
+    if not registry.registerDeclaration("fixture", name, "Class",
+        "fixture::" + name, "fixture.seen", 1, 1) { abort("duplicate fixture declaration") }
+    let owner = "fixture::" + name
+    registry.registerDecorator(owner, "send", Array<String>())
+    registry.registerDecorator(owner, "share", Array<String>())
+    if generic { registry.registerGenericParameter(owner, "T", "Send") }
+    registry.registerLifecycleField(owner, "fixture", "value", field, "fixture.seen", 1, 1)
+}
+fun main() r: Int {
+    let registry = SemanticDeclarationRegistry.new()
+    declaration(registry, "Wrapper", "T", true)
+    declaration(registry, "Good", "Int", false)
+    declaration(registry, "Bad", "*Int", false)
+    declaration(registry, "Recursive", "Recursive<T>", true)
+    registry.registerGenericParameter("fixture::Good", "U", "Send+ExecutorJob")
+    // The source resolver supplies canonical argument identities, including
+    // the declaring module and the bound identity of an enclosing generic.
+    let constrained = "fixture::Wrapper<generic:bound:Send+ExecutorJob:fixture::Good::U>"
+    let parsed = parseTypeRef(constrained, 1, 1, "fixture.seen")
+    if not parsed.valid or parsed.canonical() != constrained { return 9 }
+    if registry.lifecycleIdentityPropertyState("fixture::Good", constrained, "Send") != 1 { return 1 }
+    if registry.lifecycleIdentityPropertyState("fixture::Good",
+        "fixture::Wrapper<fixture::Wrapper<Int>>", "Send") != 1 { return 2 }
+    if registry.lifecycleIdentityPropertyState("fixture::Good",
+        "fixture::Wrapper<fixture::Good>", "Send") != 1 { return 3 }
+    // Warming the declaration or another instantiation must never certify a
+    // borrowed pointer carried by a different instantiation.
+    let warmed = registry.lifecyclePropertyState("fixture::Wrapper", "Send")
+    if registry.lifecycleIdentityPropertyState("fixture::Good",
+        "fixture::Wrapper<fixture::Bad>", "Send") == 1 { return 4 }
+    if registry.lifecycleIdentityPropertyState("fixture::Good", constrained, "Share") == 1 { return 5 }
+    if registry.lifecycleIdentityPropertyState("fixture::Good",
+        "fixture::Recursive<Int>", "Send") != -2 { return 6 }
+    if registry.lifecycleInstantiationDepth != 0 { return 7 }
+    if registry.lifecycleIdentityPropertyState("fixture::Good",
+        "fixture::Wrapper<Int>", "Send") != 1 { return 8 }
+    println("PASS: canonical generic Send proofs substitute fields without cache pollution")
+    return 0
+}

@@ -4117,6 +4117,48 @@
       ]
     },
     {
+      "name": "seen_executor_current_owner",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_current_task",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_live_threads",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_swap_task",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_thread_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_thread_join",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
       "name": "seen_f32_array_append_le_bytes",
       "abi": "Seen",
       "sources": [
@@ -5617,6 +5659,13 @@
       ]
     },
     {
+      "name": "seen_pool_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
       "name": "seen_pool_region_alloc",
       "abi": "Seen",
       "sources": [
@@ -5894,6 +5943,7 @@
       "name": "seen_string_clone_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen",
         "seen_std/src/json/builder.seen",
@@ -5932,6 +5982,7 @@
       "name": "seen_string_release_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen",
         "seen_std/src/io/file.seen",
@@ -6016,6 +6067,7 @@
       "name": "seen_sync_condition_create",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/channel.seen"
       ]
     },
@@ -6023,6 +6075,7 @@
       "name": "seen_sync_condition_destroy",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/channel.seen"
       ]
     },
@@ -6030,6 +6083,7 @@
       "name": "seen_sync_condition_notify_all",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/channel.seen"
       ]
     },
@@ -6044,6 +6098,7 @@
       "name": "seen_sync_condition_wait_until",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/channel.seen"
       ]
     },
@@ -6079,6 +6134,7 @@
       "name": "seen_sync_mutex_create",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/atomic.seen",
         "seen_std/src/sync/channel.seen",
         "seen_std/src/sync/mutex.seen"
@@ -6088,6 +6144,7 @@
       "name": "seen_sync_mutex_destroy",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/atomic.seen",
         "seen_std/src/sync/channel.seen",
         "seen_std/src/sync/mutex.seen"
@@ -6097,6 +6154,7 @@
       "name": "seen_sync_mutex_lock_until",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/atomic.seen",
         "seen_std/src/sync/channel.seen",
         "seen_std/src/sync/mutex.seen"
@@ -6113,6 +6171,7 @@
       "name": "seen_sync_mutex_unlock",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/atomic.seen",
         "seen_std/src/sync/channel.seen",
         "seen_std/src/sync/mutex.seen"
@@ -7049,27 +7108,6 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/io/file.seen"
-      ]
-    },
-    {
-      "name": "seen_ws_pool_new",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/thread/pool.seen"
-      ]
-    },
-    {
-      "name": "seen_ws_pool_shutdown",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/thread/pool.seen"
-      ]
-    },
-    {
-      "name": "seen_ws_pool_submit",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/thread/pool.seen"
       ]
     },
     {
