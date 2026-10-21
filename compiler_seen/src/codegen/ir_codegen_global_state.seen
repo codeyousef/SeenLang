@@ -11,6 +11,7 @@ import codegen.ir_decl_scan.{collectStructMethodSignaturesImpl}
 import codegen.ir_decl_items.{DeclarationItemContext, mapDeclaredTypeImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl}
 import codegen.ir_function_gen.{resolveImplementationFunctionNameImpl, hasFunctionDecoratorGenImpl, prepareExternFunctionGenerationImpl}
+import codegen.ir_trait_registry.{registerClassTraitImplsImpl}
 import codegen.ir_function_snapshots.{FunctionGenerationIdentitySnapshot}
 import codegen.ir_function_usage.{hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_codegen_feature_state.{getDynTraitNamesStateImpl, getTraitImplRegistryStateImpl, getTraitImplCountStateImpl, applyTraitImplStateImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureReprCClassNamesImpl, registerImportedReprCClassesWithFeatureStateImpl}
@@ -427,6 +428,14 @@ fun getFunctionReturnTypeWithGlobalStateImpl(name: String) r: String {
 
 fun inferMethodCallBoolSuffixWithGlobalStateImpl(callee: String) r: String {
     return inferMethodCallBoolSuffixImpl(callee, funcNames, funcRetTypes)
+}
+
+fun registerClassTraitImplsWithGlobalStateImpl(className: String) r: Void {
+    let registry = Array<String>(); registry.push(getTraitImplRegistryStateImpl())
+    let count = Array<Int>(); count.push(getTraitImplCountStateImpl())
+    registerClassTraitImplsImpl(className, getDynTraitNamesStateImpl(),
+        structNames, structMethodNames, structMethodRetTypes, registry, count)
+    applyTraitImplStateImpl(registry[0], count[0]); registry.free(); count.free()
 }
 
 fun prepareFunctionGenerationIdentityWithGlobalStateImpl(fn: FunctionNode,
