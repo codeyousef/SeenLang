@@ -4019,6 +4019,13 @@
       ]
     },
     {
+      "name": "seen_cstr_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/fs/file.seen"
+      ]
+    },
+    {
       "name": "seen_cstr_to_str",
       "abi": "Seen",
       "sources": [
@@ -6511,6 +6518,83 @@
       "abi": "C",
       "sources": [
         "seen_std/src/memory/aligned_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_duplicate_file",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_enter",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_eventfd_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_eventfd_drain",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_load_acquire",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_map",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_page_size",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_register",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_setup",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_store_release",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_unmap",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
       ]
     },
     {

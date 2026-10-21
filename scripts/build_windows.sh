@@ -109,6 +109,8 @@ compile_runtime() {
         "$RUNTIME_DIR/src/executor_socket_abi.h" \
         "$RUNTIME_DIR/src/executor_completion_abi.c" \
         "$RUNTIME_DIR/src/executor_completion_abi.h" \
+        "$RUNTIME_DIR/src/io_uring_abi.c" \
+        "$RUNTIME_DIR/src/io_uring_abi.h" \
         "$RUNTIME_DIR/src/executor_readiness_abi.c" \
         "$RUNTIME_DIR/src/executor_readiness_abi.h" \
         "$RUNTIME_DIR/src/executor_process_abi.c" \

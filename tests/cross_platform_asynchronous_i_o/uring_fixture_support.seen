@@ -1,0 +1,62 @@
+import core.option.{None, Some}
+import async.io_lease.{AsyncIoLeaseCounter}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{OwnedHandle}
+import io.completion_types.{IoQueueLimits, IoRegistration}
+import io.completion_queue.{IoQueue}
+import io.linux_uring.{LinuxUringQueue}
+import io.uring_layout.{UringLayout, uringWrite32, uringWrite64, uringByteAddress}
+import fixture_support.{ioMust, ioRequire}
+
+fun uringFixtureParameters() r: OwnedBuffer<UInt8> {
+    let parameters: OwnedBuffer<UInt8> = ioMust(OwnedBuffer<UInt8>.allocate(120 as UInt64, 1 as UInt64, 16 as UInt64))
+    var i = 0; while i < 120 { parameters.data[i] = 0 as UInt8; i = i + 1 }
+    uringWrite32(parameters.data, 0, 2 as UInt64); uringWrite32(parameters.data, 4, 4 as UInt64)
+    uringWrite32(parameters.data, 20, 3 as UInt64)
+    i = 0; while i < 6 { uringWrite32(parameters.data, 40 + i * 4, (64 + i * 4) as UInt64); i = i + 1 }
+    i = 0; while i < 5 { uringWrite32(parameters.data, 80 + i * 4, (i * 4) as UInt64); i = i + 1 }
+    uringWrite32(parameters.data, 64, 192 as UInt64); uringWrite32(parameters.data, 100, 128 as UInt64)
+    return parameters
+}
+@move
+class UringFixture {
+    var queue: LinuxUringQueue
+    var ringMemory: OwnedBuffer<UInt8>
+    var entryMemory: OwnedBuffer<UInt8>
+    static fun create(wrap: Bool) r: UringFixture {
+        let parameters = uringFixtureParameters()
+        let layout: UringLayout = ioMust(UringLayout.read(parameters.data, parameters.byteLength, 2, 8192 as UInt64, 4096 as UInt64))
+        parameters.close(); parameters.free()
+        let ring: OwnedBuffer<UInt8> = ioMust(OwnedBuffer<UInt8>.allocate(256 as UInt64, 1 as UInt64, 16 as UInt64))
+        let entries: OwnedBuffer<UInt8> = ioMust(OwnedBuffer<UInt8>.allocate(128 as UInt64, 1 as UInt64, 16 as UInt64))
+        var i = 0; while i < 256 { ring.data[i] = 0 as UInt8; i = i + 1 }
+        i = 0; while i < 128 { entries.data[i] = 0 as UInt8; i = i + 1 }
+        uringWrite32(ring.data, 72, 1 as UInt64); uringWrite32(ring.data, 76, 2 as UInt64)
+        uringWrite32(ring.data, 8, 3 as UInt64); uringWrite32(ring.data, 12, 4 as UInt64)
+        if wrap {
+            uringWrite32(ring.data, 64, 4294967294 as UInt64); uringWrite32(ring.data, 68, 4294967294 as UInt64)
+            uringWrite32(ring.data, 0, 4294967294 as UInt64); uringWrite32(ring.data, 4, 4294967294 as UInt64)
+        }
+        let limits = IoQueueLimits{depth: 2, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 128 as UInt64, maxMetadataBytes: 8192 as UInt64}
+        let core: IoQueue = ioMust(IoQueue.create(limits)); limits.free()
+        let leases = ioMust(AsyncIoLeaseCounter.create(2))
+        let queue = LinuxUringQueue{core: core, ring: OwnedHandle{native: -1 as Int64, owned: true, valid: false},
+            notification: OwnedHandle{native: -1 as Int64, owned: true, valid: false}, leases: leases,
+            layout: Some<UringLayout>(layout), sq: ring.data, cq: ring.data, sqes: entries.data,
+            sqMappedBytes: 0 as UInt64, cqMappedBytes: 0 as UInt64, sqeMappedBytes: 0 as UInt64,
+            pendingCancellation: None<IoRegistration>(), cancellationOutstanding: 0,
+            lastNativeResult: 0 as Int64, lastCancellationResult: 0 as Int64, ready: true, poisoned: false, closed: false}
+        return UringFixture{queue: queue, ringMemory: ring, entryMemory: entries}
+    }
+    fun completion(index: Int, token: UInt64, resultBits: UInt64, flags: UInt64) r: Void {
+        let entry = uringByteAddress(this.ringMemory.data, (128 + (index % 4) * 16) as UInt64)
+        uringWrite64(entry, 0, token); uringWrite32(entry, 8, resultBits); uringWrite32(entry, 12, flags)
+    }
+    fun release() r: Void {
+        ioRequire(this.queue.core.active == 0 and this.queue.cancellationOutstanding == 0)
+        // Only this mock owns malloc-backed rings. No OS mapping or borrow exists.
+        this.queue.ready = false; this.queue.sq = null as *UInt8; this.queue.cq = null as *UInt8; this.queue.sqes = null as *UInt8
+        ioMust(this.queue.release()); this.ringMemory.close(); this.ringMemory.free()
+        this.entryMemory.close(); this.entryMemory.free(); this.free()
+    }
+}

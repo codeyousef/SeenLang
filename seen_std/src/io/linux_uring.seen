@@ -1,0 +1,311 @@
+/// One serialized Seen coordinator over Linux shared submission/completion rings.
+import core.result.{Result, Ok, Err}
+import core.option.{Option, Some, None}
+import async.structured.{AsyncError}
+import async.io_lease.{AsyncIoLease, AsyncIoLeaseCounter}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{OwnedHandle}
+import io.completion_queue.{IoQueue}
+import io.completion_types.{IoQueueLimits, IoRegistration, IoRequest, IoRejectedSubmission,
+    IoCompletion, IoSubmissionView, ioQueueFailure}
+import io.uring_layout.{UringLayout, uringByteAddress, uringRead32, uringRead64, uringWrite32,
+    uringDistance, uringStatus, uringEncodeRequest, uringEncodeCancellation}
+import io.uring_native.{seen_uring_setup, seen_uring_enter, seen_uring_register,
+    seen_uring_map, seen_uring_unmap, seen_uring_eventfd_create, seen_uring_eventfd_drain,
+    seen_uring_load_acquire, seen_uring_store_release, seen_uring_page_size}
+
+@move
+class UringCreateFailure {
+    var partial: Option<LinuxUringQueue>
+    var error: AsyncError
+    fun release() r: Result<Bool, AsyncError> {
+        if this.partial.isSome() {
+            let released = this.partial.unwrap().release()
+            if released.isErr() { return released }; released.releaseContainer()
+        }
+        this.partial.free(); this.error.free(); this.free(); return Ok<Bool, AsyncError>(true)
+    }
+}
+fun uringCreateRejected(queue: LinuxUringQueue, error: AsyncError) r: Result<LinuxUringQueue, UringCreateFailure> {
+    return Err<LinuxUringQueue, UringCreateFailure>(UringCreateFailure{partial: Some<LinuxUringQueue>(queue), error: error})
+}
+fun uringCreateNoOwner(error: AsyncError) r: Result<LinuxUringQueue, UringCreateFailure> {
+    return Err<LinuxUringQueue, UringCreateFailure>(UringCreateFailure{partial: None<LinuxUringQueue>(), error: error})
+}
+
+// Kernel workers are explicitly bounded before any I/O is published.
+fun uringConfigureWorkers(ring: Int64, maximum: Int) r: Int64 {
+    let allocated = OwnedBuffer<UInt8>.allocate(8 as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { allocated.unwrapErr().free(); allocated.releaseContainer(); return -12 as Int64 }
+    let buffer: OwnedBuffer<UInt8> = allocated.unwrap(); allocated.releaseContainer()
+    uringWrite32(buffer.data, 0, maximum as UInt64); uringWrite32(buffer.data, 4, maximum as UInt64)
+    let result = seen_uring_register(ring, 19 as UInt32, buffer.data as *Void, 2 as UInt32)
+    buffer.close(); buffer.free(); return result
+}
+
+@move
+class LinuxUringQueue {
+    var core: IoQueue
+    var ring: OwnedHandle
+    var notification: OwnedHandle
+    var leases: AsyncIoLeaseCounter
+    var layout: Option<UringLayout>
+    var sq: *UInt8
+    var cq: *UInt8
+    var sqes: *UInt8
+    var sqMappedBytes: UInt64
+    var cqMappedBytes: UInt64
+    var sqeMappedBytes: UInt64
+    var pendingCancellation: Option<IoRegistration>
+    var cancellationOutstanding: Int
+    var lastNativeResult: Int64
+    var lastCancellationResult: Int64
+    var ready: Bool
+    var poisoned: Bool
+    var closed: Bool
+
+    static fun create(borrow limits: IoQueueLimits, maxMappedBytes: UInt64, maxWorkers: Int) r: Result<LinuxUringQueue, UringCreateFailure> {
+        if maxWorkers <= 0 or maxWorkers > 64 or limits.depth <= 0 or limits.depth > 32768 or maxMappedBytes == (0 as UInt64) or maxMappedBytes > (8388608 as UInt64) {
+            return uringCreateNoOwner(ioQueueFailure(2 as Int32, "io.uring.create.limit", 0 as UInt64))
+        }
+        let created = IoQueue.create(limits)
+        if created.isErr() { let error = created.unwrapErr(); created.releaseContainer(); return uringCreateNoOwner(error) }
+        let core: IoQueue = created.unwrap(); created.releaseContainer()
+        let leaseResult = AsyncIoLeaseCounter.create(limits.depth)
+        if leaseResult.isErr() {
+            let error = leaseResult.unwrapErr(); leaseResult.releaseContainer()
+            let released = core.release(); released.releaseContainer(); return uringCreateNoOwner(error)
+        }
+        let leases = leaseResult.unwrap(); leaseResult.releaseContainer()
+        let queue = LinuxUringQueue{core: core,
+            ring: OwnedHandle{native: -1 as Int64, owned: true, valid: false},
+            notification: OwnedHandle{native: -1 as Int64, owned: true, valid: false}, leases: leases,
+            layout: None<UringLayout>(), sq: null as *UInt8, cq: null as *UInt8, sqes: null as *UInt8,
+            sqMappedBytes: 0 as UInt64, cqMappedBytes: 0 as UInt64, sqeMappedBytes: 0 as UInt64,
+            pendingCancellation: None<IoRegistration>(), cancellationOutstanding: 0,
+            lastNativeResult: 0 as Int64, lastCancellationResult: 0 as Int64, ready: false, poisoned: false, closed: false}
+        let allocated = OwnedBuffer<UInt8>.allocate(120 as UInt64, 1 as UInt64, 16 as UInt64)
+        if allocated.isErr() {
+            allocated.unwrapErr().free(); allocated.releaseContainer()
+            return uringCreateRejected(queue, ioQueueFailure(2 as Int32, "io.uring.parameters.allocate", 0 as UInt64))
+        }
+        let parameters: OwnedBuffer<UInt8> = allocated.unwrap(); allocated.releaseContainer(); var index = 0
+        while index < 120 { parameters.data[index] = 0 as UInt8; index = index + 1 }
+        let native = seen_uring_setup(limits.depth as UInt32, parameters.data, parameters.byteLength)
+        queue.lastNativeResult = native
+        if native < (0 as Int64) {
+            parameters.close(); parameters.free()
+            return uringCreateRejected(queue, ioQueueFailure(uringStatus(native), "io.uring.setup", 0 as UInt64))
+        }
+        queue.ring.native = native; queue.ring.valid = true
+        let pageBytes = seen_uring_page_size(); queue.lastNativeResult = pageBytes
+        if pageBytes < (0 as Int64) {
+            parameters.close(); parameters.free()
+            return uringCreateRejected(queue, ioQueueFailure(uringStatus(pageBytes), "io.uring.page-size", 0 as UInt64))
+        }
+        let geometry = UringLayout.read(parameters.data, parameters.byteLength, limits.depth, maxMappedBytes, pageBytes as UInt64)
+        parameters.close(); parameters.free()
+        if geometry.isErr() { let error = geometry.unwrapErr(); geometry.releaseContainer(); return uringCreateRejected(queue, error) }
+        let layout = geometry.unwrap(); geometry.releaseContainer()
+        queue.layout.free(); queue.layout = Some<UringLayout>(layout)
+        var address = 0 as UInt64
+        var result = seen_uring_map(native, 0 as UInt64, layout.sqBytes, &address)
+        queue.lastNativeResult = result
+        if result < (0 as Int64) { return uringCreateRejected(queue, ioQueueFailure(uringStatus(result), "io.uring.map.sq", 0 as UInt64)) }
+        queue.sq = address as *UInt8; queue.sqMappedBytes = layout.sqBytes
+        if layout.singleMap { queue.cq = queue.sq }
+        else {
+            address = 0 as UInt64; result = seen_uring_map(native, 134217728 as UInt64, layout.cqBytes, &address)
+            queue.lastNativeResult = result
+            if result < (0 as Int64) { return uringCreateRejected(queue, ioQueueFailure(uringStatus(result), "io.uring.map.cq", 0 as UInt64)) }
+            queue.cq = address as *UInt8; queue.cqMappedBytes = layout.cqBytes
+        }
+        address = 0 as UInt64; result = seen_uring_map(native, 268435456 as UInt64, layout.sqeBytes, &address)
+        queue.lastNativeResult = result
+        if result < (0 as Int64) { return uringCreateRejected(queue, ioQueueFailure(uringStatus(result), "io.uring.map.sqes", 0 as UInt64)) }
+        queue.sqes = address as *UInt8; queue.sqeMappedBytes = layout.sqeBytes
+        if not queue.headersValid() or queue.pendingSubmissions() != (0 as UInt64) or
+            seen_uring_load_acquire(queue.cqField(0)) != seen_uring_load_acquire(queue.cqField(1)) { return uringCreateRejected(queue, ioQueueFailure(1 as Int32, "io.uring.headers", 0 as UInt64)) }
+        let notification = seen_uring_eventfd_create(); queue.lastNativeResult = notification
+        if notification < (0 as Int64) { return uringCreateRejected(queue, ioQueueFailure(uringStatus(notification), "io.uring.eventfd", 0 as UInt64)) }
+        queue.notification.native = notification; queue.notification.valid = true
+        var descriptor = notification as Int32
+        result = seen_uring_register(native, 4 as UInt32, (&descriptor) as *Void, 1 as UInt32)
+        queue.lastNativeResult = result
+        if result < (0 as Int64) { return uringCreateRejected(queue, ioQueueFailure(uringStatus(result), "io.uring.register.eventfd", 0 as UInt64)) }
+        result = uringConfigureWorkers(native, maxWorkers); queue.lastNativeResult = result
+        if result < (0 as Int64) {
+            var status = uringStatus(result); if result == (-22 as Int64) { status = 4 as Int32 }
+            return uringCreateRejected(queue, ioQueueFailure(status, "io.uring.register.worker-limit", 0 as UInt64))
+        }
+        queue.ready = true; return Ok<LinuxUringQueue, UringCreateFailure>(queue)
+    }
+    fun sqField(index: Int) r: *UInt32 { return uringByteAddress(this.sq, this.layout.unwrap().sqOffsets[index]) as *UInt32 }
+    fun cqField(index: Int) r: *UInt32 { return uringByteAddress(this.cq, this.layout.unwrap().cqOffsets[index]) as *UInt32 }
+    fun headersValid() r: Bool {
+        let layout = this.layout.unwrap()
+        return (seen_uring_load_acquire(this.sqField(2)) as UInt64) == layout.sqEntries - (1 as UInt64) and
+            (seen_uring_load_acquire(this.sqField(3)) as UInt64) == layout.sqEntries and
+            (seen_uring_load_acquire(this.cqField(2)) as UInt64) == layout.cqEntries - (1 as UInt64) and
+            (seen_uring_load_acquire(this.cqField(3)) as UInt64) == layout.cqEntries
+    }
+    fun available() r: Bool { return this.ready and not this.closed and not this.poisoned }
+    fun fault(operation: String) r: AsyncError {
+        this.poisoned = true; return ioQueueFailure(3 as Int32, operation, 0 as UInt64)
+    }
+    fun pendingSubmissions() r: UInt64 {
+        return uringDistance(seen_uring_load_acquire(this.sqField(1)) as UInt64, seen_uring_load_acquire(this.sqField(0)) as UInt64)
+    }
+    fun submissionSpace() r: Bool {
+        return this.available() and this.pendingSubmissions() < this.layout.unwrap().sqEntries
+    }
+    fun publish(tail: UInt64) r: Void {
+        let layout = this.layout.unwrap(); let index = tail & (layout.sqEntries - (1 as UInt64))
+        uringWrite32(uringByteAddress(this.sq, layout.sqArray), (index * (4 as UInt64)) as Int, index)
+        seen_uring_store_release(this.sqField(1), ((tail + (1 as UInt64)) % (4294967296 as UInt64)) as UInt32)
+    }
+    fun reserve(request: IoRequest) r: Result<IoRegistration, IoRejectedSubmission> {
+        if not this.available() {
+            return this.core.reject(request, ioQueueFailure(3 as Int32, "io.uring.reserve", 0 as UInt64))
+        }
+        return this.core.reserve(request)
+    }
+    fun submit(token: UInt64) r: Result<Bool, AsyncError> {
+        if not this.available() { return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.uring.submit", 0 as UInt64)) }
+        if not this.headersValid() or this.pendingSubmissions() > this.layout.unwrap().sqEntries {
+            return Err<Bool, AsyncError>(this.fault("io.uring.sq.protocol"))
+        }
+        if not this.submissionSpace() { return Err<Bool, AsyncError>(ioQueueFailure(2 as Int32, "io.uring.sq.full", 0 as UInt64)) }
+        let obtained = this.core.submission(token)
+        if obtained.isErr() { let error = obtained.unwrapErr(); obtained.releaseContainer(); return Err<Bool, AsyncError>(error) }
+        let view: IoSubmissionView = obtained.unwrap(); obtained.releaseContainer()
+        if view.descriptor < (0 as Int64) or view.descriptor > (2147483647 as Int64) {
+            view.free(); let rejected = this.core.rejectSubmission(token, 1 as Int32, -9 as Int64); rejected.releaseContainer()
+            return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.descriptor", 0 as UInt64))
+        }
+        let tail = seen_uring_load_acquire(this.sqField(1)) as UInt64
+        let index = tail & (this.layout.unwrap().sqEntries - (1 as UInt64))
+        uringEncodeRequest(uringByteAddress(this.sqes, index * (64 as UInt64)), view); view.free()
+        let submitted = this.core.submitted(token)
+        if submitted.isErr() { return submitted }; submitted.releaseContainer()
+        // Ownership becomes irrevocable before release-publishing the SQ tail.
+        this.publish(tail); return Ok<Bool, AsyncError>(true)
+    }
+    fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.core.cancel(token) }
+    fun publishCancellation() r: Result<Bool, AsyncError> {
+        if not this.available() { return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.uring.cancel", 0 as UInt64)) }
+        if this.pendingCancellation.isNone() {
+            this.pendingCancellation.free(); this.pendingCancellation = this.core.nextCancellation()
+        }
+        if this.pendingCancellation.isNone() { return Ok<Bool, AsyncError>(false) }
+        let registration = this.pendingCancellation.unwrap(); let slot = this.core.slot(registration.token)
+        if slot < 0 or this.core.states[slot] != 2 {
+            registration.free(); this.pendingCancellation.free(); this.pendingCancellation = None<IoRegistration>()
+            return Ok<Bool, AsyncError>(false)
+        }
+        if not this.submissionSpace() or this.cancellationOutstanding >= this.core.capacity {
+            return Err<Bool, AsyncError>(ioQueueFailure(2 as Int32, "io.uring.cancel.capacity", 0 as UInt64))
+        }
+        let tail = seen_uring_load_acquire(this.sqField(1)) as UInt64
+        let index = tail & (this.layout.unwrap().sqEntries - (1 as UInt64))
+        uringEncodeCancellation(uringByteAddress(this.sqes, index * (64 as UInt64)), registration.token)
+        this.cancellationOutstanding = this.cancellationOutstanding + 1; this.publish(tail)
+        registration.free(); this.pendingCancellation.free(); this.pendingCancellation = None<IoRegistration>()
+        return Ok<Bool, AsyncError>(true)
+    }
+    fun flush() r: Result<UInt64, AsyncError> {
+        if not this.available() { return Err<UInt64, AsyncError>(ioQueueFailure(3 as Int32, "io.uring.flush", 0 as UInt64)) }
+        let count = this.pendingSubmissions()
+        if count > this.layout.unwrap().sqEntries { return Err<UInt64, AsyncError>(this.fault("io.uring.sq.distance")) }
+        let result = seen_uring_enter(this.ring.native, count as UInt32); this.lastNativeResult = result
+        if result < (0 as Int64) { return Err<UInt64, AsyncError>(ioQueueFailure(uringStatus(result), "io.uring.enter", 0 as UInt64)) }
+        if result > (count as Int64) { return Err<UInt64, AsyncError>(this.fault("io.uring.enter.count")) }
+        return Ok<UInt64, AsyncError>(result as UInt64)
+    }
+    fun reap(maximum: Int) r: Result<UInt64, AsyncError> {
+        if not this.available() or maximum <= 0 or maximum > this.core.capacity * 2 {
+            return Err<UInt64, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.reap", 0 as UInt64))
+        }
+        if not this.headersValid() or seen_uring_load_acquire(this.sqField(5)) != (0 as UInt32) or
+            seen_uring_load_acquire(this.cqField(4)) != (0 as UInt32) {
+            return Err<UInt64, AsyncError>(this.fault("io.uring.overflow"))
+        }
+        let layout = this.layout.unwrap(); var processed = 0 as UInt64
+        while processed < (maximum as UInt64) {
+            let head = seen_uring_load_acquire(this.cqField(0)) as UInt64
+            let tail = seen_uring_load_acquire(this.cqField(1)) as UInt64
+            let count = uringDistance(tail, head)
+            if count > layout.cqEntries { return Err<UInt64, AsyncError>(this.fault("io.uring.cq.distance")) }
+            if count == (0 as UInt64) { return Ok<UInt64, AsyncError>(processed) }
+            let entry = uringByteAddress(this.cq, layout.cqEntriesOffset + ((head & (layout.cqEntries - (1 as UInt64))) * (16 as UInt64)))
+            let token = uringRead64(entry, 0); let result = (uringRead32(entry, 8) as Int32) as Int64
+            if uringRead32(entry, 12) != (0 as UInt64) { return Err<UInt64, AsyncError>(this.fault("io.uring.cqe.flags")) }
+            if token == (0 as UInt64) {
+                if this.cancellationOutstanding <= 0 { return Err<UInt64, AsyncError>(this.fault("io.uring.cqe.cancel")) }
+                this.cancellationOutstanding = this.cancellationOutstanding - 1; this.lastCancellationResult = result
+            } else {
+                var progress = 0 as UInt64; if result >= (0 as Int64) { progress = result as UInt64 }
+                let completed = this.core.complete(token, progress, uringStatus(result), result)
+                if completed.isErr() {
+                    completed.unwrapErr().free(); completed.releaseContainer()
+                    return Err<UInt64, AsyncError>(this.fault("io.uring.cqe.owner"))
+                }
+                completed.releaseContainer()
+            }
+            seen_uring_store_release(this.cqField(0), ((head + (1 as UInt64)) % (4294967296 as UInt64)) as UInt32)
+            processed = processed + (1 as UInt64)
+        }
+        return Ok<UInt64, AsyncError>(processed)
+    }
+    fun poll() r: Option<IoCompletion> { return this.core.poll() }
+    fun notificationLease() r: Result<AsyncIoLease, AsyncError> {
+        if not this.available() { return Err<AsyncIoLease, AsyncError>(ioQueueFailure(3 as Int32, "io.uring.notification", 0 as UInt64)) }
+        return this.leases.acquire(this.notification.native as UInt64)
+    }
+    fun drainNotification() r: Result<Bool, AsyncError> {
+        if not this.available() { return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.uring.notification", 0 as UInt64)) }
+        let result = seen_uring_eventfd_drain(this.notification.native); this.lastNativeResult = result
+        if result < (0 as Int64) { return Err<Bool, AsyncError>(ioQueueFailure(uringStatus(result), "io.uring.notification.drain", 0 as UInt64)) }
+        return Ok<Bool, AsyncError>(true)
+    }
+    fun shutdown() r: Void { this.core.shutdown() }
+    fun close() r: Result<Bool, AsyncError> {
+        if this.closed { return Ok<Bool, AsyncError>(true) }
+        this.shutdown()
+        if this.core.active != 0 or this.cancellationOutstanding != 0 or this.leases.idleStatus() != (0 as Int32) or
+            (this.ready and this.pendingSubmissions() != (0 as UInt64)) {
+            return Err<Bool, AsyncError>(ioQueueFailure(2 as Int32, "io.uring.close.busy", 0 as UInt64))
+        }
+        let ringClosed = this.ring.close()
+        if ringClosed.isErr() { ringClosed.unwrapErr().free(); ringClosed.releaseContainer(); return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.uring.close.ring", 0 as UInt64)) }
+        ringClosed.releaseContainer(); this.ready = false
+        let notificationClosed = this.notification.close()
+        if notificationClosed.isErr() { notificationClosed.unwrapErr().free(); notificationClosed.releaseContainer(); return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.uring.close.eventfd", 0 as UInt64)) }
+        notificationClosed.releaseContainer()
+        if this.sqes != (null as *UInt8) {
+            let result = seen_uring_unmap(this.sqes, this.sqeMappedBytes); this.lastNativeResult = result
+            if result < (0 as Int64) { return Err<Bool, AsyncError>(ioQueueFailure(uringStatus(result), "io.uring.unmap.sqes", 0 as UInt64)) }
+            this.sqes = null as *UInt8; this.sqeMappedBytes = 0 as UInt64
+        }
+        if this.cqMappedBytes != (0 as UInt64) {
+            let result = seen_uring_unmap(this.cq, this.cqMappedBytes); this.lastNativeResult = result
+            if result < (0 as Int64) { return Err<Bool, AsyncError>(ioQueueFailure(uringStatus(result), "io.uring.unmap.cq", 0 as UInt64)) }
+            this.cq = null as *UInt8; this.cqMappedBytes = 0 as UInt64
+        }
+        if this.sq != (null as *UInt8) {
+            let result = seen_uring_unmap(this.sq, this.sqMappedBytes); this.lastNativeResult = result
+            if result < (0 as Int64) { return Err<Bool, AsyncError>(ioQueueFailure(uringStatus(result), "io.uring.unmap.sq", 0 as UInt64)) }
+            this.sq = null as *UInt8; this.cq = null as *UInt8; this.sqMappedBytes = 0 as UInt64
+        }
+        this.closed = true; return Ok<Bool, AsyncError>(true)
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer()
+        let status = this.leases.release()
+        if status != (0 as Int32) { return Err<Bool, AsyncError>(ioQueueFailure(status, "io.uring.release.leases", 0 as UInt64)) }
+        let released = this.core.release(); released.releaseContainer()
+        if this.layout.isSome() { this.layout.unwrap().release() }; this.layout.free()
+        if this.pendingCancellation.isSome() { this.pendingCancellation.unwrap().free() }; this.pendingCancellation.free()
+        this.ring.free(); this.notification.free(); this.free(); return Ok<Bool, AsyncError>(true)
+    }
+}

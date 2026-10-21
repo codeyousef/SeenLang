@@ -164,6 +164,30 @@
       "production": true
     },
     {
+      "id": "io-uring-syscall-abi",
+      "subsystem": "stdlib.io",
+      "purpose": "Direct Linux io_uring syscalls, mappings, eventfd, page size, descriptor duplication and shared-memory atomics. Seen owns UAPI encoding, checked geometry, page-rounded mapping and worker budgets, submission, cancellation, completion, leases and partial cleanup. Other platforms fail explicitly. No liburing, retry, scheduler or fallback policy. Contract/fuzz/native fixtures cover this permanent OS boundary; hardware certification remains separate.",
+      "abi": "Linux syscall C",
+      "platforms": [
+        "linux-aarch64",
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "seen_uring_duplicate_file",
+        "seen_uring_enter",
+        "seen_uring_eventfd_create",
+        "seen_uring_eventfd_drain",
+        "seen_uring_load_acquire",
+        "seen_uring_map",
+        "seen_uring_page_size",
+        "seen_uring_register",
+        "seen_uring_setup",
+        "seen_uring_store_release",
+        "seen_uring_unmap"
+      ],
+      "production": false
+    },
+    {
       "id": "json-number-range-parser",
       "subsystem": "stdlib.json",
       "purpose": "Bounded C-library decimal-to-binary conversion after native Seen JSON syntax validation. No storage escapes; invalid bounds, incomplete conversion, overflow, and underflow return NaN, which the Seen parser maps to a stable range error. Exercised by FEL-507 malformed-number sanitizer and soak cases. Permanent until native Seen supplies a correctly rounded bounded conversion; migrate parser and symbol together.",

@@ -1,0 +1,143 @@
+/// Checked Linux little-endian UAPI geometry and entry encoding, in Seen.
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError}
+import io.completion_types.{IoSubmissionView, IoOperation, ioQueueFailure}
+
+// Use explicit byte addresses; no dependence on an implicit pointee stride.
+fun uringByteAddress(bytes: *UInt8, offset: UInt64) r: *UInt8 {
+    return ((bytes as UInt64) + offset) as *UInt8
+}
+fun uringRead32(bytes: *UInt8, offset: Int) r: UInt64 {
+    return (bytes[offset] as UInt64) | ((bytes[offset + 1] as UInt64) << 8) |
+        ((bytes[offset + 2] as UInt64) << 16) | ((bytes[offset + 3] as UInt64) << 24)
+}
+fun uringRead64(bytes: *UInt8, offset: Int) r: UInt64 {
+    return uringRead32(bytes, offset) | (uringRead32(bytes, offset + 4) << 32)
+}
+fun uringWrite32(bytes: *UInt8, offset: Int, value: UInt64) r: Void {
+    var index = 0
+    while index < 4 { bytes[offset + index] = ((value >> (index * 8)) & (255 as UInt64)) as UInt8; index = index + 1 }
+}
+fun uringWrite64(bytes: *UInt8, offset: Int, value: UInt64) r: Void {
+    uringWrite32(bytes, offset, value); uringWrite32(bytes, offset + 4, value >> 32)
+}
+fun uringDistance(tail: UInt64, head: UInt64) r: UInt64 {
+    return (tail + (4294967296 as UInt64) - head) % (4294967296 as UInt64)
+}
+fun uringPageBytes(bytes: UInt64, page: UInt64) r: UInt64 {
+    return ((bytes + page - (1 as UInt64)) / page) * page
+}
+fun uringStatus(result: Int64) r: Int32 {
+    if result >= (0 as Int64) { return 0 as Int32 }
+    // This boundary speaks Linux errno on every host; no foreign errno guesses.
+    if result == (-1 as Int64) or result == (-13 as Int64) or result == (-38 as Int64) or result == (-95 as Int64) { return 4 as Int32 }
+    if result == (-11 as Int64) or result == (-12 as Int64) or result == (-23 as Int64) or result == (-24 as Int64) { return 2 as Int32 }
+    if result == (-4 as Int64) { return 5 as Int32 }
+    if result == (-125 as Int64) { return 9 as Int32 }
+    if result == (-62 as Int64) or result == (-110 as Int64) { return 7 as Int32 }
+    if result == (-9 as Int64) or result == (-14 as Int64) or result == (-22 as Int64) { return 1 as Int32 }
+    return 3 as Int32
+}
+fun uringHeaderValid(offsets: Array<UInt64>, data: UInt64, alignment: UInt64) r: Bool {
+    if data > (8388608 as UInt64) or data % alignment != (0 as UInt64) { return false }
+    var index = 0
+    while index < offsets.length() {
+        let offset = offsets[index]
+        if offset > (4092 as UInt64) or offset % (4 as UInt64) != (0 as UInt64) or offset + (4 as UInt64) > data { return false }
+        var previous = 0
+        while previous < index { if offsets[previous] == offset { return false }; previous = previous + 1 }
+        index = index + 1
+    }
+    return true
+}
+fun uringSharedGeometryValid(sq: Array<UInt64>, cq: Array<UInt64>, sqData: UInt64,
+    sqCount: UInt64, cqData: UInt64, cqCount: UInt64) r: Bool {
+    if sqData < cqData + cqCount * (16 as UInt64) and cqData < sqData + sqCount * (4 as UInt64) { return false }
+    var i = 0
+    while i < sq.length() {
+        if sq[i] + (4 as UInt64) > cqData { return false }
+        var j = 0
+        while j < cq.length() { if sq[i] == cq[j] { return false }; j = j + 1 }
+        i = i + 1
+    }
+    i = 0
+    while i < cq.length() { if cq[i] + (4 as UInt64) > sqData { return false }; i = i + 1 }
+    return true
+}
+class UringLayout {
+    var sqEntries: UInt64
+    var cqEntries: UInt64
+    // SQ head/tail/mask/entries/flags/dropped, CQ head/tail/mask/entries/overflow.
+    var sqOffsets: Array<UInt64>
+    var cqOffsets: Array<UInt64>
+    var sqArray: UInt64
+    var cqEntriesOffset: UInt64
+    var sqBytes: UInt64
+    var cqBytes: UInt64
+    var sqeBytes: UInt64
+    var singleMap: Bool
+
+    static fun read(parameters: *UInt8, bytes: UInt64, depth: Int, maxMappedBytes: UInt64, pageBytes: UInt64) r: Result<UringLayout, AsyncError> {
+        if parameters == (null as *UInt8) or bytes != (120 as UInt64) or depth <= 0 or depth > 32768 or
+            maxMappedBytes == (0 as UInt64) or maxMappedBytes > (8388608 as UInt64) or
+            pageBytes < (4096 as UInt64) or pageBytes > (65536 as UInt64) or
+            (pageBytes & (pageBytes - (1 as UInt64))) != (0 as UInt64) {
+            return Err<UringLayout, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.parameters", 0 as UInt64))
+        }
+        let sq = uringRead32(parameters, 0); let cq = uringRead32(parameters, 4)
+        let features = uringRead32(parameters, 20)
+        if uringRead32(parameters, 8) != (0 as UInt64) or (features & (2 as UInt64)) == (0 as UInt64) {
+            return Err<UringLayout, AsyncError>(ioQueueFailure(4 as Int32, "io.uring.features.nodrop", 0 as UInt64))
+        }
+        if sq < (depth as UInt64) or sq > (32768 as UInt64) or (sq & (sq - (1 as UInt64))) != (0 as UInt64) or
+            cq < sq * (2 as UInt64) or cq > (65536 as UInt64) or (cq & (cq - (1 as UInt64))) != (0 as UInt64) {
+            return Err<UringLayout, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.entries", 0 as UInt64))
+        }
+        let sqOffsets = Array<UInt64>(); let cqOffsets = Array<UInt64>(); var index = 0
+        while index < 6 { sqOffsets.push(uringRead32(parameters, 40 + index * 4)); index = index + 1 }
+        index = 0
+        while index < 5 { cqOffsets.push(uringRead32(parameters, 80 + index * 4)); index = index + 1 }
+        let sqArray = uringRead32(parameters, 64); let cqData = uringRead32(parameters, 100)
+        if not uringHeaderValid(sqOffsets, sqArray, 4 as UInt64) or not uringHeaderValid(cqOffsets, cqData, 8 as UInt64) {
+            sqOffsets.free(); cqOffsets.free()
+            return Err<UringLayout, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.offsets", 0 as UInt64))
+        }
+        var sqBytes = uringPageBytes(sqArray + sq * (4 as UInt64), pageBytes)
+        let cqBytes = uringPageBytes(cqData + cq * (16 as UInt64), pageBytes)
+        let sqeBytes = uringPageBytes(sq * (64 as UInt64), pageBytes)
+        let single = (features & (1 as UInt64)) != (0 as UInt64)
+        if single and not uringSharedGeometryValid(sqOffsets, cqOffsets, sqArray, sq, cqData, cq) {
+            sqOffsets.free(); cqOffsets.free()
+            return Err<UringLayout, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.shared-offsets", 0 as UInt64))
+        }
+        if single and cqBytes > sqBytes { sqBytes = cqBytes }
+        var total = sqBytes + sqeBytes
+        if not single { total = total + cqBytes }
+        if total > maxMappedBytes {
+            sqOffsets.free(); cqOffsets.free()
+            return Err<UringLayout, AsyncError>(ioQueueFailure(2 as Int32, "io.uring.mapped-limit", 0 as UInt64))
+        }
+        return Ok<UringLayout, AsyncError>(UringLayout{sqEntries: sq, cqEntries: cq,
+            sqOffsets: sqOffsets, cqOffsets: cqOffsets, sqArray: sqArray, cqEntriesOffset: cqData,
+            sqBytes: sqBytes, cqBytes: cqBytes, sqeBytes: sqeBytes, singleMap: single})
+    }
+    fun release() r: Void { this.sqOffsets.free(); this.cqOffsets.free(); this.free() }
+}
+// Caller provides one validated, exclusively reserved 64-byte SQ entry.
+fun uringEncodeRequest(entry: *UInt8, borrow view: IoSubmissionView) r: Void {
+    var index = 0; while index < 64 { entry[index] = 0 as UInt8; index = index + 1 }
+    entry[0] = 22 as UInt8
+    if view.operation == IoOperation.Write { entry[0] = 23 as UInt8 }
+    uringWrite32(entry, 4, view.descriptor as UInt64)
+    uringWrite64(entry, 8, view.fileOffset as UInt64)
+    uringWrite64(entry, 16, view.buffer as UInt64)
+    uringWrite32(entry, 24, view.bytes); uringWrite64(entry, 32, view.token)
+}
+fun uringEncodeCancellation(entry: *UInt8, token: UInt64) r: Void {
+    var index = 0; while index < 64 { entry[index] = 0 as UInt8; index = index + 1 }
+    entry[0] = 14 as UInt8
+    uringWrite32(entry, 4, 4294967295 as UInt64)
+    uringWrite64(entry, 16, token)
+    // User token zero is reserved for cancellation acknowledgements, which
+    // never acknowledge the original request's buffer/descriptor borrow.
+}

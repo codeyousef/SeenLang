@@ -1,0 +1,75 @@
+import io.completion_types.{IoRegistration}
+import io.uring_layout.{UringLayout, uringRead32, uringRead64, uringWrite32, uringDistance, uringStatus}
+import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioFixtureRequest, ioTake}
+import uring_fixture_support.{UringFixture, uringFixtureParameters}
+import async.executor_core.{executorReleaseContext}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun checkUringRound(wrap: Bool) r: Void {
+    let context = ioContext(); let fixture = UringFixture.create(wrap); let queue = fixture.queue
+    let first: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    let second: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    ioMust(queue.submit(first.token)); ioMust(queue.submit(second.token))
+    ioRequire(queue.core.nativeActive == 2 and queue.pendingSubmissions() == (2 as UInt64))
+    ioRequire(uringRead32(fixture.entryMemory.data, 0) == (22 as UInt64))
+    ioRequire(uringRead64(fixture.entryMemory.data, 32) == first.token)
+    ioRequire(ioErrorIs(queue.submit(first.token), "async.limit"))
+    ioMust(queue.cancel(second.token))
+    ioRequire(ioErrorIs(queue.publishCancellation(), "async.limit"))
+    ioRequire(queue.pendingCancellation.isSome() and queue.core.nativeActive == 2)
+    // The mock kernel consumes both SQEs before any CQ retirement.
+    var consumed = 2 as UInt64; var cqHead = 0; var cqTail = 3 as UInt64
+    if wrap { consumed = 0 as UInt64; cqHead = 2; cqTail = 1 as UInt64 }
+    uringWrite32(fixture.ringMemory.data, 64, consumed)
+    ioRequire(ioMust(queue.publishCancellation()))
+    ioRequire(queue.cancellationOutstanding == 1 and queue.pendingCancellation.isNone())
+    ioRequire(uringRead32(fixture.entryMemory.data, 0) == (14 as UInt64))
+    ioRequire(uringRead64(fixture.entryMemory.data, 16) == second.token)
+    fixture.completion(cqHead, first.token, 4 as UInt64, 0 as UInt64)
+    fixture.completion(cqHead + 1, second.token, 4294967171 as UInt64, 0 as UInt64)
+    fixture.completion(cqHead + 2, 0 as UInt64, 0 as UInt64, 0 as UInt64)
+    uringWrite32(fixture.ringMemory.data, 4, cqTail)
+    ioRequire(ioMust(queue.reap(4)) == (3 as UInt64))
+    ioRequire(queue.core.nativeActive == 0 and queue.cancellationOutstanding == 0)
+    let completed = ioTake(queue.core); ioRequire(completed.token == first.token and completed.partial())
+    ioRequire(ioMust(completed.outcome()) == (4 as UInt64)); ioMust(completed.release())
+    let cancelled = ioTake(queue.core); ioRequire(cancelled.token == second.token)
+    ioRequire(ioErrorIs(cancelled.outcome(), "async.cancelled")); ioMust(cancelled.release())
+    uringWrite32(fixture.ringMemory.data, 64, (consumed + (1 as UInt64)) % (4294967296 as UInt64))
+    first.free(); second.free(); fixture.release(); executorReleaseContext(context)
+}
+fun main() r: Int {
+    ioRequire(uringDistance(1 as UInt64, 4294967294 as UInt64) == (3 as UInt64))
+    ioRequire(uringStatus(-38 as Int64) == (4 as Int32) and uringStatus(-125 as Int64) == (9 as Int32))
+    let parameters = uringFixtureParameters()
+    let accepted: UringLayout = ioMust(UringLayout.read(parameters.data, 120 as UInt64, 2, 8192 as UInt64, 4096 as UInt64))
+    ioRequire(accepted.singleMap and accepted.sqBytes == (4096 as UInt64) and accepted.sqeBytes == (4096 as UInt64)); accepted.release()
+    ioRequire(ioErrorIs(UringLayout.read(parameters.data, 119 as UInt64, 2, 8192 as UInt64, 4096 as UInt64), "async.invalid"))
+    ioRequire(ioErrorIs(UringLayout.read(parameters.data, 120 as UInt64, 2, 100 as UInt64, 4096 as UInt64), "async.limit"))
+    uringWrite32(parameters.data, 20, 1 as UInt64)
+    ioRequire(ioErrorIs(UringLayout.read(parameters.data, 120 as UInt64, 2, 8192 as UInt64, 4096 as UInt64), "async.unsupported_platform"))
+    uringWrite32(parameters.data, 20, 3 as UInt64); uringWrite32(parameters.data, 44, 64 as UInt64)
+    ioRequire(ioErrorIs(UringLayout.read(parameters.data, 120 as UInt64, 2, 8192 as UInt64, 4096 as UInt64), "async.invalid"))
+    uringWrite32(parameters.data, 44, 68 as UInt64); uringWrite32(parameters.data, 64, 128 as UInt64)
+    ioRequire(ioErrorIs(UringLayout.read(parameters.data, 120 as UInt64, 2, 8192 as UInt64, 4096 as UInt64), "async.invalid"))
+    parameters.close(); parameters.free()
+    checkUringRound(false); checkUringRound(true)
+    println("PASS: IO-002B checked geometry SQ encoding wraparound cancellation and exactly-once CQ retirement")
+    let context = ioContext(); let fixture = UringFixture.create(false); let queue = fixture.queue
+    let registration: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context))); ioMust(queue.submit(registration.token))
+    uringWrite32(fixture.ringMemory.data, 64, 1 as UInt64)
+    fixture.completion(0, registration.token, 17 as UInt64, 0 as UInt64); uringWrite32(fixture.ringMemory.data, 4, 1 as UInt64)
+    ioRequire(ioErrorIs(queue.reap(4), "async.unavailable"))
+    ioRequire(queue.poisoned and queue.core.nativeActive == 1 and queue.core.ownedBytes == (64 as UInt64))
+    ioRequire(ioErrorIs(queue.close(), "async.limit"))
+    // Explicit mock acknowledgement ends this borrow; a production adapter
+    // must quarantine malformed driver evidence instead of inventing one.
+    ioMust(queue.core.complete(registration.token, 0 as UInt64, 9 as Int32, -125 as Int64))
+    let recovered = ioTake(queue.core); ioMust(recovered.release())
+    registration.free(); fixture.release(); executorReleaseContext(context)
+    println("PASS: IO-002B malformed CQ evidence retains owners and fails closed")
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 1000 { checkUringRound(i % 2 == 1); ioRequire(seen_memory_used_bytes() == baseline); i = i + 1 }
+    println("PASS: IO-002B mock ring lifetime baseline")
+    return 0
+}

@@ -11,6 +11,7 @@ extern "C" fun seen_fs_open(pathLength: Int64, path: *const Char,
     flags: Int32, directMode: Int32, outHandle: *UInt64,
     outAlignment: *UInt64, outDirectActive: *Int32,
     outFallbackCount: *UInt64) r: Int32
+extern "C" fun seen_cstr_free(value: *Void) r: Void
 extern "C" fun seen_fs_close_value(handle: UInt64) r: Int32
 extern "C" fun seen_fs_metadata(handle: UInt64, size: *UInt64,
     kind: *Int32, mode: *UInt64, modified: *Int64, device: *UInt64,
@@ -63,9 +64,11 @@ class File {
         var active: Int32 = 0 as Int32
         var fallbacks: UInt64 = 0 as UInt64
         let value = path.asString()
-        let status = seen_fs_open(value.length() as Int64, value.toCString(),
+        let nativePath = value.toCString()
+        let status = seen_fs_open(value.length() as Int64, nativePath as *const Char,
             options.nativeFlags(), directIoMode(policy), &handle, &alignment,
             &active, &fallbacks)
+        seen_cstr_free(nativePath as *Void)
         if status != FS_OK {
             return Err<File, FsError>(fsFailure(status, "open"))
         }
