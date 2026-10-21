@@ -1,0 +1,114 @@
+/// Closed IR opcode, memory-order and capability vocabulary. These identities
+/// are portable semantic codes; backends map them to their own ABI constants.
+let GPU_IR_PARAM: Int = 1
+let GPU_IR_INT: Int = 2
+let GPU_IR_FLOAT: Int = 3
+let GPU_IR_BOOL: Int = 4
+let GPU_IR_BUILTIN: Int = 5
+let GPU_IR_EXTRACT: Int = 6
+let GPU_IR_VECTOR: Int = 7
+let GPU_IR_CAST: Int = 8
+let GPU_IR_UNARY: Int = 9
+let GPU_IR_BINARY: Int = 10
+let GPU_IR_INTRINSIC: Int = 11
+let GPU_IR_LENGTH: Int = 12
+let GPU_IR_LOAD: Int = 13
+let GPU_IR_STORE: Int = 14
+let GPU_IR_UNIFORM: Int = 15
+let GPU_IR_LOCAL_INIT: Int = 16
+let GPU_IR_LOCAL_LOAD: Int = 17
+let GPU_IR_LOCAL_STORE: Int = 18
+let GPU_IR_IF: Int = 19
+let GPU_IR_WHILE: Int = 20
+let GPU_IR_FOR: Int = 21
+let GPU_IR_INDUCTION: Int = 22
+let GPU_IR_CONDITION: Int = 23
+let GPU_IR_BREAK: Int = 24
+let GPU_IR_CONTINUE: Int = 25
+let GPU_IR_CALL: Int = 26
+let GPU_IR_RETURN: Int = 27
+let GPU_IR_SHARED: Int = 28
+let GPU_IR_ATOMIC_LOAD: Int = 29
+let GPU_IR_ATOMIC_STORE: Int = 30
+let GPU_IR_ATOMIC_RMW: Int = 31
+let GPU_IR_ATOMIC_COMPARE: Int = 32
+let GPU_IR_BARRIER: Int = 33
+let GPU_IR_MEMORY_BARRIER: Int = 34
+let GPU_IR_SUBGROUP: Int = 35
+let GPU_IR_FAULT: Int = 36
+let GPU_IR_SELECT: Int = 37
+let GPU_IR_BITCAST: Int = 38
+let GPU_IR_IF_VALUE: Int = 39
+let GPU_IR_YIELD_VALUE: Int = 40
+
+let GPU_SCOPE_INVOCATION: Int = 1
+let GPU_SCOPE_SUBGROUP: Int = 2
+let GPU_SCOPE_WORKGROUP: Int = 3
+let GPU_SCOPE_DEVICE: Int = 4
+let GPU_ORDER_RELAXED: Int = 1
+let GPU_ORDER_ACQUIRE: Int = 2
+let GPU_ORDER_RELEASE: Int = 3
+let GPU_ORDER_ACQ_REL: Int = 4
+let GPU_ORDER_SEQ_CST: Int = 5
+let GPU_SPACE_STORAGE: Int = 1
+let GPU_SPACE_WORKGROUP: Int = 2
+
+let GPU_CAP_STORAGE: UInt64 = 1 as UInt64
+let GPU_CAP_UNIFORM: UInt64 = 2 as UInt64
+let GPU_CAP_WORKGROUP: UInt64 = 4 as UInt64
+let GPU_CAP_ATOMIC32: UInt64 = 8 as UInt64
+let GPU_CAP_DEVICE_SCOPE: UInt64 = 16 as UInt64
+let GPU_CAP_SUBGROUP: UInt64 = 32 as UInt64
+let GPU_CAP_SUBGROUP_VOTE: UInt64 = 64 as UInt64
+let GPU_CAP_SUBGROUP_SHUFFLE: UInt64 = 128 as UInt64
+let GPU_CAP_SUBGROUP_ARITHMETIC: UInt64 = 256 as UInt64
+let GPU_CAP_FLOAT32: UInt64 = 512 as UInt64
+
+fun gpuIrKnownOpcode(opcode: Int) r: Bool { return opcode >= 1 and opcode <= 40 }
+fun gpuIrHasResult(opcode: Int, typeCode: Int) r: Bool {
+    if opcode == GPU_IR_CALL { return typeCode != 0 }
+    return opcode != GPU_IR_STORE and opcode != GPU_IR_LOCAL_INIT and opcode != GPU_IR_LOCAL_STORE and
+        opcode != GPU_IR_IF and opcode != GPU_IR_WHILE and opcode != GPU_IR_FOR and opcode != GPU_IR_CONDITION and
+        opcode != GPU_IR_BREAK and opcode != GPU_IR_CONTINUE and opcode != GPU_IR_RETURN and
+        opcode != GPU_IR_ATOMIC_STORE and opcode != GPU_IR_BARRIER and opcode != GPU_IR_MEMORY_BARRIER and opcode != GPU_IR_FAULT and
+        opcode != GPU_IR_YIELD_VALUE
+}
+fun gpuIrControl(opcode: Int) r: Bool {
+    return opcode == GPU_IR_IF or opcode == GPU_IR_WHILE or opcode == GPU_IR_FOR or opcode == GPU_IR_IF_VALUE
+}
+fun gpuIrMemory(opcode: Int) r: Bool {
+    return (opcode >= GPU_IR_ATOMIC_LOAD and opcode <= GPU_IR_MEMORY_BARRIER)
+}
+fun gpuIrMinimumOperands(opcode: Int) r: Int {
+    if opcode == GPU_IR_EXTRACT or opcode == GPU_IR_CAST or opcode == GPU_IR_UNARY or opcode == GPU_IR_LENGTH or
+        opcode == GPU_IR_UNIFORM or opcode == GPU_IR_LOCAL_INIT or opcode == GPU_IR_LOCAL_STORE or
+        opcode == GPU_IR_IF or opcode == GPU_IR_CONDITION or opcode == GPU_IR_BITCAST or
+        opcode == GPU_IR_IF_VALUE or opcode == GPU_IR_YIELD_VALUE { return 1 }
+    if opcode == GPU_IR_BINARY or opcode == GPU_IR_LOAD or opcode == GPU_IR_FOR or opcode == GPU_IR_ATOMIC_LOAD { return 2 }
+    if opcode == GPU_IR_STORE or opcode == GPU_IR_ATOMIC_STORE or opcode == GPU_IR_ATOMIC_RMW or opcode == GPU_IR_SELECT { return 3 }
+    if opcode == GPU_IR_ATOMIC_COMPARE { return 4 }
+    if opcode == GPU_IR_VECTOR or opcode == GPU_IR_INTRINSIC { return 1 }
+    return 0
+}
+fun gpuIrMaximumOperands(opcode: Int) r: Int {
+    if opcode == GPU_IR_CALL { return 64 }
+    if opcode == GPU_IR_VECTOR { return 4 }
+    if opcode == GPU_IR_INTRINSIC { return 3 }
+    if opcode == GPU_IR_RETURN { return 1 }
+    if opcode == GPU_IR_SUBGROUP { return 2 }
+    return gpuIrMinimumOperands(opcode)
+}
+fun gpuIrTerminator(opcode: Int) r: Bool {
+    return opcode == GPU_IR_RETURN or opcode == GPU_IR_BREAK or opcode == GPU_IR_CONTINUE or opcode == GPU_IR_CONDITION or opcode == GPU_IR_YIELD_VALUE
+}
+fun gpuIrAtomicOrderValid(opcode: Int, order: Int) r: Bool {
+    if order < GPU_ORDER_RELAXED or order > GPU_ORDER_SEQ_CST { return false }
+    if opcode == GPU_IR_ATOMIC_LOAD { return order != GPU_ORDER_RELEASE and order != GPU_ORDER_ACQ_REL }
+    if opcode == GPU_IR_ATOMIC_STORE { return order != GPU_ORDER_ACQUIRE and order != GPU_ORDER_ACQ_REL }
+    return opcode == GPU_IR_ATOMIC_RMW or opcode == GPU_IR_ATOMIC_COMPARE
+}
+fun gpuIrCompareFailureOrderValid(success: Int, failure: Int) r: Bool {
+    if failure == GPU_ORDER_RELAXED { return success >= GPU_ORDER_RELAXED and success <= GPU_ORDER_SEQ_CST }
+    if failure == GPU_ORDER_ACQUIRE { return success == GPU_ORDER_ACQUIRE or success == GPU_ORDER_ACQ_REL or success == GPU_ORDER_SEQ_CST }
+    return failure == GPU_ORDER_SEQ_CST and success == GPU_ORDER_SEQ_CST
+}

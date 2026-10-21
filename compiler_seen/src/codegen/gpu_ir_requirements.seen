@@ -1,0 +1,35 @@
+/// Derive requirements from actual instructions; artifact metadata cannot omit
+/// a capability, checked-fault sink or shared-memory allocation requirement.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_BUILTIN, GPU_IR_LOAD, GPU_IR_STORE, GPU_IR_WHILE, GPU_IR_FOR,
+    GPU_IR_BINARY, GPU_IR_CAST, GPU_IR_FAULT, GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_COMPARE,
+    GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER, GPU_IR_SUBGROUP}
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeScalar}
+
+fun gpuIrInstructionCapabilities(borrow op: GpuIrInstruction) r: UInt64 {
+    var capabilities = 0 as UInt64
+    let resource = gpuTypeResource(op.typeCode)
+    if resource >= 1 and resource <= 3 { capabilities = capabilities | (1 as UInt64) }
+    if resource == 4 { capabilities = capabilities | (2 as UInt64) }
+    if resource == 5 { capabilities = capabilities | (4 as UInt64) }
+    if gpuTypeScalar(op.typeCode) == 4 { capabilities = capabilities | (512 as UInt64) }
+    if op.opcode >= GPU_IR_ATOMIC_LOAD and op.opcode <= GPU_IR_ATOMIC_COMPARE { capabilities = capabilities | (8 as UInt64) }
+    if op.opcode >= GPU_IR_ATOMIC_LOAD and op.opcode <= GPU_IR_MEMORY_BARRIER {
+        if op.memoryScope == 4 { capabilities = capabilities | (16 as UInt64) }
+        if (op.memorySpaces & 2) != 0 { capabilities = capabilities | (4 as UInt64) }
+    }
+    if op.opcode == GPU_IR_SUBGROUP or (op.opcode == GPU_IR_BUILTIN and op.immediate >= 6) or
+        (op.opcode == GPU_IR_BARRIER and op.memoryScope == 2) { capabilities = capabilities | (32 as UInt64) }
+    if op.opcode == GPU_IR_SUBGROUP {
+        if op.immediate == 2 or op.immediate == 3 { capabilities = capabilities | (64 as UInt64) }
+        if op.immediate == 4 or op.immediate == 5 { capabilities = capabilities | (128 as UInt64) }
+        if op.immediate == 6 { capabilities = capabilities | (256 as UInt64) }
+    }
+    return capabilities
+}
+fun gpuIrInstructionNeedsFaultBuffer(borrow op: GpuIrInstruction) r: Bool {
+    return op.opcode == GPU_IR_LOAD or op.opcode == GPU_IR_STORE or op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR or
+        op.opcode == GPU_IR_CAST or op.opcode == GPU_IR_FAULT or
+        (op.opcode >= GPU_IR_ATOMIC_LOAD and op.opcode <= GPU_IR_ATOMIC_COMPARE) or
+        (op.opcode == GPU_IR_BINARY and (op.immediate == 4 or op.immediate == 5 or op.immediate == 9 or op.immediate == 10))
+}

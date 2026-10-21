@@ -1,0 +1,71 @@
+/// Pure value rules shared by IR construction and verification. Operator codes
+/// are closed semantic identities, never target instruction numbers.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_facts.{GpuIrFacts, gpuIrValueTypeValid}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes, gpuBoundedDecimalRange, gpuFloatLiteralValid}
+
+fun gpuIrUnaryCode(name: String) r: Int {
+    if name == "-" { return 1 }
+    if name == "not" or name == "!" { return 2 }
+    if name == "~" { return 3 }
+    return 0
+}
+fun gpuIrBinaryCode(name: String) r: Int {
+    if name == "+" { return 1 }; if name == "-" { return 2 }; if name == "*" { return 3 }; if name == "/" { return 4 }
+    if name == "%" { return 5 }; if name == "&" { return 6 }; if name == "|" { return 7 }; if name == "^" { return 8 }
+    if name == "<<" { return 9 }; if name == ">>" { return 10 }; if name == "==" { return 11 }; if name == "!=" { return 12 }
+    if name == "<" { return 13 }; if name == "<=" { return 14 }; if name == ">" { return 15 }; if name == ">=" { return 16 }
+    return 0
+}
+fun gpuIrIntrinsicCode(name: String) r: Int {
+    if name == "min" { return 1 }; if name == "max" { return 2 }; if name == "clamp" { return 3 }
+    if name == "abs" { return 4 }; if name == "sqrt" { return 5 }; return 0
+}
+fun gpuIrUnaryType(operation: Int, operand: Int) r: Int {
+    if not gpuIrValueTypeValid(operand) { return 0 }
+    let scalar = gpuTypeScalar(operand)
+    if operation == 1 and (scalar == 2 or scalar == 4) { return operand }
+    if operation == 2 and operand == 1 { return 1 }
+    if operation == 3 and (scalar == 2 or scalar == 3) { return operand }
+    return 0
+}
+fun gpuIrBinaryType(operation: Int, left: Int, right: Int) r: Int {
+    if left != right or not gpuIrValueTypeValid(left) { return 0 }
+    let scalar = gpuTypeScalar(left)
+    if operation >= 1 and operation <= 4 and scalar != 1 { return left }
+    if operation >= 5 and operation <= 10 and (scalar == 2 or scalar == 3) { return left }
+    if operation >= 11 and operation <= 12 and gpuTypeLanes(left) == 1 { return 1 }
+    if operation >= 13 and operation <= 16 and scalar != 1 and gpuTypeLanes(left) == 1 { return 1 }
+    return 0
+}
+fun gpuIrIntegerLiteralValid(text: String, typeCode: Int) r: Bool {
+    if text.length() == 0 { return false }
+    if typeCode == 3 { return gpuBoundedDecimalRange(text, 0, text.length(), 4294967295) >= 0 }
+    if typeCode != 2 { return false }
+    if text.byteAt(0) == 45 { return gpuBoundedDecimalRange(text, 1, text.length(), 2147483648) >= 0 }
+    return gpuBoundedDecimalRange(text, 0, text.length(), 2147483647) >= 0
+}
+fun gpuIrFloatLiteralValid(text: String) r: Bool {
+    return text.length() > 0 and text.byteAt(0) >= 48 and text.byteAt(0) <= 57 and gpuFloatLiteralValid(text)
+}
+fun gpuIrOperandType(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts, index: Int) r: Int {
+    return facts.registerTypes[op.operands[index]]
+}
+fun gpuIrVectorValid(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if not gpuIrValueTypeValid(op.typeCode) or gpuTypeLanes(op.typeCode) < 2 or op.immediate != 0 { return false }
+    if op.operands.length() != 1 and op.operands.length() != gpuTypeLanes(op.typeCode) { return false }
+    var i = 0
+    while i < op.operands.length() {
+        if gpuIrOperandType(op, facts, i) != gpuTypeScalar(op.typeCode) { return false }; i = i + 1
+    }
+    return true
+}
+fun gpuIrIntrinsicValid(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if op.immediate < 1 or op.immediate > 5 or not gpuIrValueTypeValid(op.typeCode) or gpuTypeScalar(op.typeCode) == 1 { return false }
+    var arity = 1
+    if op.immediate <= 2 { arity = 2 }; if op.immediate == 3 { arity = 3 }
+    if op.operands.length() != arity or (op.immediate == 5 and gpuTypeScalar(op.typeCode) != 4) { return false }
+    var i = 0
+    while i < arity { if gpuIrOperandType(op, facts, i) != op.typeCode { return false }; i = i + 1 }
+    return true
+}

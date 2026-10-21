@@ -1,0 +1,172 @@
+/// Header counts are checked before allocating verification tables. Structure
+/// is checked before semantic uses. Parent ordering gives a uniquely owned tree.
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrInstruction, GpuIrValidation}
+import codegen.gpu_ir_facts.{GpuIrFacts, gpuIrTypeValid, gpuIrValueTypeValid, gpuIrResourceTypeValid, gpuIrLabelValid}
+import codegen.gpu_ir_ops.{gpuIrKnownOpcode, gpuIrHasResult, gpuIrControl, gpuIrMemory,
+    gpuIrMinimumOperands, gpuIrMaximumOperands, gpuIrTerminator, GPU_IR_FOR, GPU_IR_PARAM, GPU_IR_LOCAL_INIT,
+    GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL}
+import typechecker.gpu_types.{gpuTypeResource, gpuWorkgroupValid}
+
+fun gpuIrFunctionCountsValid(borrow function: GpuIrFunction, validation: GpuIrValidation, index: Int) r: Bool {
+    if not gpuIrLabelValid(function.name, 256) or function.parameterTypes.length() > 64 or
+        function.blocks.length() < 1 or function.blocks.length() > 4096 or
+        function.registerCount < 0 or function.registerCount > 65536 or function.localCount < 0 or function.localCount > 4096 {
+        validation.reject("E_GPU_IR_LIMIT", "GPU function counts or identity exceed a hard ceiling", index, -1, -1); return false
+    }
+    if function.returnType != 0 and not gpuIrValueTypeValid(function.returnType) {
+        validation.reject("E_GPU_IR_TYPE", "GPU functions cannot return resources or unsupported values", index, -1, -1); return false
+    }
+    if function.kernel {
+        if function.returnType != 0 or not gpuWorkgroupValid(function.workgroupX, function.workgroupY, function.workgroupZ) {
+            validation.reject("E_GPU_IR_ENTRY", "GPU kernel signature or workgroup geometry is invalid", index, -1, -1); return false
+        }
+    } else if function.workgroupX != 1 or function.workgroupY != 1 or function.workgroupZ != 1 {
+        validation.reject("E_GPU_IR_ENTRY", "device helpers do not declare workgroup geometry", index, -1, -1); return false
+    }
+    var i = 0
+    while i < function.parameterTypes.length() {
+        let typeCode = function.parameterTypes[i]
+        if not gpuIrTypeValid(typeCode) or (function.kernel and (not gpuIrResourceTypeValid(typeCode) or gpuTypeResource(typeCode) == 5)) {
+            validation.reject("E_GPU_IR_TYPE", "GPU parameter type or address space is invalid", index, -1, i); return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fun gpuIrModuleCountsValid(borrow module: GpuIrModule, validation: GpuIrValidation) r: Bool {
+    if not gpuIrLabelValid(module.name, 1024) or module.functions.length() < 1 or module.functions.length() > 256 or
+        module.requiredCapabilities > (1023 as UInt64) or module.sharedBytes > (65536 as UInt64) {
+        validation.reject("E_GPU_IR_LIMIT", "GPU module header exceeds supported bounds or capabilities", -1, -1, -1); return false
+    }
+    var instructions = 0; var operands = 0; var kernels = 0; var i = 0
+    while i < module.functions.length() {
+        let function = module.functions[i]
+        if not gpuIrFunctionCountsValid(function, validation, i) { return false }
+        if function.kernel { kernels = kernels + 1 }
+        var previous = 0
+        while previous < i {
+            if module.functions[previous].name == function.name {
+                validation.reject("E_GPU_IR_NAME", "GPU function identities must be unique", i, -1, -1); return false
+            }
+            previous = previous + 1
+        }
+        var blockIndex = 0
+        while blockIndex < function.blocks.length() {
+            let block = function.blocks[blockIndex]
+            if block.instructions.length() > 65536 - instructions {
+                validation.reject("E_GPU_IR_LIMIT", "GPU module instruction ceiling exceeded", i, blockIndex, -1); return false
+            }
+            instructions = instructions + block.instructions.length()
+            var opIndex = 0
+            while opIndex < block.instructions.length() {
+                let op = block.instructions[opIndex]
+                if op.operands.length() > 64 or op.operands.length() > 262144 - operands or op.text.length() > 256 {
+                    validation.reject("E_GPU_IR_LIMIT", "GPU operand or payload ceiling exceeded", i, blockIndex, opIndex); return false
+                }
+                operands = operands + op.operands.length(); opIndex = opIndex + 1
+            }
+            blockIndex = blockIndex + 1
+        }
+        i = i + 1
+    }
+    if kernels == 0 { validation.reject("E_GPU_IR_ENTRY", "GPU module has no compute entrypoint", -1, -1, -1); return false }
+    return true
+}
+
+fun gpuIrRecordChild(borrow function: GpuIrFunction, borrow facts: GpuIrFacts, validation: GpuIrValidation,
+    functionIndex: Int, parent: Int, opIndex: Int, child: Int) r: Bool {
+    if child <= parent or child >= function.blocks.length() {
+        validation.reject("E_GPU_IR_REGION", "GPU region references must point to later child blocks", functionIndex, parent, opIndex); return false
+    }
+    let block = function.blocks[child]
+    if block.parent != parent or block.parentInstruction != opIndex {
+        validation.reject("E_GPU_IR_REGION", "GPU child ownership does not match its controlling instruction", functionIndex, parent, opIndex); return false
+    }
+    facts.blockReferences[child] = facts.blockReferences[child] + 1
+    if facts.blockReferences[child] != 1 {
+        validation.reject("E_GPU_IR_REGION", "GPU child regions cannot be shared", functionIndex, parent, opIndex); return false
+    }
+    return true
+}
+
+fun gpuIrInstructionShape(borrow function: GpuIrFunction, borrow facts: GpuIrFacts, validation: GpuIrValidation,
+    functionIndex: Int, blockIndex: Int, opIndex: Int, borrow op: GpuIrInstruction) r: Bool {
+    if not gpuIrKnownOpcode(op.opcode) {
+        validation.reject("E_GPU_IR_OPCODE", "unknown GPU IR operation", functionIndex, blockIndex, opIndex); return false
+    }
+    if op.operands.length() < gpuIrMinimumOperands(op.opcode) or op.operands.length() > gpuIrMaximumOperands(op.opcode) {
+        validation.reject("E_GPU_IR_ARITY", "GPU operation operand count is invalid", functionIndex, blockIndex, opIndex); return false
+    }
+    if gpuIrHasResult(op.opcode, op.typeCode) {
+        if op.result <= 0 or op.result > function.registerCount or not gpuIrTypeValid(op.typeCode) {
+            validation.reject("E_GPU_IR_RESULT", "GPU result identity or type is invalid", functionIndex, blockIndex, opIndex); return false
+        }
+    } else if op.result != 0 or (op.opcode != GPU_IR_LOCAL_INIT and op.typeCode != 0) {
+        validation.reject("E_GPU_IR_RESULT", "result-less GPU operation declares an output", functionIndex, blockIndex, opIndex); return false
+    }
+    if op.line < 0 or op.line > 2147483647 or op.column < 0 or op.column > 2147483647 {
+        validation.reject("E_GPU_IR_LOCATION", "GPU source location is outside supported bounds", functionIndex, blockIndex, opIndex); return false
+    }
+    if op.opcode != GPU_IR_INT and op.opcode != GPU_IR_FLOAT and op.opcode != GPU_IR_BOOL and op.text.length() != 0 {
+        validation.reject("E_GPU_IR_PAYLOAD", "GPU operation contains an unexpected text payload", functionIndex, blockIndex, opIndex); return false
+    }
+    if gpuIrMemory(op.opcode) {
+        if op.memoryScope < 1 or op.memoryScope > 4 or op.memoryOrder < 1 or op.memoryOrder > 5 or op.memorySpaces < 1 or op.memorySpaces > 3 {
+            validation.reject("E_GPU_IR_MEMORY", "GPU memory operation has invalid scope, ordering or spaces", functionIndex, blockIndex, opIndex); return false
+        }
+    } else if op.memoryScope != 0 or op.memoryOrder != 0 or op.memorySpaces != 0 {
+        validation.reject("E_GPU_IR_MEMORY", "non-memory GPU operation carries memory semantics", functionIndex, blockIndex, opIndex); return false
+    }
+    if gpuIrControl(op.opcode) {
+        if not gpuIrRecordChild(function, facts, validation, functionIndex, blockIndex, opIndex, op.leftBlock) { return false }
+        if op.opcode == GPU_IR_FOR {
+            if op.rightBlock != -1 { validation.reject("E_GPU_IR_REGION", "counted GPU loop has an unexpected second region", functionIndex, blockIndex, opIndex); return false }
+        } else if not gpuIrRecordChild(function, facts, validation, functionIndex, blockIndex, opIndex, op.rightBlock) { return false }
+    } else if op.leftBlock != -1 or op.rightBlock != -1 {
+        validation.reject("E_GPU_IR_REGION", "non-control GPU operation owns child regions", functionIndex, blockIndex, opIndex); return false
+    }
+    return true
+}
+
+fun gpuIrFunctionStructure(borrow function: GpuIrFunction, borrow facts: GpuIrFacts,
+    validation: GpuIrValidation, functionIndex: Int) r: Bool {
+    var blockIndex = 0
+    while blockIndex < function.blocks.length() {
+        let block = function.blocks[blockIndex]
+        if blockIndex == 0 {
+            if block.parent != -1 or block.parentInstruction != -1 {
+                validation.reject("E_GPU_IR_REGION", "GPU entry block cannot have a parent", functionIndex, blockIndex, -1); return false
+            }
+        } else {
+            if block.parent < 0 or block.parent >= blockIndex {
+                validation.reject("E_GPU_IR_REGION", "GPU region parent ordering is invalid", functionIndex, blockIndex, -1); return false
+            }
+            if block.parentInstruction < 0 or block.parentInstruction >= function.blocks[block.parent].instructions.length() {
+                validation.reject("E_GPU_IR_REGION", "GPU region parent instruction is invalid", functionIndex, blockIndex, -1); return false
+            }
+            facts.blockDepths[blockIndex] = facts.blockDepths[block.parent] + 1
+            if facts.blockDepths[blockIndex] >= 128 {
+                validation.reject("E_GPU_IR_LIMIT", "GPU region nesting ceiling exceeded", functionIndex, blockIndex, -1); return false
+            }
+        }
+        var opIndex = 0
+        while opIndex < block.instructions.length() {
+            let op = block.instructions[opIndex]
+            if not gpuIrInstructionShape(function, facts, validation, functionIndex, blockIndex, opIndex, op) { return false }
+            if gpuIrTerminator(op.opcode) and opIndex != block.instructions.length() - 1 {
+                validation.reject("E_GPU_IR_TERMINATOR", "GPU block contains instructions after a terminator", functionIndex, blockIndex, opIndex); return false
+            }
+            opIndex = opIndex + 1
+        }
+        blockIndex = blockIndex + 1
+    }
+    blockIndex = 1
+    while blockIndex < function.blocks.length() {
+        if facts.blockReferences[blockIndex] != 1 {
+            validation.reject("E_GPU_IR_REGION", "GPU module contains an unowned or unreachable region", functionIndex, blockIndex, -1); return false
+        }
+        blockIndex = blockIndex + 1
+    }
+    return true
+}

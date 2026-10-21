@@ -1,0 +1,96 @@
+/// Type checks consume definitions and uses only after both passes succeed.
+/// Each operation checks its own closed immediate vocabulary as well as types.
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrInstruction}
+import codegen.gpu_ir_facts.{GpuIrFacts, gpuIrValueTypeValid, gpuIrBufferResource, gpuIrResourceReadable, gpuIrResourceWritable}
+import codegen.gpu_ir_value_rules.{gpuIrOperandType, gpuIrIntegerLiteralValid, gpuIrFloatLiteralValid,
+    gpuIrUnaryType, gpuIrBinaryType, gpuIrVectorValid, gpuIrIntrinsicValid}
+import codegen.gpu_ir_ops.{GPU_IR_PARAM, GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL, GPU_IR_BUILTIN,
+    GPU_IR_EXTRACT, GPU_IR_VECTOR, GPU_IR_CAST, GPU_IR_UNARY, GPU_IR_BINARY, GPU_IR_INTRINSIC,
+    GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_STORE, GPU_IR_UNIFORM, GPU_IR_LOCAL_INIT, GPU_IR_LOCAL_LOAD,
+    GPU_IR_LOCAL_STORE, GPU_IR_IF, GPU_IR_WHILE, GPU_IR_FOR, GPU_IR_INDUCTION, GPU_IR_CONDITION,
+    GPU_IR_BREAK, GPU_IR_CONTINUE, GPU_IR_CALL, GPU_IR_RETURN, GPU_IR_SHARED, GPU_IR_FAULT,
+    GPU_IR_SELECT, GPU_IR_BITCAST, GPU_IR_IF_VALUE, GPU_IR_YIELD_VALUE}
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeValue, gpuTypeScalar, gpuTypeLanes}
+
+fun gpuIrIndexType(typeCode: Int) r: Bool { return typeCode == 2 or typeCode == 3 }
+fun gpuIrNumericCastValid(source: Int, target: Int) r: Bool {
+    return gpuIrValueTypeValid(source) and gpuIrValueTypeValid(target) and gpuTypeScalar(source) != 1 and
+        gpuTypeScalar(target) != 1 and gpuTypeLanes(source) == gpuTypeLanes(target)
+}
+fun gpuIrCallTypesValid(borrow module: GpuIrModule, borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if op.immediate < 0 or op.immediate >= module.functions.length() { return false }
+    let callee = module.functions[op.immediate]
+    if callee.kernel or op.typeCode != callee.returnType or op.operands.length() != callee.parameterTypes.length() { return false }
+    var i = 0
+    while i < op.operands.length() {
+        if gpuIrOperandType(op, facts, i) != callee.parameterTypes[i] { return false }; i = i + 1
+    }
+    return true
+}
+fun gpuIrInstructionValueTypes(borrow module: GpuIrModule, borrow function: GpuIrFunction,
+    borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if op.opcode == GPU_IR_PARAM { return true }
+    if op.opcode == GPU_IR_INT { return op.immediate == 0 and gpuIrIntegerLiteralValid(op.text, op.typeCode) }
+    if op.opcode == GPU_IR_FLOAT { return op.immediate == 0 and op.typeCode == 4 and gpuIrFloatLiteralValid(op.text) }
+    if op.opcode == GPU_IR_BOOL { return op.immediate == 0 and op.typeCode == 1 and (op.text == "true" or op.text == "false") }
+    if op.opcode == GPU_IR_BUILTIN {
+        if op.immediate >= 1 and op.immediate <= 4 { return op.typeCode == 35 }
+        return op.immediate >= 5 and op.immediate <= 8 and op.typeCode == 3
+    }
+    if op.opcode == GPU_IR_EXTRACT {
+        let source = gpuIrOperandType(op, facts, 0)
+        return gpuIrValueTypeValid(source) and gpuTypeLanes(source) > 1 and op.immediate >= 0 and
+            op.immediate < gpuTypeLanes(source) and op.typeCode == gpuTypeScalar(source)
+    }
+    if op.opcode == GPU_IR_VECTOR { return gpuIrVectorValid(op, facts) }
+    if op.opcode == GPU_IR_CAST or op.opcode == GPU_IR_BITCAST {
+        return op.immediate == 0 and gpuIrNumericCastValid(gpuIrOperandType(op, facts, 0), op.typeCode)
+    }
+    if op.opcode == GPU_IR_UNARY { return op.typeCode == gpuIrUnaryType(op.immediate, gpuIrOperandType(op, facts, 0)) }
+    if op.opcode == GPU_IR_BINARY {
+        return op.typeCode == gpuIrBinaryType(op.immediate, gpuIrOperandType(op, facts, 0), gpuIrOperandType(op, facts, 1))
+    }
+    if op.opcode == GPU_IR_INTRINSIC { return gpuIrIntrinsicValid(op, facts) }
+    if op.opcode == GPU_IR_LENGTH {
+        return op.immediate == 0 and op.typeCode == 3 and gpuIrBufferResource(gpuIrOperandType(op, facts, 0))
+    }
+    if op.opcode == GPU_IR_LOAD or op.opcode == GPU_IR_STORE {
+        let resource = gpuIrOperandType(op, facts, 0)
+        if op.immediate != 0 or not gpuIrBufferResource(resource) or not gpuIrIndexType(gpuIrOperandType(op, facts, 1)) { return false }
+        if op.opcode == GPU_IR_LOAD { return gpuIrResourceReadable(resource) and op.typeCode == gpuTypeValue(resource) }
+        return gpuIrResourceWritable(resource) and gpuIrOperandType(op, facts, 2) == gpuTypeValue(resource)
+    }
+    if op.opcode == GPU_IR_UNIFORM {
+        let resource = gpuIrOperandType(op, facts, 0)
+        return op.immediate == 0 and gpuTypeResource(resource) == 4 and op.typeCode == gpuTypeValue(resource)
+    }
+    if op.opcode == GPU_IR_LOCAL_INIT { return gpuIrOperandType(op, facts, 0) == op.typeCode }
+    if op.opcode == GPU_IR_LOCAL_LOAD { return op.typeCode == facts.localTypes[op.immediate] }
+    if op.opcode == GPU_IR_LOCAL_STORE { return gpuIrOperandType(op, facts, 0) == facts.localTypes[op.immediate] }
+    if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE or op.opcode == GPU_IR_CONDITION {
+        return op.immediate == 0 and gpuIrOperandType(op, facts, 0) == 1 and
+            (op.opcode != GPU_IR_IF_VALUE or gpuIrValueTypeValid(op.typeCode))
+    }
+    if op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_BREAK or op.opcode == GPU_IR_CONTINUE { return op.immediate == 0 }
+    if op.opcode == GPU_IR_FOR {
+        let start = gpuIrOperandType(op, facts, 0)
+        return op.immediate == 0 and gpuIrIndexType(start) and start == gpuIrOperandType(op, facts, 1)
+    }
+    if op.opcode == GPU_IR_INDUCTION { return op.immediate == 0 and gpuIrIndexType(op.typeCode) }
+    if op.opcode == GPU_IR_CALL { return gpuIrCallTypesValid(module, op, facts) }
+    if op.opcode == GPU_IR_RETURN {
+        if op.immediate != 0 { return false }
+        if function.returnType == 0 { return op.operands.length() == 0 }
+        return op.operands.length() == 1 and gpuIrOperandType(op, facts, 0) == function.returnType
+    }
+    if op.opcode == GPU_IR_SHARED {
+        return function.kernel and gpuTypeResource(op.typeCode) == 5 and op.immediate >= 1 and op.immediate <= 16384
+    }
+    if op.opcode == GPU_IR_FAULT { return op.immediate >= 1 and op.immediate <= 4 }
+    if op.opcode == GPU_IR_SELECT {
+        return op.immediate == 0 and gpuIrValueTypeValid(op.typeCode) and gpuIrOperandType(op, facts, 0) == 1 and
+            gpuIrOperandType(op, facts, 1) == op.typeCode and gpuIrOperandType(op, facts, 2) == op.typeCode
+    }
+    if op.opcode == GPU_IR_YIELD_VALUE { return op.immediate == 0 and gpuIrValueTypeValid(gpuIrOperandType(op, facts, 0)) }
+    return false
+}

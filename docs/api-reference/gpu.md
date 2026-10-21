@@ -56,6 +56,31 @@ retains diagnostics must keep that module/path alive or copy them.
 
 ## Backend boundary and verification
 
+The compiler's internal structured GPU IR owns copied function identities,
+literal spellings, instructions and regions. It borrows no parser nodes. The
+creator transfers each instruction to one block and each block to one function;
+`GpuIrModule.release()` releases the entire tree exactly once. Validation borrows
+the module and returns an independently owned `GpuIrValidation`, released with
+`release()` after its diagnostics are consumed.
+
+`verifyGpuIr` rejects malformed structure, duplicate or unavailable registers,
+escaping local slots, incompatible resource access, invalid memory semantics,
+missing returns, recursive helpers and unproved collective convergence. Limits
+are 256 functions, 65536 total instructions, 262144 operands, 4096 blocks per
+function, 65536 registers per function, 4096 local slots, 128 region levels,
+16 helper call levels and 64 KiB shared memory per entrypoint. Shared allocations
+must occur in the kernel prologue. Vec3 elements have a 16-byte stride.
+
+Atomics retain their integer width, access permission, memory space, scope and
+success/failure ordering. Control barriers and memory fences are distinct.
+Short-circuit values use two explicitly owned yielding regions. The convergence
+analysis conservatively treats storage reads, mutable locals and scalar helper
+parameters as varying; uncertain collective control is an explicit rejection.
+Module capability, shared-byte and checked-fault requirements must exactly match
+the instructions. Backend implementations must provide the declared fault sink
+and verify the module immediately before consuming it. This internal verifier
+does not yet expose additional source constructs or enable device execution.
+
 `seen check app.seen` checks compute bodies without creating a GPU device or
 entering LLVM/backend generation. Until typed backend lowering is available,
 compiling a shader module returns `E_GPU_BACKEND_UNAVAILABLE` before creating
