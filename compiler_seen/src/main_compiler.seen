@@ -157,6 +157,7 @@ import codegen.ir_when_expression_driver.{generateWhenExpressionState}
 import codegen.ir_index_access_plan.{shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, shouldEmitIndexBoundsCheckImpl, planTypedIndexAccessImpl}
 import codegen.ir_index_access_gen.{emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
 import codegen.ir_index_access_driver.{emitTypedIndexAccessState, generateIndexAccessState}
+import codegen.ir_array_scalar_emit.{emitArrayBooleanPushImpl}
 import codegen.ir_array_literal_driver.{emitArrayLiteralAllocationState, generateArrayLiteralState}
 import codegen.ir_special_top_level_emit.{tryHandleSpecialTopLevelFunctionImpl}
 import codegen.ir_type_layout.{alignUpImpl}
@@ -9095,6 +9096,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_index_access_gen")
         modules.push("codegen.ir_index_access_driver")
         modules.push("codegen.ir_array_literal_driver")
+        modules.push("codegen.ir_array_scalar_emit")
         modules.push("codegen.ir_bitfield_access")
         modules.push("codegen.ir_path_expr")
         modules.push("codegen.ir_member_access")

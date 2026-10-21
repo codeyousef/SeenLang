@@ -15,6 +15,8 @@ TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/completion-io-e.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=completion-io-e
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 for profile in fast release undefined address; do
+    compile_case "$profile" boolean-literals "$ROOT_DIR/tests/compiler_regressions/boolean_array_literals.seen"
+    rg -Fq 'PASS: Boolean array literals preserve values evaluation and ownership' "$TMP_DIR/boolean-literals-$profile.log"
     compile_case "$profile" contract "$ROOT_DIR/tests/cross_platform_asynchronous_i_o/adverse_completion.seen"
     for name in 'backend error matrix partial EOF and first-observed terminal reason' \
         'device event does not acknowledge preparing or native borrows' 'late acknowledgement allocation baseline'; do

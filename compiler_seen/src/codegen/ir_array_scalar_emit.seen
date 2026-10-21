@@ -1,0 +1,11 @@
+// Canonical Boolean array storage. Array<Bool> uses a zero-extended word slot;
+// Boolean values are never addresses of elements for the generic copy ABI.
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun emitArrayBooleanPushImpl(output: StringBuilder, regBox: Array<Int>,
+    array: String, value: String) r: Void {
+    let widened = getNextRegFn(regBox)
+    output.append("  " + widened + " = zext i1 " + value + " to i64\n")
+    output.append("  call void @seen_arr_push_i64(ptr " + array + ", i64 " + widened + ")\n")
+}
