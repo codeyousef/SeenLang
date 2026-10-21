@@ -18,3 +18,5 @@ import async.barrier.{AsyncBarrier}
 import async.queue.{AsyncQueue}
 import async.reduction.{AsyncIntReduction}
 import async.task_group.{TaskGroup}
+
+import async.executor_core.{ExecutorOwnedJob}
