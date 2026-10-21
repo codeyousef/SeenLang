@@ -53,6 +53,8 @@ Foundations**.
 
 ### Fixed
 
+- Align CI workflow contract fixtures with PTX diagnostics and pinned assembler
+  provisioning so the required regression validates the current workflow.
 - Release temporary GPU frontend allocations through a bounded Seen owner,
   restore parser scratch registries between calls, and preserve independently
   owned lowered IR. Reject partial ASTs left by parser recovery. Release old

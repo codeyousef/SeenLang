@@ -13,10 +13,11 @@
     "libvulkan-dev",
     "lld-20",
     "llvm-20",
+    "nvidia-cuda-nvcc-cu12==12.8.93 (pinned ptxas only)",
     "ripgrep",
     "spirv-tools"
   ],
-  "host_tools_provisioning": "ubuntu-packages-scoped-apparmor",
+  "host_tools_provisioning": "ubuntu-packages-pinned-assembler-scoped-apparmor",
   "job_count": 1,
   "platforms": {
     "linux-arm64": "static-policy",
