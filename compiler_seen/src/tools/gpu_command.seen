@@ -4,7 +4,8 @@ import tools.cli_args.{CliArguments, parseCliArguments}
 import bootstrap.frontend.{runFrontendCompat}
 import core.result.{Result, Ok, Err}
 import io.file.{__OpenFile, __FileSize, __ReadFileBytes, __FileError, __CloseFile, writeTextAtomically}
-import crypto.sha256.{seen_string_view_bytes, seen_string_clone_owned, seen_string_release_owned}
+import json.builder.{seen_string_release_owned}
+import codegen.gpu_bytes.{consumeGpuBytes}
 import codegen.gpu_ir_model.{GpuIrDiagnostic, GpuIrValidation, gpuIrDiagnostic}
 import codegen.gpu_lower_program.{lowerGpuProgram}
 import codegen.gpu_options.{GpuOptions, gpuSetOption, validateGpuOptions}
@@ -23,10 +24,7 @@ fun gpuReadBoundedText(path: String, limit: Int) r: Result<String, GpuIrDiagnost
     let bytes = __ReadFileBytes(fd, limit + 1); let nativeError = __FileError(fd); let closed = __CloseFile(fd)
     let failed = nativeError != "" or closed < 0 or bytes.length() != size; seen_string_release_owned(nativeError)
     if failed { bytes.free(); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT", "GPU input read, close or stable-size check failed")) }
-    let packed = Array<UInt8>(); var i = 0
-    while i < bytes.length() { packed.push(bytes[i] as UInt8); i = i + 1 }; bytes.free()
-    let text = seen_string_clone_owned(seen_string_view_bytes(packed.data(), packed.length() as Int64)); packed.free()
-    return Ok<String, GpuIrDiagnostic>(text)
+    return consumeGpuBytes(bytes)
 }
 fun parseGpuArtifactCli(argv: Array<String>, binary: Bool) r: CliArguments {
     let values = ["--output", "--module-id", "--manifest", "--gpu-manifest", "--gpu-backend", "--gpu-target", "--gpu-fallback", "--gpu-entry"]

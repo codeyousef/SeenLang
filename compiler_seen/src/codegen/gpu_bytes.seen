@@ -1,0 +1,26 @@
+/// Convert an exclusively owned, bounded array of byte-valued Ints into owned
+/// binary text. Compaction stays in Seen and needs no packed-array bootstrap ABI.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+import json.builder.{seen_string_clone_owned}
+extern "C" fun seen_arr_data_ptr(values: Array<Int>) r: Int
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+
+fun consumeGpuBytes(bytes: Array<Int>) r: Result<String, GpuIrDiagnostic> {
+    let length = bytes.length()
+    if length > 33554432 {
+        bytes.free(); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT_LIMIT", "GPU byte string exceeds its 32 MiB ceiling"))
+    }
+    var i = 0
+    while i < length {
+        if bytes[i] < 0 or bytes[i] > 255 {
+            bytes.free(); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT", "GPU byte string contains a non-byte value"))
+        }; i = i + 1
+    }
+    let address = seen_arr_data_ptr(bytes); let packed = address as *UInt8; i = 0
+    // Forward compaction cannot overwrite an unread Int: byte i precedes the
+    // next source element at (i + 1) * sizeof(Int). No view escapes this call.
+    while i < length { packed[i] = bytes[i] as UInt8; i = i + 1 }
+    let text = seen_string_clone_owned(seen_string_view_bytes(packed, length as Int64)); bytes.free()
+    return Ok<String, GpuIrDiagnostic>(text)
+}
