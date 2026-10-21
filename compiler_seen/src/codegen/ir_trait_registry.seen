@@ -16,6 +16,10 @@ fun ensureTraitIntBoxValue(box: Array<Int>) r: Void {
 
 fun appendDynTraitNameImpl(traitName: String, dynTraitNamesBox: Array<String>) r: Void {
     ensureTraitStringBoxValue(dynTraitNamesBox)
+    if traitName == "" or ("|" + dynTraitNamesBox[0]).contains("|" + traitName + "|") { return }
+    if dynTraitNamesBox[0].length() + traitName.length() + 1 > 8388608 {
+        abort("Error: [E_DYN_TRAIT_LIMIT] trait name metadata exceeds its byte ceiling")
+    }
     dynTraitNamesBox[0] = dynTraitNamesBox[0] + traitName + "|"
 }
 
