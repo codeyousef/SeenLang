@@ -3389,6 +3389,13 @@
       ]
     },
     {
+      "name": "seen_arr_data_ptr",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/codegen/gpu_bytes.seen"
+      ]
+    },
+    {
       "name": "seen_arr_free",
       "abi": "C",
       "sources": [
@@ -5974,6 +5981,7 @@
       "name": "seen_string_view_bytes",
       "abi": "C",
       "sources": [
+        "compiler_seen/src/codegen/gpu_bytes.seen",
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen"
       ]
