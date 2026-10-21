@@ -9,6 +9,7 @@ import io.file.{FsFile}
 import core.error.{SeenError}
 import core.result.{Result, Ok, Err}
 
+extern "C" fun seen_string_builder_flatten_owned(parts: Array<String>, totalLength: Int) r: String
 extern "C" fun seen_string_release_owned(value: String) r: Void
 
 class Sha256Error {
@@ -177,7 +178,7 @@ class Sha256 {
             }
             wordIndex = wordIndex + 1
         }
-        let digest = builder.toString()
+        let digest = seen_string_builder_flatten_owned(builder.parts, 64)
         builder.parts.free(); builder.free(); digits.free()
         this.state.free()
         this.block.free()
