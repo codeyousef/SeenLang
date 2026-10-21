@@ -1,6 +1,8 @@
 // Bootstrap discovers direct imports before its curated module list.
 import simd.ir_types.{PortableVectorShape, SimdIrError}
 import simd.dispatch_plan.{portableSimdContractReport}
+import simd.operation_types.{simdOperationArity as _seedSimdOperationArity, simdOperationPrefix as _seedSimdOperationPrefix, simdOperationResult as _seedSimdOperationResult, simdOperationArgumentValid as _seedSimdOperationArgumentValid}
+import codegen.ir_simd_operation_emit.{emitPortableSimdOperationImpl as _seedEmitPortableSimdOperation}
 ///
 =============================================================================
 main_compiler.seen -- Bootstrap compiler driver (Stage 5 orchestrator)
