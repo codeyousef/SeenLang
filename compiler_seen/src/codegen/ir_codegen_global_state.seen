@@ -13,6 +13,7 @@ import codegen.ir_decl_items.{DeclarationItemContext, mapDeclaredTypeImpl}
 import codegen.ir_decl_pass_driver.{beginDeclarationRegistrationPassImpl}
 import codegen.ir_function_gen.{resolveImplementationFunctionNameImpl, hasFunctionDecoratorGenImpl, prepareExternFunctionGenerationImpl}
 import codegen.ir_trait_registry.{registerClassTraitImplsImpl}
+import codegen.ir_codegen_feature_state.{appendDynTraitNameWithFeatureStateImpl}
 import codegen.ir_function_snapshots.{FunctionGenerationIdentitySnapshot}
 import codegen.ir_function_usage.{hasGeneratedFunctionNameImpl, shouldSkipRuntimeBuiltinStubImpl}
 import codegen.ir_codegen_feature_state.{getDynTraitNamesStateImpl, getTraitImplRegistryStateImpl, getTraitImplCountStateImpl, applyTraitImplStateImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureReprCClassNamesImpl, registerImportedReprCClassesWithFeatureStateImpl}
@@ -431,12 +432,27 @@ fun inferMethodCallBoolSuffixWithGlobalStateImpl(callee: String) r: String {
     return inferMethodCallBoolSuffixImpl(callee, funcNames, funcRetTypes)
 }
 
-fun registerClassTraitImplsWithGlobalStateImpl(className: String) r: Void {
+fun registerClassTraitSetWithGlobalStateImpl(className: String, traits: String) r: Void {
     let registry = Array<String>(); registry.push(getTraitImplRegistryStateImpl())
     let count = Array<Int>(); count.push(getTraitImplCountStateImpl())
-    registerClassTraitImplsImpl(className, getDynTraitNamesStateImpl(),
+    registerClassTraitImplsImpl(className, traits,
         structNames, structMethodNames, structMethodRetTypes, registry, count)
     applyTraitImplStateImpl(registry[0], count[0]); registry.free(); count.free()
+}
+
+fun registerClassTraitImplsWithGlobalStateImpl(className: String) r: Void {
+    registerClassTraitSetWithGlobalStateImpl(className, getDynTraitNamesStateImpl())
+}
+
+// Streaming workers inherit declarations, while imported class bodies may be
+// lowered by another worker. Capture the table in the module that creates the
+// box, using declaration metadata rather than body visitation order.
+fun registerBoxedTraitImplWithGlobalStateImpl(className: String, traitName: String) r: Void {
+    registerClassTraitSetWithGlobalStateImpl(className, traitName + "|")
+    if not ("|" + getTraitImplRegistryStateImpl()).contains("|" + traitName + ":" + className + ":") {
+        abort("Error: [E_DYN_IMPLEMENTATION] boxed trait has no complete declared implementation")
+    }
+    appendDynTraitNameWithFeatureStateImpl(traitName)
 }
 
 fun prepareFunctionGenerationIdentityWithGlobalStateImpl(fn: FunctionNode,

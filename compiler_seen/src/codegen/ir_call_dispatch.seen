@@ -190,7 +190,7 @@ fun emitDynTraitVtableCallImpl(output: StringBuilder, regBox: Array<Int>, receiv
     }
     // GEP into vtable to get function pointer
     let fnPtrGep = getNextRegFn(regBox)
-    output.append("  " + fnPtrGep + " = getelementptr %" + quoteIdentImpl(dynTraitName + "_vtable") + ", ptr " + vtPtrReg + ", i32 0, i32 " + methodIdx.toString() + "\n")
+    output.append("  " + fnPtrGep + " = getelementptr ptr, ptr " + vtPtrReg + ", i64 " + methodIdx.toString() + "\n")
     let fnPtrReg = getNextRegFn(regBox)
     output.append("  " + fnPtrReg + " = load ptr, ptr " + fnPtrGep + "\n")
     // Build argument string

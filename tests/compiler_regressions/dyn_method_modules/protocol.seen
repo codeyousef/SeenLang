@@ -1,0 +1,4 @@
+trait ImportedMethodJob {
+    fun run(this: ImportedMethodJob, delta: Int) r: Int
+    fun release(this: ImportedMethodJob) r: Bool
+}
