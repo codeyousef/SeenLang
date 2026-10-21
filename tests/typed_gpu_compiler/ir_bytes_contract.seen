@@ -10,6 +10,15 @@ fun main() r: Int {
         let result = consumeGpuBytes(bytes); require(result.isOkay()); let text = result.unwrap(); result.releaseContainer()
         require(text.length() == 256); i = 0
         while i < 256 { require(text.byteAt(i) == i); i = i + 1 }; releaseJsonText(text)
+        var length = 1
+        while length <= 17 {
+            let partial = Array<Int>(); i = 0
+            while i < length { partial.push(255 - i % 3); i = i + 1 }
+            let packed = consumeGpuBytes(partial); require(packed.isOkay()); let value = packed.unwrap(); packed.releaseContainer()
+            require(value.length() == length); i = 0
+            while i < length { require(value.byteAt(i) == 255 - i % 3); i = i + 1 }
+            releaseJsonText(value); length = length + 1
+        }
         let empty = consumeGpuBytes(Array<Int>()); require(empty.isOkay())
         let emptyText = empty.unwrap(); empty.releaseContainer(); require(emptyText.length() == 0); releaseJsonText(emptyText)
         let low = consumeGpuBytes([-1]); let high = consumeGpuBytes([256]); require(low.isErr() and high.isErr())
