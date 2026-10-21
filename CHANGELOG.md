@@ -65,6 +65,7 @@ Foundations**.
 
 ### Fixed
 
+- Provision and verify an ARM64 libc sysroot for CI cross-target object checks.
 - Broadcast scalar vector constructors to every lane in SPIR-V, PTX and AMDGPU.
 - Preserve owning Result constructors when repairing frozen bootstrap IR, with
   bit-preserving scalar payloads and owned string boxing.

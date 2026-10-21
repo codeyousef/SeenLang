@@ -358,6 +358,8 @@ fi
 grep -Fxq 'sudo -n apt-get update' "$PROVISION" ||
     fail "CI host provisioner omits package-index setup"
 grep -Fq 'bubblewrap ripgrep libvulkan-dev' "$PROVISION" || fail "CI host provisioner omits containment packages"
+grep -Fq 'libc6-dev-arm64-cross' "$PROVISION" || fail "CI host provisioner omits the real ARM64 libc sysroot"
+grep -Fq -- '--sysroot=/usr/aarch64-linux-gnu' "$PROVISION" || fail "CI host provisioner omits the ARM64 target-object probe"
 for package in llvm-20 clang-20 lld-20 libllvm20 libclang-rt-20-dev; do
     grep -Fq "\"$package=\$llvm_package_version\"" "$PROVISION" || fail "CI host provisioner omits exact LLVM package pin: $package"
 done

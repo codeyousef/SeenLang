@@ -33,7 +33,7 @@ llvm_package_version=$(python3 -c 'import json; from pathlib import Path; print(
 
 sudo -n apt-get update
 sudo -n apt-get install --yes --no-install-recommends \
-    bubblewrap ripgrep libvulkan-dev \
+    bubblewrap ripgrep libvulkan-dev libc6-dev-arm64-cross \
     "llvm-20=$llvm_package_version" "clang-20=$llvm_package_version" "lld-20=$llvm_package_version" \
     "libllvm20=$llvm_package_version" "libclang-rt-20-dev=$llvm_package_version" "spirv-tools=$spirv_package_version"
 python3 scripts/check_gpu_amdgpu_toolchain.py >/dev/null || fail "pinned LLVM AMDGPU toolchain identity differs"
@@ -101,6 +101,20 @@ cleanup() {
     return "$status"
 }
 trap cleanup EXIT
+
+# Cross-target acceptance exports LLVM and objects without executing ARM code.
+# Use the real libc sysroot rather than an empty directory or host headers.
+[ -f /usr/aarch64-linux-gnu/include/stdint.h ] && \
+    [ -f /usr/aarch64-linux-gnu/lib/crt1.o ] || fail "ARM64 libc sysroot is unavailable"
+if ! printf '%s\n' '#include <stdint.h>' \
+    'uint32_t seen_ci_arm64(uint32_t value) { return value + 1; }' | \
+    "$llvm_root/clang" --target=aarch64-unknown-linux-gnu \
+        --sysroot=/usr/aarch64-linux-gnu -x c -c - -o "$work_root/arm64.o"; then
+
+    fail "ARM64 libc sysroot cannot compile a target object"
+fi
+LC_ALL=C /usr/bin/readelf --file-header "$work_root/arm64.o" | \
+    grep -Eq 'Machine:[[:space:]]+AArch64' || fail "ARM64 probe produced the wrong object architecture"
 
 profile="$work_root/usr.bin.bwrap"
 printf '%s\n' \

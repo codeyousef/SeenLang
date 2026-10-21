@@ -328,6 +328,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "host_tools": [
             "bubblewrap",
             "clang-20",
+            "libc6-dev-arm64-cross",
             "libclang-rt-20-dev",
             "libvulkan-dev",
             "lld-20",
