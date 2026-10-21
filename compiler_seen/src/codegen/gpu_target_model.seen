@@ -1,0 +1,34 @@
+/// Owned target profile storage. Admission borrows this object and its tuples;
+/// the creator releases it after every borrowed validation completes.
+import core.result.{Result, Ok, Err}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+import codegen.gpu_ir_facts.{gpuIrLabelValid}
+import codegen.gpu_precision_formats.{GPU_CAP_ALL_KNOWN}
+import codegen.gpu_matrix_types.{gpuMatrixType}
+
+@move
+class GpuTargetCapabilities {
+    var name: String
+    var features: UInt64
+    var subgroupSize: Int
+    var maxWorkgroupInvocations: Int
+    var maxSharedBytes: UInt64
+    var matrixKeys: Array<Int>
+    static fun create(name: String, features: UInt64, subgroupSize: Int, maxWorkgroupInvocations: Int, maxSharedBytes: UInt64) r: Result<GpuTargetCapabilities, GpuIrDiagnostic> {
+        if not gpuIrLabelValid(name, 256) or features > GPU_CAP_ALL_KNOWN or subgroupSize < 0 or subgroupSize > 128 or
+            maxWorkgroupInvocations < 1 or maxWorkgroupInvocations > 1024 or maxSharedBytes > (65536 as UInt64) {
+            return Err<GpuTargetCapabilities, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_CAPABILITY_PROFILE", "invalid GPU target capability header"))
+        }
+        return Ok<GpuTargetCapabilities, GpuIrDiagnostic>(GpuTargetCapabilities{name: seen_string_clone_owned(name), features: features,
+            subgroupSize: subgroupSize, maxWorkgroupInvocations: maxWorkgroupInvocations, maxSharedBytes: maxSharedBytes, matrixKeys: Array<Int>()})
+    }
+    fun addMatrix(shape: Int, format: Int) r: Bool {
+        let key = gpuMatrixType(shape, format, 0)
+        if key == 0 or this.matrixKeys.length() >= 256 { return false }
+        var i = 0
+        while i < this.matrixKeys.length() { if this.matrixKeys[i] == key { return false }; i = i + 1 }
+        this.matrixKeys.push(key); return true
+    }
+    fun release() r: Void { this.matrixKeys.free(); seen_string_release_owned(this.name); this.free() }
+}
