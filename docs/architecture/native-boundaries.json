@@ -14,9 +14,9 @@
     {
       "id": "async-executor-thread-adapter",
       "subsystem": "stdlib.async",
-      "purpose": "Generation-checked OS thread lifetime, explicit affinity/NUMA calls and opaque TLS identity. Seen owns task-slot/depth encoding, fixed workers, typed admission, scheduling, task groups, bounded synchronization, reductions, cancellation and cleanup. Failed joins retain ownership. Linux x86-64 only; other targets fail explicitly. Native lifetime/allocator and Seen executor/synchronization suites cover this boundary.",
+      "purpose": "Generation-checked pthread lifetime, Linux affinity/NUMA calls and opaque TLS identity. Seen owns task slots, fixed workers, typed admission, scheduling, cancellation and cleanup. Failed joins retain ownership. Linux x86-64 and macOS x86-64/arm64; macOS accepts inherited placement only. Executor/native lifetime and I/O worker suites cover this permanent OS boundary. macOS execution remains uncertified.",
       "abi": "OS thread C",
-      "platforms": ["linux-x86_64"],
+      "platforms": ["linux-x86_64", "macos"],
       "symbols": ["seen_executor_apply_placement", "seen_executor_current_owner", "seen_executor_current_task", "seen_executor_live_threads", "seen_executor_swap_task", "seen_executor_thread_create", "seen_executor_thread_join", "seen_executor_validate_placement"],
       "production": false
     },
@@ -162,6 +162,23 @@
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_aligned_buffer_free", "seen_try_aligned_realloc"],
       "production": true
+    },
+    {
+      "id": "io-macos-positional-abi",
+      "subsystem": "stdlib.io",
+      "purpose": "Direct Darwin open, fstat, F_NOCACHE and positional pread/pwrite only. Seen owns regular-file and cache policy, checked geometry, admission, worker budgets, synchronous borrow lifetime, cancellation, partial results and deterministic drain. The shared Seen worker queue reuses the executor. Other platforms fail explicitly with Darwin error vocabulary. No retries, scheduler, allocation policy, io_uring emulation or hidden fallback. Contract/fuzz/native fixtures cover this permanent OS boundary.",
+      "abi": "Darwin POSIX C",
+      "platforms": [
+        "macos"
+      ],
+      "symbols": [
+        "seen_macos_io_abi",
+        "seen_macos_io_cache",
+        "seen_macos_io_mode",
+        "seen_macos_io_open",
+        "seen_macos_io_transfer"
+      ],
+      "production": false
     },
     {
       "id": "io-uring-syscall-abi",

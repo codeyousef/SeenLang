@@ -47,6 +47,7 @@ bash -n \
     tests/misc_root_tests/seen_async_io_a.sh \
     tests/misc_root_tests/seen_async_io_b.sh \
     tests/misc_root_tests/seen_async_io_c.sh \
+    tests/misc_root_tests/seen_async_io_d.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \
     tests/misc_root_tests/seen_pointer_field_cast_contract.sh \

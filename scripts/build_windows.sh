@@ -113,6 +113,8 @@ compile_runtime() {
         "$RUNTIME_DIR/src/io_uring_abi.h" \
         "$RUNTIME_DIR/src/iocp_abi.c" \
         "$RUNTIME_DIR/src/iocp_abi.h" \
+        "$RUNTIME_DIR/src/macos_io_abi.c" \
+        "$RUNTIME_DIR/src/macos_io_abi.h" \
         "$RUNTIME_DIR/src/executor_readiness_abi.c" \
         "$RUNTIME_DIR/src/executor_readiness_abi.h" \
         "$RUNTIME_DIR/src/executor_process_abi.c" \

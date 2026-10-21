@@ -5,20 +5,26 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
 #include "executor_abi.h"
 #include "../sync_abi.h"
 
-#if defined(__linux__) && defined(__x86_64__) && \
+#if ((defined(__linux__) && defined(__x86_64__)) || \
+     (defined(__APPLE__) && (defined(__x86_64__) || defined(__aarch64__)))) && \
     !defined(SEEN_EXECUTOR_FORCE_UNSUPPORTED)
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stddef.h>
-#include <sched.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sched.h>
 #include <sys/syscall.h>
 #include <linux/mempolicy.h>
+#endif
 
 /* Static storage prevents allocation failure from losing a joinable thread.
  * Slots stay occupied until a successful join, including after thread exit. */
@@ -150,6 +156,7 @@ int32_t seen_executor_thread_join(uint64_t *handle) {
     return SEEN_SYNC_OK;
 }
 
+#if defined(__linux__)
 /* Fixed ABI geometry only. Selection/fallback and resource budgets are Seen. */
 static int32_t seen_executor_placement_bounds(int32_t cpu, int32_t node) {
     if (cpu < -1 || node < -1) return SEEN_SYNC_INVALID;
@@ -205,6 +212,16 @@ int32_t seen_executor_apply_placement(int32_t cpu, int32_t node) {
     }
     return SEEN_SYNC_OK;
 }
+
+#else
+int32_t seen_executor_validate_placement(int32_t cpu, int32_t node) {
+    if (cpu < -1 || node < -1) return SEEN_SYNC_INVALID;
+    return cpu == -1 && node == -1 ? SEEN_SYNC_OK : SEEN_SYNC_UNSUPPORTED;
+}
+int32_t seen_executor_apply_placement(int32_t cpu, int32_t node) {
+    return seen_executor_validate_placement(cpu, node);
+}
+#endif
 
 uint64_t seen_executor_current_owner(void) { return seen_executor_owner; }
 int64_t seen_executor_current_task(void) { return seen_executor_task; }

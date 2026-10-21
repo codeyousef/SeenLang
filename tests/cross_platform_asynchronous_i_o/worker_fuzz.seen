@@ -1,0 +1,40 @@
+import async.executor_core.{executorReleaseContext}
+import sync.atomic.{seen_sync_atomic_store, seen_sync_atomic_destroy}
+import fixture_support.{ioMust, ioRequire, ioContext}
+import worker_fixture_support.{workerCounter, workerWait, workerAdd, workerFixture, workerFixtureSubmit, workerDrain, workerTake}
+import sync.contracts.{seen_time_monotonic_nanos}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun main() r: Int {
+    let context = ioContext(); let queue = workerFixture(context); var started = workerCounter(); var released = workerCounter()
+    workerAdd(released); let warmup = workerFixtureSubmit(queue, context, started, released, 7 as UInt64, 0 as Int32)
+    workerDrain(queue, false); let warmed = workerTake(queue); ioMust(warmed.release()); warmup.free()
+    let baseline = seen_memory_used_bytes(); let start = seen_time_monotonic_nanos()
+    ioRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
+    let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1104
+    while now < deadline {
+        ioRequire(seen_sync_atomic_store(started, 0 as Int64, 4 as Int32) == (0 as Int32))
+        ioRequire(seen_sync_atomic_store(released, 0 as Int64, 4 as Int32) == (0 as Int32))
+        seed = (seed * 1103515245 + 12345) % 2147483647
+        let mode = seed % 4; var progress = (seed % 17) as UInt64; var status = 0 as Int32
+        if mode == 2 { progress = 17 as UInt64 }; if mode == 3 { status = 3 as Int32 }
+        let registration = workerFixtureSubmit(queue, context, started, released, progress, status)
+        workerWait(started, 1 as Int64)
+        if mode == 1 { ioMust(queue.cancel(registration.token)); ioMust(queue.publishCancellation()) }
+        workerAdd(released); workerDrain(queue, mode == 2)
+        let completion = workerTake(queue); let outcome = completion.outcome()
+        if mode == 0 { ioRequire(outcome.isOkay() and outcome.unwrap() == progress) }
+        else {
+            ioRequire(outcome.isErr())
+            if mode == 1 { ioRequire(outcome.unwrapErr().code == "async.cancelled" and outcome.unwrapErr().progress == progress) }
+            else { ioRequire(outcome.unwrapErr().code == "async.unavailable") }
+            outcome.unwrapErr().free()
+        }
+        outcome.releaseContainer(); ioMust(completion.release()); registration.free()
+        ioRequire(queue.core.active == 0 and seen_memory_used_bytes() == baseline); iterations = iterations + 1
+        if iterations % 64 == 0 { let next = seen_time_monotonic_nanos(); ioRequire(next >= now); now = next }
+    }
+    ioRequire(iterations >= 64); ioMust(queue.release()); executorReleaseContext(context)
+    ioRequire(seen_sync_atomic_destroy(&started) == (0 as Int32) and seen_sync_atomic_destroy(&released) == (0 as Int32))
+    println("PASS: IO-002D worker fuzz 60s seed=1104 cancellation progress and live allocations")
+    return 0
+}
