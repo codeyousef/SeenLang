@@ -12,12 +12,23 @@ fun spirvCast(function: GpuSpirvFunction, sourceType: Int, targetType: Int, valu
     if source != 4 {
         var opcode = 112; if source == 2 { opcode = 111 }; return spirvUnaryValue(function, opcode, targetType, value)
     }
-    let predicateType = spirvPredicateType(sourceType); var lowerWord = 0; var upperWord = 1333788672
-    if target == 2 { lowerWord = 3472883712; upperWord = 1325400064 }
-    let lower = context.splat(sourceType, lowerWord); let upper = context.splat(sourceType, upperWord)
-    let above = spirvBinaryValue(function, 190, predicateType, value, lower)
-    let below = spirvBinaryValue(function, 184, predicateType, value, upper)
-    let valid = spirvBinaryValue(function, 167, predicateType, above, below)
+    let predicateType = spirvPredicateType(sourceType); let bitsType = 3 + (gpuTypeLanes(sourceType) - 1) * 16
+    let bits = spirvUnaryValue(function, 124, bitsType, value)
+    let magnitude = spirvBinaryValue(function, 199, bitsType, bits, context.splat(bitsType, 2147483647))
+    let sign = spirvBinaryValue(function, 199, bitsType, bits, context.splat(bitsType, 2147483648))
+    let negative = spirvBinaryValue(function, 171, predicateType, sign, context.zero(bitsType))
+    var upperWord = 1333788672; if target == 2 { upperWord = 1325400064 }
+    let upper = context.splat(bitsType, upperWord)
+    var valid = spirvBinaryValue(function, 176, predicateType, magnitude, upper)
+    if target == 2 {
+        let negativeValid = spirvBinaryValue(function, 178, predicateType, magnitude, upper)
+        valid = spirvSelectValue(function, predicateType, negative, negativeValid, valid)
+    } else {
+        let zero = spirvBinaryValue(function, 170, predicateType, magnitude, context.zero(bitsType))
+        let nonnegative = spirvUnaryValue(function, 168, predicateType, negative)
+        let allowedSign = spirvBinaryValue(function, 166, predicateType, nonnegative, zero)
+        valid = spirvBinaryValue(function, 167, predicateType, valid, allowedSign)
+    }
     let safe = spirvSelectValue(function, sourceType, valid, value, context.zero(sourceType))
     var opcode = 109; if target == 2 { opcode = 110 }
     let result = spirvUnaryValue(function, opcode, targetType, safe)
