@@ -1,4 +1,4 @@
-import env.env.{args}
+import env.env.{args, releaseArgs}
 import tools.gpu_command.{gpuReadBoundedText}
 import bootstrap.frontend.{runFrontendCompat}
 import codegen.gpu_lower_program.{lowerGpuProgram}
@@ -42,6 +42,6 @@ fun main() r: Int {
         witnessRequire(seen_memory_used_bytes() == baseline); iterations = iterations + 1
         if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); witnessRequire(next >= now); now = next }
     }
-    witnessRequire(now >= deadline and iterations >= 32); options.release(); module.release(); argv.free()
+    witnessRequire(now >= deadline and iterations >= 32); options.release(); module.release(); releaseArgs(argv)
     println("PASS: GPU-002B capability fuzz 60s seed=1089 preserved typed rejection and ownership"); return 0
 }

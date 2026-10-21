@@ -146,10 +146,10 @@
     {
       "id": "c-string-conversion-memory",
       "subsystem": "runtime.ffi",
-      "purpose": "Explicit C-string conversion ownership boundary. Converting a Seen string to a C string allocates a NUL-terminated copy that Seen code releases exactly once through the paired free symbol; converting a C string to Seen produces a borrowed view and never takes ownership. Exercised by packaged standard-library executable tests with non-null CUDA diagnostic strings and deterministic cleanup.",
+      "purpose": "Explicit C-string ownership: conversion to C allocates a copy, conversion to Seen borrows. Seen releaseArgs consumes copied argument snapshots, pairing each malloc free with allocation-budget release before freeing array storage. Seen owns the loop and lifetimes; native symbols only free storage and adjust accounting. Packaged CUDA-string tests, repeated argument snapshots and ASan verify cleanup. Permanent until compiler-managed owners replace both allocation and release.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
-      "symbols": ["seen_cstr_free", "seen_cstr_to_str", "seen_str_to_cstr"],
+      "symbols": ["seen_cstr_free", "seen_cstr_to_str", "seen_memory_release_bytes", "seen_str_to_cstr"],
       "production": true
     },
     {

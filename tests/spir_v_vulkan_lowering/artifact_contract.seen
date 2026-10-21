@@ -1,4 +1,4 @@
-import env.env.{args}
+import env.env.{args, releaseArgs}
 import tools.gpu_command.{gpuReadBoundedText}
 import bootstrap.frontend.{runFrontendCompat}
 import codegen.gpu_lower_program.{lowerGpuProgram}
@@ -45,6 +45,6 @@ fun main() r: Int {
         options.target = "vulkan1.2"; checkArtifact(module, options, i == 0); require(seen_memory_used_bytes() == baseline)
         options.target = "vulkan1.3"; checkArtifact(module, options, i == 0); require(seen_memory_used_bytes() == baseline); i = i + 1
     }
-    options.release(); module.release(); argv.free()
+    options.release(); module.release(); releaseArgs(argv)
     println("PASS: GPU-002C artifact hashes manifests mutation rejection and allocation baseline"); return 0
 }

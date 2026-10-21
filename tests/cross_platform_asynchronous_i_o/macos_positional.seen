@@ -1,4 +1,4 @@
-import env.env.{args}
+import env.env.{args, releaseArgs}
 import fs.types.{OpenOptions}
 import io.completion_types.{IoQueueLimits, IoOperation, IoRegistration, IoCompletion}
 import io.macos_positional.{MacPositionalQueue}
@@ -9,10 +9,6 @@ import memory.aligned_buffer.{OwnedBuffer}
 import fixture_support.{ioMust, ioRequire, ioContext}
 import sync.contracts.{seen_time_monotonic_nanos}
 extern "C" fun seen_memory_used_bytes() r: Int64
-extern "C" fun seen_string_release_owned(value: String) r: Void
-fun macosReleaseArguments(arguments: Array<String>) r: Void {
-    var index = 0; while index < arguments.length() { seen_string_release_owned(arguments[index]); index = index + 1 }; arguments.free()
-}
 fun macosAwait(borrow queue: MacPositionalQueue) r: Void {
     let start = seen_time_monotonic_nanos(); ioRequire(start >= (0 as Int64) and start <= (9223372031854775807 as Int64))
     let deadline = start + (5000000000 as Int64); var now = start
@@ -54,12 +50,12 @@ fun macosNativeRound(borrow queue: MacPositionalQueue, path: String, borrow opti
     first.free(); second.free()
 }
 fun main() r: Int {
-    let arguments = args(); if arguments.length() != 2 { macosReleaseArguments(arguments); return 2 }
+    let arguments = args(); if arguments.length() != 2 { releaseArgs(arguments); return 2 }
     let context = ioContext(); let limits = IoQueueLimits{depth: 2, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 128 as UInt64, maxMetadataBytes: 8192 as UInt64}
     let baseline = seen_memory_used_bytes(); let created = MacPositionalQueue.create(limits, 2, 262144 as UInt64, context)
     if created.isErr() {
         let error = created.unwrapErr(); created.releaseContainer(); ioRequire(error.code == "async.unsupported_platform"); error.free()
-        ioRequire(seen_memory_used_bytes() == baseline); limits.free(); executorReleaseContext(context); macosReleaseArguments(arguments)
+        ioRequire(seen_memory_used_bytes() == baseline); limits.free(); executorReleaseContext(context); releaseArgs(arguments)
         println("{\"schema\":\"seen-io-macos-v1\",\"backend\":\"macos-positional-workers\",\"classification\":\"unsupported\",\"fallback_count\":0}")
         return 0
     }
@@ -75,7 +71,7 @@ fun main() r: Int {
         macosNativeRound(queue, arguments[1], options, context, false, index % 3 == 0, policy)
         ioRequire(seen_memory_used_bytes() == live); index = index + 1
     }
-    ioMust(queue.close()); ioMust(queue.close()); ioMust(queue.release()); options.free(); executorReleaseContext(context); macosReleaseArguments(arguments)
+    ioMust(queue.close()); ioMust(queue.close()); ioMust(queue.release()); options.free(); executorReleaseContext(context); releaseArgs(arguments)
     println("PASS: IO-002D native positional cached F_NOCACHE cancellation and cleanup")
     println("{\"schema\":\"seen-io-macos-v1\",\"backend\":\"macos-positional-workers\",\"classification\":\"verified\",\"workers\":2,\"nocache_required\":true,\"native_overlap_verified\":false,\"fallback_count\":0}")
     return 0

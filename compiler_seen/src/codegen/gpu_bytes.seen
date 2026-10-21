@@ -3,7 +3,6 @@
 import core.result.{Result, Ok, Err}
 import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
 import json.builder.{seen_string_clone_owned}
-extern "C" fun seen_arr_data_ptr(values: Array<Int>) r: Int
 extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
 
 fun consumeGpuBytes(bytes: Array<Int>) r: Result<String, GpuIrDiagnostic> {
@@ -29,7 +28,7 @@ fun consumeGpuBytes(bytes: Array<Int>) r: Result<String, GpuIrDiagnostic> {
         }
         bytes[destination] = word as Int; destination = destination + 1
     }
-    let address = seen_arr_data_ptr(bytes); let packed = address as *UInt8
+    let packed = bytes.data() as *UInt8
     let text = seen_string_clone_owned(seen_string_view_bytes(packed, length as Int64)); bytes.free()
     return Ok<String, GpuIrDiagnostic>(text)
 }

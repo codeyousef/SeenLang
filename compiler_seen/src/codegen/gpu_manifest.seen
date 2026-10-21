@@ -4,11 +4,18 @@ import core.result.{Result, Ok, Err}
 import codegen.gpu_options.{GpuOptions, gpuSetOption, gpuOptionsError, validateGpuOptions}
 import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
 import typechecker.gpu_types.{gpuTrimStart, gpuTrimEnd, gpuRangePrefix}
-import json.builder.{releaseJsonText}
+import json.builder.{releaseJsonText, seen_string_clone_owned}
+
+// String.substring borrows the empty string. Manifest slices are always owned
+// so every parse branch can release them through the same cleanup path.
+fun gpuManifestOwnedSlice(text: String, first: Int, last: Int) r: String {
+    if first >= last { return seen_string_clone_owned("") }
+    return text.substring(first, last)
+}
 
 fun gpuManifestSlice(text: String, first: Int, last: Int) r: String {
     let start = gpuTrimStart(text, first, last); let end = gpuTrimEnd(text, start, last)
-    return text.substring(start, end)
+    return gpuManifestOwnedSlice(text, start, end)
 }
 
 fun gpuManifestUncomment(line: String) r: String {
@@ -38,7 +45,8 @@ fun gpuManifestTableKind(text: String) r: Int {
         let next = text.byteAt(start + 3)
         gpu = next == 32 or next == 9 or next == 46 or next == 93
     }
-    if gpuRangePrefix(text, start, text.length(), "\"gpu\"") { return -1 }
+    if start + 4 < text.length() and text.byteAt(start) == 34 and
+        gpuRangePrefix(text, start + 1, text.length(), "gpu") and text.byteAt(start + 4) == 34 { return -1 }
     if not gpu { return 0 }
     if brackets != 1 or text.byteAt(text.length() - 1) != 93 { return -1 }
     let end = gpuTrimEnd(text, start, text.length() - 1)
@@ -54,7 +62,7 @@ fun gpuManifestEntries(borrow options: GpuOptions, value: String, line: Int) r: 
         var next = value.indexOf(",", position); if next < 0 or next > end { next = end }
         let item = gpuManifestSlice(value, position, next)
         if not gpuManifestQuoted(item) { releaseJsonText(item); return gpuOptionsError(line, "GPU entry must be a quoted identifier") }
-        let name = item.substring(1, item.length() - 1)
+        let name = gpuManifestOwnedSlice(item, 1, item.length() - 1)
         let error = gpuSetOption(options, "entry", name, line); releaseJsonText(name); releaseJsonText(item)
         if error.code != "" { return error }; error.free()
         if next + 1 == end { return gpuOptionsError(line, "GPU entries cannot end with an empty element") }
@@ -76,7 +84,7 @@ fun gpuManifestLine(borrow options: GpuOptions, text: String, line: Int, seenKey
     let value = gpuManifestSlice(text, equal + 1, text.length())
     if key == "entries" { let error = gpuManifestEntries(options, value, line); releaseJsonText(value); return error }
     if not gpuManifestQuoted(value) { releaseJsonText(value); return gpuOptionsError(line, "GPU manifest selection must be a quoted literal without escapes") }
-    let selected = value.substring(1, value.length() - 1); let error = gpuSetOption(options, key, selected, line)
+    let selected = gpuManifestOwnedSlice(value, 1, value.length() - 1); let error = gpuSetOption(options, key, selected, line)
     releaseJsonText(selected); releaseJsonText(value); return error
 }
 fun parseGpuManifest(content: String) r: Result<GpuOptions, GpuIrDiagnostic> {
@@ -88,7 +96,7 @@ fun parseGpuManifest(content: String) r: Result<GpuOptions, GpuIrDiagnostic> {
         if line > 2048 or end - start > 4096 {
             keys.free(); options.release(); return Err<GpuOptions, GpuIrDiagnostic>(gpuOptionsError(line, "project manifest line or line-count ceiling exceeded"))
         }
-        let rawLine = content.substring(start, end); let text = gpuManifestUncomment(rawLine); releaseJsonText(rawLine)
+        let rawLine = gpuManifestOwnedSlice(content, start, end); let text = gpuManifestUncomment(rawLine); releaseJsonText(rawLine)
         if text.startsWith("[") {
             let table = gpuManifestTableKind(text)
             if table == 1 {

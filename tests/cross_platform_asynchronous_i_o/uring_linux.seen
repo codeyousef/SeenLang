@@ -1,4 +1,4 @@
-import env.env.{args}
+import env.env.{args, releaseArgs}
 import core.result.{Result}
 import async.structured.{AsyncError, AsyncOperationContext}
 import async.executor_core.{executorReleaseContext}
@@ -11,11 +11,7 @@ import memory.aligned_buffer.{OwnedBuffer}
 import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioTake}
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 extern "C" fun seen_memory_used_bytes() r: Int64
-extern "C" fun seen_string_release_owned(value: String) r: Void
 
-fun uringReleaseArguments(arguments: Array<String>) r: Void {
-    var i = 0; while i < arguments.length() { seen_string_release_owned(arguments[i]); i = i + 1 }; arguments.free()
-}
 fun uringAwait(borrow queue: LinuxUringQueue) r: Void {
     let start = seen_time_monotonic_nanos()
     ioRequire(start >= (0 as Int64) and start <= (9223372031854775807 as Int64))
@@ -64,7 +60,7 @@ fun uringNativeRound(borrow queue: LinuxUringQueue, borrow file: File, context: 
     first.free(); second.free(); ioRequire(queue.core.active == 0 and queue.core.ownedBytes == (0 as UInt64))
 }
 fun main() r: Int {
-    let arguments = args(); if arguments.length() != 2 { uringReleaseArguments(arguments); return 2 }
+    let arguments = args(); if arguments.length() != 2 { releaseArgs(arguments); return 2 }
     let limits = IoQueueLimits{depth: 4, maxTransferBytes: 4096 as UInt64, maxOwnedBytes: 16384 as UInt64, maxMetadataBytes: 8192 as UInt64}
     let baseline = seen_memory_used_bytes()
     let created = LinuxUringQueue.create(limits, 1048576 as UInt64, 2)
@@ -75,7 +71,7 @@ fun main() r: Int {
         ioMust(failure.release()); ioRequire(seen_memory_used_bytes() == baseline)
         println("IO-002B unavailable at " + operation)
         println("{\"schema\":\"seen-io-uring-v1\",\"backend\":\"io_uring\",\"classification\":\"unsupported\",\"native_overlap_verified\":false,\"fallback_count\":0}")
-        limits.free(); uringReleaseArguments(arguments); return 0
+        limits.free(); releaseArgs(arguments); return 0
     }
     let queue: LinuxUringQueue = created.unwrap(); created.releaseContainer(); limits.free()
     let context = ioContext(); let path: Path = ioMust(Path.fromString(arguments[1])); let options = OpenOptions.createNew()
@@ -96,7 +92,7 @@ fun main() r: Int {
     ioRequire(ioErrorIs(queue.close(), "async.limit")); ioRequire(notification.release())
     ioMust(queue.close()); ioMust(queue.close()); ioMust(queue.release())
     file.directIo.free(); file.path.raw.free(); file.path.free(); file.free()
-    executorReleaseContext(context); uringReleaseArguments(arguments)
+    executorReleaseContext(context); releaseArgs(arguments)
     println("PASS: IO-002B native positional writes reads cancellation notification and repeated cleanup")
     println("{\"schema\":\"seen-io-uring-v1\",\"backend\":\"io_uring\",\"classification\":\"verified\",\"scope\":\"linux-file-contract\",\"submission_overlap\":2,\"native_overlap_verified\":false,\"fallback_count\":0}")
     return 0

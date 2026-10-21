@@ -1,5 +1,5 @@
 extern "C" fun seen_memory_used_bytes() r: Int64
-import env.env.{args}
+import env.env.{args, releaseArgs}
 fun filledArrays(count: Int) r: Void {
     let bytes = Array<UInt8>.withLength(count)
     let shorts = Array<Int16>.withLength(count)
@@ -41,9 +41,9 @@ fun main() r: Int {
         } else if argv[1] == "overflow" {
             let invalid = Array<UInt32>.withLength(4611686018427387904); invalid.free()
         }
-        argv.free(); return 0
+        releaseArgs(argv); return 0
     }
-    argv.free()
+    releaseArgs(argv)
     let baseline = seen_memory_used_bytes(); var round = 0
     while round < 20 {
         var count = 0

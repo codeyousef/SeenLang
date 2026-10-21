@@ -52,6 +52,10 @@ Foundations**.
 
 ### Fixed
 
+- Add `env.releaseArgs()` to consume owned argument snapshots, including copied
+  strings and their tracked allocation budget. Document the snapshot lifetime
+  and verify repeated cleanup under sanitizers. Share that cleanup across I/O,
+  SIMD benchmark and GPU artifact fixtures.
 - Preserve Boolean array literal values, evaluation order and allocation
   ownership through the same storage path as Boolean array push.
 - Preserve declared trait methods when free functions share their names.
@@ -62,6 +66,14 @@ Foundations**.
 - Preserve SHA-256 typed byte/word storage and public signatures across
   bootstrap generations with masked native-word arithmetic. Cover canonical,
   binary and split-block vectors, rotations, digest comparison and cleanup.
+- Construct I/O resource checkpoints with the supported JSON builder API and
+  check aligned-buffer cleanup through its Boolean contract.
+- Use the existing array data intrinsic for GPU byte packing, avoiding a
+  duplicate runtime declaration in compiler builds.
+- Preserve borrowed file-error success text and own empty GPU manifest slices,
+  keeping CPU-only project compilation safe across blank lines and comments.
+- Preserve meaningful escaped quotes in already-decoded string literals,
+  including strict GPU manifest table checks.
 - Retain the active failing fixture log and emitted LLVM in bounded CI
   diagnostics so nested gate failures remain visible.
 

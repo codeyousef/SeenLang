@@ -22,7 +22,10 @@ fun gpuReadBoundedText(path: String, limit: Int) r: Result<String, GpuIrDiagnost
         let ignored = __CloseFile(fd); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT_LIMIT", "GPU input size is unavailable or exceeds its ceiling"))
     }
     let bytes = __ReadFileBytes(fd, limit + 1); let nativeError = __FileError(fd); let closed = __CloseFile(fd)
-    let failed = nativeError != "" or closed < 0 or bytes.length() != size; seen_string_release_owned(nativeError)
+    let hadError = nativeError != ""
+    let failed = hadError or closed < 0 or bytes.length() != size
+    // __FileError borrows its empty success string; only errors are owned.
+    if hadError { seen_string_release_owned(nativeError) }
     if failed { bytes.free(); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT", "GPU input read, close or stable-size check failed")) }
     return consumeGpuBytes(bytes)
 }

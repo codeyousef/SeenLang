@@ -16,6 +16,7 @@ FIXTURE_ARTIFACT_PREFIX=gpu-spirv-c
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 python3 "$ROOT_DIR/scripts/check_gpu_spirv_toolchain.py" > "$TMP_DIR/toolchain.json"
 for profile in fast release undefined address; do
+    compile_case "$profile" owned-arguments "$ROOT_DIR/tests/compiler_regressions/owned_cli_arguments.seen"
     compile_case "$profile" array-fill "$ROOT_DIR/tests/compiler_regressions/fixed_width_array_fill.seen"
     rg -Fq 'PASS: fixed-width filled arrays preserve zeroing strides and ownership' "$TMP_DIR/array-fill-$profile.log"
     compile_case "$profile" sha256-vectors "$ROOT_DIR/tests/fixtures/sha256_finalize_ownership.seen"

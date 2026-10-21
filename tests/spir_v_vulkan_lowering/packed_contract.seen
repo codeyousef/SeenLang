@@ -1,4 +1,4 @@
-import env.env.{args}
+import env.env.{args, releaseArgs}
 import tools.gpu_command.{gpuReadBoundedText}
 import bootstrap.frontend.{runFrontendCompat}
 import codegen.gpu_lower_program.{lowerGpuProgram}
@@ -15,6 +15,6 @@ fun main() r: Int {
     let baseline = seen_memory_used_bytes(); var i = 0
     while i < 30 { checkEmission(module, options, i == 0); require(seen_memory_used_bytes() == baseline); i = i + 1 }
     options.target = "vulkan1.3"; checkEmission(module, options, true); require(seen_memory_used_bytes() == baseline)
-    options.release(); module.release(); argv.free()
+    options.release(); module.release(); releaseArgs(argv)
     println("PASS: GPU-002B all packed formats dynamic lanes scale encoding and cleanup"); return 0
 }

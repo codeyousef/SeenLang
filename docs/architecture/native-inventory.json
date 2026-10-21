@@ -3389,13 +3389,6 @@
       ]
     },
     {
-      "name": "seen_arr_data_ptr",
-      "abi": "C",
-      "sources": [
-        "compiler_seen/src/codegen/gpu_bytes.seen"
-      ]
-    },
-    {
       "name": "seen_arr_free",
       "abi": "C",
       "sources": [
@@ -4044,6 +4037,7 @@
       "name": "seen_cstr_free",
       "abi": "C",
       "sources": [
+        "seen_std/src/env/env.seen",
         "seen_std/src/fs/file.seen"
       ]
     },
@@ -5832,6 +5826,13 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_release_bytes",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/env/env.seen"
       ]
     },
     {

@@ -6535,15 +6535,7 @@ class RealParser {
         ///
         if checkToken(SeenTokenType.StringLiteral) {
             let token = advance()
-            let rawValue = token.getValue()
-            // Strip quotes from the token value if present
-            var strValue = rawValue
-            if rawValue.length() >= 2 {
-                if rawValue.startsWith("\"") and rawValue.endsWith("\"") {
-                    strValue = rawValue.substring(1, rawValue.length() - 1)
-                }
-            }
-            return makeLiteral(strValue, "String")
+            return makeLiteral(token.getValue(), "String")
         }
 
         // CharLiteral this.tokens also carry the raw character payload.

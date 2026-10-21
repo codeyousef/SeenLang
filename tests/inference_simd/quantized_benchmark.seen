@@ -6,7 +6,7 @@ import core.operation_context.{OperationContext}
 import dot_fixture_support.{must, context}
 import benchmark_statistics.{metric, medianRatioPpm}
 import quantized_fixture_support.{prepareQuantizedCorpus, corpusExpected, corpusFormat}
-import env.env.{args}
+import env.env.{args, releaseArgs}
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 extern "C" fun seen_memory_used_bytes() r: Int64
 extern "C" fun seen_memory_peak_bytes() r: Int64
@@ -29,8 +29,8 @@ fun quantizedSample(borrow source: OwnedBuffer<UInt8>, borrow output: OwnedBuffe
 }
 fun main() r: Int {
     let argv = args(); var enforce = false
-    if argv.length() > 2 { return 1 }
-    if argv.length() == 2 { if argv[1] != "--enforce" { return 1 }; enforce = true }; argv.free()
+    if argv.length() > 2 { releaseArgs(argv); return 1 }
+    if argv.length() == 2 { if argv[1] != "--enforce" { releaseArgs(argv); return 1 }; enforce = true }; releaseArgs(argv)
     let source: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 64 as UInt64))
     let output: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 64 as UInt64))
     let ctx = context(); let progress = SimdMemoryProgress.create()

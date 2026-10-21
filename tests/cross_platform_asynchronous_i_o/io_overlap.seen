@@ -110,7 +110,7 @@ class OverlapEvidence {
     var checksum: Int64
     fun checkpoint(stage: String) r: Void {
         let managed = seen_memory_used_bytes()
-        let json = JsonBuilder_new(); json.beginObject()
+        let json = JsonBuilder_new(); json.startObject()
         json.stringProp("schema", "seen-io-checkpoint-v1"); json.stringProp("stage", stage)
         json.intProp("pid", getpid() as Int); json.intProp("managed_bytes", managed as Int)
         json.intProp("reader_a", this.firstReader as Int); json.intProp("reader_b", this.secondReader as Int)
@@ -168,7 +168,7 @@ fun main() r: Int {
         left.release(); right.release(); ioRequire(seen_memory_used_bytes() == baseline); i = i + 1
     }
     overlapSnapshot(evidence, queue); evidence.checkpoint("soak")
-    ioMust(queue.release()); ioMust(payload.close()); payload.free(); a.free(); b.free()
+    ioMust(queue.release()); ioRequire(payload.close()); payload.free(); a.free(); b.free()
     ioRequire(seen_sync_atomic_destroy(&counter) == (0 as Int32)); executorReleaseContext(context)
     evidence.checkpoint("closed"); evidence.stats.free(); evidence.free()
     return 0

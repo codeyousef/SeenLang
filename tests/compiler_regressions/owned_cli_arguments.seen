@@ -1,0 +1,15 @@
+import env.env.{args, releaseArgs}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    var round = 0
+    while round < 100 {
+        let arguments = args()
+        if arguments.length() < 1 or arguments[0].length() == 0 { abort("argument snapshot lost executable name") }
+        releaseArgs(arguments)
+        if seen_memory_used_bytes() != baseline { abort("argument snapshot ownership leaked") }
+        round = round + 1
+    }
+    println("PASS: owned CLI snapshots release strings storage and allocation budget")
+    return 0
+}
