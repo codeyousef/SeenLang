@@ -1,4 +1,5 @@
-import async.executor_core.{ExecutorOwnedJob, ExecutorJob, ExecutorTaskContext}
+import async.executor_core.{ExecutorOwnedJob, ExecutorTaskContext}
+import async.multithread.{ExecutorJob}
 class UnsafeOwnedJob { var borrowed: *Int }
 impl ExecutorJob for UnsafeOwnedJob {
     fun run(this: UnsafeOwnedJob, context: ExecutorTaskContext) r: Bool { return true }
