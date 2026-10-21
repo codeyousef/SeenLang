@@ -45,7 +45,7 @@ fun emitGpuPtx(borrow module: GpuIrModule, borrow options: GpuOptions) r: Result
     if options.backend != "cuda" or (options.target != "" and not options.target.startsWith("sm_")) {
         validation.reject("E_GPU_PTX_TARGET", "PTX emission requires the cuda backend and a CUDA target", -1, -1, -1)
     }
-    if (module.requiredCapabilities & (~(519 as UInt64))) != (0 as UInt64) {
+    if (module.requiredCapabilities & (519 as UInt64)) != module.requiredCapabilities {
         validation.reject("E_GPU_PTX_CAPABILITY", "PTX base emitter lacks a required module capability", -1, -1, -1)
     }
     if not validation.valid { return Err<String, GpuIrValidation>(validation) }

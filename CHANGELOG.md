@@ -53,6 +53,8 @@ Foundations**.
 
 ### Fixed
 
+- Keep CUDA capability admission compatible with the frozen bootstrap compiler
+  by checking mask inclusion without unary bitwise complement.
 - Align CI workflow contract fixtures with PTX diagnostics and pinned assembler
   provisioning so the required regression validates the current workflow.
 - Release temporary GPU frontend allocations through a bounded Seen owner,
