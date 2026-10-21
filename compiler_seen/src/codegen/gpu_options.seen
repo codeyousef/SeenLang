@@ -3,7 +3,8 @@
 import json.builder.{seen_string_clone_owned, seen_string_release_owned}
 import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
 
-@move
+// Coordinator-owned selection metadata. Entry names have one explicit owner;
+// parsers and validators borrow the options until the creator calls release.
 class GpuOptions {
     var backend: String
     var target: String
