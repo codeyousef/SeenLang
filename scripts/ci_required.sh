@@ -36,6 +36,7 @@ fi
 # or clean-checkout certification work. CORE-004E execution is deliberately
 # deferred to Stage-1 acceptance, where the verified fresh compiler is explicit.
 bash -n \
+    scripts/compiled_fixture_support.sh \
     tests/misc_root_tests/seen_core_004e_deterministic_context.sh \
     tests/misc_root_tests/seen_program_artifacts_contract.sh \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh \
@@ -43,6 +44,7 @@ bash -n \
     tests/misc_root_tests/seen_result_aggregate_array_data_contract.sh \
     tests/misc_root_tests/seen_result_scalar_payload_contract.sh \
     tests/misc_root_tests/seen_inf_simd_a.sh \
+    tests/misc_root_tests/seen_async_io_a.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \
     tests/misc_root_tests/seen_pointer_field_cast_contract.sh \

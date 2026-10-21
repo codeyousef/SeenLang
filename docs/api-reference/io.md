@@ -107,6 +107,93 @@ state alongside file data or errors.
 | `__DeleteFile(path)` | Delete file |
 | `__CreateDirectory(path)` | Create directory |
 
+## Bounded completion I/O
+
+Import `io.completion_types` and `io.completion_queue`. `IoQueue` is a
+coordinator-owned state machine for platform adapters. It introduces no native
+submission mechanism and never silently selects a worker or blocking fallback.
+The existing Linux `async.completion_io` API remains available separately.
+The new surface is versioned in standard library 0.11.0; it adds no runtime ABI.
+
+`IoQueueLimits` requires depth 1–65,536, transfers 1 byte–16 MiB, an aggregate
+buffer budget at least as large as one transfer and at most 512 MiB, and a
+metadata string budget 1 byte–64 MiB. Arrays are allocated once for the bounded
+depth. Every live request retains its full buffer length and copied trace and
+resource identity lengths against those budgets until `poll` transfers ownership.
+Descriptor count is bounded by depth. Admission never allocates an unbounded
+copy before validating the context and checking all budgets.
+
+`IoRequest.create` consumes one independently owned `OwnedHandle` and one
+`OwnedBuffer<UInt8>`. Its context is borrowed until admission, so the caller
+keeps that context alive until `reserve` returns. A successful reservation owns
+a bounded context snapshot. Cancellation is then requested through the queue;
+mutating the original context does not mutate the snapshot. Negative or
+overflowing file ranges, invalid owners, overlapping full buffer ranges, and
+duplicate close ownership of one native descriptor are rejected before borrow.
+Other queues and external borrowers must respect the same exclusive ownership
+contract; the coordinator cannot discover raw aliases created outside its API.
+
+`reserve` always consumes the request. On rejection its typed
+`IoRejectedSubmission` returns the request and an `AsyncError`; the caller may
+recover those owners or call the rejection's `release`. No rejected request is
+detached or freed implicitly. Tokens combine a slot and a 32-bit generation.
+An exhausted generation retires the slot rather than permitting stale-token
+reuse. Saturation returns `async.limit`.
+
+| Transition | Adapter responsibility |
+|------------|------------------------|
+| `reserve` → queued | Queue owns all resources; no adapter borrow exists |
+| `submission(token)` → preparing | One borrowed `IoSubmissionView`; a second view is rejected |
+| `submitted(token)` → submitted | Mark before publishing storage to the OS; queue retains owners |
+| `rejectSubmission` → terminal | Allowed only while queued/preparing and after proving no OS borrow exists |
+| `complete` → terminal | Submitted requests only; terminal OS acknowledgement ends the borrow |
+| `poll` → empty | FIFO terminal delivery moves the request into one `IoCompletion` |
+
+The adapter frees each view wrapper after use. Its raw descriptor and pointer
+remain valid only while preparing/submitted, and it must stop using them before
+terminal acknowledgement. A failed OS submission after `submitted` must use
+`complete` once the adapter proves that no borrow remains. Invalid progress,
+nonterminal status 8, duplicate completion, and stale tokens leave owners and
+accounting unchanged. Successful short I/O is an explicit partial result;
+`IoCompletion.partial` and `outcome` expose exact progress without retrying.
+
+`cancel` completes queued requests immediately. Preparing or submitted requests
+retain all owners until the adapter rejects or acknowledges them. The first
+observed cancellation/deadline reason is preserved, including partial progress.
+`nextCancellation` delivers each adapter action once; retrying that native
+cancellation action is the adapter/caller's explicit policy. It also observes
+monotonic deadlines. Late successful acknowledgements report expiration instead
+of erasing it. A failed clock reports `async.unavailable`.
+
+`shutdown` stops admission and requests cancellation. Drain terminal results
+through `poll`, acknowledge every outstanding adapter borrow, then call `close`.
+A busy close returns `async.limit` and retains the queue; successful close is
+idempotent. Completion/rejection `release` closes the descriptor before freeing
+the buffer and context snapshot. A close failure retains the owner for an
+explicit retry. Queue `release` succeeds only after drain and frees its arrays.
+
+All mutation belongs to one serialized coordinator. Worker/native callbacks
+must deliver completion records back to that coordinator instead of mutating
+these arrays concurrently. Do not mutate the public implementation fields.
+`async.invalid`, `async.limit`, `async.unavailable`, `async.unsupported_platform`,
+`async.timeout`, and `async.cancelled` retain bounded operation locations and
+progress. Native result numbers remain in `request.resources.nativeResult`;
+the coordinator never infers retry policy from a foreign platform's errno.
+Backend availability and alignment requirements must be checked by each adapter
+before it publishes a request. Absence of an adapter is unsupported, with no
+implicit fallback.
+
+`tests/misc_root_tests/seen_async_io_a.sh` runs the contract in fast, release,
+UBSan and ASan profiles plus a 60-second transition fuzz. It checks exactly-once
+FIFO delivery, two simultaneously submitted requests, late acknowledgements,
+invalid transitions, aliases, checked geometry, bounded budgets, generation
+retirement and a repeated live-allocation baseline. Its machine-readable record
+uses `seen-io-contract-v1`, `backend: simulated`, and
+`native_overlap_verified: false`. This proves coordinator behavior only.
+Linux fixtures use owned pipe handles; Linux arm64, Windows and macOS adapter
+execution and actual file-I/O overlap require their own platform evidence.
+Source/frontend checks alone do not establish executable platform verification.
+
 ## Standard I/O
 
 ### Output

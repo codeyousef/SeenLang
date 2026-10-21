@@ -6,7 +6,7 @@ hash = "da2740127024874f32b73acafd8301ebbca2722db7d9888c250640c5d385d106"
 
 [[modules]]
 path = "src/core/result.seen"
-hash = "c32b442210ecd691cd763005cc54b8e0a76d68d8e78e3bca31e6e698baa7a8de"
+hash = "b0202d789f76ee14f3d5ebe58cb62277da2c4da6f8f016a0cffec0d10ecf1959"
 
 [[modules]]
 path = "src/core/prelude.seen"
@@ -34,7 +34,7 @@ hash = "8aa1d4613f7a58ffbe11f418374c10758194c6198780f5a9e33ce8037fe6d1f3"
 
 [[modules]]
 path = "src/io/file.seen"
-hash = "0d05ce6ead70588da35997a2cff60d169034494b69a8471ed896a5ef0b7d6c46"
+hash = "4af6dec130f4d6686553a8a908da3050784a606f3ecccc02118e68cdd3c2dcfe"
 
 [[modules]]
 path = "src/io/direct.seen"
@@ -88,9 +88,6 @@ hash = "ebb57641c70ef230a0478b3faa2afd49baba2517b7fde5b6acd60e5dff05c490"
 path = "src/time/timer.seen"
 hash = "a8a1da1850bead5835929ddab499032f4409c906d7a50102e3c435a9ba069c1c"
 
-[[modules]]
-path = "src/async/runtime.seen"
-hash = "ab67aad7f93dd4190cda69711a72302acc29d2f833a5b09e4d190b91effc6895"
 
 [[modules]]
 path = "src/ffi/cinterop.seen"
@@ -107,3 +104,11 @@ hash = "0822f44cfb57260b5db24248087686c7d31caffda4532f93e5b4d9dfadc6c4c3"
 [[modules]]
 path = "src/async/event_loop.seen"
 hash = "9338033052c1558ad0b6dce1a482da3f66f44802fce81a7cde60d10a7622f8ab"
+
+[[modules]]
+path = "src/io/completion_types.seen"
+hash = "75ae1ef8367915ad61b2148e06829c806451630d530afdefb2f54e49f367b144"
+
+[[modules]]
+path = "src/io/completion_queue.seen"
+hash = "a65a7de0b11cf16e7089917f16825391b3f952647d3ee6b56e8e1e09cccbaff1"

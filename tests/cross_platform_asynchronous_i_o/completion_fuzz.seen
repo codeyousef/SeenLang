@@ -1,0 +1,92 @@
+import io.completion_types.{IoQueueLimits, IoRegistration, IoRejectedSubmission, IoSubmissionView}
+import io.completion_queue.{IoQueue}
+import async.executor_core.{executorReleaseContext}
+import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioFixtureRequest}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun checkIoQueueInvariants(borrow queue: IoQueue) r: Void {
+    var active = 0; var native = 0; var terminal = 0; var owned = 0 as UInt64; var metadata = 0 as UInt64; var i = 0
+    while i < queue.capacity {
+        if queue.states[i] != 0 {
+            let request = queue.entries[i].unwrap(); active = active + 1
+            owned = owned + request.resources.buffer.byteLength
+            metadata = metadata + (request.context.resourceId.length() as UInt64) + (request.context.operation.traceId.value.length() as UInt64)
+            if queue.states[i] == 2 { native = native + 1 }
+            if queue.states[i] == 3 { terminal = terminal + 1 }
+            ioRequire(queue.states[i] >= 1 and queue.states[i] <= 4)
+        } else { ioRequire(queue.entries[i].isNone()) }
+        i = i + 1
+    }
+    ioRequire(active == queue.active and native == queue.nativeActive and terminal == queue.terminalCount)
+    ioRequire(owned == queue.ownedBytes and owned <= queue.maxOwnedBytes)
+    ioRequire(metadata == queue.metadataBytes and metadata <= queue.maxMetadataBytes)
+    ioRequire(active <= queue.capacity and queue.freeCount + active <= queue.capacity)
+}
+fun main() r: Int {
+    let context = ioContext()
+    let limits = IoQueueLimits{depth: 4, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 256 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let queue: IoQueue = ioMust(IoQueue.create(limits)); limits.free()
+    let baseline = seen_memory_used_bytes(); let start = seen_time_monotonic_nanos()
+    if start < (0 as Int64) or start > (9223371976854775807 as Int64) { return 1 }
+    let deadline = start + (60000000000 as Int64); var now = start; var seed = 1101; var iterations = 0
+    while now < deadline {
+        seed = (seed * 1103515245 + 12345) % 2147483647
+        let index = (seed / 16) % 4; let mode = seed % 10
+        if mode == 0 {
+            let result = queue.reserve(ioFixtureRequest(context))
+            if result.isErr() {
+                let rejected: IoRejectedSubmission = result.unwrapErr(); ioRequire(rejected.error.code == "async.limit")
+                result.releaseContainer(); ioMust(rejected.release())
+            } else { let registration: IoRegistration = result.unwrap(); result.releaseContainer(); registration.free() }
+        } else if mode == 1 {
+            let ready = queue.poll()
+            if ready.isSome() { ioMust(ready.unwrap().release()) }; ready.free()
+        } else if mode == 2 {
+            let cancellation = queue.nextCancellation()
+            if cancellation.isSome() { cancellation.unwrap().free() }; cancellation.free()
+        } else if queue.states[index] != 0 {
+            let token = queue.token(index)
+            if mode == 3 { ioMust(queue.cancel(token)) }
+            if mode == 4 {
+                if queue.states[index] == 1 {
+                    let view: IoSubmissionView = ioMust(queue.submission(token)); view.free()
+                } else { ioRequire(ioErrorIs(queue.submission(token), "async.invalid")) }
+            }
+            if mode == 5 {
+                if queue.states[index] == 4 { ioMust(queue.submitted(token)) }
+                else { ioRequire(ioErrorIs(queue.submitted(token), "async.invalid")) }
+            }
+            if mode == 6 {
+                if queue.states[index] == 2 { ioMust(queue.complete(token, (seed % 17) as UInt64, 0 as Int32, 0 as Int64)) }
+                else { ioRequire(ioErrorIs(queue.complete(token, 0 as UInt64, 0 as Int32, 0 as Int64), "async.invalid")) }
+            }
+            if mode == 7 {
+                if queue.states[index] == 1 or queue.states[index] == 4 { ioMust(queue.rejectSubmission(token, 4 as Int32, -95 as Int64)) }
+                else { ioRequire(ioErrorIs(queue.rejectSubmission(token, 4 as Int32, -95 as Int64), "async.invalid")) }
+            }
+            if mode == 8 {
+                ioRequire(ioErrorIs(queue.complete(token, 18446744073709551615 as UInt64, 0 as Int32, 0 as Int64), "async.invalid"))
+            }
+            if mode == 9 {
+                ioRequire(ioErrorIs(queue.complete(token + (4294967296 as UInt64), 0 as UInt64, 0 as Int32, 0 as Int64), "async.invalid"))
+            }
+        }
+        checkIoQueueInvariants(queue)
+        if queue.active == 0 { ioRequire(seen_memory_used_bytes() == baseline) }
+        iterations = iterations + 1
+        if iterations % 256 == 0 {
+            let next = seen_time_monotonic_nanos(); if next < now { return 2 }; now = next
+        }
+    }
+    ioRequire(iterations >= 256); queue.shutdown(); var index = 0
+    while index < queue.capacity {
+        if queue.states[index] == 2 { ioMust(queue.complete(queue.token(index), 0 as UInt64, 0 as Int32, 0 as Int64)) }
+        if queue.states[index] == 4 { ioMust(queue.rejectSubmission(queue.token(index), 9 as Int32, 0 as Int64)) }
+        index = index + 1
+    }
+    while queue.active != 0 { let ready = queue.poll(); ioRequire(ready.isSome()); ioMust(ready.unwrap().release()); ready.free() }
+    checkIoQueueInvariants(queue); ioRequire(seen_memory_used_bytes() == baseline)
+    ioMust(queue.release()); executorReleaseContext(context)
+    println("PASS: IO-002A transition fuzz 60s seed=1101 counters ownership and duplicate rejection")
+    return 0
+}

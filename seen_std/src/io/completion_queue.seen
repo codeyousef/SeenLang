@@ -1,0 +1,214 @@
+/// Coordinator-owned bounded state machine. Platform adapters own syscalls;
+/// submission, acknowledgement and cancellation are explicit transitions.
+import core.result.{Result, Ok, Err}
+import core.option.{Option, Some, None}
+import async.structured.{AsyncError, validateAsyncContext, asyncDeadlineStatus}
+import async.executor_core.{executorCopyContext}
+import memory.aligned_buffer.{ownedBufferByteRangeValid}
+import io.completion_types.{IoQueueLimits, IoOperation, IoRegistration, IoRequest,
+    IoRejectedSubmission, IoCompletion, IoSubmissionView, ioQueueFailure, ioCompletionStatusValid}
+
+@move
+class IoQueue {
+    var capacity: Int
+    var maxTransferBytes: UInt64
+    var maxOwnedBytes: UInt64
+    var ownedBytes: UInt64
+    var maxMetadataBytes: UInt64
+    var metadataBytes: UInt64
+    var entries: Array<Option<IoRequest>>
+    var generations: Array<UInt64>
+    var states: Array<Int>
+    var cancellation: Array<Int32>
+    var cancellationNotified: Array<Bool>
+    var freeSlots: Array<Int>
+    var freeCount: Int
+    var terminalSlots: Array<Int>
+    var terminalHead: Int
+    var terminalCount: Int
+    var active: Int
+    var nativeActive: Int
+    var accepting: Bool
+    var closed: Bool
+
+    static fun create(borrow limits: IoQueueLimits) r: Result<IoQueue, AsyncError> {
+        if not limits.valid() { return Err<IoQueue, AsyncError>(ioQueueFailure(2 as Int32, "io.queue.create", 0 as UInt64)) }
+        let entries = Array<Option<IoRequest>>(); let generations = Array<UInt64>()
+        let states = Array<Int>(); let cancellation = Array<Int32>(); let notified = Array<Bool>()
+        let freeSlots = Array<Int>(); let terminal = Array<Int>(); var i = 0
+        while i < limits.depth {
+            entries.push(None<IoRequest>()); generations.push(0 as UInt64); states.push(0)
+            cancellation.push(0 as Int32); notified.push(false); freeSlots.push(limits.depth - i - 1); terminal.push(0)
+            i = i + 1
+        }
+        return Ok<IoQueue, AsyncError>(IoQueue{capacity: limits.depth, maxTransferBytes: limits.maxTransferBytes,
+            maxOwnedBytes: limits.maxOwnedBytes, ownedBytes: 0 as UInt64,
+            maxMetadataBytes: limits.maxMetadataBytes, metadataBytes: 0 as UInt64, entries: entries, generations: generations,
+            states: states, cancellation: cancellation, cancellationNotified: notified, freeSlots: freeSlots,
+            freeCount: limits.depth, terminalSlots: terminal, terminalHead: 0, terminalCount: 0,
+            active: 0, nativeActive: 0, accepting: true, closed: false})
+    }
+    fun slot(token: UInt64) r: Int {
+        let identity = token % (4294967296 as UInt64); let generation = token / (4294967296 as UInt64)
+        if this.closed or identity == (0 as UInt64) or identity > (this.capacity as UInt64) { return -1 }
+        let index = (identity as Int) - 1
+        if this.states[index] == 0 or this.generations[index] != generation { return -1 }
+        return index
+    }
+    fun token(index: Int) r: UInt64 {
+        return this.generations[index] * (4294967296 as UInt64) + ((index + 1) as UInt64)
+    }
+    fun reject(request: IoRequest, error: AsyncError) r: Result<IoRegistration, IoRejectedSubmission> {
+        return Err<IoRegistration, IoRejectedSubmission>(IoRejectedSubmission{request: request, error: error})
+    }
+    // Admission checks full owner ranges, including requests awaiting delivery.
+    // Reject aliased storage and duplicate close ownership before any borrow.
+    fun aliases(start: UInt64, end: UInt64, descriptor: Int64) r: Bool {
+        var index = 0
+        while index < this.capacity {
+            if this.states[index] != 0 {
+                let current = this.entries[index].unwrap().resources
+                if current.descriptor.native == descriptor { return true }
+                let otherStart = current.buffer.data as UInt64
+                let otherEnd = otherStart + current.buffer.byteLength
+                if start < otherEnd and otherStart < end { return true }
+            }
+            index = index + 1
+        }
+        return false
+    }
+    fun reserve(request: IoRequest) r: Result<IoRegistration, IoRejectedSubmission> {
+        let validation = validateAsyncContext(request.context, "io.queue.reserve", 0 as UInt64)
+        if validation.isErr() {
+            let error = validation.unwrapErr(); validation.releaseContainer(); return this.reject(request, error)
+        }
+        validation.releaseContainer()
+        let buffer = request.resources.buffer; let descriptor = request.resources.descriptor
+        if this.closed or not this.accepting or request.contextOwned or not descriptor.valid or not descriptor.owned or
+            descriptor.native == (-1 as Int64) or buffer.data == (null as *UInt8) or request.bytes == (0 as UInt64) or
+            not ownedBufferByteRangeValid(buffer, 0 as UInt64, buffer.byteLength) or request.bytes > buffer.byteLength or request.bytes > this.maxTransferBytes or request.fileOffset < (0 as Int64) or
+            request.bytes > ((9223372036854775807 as Int64) - request.fileOffset) as UInt64 or
+            (request.operation != IoOperation.Read and request.operation != IoOperation.Write) {
+            return this.reject(request, ioQueueFailure(1 as Int32, "io.queue.reserve", 0 as UInt64))
+        }
+        if this.aliases(buffer.data as UInt64, (buffer.data as UInt64) + buffer.byteLength, descriptor.native) { return this.reject(request, ioQueueFailure(1 as Int32, "io.queue.alias", 0 as UInt64)) }
+        let metadata = (request.context.resourceId.length() as UInt64) + (request.context.operation.traceId.value.length() as UInt64)
+        if this.freeCount == 0 or buffer.byteLength > this.maxOwnedBytes - this.ownedBytes or metadata > this.maxMetadataBytes - this.metadataBytes {
+            return this.reject(request, ioQueueFailure(2 as Int32, "io.queue.reserve", 0 as UInt64))
+        }
+        let deadline = asyncDeadlineStatus(request.context)
+        if deadline != (0 as Int32) { return this.reject(request, ioQueueFailure(deadline, "io.queue.reserve", 0 as UInt64)) }
+        request.context = executorCopyContext(request.context); request.contextOwned = true
+        let index = this.freeSlots[this.freeCount - 1]; this.freeCount = this.freeCount - 1
+        this.generations[index] = this.generations[index] + (1 as UInt64)
+        this.entries[index].free(); this.entries[index] = Some<IoRequest>(request); this.states[index] = 1
+        this.cancellation[index] = 0 as Int32; this.cancellationNotified[index] = false
+        this.active = this.active + 1; this.ownedBytes = this.ownedBytes + buffer.byteLength
+        this.metadataBytes = this.metadataBytes + metadata
+        return Ok<IoRegistration, IoRejectedSubmission>(IoRegistration{token: this.token(index)})
+    }
+    fun submission(token: UInt64) r: Result<IoSubmissionView, AsyncError> {
+        let index = this.slot(token)
+        if index < 0 or this.states[index] != 1 { return Err<IoSubmissionView, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.view", 0 as UInt64)) }
+        let request = this.entries[index].unwrap(); let deadline = asyncDeadlineStatus(request.context)
+        if deadline != (0 as Int32) { return Err<IoSubmissionView, AsyncError>(ioQueueFailure(deadline, "io.queue.view", 0 as UInt64)) }
+        this.states[index] = 4
+        return Ok<IoSubmissionView, AsyncError>(IoSubmissionView{token: token, descriptor: request.resources.descriptor.native,
+            buffer: request.resources.buffer.data, bytes: request.bytes, fileOffset: request.fileOffset,
+            operation: request.operation, deadline: request.context.operation.monotonicDeadline})
+    }
+    fun submitted(token: UInt64) r: Result<Bool, AsyncError> {
+        let index = this.slot(token)
+        if index < 0 or this.states[index] != 4 { return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.submitted", 0 as UInt64)) }
+        this.states[index] = 2; this.nativeActive = this.nativeActive + 1
+        return Ok<Bool, AsyncError>(true)
+    }
+    fun terminal(index: Int, bytes: UInt64, status: Int32, nativeCode: Int64) r: Void {
+        let request = this.entries[index].unwrap()
+        request.resources.progress = bytes; request.resources.status = status; request.resources.nativeResult = nativeCode
+        if this.states[index] == 2 { this.nativeActive = this.nativeActive - 1 }
+        this.states[index] = 3
+        let tail = (this.terminalHead + this.terminalCount) % this.capacity
+        this.terminalSlots[tail] = index; this.terminalCount = this.terminalCount + 1
+    }
+    fun rejectSubmission(token: UInt64, status: Int32, nativeCode: Int64) r: Result<Bool, AsyncError> {
+        let index = this.slot(token)
+        if index < 0 or (this.states[index] != 1 and this.states[index] != 4) or status == (0 as Int32) or not ioCompletionStatusValid(status) {
+            return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.reject", 0 as UInt64))
+        }
+        var outcome = status
+        if this.cancellation[index] != (0 as Int32) { outcome = this.cancellation[index] }
+        this.terminal(index, 0 as UInt64, outcome, nativeCode); return Ok<Bool, AsyncError>(true)
+    }
+    fun complete(token: UInt64, bytes: UInt64, status: Int32, nativeCode: Int64) r: Result<Bool, AsyncError> {
+        let index = this.slot(token)
+        if index < 0 or this.states[index] != 2 {
+            return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.complete", 0 as UInt64))
+        }
+        let request = this.entries[index].unwrap()
+        if bytes > request.bytes or not ioCompletionStatusValid(status) { return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.progress", 0 as UInt64)) }
+        var outcome = status
+        if this.cancellation[index] != (0 as Int32) { outcome = this.cancellation[index] }
+        else if outcome == (0 as Int32) { outcome = asyncDeadlineStatus(request.context) }
+        this.terminal(index, bytes, outcome, nativeCode); return Ok<Bool, AsyncError>(true)
+    }
+    fun cancel(token: UInt64) r: Result<Bool, AsyncError> {
+        let index = this.slot(token)
+        if index < 0 { return Err<Bool, AsyncError>(ioQueueFailure(1 as Int32, "io.queue.cancel", 0 as UInt64)) }
+        if this.states[index] == 3 { return Ok<Bool, AsyncError>(false) }
+        if this.cancellation[index] == (0 as Int32) { this.cancellation[index] = 9 as Int32 }
+        if this.states[index] == 1 { this.terminal(index, 0 as UInt64, 9 as Int32, 0 as Int64) }
+        return Ok<Bool, AsyncError>(this.states[index] == 2 or this.states[index] == 4)
+    }
+    fun nextCancellation() r: Option<IoRegistration> {
+        var index = 0
+        while index < this.capacity {
+            if this.states[index] == 2 or this.states[index] == 4 {
+                let deadline = asyncDeadlineStatus(this.entries[index].unwrap().context)
+                if deadline != (0 as Int32) and this.cancellation[index] == (0 as Int32) { this.cancellation[index] = deadline }
+                if this.cancellation[index] != (0 as Int32) and not this.cancellationNotified[index] {
+                    this.cancellationNotified[index] = true
+                    return Some<IoRegistration>(IoRegistration{token: this.token(index)})
+                }
+            }
+            index = index + 1
+        }
+        return None<IoRegistration>()
+    }
+    fun poll() r: Option<IoCompletion> {
+        if this.terminalCount == 0 { return None<IoCompletion>() }
+        let index = this.terminalSlots[this.terminalHead]; let request = this.entries[index].unwrap()
+        let token = this.token(index)
+        this.terminalHead = (this.terminalHead + 1) % this.capacity; this.terminalCount = this.terminalCount - 1
+        this.entries[index].free(); this.entries[index] = None<IoRequest>(); this.states[index] = 0
+        this.active = this.active - 1; this.ownedBytes = this.ownedBytes - request.resources.buffer.byteLength
+        this.metadataBytes = this.metadataBytes - (request.context.resourceId.length() as UInt64) -
+            (request.context.operation.traceId.value.length() as UInt64)
+        if this.generations[index] < (4294967295 as UInt64) {
+            this.freeSlots[this.freeCount] = index; this.freeCount = this.freeCount + 1
+        }
+        return Some<IoCompletion>(IoCompletion{request: request, token: token})
+    }
+    fun shutdown() r: Void {
+        this.accepting = false; var index = 0
+        while index < this.capacity {
+            if this.states[index] == 1 or this.states[index] == 2 or this.states[index] == 4 {
+                let result = this.cancel(this.token(index)); result.releaseContainer()
+            }
+            index = index + 1
+        }
+    }
+    fun close() r: Result<Bool, AsyncError> {
+        if this.closed { return Ok<Bool, AsyncError>(true) }
+        this.shutdown()
+        if this.active != 0 { return Err<Bool, AsyncError>(ioQueueFailure(2 as Int32, "io.queue.close", 0 as UInt64)) }
+        this.closed = true; return Ok<Bool, AsyncError>(true)
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer()
+        var index = 0; while index < this.capacity { this.entries[index].free(); index = index + 1 }
+        this.entries.free(); this.generations.free(); this.states.free(); this.cancellation.free()
+        this.cancellationNotified.free(); this.freeSlots.free(); this.terminalSlots.free(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}
