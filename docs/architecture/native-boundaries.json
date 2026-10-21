@@ -30,6 +30,15 @@
       "production": true
     },
     {
+      "id": "compiler-trait-box-ownership",
+      "subsystem": "stdlib.async",
+      "purpose": "Seen job owners capture the compiler's immutable two-pointer dyn box. bind checks its first data word against the concrete Send job before transport; only that owner restores dispatch and frees the 16-byte box. take transfers the concrete job; release calls its destructor first. Existing pool ABI only; no native policy. Alias, rejection, cancellation and live-allocation regressions cover ownership. Retain until the compiler provides an owned existential ABI.",
+      "abi": "Seen compiler dyn box (64-bit)",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_pool_free"],
+      "production": false
+    },
+    {
       "id": "deterministic-process-input-adapter",
       "subsystem": "stdlib.determinism",
       "purpose": "Bounded process-start snapshots, Linux process replacement after validated deterministic CLI activation, and symlink-aware path containment. Native Seen owns grants, policy, context identity, diagnostics, and observable values. The runtime captures inputs before user code, re-execs without PATH lookup when the flag activates the mode, and canonicalizes existing paths through the OS. Unsupported process replacement and Windows path policy fail closed.",
