@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import struct
-import subprocess
+from check_gpu_spirv_toolchain import invoke, load_profile, verify_installation
 
 
 def require(value, message):
@@ -115,6 +115,8 @@ def main():
     parser.add_argument('--require-opcodes', default='')
     parser.add_argument('--require-capabilities', default='')
     args = parser.parse_args()
+    toolchain = load_profile()
+    identity = verify_installation(toolchain)
     baseline = None
     all_opcodes, capabilities = set(), set()
     for profile in ('fast', 'release', 'undefined', 'address'):
@@ -137,7 +139,8 @@ def main():
                     require(1 <= words[3] <= 1048576 and words[4] == 0, 'artifact identity bound differs')
                     binary = args.root / f'{name}-{profile}-{target}.spv'
                     binary.write_bytes(struct.pack(f'<{len(words)}I', *words))
-                    subprocess.run(['spirv-val', '--target-env', target, str(binary)], check=True)
+                    status, output, diagnostic = invoke(toolchain, 'spirv-val', ['--target-env', target, str(binary)])
+                    require(status == 0 and not output and not diagnostic, 'official validation failed: ' + diagnostic)
                     for opcode, operands in instructions(words):
                         all_opcodes.add(opcode)
                         if opcode == 17:
@@ -161,7 +164,7 @@ def main():
         required = {int(value) for value in requested.split(',') if value}
         require(required <= values, f'missing required {key}: {sorted(required - values)}')
     evidence = {'schema': 'seen-spirv-validation-v1', 'official_validation': True,
-                'device_execution': False, 'profiles': ['fast', 'release', 'undefined', 'address'],
+                'device_execution': False, 'toolchain': identity, 'profiles': ['fast', 'release', 'undefined', 'address'],
                 'opcodes': sorted(all_opcodes), 'capabilities': sorted(capabilities)}
     (args.root / 'validation.json').write_text(json.dumps(evidence, sort_keys=True) + '\n')
     print('PASS: Seen-emitted SPIR-V passes official validation, reflection ABI and four-profile identity')

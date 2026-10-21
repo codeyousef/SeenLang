@@ -1,0 +1,50 @@
+/// Integrity metadata binds the current bytes and reflection to the creator's
+/// digest snapshot. Structural checks do not replace the official validator;
+/// this manifest always records official validation as not run.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+import codegen.gpu.spirv_artifact_model.{GpuSpirvArtifact}
+import codegen.gpu_reflection.{gpuReflectionHash}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+
+fun gpuSpirvWordAt(binary: String, index: Int) r: Int {
+    let offset = index * 4
+    return binary.byteAt(offset) | (binary.byteAt(offset + 1) << 8) | (binary.byteAt(offset + 2) << 16) | (binary.byteAt(offset + 3) << 24)
+}
+fun gpuSpirvArtifactShape(borrow artifact: GpuSpirvArtifact) r: Bool {
+    let binary = artifact.binary; let bytes = binary.length()
+    if bytes < 20 or bytes > 33554432 or bytes % 4 != 0 or artifact.reflection.length() > 4194304 or
+        (artifact.target != "vulkan1.2" and artifact.target != "vulkan1.3") { return false }
+    var version = 66816; if artifact.target == "vulkan1.3" { version = 67072 }
+    if gpuSpirvWordAt(binary, 0) != 119734787 or gpuSpirvWordAt(binary, 1) != version or
+        gpuSpirvWordAt(binary, 2) != 0 or gpuSpirvWordAt(binary, 4) != 0 { return false }
+    let bound = gpuSpirvWordAt(binary, 3); if bound < 1 or bound > 1048576 { return false }
+    let words = bytes / 4; var cursor = 5
+    while cursor < words {
+        let count = gpuSpirvWordAt(binary, cursor) >> 16
+        if count < 1 or count > words - cursor { return false }; cursor = cursor + count
+    }; return true
+}
+fun gpuSpirvArtifactManifest(borrow artifact: GpuSpirvArtifact) r: Result<String, GpuIrDiagnostic> {
+    if not gpuSpirvArtifactShape(artifact) {
+        return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_ARTIFACT", "SPIR-V artifact header, shape or target is invalid"))
+    }
+    let binaryResult = gpuReflectionHash(artifact.binary)
+    if binaryResult.isErr() { let error = binaryResult.unwrapErr(); binaryResult.releaseContainer(); return Err<String, GpuIrDiagnostic>(error) }
+    let binaryHash = binaryResult.unwrap(); binaryResult.releaseContainer(); let reflectionResult = gpuReflectionHash(artifact.reflection)
+    if reflectionResult.isErr() {
+        let error = reflectionResult.unwrapErr(); reflectionResult.releaseContainer(); releaseJsonText(binaryHash); return Err<String, GpuIrDiagnostic>(error)
+    }
+    let reflectionHash = reflectionResult.unwrap(); reflectionResult.releaseContainer()
+    let matches = binaryHash == artifact.binaryHash and reflectionHash == artifact.reflectionHash
+    releaseJsonText(binaryHash); releaseJsonText(reflectionHash)
+    if not matches { return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_ARTIFACT", "artifact bytes or reflection no longer match their digest snapshot")) }
+    let builder = JsonBuilder_new(); builder.startObject()
+    builder.stringProp("schema", "seen-gpu-artifact-manifest-v1"); builder.stringProp("backend", "spirv")
+    builder.stringProp("target", artifact.target); builder.stringProp("byte_order", "little")
+    builder.intProp("byte_count", artifact.binary.length()); builder.intProp("word_count", artifact.binary.length() / 4)
+    builder.stringProp("sha256", artifact.binaryHash); builder.stringProp("reflection_sha256", artifact.reflectionHash)
+    builder.stringProp("classification", "compile-only"); builder.stringProp("official_validation", "not-run")
+    builder.boolProp("hardware_verified", 0); builder.boolProp("gpu_execution_verified", 0); builder.endObject()
+    let text = builder.build(); destroyJsonBuilder(builder); return Ok<String, GpuIrDiagnostic>(text)
+}

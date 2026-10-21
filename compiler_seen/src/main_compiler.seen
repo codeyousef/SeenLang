@@ -77,6 +77,10 @@ import codegen.gpu.spirv_intrinsics.{spirvIntrinsic as _seedSpirv_intrinsics}
 import codegen.gpu.spirv_values.{spirvLowerValue as _seedSpirv_values}
 import codegen.gpu.spirv_regions.{spirvLowerRegion as _seedSpirv_regions}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv as _seedSpirv_emitter}
+import codegen.gpu.spirv_binary.{encodeGpuSpirvBinary as _seedSpirv_binary}
+import codegen.gpu.spirv_artifact_manifest.{gpuSpirvArtifactManifest as _seedSpirv_artifact_manifest}
+import codegen.gpu.spirv_artifact_model.{GpuSpirvArtifact as _seedSpirv_artifact_model}
+import codegen.gpu.spirv_artifact.{buildGpuSpirvArtifact as _seedSpirv_artifact}
 import codegen.gpu.spirv_memory_plan.{spirvMemoryScope as _seedSpirv_memory_plan}
 import codegen.gpu.spirv_atomics.{spirvAtomic as _seedSpirv_atomics}
 import codegen.gpu.spirv_subgroup.{spirvSubgroup as _seedSpirv_subgroup}
@@ -8948,6 +8952,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.gpu.spirv_values")
         modules.push("codegen.gpu.spirv_regions")
         modules.push("codegen.gpu.spirv_emitter")
+        modules.push("codegen.gpu.spirv_binary")
+        modules.push("codegen.gpu.spirv_artifact_manifest")
+        modules.push("codegen.gpu.spirv_artifact_model")
+        modules.push("codegen.gpu.spirv_artifact")
         modules.push("codegen.gpu.spirv_memory_plan")
         modules.push("codegen.gpu.spirv_atomics")
         modules.push("codegen.gpu.spirv_subgroup")

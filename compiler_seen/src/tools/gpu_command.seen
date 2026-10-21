@@ -29,10 +29,10 @@ fun gpuReadBoundedText(path: String, limit: Int) r: Result<String, GpuIrDiagnost
 fun parseGpuArtifactCli(argv: Array<String>, binary: Bool) r: CliArguments {
     let values = ["--output", "--module-id", "--manifest", "--gpu-manifest", "--gpu-backend", "--gpu-target", "--gpu-fallback", "--gpu-entry"]
     let names = ["--output", "--module-id", "--gpu-manifest", "--gpu-manifest", "--gpu-backend", "--gpu-target", "--gpu-fallback", "--gpu-entry"]
-    let repeatable = ["--gpu-entry"]
-    if binary { values.push("--reflection"); names.push("--reflection") }
-    let result = parseCliArguments(argv, 3, Array<String>(), Array<String>(), values, names, repeatable)
-    values.free(); names.free(); repeatable.free(); return result
+    let repeatable = ["--gpu-entry"]; let flags = Array<String>(); let flagNames = Array<String>()
+    if binary { values.push("--reflection"); names.push("--reflection"); flags.push("--artifact-info"); flagNames.push("--artifact-info") }
+    let result = parseCliArguments(argv, 3, flags, flagNames, values, names, repeatable)
+    values.free(); names.free(); repeatable.free(); flags.free(); flagNames.free(); return result
 }
 fun parseGpuReflectCli(argv: Array<String>) r: CliArguments { return parseGpuArtifactCli(argv, false) }
 fun gpuApplyCliOptions(borrow options: GpuOptions, parsed: CliArguments) r: GpuIrDiagnostic {

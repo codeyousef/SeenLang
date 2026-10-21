@@ -473,3 +473,44 @@ policy. The frontend performs no device discovery and selects no fallback.
 they do not establish typed compute backend or Wasm target support.
 
 See [SIMD and GPU](../simd-and-gpu.md) for related compiler controls.
+
+## SPIR-V artifact integrity and official certification
+
+`buildGpuSpirvArtifact` borrows a verified IR module and options and returns one
+owned `GpuSpirvArtifact`, or owned validation diagnostics. The artifact owns its
+binary, reflection, and two SHA-256 strings. Its creator calls `release()` once;
+borrowers must not mutate or release these fields. Construction releases every
+completed phase if a later phase fails. The shared Seen serializer bounds output
+to 32 MiB and writes little-endian words through the existing byte-storage ABI.
+
+`gpuSpirvArtifactManifest` borrows the artifact, checks its target/header and
+instruction framing, recomputes both digests, and returns owned JSON. A changed
+snapshot returns `E_GPU_SPIRV_ARTIFACT`. This integrity check does not validate
+SPIR-V semantics. `seen gpu emit ... --artifact-info` prints the manifest defined
+by `docs/schemas/seen-gpu-artifact-manifest-v1.schema.json` after successful output
+publication. Manifest construction completes before any file write; an output
+failure returns `E_GPU_OUTPUT`. Binary and reflection publication are individually
+atomic; a failed reflection write can leave the completed binary on disk.
+
+The compiler manifest always reports `official_validation: "not-run"`,
+`classification: "compile-only"`, and both hardware/execution flags false.
+Official certification is separate: `seen_gpu_spirv_c.sh` compares actual files
+and compiler hashes, source relocation, reflection layout, and an official
+assembler/disassembler round trip. Only the assembler's generator header word
+may differ. The harness exercises malformed headers, truncated instructions,
+invalid opcodes and 60 seconds of seeded malformed-byte fuzz. Validator crashes,
+timeouts, or resource failures fail certification instead of counting as a
+successful rejection. Four compiled profiles exercise construction, mutation
+rejection and repeated allocation baselines.
+
+The Linux x86-64 SDK package version and executable SHA-256 identities live in
+`docs/architecture/spirv-toolchain.json`. Provisioning installs that exact Ubuntu
+package and verifies all three executables. The shared test adapter invokes
+absolute paths, checks file identity and hashes, clears inherited tool-loading
+environment, bounds diagnostics, and enforces RAM-derived memory, CPU and wall
+limits inside the parent CI containment. Each invocation is synchronous; there
+is no detached work or hidden retry. Deadline failure kills and reaps the child.
+The resulting `certification.json` records tool identities and artifact hashes.
+Other hosts are explicitly unsupported by this certification profile. Offline
+validation remains compile-only and proves no device capability, dispatch,
+performance, or hardware correctness.
