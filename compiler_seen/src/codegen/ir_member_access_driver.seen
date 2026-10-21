@@ -11,7 +11,7 @@ import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getS
 import codegen.ir_enum_ctor_gen.{isEnumVariantStateImpl, lookupEnumParentStateImpl, lookupEnumFieldCountStateImpl, lookupEnumVariantTagStateImpl}
 import codegen.ir_local_type_leaf_driver.{findVarTypeState}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
-import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl}
+import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, prepareBorrowedMemberReceiverImpl}
 import codegen.ir_member_access_gen.{emitPreparedBracketPathMemberAccessImpl, emitPreparedChainedReceiverMemberAccessImpl, emitPreparedExpressionReceiverMemberAccessImpl, emitPreparedImplicitThisReceiverMemberAccessImpl, emitPreparedModuleConstReceiverMemberAccessImpl, emitPreparedVariableReceiverMemberAccessImpl}
 import codegen.ir_member_access_plan.{planMemberAccessRouteImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, resolveMethodFieldPathTypeImpl}
@@ -43,6 +43,16 @@ fun generateFieldAccessPtrState(output: StringBuilder, ptrReg: String,
         structType, fieldName, getGlobalStructNamesImpl(),
         getGlobalStructLayoutsImpl(), getGlobalStructFieldNamesImpl(),
         getFeatureUnionTypesImpl())
+}
+
+// Method receivers borrow an address even when ordinary repr(C) expressions
+// carry aggregate values. Normalize the borrowed receiver before field reads.
+fun generateBorrowedFieldAccessState(output: StringBuilder, ptrReg: String,
+    structType: String, fieldName: String) r: String {
+    let receiver = prepareBorrowedMemberReceiverImpl(output,
+        getFeatureRegBoxImpl(), ptrReg, structType,
+        getFeatureReprCClassNamesImpl())
+    return generateFieldAccessState(output, receiver, structType, fieldName)
 }
 
 fun generateExpressionReceiverMemberAccessState(output: StringBuilder,
@@ -288,7 +298,7 @@ fun tryGenerateImplicitThisFieldVariableState(output: StringBuilder,
         if idxCheck >= 0 {
             let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
                 getFeatureRegBoxImpl(), thisReg)
-            return generateFieldAccessState(output, thisPtrReg, thisType,
+            return generateBorrowedFieldAccessState(output, thisPtrReg, thisType,
                 varName)
         }
     }
@@ -305,7 +315,7 @@ fun tryGenerateImplicitThisFieldVariableState(output: StringBuilder,
 
     let thisPtrReg = emitImplicitThisPointerLoadImpl(output,
         getFeatureRegBoxImpl(), thisReg)
-    return generateFieldAccessState(output, thisPtrReg, thisType, varName)
+    return generateBorrowedFieldAccessState(output, thisPtrReg, thisType, varName)
 }
 
 fun isExplicitThisReceiverExprState(expr: ParserExpressionNode) r: Bool {

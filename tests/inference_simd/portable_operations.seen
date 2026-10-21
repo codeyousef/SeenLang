@@ -1,7 +1,7 @@
 import memory.aligned_buffer.{OwnedBuffer}
 import simd.memory_operations.{SimdMemoryProgress, copyMaskedSimd, transformPackedSimdBytes, prefetchSimdBlock}
 import simd.operation_types.{simdOperationArity, simdOperationResult}
-import tests.inference_simd.dot_fixture_support.{must, errorIs, context}
+import dot_fixture_support.{must, errorIs, context}
 extern "C" fun seen_memory_used_bytes() r: Int64
 fun require(value: Bool) r: Void { if not value { abort("portable SIMD operation mismatch") } }
 fun closeBuffer(buffer: OwnedBuffer<UInt8>) r: Void { require(buffer.close()); buffer.free() }

@@ -470,7 +470,7 @@ hash = "2b60bfc1046a240167779ff822f607cf4d239cebd8e63e8a60235e4ae1ad7033"
 
 [[modules]]
 path = "src/simd/memory_operations.seen"
-hash = "8d05dffa6c61ff2b6e8c31d4b91f933b514a89f9e574dea7a6259a3215e3075b"
+hash = "a66c4b1294d18773e625ccdaddb5e80468c3b69ffd67cbc9640e7b81548cd82e"
 
 [[modules]]
 path = "src/simd/dispatch_plan.seen"

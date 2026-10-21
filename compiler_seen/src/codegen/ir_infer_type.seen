@@ -173,6 +173,10 @@ fun inferBinaryTypeImpl(operator: String, leftType: String, rightType: String) r
     if leftType == "Float" or rightType == "Float" {
         return "Float"
     }
+    if (leftType == "Float32" and rightType == "Float64") or
+        (leftType == "Float64" and rightType == "Float32") {
+        return "Float64"
+    }
     // Arithmetic on matching fixed-width scalars preserves the declared ABI
     // type.  Lowering may widen integer operands internally, but the public
     // expression type and stored result remain width-exact.

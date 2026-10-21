@@ -108,8 +108,9 @@ fun transformPackedSimdBytes(borrow source: OwnedBuffer<UInt8>, sourceOffset: UI
             if not packedSet(packedOutput, i, input[i]) { abort("validated packed store failed") }
         } else {
             let value = packedGet(packedInput, i)
-            if value.isNone() { abort("validated packed load failed") }
-            output[i] = value.unwrap()
+            if value.isNone() { value.free(); abort("validated packed load failed") }
+            let unpacked = value.unwrap(); value.free()
+            output[i] = unpacked
         }
         i = i + (1 as UInt64); progress.completed = i
     }

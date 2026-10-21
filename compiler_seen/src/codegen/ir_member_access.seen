@@ -266,6 +266,14 @@ fun prepareVariableMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
     return ptrReg
 }
 
+/// Method receivers borrow an aggregate address rather than a value slot.
+/// Reuse the ordinary repr(C) load before extracting a borrowed field.
+fun prepareBorrowedMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
+    receiverPtr: String, receiverType: String, reprCClassNames: String) r: String {
+    return prepareVariableMemberReceiverImpl(output, regBox, receiverPtr,
+        receiverType, reprCClassNames, 0, 1)
+}
+
 ///
 prepareModuleConstMemberReceiverImpl — load a module constant into the
 register form expected by generateFieldAccess.

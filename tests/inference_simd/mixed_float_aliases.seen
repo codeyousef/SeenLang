@@ -1,0 +1,23 @@
+fun requireFloatAlias(value: Bool) r: Void {
+    if not value { abort("mixed floating-point alias changed scalar representation") }
+}
+fun checkFloatAliases(wide: Float, explicitWide: Float64, single: Float32) r: Void {
+    requireFloatAlias(wide > single and single < wide)
+    requireFloatAlias(wide != single and single != wide)
+    requireFloatAlias(wide + single == 3.75 and single + wide == 3.75)
+    requireFloatAlias(wide - single == single and single - wide == (-1.25 as Float32))
+    requireFloatAlias(wide * single == 3.125 and single * wide == 3.125)
+    requireFloatAlias(wide / single == 2.0 and single / wide == 0.5)
+    requireFloatAlias(explicitWide > single and single < explicitWide)
+    let first = explicitWide + single; let second = single + explicitWide
+    requireFloatAlias(first == 3.75 and second == 3.75)
+    requireFloatAlias((single * wide) + single == 4.375)
+    requireFloatAlias((wide * single) + single == 4.375)
+    let narrow = single + single
+    requireFloatAlias(narrow == (2.5 as Float32))
+}
+fun main() r: Int {
+    checkFloatAliases(2.5, 2.5 as Float64, 1.25 as Float32)
+    println("PASS: mixed Float Float32 Float64 comparisons arithmetic and fused promotion retain scalar types")
+    return 0
+}
