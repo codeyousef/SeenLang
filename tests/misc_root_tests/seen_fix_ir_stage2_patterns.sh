@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-TMP_DIR="/tmp/seen_fix_ir_stage2_patterns"
+ARTIFACT_BASE="${SEEN_ARTIFACT_ROOT:-$ROOT_DIR/.seen/agent-tools}"
+mkdir -p "$ARTIFACT_BASE"
+TMP_DIR="$(mktemp -d "$ARTIFACT_BASE/fix-ir-stage2.XXXXXX")"
+trap 'rm -rf "$TMP_DIR"' EXIT
 IR_FILE="$TMP_DIR/stage2_patterns.ll"
 OTHER_IR_FILE="$TMP_DIR/stage2_patterns_other.ll"
 BC_FILE="$TMP_DIR/stage2_patterns.bc"
 OPT_FILE="$TMP_DIR/stage2_patterns.opt.ll"
-
-rm -rf "$TMP_DIR"
-mkdir -p "$TMP_DIR"
 
 cat >"$IR_FILE" <<'IR'
 %SeenString = type { i64, ptr }
@@ -721,8 +721,11 @@ RESULT_IR="$TMP_DIR/result_constructors.ll"
 cp "$ROOT_DIR/tests/fixtures/frozen-result/constructors.ll.in" "$RESULT_IR"
 python3 "$ROOT_DIR/scripts/fix_ir.py" "$RESULT_IR"
 llvm-as "$RESULT_IR" -o "$TMP_DIR/result_constructors.bc"
-timeout --kill-after=5s 30s lli "$TMP_DIR/result_constructors.bc"
 opt -O2 "$TMP_DIR/result_constructors.bc" -o "$TMP_DIR/result_constructors.opt.bc"
-timeout --kill-after=5s 30s lli "$TMP_DIR/result_constructors.opt.bc"
+for result_mode in result_constructors result_constructors.opt; do
+    llc -relocation-model=pic -filetype=obj "$TMP_DIR/$result_mode.bc" -o "$TMP_DIR/$result_mode.o"
+    clang "$TMP_DIR/$result_mode.o" -o "$TMP_DIR/$result_mode"
+    timeout --kill-after=5s 30s "$TMP_DIR/$result_mode"
+done
 
 echo "PASS: Stage2 fix_ir pattern repairs"
