@@ -3,6 +3,15 @@
   "inventory": "native-inventory.json",
   "boundaries": [
     {
+      "id": "compiler-byte-array-storage-view",
+      "subsystem": "compiler.gpu",
+      "purpose": "Existing runtime array-data accessor borrows the backing storage of an exclusively owned Array<Int> during bounded Seen byte compaction. It allocates nothing, retains no pointer and owns no conversion algorithm. Seen validates byte domains and the 32 MiB ceiling, compacts forward without overwriting unread elements, clones a length-delimited string view, then frees the input once. The borrower cannot resize or share the array. Binary/NUL/high-byte round trips, empty input, rejected values and allocation-baseline tests cover the boundary. Permanent runtime layout projection until the frozen bootstrap supports a portable Seen array-data intrinsic; migrate the accessor and byte owner together.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_arr_data_ptr"],
+      "production": true
+    },
+    {
       "id": "accelerator-cuda-resource-abi",
       "subsystem": "stdlib.accelerator.cuda",
       "purpose": "Explicit CUDA resource adapter for allocation, pinned staging, streams, events, graphs, deterministic cuBLASLt, and generation-checked borrowed launch tokens. Seen owns policy, ownership, cache identity, fallback, and diagnostics. Token borrowing only validates lifetime and device identity; it does not allocate or synchronize CUDA work. CPU-only builds neither discover nor link the adapter. RTX 4090 foundation and separate model-adapter canaries exercise it. Experimental until hardware certification.",
