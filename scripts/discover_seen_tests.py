@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -14,6 +15,7 @@ SCHEMA = "seen-test-discovery-v1"
 MAX_BYTES = 16 * 1024 * 1024
 MAX_PATH_BYTES = 4096
 MAX_TESTS = 100_000
+PATH_CHARACTERS = re.compile(r"[A-Za-z0-9._/-]+", re.ASCII)
 FIELDS = {"schema", "tests"}
 TEST_FIELDS = {"category", "ignored", "path", "platform", "privileged", "slow"}
 ROOTS = ("compiler_seen/tests", "seen_std/tests",
@@ -43,14 +45,12 @@ def canonical_path(path: object) -> bool:
     return (
         isinstance(path, str)
         and bool(path)
-        and len(path.encode()) <= MAX_PATH_BYTES
-        and path.isascii()
+        and len(path) <= MAX_PATH_BYTES
         and not path.startswith("/")
         and not path.endswith("/")
         and ".." not in path
         and "//" not in path
-        and "\\" not in path
-        and all(character.isalnum() or character in "-._/" for character in path)
+        and PATH_CHARACTERS.fullmatch(path) is not None
     )
 
 

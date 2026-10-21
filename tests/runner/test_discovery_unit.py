@@ -59,6 +59,16 @@ class TestDiscoveryTests(unittest.TestCase):
         self.code("invalid", self.raw(value))
         DISCOVERY.fuzz(self.raw(), 0.02, 1101)
 
+    def test_canonical_path_boundaries(self) -> None:
+        for path in ("a-z_A.Z/09.seen", "x" * DISCOVERY.MAX_PATH_BYTES):
+            self.assertTrue(DISCOVERY.canonical_path(path), path)
+        for path in ("", "/absolute.seen", "trailing/", "a//b.seen", "a/../b.seen",
+                     "a\\b.seen", "with space.seen", "line\n.seen", "tail.seen\n",
+                     "null\0.seen", "café.seen", "百分.seen", "x" * (DISCOVERY.MAX_PATH_BYTES + 1),
+                     None, b"bytes.seen", 1):
+            with self.subTest(path=path):
+                self.assertFalse(DISCOVERY.canonical_path(path))
+
     def test_symlink_root_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "physical"

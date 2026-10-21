@@ -65,6 +65,9 @@ Foundations**.
 
 ### Fixed
 
+- Speed up canonical test-path validation while preserving strict path checks
+  and the existing discovery performance gate.
+
 - Share read/write array bounds guards and derive their labels from unique SSA
   registers so nested expressions cannot reuse control-flow blocks.
 - Provision and verify an ARM64 libc sysroot for CI cross-target object checks.
