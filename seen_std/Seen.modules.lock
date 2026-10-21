@@ -103,3 +103,23 @@ hash = "77712139801522651f7d863852bdddf2c9654c313f57e0c11949b5b4258a7df2"
 [[modules]]
 path = "src/math/math.seen"
 hash = "0822f44cfb57260b5db24248087686c7d31caffda4532f93e5b4d9dfadc6c4c3"
+
+[[modules]]
+path = "src/simd/ir_types.seen"
+hash = "b8e79348b716b9c12f041b1685e1ed5ac6dc3865cc5bb3c929f50ce11ad27392"
+
+[[modules]]
+path = "src/simd/x86_dispatch.seen"
+hash = "01aaf8574014fe8df8646b34fa61e5e2c5ea4cb76e2243c667af0e5357f2e9b0"
+
+[[modules]]
+path = "src/simd/x86_blocks.seen"
+hash = "2a733e271cc55fb1abc0a83ee8d50b11d40d1e24f51ede0ffad0877f0d750a69"
+
+[[modules]]
+path = "src/simd/x86_kernels.seen"
+hash = "4fc984a672fd7ac8785bad2de120a002973615fdf18f01ae92f4bf3df00ff393"
+
+[[modules]]
+path = "src/simd/dot_clock.seen"
+hash = "bfe37e4305d2c5fc306834e51ea7a67d6d6f7dabd43dbd9aa604c532c472eed5"

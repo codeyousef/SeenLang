@@ -12,6 +12,15 @@
       "production": false
     },
     {
+      "id": "borrowed-trait-box-storage",
+      "subsystem": "stdlib.simd",
+      "purpose": "Existing runtime pool deallocation releases exactly the 16-byte compiler-created trait box owned by a DotClockHandle. The concrete clock remains caller-owned and must outlive the handle. Seen owns dispatch, provider lifetime rules, progress and error policy. Contract allocation baselines and sanitizer profiles cover native and deterministic providers. Permanent until compiler-managed borrowed trait boxes replace explicit handle cleanup; migrate creation and release together.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_pool_free"],
+      "production": true
+    },
+    {
       "id": "c-string-conversion-memory",
       "subsystem": "runtime.ffi",
       "purpose": "Explicit C-string conversion ownership boundary. Converting a Seen string to a C string allocates a NUL-terminated copy that Seen code releases exactly once through the paired free symbol; converting a C string to Seen produces a borrowed view and never takes ownership. Exercised by packaged standard-library executable tests with non-null CUDA diagnostic strings and deterministic cleanup.",
@@ -144,6 +153,23 @@
       "abi": "OS time C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_time_monotonic_nanos", "seen_time_sleep_nanos", "seen_time_system_nanos"],
+      "production": true
+    },
+    {
+      "id": "x86-cpu-register-state",
+      "subsystem": "runtime.cpu",
+      "purpose": "Startup CPUID/XGETBV normalization and read-only feature queries require OS-enabled XCR0 state before Seen selects AVX bodies. No allocations or borrowed storage escape; process-lifetime feature data initializes before workers. Seen owns dispatch, fallback, kernels, bounds, progress and diagnostics. Simulated OS-state probes and SIMD fixtures cover the boundary. Migrate queries together if compiler CPU discovery replaces this ABI.",
+      "abi": "Seen runtime C",
+      "platforms": [
+        "linux-x86_64",
+        "macos",
+        "windows"
+      ],
+      "symbols": [
+        "seen_cpu_detect",
+        "seen_cpu_has_feature",
+        "seen_cpu_simd_tier"
+      ],
       "production": true
     }
   ]

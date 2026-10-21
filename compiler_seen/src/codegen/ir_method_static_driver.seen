@@ -89,7 +89,7 @@ fun tryGenerateStaticMethodCallState(ctx: CodegenLoweringContext,
         potentialClassName, isUppercase)
     let funcName = staticMethodFunctionNameImpl(staticClassName, methodName)
     prepareCallArgumentsWithDefaultsState(ctx, output, funcName,
-        expr.arguments, false,
+        expr.arguments, true,
         shouldPromoteStaticMethodFloatArgsImpl(isUppercase), false, "",
         varNames, varRegs, varTypes, stringConstants)
 

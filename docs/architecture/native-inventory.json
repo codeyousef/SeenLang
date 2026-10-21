@@ -3788,6 +3788,13 @@
       ]
     },
     {
+      "name": "seen_cpu_has_feature",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/simd/x86_dispatch.seen"
+      ]
+    },
+    {
       "name": "seen_cstr_to_str",
       "abi": "Seen",
       "sources": [
@@ -5617,6 +5624,13 @@
       ]
     },
     {
+      "name": "seen_pool_free",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/simd/dot_clock.seen"
+      ]
+    },
+    {
       "name": "seen_pool_region_alloc",
       "abi": "Seen",
       "sources": [
@@ -6173,6 +6187,7 @@
       "sources": [
         "seen_std/src/async/structured.seen",
         "seen_std/src/determinism/policy.seen",
+        "seen_std/src/simd/dot_clock.seen",
         "seen_std/src/sync/contracts.seen"
       ]
     },

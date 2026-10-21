@@ -1,0 +1,54 @@
+import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
+import codegen.ir_method_receiver.{getSemanticFieldTypeImpl, resolveMethodFieldPathTypeImpl}
+import codegen.ir_member_access.{inferMemberFieldTypeImpl}
+import codegen.ir_field_layout.{emitResolvedFieldAccessLoadImpl, isNativePointerFieldTypeImpl}
+import str.string.{StringBuilder}
+import codegen.ir_assignment_coerce.{mapAssignmentSourceValueTypeCoreImpl}
+
+fun requirePointerFieldLoad(layout: String, expectedLoad: String, expectedConversion: Bool) r: Void {
+    let output = StringBuilder.new()
+    let registers = [0]
+    let names = ["PointerOwner"]
+    let layouts = [layout]
+    let fields = ["data"]
+    let value = emitResolvedFieldAccessLoadImpl(output, registers, "%owner", "PointerOwner", "data", "i64",
+        names, layouts, fields, 0, "", "", false)
+    let ir = output.toString()
+    if value == "" or not ir.contains(expectedLoad) or ir.contains("ptrtoint ptr") != expectedConversion or ir.contains("inttoptr i64") {
+        println(ir)
+        abort("pointer field load must agree with pointer expression ABI")
+    }
+    names.free(); layouts.free(); fields.free(); registers.free()
+}
+fun requireFieldType(actual: String, expected: String, location: String) r: Void {
+    if actual != expected {
+        println("FIELD TYPE MISMATCH: " + location + " expected " + expected + " got " + actual)
+        abort("generic field type lookup disagrees")
+    }
+}
+fun main() r: Int {
+    requirePointerFieldLoad("{ ptr, i64 }", "load ptr", true)
+    requirePointerFieldLoad("{ i64, i64 }", "load i64", false)
+    let noClasses = Array<String>()
+    requireFieldType(mapAssignmentSourceValueTypeCoreImpl("*UInt8", noClasses), "i64", "pointer assignment source ABI")
+    requireFieldType(mapAssignmentSourceValueTypeCoreImpl("*const UInt8", noClasses), "i64", "const pointer assignment source ABI")
+    noClasses.free()
+    if isNativePointerFieldTypeImpl("*UInt8") { abort("raw pointer expressions retain the word ABI") }
+    if isNativePointerFieldTypeImpl("T") { abort("unresolved generic is not a native pointer") }
+    let names = ["OwnedBuffer", "Owner"]
+    // Registry names are comma-delimited; type spellings are pipe-delimited.
+    let fields = ["data,byteLength", "value"]
+    let types = ["*T|UInt64", "T"]
+    let methods = ["", ""]
+    requireFieldType(getSeenFieldTypeImpl("OwnedBuffer<UInt8>", "data", names, fields, types), "*UInt8", "emitted byte pointer")
+    requireFieldType(getSemanticFieldTypeImpl("OwnedBuffer<UInt8>", "data", names, fields, types), "*UInt8", "semantic byte pointer")
+    requireFieldType(inferMemberFieldTypeImpl("OwnedBuffer<UInt8>", "data", names, fields, types), "*UInt8", "member byte pointer")
+    requireFieldType(resolveMethodFieldPathTypeImpl("OwnedBuffer<UInt16>", "data", names, fields, types, methods, methods), "*UInt16", "method UInt16 pointer")
+    requireFieldType(getSemanticFieldTypeImpl("Owner<Array<Int>>", "value", names, fields, types), "Array<Int>", "nested Array payload")
+    requireFieldType(getSemanticFieldTypeImpl("Owner<NumberValue>", "value", names, fields, types), "NumberValue", "class payload")
+    requireFieldType(getSemanticFieldTypeImpl("OwnedBuffer", "data", names, fields, types), "*T", "open generic pointer")
+    requireFieldType(getSemanticFieldTypeImpl("OwnedBuffer<UInt8>", "byteLength", names, fields, types), "UInt64", "second registered field")
+    names.free(); fields.free(); types.free(); methods.free()
+    println("PASS: semantic and emitted generic field types agree")
+    return 0
+}

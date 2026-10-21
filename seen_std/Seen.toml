@@ -97,6 +97,10 @@ modules = [
     # Portable SIMD representation and dispatch planning
     "src/simd/ir_types.seen",
     "src/simd/dispatch_plan.seen",
+    "src/simd/x86_dispatch.seen",
+    "src/simd/x86_blocks.seen",
+    "src/simd/x86_kernels.seen",
+    "src/simd/dot_clock.seen",
 
     # Math
     "src/math/math.seen",

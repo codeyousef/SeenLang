@@ -202,7 +202,7 @@ fun planLowLevelBuiltinArgumentReadsImpl(action: Int, hasArg0: Bool,
         plan.shouldReadArg0 = hasArg0
         return plan
     }
-    if action == 7 {
+    if action == 7 or action == 14 {
         plan.shouldReadArg0 = hasArg0
         plan.shouldReadArg1 = hasArg1
         return plan
@@ -241,6 +241,10 @@ fun planLowLevelBuiltinCallImpl(funcName: String, argCount: Int,
     plan.hasArg0 = argCount > 0
     plan.hasArg1 = argCount > 1
     plan.hasArg2 = argCount > 2
+    if funcName == "seen_pool_free" and argCount == 2 {
+        plan.action = 14
+        return plan
+    }
     if isPtrBuiltin == 1 {
         plan.action = 1
         return plan

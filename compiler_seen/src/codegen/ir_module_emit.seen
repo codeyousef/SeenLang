@@ -364,7 +364,10 @@ fun emitTraitVtableConstantsImpl(output: StringBuilder, traitImplRegistry: Strin
                         scanPos = innerNextPipe + 1
                     }
                     if methodCount > 0 {
-                        output.append("@" + pairName + "_vtable = constant %" + quoteModuleEmitIdentIfNeeded(traitName + "_vtable") + " { " + methods + " }\n")
+                        // A box retains its own module's immutable table. Local
+                        // linkage avoids duplicate definitions across workers;
+                        // the pointer-array layout needs no imported type alias.
+                        output.append("@" + pairName + "_vtable = internal constant [" + methodCount.toString() + " x ptr] [ " + methods + " ]\n")
                     }
                 }
             }

@@ -141,6 +141,21 @@ fun simdActiveLaneBits(lanes: Int, active: Int) r: Result<UInt64, SimdIrError> {
 /// Closed source spellings whose arithmetic lowering is implemented.
 /// Additional lane formats may be represented by PortableVectorShape without
 /// claiming that their source intrinsics have already been implemented.
+fun simdX86DotType(name: String) r: String {
+    if name == "simd_x86_vnni_u8s8" { return "i32x16" }
+    if name == "simd_x86_bf16_dot" { return "f32x16" }
+    return ""
+}
+
+fun simdX86TargetFeatures(variant: String) r: String {
+    if variant == "scalar" { return "+sse2,-avx,-avx2,-fma,-avx512f,-avx512vnni,-avx512bf16" }
+    if variant == "avx2" { return "+avx2,+fma" }
+    if variant == "avx512" { return "+avx2,+fma,+avx512f,+avx512bw,+avx512dq,+avx512vl" }
+    if variant == "vnni" { return "+avx2,+avx512f,+avx512bw,+avx512dq,+avx512vl,+avx512vnni" }
+    if variant == "bf16" { return "+avx2,+avx512f,+avx512bw,+avx512dq,+avx512vl,+avx512bf16" }
+    return ""
+}
+
 fun simdBuiltinLanes(name: String) r: Int {
     if name == "f32x4" or name == "i32x4" or name == "f64x4" { return 4 }
     if name == "f32x8" or name == "i32x8" or name == "f64x8" { return 8 }

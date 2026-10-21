@@ -16,6 +16,10 @@ fun ensureTraitIntBoxValue(box: Array<Int>) r: Void {
 
 fun appendDynTraitNameImpl(traitName: String, dynTraitNamesBox: Array<String>) r: Void {
     ensureTraitStringBoxValue(dynTraitNamesBox)
+    if traitName == "" or ("|" + dynTraitNamesBox[0]).contains("|" + traitName + "|") { return }
+    if dynTraitNamesBox[0].length() + traitName.length() + 1 > 8388608 {
+        abort("Error: [E_DYN_TRAIT_LIMIT] trait name metadata exceeds its byte ceiling")
+    }
     dynTraitNamesBox[0] = dynTraitNamesBox[0] + traitName + "|"
 }
 
@@ -24,6 +28,7 @@ fun appendTraitImplEntryImpl(entry: String, traitImplRegistryBox: Array<String>,
 
     ensureTraitStringBoxValue(traitImplRegistryBox)
     ensureTraitIntBoxValue(traitImplCountBox)
+    if ("|" + traitImplRegistryBox[0]).contains("|" + entry + "|") { return }
     traitImplRegistryBox[0] = traitImplRegistryBox[0] + entry + "|"
     traitImplCountBox[0] = traitImplCountBox[0] + 1
 }
@@ -51,5 +56,48 @@ fun autoRegisterTraitImplsImpl(methodName: String, receiverType: String, implFun
             }
         }
         traitScan = traitPipePos + 1
+    }
+}
+
+// Inline class methods use the same structural trait contract as receiver
+// functions. Register complete tables in trait declaration order, independently
+// of the order in which the class happens to declare its methods.
+fun registerClassTraitImplsImpl(receiverType: String, dynTraitNames: String,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>, traitImplRegistryBox: Array<String>,
+    traitImplCountBox: Array<Int>) r: Void {
+    var scan = 0
+    while scan < dynTraitNames.length() {
+        var end = dynTraitNames.indexOf("|", scan)
+        if end < 0 { end = dynTraitNames.length() }
+        let traitName = dynTraitNames.substring(scan, end)
+        var index = 0
+        while index < structNames.length() and structNames[index] != traitName { index = index + 1 }
+        if index < structNames.length() and traitName != receiverType {
+            let methods = structMethodNames[index]; var position = 0; let planned = Array<String>(); var complete = methods != ""
+            while position < methods.length() and complete {
+                var next = methods.indexOf(",", position)
+                if next < 0 { next = methods.length() }
+                let method = methods.substring(position, next)
+                var seen = 0; var duplicate = false
+                while seen < planned.length() { if planned[seen] == method { duplicate = true }; seen = seen + 1 }
+                if not duplicate {
+                    let expected = getMethodReturnTypeImpl(traitName, method, structNames, structMethodNames, structMethodRetTypes)
+                    let actual = getMethodReturnTypeImpl(receiverType, method, structNames, structMethodNames, structMethodRetTypes)
+                    if expected == "" or actual != expected { complete = false }
+                    else { planned.push(method) }
+                }
+                position = next + 1
+            }
+            if complete {
+                var slot = 0
+                while slot < planned.length() {
+                    appendTraitImplEntryImpl(traitName + ":" + receiverType + ":" + receiverType + "_" + planned[slot], traitImplRegistryBox, traitImplCountBox)
+                    slot = slot + 1
+                }
+            }
+            planned.free()
+        }
+        scan = end + 1
     }
 }

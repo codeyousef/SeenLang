@@ -7,7 +7,7 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{parseIntManual, splitPipe, getNextRegFn}
 import codegen.ir_codegen_feature_state.{findFeatureBitfieldWidthImpl}
 import codegen.ir_member_access.{emitFieldAccessPtrImpl, emitFieldAccessLoadImpl, emitBitfieldMaskLoadImpl}
-import codegen.ir_type_info.{findStructIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl}
+import codegen.ir_type_info.{findStructDeclarationIdx, g_resolvedFieldIndex, getLLVMIRGeneratorFieldIndexImpl, getLLVMIRGeneratorStructLayoutImpl}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, isClassHandleLikeTypeImpl}
 import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
@@ -34,7 +34,7 @@ fun resolveFieldAccessLayoutImpl(structType: String, fieldName: String,
         return getLLVMIRGeneratorStructLayoutImpl() + "|" + fieldIdx.toString()
     }
 
-    let structIdx = findStructIdx(structNames, structType)
+    let structIdx = findStructDeclarationIdx(structNames, structType)
     if structIdx >= 0 {
         let registeredLayout = structLayouts[structIdx]
         if registeredLayout.length() > 5 {
@@ -81,7 +81,7 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     ptrReg: String, structType: String, fieldName: String, fieldType: String,
     structNames: Array<String>, structLayouts: Array<String>,
     structFieldNames: Array<String>, bitfieldCount: Int,
-    bitfieldKeys: String, bitfieldWidths: String) r: String {
+    bitfieldKeys: String, bitfieldWidths: String, pointerValue: Bool) r: String {
 
     let layoutParts = splitPipe(resolveFieldAccessLayoutImpl(structType,
         fieldName, structNames, structLayouts, structFieldNames))
@@ -92,11 +92,17 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
         fieldIndex = parseIntManual(layoutParts[1])
     }
     var effectiveFieldType = fieldType
+    if pointerValue { effectiveFieldType = "ptr" }
+    var pointerStorageToWord = false
     let layoutFieldTypes = extractStructFieldTypesImpl(structLayout)
     if fieldIndex >= 0 and fieldIndex < layoutFieldTypes.length() {
         let layoutFieldType = layoutFieldTypes[fieldIndex]
-        if fieldType == "ptr" and layoutFieldType == "i64" {
+        if effectiveFieldType == "ptr" and layoutFieldType == "i64" {
             effectiveFieldType = layoutFieldType
+        }
+        if effectiveFieldType == "i64" and layoutFieldType == "ptr" {
+            effectiveFieldType = "ptr"
+            pointerStorageToWord = not pointerValue
         }
     }
     let fieldPtrReg = emitResolvedFieldAccessPtrImpl(output, regBox, ptrReg,
@@ -110,6 +116,18 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
             resultReg = emitBitfieldMaskLoadImpl(output, regBox, resultReg,
                 bitfieldWidth)
         }
+    }
+    // Array/List expressions use native pointers. Seen raw pointers and class
+    // handles retain the i64 expression ABI, independently of field storage.
+    if pointerStorageToWord {
+        let word = getNextRegFn(regBox)
+        output.append("  " + word + " = ptrtoint ptr " + resultReg + " to i64\n")
+        return word
+    }
+    if pointerValue and effectiveFieldType == "i64" {
+        let pointer = getNextRegFn(regBox)
+        output.append("  " + pointer + " = inttoptr i64 " + resultReg + " to ptr\n")
+        return pointer
     }
     return resultReg
 }
@@ -168,8 +186,9 @@ fun emitSimpleFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
-    let llvmFieldType = mapTypeImpl(fieldSeenType, structNames,
+    var llvmFieldType = mapTypeImpl(fieldSeenType, structNames,
         typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
+    if fieldSeenType.startsWith("*") { llvmFieldType = "i64" }
     if reprCClassNames != "" and reprCClassNames.contains(structType + "|") {
         let fieldIdx = getFieldInfoReg(structType, fieldName, structNames,
             structFieldNames)
@@ -177,7 +196,7 @@ fun emitSimpleFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
             let resultReg = getNextRegFn(regBox)
             output.append("  " + resultReg + " = extractvalue %" + structType +
                 " " + ptrReg + ", " + fieldIdx.toString() + "\n")
-            if fieldSeenType.startsWith("*") and llvmFieldType == "ptr" {
+            if fieldSeenType.startsWith("*") {
                 let handleReg = getNextRegFn(regBox)
                 output.append("  " + handleReg + " = ptrtoint ptr " +
                     resultReg + " to i64 ; repr(C) pointer field\n")
@@ -191,7 +210,8 @@ fun emitSimpleFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     }
     return emitResolvedFieldAccessLoadImpl(output, regBox, ptrReg, structType,
         fieldName, llvmFieldType, structNames, structLayouts,
-        structFieldNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+        structFieldNames, bitfieldCount, bitfieldKeys, bitfieldWidths,
+        isNativePointerFieldTypeImpl(fieldSeenType))
 }
 
 fun emitDirectFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
@@ -199,7 +219,7 @@ fun emitDirectFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     structNames: Array<String>, structLayouts: Array<String>,
     structFieldNames: Array<String>, reprCClassNames: String,
     unionTypes: String, bitfieldCount: Int, bitfieldKeys: String,
-    bitfieldWidths: String) r: String {
+    bitfieldWidths: String, pointerValue: Bool) r: String {
 
     if reprCClassNames != "" and reprCClassNames.contains(structType + "|") {
         let fieldIdx = getFieldInfoReg(structType, fieldName, structNames,
@@ -222,7 +242,7 @@ fun emitDirectFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
     }
     return emitResolvedFieldAccessLoadImpl(output, regBox, ptrReg, structType,
         fieldName, llvmFieldType, structNames, structLayouts,
-        structFieldNames, bitfieldCount, bitfieldKeys, bitfieldWidths)
+        structFieldNames, bitfieldCount, bitfieldKeys, bitfieldWidths, pointerValue)
 }
 
 fun emitSimpleFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,
@@ -259,6 +279,10 @@ fun emitDirectFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,
         fieldName, structNames, structLayouts, structFieldNames)
 }
 
+fun isHeapFieldReceiverImpl(fieldType: String, structNames: Array<String>) r: Bool {
+    return isClassTypeReg(fieldType, structNames) or isClassHandleLikeTypeImpl(fieldType, structNames) == 1
+}
+
 fun emitChainedFieldReceiverPtrImpl(output: StringBuilder, regBox: Array<Int>,
     ptrReg: String, structType: String, fieldName: String, fieldSeenType: String,
     structNames: Array<String>, structLayouts: Array<String>,
@@ -267,7 +291,7 @@ fun emitChainedFieldReceiverPtrImpl(output: StringBuilder, regBox: Array<Int>,
     typeAliasCount: Int, enumTypeNames: String, bitfieldCount: Int,
     bitfieldKeys: String, bitfieldWidths: String) r: String {
 
-    if isClassHandleLikeTypeImpl(fieldSeenType, structNames) == 1 {
+    if isHeapFieldReceiverImpl(fieldSeenType, structNames) {
         var fieldLlvmType = mapTypeImpl(fieldSeenType, structNames,
             typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
         if not isClassTypeReg(fieldSeenType, structNames) {
@@ -276,7 +300,7 @@ fun emitChainedFieldReceiverPtrImpl(output: StringBuilder, regBox: Array<Int>,
         let fieldValueReg = emitDirectFieldAccessLoadImpl(output, regBox,
             ptrReg, structType, fieldName, fieldLlvmType, structNames,
             structLayouts, structFieldNames, reprCClassNames, unionTypes,
-            bitfieldCount, bitfieldKeys, bitfieldWidths)
+            bitfieldCount, bitfieldKeys, bitfieldWidths, false)
         let fieldPtrReg = getNextRegFn(regBox)
         output.append("  " + fieldPtrReg + " = inttoptr i64 " + fieldValueReg +
             " to ptr\n")
@@ -393,7 +417,23 @@ fun generateFieldAccessImpl(output: StringBuilder, regBox: Array<Int>,
     return emitDirectFieldAccessLoadImpl(output, regBox, ptrReg, structType,
         fieldName, llvmFieldType, structNames, structLayouts,
         structFieldNames, reprCClassNames, unionTypes, bitfieldCount,
-        bitfieldKeys, bitfieldWidths)
+        bitfieldKeys, bitfieldWidths,
+        isNativePointerFieldValueImpl(structType, fieldName, structNames,
+            structFieldNames, structFieldTypes))
+}
+
+fun isNativePointerFieldValueImpl(structType: String, fieldName: String,
+    structNames: Array<String>, structFieldNames: Array<String>,
+    structFieldTypes: Array<String>) r: Bool {
+
+    let fieldType = getSeenFieldTypeImpl(structType, fieldName, structNames,
+        structFieldNames, structFieldTypes)
+    return isNativePointerFieldTypeImpl(fieldType)
+}
+
+fun isNativePointerFieldTypeImpl(fieldType: String) r: Bool {
+    return fieldType.startsWith("Array<") or fieldType == "Array" or
+        fieldType.startsWith("List<") or fieldType == "List"
 }
 
 fun generateFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,
@@ -422,7 +462,7 @@ fun resolveMemberAccessFieldReceiverPtrImpl(output: StringBuilder,
         fieldIsReprCValue = true
     }
     if not fieldIsReprCValue and
-        isClassHandleLikeTypeImpl(fieldType, structNames) == 1 {
+        isHeapFieldReceiverImpl(fieldType, structNames) {
         var fieldLlvmType = mapTypeImpl(fieldType, structNames,
             typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
         if not isClassTypeReg(fieldType, structNames) {
