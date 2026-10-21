@@ -73,8 +73,7 @@ fun spirvLowerCall(borrow module: GpuIrModule, function: GpuSpirvFunction,
     while i < op.operands.length() {
         arguments.push(frame.registers[op.operands[i]]); resources.push(frame.resourceIndices[op.operands[i]]); i = i + 1
     }
-    let callee: GpuIrFunction = module.functions[op.immediate]
-    let child = createGpuSpirvFrame(callee, op.immediate, arguments, resources); arguments.free(); resources.free()
+    let child = createGpuSpirvFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free()
     let body = context.id(); let merge = context.id(); child.returnMerge = merge
     if op.typeCode != 0 { child.returnSlot = function.variable(op.typeCode); function.emit(62, [child.returnSlot, context.zero(op.typeCode)]) }
     function.emit(247, [merge, 0]); function.conditional(context.constant(1, 1), body, merge); function.label(body)
