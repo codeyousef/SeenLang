@@ -156,16 +156,16 @@ fun main() r: Int {
     var round = 0
     while round < 20 {
         let tasks = must(TaskGroup<SyncProbe>.create(happy.pool.core, 2, ctx))
-        must(tasks.spawn(happy.job(2, 0), ctx))
-        must(tasks.spawn(happy.job(1, 42), ctx))
+        must(spawnSyncProbe(tasks,happy.job(2, 0), ctx))
+        must(spawnSyncProbe(tasks,happy.job(1, 42), ctx))
         let values = must(tasks.barrier(ctx))
         if values.length() != 2 or values[0].result != 42 { return 1 }
         releaseJobs(values); must(tasks.release())
         round = round + 1
     }
     let phaseTasks = must(TaskGroup<SyncProbe>.create(happy.pool.core, 2, ctx))
-    must(phaseTasks.spawn(happy.job(3, 0), ctx))
-    must(phaseTasks.spawn(happy.job(3, 1), ctx))
+    must(spawnSyncProbe(phaseTasks,happy.job(3, 0), ctx))
+    must(spawnSyncProbe(phaseTasks,happy.job(3, 1), ctx))
     releaseJobs(must(phaseTasks.barrier(ctx))); must(phaseTasks.release())
     must(happy.group.wait(ctx))
     if must(happy.reduction.finish(ctx)) != 11 { return 2 }
@@ -176,8 +176,8 @@ fun main() r: Int {
 
     let partial = Fixture.create()
     let failed = must(TaskGroup<SyncProbe>.create(partial.pool.core, 2, ctx))
-    must(failed.spawn(partial.job(0, 7), ctx))
-    must(failed.spawn(partial.job(5, 0), ctx))
+    must(spawnSyncProbe(failed,partial.job(0, 7), ctx))
+    must(spawnSyncProbe(failed,partial.job(5, 0), ctx))
     let result = failed.barrier(ctx)
     if result.isOkay() { return 5 }
     let error = result.unwrapErr(); result.releaseContainer()
@@ -199,7 +199,7 @@ fun main() r: Int {
 
     let cancel = Fixture.create()
     let cancelled = must(TaskGroup<SyncProbe>.create(cancel.pool.core, 1, ctx))
-    must(cancelled.spawn(cancel.job(4, 0), ctx))
+    must(spawnSyncProbe(cancelled,cancel.job(4, 0), ctx))
     var spins = 0
     while must(cancel.started.load(MemoryOrder.SeqCst)) == (0 as Int64) and spins < 1000000 {
         __ThreadYield(); spins = spins + 1
@@ -217,4 +217,9 @@ fun main() r: Int {
         seen_executor_live_threads() != threads { return 13 }
     println("PASS: ASYNC-002B_cleanup")
     return 0
+}
+
+
+fun spawnSyncProbe(group: TaskGroup<SyncProbe>, task: SyncProbe, context: AsyncOperationContext) r: Result<Bool, AsyncError> {
+    return group.spawn(task, task, context)
 }

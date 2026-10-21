@@ -105,7 +105,7 @@ fun main() r: Int {
     let pools = must(ExecutionPools<PoolProbe>.create(cpuLimits, blockingLimits,
         inherited, inherited, 2))
     inherited.release(); cpuLimits.free(); blockingLimits.free()
-    let blocked = must(pools.blocking.submit(probe(1, 0, releases, started), ctx))
+    let blocked = must(submitPoolProbe(pools.blocking,probe(1, 0, releases, started), ctx))
     var spins = 0
     while atomicValue(started) == (0 as Int64) and spins < 1000000 {
         __ThreadYield(); spins = spins + 1
@@ -113,7 +113,7 @@ fun main() r: Int {
     if atomicValue(started) == (0 as Int64) { return 6 }
     var i = 0
     while i < 100 {
-        let handle = must(pools.cpu.submit(probe(0, i, releases, started), ctx))
+        let handle = must(submitPoolProbe(pools.cpu,probe(0, i, releases, started), ctx))
         let value = must(handle.join(ctx))
         if value.result != i * 2 { return 7 }
         value.release(); must(handle.release())
@@ -121,14 +121,14 @@ fun main() r: Int {
         i = i + 1
     }
     println("PASS: ASYNC-002C_happy")
-    let failed = must(pools.cpu.submit(probe(2, 0, releases, started), ctx))
+    let failed = must(submitPoolProbe(pools.cpu,probe(2, 0, releases, started), ctx))
     if not errorIs(failed.join(ctx), "async.unsupported_platform") { return 9 }
     must(failed.release())
     must(blocked.cancel())
     if not errorIs(blocked.join(ctx), "async.cancelled") { return 10 }
     must(blocked.release())
     println("PASS: ASYNC-002C_cancel")
-    let abandoned = must(pools.cpu.submit(probe(0, 1, releases, started), ctx))
+    let abandoned = must(submitPoolProbe(pools.cpu,probe(0, 1, releases, started), ctx))
     if not errorIs(abandoned.release(), "async.invalid") { return 11 }
     must(pools.cpu.close()); must(abandoned.release())
     must(pools.release())
@@ -141,4 +141,10 @@ fun main() r: Int {
         seen_sync_live_conditions() != conditionBaseline { return 14 }
     println("PASS: ASYNC-002C_cleanup")
     return 0
+}
+
+
+import async.pools.{PoolJoinHandle}
+fun submitPoolProbe(pool: TypedWorkerPool<PoolProbe>, task: PoolProbe, context: AsyncOperationContext) r: Result<PoolJoinHandle<PoolProbe>, AsyncError> {
+    return pool.submit(task, task, context)
 }

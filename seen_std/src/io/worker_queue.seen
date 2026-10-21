@@ -3,7 +3,7 @@ import core.result.{Result, Ok, Err}
 import core.option.{Option, Some, None}
 import sync.contracts.{Send}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
-import async.executor_core.{ExecutorJob, ExecutorLimits, executorCopyContext, executorReleaseSnapshot, executorErrorStatus}
+import async.executor_core.{ExecutorJob, ExecutorOwnedJob, ExecutorLimits, executorCopyContext, executorReleaseSnapshot, executorErrorStatus}
 import async.pools.{TypedWorkerPool, PoolJoinHandle}
 import async.pool_placement.{PoolPlacement}
 import io.completion_queue.{IoQueue}
@@ -65,7 +65,7 @@ class WorkerCompletionQueue<T: Send + ExecutorJob> {
     }
     // Always consumes the job; its destructor must release only the job's own
     // storage, never the queue-owned outcome or borrowed request resources.
-    fun submit(token: UInt64, task: T) r: Result<Bool, AsyncError> {
+    fun submit(token: UInt64, task: ExecutorOwnedJob<T>) r: Result<Bool, AsyncError> {
         let index = this.core.slot(token)
         if this.closed or index < 0 or this.core.states[index] != 4 or this.outcomes[index].isNone() {
             if not task.release() { abort("worker I/O job destructor failed") }
@@ -74,7 +74,7 @@ class WorkerCompletionQueue<T: Send + ExecutorJob> {
         let submitted = this.core.submitted(token)
         if submitted.isErr() { if not task.release() { abort("worker I/O job destructor failed") }; return submitted }
         submitted.releaseContainer()
-        let scheduled = this.pool.submit(task, this.core.entries[index].unwrap().context)
+        let scheduled = this.pool.submitOwned(task, this.core.entries[index].unwrap().context)
         if scheduled.isErr() {
             let error = scheduled.unwrapErr(); scheduled.releaseContainer()
             if not task.release() { abort("worker I/O job destructor failed") }

@@ -1,3 +1,4 @@
+import async.executor_core.{ExecutorOwnedJob}
 // Linux executable witness: two actual blocking pipe reads bracket CPU work.
 // The external collector observes the blocked syscalls before granting progress.
 import core.result.{Result}
@@ -72,7 +73,7 @@ fun overlapSubmit(borrow queue: WorkerCompletionQueue<PipeReadJob>, context: Asy
     let prepared: WorkerIoSubmission = ioMust(queue.prepare(registration.token))
     let job = PipeReadJob{descriptor: prepared.view.descriptor as Int32, address: prepared.view.buffer as UInt64,
         outcome: prepared.outcome, interval: interval, startedCounter: counter}
-    prepared.release(); ioMust(queue.submit(registration.token, job))
+    prepared.release(); ioMust(queue.submit(registration.token, ioMust(ExecutorOwnedJob<PipeReadJob>.bind(job, job))))
     return PipeSubmission{registration: registration, writer: OwnedHandle{native: output, owned: true, valid: true}, reader: input}
 }
 fun overlapDrain(borrow queue: WorkerCompletionQueue<PipeReadJob>, first: UInt64, second: UInt64) r: Void {
