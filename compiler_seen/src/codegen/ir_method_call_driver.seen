@@ -433,7 +433,7 @@ fun generateMethodCallState(ctx: CodegenLoweringContext,
 
     if not shouldUseScalarFallback {
         prepareCallArgumentsWithDefaultsState(ctx, output, funcName,
-            expr.arguments, false, true, false, "", varNames, varRegs,
+            expr.arguments, true, true, false, "", varNames, varRegs,
             varTypes, stringConstants)
     }
     let argRegs = getDefaultFillArgRegsImpl()
