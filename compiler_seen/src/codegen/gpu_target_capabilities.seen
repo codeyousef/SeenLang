@@ -11,7 +11,8 @@ import codegen.gpu_precision_formats.{GPU_CAP_ALL_KNOWN, GPU_CAP_COOPERATIVE}
 import codegen.gpu_matrix_types.{gpuMatrixType, gpuMatrixTypeValid, gpuMatrixRole, gpuMatrixFormat,
     gpuMatrixShape, gpuMatrixCapabilities, gpuMatrixAccumulatorFormat}
 
-@move
+// Coordinator-owned metadata. Validation borrows this object; only the creator
+// releases the name and tuple storage after every borrowed validation completes.
 class GpuTargetCapabilities {
     var name: String
     var features: UInt64
