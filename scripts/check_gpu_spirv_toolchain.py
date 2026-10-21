@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 """Pinned official SPIR-V tool identity and bounded invocation policy."""
-import hashlib
 import json
-import os
 from pathlib import Path
 import platform
 import re
-import resource
-import subprocess
-import tempfile
+import gpu_toolchain_process as tool_process
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / 'docs/architecture/spirv-toolchain.json'
@@ -35,58 +31,27 @@ def load_profile():
     return profile
 
 
+def process_policy(operation, *arguments):
+    try:
+        return operation(*arguments)
+    except tool_process.ToolProcessError as error:
+        code = 'E_GPU_SPIRV_TOOLCHAIN_TIMEOUT' if error.timeout else 'E_GPU_SPIRV_TOOLCHAIN'
+        raise ToolchainError(code + ': ' + str(error)) from error
+
+
 def memory_budget():
-    available = next(int(line.split()[1]) * 1024 for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemAvailable:'))
-    maximum_path = Path('/sys/fs/cgroup/memory.max')
-    # Provisioning runs before the CI scope exists; some hosted machines use
-    # cgroup v1. These read-only SDK calls still receive a RAM-derived cap.
-    if maximum_path.is_file():
-        maximum = maximum_path.read_text().strip()
-        if maximum != 'max':
-            available = min(available, max(0, int(maximum) - int(Path('/sys/fs/cgroup/memory.current').read_text())))
-    budget = min(2 * 1024**3, available // 4)
-    require(budget >= 256 * 1024**2, 'insufficient validator memory headroom')
-    return budget
+    return process_policy(tool_process.memory_budget)
 
 
-def identity(path):
-    info = path.stat()
-    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+identity = tool_process.identity
 
 
 def inspect_tool(path, expected):
-    require(path.is_file() and not path.is_symlink() and os.access(path, os.X_OK), 'official executable is unavailable')
-    before = identity(path)
-    require(before[2] <= 64 * 1024**2, 'tool binary exceeds byte ceiling')
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    require(identity(path) == before and digest == expected, 'official executable digest differs')
-    return before
+    return process_policy(tool_process.inspect_tool, path, expected)
 
 
 def invoke(profile, name, arguments, output_limit=65536):
-    tool = profile['tools'][name]
-    path = Path(tool['path'])
-    before = inspect_tool(path, tool['sha256'])
-    budget = memory_budget()
-
-    def limits():
-        resource.setrlimit(resource.RLIMIT_AS, (budget, budget))
-        resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
-        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-        resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024**2, 64 * 1024**2))
-
-    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-        try:
-            result = subprocess.run([str(path), *arguments], stdout=stdout, stderr=stderr,
-                                    timeout=45, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'}, preexec_fn=limits)
-        except subprocess.TimeoutExpired as error:
-            raise ToolchainError('E_GPU_SPIRV_TOOLCHAIN_TIMEOUT: official tool exceeded its deadline') from error
-        require(identity(path) == before, 'official executable changed during invocation')
-        require(stdout.tell() <= output_limit and stderr.tell() <= output_limit, 'official tool diagnostic output exceeds ceiling')
-        stdout.seek(0); stderr.seek(0)
-        output, diagnostic = stdout.read().decode('utf-8', 'replace'), stderr.read().decode('utf-8', 'replace')
-    require(result.returncode >= 0, 'official tool terminated by a signal')
-    return result.returncode, output, diagnostic
+    return process_policy(tool_process.invoke, profile['tools'][name], arguments, output_limit)
 
 
 def verify_installation(profile=None):

@@ -1,13 +1,13 @@
 /// Frontend-only reflection command. Bounded reads and atomic output surround
 /// the pure manifest/lowering/reflection pipeline; no backend or device opens.
 import tools.cli_args.{CliArguments, parseCliArguments}
-import bootstrap.frontend.{runFrontendCompat}
+import bootstrap.allocation_owner.{FrontendAllocationOwner}
 import core.result.{Result, Ok, Err}
 import io.file.{__OpenFile, __FileSize, __ReadFileBytes, __FileError, __CloseFile, writeTextAtomically}
 import json.builder.{seen_string_release_owned}
 import codegen.gpu_bytes.{consumeGpuBytes}
 import codegen.gpu_ir_model.{GpuIrDiagnostic, GpuIrValidation, gpuIrDiagnostic}
-import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_source.{lowerGpuSource}
 import codegen.gpu_options.{GpuOptions, gpuSetOption, validateGpuOptions}
 import codegen.gpu_manifest.{parseGpuManifest}
 import codegen.gpu_reflection.{reflectGpuModule}
@@ -38,6 +38,18 @@ fun parseGpuArtifactCli(argv: Array<String>, binary: Bool) r: CliArguments {
     values.free(); names.free(); repeatable.free(); flags.free(); flagNames.free(); return result
 }
 fun parseGpuReflectCli(argv: Array<String>) r: CliArguments { return parseGpuArtifactCli(argv, false) }
+/// The immutable parse result borrows argv and owns all parser temporaries.
+/// Detaching permits an independent source-frontend session during execution.
+class OwnedGpuCli {
+    var result: CliArguments
+    var allocations: FrontendAllocationOwner
+    fun release() r: Void { this.allocations.release(); this.free() }
+}
+fun parseOwnedGpuArtifactCli(argv: Array<String>, binary: Bool) r: OwnedGpuCli {
+    let allocations = FrontendAllocationOwner.create(); allocations.attach()
+    let result = parseGpuArtifactCli(argv, binary); allocations.detach()
+    return OwnedGpuCli{result: result, allocations: allocations}
+}
 fun gpuApplyCliOptions(borrow options: GpuOptions, parsed: CliArguments) r: GpuIrDiagnostic {
     let flags = ["--gpu-backend", "--gpu-target", "--gpu-fallback"]; let keys = ["backend", "target", "fallback"]; var i = 0
     while i < flags.length() {
@@ -66,12 +78,7 @@ fun gpuPrintValidation(validation: GpuIrValidation) r: Void {
     while i < validation.diagnostics.length() { gpuPrintError(validation.diagnostics[i]); i = i + 1 }
 }
 fun gpuReflectSource(source: String, identity: String, borrow options: GpuOptions) r: Result<String, GpuIrValidation> {
-    let frontend = runFrontendCompat(source, identity, "en")
-    if not frontend.success {
-        let error = GpuIrValidation.create(); error.reject("E_GPU_SOURCE", "GPU reflection source did not parse", -1, -1, -1)
-        return Err<String, GpuIrValidation>(error)
-    }
-    let lowered = lowerGpuProgram(frontend.program, identity)
+    let lowered = lowerGpuSource(source, identity)
     if lowered.isErr() { let error = lowered.unwrapErr(); lowered.releaseContainer(); return Err<String, GpuIrValidation>(error) }
     let module = lowered.unwrap(); lowered.releaseContainer(); let result = reflectGpuModule(module, options); module.release(); return result
 }

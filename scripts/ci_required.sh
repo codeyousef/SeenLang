@@ -63,6 +63,7 @@ bash -n \
     tests/misc_root_tests/seen_gpu_spirv_a.sh \
     tests/misc_root_tests/seen_gpu_spirv_b.sh \
     tests/misc_root_tests/seen_gpu_spirv_c.sh \
+    tests/misc_root_tests/seen_gpu_ptx_a.sh \
     scripts/compiled_fixture_support.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \
@@ -104,6 +105,10 @@ SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
 python3 -m py_compile \
     scripts/check_gpu_spirv_artifacts.py \
     scripts/check_gpu_spirv_toolchain.py \
+    scripts/gpu_toolchain_process.py \
+    scripts/check_gpu_ptx_toolchain.py \
+    scripts/check_gpu_ptx_artifacts.py \
+    scripts/install_gpu_ptx_toolchain.py \
     scripts/certify_gpu_spirv.py \
     scripts/cpu_benchmark_statistics.py \
     scripts/benchmark_compatibility_manifest.py \

@@ -35,14 +35,15 @@ Foundations**.
   cooperative-operation rules, reflection manifests and rejection fixtures.
   Add SPIR-V/Vulkan emission, capability validation and pinned-toolchain checks.
 - Add the experimental CUDA/PTX emitter foundation with shared GPU artifact
-  ownership, emission frames and floating-point literal handling.
+  ownership, emission frames and floating-point literal handling. Add seven-target
+  launch-layout/reflection checks and a digest-pinned offline NVIDIA assembler.
 - Add execution, cancellation, allocation and resource-lifetime regressions,
   sanitizer profiles, stress fixtures and machine-readable software evidence.
 
 ### Changed
 
 - Bind the combined executor, completion I/O, SIMD and GPU foundations to
-  runtime-v13 and standard-library 0.17.0 with complete module checksums.
+  runtime-v14 and standard-library 0.17.0 with complete module checksums.
 - Replace the untyped C work-stealing pool with Seen scheduling and ownership.
   Serialize allocator budget transactions, use thread-local runtime errors,
   and keep native adapters limited to platform operations.
@@ -51,6 +52,13 @@ Foundations**.
   until their separate verification is completed.
 
 ### Fixed
+
+- Release temporary GPU frontend allocations through a bounded Seen owner,
+  restore parser scratch registries between calls, and preserve independently
+  owned lowered IR. Reject partial ASTs left by parser recovery. Release old
+  hash-map storage budgets during growth.
+- Own GPU CLI parse snapshots, including inline option values and error paths,
+  and verify argument-container cleanup against exact allocation baselines.
 
 - Add `env.releaseArgs()` to consume owned argument snapshots, including copied
   strings and their tracked allocation budget. Document the snapshot lifetime
@@ -74,6 +82,10 @@ Foundations**.
   keeping CPU-only project compilation safe across blank lines and comments.
 - Preserve meaningful escaped quotes in already-decoded string literals,
   including strict GPU manifest table checks.
+- Consume optional statement separators after compound blocks before expression
+  recovery, preserving valid GPU helper and control-flow programs.
+- Keep inlined SPIR-V helper returns inside structured selection and loop exits,
+  preserving return values and skipping work after early returns.
 - Retain the active failing fixture log and emitted LLVM in bounded CI
   diagnostics so nested gate failures remain visible.
 

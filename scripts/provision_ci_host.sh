@@ -36,6 +36,11 @@ sudo -n apt-get install --yes --no-install-recommends \
     libclang-rt-20-dev "spirv-tools=$spirv_package_version"
 [ -x /usr/bin/spirv-val ] || fail "SPIR-V validator was not installed"
 python3 scripts/check_gpu_spirv_toolchain.py >/dev/null || fail "pinned SPIR-V toolchain identity differs"
+ptx_root="$RUNNER_TEMP/seen-ptx-toolchain"
+mkdir -p -- "$ptx_root"
+python3 scripts/install_gpu_ptx_toolchain.py "$ptx_root/ptxas" || fail "pinned PTX assembler installation failed"
+printf 'SEEN_PTXAS=%s\n' "$ptx_root/ptxas" >> "$GITHUB_ENV"
+
 [ -x /usr/bin/bwrap ] || fail "Bubblewrap was not installed"
 [ "$(command -v rg || true)" = "/usr/bin/rg" ] || fail "ripgrep was not installed"
 [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so ] ||

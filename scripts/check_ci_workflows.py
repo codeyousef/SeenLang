@@ -91,6 +91,10 @@ jobs:
             .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*.json
             .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*.spv
             .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*.json
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*.ptx
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*-ir/*.ll
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.log
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.jsonl
             .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*-ir/*.ll
@@ -321,10 +325,11 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
             "libvulkan-dev",
             "lld-20",
             "llvm-20",
+            "nvidia-cuda-nvcc-cu12==12.8.93 (pinned ptxas only)",
             "ripgrep",
             "spirv-tools",
         ],
-        "host_tools_provisioning": "ubuntu-packages-scoped-apparmor",
+        "host_tools_provisioning": "ubuntu-packages-pinned-assembler-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
         "job_count": 1,
         "platforms": {

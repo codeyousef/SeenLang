@@ -1,0 +1,59 @@
+import env.env.{args, releaseArgs}
+import tools.gpu_command.{gpuReadBoundedText, gpuPrintValidation}
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu_ir_model.{GpuIrModule}
+import codegen.gpu_options.{GpuOptions}
+import codegen.gpu_artifact.{buildGpuArtifact}
+import codegen.gpu_artifact_manifest.{gpuArtifactManifest}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun ptxRequire(value: Bool) r: Void {
+    if not value { abort("PTX layout and artifact ownership contract failed") }
+}
+
+fun checkPtxArtifact(borrow module: GpuIrModule, borrow options: GpuOptions, emit: Bool) r: Void {
+    let built = buildGpuArtifact(module, options)
+    if built.isErr() { gpuPrintValidation(built.unwrapErr()) }
+    ptxRequire(built.isOkay()); let artifact = built.unwrap(); built.releaseContainer()
+    let repeated = buildGpuArtifact(module, options); ptxRequire(repeated.isOkay())
+    let again = repeated.unwrap(); repeated.releaseContainer()
+    ptxRequire(artifact.binary == again.binary and artifact.reflection == again.reflection)
+    ptxRequire(artifact.binaryHash == again.binaryHash and artifact.reflectionHash == again.reflectionHash)
+    again.release()
+    let info = gpuArtifactManifest(artifact); ptxRequire(info.isOkay())
+    let manifest = info.unwrap(); info.releaseContainer()
+    ptxRequire(artifact.backend == "cuda" and artifact.target == options.target)
+    ptxRequire(manifest.contains("seen-ptx-kernel-v1") and manifest.contains("compile-only"))
+    if emit {
+        let builder = JsonBuilder_new(); builder.startObject()
+        builder.stringProp("schema", "seen-ptx-artifact-v1")
+        builder.stringProp("target", options.target); builder.stringProp("text", artifact.binary)
+        builder.endObject(); let record = builder.build(); destroyJsonBuilder(builder)
+        println(record); releaseJsonText(record); println(artifact.reflection); println(manifest)
+    }
+    releaseJsonText(manifest); artifact.release()
+}
+
+fun main() r: Int {
+    let arguments = args(); ptxRequire(arguments.length() == 2)
+    let loaded = gpuReadBoundedText(arguments[1], 1048576); ptxRequire(loaded.isOkay())
+    let source = loaded.unwrap(); loaded.releaseContainer()
+    let lowered = lowerGpuSource(source, "ptx-layout-contract.seen"); releaseJsonText(source)
+    if lowered.isErr() { gpuPrintValidation(lowered.unwrapErr()) }
+    ptxRequire(lowered.isOkay()); let module = lowered.unwrap(); lowered.releaseContainer()
+    let options = GpuOptions.create(); options.backend = "cuda"
+    let targets = ["sm_70", "sm_75", "sm_80", "sm_86", "sm_89", "sm_90", "sm_100"]
+    let baseline = seen_memory_used_bytes(); var target = 0
+    while target < targets.length() {
+        options.target = targets[target]; var iteration = 0
+        while iteration < 10 {
+            checkPtxArtifact(module, options, iteration == 0)
+            ptxRequire(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+        }
+        target = target + 1
+    }
+    targets.free(); options.release(); module.release(); releaseArgs(arguments)
+    println("PASS: PTX seven targets deterministic artifacts reflection and repeated cleanup")
+    return 0
+}

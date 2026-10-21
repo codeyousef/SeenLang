@@ -29,6 +29,12 @@ spirv-val --target-env vulkan1.2 "$TMP_DIR/cli.spv"
 run_compiler gpu reflect "$ROOT_DIR/tests/typed_gpu_compiler/reflection_happy.seen" \
     --gpu-backend spirv --gpu-target vulkan1.2 --output "$TMP_DIR/reflection.json" > "$TMP_DIR/reflection.log" 2>&1
 cmp "$TMP_DIR/cli.json" "$TMP_DIR/reflection.json"
+for target in vulkan1.2 vulkan1.3; do
+    run_compiler gpu emit "$ROOT_DIR/tests/spir_v_vulkan_lowering/return_control.seen" \
+        --gpu-backend spirv --gpu-target "$target" --output "$TMP_DIR/returns-$target.spv" \
+        > "$TMP_DIR/returns-$target.log" 2>&1
+    spirv-val --target-env "$target" "$TMP_DIR/returns-$target.spv"
+done
 status=0
 run_compiler gpu emit "$ROOT_DIR/tests/typed_gpu_compiler/rejection_host.seen" \
     --gpu-backend spirv --output "$TMP_DIR/rejected.spv" > "$TMP_DIR/rejected.log" 2>&1 || status=$?

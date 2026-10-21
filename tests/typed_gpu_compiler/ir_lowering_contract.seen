@@ -1,4 +1,4 @@
-import bootstrap.frontend.{runFrontendCompat}
+import bootstrap.owned_frontend.{runOwnedFrontendCompat}
 import codegen.gpu_lower_program.{lowerGpuProgram}
 import codegen.gpu_ir_ops.{GPU_IR_IF_VALUE, GPU_IR_LOAD, GPU_IR_WHILE, GPU_IR_FOR, GPU_IR_CALL,
     GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_RMW, GPU_IR_BARRIER, GPU_IR_SUBGROUP, GPU_IR_BUILTIN}
@@ -40,7 +40,8 @@ fun main() r: Int {
     println("PASS: GPU-001B source effects recursion divergent collectives and shared limits rejected")
     // The parsed program is retained by this fixture. Repeated lowering/export
     // borrows it and must return every compiler-owned IR allocation to baseline.
-    let frontend = runFrontendCompat("@compute(64) fun original(output: WriteBuffer<Int32>) { output[0] = -2147483648 }", "reused-ir.seen", "en")
+    let owner = runOwnedFrontendCompat("@compute(64) fun original(output: WriteBuffer<Int32>) { output[0] = -2147483648 }", "reused-ir.seen", "en")
+    let frontend = owner.result
     irRequire(frontend.success); let baseline = seen_memory_used_bytes(); var iteration = 0
     while iteration < 100 {
         let result = lowerGpuProgram(frontend.program, "reused-ir.seen"); irRequire(result.isOkay())
@@ -48,6 +49,7 @@ fun main() r: Int {
         irRequire(text.contains("-2147483648")); releaseJsonText(text); module.release()
         irRequire(seen_memory_used_bytes() == baseline); iteration = iteration + 1
     }
+    owner.release()
     println("PASS: GPU-001B borrowed AST ownership deterministic export and repeated cleanup")
     return 0
 }

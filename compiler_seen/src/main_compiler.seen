@@ -61,7 +61,7 @@ import codegen.gpu_bytes.{consumeGpuBytes as _seedGpuBytes}
 import codegen.gpu_manifest.{parseGpuManifest as _seedGpuManifest}
 import codegen.gpu_reflection.{reflectGpuModule as _seedGpuReflection}
 import codegen.gpu_reflection_layout.{GpuEntryRequirements as _seedGpuReflectionLayout}
-import tools.gpu_command.{parseGpuArtifactCli, gpuReflectCommand, gpuValidateCompileOptions}
+import tools.gpu_command.{parseOwnedGpuArtifactCli, gpuReflectCommand, gpuValidateCompileOptions}
 import tools.gpu_emit_command.{gpuEmitCommand}
 import codegen.gpu.spirv_words.{GpuSpirvWords as _seedSpirv_words}
 import codegen.gpu.spirv_types.{GpuSpirvContext as _seedSpirv_types}
@@ -135,6 +135,9 @@ import codegen.gpu_lower_call_plan.{gpuLowerAtomicOperation as _seedGpuLowerCall
 import codegen.gpu_lower_context.{GpuLowerContext as _seedGpuLowerContext}
 import codegen.gpu_lower_values.{gpuLowerLiteral as _seedGpuLowerValues}
 import codegen.gpu_lower_program.{lowerGpuProgram as _seedLowerGpuProgram}
+import codegen.gpu_source.{lowerGpuSource as _seedLowerGpuSource}
+import bootstrap.allocation_owner.{FrontendAllocationOwner as _seedFrontendAllocationOwner}
+import bootstrap.owned_frontend.{OwnedFrontend as _seedOwnedFrontend}
 import typechecker.gpu_module_frontend.{gpuCheckModule as _seedGpuCheckModule}
 import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest,
     CompatibilityCompiler, CompatibilityComponents, CompatibilityTarget, CompatibilityPlatforms,
@@ -644,6 +647,7 @@ fun runtimeSourceSignatureForCache() r: String {
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_socket_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_completion_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/executor_completion_abi.h"))
+    input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/allocation_observer_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/io_uring_abi.c"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/io_uring_abi.h"))
     input = hashString(input + "\n" + runtimeSourceContentForCache("seen_runtime/src/iocp_abi.c"))
@@ -1819,7 +1823,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                 packageObjectManifestSchema:
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
-            runtimeAbi: "runtime-v13",
+            runtimeAbi: "runtime-v14",
             standardLibraryVersion: "0.17.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
@@ -8598,6 +8602,7 @@ fun programRuntimeInputIdentity() r: String {
     names.push("src/executor_socket_abi.h")
     names.push("src/executor_completion_abi.c")
     names.push("src/executor_completion_abi.h")
+    names.push("src/allocation_observer_abi.c")
     names.push("src/io_uring_abi.c")
     names.push("src/io_uring_abi.h")
     names.push("src/iocp_abi.c")
@@ -9072,6 +9077,9 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("macro.expander")
         modules.push("bootstrap.dead_code")
         modules.push("bootstrap.frontend")
+        modules.push("bootstrap.allocation_owner")
+        modules.push("bootstrap.owned_frontend")
+        modules.push("codegen.gpu_source")
         modules.push("codegen.ir_optimization")
         modules.push("codegen.ir_egraph_rules")
         modules.push("codegen.ir_egraph_emit")
@@ -17523,10 +17531,13 @@ fun main() r: Int {
         if argv.length() < 3 or (argv[2] != "reflect" and argv[2] != "emit") {
             println("Usage: seen gpu reflect|emit <source.seen> --output <artifact>"); return 1
         }
-        let parsed = parseGpuArtifactCli(argv, argv[2] == "emit"); var manifest = ""
+        let owned = parseOwnedGpuArtifactCli(argv, argv[2] == "emit")
+        let parsed = owned.result; var manifest = ""
         if parsed.ok and parsed.positionals.length() == 1 { manifest = findNearestSeenTomlForInput(parsed.positionals[0]) }
-        if argv[2] == "emit" { return gpuEmitCommand(parsed, manifest) }
-        return gpuReflectCommand(parsed, manifest)
+        var status = 0
+        if argv[2] == "emit" { status = gpuEmitCommand(parsed, manifest) }
+        else { status = gpuReflectCommand(parsed, manifest) }
+        owned.release(); return status
     }
     if command == "--version" or command == "-v" {
         if argv.length() > 2 {

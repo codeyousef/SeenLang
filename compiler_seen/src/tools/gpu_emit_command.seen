@@ -2,8 +2,7 @@
 /// are shared with reflection; this module owns publication of completed artifacts.
 import tools.cli_args.{CliArguments}
 import tools.gpu_command.{gpuLoadOptions, gpuApplyCliOptions, gpuReadBoundedText, gpuPrintError, gpuPrintValidation}
-import bootstrap.frontend.{runFrontendCompat}
-import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_source.{lowerGpuSource}
 import codegen.gpu_artifact.{buildGpuArtifact}
 import codegen.gpu_artifact_manifest.{gpuArtifactManifest}
 import codegen.gpu.spirv_binary.{encodeGpuSpirvBinary}
@@ -35,9 +34,7 @@ fun gpuEmitCommand(parsed: CliArguments, defaultManifest: String) r: Int {
     let read = gpuReadBoundedText(parsed.positionals[0], 1048576)
     if read.isErr() { let error = read.unwrapErr(); read.releaseContainer(); gpuPrintError(error); error.free(); options.release(); return 1 }
     let text = read.unwrap(); read.releaseContainer(); let identity = parsed.valueOr("--module-id", "module")
-    let frontend = runFrontendCompat(text, identity, "en")
-    if not frontend.success { releaseJsonText(text); options.release(); println("Error: [E_GPU_SOURCE] GPU source did not parse"); return 1 }
-    let lowered = lowerGpuProgram(frontend.program, identity); releaseJsonText(text)
+    let lowered = lowerGpuSource(text, identity); releaseJsonText(text)
     if lowered.isErr() { let error = lowered.unwrapErr(); lowered.releaseContainer(); gpuPrintValidation(error); error.release(); options.release(); return 1 }
     let module = lowered.unwrap(); lowered.releaseContainer(); let built = buildGpuArtifact(module, options); module.release(); options.release()
     if built.isErr() {

@@ -144,6 +144,7 @@ static void seen_allocator_register_fork_handlers(void) {
 }
 #endif
 #include "src/arm_vector_abi.c"
+#include "src/allocation_observer_abi.c"
 
 static inline size_t seen_align_up(size_t n, size_t align);
 
@@ -174,7 +175,7 @@ static inline int pool_class(size_t size) {
 }
 
 __attribute__((hot, malloc))
-void *seen_pool_alloc(int64_t size) {
+static void *seen_pool_alloc_inner(int64_t size) {
     SEEN_ALLOCATOR_SCOPE();
     if (__builtin_expect(size <= 0 || size > POOL_MAX_SIZE, 0))
         return seen_try_malloc(size > 0 ? size : 1);
@@ -214,10 +215,21 @@ void *seen_pool_alloc(int64_t size) {
     return p;
 }
 
+void *seen_pool_alloc(int64_t size) {
+    if (!seen_allocation_observer || seen_allocation_observer_busy)
+        return seen_pool_alloc_inner(size);
+    seen_allocation_observer_nested++;
+    void *pointer = seen_pool_alloc_inner(size);
+    seen_allocation_observer_nested--;
+    if (pointer) seen_allocation_observe(1, 0, pointer, size > 0 ? size : 1, 1);
+    return pointer;
+}
+
 __attribute__((hot))
 void seen_pool_free(void *ptr, int64_t size) {
     SEEN_ALLOCATOR_SCOPE();
     if (__builtin_expect(!ptr, 0)) return;
+    if (seen_allocation_observe(4, (uint64_t)(uintptr_t)ptr, NULL, size, 1)) return;
     if (__builtin_expect(size <= 0 || size > POOL_MAX_SIZE, 0)) {
         seen_memory_release_bytes(size > 0 ? size : 1);
         free(ptr); return;
@@ -659,6 +671,7 @@ void* seen_try_malloc(int64_t size) {
         return NULL;
     }
     seen_memory_commit_reservation(0, size);
+    seen_allocation_observe(1, 0, ptr, size, 0);
     return ptr;
 }
 
@@ -686,6 +699,7 @@ void* seen_try_calloc(int64_t count, int64_t size) {
         return NULL;
     }
     seen_memory_commit_reservation(0, total);
+    seen_allocation_observe(1, 0, ptr, total, 0);
     return ptr;
 }
 
@@ -694,6 +708,7 @@ void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size) {
     if (new_size <= 0) new_size = 1;
     if (old_size < 0) old_size = 0;
     if (!seen_memory_can_reserve(old ? old_size : 0, new_size)) return NULL;
+    uint64_t old_address = (uint64_t)(uintptr_t)old;
     void* ptr = realloc(old, (size_t)new_size);
     if (!ptr) {
         g_seen_memory_allocation_failures++;
@@ -702,7 +717,8 @@ void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size) {
             "realloc failed");
         return NULL;
     }
-    seen_memory_commit_reservation(old ? old_size : 0, new_size);
+    seen_memory_commit_reservation(old_address ? old_size : 0, new_size);
+    seen_allocation_observe(2, old_address, ptr, new_size, 0);
     return ptr;
 }
 
@@ -752,6 +768,7 @@ void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
     SEEN_ALLOCATOR_SCOPE();
     if (alignment <= 0) alignment = 32;
     if (new_size <= 0) new_size = alignment;
+    uint64_t old_address = (uint64_t)(uintptr_t)old;
     int64_t old_accounted = old ? seen_aligned_accounted_size(old_size, alignment) : 0;
     int64_t new_accounted = seen_aligned_accounted_size(new_size, alignment);
     size_t aligned_size = (size_t)new_accounted;
@@ -780,10 +797,13 @@ void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
     if (old) {
         size_t copy_size = (size_t)(old_size < new_size ? old_size : new_size);
         memcpy(p, old, copy_size);
+        seen_allocation_observer_reallocating++;
         free(old);
+        seen_allocation_observer_reallocating--;
     }
 #endif
     seen_memory_commit_reservation(old_accounted, new_accounted);
+    seen_allocation_observe(2, old_address, p, new_accounted, -alignment);
     return p;
 }
 
@@ -4102,6 +4122,7 @@ SeenString seen_cstr_to_str(const char* s) {
 char* seen_str_to_cstr(SeenString s) {
     char* buf = (char*)malloc(s.len + 1);
     if (buf) {
+        seen_allocation_observe(1, 0, buf, s.len + 1, 2);
         memcpy(buf, s.data, s.len);
         buf[s.len] = '\0';
     }
@@ -9668,6 +9689,19 @@ static void* hashmap_alloc_array(int64_t count, size_t element_size,
     return ptr;
 }
 
+/* Resizing transfers entries, then releases both storage and its reservation. */
+static void hashmap_release_storage(void *keys, void *values, void *states,
+                                    int64_t capacity, size_t key_size,
+                                    size_t value_size) {
+    size_t largest = key_size > value_size ? key_size : value_size;
+    if (capacity < 0 || largest == 0 ||
+        (uint64_t)capacity > (uint64_t)INT64_MAX / largest)
+        seen_oom_abort("HashMap storage geometry", capacity);
+    seen_runtime_free_budgeted(keys, capacity * (int64_t)key_size);
+    seen_runtime_free_budgeted(values, capacity * (int64_t)value_size);
+    seen_runtime_free_budgeted(states, capacity);
+}
+
 static void hashmap_grow(SeenHashMap* map) {
     int64_t old_cap = map->capacity;
     int64_t* old_keys = map->keys;
@@ -9693,9 +9727,8 @@ static void hashmap_grow(SeenHashMap* map) {
             new_states[idx] = 1;
         }
     }
-    free(old_keys);
-    free(old_values);
-    free(old_states);
+    hashmap_release_storage(old_keys, old_values, old_states, old_cap,
+        sizeof(int64_t), sizeof(int64_t));
     map->keys = new_keys;
     map->values = new_values;
     map->states = new_states;
@@ -9951,9 +9984,8 @@ static void hashmap_grow_str(SeenHashMapStr* map) {
             new_states[idx] = 1;
         }
     }
-    free(old_keys);
-    free(old_values);
-    free(old_states);
+    hashmap_release_storage(old_keys, old_values, old_states, old_cap,
+        sizeof(SeenString), sizeof(int64_t));
     map->keys = new_keys;
     map->values = new_values;
     map->states = new_states;
@@ -10189,9 +10221,8 @@ static void hashmap_grow_str_str(SeenHashMapStrStr* map) {
             new_states[idx] = 1;
         }
     }
-    free(old_keys);
-    free(old_values);
-    free(old_states);
+    hashmap_release_storage(old_keys, old_values, old_states, old_cap,
+        sizeof(SeenString), sizeof(SeenString));
     map->keys = new_keys;
     map->values = new_values;
     map->states = new_states;
@@ -10429,9 +10460,8 @@ static void hashmap_grow_int_str(SeenHashMapIntStr* map) {
             new_states[idx] = 1;
         }
     }
-    free(old_keys);
-    free(old_values);
-    free(old_states);
+    hashmap_release_storage(old_keys, old_values, old_states, old_cap,
+        sizeof(int64_t), sizeof(SeenString));
     map->keys = new_keys;
     map->values = new_values;
     map->states = new_states;
@@ -14168,4 +14198,11 @@ int main(int argc, char** argv) {
     }
     return seen_main();
 }
+#endif
+
+// Keep allocation notification macros private to this translation unit.
+#undef free
+#ifdef _WIN32
+#undef seen_aligned_free
+#define seen_aligned_free _aligned_free
 #endif

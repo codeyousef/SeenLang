@@ -4,6 +4,11 @@ The typed GPU frontend validates actual parsed `@compute` bodies and explicit
 resource access. Kernel lowering and the experimental Vulkan runtime are separate
 capabilities. Frontend validation does not certify GPU execution.
 
+Source reflection and artifact emission use an exclusive, bounded Seen frontend
+owner. Returned GPU IR and diagnostics retain their own data after temporary
+parser storage is released. See [frontend allocation lifetime](../architecture/frontend-allocation-lifetime.md)
+for limits, allocator provenance and the serial-session requirement.
+
 ## Typed compute declarations
 
 ```seen
@@ -514,3 +519,52 @@ The resulting `certification.json` records tool identities and artifact hashes.
 Other hosts are explicitly unsupported by this certification profile. Offline
 validation remains compile-only and proves no device capability, dispatch,
 performance, or hardware correctness.
+
+## Experimental offline CUDA PTX layout
+
+`seen gpu emit source.seen --gpu-backend cuda --gpu-target sm_80 --output kernel.ptx`
+produces PTX text through the shared GPU IR artifact pipeline. Supported base
+profiles are `sm_70`, `sm_75`, `sm_80`, `sm_86`, `sm_89`, `sm_90` and `sm_100`.
+The last uses PTX 8.7; the others use PTX 8.0. This command opens no CUDA driver
+or device. Host executable compilation with a selected GPU backend still rejects
+execution through its explicit backend-unavailable diagnostic.
+
+The base emitter lowers fixed-width integer and Float32 values, vectors,
+resources, uniforms, checked faults, shared storage, structured loops and
+inlined device helpers. Atomics, subgroup operations, packed precision,
+specialization and cooperative matrices require separate capability lowering;
+unavailable instructions produce `E_GPU_PTX_CAPABILITY` rather than a substitute
+kernel. Wrong backend/target selection produces `E_GPU_PTX_TARGET` or the shared
+strict-option diagnostic. Layout and emission ceilings use `E_GPU_PTX_LAYOUT`
+and `E_GPU_PTX_LIMIT`.
+
+`seen-ptx-kernel-v1` expands each storage parameter into a 64-bit address and a
+32-bit element count. A uniform passes one 16-byte value block aligned to 16
+bytes, including scalar and Boolean uniforms. The checked-fault address follows
+user parameters when required. Reflection records physical parameter order,
+logical binding, size, alignment and packed-buffer offsets; this plan participates
+in each entry's ABI digest. The alternative CUDA array-of-argument-pointers API
+must supply values with the same physical types. Parameters remain borrowed for
+the eventual launch lifetime; emission does not allocate device resources.
+
+The portable parameter ceiling is 4 KiB and the static shared-storage ceiling is
+48 KiB per entry. Resources keep their logical element stride, including 16-byte
+storage stride for three-lane vectors. Source loop iteration and checked-fault
+semantics remain those of the shared GPU IR. Shared storage is initialized by
+workgroup lanes before use. Partial construction releases text fragments,
+emission frames, reflection and digest containers.
+
+[The pinned assembler policy](../architecture/ptx-toolchain.json) selects only
+NVIDIA `ptxas` 12.8.93 from a SHA-256 verified package and executable. Install it
+with `python3 scripts/install_gpu_ptx_toolchain.py /absolute/existing/parent/ptxas`
+and set `SEEN_PTXAS` to that absolute path. The installer preserves TLS and proxy
+configuration and extracts only the exact pinned member. Offline invocations
+have memory, CPU, output and wall-time limits; tool identity is checked before
+and after each invocation.
+
+`tests/misc_root_tests/seen_gpu_ptx_a.sh` exercises seven targets in fast,
+ThinLTO, UBSan and ASan profiles, independent launch-ABI and hash checks, official
+assembly, nested helper returns and bounded malformed-IR rejection. Artifacts
+remain **compile-only** with hardware/device verification false. A successful
+assembler check establishes accepted PTX syntax and layout, not numerical GPU
+execution, launch safety or production certification.

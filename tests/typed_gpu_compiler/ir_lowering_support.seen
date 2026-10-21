@@ -1,17 +1,14 @@
-import bootstrap.frontend.{runFrontendCompat}
-import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_source.{lowerGpuSource}
 import codegen.gpu_ir_model.{GpuIrModule}
 import codegen.gpu_ir_serialize.{serializeGpuIr}
 import ir_fixture_support.{irRequire}
 
 fun irLowerSource(source: String) r: GpuIrModule {
-    let frontend = runFrontendCompat(source, "source-ir.seen", "en"); irRequire(frontend.success)
-    let result = lowerGpuProgram(frontend.program, "source-ir.seen"); irRequire(result.isOkay())
+    let result = lowerGpuSource(source, "source-ir.seen"); irRequire(result.isOkay())
     let module = result.unwrap(); result.releaseContainer(); return module
 }
 fun irLowerReject(source: String, code: String) r: Void {
-    let frontend = runFrontendCompat(source, "source-ir.seen", "en")
-    let result = lowerGpuProgram(frontend.program, "source-ir.seen"); irRequire(result.isErr())
+    let result = lowerGpuSource(source, "source-ir.seen"); irRequire(result.isErr())
     let validation = result.unwrapErr(); result.releaseContainer(); var found = false; var i = 0
     while i < validation.diagnostics.length() {
         if validation.diagnostics[i].code == code { found = true }; i = i + 1

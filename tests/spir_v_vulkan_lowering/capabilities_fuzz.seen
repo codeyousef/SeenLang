@@ -1,7 +1,6 @@
 import env.env.{args, releaseArgs}
 import tools.gpu_command.{gpuReadBoundedText}
-import bootstrap.frontend.{runFrontendCompat}
-import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_source.{lowerGpuSource}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv}
 import codegen.gpu_ir_ops.{GPU_IR_PACK}
 import codegen.gpu_options.{GpuOptions}
@@ -12,8 +11,7 @@ extern "C" fun seen_time_monotonic_nanos() r: Int64
 fun main() r: Int {
     let argv = args(); witnessRequire(argv.length() == 2)
     let read = gpuReadBoundedText(argv[1], 1048576); witnessRequire(read.isOkay()); let text = read.unwrap(); read.releaseContainer()
-    let frontend = runFrontendCompat(text, "spirv-fuzz.seen", "en"); witnessRequire(frontend.success)
-    let lowered = lowerGpuProgram(frontend.program, "spirv-fuzz.seen"); releaseJsonText(text); witnessRequire(lowered.isOkay())
+    let lowered = lowerGpuSource(text, "spirv-fuzz.seen"); releaseJsonText(text); witnessRequire(lowered.isOkay())
     let module = lowered.unwrap(); lowered.releaseContainer(); let root = module.functions[0].blocks[0]; var index = 0
     while index < root.instructions.length() and root.instructions[index].opcode != GPU_IR_PACK { index = index + 1 }
     witnessRequire(index < root.instructions.length()); let operation = root.instructions[index]

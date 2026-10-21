@@ -189,6 +189,23 @@
       "production": true
     },
     {
+      "id": "frontend-allocation-observer",
+      "subsystem": "compiler.frontend",
+      "purpose": "Thread-local allocation events with recursion protection and exclusive registration. Seen owns bounded address lookup, allocator provenance, heap/count limits, parser scratch restoration and release. No native ownership list or parsing policy. GPU lowering returns independent IR before temporary cleanup. Repeated success/rejection and four growing map shapes check exact accounting under sanitizers. Also owns immutable CLI snapshots. Permanent callback ABI; serial parser sessions only.",
+      "abi": "C callback / runtime-v14",
+      "platforms": [
+        "linux-x86_64",
+        "linux-aarch64",
+        "macos",
+        "windows"
+      ],
+      "symbols": [
+        "seen_allocation_observer_install",
+        "seen_allocation_observer_remove"
+      ],
+      "production": false
+    },
+    {
       "id": "host-aligned-buffer",
       "subsystem": "stdlib.memory",
       "purpose": "Minimal allocation ABI for move-only aligned Seen buffers. Seen validates geometry and alignment and owns lifetime policy; the runtime only performs platform-correct allocation and free. Exercised by layout, alignment, move, and leak tests. Permanent until compiler-owned allocation intrinsics can preserve the same C ABI.",

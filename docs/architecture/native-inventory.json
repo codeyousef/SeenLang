@@ -3322,7 +3322,22 @@
       "name": "seen_aligned_buffer_free",
       "abi": "C",
       "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen",
         "seen_std/src/memory/aligned_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_allocation_observer_install",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen"
+      ]
+    },
+    {
+      "name": "seen_allocation_observer_remove",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen"
       ]
     },
     {
@@ -4037,6 +4052,7 @@
       "name": "seen_cstr_free",
       "abi": "C",
       "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen",
         "seen_std/src/env/env.seen",
         "seen_std/src/fs/file.seen"
       ]
@@ -5832,6 +5848,7 @@
       "name": "seen_memory_release_bytes",
       "abi": "C",
       "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen",
         "seen_std/src/env/env.seen"
       ]
     },
@@ -6021,6 +6038,7 @@
       "name": "seen_pool_free",
       "abi": "C",
       "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen",
         "seen_std/src/async/executor_native.seen",
         "seen_std/src/simd/dot_clock.seen"
       ]

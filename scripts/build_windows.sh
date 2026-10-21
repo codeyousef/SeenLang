@@ -109,6 +109,7 @@ compile_runtime() {
         "$RUNTIME_DIR/src/executor_socket_abi.h" \
         "$RUNTIME_DIR/src/executor_completion_abi.c" \
         "$RUNTIME_DIR/src/executor_completion_abi.h" \
+        "$RUNTIME_DIR/src/allocation_observer_abi.c" \
         "$RUNTIME_DIR/src/io_uring_abi.c" \
         "$RUNTIME_DIR/src/io_uring_abi.h" \
         "$RUNTIME_DIR/src/iocp_abi.c" \

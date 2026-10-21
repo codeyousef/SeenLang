@@ -40,6 +40,13 @@ typedef struct {
     void* data;
 } SeenArray;
 
+/* Internal compiler ownership observer. Events: 1 allocate, 2 reallocate,
+ * 3 native free notification, 4 pool free (nonzero callback consumes it).
+ * Kinds: 0 budgeted malloc, 1 pool, 2 unbudgeted C string; a negative kind
+ * carries the alignment of a budgeted aligned allocation. */
+int64_t seen_allocation_observer_install(void *context, uint64_t entry);
+int64_t seen_allocation_observer_remove(void *context);
+
 typedef struct {
     bool success;
     SeenString output;

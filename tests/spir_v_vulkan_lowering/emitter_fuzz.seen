@@ -1,5 +1,4 @@
-import bootstrap.frontend.{runFrontendCompat}
-import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_source.{lowerGpuSource}
 import codegen.gpu_ir_model.{GpuIrModule}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv}
 import codegen.gpu_options.{GpuOptions}
@@ -7,8 +6,7 @@ extern "C" fun seen_time_monotonic_nanos() r: Int64
 extern "C" fun seen_memory_used_bytes() r: Int64
 fun require(value: Bool) r: Void { if not value { abort("SPIR-V emission fuzz failed") } }
 fun main() r: Int {
-    let frontend = runFrontendCompat("@compute(1) fun arbitrary(output: WriteBuffer<Int32>) { output[0] = 7 }", "spirv-fuzz.seen", "en"); require(frontend.success)
-    let lowered = lowerGpuProgram(frontend.program, "spirv-fuzz.seen"); require(lowered.isOkay())
+    let lowered = lowerGpuSource("@compute(1) fun arbitrary(output: WriteBuffer<Int32>) { output[0] = 7 }", "spirv-fuzz.seen"); require(lowered.isOkay())
     let module = lowered.unwrap(); lowered.releaseContainer(); let function = module.functions[0]
     let block = function.blocks[0]; let store = block.instructions[block.instructions.length() - 1]
     let options = GpuOptions.create(); options.backend = "spirv"; options.target = "vulkan1.2"

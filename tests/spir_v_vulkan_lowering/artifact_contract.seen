@@ -1,7 +1,6 @@
 import env.env.{args, releaseArgs}
 import tools.gpu_command.{gpuReadBoundedText}
-import bootstrap.frontend.{runFrontendCompat}
-import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_source.{lowerGpuSource}
 import codegen.gpu_options.{GpuOptions}
 import codegen.gpu_ir_model.{GpuIrModule}
 import codegen.gpu_artifact.{buildGpuArtifact}
@@ -37,8 +36,7 @@ fun main() r: Int {
     let argv = args(); require(argv.length() == 2)
     let read = gpuReadBoundedText(argv[1], 1048576); require(read.isOkay())
     let text = read.unwrap(); read.releaseContainer()
-    let frontend = runFrontendCompat(text, "spirv-artifact.seen", "en"); require(frontend.success)
-    let lowered = lowerGpuProgram(frontend.program, "spirv-artifact.seen"); releaseJsonText(text); require(lowered.isOkay())
+    let lowered = lowerGpuSource(text, "spirv-artifact.seen"); releaseJsonText(text); require(lowered.isOkay())
     let module = lowered.unwrap(); lowered.releaseContainer(); let options = GpuOptions.create(); options.backend = "spirv"
     let baseline = seen_memory_used_bytes(); var i = 0
     while i < 30 {

@@ -1,4 +1,4 @@
-import bootstrap.frontend.{runFrontendCompat}
+import bootstrap.owned_frontend.{runOwnedFrontendCompat}
 import ir_fixture_support.{irRequire}
 import ir_rejection_support.{rejectionExpect, rejectionObserve}
 import json.builder.{releaseJsonText}
@@ -6,7 +6,8 @@ extern "C" fun seen_time_monotonic_nanos() r: Int64
 extern "C" fun seen_memory_used_bytes() r: Int64
 
 fun main() r: Int {
-    let frontend = runFrontendCompat("@compute(1) fun copy(output: WriteBuffer<Int32>) { output[0] = 7 }", "rejection.seen", "en"); irRequire(frontend.success)
+    let owner = runOwnedFrontendCompat("@compute(1) fun copy(output: WriteBuffer<Int32>) { output[0] = 7 }", "rejection.seen", "en")
+    let frontend = owner.result; irRequire(frontend.success)
     let function = frontend.program.items[0].function; let statement = function.body.statements[0]
     let statementKind = statement.kind; let expressionKind = statement.expression.kind
     let parameterType = function.params[0].paramType.typeName; let baseline = seen_memory_used_bytes()
@@ -35,6 +36,7 @@ fun main() r: Int {
         if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); irRequire(next >= now); now = next }
     }
     irRequire(now >= deadline and iterations >= 32)
+    owner.release()
     println("PASS: GPU-001E rejection fuzz 60s seed=1087 preserved diagnostics source positions and allocation baseline")
     return 0
 }

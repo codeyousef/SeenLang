@@ -18,6 +18,8 @@ class GpuEmissionFrame {
     var yielded: Int
     var returnMerge: Int
     var returnSlot: Int
+    var returnFlag: Int
+    var returnSites: Int
     fun release() r: Void {
         this.registers.free(); this.registerTypes.free(); this.resourceIndices.free(); this.localPointers.free(); this.arguments.free(); this.argumentResources.free()
         this.loopMerges.free(); this.loopContinues.free(); this.inductionPointers.free(); this.free()
@@ -39,5 +41,6 @@ fun createGpuEmissionFrame(borrow module: GpuIrModule, functionIndex: Int, argum
     while i < arguments.length() { copied.push(arguments[i]); copiedResources.push(resources[i]); i = i + 1 }
     return GpuEmissionFrame{functionIndex: functionIndex, registers: registers, registerTypes: types, resourceIndices: indices, localPointers: locals,
         arguments: copied, argumentResources: copiedResources, loopMerges: Array<Int>(), loopContinues: Array<Int>(),
-        inductionPointers: Array<Int>(), signal: 0, condition: 0, yielded: 0, returnMerge: 0, returnSlot: 0}
+        inductionPointers: Array<Int>(), signal: 0, condition: 0, yielded: 0, returnMerge: 0, returnSlot: 0,
+        returnFlag: 0, returnSites: 0}
 }

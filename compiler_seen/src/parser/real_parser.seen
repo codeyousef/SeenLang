@@ -296,6 +296,41 @@ var g_uiSlotBlocks: Array<BlockNode> = Array<BlockNode>()
 var g_uiTrailingBlockSuppressionDepth: Int = 0
 var g_parserRecoveryErrorCount: Int = 0
 
+/// An exclusive session swaps the parser's UI scratch registries. The caller
+/// restores the previous views after lowering, before releasing its AST owner.
+class ParserFrontendSession {
+    var argIds: Array<String>
+    var argIndexes: Array<Int>
+    var argNames: Array<String>
+    var slotIds: Array<String>
+    var slotNames: Array<String>
+    var slotBlocks: Array<BlockNode>
+    var nextArg: Int
+    var nextSlot: Int
+    var suppressionDepth: Int
+    var recoveryErrors: Int
+    static fun begin() r: ParserFrontendSession {
+        let session = ParserFrontendSession{argIds: g_uiArgListIds, argIndexes: g_uiArgIndexes,
+            argNames: g_uiArgNames, slotIds: g_uiSlotListIds, slotNames: g_uiSlotNames,
+            slotBlocks: g_uiSlotBlocks, nextArg: g_uiNextArgListId, nextSlot: g_uiNextSlotListId,
+            suppressionDepth: g_uiTrailingBlockSuppressionDepth, recoveryErrors: g_parserRecoveryErrorCount}
+        g_uiArgListIds = Array<String>(); g_uiArgIndexes = Array<Int>(); g_uiArgNames = Array<String>()
+        g_uiSlotListIds = Array<String>(); g_uiSlotNames = Array<String>(); g_uiSlotBlocks = Array<BlockNode>()
+        g_uiNextArgListId = 1; g_uiNextSlotListId = 1; g_uiTrailingBlockSuppressionDepth = 0
+        g_parserRecoveryErrorCount = 0
+        return session
+    }
+    fun release() r: Void {
+        g_uiArgListIds.free(); g_uiArgIndexes.free(); g_uiArgNames.free()
+        g_uiSlotListIds.free(); g_uiSlotNames.free(); g_uiSlotBlocks.free()
+        g_uiArgListIds = this.argIds; g_uiArgIndexes = this.argIndexes; g_uiArgNames = this.argNames
+        g_uiSlotListIds = this.slotIds; g_uiSlotNames = this.slotNames; g_uiSlotBlocks = this.slotBlocks
+        g_uiNextArgListId = this.nextArg; g_uiNextSlotListId = this.nextSlot
+        g_uiTrailingBlockSuppressionDepth = this.suppressionDepth; g_parserRecoveryErrorCount = this.recoveryErrors
+        this.free()
+    }
+}
+
 fun resetParserRecoveryErrors() r: Void {
     g_parserRecoveryErrorCount = 0
 }
@@ -4405,6 +4440,9 @@ class RealParser {
         this.currentBlock = BlockNode.new()
         var loopCount = 0
         while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+            // Compound statements may be followed by optional separators.
+            // Consume them before expression parsing can create recovery nodes.
+            if matchTokenStr(SeenTokenType.Semicolon) { continue }
             loopCount = loopCount + 1
             if loopCount > 1000 {
                 println("[ERROR] parseBlock: too many iterations (>1000), breaking")

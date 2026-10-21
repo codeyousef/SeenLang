@@ -23,7 +23,11 @@ fun spirvLowerConditional(borrow module: GpuIrModule, function: GpuSpirvFunction
         let result = context.id(); function.emit(245, [context.valueType(op.typeCode), result, leftValue, leftLabel, rightValue, rightLabel])
         frame.registers[op.result] = result
     } else if leftSignal != 0 and rightSignal != 0 {
-        function.emit(255, Array<Int>()); function.terminated = true; frame.signal = 6
+        if frame.returnFlag != 0 and (leftSignal == 1 or rightSignal == 1) {
+            // Returned helper paths meet here; break/continue paths have already
+            // left for their enclosing loop. Unwind through this selection.
+            frame.signal = 1
+        } else { function.emit(255, Array<Int>()); function.terminated = true; frame.signal = 6 }
     }
 }
 fun spirvLowerLoop(borrow module: GpuIrModule, function: GpuSpirvFunction,
@@ -55,7 +59,17 @@ fun spirvLowerLoop(borrow module: GpuIrModule, function: GpuSpirvFunction,
     function.label(exhausted); function.faultKind(3); function.branch(merge)
     function.label(body); frame.loopMerges.push(merge); frame.loopContinues.push(continued); frame.inductionPointers.push(induction)
     var bodyIndex = op.leftBlock; if op.opcode == GPU_IR_WHILE { bodyIndex = op.rightBlock }
-    spirvLowerRegion(module, function, frame, bodyIndex, depth + 1); function.branch(continued)
+    let returnsBefore = frame.returnSites
+    spirvLowerRegion(module, function, frame, bodyIndex, depth + 1)
+    if not function.terminated and frame.returnFlag != 0 and frame.returnSites > returnsBefore {
+        // A helper return exits each loop in turn, without running its continue
+        // block or evaluating another source condition.
+        let returned = context.id(); function.emit(61, [context.valueType(1), returned, frame.returnFlag])
+        let leave = context.id(); let next = context.id()
+        function.emit(247, [next, 0]); function.conditional(returned, leave, next)
+        function.label(leave); function.branch(merge); function.label(next)
+    }
+    function.branch(continued)
     frame.loopMerges.pop(); frame.loopContinues.pop(); frame.inductionPointers.pop(); frame.signal = 0
     function.label(continued)
     let previous = context.id(); function.emit(61, [context.valueType(3), previous, counter])
@@ -75,6 +89,7 @@ fun spirvLowerCall(borrow module: GpuIrModule, function: GpuSpirvFunction,
     }
     let child = createGpuEmissionFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free()
     let body = context.id(); let merge = context.id(); child.returnMerge = merge
+    child.returnFlag = function.variable(1); function.emit(62, [child.returnFlag, context.constant(1, 0)])
     if op.typeCode != 0 { child.returnSlot = function.variable(op.typeCode); function.emit(62, [child.returnSlot, context.zero(op.typeCode)]) }
     function.emit(247, [merge, 0]); function.conditional(context.constant(1, 1), body, merge); function.label(body)
     spirvLowerRegion(module, function, child, 0, depth + 1); function.branch(merge); function.label(merge)
@@ -85,12 +100,17 @@ fun spirvLowerCall(borrow module: GpuIrModule, function: GpuSpirvFunction,
 }
 fun spirvLowerRegion(borrow module: GpuIrModule, function: GpuSpirvFunction,
     frame: GpuEmissionFrame, blockIndex: Int, depth: Int) r: Void {
+    spirvLowerRegionTail(module, function, frame, blockIndex, 0, depth)
+}
+fun spirvLowerRegionTail(borrow module: GpuIrModule, function: GpuSpirvFunction,
+    frame: GpuEmissionFrame, blockIndex: Int, first: Int, depth: Int) r: Void {
     let context = function.context
     if not context.validation.valid { return }
     if depth > 128 { context.error("E_GPU_SPIRV_LIMIT", "SPIR-V expanded region depth ceiling exceeded"); return }
-    let source: GpuIrFunction = module.functions[frame.functionIndex]; let block = source.blocks[blockIndex]; var i = 0
+    let source: GpuIrFunction = module.functions[frame.functionIndex]; let block = source.blocks[blockIndex]; var i = first
     while i < block.instructions.length() and context.validation.valid and frame.signal == 0 {
         let op: GpuIrInstruction = block.instructions[i]
+        let returnsBefore = frame.returnSites
         context.functionIndex = frame.functionIndex; context.blockIndex = blockIndex; context.instructionIndex = i
         if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE { spirvLowerConditional(module, function, frame, op, depth) }
         else if op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR { spirvLowerLoop(module, function, frame, op, depth) }
@@ -106,9 +126,22 @@ fun spirvLowerRegion(borrow module: GpuIrModule, function: GpuSpirvFunction,
             if frame.returnMerge == 0 { function.emit(253, Array<Int>()); function.terminated = true }
             else {
                 if frame.returnSlot != 0 { function.emit(62, [frame.returnSlot, frame.registers[op.operands[0]]]) }
-                function.branch(frame.returnMerge)
+                // Branching straight to the call's merge would illegally leave
+                // nested SPIR-V selections. Carry the return through their joins.
+                function.emit(62, [frame.returnFlag, context.constant(1, 1)])
+                frame.returnSites = frame.returnSites + 1
             }; frame.signal = 1
         } else { spirvLowerValue(function, frame, op) }
         i = i + 1
+        if frame.returnFlag != 0 and frame.returnSites > returnsBefore and frame.signal == 0 and i < block.instructions.length() {
+            let returned = context.id(); function.emit(61, [context.valueType(1), returned, frame.returnFlag])
+            let rest = context.id(); let merge = context.id()
+            function.emit(247, [merge, 0]); function.conditional(returned, merge, rest); function.label(rest)
+            spirvLowerRegionTail(module, function, frame, blockIndex, i, depth + 1)
+            let restSignal = frame.signal; function.branch(merge); function.label(merge)
+            frame.signal = 0
+            if restSignal != 0 { frame.signal = 1 }
+            return
+        }
     }
 }
