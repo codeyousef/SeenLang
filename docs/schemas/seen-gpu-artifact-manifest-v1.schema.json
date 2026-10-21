@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Seen SPIR-V artifact integrity manifest v1",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "seen-gpu-artifact-manifest-v1"
+    },
+    "backend": {
+      "const": "spirv"
+    },
+    "byte_order": {
+      "const": "little"
+    },
+    "classification": {
+      "const": "compile-only"
+    },
+    "official_validation": {
+      "const": "not-run"
+    },
+    "hardware_verified": {
+      "const": false
+    },
+    "gpu_execution_verified": {
+      "const": false
+    },
+    "target": {
+      "enum": [
+        "vulkan1.2",
+        "vulkan1.3"
+      ]
+    },
+    "byte_count": {
+      "type": "integer",
+      "minimum": 20,
+      "maximum": 33554432,
+      "multipleOf": 4
+    },
+    "word_count": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 8388608
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "reflection_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema",
+    "backend",
+    "byte_order",
+    "classification",
+    "official_validation",
+    "hardware_verified",
+    "gpu_execution_verified",
+    "target",
+    "byte_count",
+    "word_count",
+    "sha256",
+    "reflection_sha256"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,17 @@
+/// The creator transfers four owned strings into this immutable-use artifact.
+/// Borrowers may inspect bytes and metadata until release; they cannot certify
+/// validation or device execution by constructing an artifact manifest.
+import json.builder.{releaseJsonText}
+
+@move
+class GpuSpirvArtifact {
+    var binary: String
+    var reflection: String
+    var binaryHash: String
+    var reflectionHash: String
+    var target: String
+    fun release() r: Void {
+        releaseJsonText(this.binary); releaseJsonText(this.reflection)
+        releaseJsonText(this.binaryHash); releaseJsonText(this.reflectionHash); this.free()
+    }
+}

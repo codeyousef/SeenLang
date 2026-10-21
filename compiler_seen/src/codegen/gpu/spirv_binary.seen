@@ -1,0 +1,22 @@
+/// Bounded little-endian serialization shared by artifact construction and CLI.
+import core.result.{Result, Err}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+import codegen.gpu_bytes.{consumeGpuBytes}
+
+fun encodeGpuSpirvBinary(words: Array<Int>) r: Result<String, GpuIrDiagnostic> {
+    if words.length() < 5 or words.length() > 8388608 {
+        return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_BINARY", "SPIR-V binary word count exceeds its header or byte ceiling"))
+    }
+    var i = 0
+    while i < words.length() {
+        if words[i] < 0 or words[i] > 4294967295 {
+            return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_SPIRV_BINARY", "SPIR-V binary word exceeds its unsigned 32-bit domain"))
+        }; i = i + 1
+    }
+    let bytes = Array<Int>(); i = 0
+    while i < words.length() {
+        let word = words[i]; var shift = 0
+        while shift < 32 { bytes.push((word >> shift) & 255); shift = shift + 8 }; i = i + 1
+    }
+    return consumeGpuBytes(bytes)
+}
