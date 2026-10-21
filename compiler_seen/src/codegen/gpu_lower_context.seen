@@ -23,13 +23,6 @@ class GpuLowerContext {
     var sharedBytes: Int
     var line: Int
     var column: Int
-    static fun create(borrow module: GpuIrModule, borrow function: GpuIrFunction, validation: GpuIrValidation,
-        functionIndex: Int, budget: Array<Int>) r: GpuLowerContext {
-        let types = Array<Int>(); types.push(0)
-        return GpuLowerContext{module: module, function: function, validation: validation, functionIndex: functionIndex,
-            budget: budget, registerTypes: types, names: Array<String>(), registers: Array<Int>(), slots: Array<Int>(),
-            scopeStart: 0, blockIndex: 0, sharedBytes: 0, line: function.line, column: 0}
-    }
     fun error(code: String, message: String) r: Void {
         let previous = this.validation.diagnostics.length()
         this.validation.reject(code, message, this.functionIndex, this.blockIndex, -1)
@@ -105,4 +98,12 @@ class GpuLowerContext {
     fun release() r: Void {
         this.registerTypes.free(); this.names.free(); this.registers.free(); this.slots.free(); this.free()
     }
+}
+
+fun gpuCreateLowerContext(borrow module: GpuIrModule, borrow function: GpuIrFunction, validation: GpuIrValidation,
+    functionIndex: Int, budget: Array<Int>) r: GpuLowerContext {
+    let types = Array<Int>(); types.push(0)
+    return GpuLowerContext{module: module, function: function, validation: validation, functionIndex: functionIndex,
+        budget: budget, registerTypes: types, names: Array<String>(), registers: Array<Int>(), slots: Array<Int>(),
+        scopeStart: 0, blockIndex: 0, sharedBytes: 0, line: function.line, column: 0}
 }

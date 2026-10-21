@@ -321,6 +321,25 @@ with `release()`. `GpuOptions` owns cloned entry names; its creator calls
 IR/ABI hashes, compares four execution profiles, checks deterministic CLI output,
 exercises adverse selection and includes 60 seconds of seeded metadata fuzz.
 
+## Unsupported source and rejection goldens
+
+Single-function checks, module checks and reflection share the same parsed
+lowering and IR verifier. Parsed stage annotations have one classifier. Graphics
+stages mixed with compute entries and GPU methods on host classes are rejected;
+they cannot disappear from a partial reflection result. Unknown statements or
+expressions return `E_GPU_UNSUPPORTED` with the source location. Typed return
+mismatches are reported before IR emission.
+
+The unused legacy GLSL generator and its unsupported-node fallthroughs have
+been removed. Kernel names never supply a body. The rejection contract executes
+two different parsed bodies under ten names, including former conventional
+kernel names, and checks their distinct results. A CPU function mentioning stage
+names in a string remains CPU-only. The regression harness compares exact
+diagnostic messages, codes, cardinality and locations with checked-in goldens
+under four profiles, checks that rejection creates no backend artifact, and runs
+60 seconds of seeded AST mutation fuzz with allocation baselines. These checks
+exercise software semantics and do not establish hardware execution.
+
 ## Runtime C API
 
 The authoritative declarations are in `seen_runtime/seen_gpu.h`:

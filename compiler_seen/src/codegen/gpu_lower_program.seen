@@ -5,7 +5,7 @@ import core.result.{Result, Ok, Err}
 import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrBlock, GpuIrDiagnostic, GpuIrValidation}
 import codegen.gpu_ir_ops.{GPU_IR_PARAM}
 import codegen.gpu_ir_verify.{verifyGpuIr}
-import codegen.gpu_lower_context.{GpuLowerContext}
+import codegen.gpu_lower_context.{GpuLowerContext, gpuCreateLowerContext}
 import codegen.gpu_lower_blocks.{gpuLowerBlock, gpuIrSourceParameterType}
 import codegen.gpu_lower_call_plan.{gpuLowerSubgroupOperation, gpuLowerAtomicOperation}
 import codegen.gpu_precision_call_plan.{gpuPrecisionCallOpcode}
@@ -13,20 +13,17 @@ import codegen.gpu_ir_value_rules.{gpuIrBuiltinCode, gpuIrIntrinsicCode}
 import codegen.gpu_ir_facts.{gpuIrValueTypeValid}
 import typechecker.gpu_types.{gpuValueType, gpuTypeResource}
 import typechecker.gpu_workgroup.{gpuParseWorkgroup}
+import typechecker.gpu_annotations.{gpuFunctionStage}
 
-fun gpuFunctionStage(function: FunctionNode) r: Int {
-    var stage = 0; var i = 0
-    while i < function.decorators.length() {
-        let name = function.decorators[i].name
-        if name == "compute" { stage = stage | 1 }; if name == "device" { stage = stage | 2 }; i = i + 1
-    }
-    return stage
-}
 fun gpuLowerSignature(source: FunctionNode, validation: GpuIrValidation, index: Int) r: Result<GpuIrFunction, GpuIrValidation> {
+    if source.decorators.length() > 16 {
+        validation.reject("E_GPU_LIMIT", "GPU decorator count exceeds its ceiling", index, -1, -1)
+        return Err<GpuIrFunction, GpuIrValidation>(validation)
+    }
     let stage = gpuFunctionStage(source); var returnType = 0
     let rawReturn = source.returnType.typeName
     if rawReturn != "" and rawReturn != "Unknown" and rawReturn != "Void" { returnType = gpuValueType(rawReturn) }
-    if source.name.length() == 0 or source.name.length() > 256 or source.decorators.length() > 16 or
+    if source.name.length() == 0 or source.name.length() > 256 or
         source.params.length() > 64 or source.isAsync or source.isExtern or genericParameterCount(source.decorators) != 0 or
         source.returnType.isNullable or (stage != 1 and stage != 2) or
         (stage == 1 and returnType != 0) or (rawReturn != "" and rawReturn != "Unknown" and rawReturn != "Void" and not gpuIrValueTypeValid(returnType)) {
@@ -100,22 +97,40 @@ fun gpuIrAttachLocations(borrow module: GpuIrModule, validation: GpuIrValidation
         i = i + 1
     }
 }
-fun lowerGpuProgram(program: ProgramNode, path: String) r: Result<GpuIrModule, GpuIrValidation> {
+fun gpuPopulateLowering(borrow module: GpuIrModule, sources: Array<FunctionNode>, validation: GpuIrValidation) r: Void {
+    let budget = Array<Int>(); budget.push(0); budget.push(0); var i = 0
+    while i < sources.length() and validation.valid {
+        let context = gpuCreateLowerContext(module, module.functions[i], validation, i, budget)
+        gpuLowerFunction(context, sources[i]); context.release(); i = i + 1
+    }
+    budget.free()
+}
+
+fun lowerGpuFunctions(sources: Array<FunctionNode>, path: String) r: Result<GpuIrModule, GpuIrValidation> {
     let validation = GpuIrValidation.create(); let created = GpuIrModule.create(path)
     if created.isErr() {
         let error: GpuIrDiagnostic = created.unwrapErr(); validation.reject(error.code, error.message, -1, -1, -1)
         error.free(); created.releaseContainer(); return Err<GpuIrModule, GpuIrValidation>(validation)
     }
-    let module = created.unwrap(); created.releaseContainer(); let sources = Array<FunctionNode>(); var i = 0
+    let module = created.unwrap(); created.releaseContainer(); var i = 0
+    if sources.length() > 256 { validation.reject("E_GPU_LIMIT", "GPU function ceiling exceeded", -1, -1, -1) }
+    while i < sources.length() and validation.valid {
+        let signature = gpuLowerSignature(sources[i], validation, i)
+        if signature.isOkay() { module.functions.push(signature.unwrap()) }; signature.releaseContainer(); i = i + 1
+    }
+    gpuPopulateLowering(module, sources, validation)
+    if not validation.valid { gpuIrAttachLocations(module, validation); module.release(); return Err<GpuIrModule, GpuIrValidation>(validation) }
+    validation.release(); let verified = verifyGpuIr(module)
+    if not verified.valid { gpuIrAttachLocations(module, verified); module.release(); return Err<GpuIrModule, GpuIrValidation>(verified) }
+    verified.release(); return Ok<GpuIrModule, GpuIrValidation>(module)
+}
+fun lowerGpuProgram(program: ProgramNode, path: String) r: Result<GpuIrModule, GpuIrValidation> {
+    let validation = GpuIrValidation.create(); let sources = Array<FunctionNode>(); var i = 0
     while i < program.items.length() and validation.valid {
         let item = program.items[i]
         if item.itemType == "Function" and gpuFunctionStage(item.function) != 0 {
             if sources.length() >= 256 { validation.reject("E_GPU_LIMIT", "GPU function ceiling exceeded", -1, -1, -1) }
-            else {
-                let signature = gpuLowerSignature(item.function, validation, sources.length())
-                if signature.isOkay() { module.functions.push(signature.unwrap()); sources.push(item.function) }
-                signature.releaseContainer()
-            }
+            else { sources.push(item.function) }
         } else if item.itemType == "Class" {
             var method = 0
             while method < item.classNode.methods.length() {
@@ -125,14 +140,6 @@ fun lowerGpuProgram(program: ProgramNode, path: String) r: Result<GpuIrModule, G
         }
         i = i + 1
     }
-    let budget = Array<Int>(); budget.push(0); budget.push(0); i = 0
-    while i < sources.length() and validation.valid {
-        let context = GpuLowerContext.create(module, module.functions[i], validation, i, budget)
-        gpuLowerFunction(context, sources[i]); context.release(); i = i + 1
-    }
-    budget.free(); sources.free()
-    if not validation.valid { gpuIrAttachLocations(module, validation); module.release(); return Err<GpuIrModule, GpuIrValidation>(validation) }
-    validation.release(); let verified = verifyGpuIr(module)
-    if not verified.valid { gpuIrAttachLocations(module, verified); module.release(); return Err<GpuIrModule, GpuIrValidation>(verified) }
-    verified.release(); return Ok<GpuIrModule, GpuIrValidation>(module)
+    if not validation.valid { sources.free(); return Err<GpuIrModule, GpuIrValidation>(validation) }
+    validation.release(); let result = lowerGpuFunctions(sources, path); sources.free(); return result
 }

@@ -1,0 +1,32 @@
+import parser.real_parser.{ProgramNode}
+import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_ir_model.{GpuIrModule}
+import ir_fixture_support.{irRequire}
+import ir_scalar_state.{IrScalarState}
+import ir_scalar_machine.{runIrScalarWitness}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+
+fun rejectionExpect(program: ProgramNode, code: String, message: String, line: Int, column: Int, emit: Bool) r: Void {
+    let result = lowerGpuProgram(program, "rejection.seen"); irRequire(result.isErr())
+    let validation = result.unwrapErr(); result.releaseContainer(); irRequire(validation.diagnostics.length() == 1)
+    let error = validation.diagnostics[0]; irRequire(error.code == code)
+    if message != "" {
+        irRequire(error.message == message and error.line == line and error.column == column)
+        irRequire(error.functionIndex == 0 and error.blockIndex == 0 and error.instructionIndex == -1)
+    }
+    if emit {
+        let json = JsonBuilder_new(); json.startObject(); json.stringProp("schema", "seen-gpu-rejection-golden-v1")
+        json.stringProp("code", error.code); json.stringProp("message", error.message)
+        json.intProp("function", error.functionIndex); json.intProp("block", error.blockIndex); json.intProp("instruction", error.instructionIndex)
+        json.intProp("line", error.line); json.intProp("column", error.column); json.endObject()
+        let text = json.build(); destroyJsonBuilder(json); println(text); releaseJsonText(text)
+    }
+    validation.release()
+}
+fun rejectionObserve(program: ProgramNode, expected: Int) r: Void {
+    let result = lowerGpuProgram(program, "observed.seen"); irRequire(result.isOkay())
+    let module = result.unwrap(); result.releaseContainer(); let state = IrScalarState.create(); let output = [0]
+    irRequire(state.addBuffer(output) == 0); let arguments = [0]
+    irRequire(runIrScalarWitness(module, state, 0, arguments) and output[0] == expected and state.faults == 0)
+    arguments.free(); state.release(); module.release()
+}

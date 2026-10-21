@@ -26,7 +26,7 @@ import typechecker.semantic_registry.{semanticBuiltinGenericArity}
 import typechecker.semantic_registry.{semanticFoundationThreadProperty}
 import typechecker.semantic_registry.{semanticFoundationTypeBase}
 import typechecker.semantic_registry.{semanticNormalizeModuleIdentity}
-import codegen.gpu_lower_program.{gpuFunctionStage}
+import typechecker.gpu_annotations.{gpuFunctionStage}
 import typechecker.gpu_module_frontend.{gpuCheckModule}
 
 class LexicalSemanticResult {

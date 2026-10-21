@@ -54,6 +54,7 @@ import typechecker.gpu_frontend.{gpuCheckFunction as _seedGpuCheckFunction}
 import typechecker.gpu_types.{gpuParseType as _seedGpuParseType}
 import typechecker.gpu_scope.{GpuCheckContext as _seedGpuCheckContext}
 import typechecker.gpu_workgroup.{gpuParseWorkgroup as _seedGpuParseWorkgroup}
+import typechecker.gpu_annotations.{gpuFunctionStage as _seedGpuAnnotations}
 import codegen.gpu_extract.{hasGpuFunctions}
 import codegen.gpu_options.{GpuOptions as _seedGpuOptions}
 import codegen.gpu_bytes.{consumeGpuBytes as _seedGpuBytes}
@@ -8895,6 +8896,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("typechecker.gpu_types")
         modules.push("typechecker.gpu_scope")
         modules.push("typechecker.gpu_workgroup")
+        modules.push("typechecker.gpu_annotations")
         modules.push("typechecker.gpu_frontend")
         modules.push("typechecker.gpu_module_frontend")
         modules.push("codegen.gpu_call_plan_model")

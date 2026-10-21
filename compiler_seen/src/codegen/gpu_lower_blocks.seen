@@ -123,6 +123,10 @@ fun gpuLowerStatements(context: GpuLowerContext, block: BlockNode, depth: Int) r
         } else if statement.kind == "Return" {
             var value = 0
             if statement.returnValue.kind != "None" { value = gpuLowerExpression(context, statement.returnValue, depth + 1) }
+            if context.validation.valid and ((context.function.returnType == 0 and value != 0) or
+                (context.function.returnType != 0 and (value == 0 or context.typeOf(value) != context.function.returnType))) {
+                context.error("E_GPU_TYPE", "GPU return value differs from the declared result type"); return
+            }
             let op = context.operation(GPU_IR_RETURN, 0); if value != 0 { op.operands.push(value) }; context.emit(op)
         } else if statement.kind == "Expression" or statement.kind == "Assignment" {
             gpuLowerExpression(context, statement.expression, depth + 1)

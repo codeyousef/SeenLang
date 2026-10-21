@@ -1,55 +1,26 @@
-///
-GPU Function Extraction - Identifies @compute/@vertex/@fragment functions in AST
-Used by the main compiler to determine which functions need GLSL generation
-///
-
-import parser.real_parser.{ProgramNode, ItemNode, FunctionNode, ClassNode}
+/// Parsed GPU presence and signature metadata. Typed lowering owns bodies;
+/// reflection owns bindings and resource requirements. No text/name scanner
+/// supplies an implementation or converts an unsupported node into empty code.
+import parser.real_parser.{ProgramNode, FunctionNode}
+import typechecker.gpu_annotations.{gpuFunctionStage}
 import typechecker.gpu_types.{gpuParseParameterType, gpuTypeResource}
 import typechecker.gpu_workgroup.{gpuParseWorkgroup}
 import json.builder.{seen_string_release_owned}
 
-// Check if a program contains any GPU shader functions
 fun hasGpuFunctions(program: ProgramNode) r: Bool {
     var i = 0
     while i < program.items.length() {
-        if program.items[i].itemType == "Function" {
-            let fn = program.items[i].function
-            var di = 0
-            while di < fn.decorators.length() {
-                if fn.decorators[di].name == "compute" or fn.decorators[di].name == "device" or fn.decorators[di].name == "vertex" or fn.decorators[di].name == "fragment" {
-                    return true
-                }
-                di = di + 1
-            }
-        }
-        if program.items[i].itemType == "Class" {
-            var methodIndex = 0
-            while methodIndex < program.items[i].classNode.methods.length() {
-                if getShaderStage(program.items[i].classNode.methods[methodIndex]) >= 0 { return true }
-                methodIndex = methodIndex + 1
+        let item = program.items[i]
+        if item.itemType == "Function" and gpuFunctionStage(item.function) != 0 { return true }
+        if item.itemType == "Class" {
+            var method = 0
+            while method < item.classNode.methods.length() {
+                if gpuFunctionStage(item.classNode.methods[method]) != 0 { return true }; method = method + 1
             }
         }
         i = i + 1
     }
     return false
-}
-
-// Get the shader stage for a function (-1 = not a shader)
-fun getShaderStage(fn: FunctionNode) r: Int {
-    var di = 0
-    while di < fn.decorators.length() {
-        if fn.decorators[di].name == "compute" {
-            return 0
-        }
-        if fn.decorators[di].name == "vertex" {
-            return 1
-        }
-        if fn.decorators[di].name == "fragment" {
-            return 2
-        }
-        di = di + 1
-    }
-    return -1
 }
 
 // Count validated storage/uniform resources in a typed GPU signature.
@@ -81,65 +52,4 @@ fun extractWorkgroupSize(fn: FunctionNode) r: String {
         i = i + 1
     }
     return ""
-}
-
-// Get names of all GPU shader functions in a program (pipe-delimited)
-fun getGpuFunctionNames(program: ProgramNode) r: String {
-    var names = ""
-    var count = 0
-    var i = 0
-    while i < program.items.length() {
-        if program.items[i].itemType == "Function" {
-            let fn = program.items[i].function
-            let stage = getShaderStage(fn)
-            if stage >= 0 {
-                if count > 0 {
-                    names = names + "|"
-                }
-                names = names + fn.name
-                count = count + 1
-            }
-        }
-        i = i + 1
-    }
-    return names
-}
-
-// Get stages of all GPU shader functions (pipe-delimited, parallel to names)
-fun getGpuFunctionStages(program: ProgramNode) r: String {
-    var stages = ""
-    var count = 0
-    var i = 0
-    while i < program.items.length() {
-        if program.items[i].itemType == "Function" {
-            let fn = program.items[i].function
-            let stage = getShaderStage(fn)
-            if stage >= 0 {
-                if count > 0 {
-                    stages = stages + "|"
-                }
-                stages = stages + stage.toString()
-                count = count + 1
-            }
-        }
-        i = i + 1
-    }
-    return stages
-}
-
-// Count GPU shader functions
-fun countGpuFunctions(program: ProgramNode) r: Int {
-    var count = 0
-    var i = 0
-    while i < program.items.length() {
-        if program.items[i].itemType == "Function" {
-            let fn = program.items[i].function
-            let stage = getShaderStage(fn)
-            if stage >= 0 {
-                count = count + 1
-            }
-        }
-        i = i + 1
-    }
-    return count
 }
