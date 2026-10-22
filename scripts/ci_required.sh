@@ -69,6 +69,7 @@ bash -n \
     tests/misc_root_tests/seen_gpu_amdgpu_a.sh \
     tests/misc_root_tests/seen_gpu_amdgpu_b.sh \
     tests/misc_root_tests/seen_gpu_amdgpu_c.sh \
+    tests/misc_root_tests/seen_gpu_metal_a.sh \
     scripts/compiled_fixture_support.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \
@@ -120,6 +121,11 @@ python3 -m py_compile \
     scripts/check_gpu_amdgpu_toolchain.py \
     scripts/check_gpu_amdgpu_artifacts.py \
     scripts/check_gpu_amdgpu_scalar.py \
+    scripts/check_gpu_metal_artifacts.py \
+    scripts/check_gpu_metal_scalar.py \
+    scripts/gpu_metal_host.py \
+    scripts/gpu_scalar_corpus.py \
+    tests/gpu_artifacts/metal_metadata_contract.py \
     scripts/check_gpu_amdgpu_capabilities.py \
     scripts/check_gpu_amdgpu_numerics.py \
     scripts/check_gpu_amdgpu_subgroups.py \

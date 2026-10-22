@@ -38,7 +38,7 @@ fun gpuBackendEntryRequirements(borrow module: GpuIrModule, entry: Int, backend:
     let result = gpuEntryRequirements(module, entry)
     // HSA's versioned launch guard reports invalid implicit geometry even for
     // a kernel whose source has no checked memory or arithmetic operations.
-    if backend == "hip" { result.faultBuffer = true }; return result
+    if backend == "hip" or backend == "metal" { result.faultBuffer = true }; return result
 }
 fun gpuReflectionBindings(builder: JsonBuilder, borrow function: GpuIrFunction) r: Void {
     builder.key("bindings"); builder.startArray(); var i = 0

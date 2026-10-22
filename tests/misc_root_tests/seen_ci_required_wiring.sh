@@ -363,7 +363,7 @@ grep -Fq -- '--sysroot=/usr/aarch64-linux-gnu' "$PROVISION" || fail "CI host pro
 for package in llvm-20 clang-20 lld-20 libllvm20 libclang-rt-20-dev; do
     grep -Fq "\"$package=\$llvm_package_version\"" "$PROVISION" || fail "CI host provisioner omits exact LLVM package pin: $package"
 done
-for harness in seen_gpu_amdgpu_a.sh seen_gpu_amdgpu_b.sh seen_gpu_amdgpu_c.sh; do
+for harness in seen_gpu_amdgpu_a.sh seen_gpu_amdgpu_b.sh seen_gpu_amdgpu_c.sh seen_gpu_metal_a.sh; do
     grep -Fq "$harness" "$REQUIRED" || fail "required gate omits $harness"
     grep -Fq "$harness" "$STAGE1" || fail "fresh-compiler acceptance omits $harness"
 done

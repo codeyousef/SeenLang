@@ -8,7 +8,7 @@ import re
 import struct
 
 from check_gpu_amdgpu_toolchain import invoke, load_profile, verify_installation
-from gpu_certification_io import read_bounded, invoke_with_snapshot
+from gpu_certification_io import read_bounded, invoke_with_snapshot, prepare_output
 from gpu_launch_contract import require, digest, physical_parameters, check_abi_digest, check_text_manifest
 
 EXTRA_ABI_KEYS = ('hsa_code_object_version', 'kernarg_alignment', 'implicit_argument_offset', 'implicit_argument_bytes',
@@ -130,12 +130,6 @@ def check_metadata(document, reflection, profile):
                     'official implicit argument differs')
             seen.add(kind)
         require({f'hidden_block_count_{axis}' for axis in 'xyz'} <= seen, 'HSA launch guard lacks implicit group counts')
-
-
-def prepare_output(path):
-    if path.exists() or path.is_symlink():
-        require(path.is_file() and not path.is_symlink(), 'unsafe LLVM output destination')
-        path.unlink()
 
 
 def compile_artifact(source, expected, reflection, profile):

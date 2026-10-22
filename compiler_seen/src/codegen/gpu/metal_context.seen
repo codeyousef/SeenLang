@@ -1,0 +1,79 @@
+/// One entry owns bounded private word slots and resource descriptors. Words
+/// carry exact 32-bit payloads; MSL as_type is used at typed operation sites.
+import codegen.gpu_ir_model.{GpuIrValidation}
+import codegen.gpu.text_buffer.{GpuTextBuffer}
+
+fun metalWord(text: GpuTextBuffer, id: Int) r: Void { text.literal("seen_w"); text.number(id) }
+fun metalTypedWord(text: GpuTextBuffer, id: Int, scalar: Int) r: Void {
+    if scalar == 2 { text.literal("as_type<int>(") } else if scalar == 4 { text.literal("as_type<float>(") }
+    metalWord(text, id); if scalar == 2 or scalar == 4 { text.literal(")") }
+}
+fun metalAssignment(text: GpuTextBuffer, id: Int) r: Void { metalWord(text, id); text.literal(" = ") }
+class GpuMetalResource {
+    var typeCode: Int
+    var binding: Int
+    var length: Int
+    var uniformBase: Int
+    var shared: Bool
+}
+class GpuMetalFunction {
+    var validation: GpuIrValidation
+    var body: GpuTextBuffer
+    var declarations: GpuTextBuffer
+    var initializers: GpuTextBuffer
+    var resources: Array<GpuMetalResource>
+    var nextWord: Int
+    var sharedBytes: Int
+    var workgroupX: Int
+    var workgroupY: Int
+    var workgroupZ: Int
+    var functionIndex: Int
+    var blockIndex: Int
+    var instructionIndex: Int
+    fun error(code: String, message: String) r: Void {
+        this.validation.reject(code, message, this.functionIndex, this.blockIndex, this.instructionIndex)
+    }
+    fun allocate(count: Int) r: Int {
+        if count < 1 or count > 65536 - this.nextWord { this.error("E_GPU_METAL_LIMIT", "Metal private word ceiling exceeded"); return 0 }
+        let first = this.nextWord; var i = 0
+        while i < count {
+            this.declarations.literal("uint "); metalWord(this.declarations, first + i); this.declarations.literal(" = 0u;\n"); i = i + 1
+        }; this.nextWord = first + count; return first
+    }
+    fun word(bits: Int) r: Int {
+        let result = this.allocate(1); metalAssignment(this.initializers, result)
+        this.initializers.number(bits & 4294967295); this.initializers.literal("u;\n"); return result
+    }
+    fun copy(destination: Int, source: Int, count: Int) r: Void {
+        var lane = 0
+        while lane < count {
+            metalAssignment(this.body, destination + lane); metalWord(this.body, source + lane); this.body.literal(";\n"); lane = lane + 1
+        }
+    }
+    fun set(destination: Int, bits: Int) r: Void {
+        metalAssignment(this.body, destination); this.body.number(bits & 4294967295); this.body.literal("u;\n")
+    }
+    fun beginGuard(word: Int, equal: Int) r: Void {
+        this.body.literal("if ("); metalWord(this.body, word); this.body.literal(" == "); this.body.number(equal); this.body.literal("u) {\n")
+    }
+    fun fault(kind: Int) r: Void {
+        if kind < 1 or kind > 5 { this.error("E_GPU_METAL_LAYOUT", "Metal fault kind is invalid"); return }
+        this.body.literal("atomic_fetch_or_explicit(seen_fault, "); this.body.number(1 << (kind - 1)); this.body.literal("u, memory_order_relaxed);\n")
+    }
+    fun addResource(resource: GpuMetalResource) r: Int {
+        if not this.validation.valid { resource.free(); return -1 }
+        if this.resources.length() >= 8192 { resource.free(); this.error("E_GPU_METAL_LIMIT", "Metal resource ceiling exceeded"); return -1 }
+        let index = this.resources.length(); this.resources.push(resource); return index
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.resources.length() { let resource: GpuMetalResource = this.resources[i]; resource.free(); i = i + 1 }
+        this.resources.free(); this.body.release(); this.declarations.release(); this.initializers.release(); this.free()
+    }
+}
+fun createGpuMetalFunction(validation: GpuIrValidation, index: Int, x: Int, y: Int, z: Int) r: GpuMetalFunction {
+    return GpuMetalFunction{validation: validation, body: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"),
+        declarations: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"), initializers: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"),
+        resources: Array<GpuMetalResource>(), nextWord: 1, sharedBytes: 0, workgroupX: x, workgroupY: y, workgroupZ: z,
+        functionIndex: index, blockIndex: -1, instructionIndex: -1}
+}

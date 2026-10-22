@@ -708,6 +708,7 @@ oversized, symlink, directory and FIFO inputs without descriptor leaks.
 `certification.json` binds the tool identities, target hashes, profile identity
 and relocation/fuzz evidence. This remains offline, compile-only certification.
 
+
 Atomics retain their declared memory order and workgroup/device scope. Checked
 invalid addresses produce zero for returned values and skip writes. Subgroups
 use native wave permutations and wave barriers. Participation follows the
@@ -741,3 +742,73 @@ corpus, wave membership and matrix address/fragment routing. Native permutation
 and MFMA instructions use explicit fixed operand/result oracles in those CPU
 fixtures; these do not certify GPU execution or matrix numerical accuracy.
 Hardware execution and numerical certification remain pending.
+
+### Experimental Metal MSL source emission
+
+The offline command emits deterministic MSL source:
+
+```bash
+seen gpu emit input.seen --gpu-backend metal --gpu-target macos13 \
+    --output module.metal --reflection module.json --artifact-info
+```
+
+Targets `macos13`, `macos14` and `macos15` select `metal3.0`,
+`metal3.1` and `metal3.2`; the default is `macos13`. MSL 3.2 requires Apple silicon.
+These mappings follow Apple's Metal Shading Language specification dated
+2026-06-04. A deployment label establishes no device capability.
+
+The `seen-metal-kernel-v1` ABI uses native buffer bindings:
+
+| Binding | Host obligation |
+| --- | --- |
+| Source parameter `i` | Bind its storage buffer or 16-byte uniform payload at index `i`. |
+| Fault buffer `n` | Bind an owning, initially zero 4-byte atomic fault word. |
+| Launch buffer `n + 1` | Bind `max(1, n)` 16-byte `uint4` records. Storage parameter `i` reads its logical element count from record `i`'s first word. Uniform records are unused. |
+
+At most 29 source parameters are admitted, reserving two of the 31 buffer slots.
+Use 256-byte aligned buffer offsets and a 16-byte aligned launch buffer. Uniforms
+occupy 16 bytes; boolean uniforms normalize any nonzero word to true. Storage
+elements use four bytes per lane and pad three-lane vectors to a 16-byte stride.
+The host must validate each logical count against the actual allocation using
+that stride before binding. The launch buffer contains counts, never pointers.
+Reflection includes these indices, offsets, units and minimum byte sizes in the
+entry ABI digest. Native entry names prepend `seen_metal_entry_` to the source
+name, so MSL keywords cannot collide with source entry names.
+
+Dispatch complete threadgroups of the declared shape. A uniform entry guard
+rejects partial groups, zero group counts and per-axis grid overflow with fault
+bit 16 before executing source code or barriers. Bounds, arithmetic, loop-budget
+and conversion failures use bits 1, 2, 4 and 8. Invalid loads yield zero, invalid
+stores are skipped, and faulting arithmetic returns zero. Memory checks precede
+pointer indexing. The host retains bindings until completion and reads the fault
+word after command-buffer completion; it must not destroy or rebind borrowed
+storage during execution.
+
+MSL control flow uses structured regions rather than `goto`, including helper
+returns inside nested loops. Each loop has an independent million-iteration
+budget. Threadgroup storage is zero-initialized cooperatively, padded to 16-byte
+boundaries and limited to 32 KiB per emitted entry. The shared IR permits shared
+declarations only in kernel bodies; helpers may borrow those resources.
+Unsupported precision, atomic, subgroup and cooperative operations return
+`E_GPU_METAL_CAPABILITY`; layout, target and resource limits have explicit
+`E_GPU_METAL_LAYOUT`, `E_GPU_METAL_TARGET` and `E_GPU_METAL_LIMIT` diagnostics.
+No operation silently falls back to a CPU implementation.
+
+Compile emitted source with `-fno-fast-math`; Metal's default fast-math mode
+does not preserve the required NaN and signed-zero selections. The source also
+disables floating contraction. Native floating arithmetic retains Metal's
+documented device accuracy, rounding and possible subnormal flushing. CPU
+witnesses do not establish bitwise floating parity on a Metal device; that must
+be checked before certifying an execution profile. Packed precision lowering is
+currently unsupported.
+
+The source manifest records `official_validation: "not-run"` and both execution
+flags as false. `.metal` source is not AIR or a metallib. The Linux diagnostic
+harness checks deterministic bytes/reflection across compiler profiles, repeated
+ownership cleanup, adverse metadata and malformed IR. Its CPU witnesses execute
+the emitted scalar/control/bounds code using test-only address-space and builtin
+stand-ins with UBSan; they do not model GPU synchronization or validate Apple's
+ABI. The shared scalar corpus is also used by HIP. Apple SDK compilation,
+metallib linking, hardware execution and performance remain separate requirements.
+The host compiler identity and specification mapping are recorded in
+`docs/architecture/metal-toolchain.json`.

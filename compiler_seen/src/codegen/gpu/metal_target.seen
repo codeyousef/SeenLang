@@ -1,0 +1,11 @@
+/// Closed deployment targets. MSL 3.2 requires Apple silicon; selecting an OS
+/// version never establishes device support or successful SDK compilation.
+fun metalTargetValid(target: String) r: Bool {
+    return target == "" or target == "macos13" or target == "macos14" or target == "macos15"
+}
+fun metalLanguageVersion(target: String) r: String {
+    if target == "macos14" { return "metal3.1" }
+    if target == "macos15" { return "metal3.2" }; return "metal3.0"
+}
+fun metalEffectiveTarget(target: String) r: String { if target == "" { return "macos13" }; return target }
+fun metalSupportedCapabilities() r: UInt64 { return 519 as UInt64 }

@@ -123,6 +123,16 @@ import codegen.gpu.amdgpu_cooperative.{amdCooperative}
 import codegen.gpu.amdgpu_values.{amdLowerValue}
 import codegen.gpu.amdgpu_regions.{amdLowerRegion}
 import codegen.gpu.amdgpu_emitter.{emitGpuAmdgpu}
+import codegen.gpu.metal_target.{metalTargetValid}
+import codegen.gpu.metal_abi.{metalReflectionEntryAbi}
+import codegen.gpu.metal_context.{GpuMetalFunction}
+import codegen.gpu.metal_layout.{metalEntryParameters}
+import codegen.gpu.metal_math.{metalBinary}
+import codegen.gpu.metal_memory.{metalCheckedMemory}
+import codegen.gpu.metal_intrinsics.{metalIntrinsic}
+import codegen.gpu.metal_values.{metalLowerValue}
+import codegen.gpu.metal_regions.{metalLowerRegion}
+import codegen.gpu.metal_emitter.{emitGpuMetal}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv as _seedSpirv_emitter}
 import codegen.gpu.spirv_binary.{encodeGpuSpirvBinary as _seedSpirv_binary}
 import codegen.gpu_artifact_manifest.{gpuArtifactManifest as _seedSpirv_artifact_manifest}

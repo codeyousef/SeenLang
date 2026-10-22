@@ -45,9 +45,11 @@ def physical_parameters(entry, abi):
     return parameters, offset
 
 
-def check_abi_digest(entry, specializations, extra_keys=()):
+def check_abi_digest(entry, specializations, extra_keys=(), *, packed=True):
     keys = ('workgroup', 'bindings', 'required_capabilities', 'shared_bytes', 'requires_fault_buffer',
-            'fault_binding', 'parameter_abi', 'packed_parameter_bytes', 'parameters', 'parameter_count') + extra_keys
+            'fault_binding', 'parameter_abi')
+    if packed: keys += ('packed_parameter_bytes', 'parameters', 'parameter_count')
+    keys += extra_keys
     abi = {key: entry[key] for key in keys}
     abi['specializations'] = specializations
     canonical = json.dumps(abi, separators=(',', ':'), ensure_ascii=False).encode()

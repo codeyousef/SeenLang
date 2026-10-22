@@ -1,0 +1,19 @@
+{
+  "schema": "seen-metal-toolchain-v1",
+  "specification": {
+    "url": "https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf",
+    "revision": "2026-06-04",
+    "targets": {"macos13": "metal3.0", "macos14": "metal3.1", "macos15": "metal3.2"}
+  },
+  "profiles": {
+    "linux-x86_64": {
+      "classification": "diagnostic-cpu",
+      "official_validation": "not-run",
+      "clang": {
+        "path": "/usr/lib/llvm-20/bin/clang",
+        "sha256": "b15e7640bf3082f36ef14321711706b265df3058721e3c2caef3a4b83895d07d",
+        "version_line": "Ubuntu clang version 20.1.2 (0ubuntu1~24.04.3)"
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+/// Ordered comparisons preserve the first argument on NaNs and equal signed
+/// zeros. Native min/max need not have the portable IR's selection behavior.
+import codegen.gpu.metal_context.{GpuMetalFunction, metalWord, metalTypedWord, metalAssignment}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+
+fun metalExtremum(function: GpuMetalFunction, destination: Int, left: Int, right: Int, scalar: Int, maximum: Bool) r: Void {
+    let text = function.body; metalAssignment(text, destination); text.literal("("); metalTypedWord(text, right, scalar)
+    if maximum { text.literal(" > ") } else { text.literal(" < ") }; metalTypedWord(text, left, scalar)
+    text.literal(") ? "); metalWord(text, right); text.literal(" : "); metalWord(text, left); text.literal(";\n")
+}
+fun metalIntrinsic(function: GpuMetalFunction, operation: Int, typeCode: Int, arguments: Array<Int>) r: Int {
+    let lanes = gpuTypeLanes(typeCode); let scalar = gpuTypeScalar(typeCode); let result = function.allocate(lanes); var lane = 0; let text = function.body
+    while lane < lanes {
+        if operation == 1 or operation == 2 { metalExtremum(function, result + lane, arguments[0] + lane, arguments[1] + lane, scalar, operation == 2) }
+        else if operation == 3 {
+            let lower = function.allocate(1); metalExtremum(function, lower, arguments[0] + lane, arguments[1] + lane, scalar, true)
+            metalExtremum(function, result + lane, lower, arguments[2] + lane, scalar, false)
+        } else if operation == 4 {
+            metalAssignment(text, result + lane)
+            if scalar == 4 { metalWord(text, arguments[0] + lane); text.literal(" & 2147483647u") }
+            else if scalar == 3 { metalWord(text, arguments[0] + lane) }
+            else {
+                text.literal("("); metalTypedWord(text, arguments[0] + lane, 2); text.literal(" < 0) ? 0u - ")
+                metalWord(text, arguments[0] + lane); text.literal(" : "); metalWord(text, arguments[0] + lane)
+            }; text.literal(";\n")
+        } else if operation == 5 {
+            metalAssignment(text, result + lane); text.literal("as_type<uint>(sqrt("); metalTypedWord(text, arguments[0] + lane, 4); text.literal("));\n")
+        } else { function.error("E_GPU_METAL_CAPABILITY", "Metal intrinsic requires unavailable lowering"); return 0 }; lane = lane + 1
+    }; return result
+}

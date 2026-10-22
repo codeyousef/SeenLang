@@ -214,7 +214,8 @@
         "parameter_abi": {
           "enum": [
             "seen-ptx-kernel-v1",
-            "seen-amdgpu-kernel-v1"
+            "seen-amdgpu-kernel-v1",
+            "seen-metal-kernel-v1"
           ]
         },
         "packed_parameter_bytes": {
@@ -266,6 +267,78 @@
         },
         "launch_fault_mask": {
           "const": 16
+        },
+        "msl_version": {
+          "enum": [
+            "metal3.0",
+            "metal3.1",
+            "metal3.2"
+          ]
+        },
+        "requires_apple_silicon": {
+          "type": "boolean"
+        },
+        "buffer_slot_ceiling": {
+          "const": 31
+        },
+        "source_parameter_ceiling": {
+          "const": 29
+        },
+        "buffer_offset_alignment": {
+          "const": 256
+        },
+        "fault_buffer_bytes": {
+          "const": 4
+        },
+        "launch_binding": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "launch_bytes": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 464,
+          "multipleOf": 16
+        },
+        "launch_alignment": {
+          "const": 16
+        },
+        "entry_name_prefix": {
+          "const": "seen_metal_entry_"
+        },
+        "launch_counts": {
+          "type": "array",
+          "maxItems": 29,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "binding",
+              "offset",
+              "bytes",
+              "unit"
+            ],
+            "properties": {
+              "binding": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 28
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 448,
+                "multipleOf": 16
+              },
+              "bytes": {
+                "const": 4
+              },
+              "unit": {
+                "const": "elements"
+              }
+            }
+          }
         }
       }
     },
@@ -427,6 +500,59 @@
                 },
                 "requires_fault_buffer": {
                   "const": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "backend": {
+            "const": "metal"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "target": {
+            "enum": [
+              "macos13",
+              "macos14",
+              "macos15"
+            ]
+          },
+          "entries": {
+            "items": {
+              "required": [
+                "parameter_abi",
+                "launch_fault_mask",
+                "msl_version",
+                "requires_apple_silicon",
+                "buffer_slot_ceiling",
+                "source_parameter_ceiling",
+                "buffer_offset_alignment",
+                "fault_buffer_bytes",
+                "launch_binding",
+                "launch_bytes",
+                "launch_alignment",
+                "entry_name_prefix",
+                "launch_counts"
+              ],
+              "properties": {
+                "parameter_abi": {
+                  "const": "seen-metal-kernel-v1"
+                },
+                "requires_fault_buffer": {
+                  "const": true
+                },
+                "bindings": {
+                  "maxItems": 29
+                },
+                "shared_bytes": {
+                  "maximum": 32768
                 }
               }
             }

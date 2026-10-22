@@ -1,0 +1,79 @@
+/// Unsigned words preserve wrapping integer arithmetic. Typed operands are
+/// introduced only for signed division, comparisons, shifts and IEEE f32 math.
+import codegen.gpu.metal_context.{GpuMetalFunction, metalWord, metalTypedWord, metalAssignment}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+
+fun metalBinarySymbol(operation: Int) r: String {
+    if operation == 1 { return "+" }; if operation == 2 { return "-" }; if operation == 3 { return "*" }
+    if operation == 4 { return "/" }; if operation == 5 { return "%" }; if operation == 6 { return "&" }
+    if operation == 7 { return "|" }; if operation == 8 { return "^" }; if operation == 9 { return "<<" }
+    if operation == 10 { return ">>" }; if operation == 11 { return "==" }; if operation == 12 { return "!=" }
+    if operation == 13 { return "<" }; if operation == 14 { return "<=" }; if operation == 15 { return ">" }
+    if operation == 16 { return ">=" }; return ""
+}
+fun metalBinary(function: GpuMetalFunction, operation: Int, typeCode: Int, left: Int, right: Int) r: Int {
+    let scalar = gpuTypeScalar(typeCode); let lanes = gpuTypeLanes(typeCode); let symbol = metalBinarySymbol(operation)
+    if symbol == "" or (operation >= 11 and lanes != 1) { function.error("E_GPU_METAL_TYPE", "Metal arithmetic identity is unsupported"); return 0 }
+    let result = function.allocate(lanes); let text = function.body; var lane = 0
+    while lane < lanes {
+        let checked = operation == 4 or operation == 5 or operation == 9 or operation == 10
+        if checked {
+            text.literal("if (")
+            if operation == 9 or operation == 10 { metalWord(text, right + lane); text.literal(" >= 32u") }
+            else {
+                text.literal("("); metalWord(text, right + lane)
+                if scalar == 4 { text.literal(" & 2147483647u") }; text.literal(") == 0u")
+                if scalar == 2 {
+                    text.literal(" || ("); metalWord(text, left + lane); text.literal(" == 2147483648u && ")
+                    metalWord(text, right + lane); text.literal(" == 4294967295u)")
+                }
+            }
+            text.literal(") {\n"); function.set(result + lane, 0); function.fault(2); text.literal("} else {\n")
+        }
+        metalAssignment(text, result + lane)
+        var typed = 3
+        if scalar == 4 or (scalar == 2 and (operation == 4 or operation == 5 or operation == 10 or operation >= 11)) { typed = scalar }
+        if scalar == 4 and operation < 11 { text.literal("as_type<uint>(") } else { text.literal("uint(") }
+        metalTypedWord(text, left + lane, typed); text.literal(" "); text.literal(symbol); text.literal(" ")
+        metalTypedWord(text, right + lane, typed); text.literal(");\n")
+        if checked { text.literal("}\n") }; lane = lane + 1
+    }; return result
+}
+fun metalUnary(function: GpuMetalFunction, operation: Int, typeCode: Int, source: Int) r: Int {
+    if operation < 1 or operation > 3 { function.error("E_GPU_METAL_TYPE", "Metal unary identity is unsupported"); return 0 }
+    let result = function.allocate(gpuTypeLanes(typeCode)); var lane = 0; let text = function.body
+    while lane < gpuTypeLanes(typeCode) {
+        metalAssignment(text, result + lane)
+        if operation == 1 and gpuTypeScalar(typeCode) != 4 { text.literal("0u - "); metalWord(text, source + lane) }
+        else {
+            metalWord(text, source + lane); text.literal(" ^ ")
+            if operation == 1 { text.literal("2147483648u") } else if operation == 2 { text.literal("1u") } else { text.literal("4294967295u") }
+        }; text.literal(";\n"); lane = lane + 1
+    }; return result
+}
+fun metalCast(function: GpuMetalFunction, sourceType: Int, targetType: Int, value: Int, bitcast: Bool) r: Int {
+    let source = gpuTypeScalar(sourceType); let target = gpuTypeScalar(targetType)
+    if bitcast or source == target or (source != 4 and target != 4) { return value }
+    let result = function.allocate(gpuTypeLanes(targetType)); let text = function.body; var lane = 0
+    while lane < gpuTypeLanes(targetType) {
+        if source != 4 {
+            metalAssignment(text, result + lane); text.literal("as_type<uint>(float(")
+            metalTypedWord(text, value + lane, source); text.literal("));\n")
+        } else {
+            // IEEE bit-domain checks precede the native conversion, including
+            // NaNs/infinities and the exactly representable INT32_MIN edge.
+            text.literal("if ((("); metalWord(text, value + lane); text.literal(" & 2147483647u) < ")
+            var upper = 1333788672; if target == 2 { upper = 1325400064 }; text.number(upper); text.literal("u)")
+            if target == 2 {
+                text.literal(" || "); metalWord(text, value + lane); text.literal(" == 3472883712u")
+            } else {
+                text.literal(" && (("); metalWord(text, value + lane); text.literal(" & 2147483648u) == 0u || ")
+                metalWord(text, value + lane); text.literal(" == 2147483648u)")
+            }
+            text.literal(") {\n"); metalAssignment(text, result + lane)
+            if target == 2 { text.literal("uint(int(") } else { text.literal("uint(") }
+            metalTypedWord(text, value + lane, 4); if target == 2 { text.literal("))") } else { text.literal(")") }; text.literal(";\n")
+            text.literal("} else {\n"); function.set(result + lane, 0); function.fault(4); text.literal("}\n")
+        }; lane = lane + 1
+    }; return result
+}

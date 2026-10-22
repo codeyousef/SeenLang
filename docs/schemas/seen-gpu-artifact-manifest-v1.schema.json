@@ -10,7 +10,8 @@
       "enum": [
         "spirv",
         "cuda",
-        "hip"
+        "hip",
+        "metal"
       ]
     },
     "byte_order": {
@@ -56,7 +57,8 @@
     "parameter_abi": {
       "enum": [
         "seen-ptx-kernel-v1",
-        "seen-amdgpu-kernel-v1"
+        "seen-amdgpu-kernel-v1",
+        "seen-metal-kernel-v1"
       ]
     }
   },
@@ -159,6 +161,32 @@
         },
         "parameter_abi": {
           "const": "seen-amdgpu-kernel-v1"
+        }
+      }
+    },
+    {
+      "required": [
+        "parameter_abi"
+      ],
+      "properties": {
+        "backend": {
+          "const": "metal"
+        },
+        "target": {
+          "enum": [
+            "macos13",
+            "macos14",
+            "macos15"
+          ]
+        },
+        "byte_order": {
+          "const": "utf-8"
+        },
+        "word_count": {
+          "const": 0
+        },
+        "parameter_abi": {
+          "const": "seen-metal-kernel-v1"
         }
       }
     }

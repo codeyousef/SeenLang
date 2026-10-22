@@ -10,6 +10,13 @@ def require(value, message):
         raise ValueError(message)
 
 
+def prepare_output(path):
+    """Reject links and special files before replacing a generated output."""
+    if path.exists() or path.is_symlink():
+        require(path.is_file() and not path.is_symlink(), 'unsafe GPU output destination')
+        path.unlink()
+
+
 def read_bounded(path, ceiling):
     path = Path(path)
     entry = path.lstat()

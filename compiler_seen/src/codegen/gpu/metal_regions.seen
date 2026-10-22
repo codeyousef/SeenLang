@@ -1,0 +1,74 @@
+/// MSL forbids goto. A private flow word preserves nested return/break/continue
+/// when helpers are inlined; structured loops reset only the signals they own.
+/// No GPU-side interpreter, recursive call or unbounded loop is emitted.
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_WHILE, GPU_IR_FOR, GPU_IR_CALL, GPU_IR_CONDITION, GPU_IR_YIELD_VALUE, GPU_IR_BREAK, GPU_IR_CONTINUE, GPU_IR_RETURN, GPU_IR_MAX_LOOP_ITERATIONS}
+import codegen.gpu_emission_frame.{GpuEmissionFrame, createGpuEmissionFrame}
+import codegen.gpu.metal_context.{GpuMetalFunction, metalWord, metalTypedWord}
+import codegen.gpu.metal_values.{metalLowerValue}
+import typechecker.gpu_types.{gpuTypeLanes}
+
+fun metalInitializeFrame(function: GpuMetalFunction, frame: GpuEmissionFrame, returnType: Int) r: Void {
+    frame.returnFlag = function.allocate(1); frame.condition = function.allocate(1); frame.yielded = function.allocate(4)
+    if returnType != 0 { frame.returnSlot = function.allocate(gpuTypeLanes(returnType)) }
+    function.set(frame.returnFlag, 0)
+}
+fun metalLowerConditional(borrow module: GpuIrModule, function: GpuMetalFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let text = function.body; var result = 0
+    if op.opcode == GPU_IR_IF_VALUE { result = function.allocate(gpuTypeLanes(op.typeCode)) }
+    text.literal("if ("); metalWord(text, frame.registers[op.operands[0]]); text.literal(" != 0u) {\n")
+    metalLowerRegion(module, function, frame, op.leftBlock, depth + 1); text.literal("} else {\n")
+    if op.rightBlock >= 0 { metalLowerRegion(module, function, frame, op.rightBlock, depth + 1) }; text.literal("}\n")
+    if op.opcode == GPU_IR_IF_VALUE {
+        function.beginGuard(frame.returnFlag, 5); function.copy(result, frame.yielded, gpuTypeLanes(op.typeCode))
+        function.set(frame.returnFlag, 0); text.literal("}\n"); frame.registers[op.result] = result
+    }
+}
+fun metalLowerLoop(borrow module: GpuIrModule, function: GpuMetalFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let text = function.body; let counter = function.allocate(1); function.set(counter, 0); var induction = 0
+    if op.opcode == GPU_IR_FOR { induction = function.allocate(1); function.copy(induction, frame.registers[op.operands[0]], 1) }
+    text.literal("while (true) {\n")
+    if op.opcode == GPU_IR_WHILE {
+        metalLowerRegion(module, function, frame, op.leftBlock, depth + 1); function.set(frame.returnFlag, 0)
+        text.literal("if ("); metalWord(text, frame.condition); text.literal(" == 0u) { break; }\n")
+    } else {
+        var scalar = 3; if frame.registerTypes[op.operands[0]] == 2 { scalar = 2 }
+        text.literal("if ("); metalTypedWord(text, induction, scalar); text.literal(" >= ")
+        metalTypedWord(text, frame.registers[op.operands[1]], scalar); text.literal(") { break; }\n")
+    }
+    text.literal("if ("); metalWord(text, counter); text.literal(" >= "); text.number(GPU_IR_MAX_LOOP_ITERATIONS); text.literal("u) {\n"); function.fault(3); text.literal("break; }\n")
+    frame.inductionPointers.push(induction); var body = op.leftBlock; if op.opcode == GPU_IR_WHILE { body = op.rightBlock }
+    metalLowerRegion(module, function, frame, body, depth + 1); frame.inductionPointers.pop()
+    function.beginGuard(frame.returnFlag, 1); text.literal("break; }\n")
+    function.beginGuard(frame.returnFlag, 2); function.set(frame.returnFlag, 0); text.literal("break; }\n")
+    function.set(frame.returnFlag, 0); metalWord(text, counter); text.literal(" += 1u;\n")
+    if induction != 0 { metalWord(text, induction); text.literal(" += 1u;\n") }; text.literal("}\n")
+}
+fun metalLowerCall(borrow module: GpuIrModule, function: GpuMetalFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
+    while i < op.operands.length() { arguments.push(frame.registers[op.operands[i]]); resources.push(frame.resourceIndices[op.operands[i]]); i = i + 1 }
+    let child = createGpuEmissionFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free()
+    metalInitializeFrame(function, child, op.typeCode); metalLowerRegion(module, function, child, 0, depth + 1)
+    if op.result > 0 { frame.registers[op.result] = child.returnSlot }; child.release()
+}
+fun metalLowerRegion(borrow module: GpuIrModule, function: GpuMetalFunction, frame: GpuEmissionFrame, blockIndex: Int, depth: Int) r: Void {
+    if not function.validation.valid { return }
+    if depth > 128 { function.error("E_GPU_METAL_LIMIT", "Metal expanded region depth ceiling exceeded"); return }
+    let source = module.functions[frame.functionIndex]; let block = source.blocks[blockIndex]; var i = 0
+    while i < block.instructions.length() and function.validation.valid {
+        let op = block.instructions[i]; function.functionIndex = frame.functionIndex; function.blockIndex = blockIndex; function.instructionIndex = i
+        function.beginGuard(frame.returnFlag, 0)
+        if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE { metalLowerConditional(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR { metalLowerLoop(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_CALL { metalLowerCall(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_CONDITION { function.copy(frame.condition, frame.registers[op.operands[0]], 1); function.set(frame.returnFlag, 4) }
+        else if op.opcode == GPU_IR_YIELD_VALUE { function.copy(frame.yielded, frame.registers[op.operands[0]], gpuTypeLanes(frame.registerTypes[op.operands[0]])); function.set(frame.returnFlag, 5) }
+        else if op.opcode == GPU_IR_BREAK { function.set(frame.returnFlag, 2) }
+        else if op.opcode == GPU_IR_CONTINUE { function.set(frame.returnFlag, 3) }
+        else if op.opcode == GPU_IR_RETURN {
+            if frame.returnSlot != 0 { function.copy(frame.returnSlot, frame.registers[op.operands[0]], gpuTypeLanes(source.returnType)) }
+            function.set(frame.returnFlag, 1)
+        } else { metalLowerValue(function, frame, op) }
+        function.body.literal("}\n"); i = i + 1
+    }
+}

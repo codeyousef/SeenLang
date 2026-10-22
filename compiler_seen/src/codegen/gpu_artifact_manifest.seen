@@ -7,6 +7,7 @@ import codegen.gpu_artifact_model.{GpuArtifact}
 import codegen.gpu_reflection.{gpuReflectionHash}
 import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
 import codegen.gpu.amdgpu_target.{amdTargetValid, amdTargetAttribute}
+import codegen.gpu.metal_target.{metalTargetValid, metalLanguageVersion}
 
 fun gpuSpirvWordAt(binary: String, index: Int) r: Int {
     let offset = index * 4
@@ -53,12 +54,20 @@ fun gpuAmdgpuArtifactShape(borrow artifact: GpuArtifact) r: Bool {
 fun gpuArtifactIntegrityDiagnostic(backend: String, message: String) r: GpuIrDiagnostic {
     var code = "E_GPU_SPIRV_ARTIFACT"; if backend == "cuda" { code = "E_GPU_PTX_ARTIFACT" }
     if backend == "hip" { code = "E_GPU_AMDGPU_ARTIFACT" }
+    if backend == "metal" { code = "E_GPU_METAL_ARTIFACT" }
     return gpuIrDiagnostic(code, message)
+}
+fun gpuMetalArtifactShape(borrow artifact: GpuArtifact) r: Bool {
+    if artifact.target == "" or not metalTargetValid(artifact.target) or not gpuTextArtifactBytesValid(artifact) { return false }
+    return artifact.binary.startsWith("// seen-metal-kernel-v1; compile-only;") and
+        artifact.binary.contains("#include <metal_stdlib>\n") and artifact.binary.contains(metalLanguageVersion(artifact.target)) and
+        artifact.binary.contains("\nkernel void seen_metal_entry_")
 }
 fun gpuArtifactManifest(borrow artifact: GpuArtifact) r: Result<String, GpuIrDiagnostic> {
     if (artifact.backend == "spirv" and not gpuSpirvArtifactShape(artifact)) or (artifact.backend == "cuda" and not gpuPtxArtifactShape(artifact)) or
         (artifact.backend == "hip" and not gpuAmdgpuArtifactShape(artifact)) or
-        (artifact.backend != "spirv" and artifact.backend != "cuda" and artifact.backend != "hip") {
+        (artifact.backend == "metal" and not gpuMetalArtifactShape(artifact)) or
+        (artifact.backend != "spirv" and artifact.backend != "cuda" and artifact.backend != "hip" and artifact.backend != "metal") {
         return Err<String, GpuIrDiagnostic>(gpuArtifactIntegrityDiagnostic(artifact.backend, "GPU artifact header, shape or target is invalid"))
     }
     let binaryResult = gpuReflectionHash(artifact.binary)
@@ -77,6 +86,7 @@ fun gpuArtifactManifest(borrow artifact: GpuArtifact) r: Result<String, GpuIrDia
     var order = "little"; var words = artifact.binary.length() / 4
     if artifact.backend == "cuda" { order = "utf-8"; words = 0; builder.stringProp("parameter_abi", "seen-ptx-kernel-v1") }
     if artifact.backend == "hip" { order = "utf-8"; words = 0; builder.stringProp("parameter_abi", "seen-amdgpu-kernel-v1") }
+    if artifact.backend == "metal" { order = "utf-8"; words = 0; builder.stringProp("parameter_abi", "seen-metal-kernel-v1") }
     builder.stringProp("byte_order", order)
     builder.intProp("byte_count", artifact.binary.length()); builder.intProp("word_count", words)
     builder.stringProp("sha256", artifact.binaryHash); builder.stringProp("reflection_sha256", artifact.reflectionHash)
