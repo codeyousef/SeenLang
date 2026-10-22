@@ -7,6 +7,8 @@ import codegen.gpu.metal_layout.{metalBuiltin}
 import codegen.gpu.metal_memory.{metalCheckedMemory, metalSharedResource, metalResourceIndex}
 import codegen.gpu.metal_math.{metalBinary, metalUnary, metalCast}
 import codegen.gpu.metal_intrinsics.{metalIntrinsic}
+import codegen.gpu.metal_packed.{metalPacked}
+import codegen.gpu_ir_ops.{GPU_IR_UNPACK, GPU_IR_PACK, GPU_IR_SPECIALIZE}
 import typechecker.gpu_types.{gpuTypeLanes}
 
 fun metalLowerValue(function: GpuMetalFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Void {
@@ -57,7 +59,9 @@ fun metalLowerValue(function: GpuMetalFunction, frame: GpuEmissionFrame, borrow 
             metalAssignment(text, result + lane); metalWord(text, frame.registers[op.operands[0]]); text.literal(" != 0u ? ")
             metalWord(text, frame.registers[op.operands[1]] + lane); text.literal(" : "); metalWord(text, frame.registers[op.operands[2]] + lane); text.literal(";\n"); lane = lane + 1
         }
-    } else if code == GPU_IR_BARRIER {
+    } else if code == GPU_IR_UNPACK or code == GPU_IR_PACK { result = metalPacked(function, frame, op) }
+    else if code == GPU_IR_SPECIALIZE { result = frame.registers[op.operands[0]] }
+    else if code == GPU_IR_BARRIER {
         if op.memoryScope != 3 { function.error("E_GPU_METAL_CAPABILITY", "Metal synchronization scope requires unavailable lowering"); return }
         text.literal("threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);\n"); return
     } else if code == GPU_IR_MEMORY_BARRIER {

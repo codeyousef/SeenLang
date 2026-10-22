@@ -22,6 +22,8 @@ class GpuMetalFunction {
     var declarations: GpuTextBuffer
     var initializers: GpuTextBuffer
     var resources: Array<GpuMetalResource>
+    var words: Array<Int>
+    var constants: Array<Int>
     var nextWord: Int
     var sharedBytes: Int
     var workgroupX: Int
@@ -41,8 +43,12 @@ class GpuMetalFunction {
         }; this.nextWord = first + count; return first
     }
     fun word(bits: Int) r: Int {
+        let normalized = bits & 4294967295; var i = 0
+        while i < this.words.length() { if this.words[i] == normalized { return this.constants[i] }; i = i + 1 }
+        if this.words.length() >= 16384 { this.error("E_GPU_METAL_LIMIT", "Metal constant ceiling exceeded"); return 0 }
         let result = this.allocate(1); metalAssignment(this.initializers, result)
-        this.initializers.number(bits & 4294967295); this.initializers.literal("u;\n"); return result
+        this.initializers.number(normalized); this.initializers.literal("u;\n")
+        this.words.push(normalized); this.constants.push(result); return result
     }
     fun copy(destination: Int, source: Int, count: Int) r: Void {
         var lane = 0
@@ -68,12 +74,14 @@ class GpuMetalFunction {
     fun release() r: Void {
         var i = 0
         while i < this.resources.length() { let resource: GpuMetalResource = this.resources[i]; resource.free(); i = i + 1 }
-        this.resources.free(); this.body.release(); this.declarations.release(); this.initializers.release(); this.free()
+        this.resources.free(); this.words.free(); this.constants.free()
+        this.body.release(); this.declarations.release(); this.initializers.release(); this.free()
     }
 }
 fun createGpuMetalFunction(validation: GpuIrValidation, index: Int, x: Int, y: Int, z: Int) r: GpuMetalFunction {
     return GpuMetalFunction{validation: validation, body: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"),
         declarations: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"), initializers: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"),
-        resources: Array<GpuMetalResource>(), nextWord: 1, sharedBytes: 0, workgroupX: x, workgroupY: y, workgroupZ: z,
+        resources: Array<GpuMetalResource>(), words: Array<Int>(), constants: Array<Int>(), nextWord: 1, sharedBytes: 0,
+        workgroupX: x, workgroupY: y, workgroupZ: z,
         functionIndex: index, blockIndex: -1, instructionIndex: -1}
 }

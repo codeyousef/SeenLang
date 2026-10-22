@@ -794,7 +794,7 @@ returns inside nested loops. Each loop has an independent million-iteration
 budget. Threadgroup storage is zero-initialized cooperatively, padded to 16-byte
 boundaries and limited to 32 KiB per emitted entry. The shared IR permits shared
 declarations only in kernel bodies; helpers may borrow those resources.
-Unsupported precision, atomic, subgroup and cooperative operations return
+Unsupported precision profiles, atomic, subgroup and cooperative operations return
 `E_GPU_METAL_CAPABILITY`; layout, target and resource limits have explicit
 `E_GPU_METAL_LAYOUT`, `E_GPU_METAL_TARGET` and `E_GPU_METAL_LIMIT` diagnostics.
 No operation silently falls back to a CPU implementation.
@@ -804,8 +804,17 @@ does not preserve the required NaN and signed-zero selections. The source also
 disables floating contraction. Native floating arithmetic retains Metal's
 documented device accuracy, rounding and possible subnormal flushing. CPU
 witnesses do not establish bitwise floating parity on a Metal device; that must
-be checked before certifying an execution profile. Packed precision lowering is
-currently unsupported.
+be checked before certifying an execution profile.
+
+Packed FP16, BF16, FP8, MXFP4 and fixed-width integer words use the shared scalar
+conversion plans. Insertion preserves neighboring packed lanes; malformed lane
+and scale values retain checked fault behavior. Bounded specialization defaults
+and explicit materialized choices reuse the shared clone/override contract;
+materialization preserves the original module and gives the caller an independent
+owner. These operations emit MSL source for all three deployment targets.
+`tests/misc_root_tests/seen_gpu_metal_b.sh` checks 140 fixed cases and 420
+result/validity words, exact cleanup, four compiler profiles, deterministic source
+and a 60-second malformed-IR corpus. Its numeric witnesses execute on the CPU.
 
 The source manifest records `official_validation: "not-run"` and both execution
 flags as false. `.metal` source is not AIR or a metallib. The Linux diagnostic

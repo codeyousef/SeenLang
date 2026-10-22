@@ -38,6 +38,7 @@ fun checkSpecialization(backend: String) r: Void {
     requireSpecialization(parsed.isOkay()); let source = parsed.unwrap(); parsed.releaseContainer()
     let before = specializationIr(source); let options = GpuOptions.create(); options.backend = backend; options.target = "sm_80"
     if backend == "hip" { options.target = "gfx90a" }
+    if backend == "metal" { options.target = "macos13" }
     let defaultPtx = specializationBytes(source, options)
     rejectSpecialization(source, [7], [])
     rejectSpecialization(source, [99], [4])
@@ -83,10 +84,12 @@ fun checkSpecialization(backend: String) r: Void {
 }
 fun main() r: Int {
     let baseline = seen_memory_used_bytes(); let arguments = args()
-    requireSpecialization(arguments.length() == 2 and (arguments[1] == "cuda" or arguments[1] == "hip"))
-    let cuda = arguments[1] == "cuda"; checkSpecialization(arguments[1]); releaseArgs(arguments)
+    requireSpecialization(arguments.length() == 2 and (arguments[1] == "cuda" or arguments[1] == "hip" or arguments[1] == "metal"))
+    let cuda = arguments[1] == "cuda"; let metal = arguments[1] == "metal"
+    checkSpecialization(arguments[1]); releaseArgs(arguments)
     requireSpecialization(seen_memory_used_bytes() == baseline)
     if cuda { println("PASS: PTX bounded specialization overrides preserve source and independent clone ownership") }
+    else if metal { println("PASS: Metal bounded specialization overrides preserve source and independent clone ownership") }
     else { println("PASS: AMDGPU bounded specialization overrides preserve source and independent clone ownership") }
     return 0
 }

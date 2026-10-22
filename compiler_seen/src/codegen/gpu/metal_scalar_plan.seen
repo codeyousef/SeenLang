@@ -1,0 +1,77 @@
+/// The shared scalar plan owns packed conversion algorithms and validity.
+/// This module renders bounded word operations into MSL and consumes the plan.
+import codegen.gpu.scalar_plan.{GpuScalarPlan, GpuScalarValues}
+import codegen.gpu.scalar_ops.{SCALAR_BITCAST, SCALAR_FLOAT_TO_UINT, SCALAR_UINT_TO_FLOAT,
+    SCALAR_ADD, SCALAR_SUBTRACT, SCALAR_MULTIPLY, SCALAR_FLOAT_MULTIPLY,
+    SCALAR_SHIFT_RIGHT, SCALAR_SHIFT_LEFT, SCALAR_BIT_OR, SCALAR_BIT_XOR, SCALAR_BIT_AND,
+    SCALAR_BOOL_OR, SCALAR_BOOL_AND, SCALAR_EQUAL, SCALAR_NOT_EQUAL,
+    SCALAR_UNSIGNED_GREATER, SCALAR_UNSIGNED_GREATER_EQUAL, SCALAR_UNSIGNED_LESS, SCALAR_UNSIGNED_LESS_EQUAL,
+    SCALAR_SIGNED_GREATER_EQUAL, SCALAR_SIGNED_LESS, SCALAR_SIGNED_LESS_EQUAL}
+import codegen.gpu.metal_context.{GpuMetalFunction, metalWord, metalTypedWord, metalAssignment}
+import codegen.gpu.metal_math.{metalFloatIntegerCondition}
+import codegen.gpu.metal_scalar_bits.{metalScalarField}
+
+fun metalScalarSymbol(operation: Int) r: String {
+    if operation == SCALAR_ADD { return "+" }; if operation == SCALAR_SUBTRACT { return "-" }
+    if operation == SCALAR_MULTIPLY or operation == SCALAR_FLOAT_MULTIPLY { return "*" }
+    if operation == SCALAR_SHIFT_RIGHT { return ">>" }; if operation == SCALAR_SHIFT_LEFT { return "<<" }
+    if operation == SCALAR_BIT_OR or operation == SCALAR_BOOL_OR { return "|" }
+    if operation == SCALAR_BIT_XOR { return "^" }; if operation == SCALAR_BIT_AND or operation == SCALAR_BOOL_AND { return "&" }
+    if operation == SCALAR_EQUAL { return "==" }; if operation == SCALAR_NOT_EQUAL { return "!=" }
+    if operation == SCALAR_UNSIGNED_GREATER { return ">" }
+    if operation == SCALAR_UNSIGNED_GREATER_EQUAL or operation == SCALAR_SIGNED_GREATER_EQUAL { return ">=" }
+    if operation == SCALAR_UNSIGNED_LESS or operation == SCALAR_SIGNED_LESS { return "<" }
+    if operation == SCALAR_UNSIGNED_LESS_EQUAL or operation == SCALAR_SIGNED_LESS_EQUAL { return "<=" }; return ""
+}
+fun metalScalarBinary(function: GpuMetalFunction, operation: Int, left: Int, right: Int) r: Int {
+    let symbol = metalScalarSymbol(operation)
+    if symbol == "" { function.error("E_GPU_METAL_PRECISION", "Metal scalar word operation is unsupported"); return 0 }
+    let result = function.allocate(1); let text = function.body; metalAssignment(text, result); var scalar = 3
+    if operation >= SCALAR_SIGNED_GREATER_EQUAL { scalar = 2 }
+    if operation == SCALAR_FLOAT_MULTIPLY { scalar = 4; text.literal("as_type<uint>(") } else { text.literal("uint(") }
+    metalTypedWord(text, left, scalar); text.literal(" "); text.literal(symbol); text.literal(" ")
+    if operation == SCALAR_SHIFT_RIGHT or operation == SCALAR_SHIFT_LEFT { text.literal("(") }
+    metalTypedWord(text, right, scalar)
+    if operation == SCALAR_SHIFT_RIGHT or operation == SCALAR_SHIFT_LEFT { text.literal(" & 31u)") }
+    text.literal(");\n"); return result
+}
+fun metalScalarUnary(function: GpuMetalFunction, operation: Int, source: Int) r: Int {
+    if operation == SCALAR_BITCAST { return source }
+    let result = function.allocate(1); let text = function.body
+    if operation == SCALAR_FLOAT_TO_UINT {
+        text.literal("if ("); metalFloatIntegerCondition(text, source, 3); text.literal(") {\n")
+        metalAssignment(text, result); text.literal("uint("); metalTypedWord(text, source, 4); text.literal(");\n} else {\n")
+        function.set(result, 0); text.literal("}\n")
+    } else if operation == SCALAR_UINT_TO_FLOAT {
+        metalAssignment(text, result); text.literal("as_type<uint>(float("); metalWord(text, source); text.literal("));\n")
+    } else { function.error("E_GPU_METAL_PRECISION", "Metal scalar conversion is unsupported") }
+    return result
+}
+fun emitMetalScalarPlan(function: GpuMetalFunction, plan: GpuScalarPlan) r: GpuScalarValues {
+    let output = GpuScalarValues{value: 0, laneValid: 0, scaleValid: 0}; let text = function.body
+    if not plan.validate() { function.error("E_GPU_METAL_PRECISION", plan.message); plan.release(); return output }
+    let values = Array<Int>.withLength(plan.codes.length() + 1); var index = 0
+    while index < plan.codes.length() and function.validation.valid {
+        let code = plan.codes[index]; let first = plan.first[index]; var value = 0
+        if code == 0 { value = first }
+        else if code == 1 { value = function.word(first) }
+        else if code == 2 {
+            value = function.allocate(1); metalAssignment(text, value); metalWord(text, values[first]); text.literal(" != 0u ? ")
+            metalWord(text, values[plan.second[index]]); text.literal(" : "); metalWord(text, values[plan.third[index]]); text.literal(";\n")
+        } else if code == 3 {
+            value = function.allocate(1); metalAssignment(text, value); text.literal("as_type<uint>(rint(")
+            metalTypedWord(text, values[first], 4); text.literal("));\n")
+        } else if code == 4 or code == 5 {
+            value = metalScalarField(function, values[first], 0, values[plan.second[index]], values[plan.third[index]], code == 5, false)
+        } else if code == 6 {
+            value = metalScalarField(function, values[first], values[plan.second[index]], values[plan.third[index]], values[plan.fourth[index]], false, true)
+        } else if code >= 100 and code < 200 { value = metalScalarUnary(function, code - 100, values[first]) }
+        else { value = metalScalarBinary(function, code - 200, values[first], values[plan.second[index]]) }
+        values[index + 1] = value; index = index + 1
+    }
+    if function.validation.valid {
+        output.value = values[plan.result]
+        if plan.laneValid > 0 { output.laneValid = values[plan.laneValid] }
+        if plan.scaleValid > 0 { output.scaleValid = values[plan.scaleValid] }
+    }; values.free(); plan.release(); return output
+}

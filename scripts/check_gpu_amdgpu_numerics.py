@@ -10,21 +10,12 @@ from check_gpu_amdgpu_scalar import normalize
 from check_gpu_amdgpu_toolchain import invoke, load_profile, verify_installation
 from gpu_certification_io import read_bounded, invoke_with_snapshot
 from gpu_launch_contract import require, digest
+from gpu_numeric_cases import read_numeric_cases
 
 
 def cases_from_log(path):
-    records = [json.loads(line) for line in read_bounded(path, 33554432).decode().splitlines()
-               if line.startswith('{"schema":"seen-amdgpu-numeric-case-v1"')]
-    require(len(records) == 140, 'shared packed numeric corpus coverage differs')
+    records = read_numeric_cases(path, 'seen-amdgpu-numeric-case-v1')
     for record in records:
-        require(set(record) == {'schema', 'allocations', 'initializers', 'body', 'value_id', 'lane_id', 'scale_id', 'inputs', 'expected'},
-                'unknown numeric case field')
-        for key, count in (('inputs', 4), ('expected', 3)):
-            require(isinstance(record[key], list) and len(record[key]) == count and
-                    all(type(value) is int and 0 <= value <= 0xffffffff for value in record[key]), 'invalid numeric words')
-        require(record['expected'][1] in (0, 1) and record['expected'][2] in (0, 1), 'invalid expected validity words')
-        require(all(type(record[key]) is int and 1 <= record[key] < 1048576 for key in ('value_id', 'lane_id', 'scale_id')),
-                'invalid numeric value identity')
         text = ''.join(record[key] for key in ('allocations', 'initializers', 'body'))
         require(len(text) <= 1048576 and not re.search(r'\b(getelementptr|addrspacecast|define|declare|ret|br|switch|unreachable)\b', text),
                 'unexpected scalar-plan control or pointer instruction')

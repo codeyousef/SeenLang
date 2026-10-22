@@ -16,6 +16,8 @@ Foundations**.
   native Metal buffer ABI, structured helper/loop lowering, checked scalar and
   vector memory, and bounded threadgroup storage. Add shared scalar CPU witnesses
   and explicit separation from Apple SDK validation and device execution.
+- Add Metal packed floating/integer word conversions through shared scalar plans,
+  bounded specialization clones and independent CPU numeric witnesses.
 - Certify HIP artifact integrity, source relocation and deterministic HSA code
   objects with the pinned LLVM toolchain and malformed-input fuzzing.
 

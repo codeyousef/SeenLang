@@ -1,6 +1,7 @@
 /// Unsigned words preserve wrapping integer arithmetic. Typed operands are
 /// introduced only for signed division, comparisons, shifts and IEEE f32 math.
 import codegen.gpu.metal_context.{GpuMetalFunction, metalWord, metalTypedWord, metalAssignment}
+import codegen.gpu.text_buffer.{GpuTextBuffer}
 import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
 
 fun metalBinarySymbol(operation: Int) r: String {
@@ -51,6 +52,16 @@ fun metalUnary(function: GpuMetalFunction, operation: Int, typeCode: Int, source
         }; text.literal(";\n"); lane = lane + 1
     }; return result
 }
+fun metalFloatIntegerCondition(text: GpuTextBuffer, value: Int, target: Int) r: Void {
+    text.literal("(("); metalWord(text, value); text.literal(" & 2147483647u) < ")
+    var upper = 1333788672; if target == 2 { upper = 1325400064 }; text.number(upper); text.literal("u)")
+    if target == 2 {
+        text.literal(" || "); metalWord(text, value); text.literal(" == 3472883712u")
+    } else {
+        text.literal(" && (("); metalWord(text, value); text.literal(" & 2147483648u) == 0u || ")
+        metalWord(text, value); text.literal(" == 2147483648u)")
+    }
+}
 fun metalCast(function: GpuMetalFunction, sourceType: Int, targetType: Int, value: Int, bitcast: Bool) r: Int {
     let source = gpuTypeScalar(sourceType); let target = gpuTypeScalar(targetType)
     if bitcast or source == target or (source != 4 and target != 4) { return value }
@@ -62,14 +73,7 @@ fun metalCast(function: GpuMetalFunction, sourceType: Int, targetType: Int, valu
         } else {
             // IEEE bit-domain checks precede the native conversion, including
             // NaNs/infinities and the exactly representable INT32_MIN edge.
-            text.literal("if ((("); metalWord(text, value + lane); text.literal(" & 2147483647u) < ")
-            var upper = 1333788672; if target == 2 { upper = 1325400064 }; text.number(upper); text.literal("u)")
-            if target == 2 {
-                text.literal(" || "); metalWord(text, value + lane); text.literal(" == 3472883712u")
-            } else {
-                text.literal(" && (("); metalWord(text, value + lane); text.literal(" & 2147483648u) == 0u || ")
-                metalWord(text, value + lane); text.literal(" == 2147483648u)")
-            }
+            text.literal("if ("); metalFloatIntegerCondition(text, value + lane, target)
             text.literal(") {\n"); metalAssignment(text, result + lane)
             if target == 2 { text.literal("uint(int(") } else { text.literal("uint(") }
             metalTypedWord(text, value + lane, 4); if target == 2 { text.literal("))") } else { text.literal(")") }; text.literal(";\n")
