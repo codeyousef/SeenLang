@@ -1,0 +1,76 @@
+import compute.vulkan_properties.{VulkanMetadata}
+import compute.vulkan_abi.{GPU_VK_API_VERSION}
+import compute.limits.{GpuLimits, GPU_MAX_MEMORY_BYTES}
+import compute.device_info.{GpuDeviceKind}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+import vulkan_fixture_support.{put32, put64, metadata}
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    let limits = GpuLimits.bounded(4, 4, 16, 4096 as UInt64)
+    let original = metadata(); let decoded = original.decode(0, 1 as UInt64, 7 as UInt32, limits)
+    if decoded.isErr() { abort("valid SDK metadata rejected") }
+    let owned = decoded.unwrap(); decoded.releaseContainer(); original.release()
+    if owned.identity.uuid != "0102030405060708090a0b0c0d0e0f10" or owned.name != "Reference" or
+        owned.driverVersion != "33" or owned.kind != GpuDeviceKind.Discrete or
+        owned.capabilities.totalBytes != (3072 as UInt64) or owned.capabilities.features != (1347 as UInt64) or
+        owned.freeBytes.isSome() { abort("Vulkan SDK metadata golden or independent ownership changed") }
+    owned.release(); limits.release()
+    var field = 0
+    while field < 35 {
+        let value = metadata(); let bound = GpuLimits.bounded(4, 4, 16, 4096 as UInt64)
+        var expected = "gpu.invalid"; var providerId = 1 as UInt64; var ordinal = 0; var flags = 7 as UInt32
+        if field == 0 { put32(value, 0, 0, 0 as UInt32) }
+        if field == 1 { put32(value, 0, 16, 4194304 as UInt32); expected = "gpu.unsupported_capability" }
+        if field == 2 { put32(value, 0, 32, 5 as UInt32) }
+        if field == 3 { put32(value, 3, 0, 0 as UInt32) }
+        if field == 4 { put32(value, 3, 0, 33 as UInt32) }
+        if field == 5 { put32(value, 3, 260, 0 as UInt32) }
+        if field == 6 { put32(value, 3, 260, 17 as UInt32) }
+        if field == 7 { put64(value, 3, 264, GPU_MAX_MEMORY_BYTES + (1 as UInt64)) }
+        if field == 8 { put64(value, 3, 264, GPU_MAX_MEMORY_BYTES) }
+        if field == 9 { put32(value, 3, 8, 2 as UInt32) }
+        if field == 10 { put32(value, 4, 156, 2 as UInt32) }
+        if field == 11 { put32(value, 4, 160, 2 as UInt32) }
+        if field == 12 { put32(value, 4, 0, 2 as UInt32) }
+        if field == 13 { put32(value, 0, 548, 0 as UInt32) }
+        if field == 14 { put32(value, 0, 552, 65536 as UInt32) }
+        if field == 15 { put32(value, 0, 556, 0 as UInt32) }
+        if field == 16 { put32(value, 0, 544, 0 as UInt32) }
+        if field == 17 { put32(value, 0, 528, 16777217 as UInt32) }
+        if field == 18 { put32(value, 2, 16, 0 as UInt32) }
+        if field == 19 { put32(value, 2, 16, 129 as UInt32) }
+        if field == 20 {
+            let bytes = value.buffers[0]; var index = 0
+            while index < 256 { bytes.data[36 + index] = 65 as UInt8; index = index + 1 }
+            expected = "gpu.limit"
+        }
+        if field == 21 { let bytes = value.buffers[0]; bytes.data[36] = 0 as UInt8 }
+        if field == 22 { let bytes = value.buffers[0]; bytes.data[36] = 128 as UInt8 }
+        if field == 23 {
+            let bytes = value.buffers[1]; var index = 0
+            while index < 16 { bytes.data[16 + index] = 0 as UInt8; index = index + 1 }
+            expected = "gpu.unavailable"
+        }
+        if field == 24 { put32(value, 1, 0, 0 as UInt32) }
+        if field == 25 { put32(value, 2, 0, 0 as UInt32) }
+        if field == 26 { providerId = 0 as UInt64 }
+        if field == 27 { ordinal = -1 }
+        if field == 28 { flags = 0 as UInt32 }
+        if field == 29 { bound.maxNameBytes = 1; expected = "gpu.limit" }
+        if field == 30 { bound.maxIdentityBytes = 31; expected = "gpu.limit" }
+        if field == 31 { bound.maxVersionBytes = 1 }
+        if field == 32 { put64(value, 3, 264, 0 as UInt64) }
+        if field == 33 { bound.maxDevices = 0; expected = "gpu.limit" }
+        if field == 34 { put32(value, 3, 16, 2 as UInt32) }
+        let result = value.decode(ordinal, providerId, flags, bound)
+        if result.isOkay() { abort("hostile Vulkan SDK metadata accepted") }
+        let error = result.unwrapErr(); result.releaseContainer()
+        if error.code != expected or error.retryable { abort("Vulkan SDK metadata rejection changed") }
+        error.release(); value.release(); bound.release(); field = field + 1
+    }
+    if seen_memory_used_bytes() != memory { abort("Vulkan SDK metadata success or rejection leaked") }
+    println("PASS: Vulkan SDK fixed metadata golden hostile fields bounds and independent owning snapshots")
+    return 0
+}

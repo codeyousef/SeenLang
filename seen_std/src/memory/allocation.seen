@@ -77,14 +77,14 @@ fun memoryReservedBytes() r: Int {
     return seen_memory_reserved_bytes()
 }
 
+/// Admission must not allocate an intermediate error in an exhausted budget.
+/// Subsystems can choose their own typed failure without creating AllocError.
+fun allocationBudgetAvailable(bytes: Int) r: Bool {
+    return bytes <= 0 or seen_memory_limit_bytes() <= 0 or bytes <= seen_memory_remaining_bytes()
+}
+
 fun ensureAllocationBudget(bytes: Int) r: Result<Unit, AllocError> {
-    if bytes <= 0 {
-        return Ok<Unit, AllocError>(Unit{})
-    }
-    if seen_memory_limit_bytes() <= 0 {
-        return Ok<Unit, AllocError>(Unit{})
-    }
-    if bytes <= seen_memory_remaining_bytes() {
+    if allocationBudgetAvailable(bytes) {
         return Ok<Unit, AllocError>(Unit{})
     }
     return Err<Unit, AllocError>(AllocError.outOfMemory(bytes))

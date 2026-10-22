@@ -1,0 +1,57 @@
+/// Explicit Vulkan loader/instance ownership. No physical device is selected,
+/// no queue is created, and no CPU or alternate backend is chosen here.
+import compute.vulkan_native.{vkEnumerateInstanceVersion, vkCreateInstance, vkDestroyInstance}
+import compute.vulkan_abi.{gpuVkAbiValid, gpuVkApplicationInfo, gpuVkInstanceInfo,
+    VulkanApplicationInfo, VulkanInstanceCreateInfo, GPU_VK_API_VERSION}
+import compute.vulkan_error.{gpuVkFailure}
+import compute.operation.{gpuCheckOperation}
+import compute.error.{GpuError, gpuFailure}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+import memory.allocation.{allocationBudgetAvailable}
+
+@move
+class GpuVulkanInstance {
+    var native: UInt64
+
+    static fun open(context: OperationContext) r: Result<GpuVulkanInstance, GpuError> {
+        let checked = gpuCheckOperation(context, "gpu.vulkan.instance")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<GpuVulkanInstance, GpuError>(error) }
+        checked.releaseContainer()
+        if not allocationBudgetAvailable(4096) {
+            return Err<GpuVulkanInstance, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.instance", "Vulkan instance metadata budget exhausted"))
+        }
+        if not gpuVkAbiValid() {
+            return Err<GpuVulkanInstance, GpuError>(gpuFailure("gpu.unsupported_platform", "gpu.vulkan.instance", "Vulkan requires the verified 64-bit ABI"))
+        }
+        var version = 0 as UInt32
+        let queried = vkEnumerateInstanceVersion(&version)
+        if queried != (0 as Int32) { return Err<GpuVulkanInstance, GpuError>(gpuVkFailure(queried, "gpu.vulkan.version")) }
+        if (version & (0xe0000000 as UInt32)) != (0 as UInt32) or version < GPU_VK_API_VERSION {
+            return Err<GpuVulkanInstance, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.version", "Vulkan 1.2 is required"))
+        }
+        let app = gpuVkApplicationInfo()
+        let info = gpuVkInstanceInfo((&app) as *const VulkanApplicationInfo)
+        var native = 0 as UInt64
+        let status = vkCreateInstance((&info) as *const VulkanInstanceCreateInfo, null as *Void, &native)
+        if status != (0 as Int32) { return Err<GpuVulkanInstance, GpuError>(gpuVkFailure(status, "gpu.vulkan.instance")) }
+        if native == (0 as UInt64) {
+            return Err<GpuVulkanInstance, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.instance", "Vulkan returned an empty instance identity"))
+        }
+        let observed = gpuCheckOperation(context, "gpu.vulkan.instance")
+        if observed.isErr() {
+            let error = observed.unwrapErr(); observed.releaseContainer()
+            vkDestroyInstance(native, null as *Void)
+            return Err<GpuVulkanInstance, GpuError>(error)
+        }
+        observed.releaseContainer()
+        return Ok<GpuVulkanInstance, GpuError>(GpuVulkanInstance{native: native})
+    }
+
+    fun close() r: Bool {
+        if this.native == (0 as UInt64) { return false }
+        vkDestroyInstance(this.native, null as *Void); this.native = 0 as UInt64
+        return true
+    }
+    fun release() r: Void { this.close(); this.free() }
+}

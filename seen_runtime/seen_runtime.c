@@ -147,6 +147,7 @@ static void seen_allocator_register_fork_handlers(void) {
 #include "src/allocation_observer_abi.c"
 
 static inline size_t seen_align_up(size_t n, size_t align);
+static void seen_oom_abort(const char* context, int64_t size);
 
 // ============================================================================
 // Pool Allocator - size-class slab allocator with free-list recycling
@@ -159,6 +160,7 @@ static inline size_t seen_align_up(size_t n, size_t align);
 typedef struct PoolSlab {
     char *base;
     size_t used;
+    size_t capacity;
     struct PoolSlab *next;
 } PoolSlab;
 
@@ -172,6 +174,19 @@ static int64_t pool_live_bytes = 0;
 
 static inline int pool_class(size_t size) {
     return (int)((size + 7) / 8) - 1; // 8->0, 16->1, ..., 80->9
+}
+
+static size_t seen_pool_slab_capacity(size_t slot) {
+    int64_t remaining = seen_memory_remaining_bytes();
+    size_t capacity = POOL_SLAB_SIZE;
+    /* Preserve headroom for other size classes and diagnostics. A small
+       request must not require a full megabyte of unneeded slab reserve. */
+    if (remaining < (int64_t)POOL_SLAB_SIZE * (POOL_NUM_CLASSES * 2)) {
+        capacity = remaining > 0 ? (size_t)remaining / (POOL_NUM_CLASSES * 2) : 0;
+        if (capacity < slot) capacity = slot;
+        capacity -= capacity % slot;
+    }
+    return capacity;
 }
 
 __attribute__((hot, malloc))
@@ -195,10 +210,11 @@ static void *seen_pool_alloc_inner(int64_t size) {
 
     // Slow path: bump-allocate from slab
     PoolSlab *slab = pool_slabs[cls];
-    if (__builtin_expect(!slab || slab->used + slot > POOL_SLAB_SIZE, 0)) {
+    if (__builtin_expect(!slab || slab->used + slot > slab->capacity, 0)) {
         slab = (PoolSlab *)seen_try_malloc(sizeof(PoolSlab));
         if (!slab) return NULL;
-        slab->base = (char *)seen_try_malloc(POOL_SLAB_SIZE);
+        slab->capacity = seen_pool_slab_capacity(slot);
+        slab->base = (char *)seen_try_malloc(slab->capacity);
         if (!slab->base) {
             seen_memory_release_bytes((int64_t)sizeof(PoolSlab));
             free(slab);
@@ -207,7 +223,7 @@ static void *seen_pool_alloc_inner(int64_t size) {
         slab->used = 0;
         slab->next = pool_slabs[cls];
         pool_slabs[cls] = slab;
-        pool_committed_bytes += (int64_t)(POOL_SLAB_SIZE + sizeof(PoolSlab));
+        pool_committed_bytes += (int64_t)(slab->capacity + sizeof(PoolSlab));
     }
     p = slab->base + slab->used;
     slab->used += slot;
@@ -216,12 +232,16 @@ static void *seen_pool_alloc_inner(int64_t size) {
 }
 
 void *seen_pool_alloc(int64_t size) {
-    if (!seen_allocation_observer || seen_allocation_observer_busy)
-        return seen_pool_alloc_inner(size);
+    if (!seen_allocation_observer || seen_allocation_observer_busy) {
+        void *pointer = seen_pool_alloc_inner(size);
+        if (!pointer) seen_oom_abort("pool allocation", size > 0 ? size : 1);
+        return pointer;
+    }
     seen_allocation_observer_nested++;
     void *pointer = seen_pool_alloc_inner(size);
     seen_allocation_observer_nested--;
-    if (pointer) seen_allocation_observe(1, 0, pointer, size > 0 ? size : 1, 1);
+    if (!pointer) seen_oom_abort("pool allocation", size > 0 ? size : 1);
+    seen_allocation_observe(1, 0, pointer, size > 0 ? size : 1, 1);
     return pointer;
 }
 
@@ -721,8 +741,6 @@ void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size) {
     seen_allocation_observe(2, old_address, ptr, new_size, 0);
     return ptr;
 }
-
-static void seen_oom_abort(const char* context, int64_t size);
 
 static void seen_allocation_failure_exit(void) {
     fflush(stderr);

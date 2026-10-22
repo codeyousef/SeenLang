@@ -1,0 +1,44 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.limits.{GpuLimits}
+import device_fixture_support.{operation, releaseOperation}
+import env.env.{args, releaseArgs}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let arguments = args()
+    if arguments.length() != 3 { abort("Vulkan fault fixture requires mode and expected code") }
+    let contextFault = arguments[1] == "context-status" or arguments[1] == "context-empty"
+    let context = operation(); let limits = GpuLimits.bounded(4, 4, 16, 4096 as UInt64)
+    var iteration = 0
+    while iteration < 16 {
+        let discovered = GpuVulkanProvider.discover(context, limits, true)
+        if contextFault {
+            if discovered.isErr() { abort("Vulkan fault fixture failed before context creation") }
+            let provider = discovered.unwrap(); discovered.releaseContainer()
+            let opened = openVulkanDevice(provider, 0, context)
+            if opened.isErr() { abort("Vulkan fault fixture failed before native device creation") }
+            let device = opened.unwrap(); opened.releaseContainer()
+            let created = device.createContext(context)
+            if created.isOkay() { abort("Vulkan native context fault was accepted") }
+            let error = created.unwrapErr(); created.releaseContainer()
+            if error.code != arguments[2] or error.retryable { abort("Vulkan context fault diagnostic changed") }
+            error.release()
+            let released = device.release()
+            if released.isErr() { abort("Vulkan rejected context retained a borrower") }
+            released.releaseContainer()
+        } else {
+            if discovered.isOkay() { abort("Vulkan native discovery fault was accepted") }
+            let error = discovered.unwrapErr(); discovered.releaseContainer()
+            if error.code != arguments[2] or error.retryable { abort("Vulkan discovery fault diagnostic changed") }
+            error.release()
+        }
+        if seen_sync_live_atomics() != atomics { abort("Vulkan native fault leaked its provider identity") }
+        iteration = iteration + 1
+    }
+    limits.release(); releaseOperation(context); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline { abort("Vulkan native fault leaked Seen-owned resources") }
+    println("PASS: Vulkan vendor fault status and count corruption preserve typed rejection and cleanup")
+    return 0
+}

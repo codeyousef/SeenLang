@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Add explicit Vulkan 1.2 discovery and owned native device/context creation in
+  Seen, with optional free-memory reports, device kinds, bounded SDK metadata,
+  software-device opt-in and a Mesa software reference acceptance suite.
 - Add Seen compute backend identities, bounded device metadata and discovery
   catalogs, with independent owning snapshots, explicit provider membership,
   duplicate/quota rejection and cleanup checks. CPU-default imports require no
@@ -87,6 +90,9 @@ Foundations**.
 
 ### Fixed
 
+- Size pooled allocator slabs to available budget and preserve room for error
+  construction. Checked pool exhaustion now exits with a bounded allocation
+  diagnostic instead of returning a null address to generated field stores.
 - Emit dynamic `Void` trait calls without an LLVM result assignment. Exercise
   mixed return types, receiver arguments and repeated destructor cleanup.
 - Admit bounded GPU validator tools after cached builds by accounting for clean

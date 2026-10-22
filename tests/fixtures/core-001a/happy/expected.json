@@ -12,6 +12,7 @@
     "libc6-dev-arm64-cross",
     "libclang-rt-20-dev",
     "libvulkan-dev",
+    "mesa-vulkan-drivers",
     "lld-20",
     "llvm-20",
     "nvidia-cuda-nvcc-cu12==12.8.93 (pinned ptxas only)",

@@ -1,0 +1,191 @@
+/// Bounded Vulkan output storage and Seen-owned metadata decoding. Raw buffers
+/// stay with their discovery owner; returned reports own independent strings.
+import core.result.{Result, Ok, Err}
+import core.option.{None}
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GpuLimits, GPU_MAX_MEMORY_BYTES}
+import compute.backend.{GpuBackend}
+import compute.device_info.{GpuDeviceInfo, GpuDeviceIdentity, GpuDeviceKind, gpuDeviceTextValid}
+import compute.capabilities.{GpuCapabilities, GPU_FEATURE_COMPUTE, GPU_FEATURE_ASYNC_TRANSFER,
+    GPU_FEATURE_HOST_VISIBLE, GPU_FEATURE_SUBGROUP, GPU_FEATURE_FLOAT64}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop, gpuVkU32, gpuVkU64, GPU_VK_API_VERSION,
+    GPU_VK_PROPERTIES_BYTES, GPU_VK_ID_BYTES, GPU_VK_SUBGROUP_BYTES, GPU_VK_MEMORY_BYTES, GPU_VK_FEATURE_BYTES}
+import compute.vulkan_native.{vkGetPhysicalDeviceProperties2, vkGetPhysicalDeviceMemoryProperties, vkGetPhysicalDeviceFeatures}
+import memory.aligned_buffer.{OwnedBuffer}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+
+@move
+class VulkanMetadata {
+    var buffers: Array<OwnedBuffer<UInt8>>
+
+    static fun create() r: Result<VulkanMetadata, GpuError> {
+        let metadata = VulkanMetadata{buffers: Array<OwnedBuffer<UInt8>>()}
+        let sizes = [GPU_VK_PROPERTIES_BYTES, GPU_VK_ID_BYTES, GPU_VK_SUBGROUP_BYTES, GPU_VK_MEMORY_BYTES, GPU_VK_FEATURE_BYTES]
+        var index = 0
+        while index < sizes.length() {
+            let allocated = gpuVkAllocate(sizes[index])
+            if allocated.isErr() {
+                let error = allocated.unwrapErr(); allocated.releaseContainer(); sizes.free(); metadata.release()
+                return Err<VulkanMetadata, GpuError>(error)
+            }
+            let buffer = allocated.unwrap(); allocated.releaseContainer(); metadata.buffers.push(buffer)
+            index = index + 1
+        }
+        sizes.free(); metadata.reset()
+        return Ok<VulkanMetadata, GpuError>(metadata)
+    }
+    fun reset() r: Void {
+        var index = 0
+        while index < this.buffers.length() {
+            let buffer = this.buffers[index]; var offset = 0 as UInt64
+            while offset < buffer.byteLength { buffer.data[offset] = 0 as UInt8; offset = offset + (1 as UInt64) }
+            index = index + 1
+        }
+        let properties = this.buffers[0]; let identity = this.buffers[1]; let subgroup = this.buffers[2]
+        let propertiesWords = properties.data as *UInt32; propertiesWords[0] = 1000059001 as UInt32
+        let propertiesPointers = properties.data as *UInt64; propertiesPointers[1] = identity.data as UInt64
+        let identityWords = identity.data as *UInt32; identityWords[0] = 1000071004 as UInt32
+        let identityPointers = identity.data as *UInt64; identityPointers[1] = subgroup.data as UInt64
+        let subgroupWords = subgroup.data as *UInt32; subgroupWords[0] = 1000094000 as UInt32
+    }
+    fun capture(physical: UInt64) r: Result<Bool, GpuError> {
+        if physical == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "physical device identity is empty")) }
+        this.reset()
+        vkGetPhysicalDeviceProperties2(physical, this.buffers[0].data)
+        vkGetPhysicalDeviceMemoryProperties(physical, this.buffers[3].data)
+        vkGetPhysicalDeviceFeatures(physical, this.buffers[4].data)
+        return Ok<Bool, GpuError>(true)
+    }
+
+    fun decode(ordinal: Int, providerId: UInt64, queueFlags: UInt32, borrow limits: GpuLimits)
+        r: Result<GpuDeviceInfo, GpuError> {
+        let checked = limits.validate()
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<GpuDeviceInfo, GpuError>(error) }
+        checked.releaseContainer()
+        let properties = this.buffers[0]; let identity = this.buffers[1]
+        let subgroup = this.buffers[2]
+        if gpuVkU32(properties, 0 as UInt64) != (1000059001 as UInt32) or
+            gpuVkU32(identity, 0 as UInt64) != (1000071004 as UInt32) or
+            gpuVkU32(subgroup, 0 as UInt64) != (1000094000 as UInt32) {
+            return Err<GpuDeviceInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan output structure identity changed"))
+        }
+        if gpuVkU32(properties, 16 as UInt64) < GPU_VK_API_VERSION {
+            return Err<GpuDeviceInfo, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.properties", "physical device requires Vulkan 1.2"))
+        }
+        let nativeKind = gpuVkU32(properties, 32 as UInt64)
+        if nativeKind > (4 as UInt32) {
+            return Err<GpuDeviceInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "invalid Vulkan device kind"))
+        }
+        var kind = GpuDeviceKind.Other
+        if nativeKind == (1 as UInt32) { kind = GpuDeviceKind.Integrated }
+        if nativeKind == (2 as UInt32) { kind = GpuDeviceKind.Discrete }
+        if nativeKind == (3 as UInt32) { kind = GpuDeviceKind.Virtual }
+        if nativeKind == (4 as UInt32) { kind = GpuDeviceKind.Software }
+        let decoded = this.capabilities(queueFlags)
+        if decoded.isErr() { let error = decoded.unwrapErr(); decoded.releaseContainer(); return Err<GpuDeviceInfo, GpuError>(error) }
+        let capabilities = decoded.unwrap(); decoded.releaseContainer()
+        return this.report(ordinal, providerId, kind, capabilities, limits)
+    }
+
+    fun capabilities(queueFlags: UInt32) r: Result<GpuCapabilities, GpuError> {
+        if (queueFlags & (2 as UInt32)) == (0 as UInt32) {
+            return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan queue cannot execute compute work"))
+        }
+        let properties = this.buffers[0]; let subgroup = this.buffers[2]
+        let memory = this.buffers[3]; let features = this.buffers[4]
+        let typeCount = gpuVkU32(memory, 0 as UInt64) as Int; let heapCount = gpuVkU32(memory, 260 as UInt64) as Int
+        if typeCount == 0 or typeCount > 32 or heapCount == 0 or heapCount > 16 {
+            return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "invalid Vulkan memory property counts"))
+        }
+        var total = 0 as UInt64; var index = 0
+        while index < heapCount {
+            let offset = (264 as UInt64) + (index as UInt64) * (16 as UInt64)
+            let size = gpuVkU64(memory, offset)
+            if size == (0 as UInt64) or size > GPU_MAX_MEMORY_BYTES {
+                return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory heap size is invalid"))
+            }
+            if (gpuVkU32(memory, offset + (8 as UInt64)) & (1 as UInt32)) != (0 as UInt32) {
+                if size > GPU_MAX_MEMORY_BYTES - total {
+                    return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory heap total exceeds its bound"))
+                }
+                total = total + size
+            }
+            index = index + 1
+        }
+        var bits = GPU_FEATURE_COMPUTE
+        if (queueFlags & (4 as UInt32)) != (0 as UInt32) { bits = bits | GPU_FEATURE_ASYNC_TRANSFER }
+        index = 0
+        while index < typeCount {
+            if (gpuVkU32(memory, (8 as UInt64) + (index as UInt64) * (8 as UInt64)) as Int) >= heapCount {
+                return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory type refers to an absent heap"))
+            }
+            if (gpuVkU32(memory, (4 as UInt64) + (index as UInt64) * (8 as UInt64)) & (2 as UInt32)) != (0 as UInt32) {
+                bits = bits | GPU_FEATURE_HOST_VISIBLE
+            }
+            index = index + 1
+        }
+        let float64 = gpuVkU32(features, 156 as UInt64); let int64 = gpuVkU32(features, 160 as UInt64)
+        if float64 > (1 as UInt32) or int64 > (1 as UInt32) or gpuVkU32(features, 0 as UInt64) > (1 as UInt32) {
+            return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan feature flag is not a native Boolean"))
+        }
+        if float64 == (1 as UInt32) { bits = bits | GPU_FEATURE_FLOAT64 }
+        if (gpuVkU32(subgroup, 20 as UInt64) & (32 as UInt32)) != (0 as UInt32) and
+            (gpuVkU32(subgroup, 24 as UInt64) & (63 as UInt32)) == (63 as UInt32) { bits = bits | GPU_FEATURE_SUBGROUP }
+        let capabilities = GpuCapabilities{features: bits, totalBytes: total,
+            maxWorkgroupX: gpuVkU32(properties, 548 as UInt64) as UInt64,
+            maxWorkgroupY: gpuVkU32(properties, 552 as UInt64) as UInt64,
+            maxWorkgroupZ: gpuVkU32(properties, 556 as UInt64) as UInt64,
+            maxThreads: gpuVkU32(properties, 544 as UInt64) as UInt64,
+            maxSharedBytes: gpuVkU32(properties, 528 as UInt64) as UInt64,
+            subgroupWidth: gpuVkU32(subgroup, 16 as UInt64) as Int}
+        if not capabilities.valid() {
+            capabilities.release(); return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan compute geometry is invalid"))
+        }
+        return Ok<GpuCapabilities, GpuError>(capabilities)
+    }
+
+    fun report(ordinal: Int, providerId: UInt64, kind: GpuDeviceKind,
+        capabilities: GpuCapabilities, borrow limits: GpuLimits) r: Result<GpuDeviceInfo, GpuError> {
+        let properties = this.buffers[0]; let identity = this.buffers[1]; var index = 0
+        var nameLength = 0
+        while nameLength < 256 and properties.data[36 + nameLength] != (0 as UInt8) { nameLength = nameLength + 1 }
+        if nameLength == 256 or nameLength > limits.maxNameBytes or limits.maxIdentityBytes < 32 {
+            capabilities.release(); return Err<GpuDeviceInfo, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.properties", "Vulkan identity metadata exceeds its bound"))
+        }
+        let namePointer = ((properties.data as UInt64) + (36 as UInt64)) as *const UInt8
+        let name = seen_string_view_bytes(namePointer, nameLength as Int64)
+        if not gpuDeviceTextValid(name, limits.maxNameBytes) {
+            capabilities.release(); return Err<GpuDeviceInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan device name is not bounded printable text"))
+        }
+        var present = false; index = 0
+        while index < 16 { if identity.data[16 + index] != (0 as UInt8) { present = true }; index = index + 1 }
+        if not present {
+            capabilities.release(); return Err<GpuDeviceInfo, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.properties", "Vulkan device has no stable UUID"))
+        }
+        let allocated = gpuVkAllocate(32 as UInt64)
+        if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); capabilities.release(); return Err<GpuDeviceInfo, GpuError>(error) }
+        let encoded = allocated.unwrap(); allocated.releaseContainer(); let hex = "0123456789abcdef"; index = 0
+        while index < 16 {
+            let byte = identity.data[16 + index] as Int
+            encoded.data[2 * index] = hex.byteAt(byte / 16) as UInt8
+            encoded.data[2 * index + 1] = hex.byteAt(byte % 16) as UInt8
+            index = index + 1
+        }
+        let uuid = seen_string_clone_owned(seen_string_view_bytes(encoded.data as *const UInt8, 32 as Int64)); gpuVkDrop(encoded)
+        let version = (gpuVkU32(properties, 20 as UInt64) as Int).toString()
+        let ownedVersion = seen_string_clone_owned(version); seen_string_release_owned(version)
+        let report = GpuDeviceInfo{identity: GpuDeviceIdentity{backend: GpuBackend.Vulkan,
+            ordinal: ordinal, providerId: providerId, uuid: uuid}, kind: kind,
+            name: seen_string_clone_owned(name), driverVersion: ownedVersion,
+            capabilities: capabilities, freeBytes: None<UInt64>()}
+        let valid = report.validate(limits)
+        if valid.isErr() { let error = valid.unwrapErr(); valid.releaseContainer(); report.release(); return Err<GpuDeviceInfo, GpuError>(error) }
+        valid.releaseContainer(); return Ok<GpuDeviceInfo, GpuError>(report)
+    }
+    fun release() r: Void {
+        var index = 0
+        while index < this.buffers.length() { gpuVkDrop(this.buffers[index]); index = index + 1 }
+        this.buffers.free(); this.free()
+    }
+}

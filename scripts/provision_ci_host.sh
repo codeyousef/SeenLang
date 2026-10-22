@@ -33,7 +33,7 @@ llvm_package_version=$(python3 -c 'import json; from pathlib import Path; print(
 
 sudo -n apt-get update
 sudo -n apt-get install --yes --no-install-recommends \
-    bubblewrap ripgrep libvulkan-dev libc6-dev-arm64-cross \
+    bubblewrap ripgrep libvulkan-dev mesa-vulkan-drivers libc6-dev-arm64-cross \
     "llvm-20=$llvm_package_version" "clang-20=$llvm_package_version" "lld-20=$llvm_package_version" \
     "libllvm20=$llvm_package_version" "libclang-rt-20-dev=$llvm_package_version" "spirv-tools=$spirv_package_version"
 python3 scripts/check_gpu_amdgpu_toolchain.py >/dev/null || fail "pinned LLVM AMDGPU toolchain identity differs"

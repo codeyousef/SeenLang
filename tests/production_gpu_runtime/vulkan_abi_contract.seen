@@ -1,0 +1,32 @@
+import compute.vulkan_abi.{gpuVkAbiValid, gpuVkAllocate, gpuVkU32, gpuVkU64, gpuVkDrop,
+    VulkanApplicationInfo, VulkanInstanceCreateInfo, VulkanDeviceQueueCreateInfo, VulkanDeviceCreateInfo}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    if not gpuVkAbiValid() { abort("unsupported Vulkan ABI layout") }
+    let allocated = gpuVkAllocate(840 as UInt64)
+    if allocated.isErr() { abort("Vulkan ABI allocation failed") }
+    let buffer = allocated.unwrap(); allocated.releaseContainer()
+    var index = 0 as UInt64
+    while index < buffer.byteLength {
+        if buffer.data[index] != (0 as UInt8) { abort("Vulkan output storage was not initialized") }
+        index = index + (1 as UInt64)
+    }
+    let words = buffer.data as *UInt32; words[0] = 1000059001 as UInt32; words[209] = 123 as UInt32
+    if gpuVkU32(buffer, 0 as UInt64) != (1000059001 as UInt32) or gpuVkU32(buffer, 836 as UInt64) != (123 as UInt32) {
+        abort("Vulkan word ABI changed")
+    }
+    let wide = buffer.data as *UInt64; wide[33] = 123456789 as UInt64
+    if gpuVkU64(buffer, 264 as UInt64) != (123456789 as UInt64) { abort("Vulkan double-word ABI changed") }
+    gpuVkDrop(buffer)
+    let empty = gpuVkAllocate(0 as UInt64)
+    if empty.isOkay() { abort("zero Vulkan ABI storage accepted") }
+    empty.unwrapErr().release(); empty.releaseContainer()
+    let huge = gpuVkAllocate(4097 as UInt64)
+    if huge.isOkay() { abort("unbounded Vulkan ABI storage accepted") }
+    huge.unwrapErr().release(); huge.releaseContainer()
+    if seen_memory_used_bytes() != memory { abort("Vulkan ABI views leaked allocations") }
+    println("PASS: Vulkan 64-bit SDK ABI sizes bounded zeroed storage and native word views")
+    return 0
+}

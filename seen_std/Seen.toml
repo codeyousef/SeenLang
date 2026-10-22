@@ -151,6 +151,13 @@ modules = [
     "src/compute/operation.seen",
     "src/compute/provider.seen",
     "src/compute/device.seen",
+    "src/compute/vulkan_abi.seen",
+    "src/compute/vulkan_native.seen",
+    "src/compute/vulkan_error.seen",
+    "src/compute/vulkan_instance.seen",
+    "src/compute/vulkan_properties.seen",
+    "src/compute/vulkan_queue.seen",
+    "src/compute/vulkan_provider.seen",
 
     # Portable SIMD representation and dispatch planning
     "src/simd/ir_types.seen",

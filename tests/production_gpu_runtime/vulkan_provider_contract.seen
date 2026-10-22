@@ -1,0 +1,91 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.device.{GpuDevice}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+extern "C" fun seen_memory_limit_bytes() r: Int64
+extern "C" fun seen_memory_set_limit_bytes(bytes: Int64) r: Void
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let context = operation(); let limits = GpuLimits.bounded(4, 2, 16, 4096 as UInt64)
+    context.cancellation = true
+    let cancelled = GpuVulkanProvider.discover(context, limits, true)
+    if cancelled.isOkay() { abort("cancelled Vulkan discovery succeeded") }
+    let cancelledError = cancelled.unwrapErr(); cancelled.releaseContainer()
+    if cancelledError.code != "gpu.cancelled" { abort("Vulkan discovery cancellation changed") }
+    cancelledError.release(); context.cancellation = false
+    let budget = seen_memory_limit_bytes()
+    seen_memory_set_limit_bytes(seen_memory_used_bytes() + seen_memory_reserved_bytes() + (65536 as Int64))
+    let exhausted = GpuVulkanProvider.discover(context, limits, true)
+    seen_memory_set_limit_bytes(budget)
+    if exhausted.isOkay() { abort("unbounded Vulkan discovery metadata admitted") }
+    let exhaustedError = exhausted.unwrapErr(); exhausted.releaseContainer()
+    if exhaustedError.code != "gpu.limit" { abort("Vulkan discovery budget diagnostic changed") }
+    exhaustedError.release()
+    // The harness explicitly selects Mesa's software ICD. Production discovery
+    // must still reject it until the caller explicitly enables software use.
+    let excluded = GpuVulkanProvider.discover(context, limits, false)
+    if excluded.isOkay() { abort("Vulkan silently selected a CPU reference device") }
+    let excludedError = excluded.unwrapErr(); excluded.releaseContainer()
+    if excludedError.code != "gpu.unavailable" { abort("software exclusion diagnostic changed") }
+    excludedError.release()
+    if seen_sync_live_atomics() != atomics { abort("rejected discovery leaked provider identity") }
+    let discovered = GpuVulkanProvider.discover(context, limits, true)
+    if discovered.isErr() { abort("explicit Vulkan reference discovery failed") }
+    let provider = discovered.unwrap(); discovered.releaseContainer()
+    if provider.catalog.devices.length() != 1 { abort("reference ICD produced unexpected device cardinality") }
+    let domain = provider.identity(); let selected = provider.catalog.snapshot(0)
+    if selected.isErr() { abort("Vulkan discovery snapshot failed") }
+    let snapshot = selected.unwrap(); selected.releaseContainer()
+    if snapshot.kind != GpuDeviceKind.Software or snapshot.freeBytes.isSome() or
+        snapshot.identity.uuid.length() != 32 or snapshot.identity.providerId != domain {
+        abort("Vulkan software identity or unavailable free-memory classification changed")
+    }
+    let invalidOrdinal = provider.createContext(-1)
+    if invalidOrdinal.isOkay() { abort("Vulkan context admitted an absent ordinal") }
+    invalidOrdinal.unwrapErr().release(); invalidOrdinal.releaseContainer()
+    gpuFixtureRejected(provider.destroyContext(0 as UInt64), "gpu.invalid")
+    let opened = openVulkanDevice(provider, 0, context)
+    if opened.isErr() { abort("explicit Vulkan reference device failed to open") }
+    let device = opened.unwrap(); opened.releaseContainer()
+    let firstResult = device.createContext(context)
+    if firstResult.isErr() { abort("Vulkan logical device creation failed") }
+    let first = firstResult.unwrap(); firstResult.releaseContainer()
+    let generation = first.generation
+    let secondResult = device.createContext(context)
+    if secondResult.isErr() { abort("second bounded Vulkan logical device failed") }
+    let second = secondResult.unwrap(); secondResult.releaseContainer()
+    let saturated = device.createContext(context)
+    if saturated.isOkay() { abort("Vulkan context ceiling did not reject") }
+    saturated.unwrapErr().release(); saturated.releaseContainer()
+    gpuFixtureRejected(device.release(), "gpu.busy")
+    completed(first.close(), true); completed(first.close(), false); completed(second.release(), true)
+    let reusedResult = device.createContext(context)
+    if reusedResult.isErr() { abort("Vulkan context slot could not be reused") }
+    let reused = reusedResult.unwrap(); reusedResult.releaseContainer()
+    if reused.generation == generation { abort("Vulkan native handle reuse lost its generation") }
+    completed(first.close(), false); completed(reused.release(), true); completed(device.release(), true)
+    completed(first.release(), true)
+    if snapshot.kind != GpuDeviceKind.Software or snapshot.name.length() == 0 or snapshot.identity.uuid.length() != 32 {
+        abort("Vulkan metadata snapshot did not outlive its native instance")
+    }
+    if seen_sync_live_atomics() != atomics { abort("Vulkan provider identity did not drain") }
+    let nextResult = GpuVulkanProvider.discover(context, limits, true)
+    if nextResult.isErr() { abort("repeated Vulkan discovery failed") }
+    let next = nextResult.unwrap(); nextResult.releaseContainer()
+    if next.identity() == domain { abort("Vulkan provider identity reused a stale generation") }
+    let stale = GpuDevice.open(next, snapshot, limits)
+    if stale.isOkay() { abort("old Vulkan discovery report crossed provider authority") }
+    stale.unwrapErr().release(); stale.releaseContainer()
+    limits.release(); releaseOperation(context)
+    if seen_sync_live_atomics() != atomics or seen_memory_used_bytes() != memory {
+        abort("Vulkan reference device/context lifecycle leaked ownership")
+    }
+    println("PASS: Vulkan software_reference discovery explicit selection native contexts generations and cleanup; hardware unverified")
+    return 0
+}

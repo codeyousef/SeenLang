@@ -8,7 +8,7 @@ import compute.limits.{GpuLimits}
 import compute.operation.{gpuCheckOperation}
 import core.operation_context.{OperationContext}
 import core.result.{Result, Ok, Err}
-import memory.allocation.{ensureAllocationBudget}
+import memory.allocation.{allocationBudgetAvailable}
 
 let GPU_CONTEXT_MAX_GENERATION: UInt64 = 9223372036854775807 as UInt64
 
@@ -139,12 +139,9 @@ class GpuDevice {
         valid.releaseContainer()
         // Admit a finite metadata budget before the driver creates a resource.
         // This owner performs no concurrent allocations.
-        let budget = ensureAllocationBudget(4096)
-        if budget.isErr() {
-            budget.unwrapErr().free(); budget.releaseContainer()
+        if not allocationBudgetAvailable(4096) {
             return Err<GpuContext, GpuError>(gpuFailure("gpu.limit", "gpu.context", "GPU context metadata allocation budget exhausted"))
         }
-        budget.unwrap().free(); budget.releaseContainer()
         let reserved = this.core.reserve()
         if reserved.isErr() { let error = reserved.unwrapErr(); reserved.releaseContainer(); return Err<GpuContext, GpuError>(error) }
         let index = reserved.unwrap(); reserved.releaseContainer()

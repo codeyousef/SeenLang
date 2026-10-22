@@ -1,0 +1,51 @@
+import compute.vulkan_instance.{GpuVulkanInstance}
+import compute.vulkan_error.{gpuVkFailure}
+import device_fixture_support.{operation, releaseOperation}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let context = operation()
+    let native = [-1 as Int32, -2 as Int32, -4 as Int32, -6 as Int32, -7 as Int32, -8 as Int32, -9 as Int32, 1 as Int32]
+    let codes = ["gpu.out_of_memory", "gpu.out_of_memory", "gpu.device_lost", "gpu.unsupported_capability",
+        "gpu.unsupported_capability", "gpu.unsupported_capability", "gpu.unavailable", "gpu.invalid"]
+    var index = 0
+    while index < native.length() {
+        let error = gpuVkFailure(native[index], "gpu.vulkan.fixture")
+        if error.code != codes[index] or error.retryable or not error.nativeCode.isSome() or error.nativeCode.unwrap() != (native[index] as Int64) {
+            abort("Vulkan status normalization changed")
+        }
+        error.release(); index = index + 1
+    }
+    native.free(); codes.free()
+    context.cancellation = true
+    let cancelled = GpuVulkanInstance.open(context)
+    if cancelled.isOkay() { abort("cancelled Vulkan instance creation succeeded") }
+    let cancellation = cancelled.unwrapErr(); cancelled.releaseContainer()
+    if cancellation.code != "gpu.cancelled" { abort("Vulkan cancellation diagnostic changed") }
+    cancellation.release(); context.cancellation = false
+    let baseline = seen_memory_used_bytes(); var opened = 0; var unavailable = 0
+    index = 0
+    while index < 64 {
+        let created = GpuVulkanInstance.open(context)
+        if created.isOkay() {
+            let instance = created.unwrap(); created.releaseContainer()
+            if not instance.close() or instance.close() { abort("Vulkan instance close was not idempotent") }
+            instance.release(); opened = opened + 1
+        } else {
+            let error = created.unwrapErr(); created.releaseContainer()
+            if error.code != "gpu.unavailable" and error.code != "gpu.unsupported_capability" {
+                abort("Vulkan loader returned an unexpected diagnostic")
+            }
+            if error.retryable { abort("Vulkan loader chose a hidden retry policy") }
+            error.release(); unavailable = unavailable + 1
+        }
+        if seen_memory_used_bytes() != baseline { abort("Vulkan loader path leaked Seen ownership") }
+        index = index + 1
+    }
+    if opened + unavailable != 64 { abort("Vulkan loader outcome accounting diverged") }
+    releaseOperation(context)
+    if seen_memory_used_bytes() != memory { abort("Vulkan instance fixture leaked allocations") }
+    println("PASS: explicit Vulkan loader instance ownership and typed unavailable status; no device execution certified")
+    println(opened); println(unavailable)
+    return 0
+}

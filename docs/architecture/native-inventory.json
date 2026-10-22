@@ -6388,6 +6388,7 @@
         "compiler_seen/src/codegen/gpu_bytes.seen",
         "seen_std/src/async/dns_wire.seen",
         "seen_std/src/async/owned_strings.seen",
+        "seen_std/src/compute/vulkan_properties.seen",
         "seen_std/src/formats/safetensors.seen"
       ]
     },
@@ -8026,6 +8027,76 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/uww/mod.seen"
+      ]
+    },
+    {
+      "name": "vkCreateDevice",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkCreateInstance",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyDevice",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyInstance",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkEnumerateInstanceVersion",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkEnumeratePhysicalDevices",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkGetPhysicalDeviceFeatures",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkGetPhysicalDeviceMemoryProperties",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkGetPhysicalDeviceProperties2",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkGetPhysicalDeviceQueueFamilyProperties",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
       ]
     },
     {

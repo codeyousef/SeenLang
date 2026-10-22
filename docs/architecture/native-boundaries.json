@@ -12,6 +12,28 @@
       "production": false
     },
     {
+      "id": "accelerator-vulkan-device-ffi",
+      "subsystem": "stdlib.compute.vulkan",
+      "purpose": "Direct Vulkan 1.2 loader ABI; Seen owns bounded metadata, explicit software admission, provider identities, device/context lifetimes, quotas and cleanup. Borrowed create-info/output pointers expire on return; instance/device handles are consumed exactly once. SDK layout oracle, malformed-metadata fuzz and Mesa software reference cover Linux x86-64. No GPU execution certification. Permanent vendor ABI; no C policy adapter.",
+      "abi": "Vulkan 1.2 C",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "vkCreateDevice",
+        "vkCreateInstance",
+        "vkDestroyDevice",
+        "vkDestroyInstance",
+        "vkEnumerateInstanceVersion",
+        "vkEnumeratePhysicalDevices",
+        "vkGetPhysicalDeviceFeatures",
+        "vkGetPhysicalDeviceMemoryProperties",
+        "vkGetPhysicalDeviceProperties2",
+        "vkGetPhysicalDeviceQueueFamilyProperties"
+      ],
+      "production": false
+    },
+    {
       "id": "arm-sve-thread-state",
       "subsystem": "runtime.cpu",
       "purpose": "Per-call Linux PR_SVE_GET_VL normalization copies the calling thread vector length into a borrowed UInt64 output and clears it on failure. No allocations or retained pointers. Seen validates lengths, discovers capabilities, chooses fallback, computes kernels and owns progress. Other platforms return unsupported. Covered by changing-length/errno/null-output mocks, metadata fuzz and SIMD fixtures. Permanent OS ABI until direct compiler normalization preserves these rules.",

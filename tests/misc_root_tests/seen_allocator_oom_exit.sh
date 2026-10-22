@@ -19,6 +19,12 @@ CHECKED_COMPILE_LOG="$TMP_DIR/checked.compile.log"
 ALIGNED_FIXTURE="$ROOT_DIR/compiler_seen/tests/allocator_aligned_oom_exit.seen"
 ALIGNED_BINARY="$TMP_DIR/allocator-aligned-oom-exit"
 ALIGNED_COMPILE_LOG="$TMP_DIR/aligned.compile.log"
+POOL_FIXTURE="$ROOT_DIR/compiler_seen/tests/allocator_pool_oom_exit.seen"
+POOL_BINARY="$TMP_DIR/allocator-pool-oom-exit"
+POOL_COMPILE_LOG="$TMP_DIR/pool.compile.log"
+SMALL_FIXTURE="$ROOT_DIR/compiler_seen/tests/allocator_pool_small_budget.seen"
+SMALL_BINARY="$TMP_DIR/allocator-small-budget"
+SMALL_COMPILE_LOG="$TMP_DIR/small.compile.log"
 
 cleanup() {
     local status=$?
@@ -62,10 +68,15 @@ compile_fixture checked "$CHECKED_FIXTURE" "$CHECKED_BINARY" \
     "$CHECKED_COMPILE_LOG"
 compile_fixture aligned "$ALIGNED_FIXTURE" "$ALIGNED_BINARY" \
     "$ALIGNED_COMPILE_LOG"
+compile_fixture pool "$POOL_FIXTURE" "$POOL_BINARY" "$POOL_COMPILE_LOG"
+compile_fixture small "$SMALL_FIXTURE" "$SMALL_BINARY" "$SMALL_COMPILE_LOG"
+timeout --foreground --kill-after=5s 10s "$SMALL_BINARY" > "$TMP_DIR/small.log" 2>&1
+rg -Fq 'PASS: first pooled errors and objects fit a small budget without a megabyte reservation' "$TMP_DIR/small.log"
 
 python3 - \
     "$CHECKED_BINARY" "compiler-emitted reallocation" \
-    "$ALIGNED_BINARY" "seen_arr_push_str aligned resize" <<'PY'
+    "$ALIGNED_BINARY" "seen_arr_push_str aligned resize" \
+    "$POOL_BINARY" "pool allocation requesting 40 bytes" <<'PY'
 import os
 import signal
 import subprocess
@@ -126,10 +137,10 @@ def run_case(binary: str, expected_context: str) -> None:
 
 
 arguments = sys.argv[1:]
-if len(arguments) != 4:
+if len(arguments) != 6:
     raise SystemExit("FAIL: allocator OOM regression case binding is invalid")
 for offset in range(0, len(arguments), 2):
     run_case(arguments[offset], arguments[offset + 1])
 PY
 
-echo "PASS: checked and aligned allocator OOM paths exit promptly with status 134"
+echo "PASS: checked aligned and pooled allocator OOM paths exit promptly with status 134"

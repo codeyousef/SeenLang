@@ -1,9 +1,10 @@
 # Compute discovery and ownership
 
 The `compute` modules provide explicit backend identities and bounded, owning
-device reports. Importing them does not load a GPU driver, select a device, or
-change the CPU default. They use the existing standard-library allocator and
-introduce no native ABI symbols.
+device reports. Importing the backend, catalog and lifecycle modules does not
+load a GPU driver, select a device, link a vendor SDK, or change the CPU default.
+The explicitly imported `compute.vulkan_provider` module links the Vulkan loader
+through its direct vendor ABI. No new runtime ABI exports are introduced.
 
 These additions belong to the standard-library component in the upcoming 0.23.0
 release. They preserve the existing runtime ABI and do not replace the legacy
@@ -70,8 +71,52 @@ The metadata fuzzer mutates bounded ASCII, control and high-byte strings for
 60 seconds with seed 1100, comparing backend names against fixed identities and
 checking owned-result cleanup throughout the run.
 
-These fixtures verify Seen metadata and lifecycle behavior on Linux x86-64
-using a test-only provider with independent native-call counts. Actual driver
-device/context creation and accelerator execution require native backend
-implementation and verification. Other platforms have no execution
-certification from these tests.
+`GpuDeviceInfo.kind` distinguishes discrete, integrated, virtual, software and
+other devices. `freeBytes` is optional: an absent value means the provider cannot
+report current free memory. It never substitutes total capacity for free memory.
+
+## Explicit Vulkan discovery
+
+`GpuVulkanProvider.discover(context, limits, allowSoftware)` creates an owned
+Vulkan 1.2 instance, enumerates at most `limits.maxDevices`, and queries bounded
+SDK property, UUID, memory, feature and compute-queue records. No device is
+selected implicitly. Software devices are excluded unless `allowSoftware` is
+explicitly true. `openVulkanDevice(provider, ordinal, context)` consumes discovery
+ownership on success and rejection and returns the typed device owner. Each
+`createContext` creates a distinct native logical device. Contexts own no queues,
+commands or submitted work in this API; creation does not execute a kernel.
+
+The provider retains the instance, physical-device records and enabled-feature
+storage until all logical devices have been destroyed through their context
+owners. It then releases metadata, catalog and limits, destroys the instance, and
+releases the provider identity. Direct vendor calls borrow Seen-owned ABI structures
+only for the duration of the synchronous call. Native failures retain their
+status code in a bounded, static diagnostic; there is no hidden retry or fallback.
+Cancellation and deadlines are observed before admission and after synchronous
+native calls; a driver call cannot be interrupted. Late native results are cleaned
+up before returning. A deadline does not promise to preempt a hung vendor driver.
+
+Device names must be bounded printable ASCII, stable UUIDs must be present,
+memory types must refer to existing heaps, native Boolean fields must be 0 or 1,
+and geometry and unsigned heap totals must satisfy the shared limits. Reported
+features are conservative. Free memory is unknown because the core Vulkan 1.2
+queries used here provide heap capacity rather than current free memory.
+
+The native fixture harness explicitly chooses Mesa's software ICD through
+`VK_DRIVER_FILES` and bounds its worker threads with `LP_NUM_THREADS=1`. It tests
+real instance/logical-device creation, software exclusion, independent reports,
+multiple contexts, quotas, borrower shutdown, generation reuse and provider
+identity rejection. The test-only C oracle independently checks SDK structure
+sizes and field offsets; metadata decoding and production ownership remain Seen.
+A test-only vendor interposer injects version, creation, device-count and queue-count
+faults while forwarding other calls to the reference driver. Each fault repeats
+16 times and must restore Seen allocations and provider identities. It is never
+linked into production. A separate 60-second seed-1100 parser fuzzer covers hostile counts, high-bit heap
+sizes, malformed names, invalid native flags and unsigned UUID bytes, checking
+owned-result cleanup throughout. Source coverage requires at least 90% lines and
+90% branches for the metadata parser.
+
+Linux x86-64 software reference execution is verified by these tests. GPU hardware
+execution, other platform execution, CUDA/HIP/Metal provider integration and
+replacement of the legacy singleton API remain unverified or incomplete. These
+tests do not certify GPU performance or production hardware readiness.
