@@ -11,6 +11,7 @@ import time
 from gpu_certification_io import read_bounded, manifest_from_log, invoke_with_snapshot
 from check_gpu_spirv_artifacts import check_layout
 from check_gpu_spirv_toolchain import invoke, load_profile, require, verify_installation
+from gpu_certification_profiles import profile_manifests
 
 
 def validate(profile, target, path, accepted=True, expected=None):
@@ -23,14 +24,7 @@ def validate(profile, target, path, accepted=True, expected=None):
 def certify(root, profile, seconds=60):
     toolchain = verify_installation(profile)
     records = []
-    profile_baseline = None
-    for name in ('fast', 'release', 'undefined', 'address'):
-        lines = read_bounded(root / f'artifact-{name}.log', 1048576).decode().splitlines()
-        manifests = [json.loads(line) for line in lines if line.startswith('{"schema":"seen-gpu-artifact-manifest-v1"')]
-        require([item['target'] for item in manifests] == ['vulkan1.2', 'vulkan1.3'], 'profile omitted target manifests')
-        if profile_baseline is None:
-            profile_baseline = manifests
-        require(manifests == profile_baseline, 'artifact manifests differ between execution profiles')
+    profile_manifests(root, ['vulkan1.2', 'vulkan1.3'], 'spirv')
     for target in ('vulkan1.2', 'vulkan1.3'):
         baseline = None
         for copy in ('original', 'relocated'):

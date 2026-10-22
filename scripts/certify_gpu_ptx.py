@@ -11,6 +11,7 @@ import time
 from check_gpu_ptx_artifacts import check_artifact
 from check_gpu_ptx_toolchain import invoke, load_profile, require, verify_installation
 from gpu_certification_io import read_bounded, manifest_from_log, invoke_with_snapshot
+from gpu_certification_profiles import profile_manifests
 
 
 def assemble(profile, target, source, accepted=True, expected=None):
@@ -35,18 +36,6 @@ def assemble(profile, target, source, accepted=True, expected=None):
             output.unlink()
 
 
-def profile_manifests(root, targets):
-    baseline = None
-    for profile in ('fast', 'release', 'undefined', 'address'):
-        lines = read_bounded(root / f'artifact-{profile}.log', 1048576).decode().splitlines()
-        manifests = [json.loads(line) for line in lines
-                     if line.startswith('{"schema":"seen-gpu-artifact-manifest-v1"')]
-        require([item['target'] for item in manifests] == targets, 'profile omitted target manifests')
-        if baseline is None:
-            baseline = manifests
-        require(manifests == baseline, 'artifact integrity manifests differ between build profiles')
-
-
 def malformed_cases(text):
     require(text.startswith('.version 8.0\n') and 'ret;' in text, 'invalid mutation baseline')
     return ('', text[:18], text.replace('.version 8.0', '.version 99.0', 1),
@@ -58,7 +47,7 @@ def malformed_cases(text):
 
 def certify(root, profile, seconds=60):
     toolchain = verify_installation(profile)
-    profile_manifests(root, profile['targets'])
+    profile_manifests(root, profile['targets'], 'cuda')
     records = []
     for target in profile['targets']:
         baseline = None

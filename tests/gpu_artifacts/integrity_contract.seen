@@ -14,6 +14,7 @@ fun rejectArtifact(borrow artifact: GpuArtifact) r: Void {
     let result = gpuArtifactManifest(artifact); require(result.isErr())
     let error = result.unwrapErr(); result.releaseContainer()
     var code = "E_GPU_SPIRV_ARTIFACT"; if artifact.backend == "cuda" { code = "E_GPU_PTX_ARTIFACT" }
+    if artifact.backend == "hip" { code = "E_GPU_AMDGPU_ARTIFACT" }
     require(error.code == code); error.free()
 }
 fun checkArtifact(borrow module: GpuIrModule, borrow options: GpuOptions, emit: Bool) r: Void {
@@ -37,14 +38,17 @@ fun checkArtifact(borrow module: GpuIrModule, borrow options: GpuOptions, emit: 
 }
 fun main() r: Int {
     let initial = seen_memory_used_bytes(); let argv = args(); require(argv.length() == 3)
-    require(argv[1] == "spirv" or argv[1] == "cuda")
+    require(argv[1] == "spirv" or argv[1] == "cuda" or argv[1] == "hip")
     let read = gpuReadBoundedText(argv[2], 1048576); require(read.isOkay())
     let text = read.unwrap(); read.releaseContainer()
     let lowered = lowerGpuSource(text, "gpu-artifact.seen"); releaseJsonText(text); require(lowered.isOkay())
     let module = lowered.unwrap(); lowered.releaseContainer(); let options = GpuOptions.create(); options.backend = argv[1]
     let targets = Array<String>()
     if options.backend == "spirv" { targets.push("vulkan1.2"); targets.push("vulkan1.3") }
-    else {
+    else if options.backend == "hip" {
+        targets.push("gfx90a"); targets.push("gfx942"); targets.push("gfx1100")
+        targets.push("gfx1101"); targets.push("gfx1200")
+    } else {
         targets.push("sm_70"); targets.push("sm_75"); targets.push("sm_80"); targets.push("sm_86")
         targets.push("sm_89"); targets.push("sm_90"); targets.push("sm_100")
     }

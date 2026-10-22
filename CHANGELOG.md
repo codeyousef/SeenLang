@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Certify HIP artifact integrity, source relocation and deterministic HSA code
+  objects with the pinned LLVM toolchain and malformed-input fuzzing.
+
 - Add a Seen fixed-worker executor with typed Send admission, bounded queues,
   worker-assisted nested joins, cancellation, deadlines and deterministic drain.
   Add task groups, executor-aware wait groups, barriers, typed queues and

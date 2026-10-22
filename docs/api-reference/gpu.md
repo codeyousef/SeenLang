@@ -698,6 +698,16 @@ bits, checked faults, padding and invalid geometry against independent goldens.
 These results remain **compile-only** with hardware and GPU execution verification
 false; CPU normalization is not GPU execution.
 
+`tests/misc_root_tests/seen_gpu_amdgpu_c.sh` checks owning integrity snapshots
+in four profiles and emits the same source from original and relocated files.
+Pinned LLVM/HSA tools validate both copies, physical reflection and identical
+code-object hashes on all five targets. Guaranteed malformed LLVM and a
+60-second seeded corpus must receive actual parser/type rejection; tool identity,
+resource and timeout failures stop certification. Shared snapshot checks reject
+oversized, symlink, directory and FIFO inputs without descriptor leaks.
+`certification.json` binds the tool identities, target hashes, profile identity
+and relocation/fuzz evidence. This remains offline, compile-only certification.
+
 Atomics retain their declared memory order and workgroup/device scope. Checked
 invalid addresses produce zero for returned values and skip writes. Subgroups
 use native wave permutations and wave barriers. Participation follows the
