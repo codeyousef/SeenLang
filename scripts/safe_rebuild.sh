@@ -53,6 +53,8 @@ BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 REBUILD_TIER="full"
 CLEAN_CACHE=0
 ARTIFACT_PREFLIGHT_ONLY=0
+REGRESSION_SCRIPT=""
+REBUILD_TIER_EXPLICIT=0
 PACKAGE_CLIENT_BUILD_OUTPUT="$REPO_ROOT/target/seen-build/package-client/seen-pkg"
 SOURCE_PACKAGE_CLIENT=""
 SOURCE_PACKAGE_CLIENT_VERSION=""
@@ -70,6 +72,7 @@ safe_rebuild_usage() {
     echo "  quick   Cache-enabled developer rebuild to compiler_seen/target/seen-dev; smoke only."
     echo "  verify  Cache-enabled production rebuild; targeted checks; install after verification."
     echo "  full    Cold staged bootstrap verification. This is the default for compatibility."
+    echo "  --regression-script PATH  Run a focused repository script with a verified exact-version builder and scope-attested serializer; no compiler installation or bootstrap certification."
     echo ""
     echo "Artifacts default to <repository>/.seen/agent-tools. Set SEEN_ARTIFACT_ROOT"
     echo "to another Git-ignored path inside the repository to override that location."
@@ -83,10 +86,12 @@ while [ "$#" -gt 0 ]; do
                 exit 1
             fi
             REBUILD_TIER="$2"
+            REBUILD_TIER_EXPLICIT=1
             shift 2
             ;;
         --tier=*)
             REBUILD_TIER="${1#--tier=}"
+            REBUILD_TIER_EXPLICIT=1
             shift
             ;;
         --clean-cache)
@@ -96,6 +101,14 @@ while [ "$#" -gt 0 ]; do
         --artifact-preflight)
             ARTIFACT_PREFLIGHT_ONLY=1
             shift
+            ;;
+        --regression-script)
+            [ "$#" -ge 2 ] && [ -n "$2" ] && [ -z "$REGRESSION_SCRIPT" ] || {
+                echo "ERROR: --regression-script requires one repository script" >&2
+                exit 2
+            }
+            REGRESSION_SCRIPT=$2
+            shift 2
             ;;
         -h|--help)
             safe_rebuild_usage
@@ -116,6 +129,31 @@ case "$REBUILD_TIER" in
         exit 1
         ;;
 esac
+
+if [ -n "$REGRESSION_SCRIPT" ]; then
+    case "$REGRESSION_SCRIPT" in
+        /*) ;;
+        *) REGRESSION_SCRIPT="$REPO_ROOT/$REGRESSION_SCRIPT" ;;
+    esac
+    case "$REGRESSION_SCRIPT" in
+        "$REPO_ROOT"/*.sh) ;;
+        *) echo "ERROR: regression script must be a repository shell script" >&2; exit 2 ;;
+    esac
+    [ -f "$REGRESSION_SCRIPT" ] && [ ! -L "$REGRESSION_SCRIPT" ] || {
+        echo "ERROR: regression script is missing or a symlink" >&2
+        exit 2
+    }
+    regression_parent=$(cd -P -- "${REGRESSION_SCRIPT%/*}" && pwd -P) || exit 2
+    [ "$regression_parent/${REGRESSION_SCRIPT##*/}" = "$REGRESSION_SCRIPT" ] || {
+        echo "ERROR: regression script traverses a symlink or noncanonical path" >&2
+        exit 2
+    }
+    [ "$ARTIFACT_PREFLIGHT_ONLY" = 0 ] && [ "$CLEAN_CACHE" = 0 ] && [ "$REBUILD_TIER_EXPLICIT" = 0 ] || {
+        echo "ERROR: focused regressions cannot select a rebuild tier, clean caches or use artifact preflight" >&2
+        exit 2
+    }
+    REBUILD_TIER=quick
+fi
 
 if [ ! -f "$ARTIFACT_ROOT_SCRIPT" ]; then
     echo -e "${RED:-}ERROR: missing artifact-root helper: $ARTIFACT_ROOT_SCRIPT${NC:-}" >&2
@@ -538,7 +576,7 @@ safe_rebuild_cleanup() {
     if declare -F seen_build_trace_summary >/dev/null 2>&1; then
         seen_build_trace_summary
     fi
-    if [ "$status" -eq 0 ] && [ -n "$REBUILD_WORK_ROOT" ] &&
+    if [ "$status" -eq 0 ] && [ -z "$REGRESSION_SCRIPT" ] && [ -n "$REBUILD_WORK_ROOT" ] &&
         [ -n "$REBUILD_ARTIFACT_SCOPE" ]; then
         case "$REBUILD_WORK_ROOT" in
             "$REBUILD_ARTIFACT_SCOPE"/run.*)
@@ -3393,6 +3431,20 @@ preserve_existing_production_compiler >/dev/null 2>&1 || true
 # helper during dependency preparation. Build and verify it before any stage
 # can become a builder for the next stage.
 prepare_package_client || exit 1
+
+if [ -n "$REGRESSION_SCRIPT" ]; then
+    regression_builder=$(select_tier_builder) || exit 1
+    compiler_reports_checkout_version "$regression_builder" &&
+        compiler_serializer_applicable "$regression_builder" || {
+        echo "ERROR: focused regression builder failed version or serializer admission" >&2
+        exit 126
+    }
+    echo "Running focused regressions with $regression_builder; no bootstrap certification or compiler installation."
+    run_guarded_command "focused regression" "$TIER_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" \
+        env COMPILER="$regression_builder" SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            bash "$REGRESSION_SCRIPT"
+    exit $?
+fi
 
 if [ "$REBUILD_TIER" != "full" ]; then
     run_tiered_rebuild
