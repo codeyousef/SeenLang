@@ -59,7 +59,8 @@ class Notice {
 }
 fun awaitNotice(reactor: AsyncEventLoop<Notice>, lease: AsyncIoLease, context: AsyncOperationContext) r: Void {
     let descriptor = must(OwnedHandle.borrow(lease.native as Int64))
-    let registration = must(reactor.register(Notice{lease: lease, observed: false}, descriptor,
+    let notice = Notice{lease: lease, observed: false}
+    let registration = must(reactor.register(notice, notice, descriptor,
         Interest.Readable, -1 as Int64, context))
     must(reactor.pollOnce(2, context))
     let handle = must(reactor.dispatchNext()); let job = must(handle.join(context))

@@ -1,0 +1,102 @@
+import stress_fixture_support.{must, context, errorHasProgress}
+import async.structured.{AsyncError}
+import async.executor_core.{ExecutorLimits, ExecutorTaskContext, executorReleaseContext}
+import async.pools.{ExecutionPools, TypedWorkerPool}
+import async.pool_placement.{PoolPlacement}
+import async.queue.{AsyncQueue}
+import async.executor_native.{seen_executor_validate_placement}
+import core.result.{Result}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+
+fun expectError<T>(value: Result<T, AsyncError>, code: String, progress: UInt64) r: Void {
+    if not errorHasProgress<T>(value, code, progress) { abort("pool error code/progress mismatch") }
+}
+@send
+class AdversePoolJob {
+    var fail: Bool
+    fun run(task: ExecutorTaskContext) r: Bool {
+        must(task.advanceProgress(4 as UInt64))
+        if this.fail { return task.fail(2 as Int32) }
+        return true
+    }
+    fun release() r: Bool { this.free(); return true }
+}
+fun limits() r: ExecutorLimits {
+    return ExecutorLimits{workers: 1, tasks: 4, queued: 4, helpDepth: 2, stackBytes: 1048576 as UInt64}
+}
+fun placementSnapshot(cfg: ExecutorLimits) r: Void {
+    var cpu = 0
+    while cpu <= 1023 and seen_executor_validate_placement(cpu as Int32, -1 as Int32) != (0 as Int32) { cpu = cpu + 1 }
+    if cpu > 1023 { abort("no permitted CPU in placement contract range") }
+    let cpus = [cpu]; let placement = PoolPlacement{cpus: cpus, numaNode: -1}
+    let pool = must(TypedWorkerPool<AdversePoolJob>.create("cpu", cfg, placement))
+    // Construction owns a snapshot, so later caller mutations cannot retarget jobs.
+    cpus[0] = 1024; placement.release()
+    let ctx = context(); var index = 0
+    while index < 2 {
+        let job = AdversePoolJob{fail: false}; let handle = must(pool.submit(job, job, ctx))
+        let value = must(handle.join(ctx)); value.release(); must(handle.release())
+        index = index + 1
+    }
+    must(pool.release()); executorReleaseContext(ctx)
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let threads = seen_executor_live_threads()
+    let mutexes = seen_sync_live_mutexes(); let conditions = seen_sync_live_conditions()
+    let cfg = limits(); placementSnapshot(cfg)
+    let placement = PoolPlacement.inherited()
+    cfg.workers = 0
+    expectError(TypedWorkerPool<AdversePoolJob>.create("cpu", cfg, placement), "async.limit", 0 as UInt64)
+    cfg.workers = 1
+    let cpus = Array<Int>(); cpus.push(-1); cpus.push(-1)
+    let wrong = PoolPlacement{cpus: cpus, numaNode: -1}
+    expectError(wrong.snapshot(cfg), "async.limit", 0 as UInt64)
+    wrong.release()
+    var index = 0
+    while index < 2 {
+        let invalid = PoolPlacement.inherited()
+        invalid.numaNode = -2; if index == 1 { invalid.numaNode = 64 }
+        expectError(TypedWorkerPool<AdversePoolJob>.create("cpu", cfg, invalid), "async.invalid", 0 as UInt64)
+        expectError(ExecutionPools<AdversePoolJob>.create(cfg, cfg, invalid, placement, 2), "async.invalid", 0 as UInt64)
+        invalid.release(); index = index + 1
+    }
+    let ctx = context(); let cancelled = context(); cancelled.operation.cancellation = true
+    let pool = must(TypedWorkerPool<AdversePoolJob>.create("cpu", cfg, placement))
+    let retained = AdversePoolJob{fail: false}
+    expectError(pool.submit(retained, retained, cancelled), "async.cancelled", 0 as UInt64)
+    retained.release()
+    let job = AdversePoolJob{fail: false}; let handle = must(pool.submit(job, job, ctx))
+    must(handle.inner.waitForTerminal(ctx))
+    expectError(handle.joinDetailed(cancelled), "async.cancelled", 4 as UInt64)
+    let report = must(handle.joinDetailed(ctx))
+    if report.progress != (4 as UInt64) or report.error.isSome() { abort("pool report lost progress") }
+    let task = must(report.takeTask()); task.release(); report.release()
+    expectError(handle.cancel(), "async.invalid", 0 as UInt64)
+    expectError(handle.isTerminal(), "async.invalid", 0 as UInt64)
+    expectError(handle.join(ctx), "async.invalid", 0 as UInt64)
+    expectError(handle.joinDetailed(ctx), "async.invalid", 0 as UInt64)
+    must(handle.release())
+    let failed = AdversePoolJob{fail: true}; let failureHandle = must(pool.submit(failed, failed, ctx))
+    let failure = must(failureHandle.joinDetailed(ctx))
+    if failure.progress != (4 as UInt64) or failure.task.isSome() { abort("failed pool task retained ownership") }
+    let error = must(failure.takeError())
+    if error.code != "async.limit" or error.progress != (4 as UInt64) { abort("failed pool report changed error") }
+    error.free(); failure.release(); must(failureHandle.release())
+    let queue = must(AsyncQueue<AdversePoolJob>.create(pool.executor.core, 1))
+    expectError(pool.release(), "async.invalid", 0 as UInt64)
+    must(queue.close()); must(queue.release())
+    must(pool.shutdown(false)); must(pool.close())
+    let stopped = AdversePoolJob{fail: false}
+    expectError(pool.submit(stopped, stopped, ctx), "async.invalid", 0 as UInt64); stopped.release()
+    must(pool.release()); cfg.free(); placement.release()
+    executorReleaseContext(ctx); executorReleaseContext(cancelled)
+    if seen_memory_used_bytes() != memory or seen_executor_live_threads() != threads or
+        seen_sync_live_mutexes() != mutexes or seen_sync_live_conditions() != conditions {
+        abort("pool adverse paths leaked resources")
+    }
+    println("PASS: ASYNC-002C adverse admission, placement and detailed-report cleanup")
+    return 0
+}

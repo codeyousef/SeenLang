@@ -69,6 +69,14 @@ concrete witness and retains the concrete job if admission fails. Failed admissi
 `release()`. Successful join returns the concrete job and consumes its wrapper
 and dispatch box; failed/cancelled/unjoined work releases them through the same
 owner. Generic scheduling code never calls unresolved methods on `T`.
+For a move-only concrete job, capture its dispatch first:
+`let witness = executorCaptureWitness(job)`, then
+`ExecutorOwnedJob<Job>.bind(job, witness)` or `pool.submit(job, witness, context)`.
+Capture borrows the concrete job and allocates only its trait box. Bind the box
+or pass it to `executorDropWitness` while that job is still alive; dropping a
+witness leaves concrete-job ownership intact. If the argument is already a
+boxed witness, ownership of that box transfers to the returned value.
+
 
 Saturation returns `async.limit` before admission and retains the caller's
 concrete task. Completed results count against the task bound until joined.
@@ -507,7 +515,7 @@ ASan/TSan may reserve finite shadow virtual address space only after matching
 instrumentation is verified; the enclosing physical-memory, swap, process and
 worker caps remain in force. The JSON result explicitly sets `certified:false`:
 designated performance comparison, 7950X3D scaling and GPU completion remain
-separate deferred verification. This work adds no public API or native export;
+separate deferred verification. The stress fixtures add no native exports;
 the current identities are stdlib 0.17.0 and runtime-v14, recorded in the
 release compatibility manifest.
 

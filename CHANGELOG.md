@@ -74,6 +74,19 @@ Foundations**.
 
 ### Fixed
 
+- Resolve methods on generic receiver declarations before diagnosing unrelated
+  extension calls. Capture borrowed executor dispatch before moving process jobs,
+  while continuing to reject use after ownership binding.
+- Express MD5 complements as explicit 32-bit XORs so the pinned frozen frontend
+  can generate the corrected algorithm without undefined LLVM registers.
+- Preserve hyphenated module identities when parsing nested canonical types,
+  so safe callbacks declared in files such as async-002e retain their Send proof.
+- Release filesystem path/open validation containers and I/O stress argument
+  snapshots. Keep readiness callbacks on the explicit typed witness API.
+- Check task-diagnostic redaction, bounded causes, partial-copy cleanup and
+  snapshot lifetimes against Seen source coverage thresholds.
+- Check pool admission, placement snapshot ownership and detailed join cleanup
+  against real Seen source coverage thresholds.
 - Allow nested executor joins to wait for children already running on another
   worker while preserving the synchronization guard against producer deadlocks.
   Enforce Seen source coverage thresholds for executor and synchronization APIs,

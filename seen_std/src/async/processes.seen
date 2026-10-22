@@ -1,7 +1,7 @@
 import core.result.{Result, Ok, Err}
 import core.option.{Option, Some, None}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
-import async.executor_core.{ExecutorTaskContext, executorFailure}
+import async.executor_core.{ExecutorTaskContext, executorFailure, executorCaptureWitness}
 import async.pools.{TypedWorkerPool, PoolJoinHandle}
 import async.process_arguments.{validProcessProgram, validProcessEnvironment}
 import async.owned_strings.{OwnedCStringVector}
@@ -279,7 +279,8 @@ fun spawnAsyncProcess(pool: TypedWorkerPool<ProcessSpawnJob>, job: ProcessSpawnJ
     if pool.kind != "blocking" {
         return Err<PoolJoinHandle<ProcessSpawnJob>, AsyncError>(executorFailure(1 as Int32, "process.spawn", 0 as UInt64))
     }
-    return pool.submit(job, job, context)
+    let witness = executorCaptureWitness(job)
+    return pool.submit(job, witness, context)
 }
 
 

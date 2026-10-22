@@ -38,6 +38,15 @@ fun main() r: Int {
     if registry.lifecycleInstantiationDepth != 0 { return 7 }
     if registry.lifecycleIdentityPropertyState("fixture::Good",
         "fixture::Wrapper<Int>", "Send") != 1 { return 8 }
+    declaration(registry, "Worker-Wrapper", "T", true)
+    if registry.lifecycleIdentityPropertyState("fixture::Good",
+        "fixture::Worker-Wrapper<fixture::Good>", "Send") == 1 { return 10 }
+    if not registry.registerDeclaration("tests.async-002e", "Notice", "Class",
+        "tests.async-002e::Notice", "async-002e.seen", 1, 1) { return 11 }
+    registry.registerDecorator("tests.async-002e::Notice", "send", Array<String>())
+    registry.registerLifecycleField("tests.async-002e::Notice", "tests.async-002e", "number", "Int", "async-002e.seen", 1, 1)
+    if registry.lifecycleIdentityPropertyState("fixture::Good",
+        "fixture::Wrapper<tests.async-002e::Notice>", "Send") != 1 { return 12 }
     println("PASS: canonical generic Send proofs substitute fields without cache pollution")
     return 0
 }

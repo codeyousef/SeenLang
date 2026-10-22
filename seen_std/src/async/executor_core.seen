@@ -59,6 +59,13 @@ fun executorFreeWitnessAddress(address: UInt64) r: Void {
     seen_pool_free(address as *Void, 16 as Int64)
 }
 
+/// Capture dispatch without moving the concrete job. Argument coercion creates
+/// the owned trait box; the returned box must be bound or dropped while the
+/// exclusively owned concrete job remains alive. No job destructor runs here.
+fun executorCaptureWitness(borrow witness: dyn ExecutorJob) r: dyn ExecutorJob {
+    return witness
+}
+
 fun executorDropWitness(witness: dyn ExecutorJob) r: Void {
     executorFreeWitnessAddress(witness as UInt64)
 }

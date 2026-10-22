@@ -67,6 +67,7 @@ for profile in fast release; do
     compile_case "$profile" generic-call-plan "$ROOT_DIR/compiler_seen/tests/generic_call_type.seen"
     compile_case "$profile" generic-send "$ROOT_DIR/tests/fixtures/async/generic_send_registry.seen"
     compile_case "$profile" generic-call-ownership "$ROOT_DIR/tests/fixtures/async/generic_call_ownership.seen"
+    compile_case "$profile" move-witness "$ROOT_DIR/tests/fixtures/async/move_job_witness.seen"
     compile_case "$profile" pool-release "$ROOT_DIR/tests/fixtures/async/pool_release_pointer_abi.seen"
     compile_case "$profile" lifecycle "$ROOT_DIR/seen_std/tests/async/async-002a.seen"
     compile_case "$profile" adverse "$ROOT_DIR/seen_std/tests/async/async-002a-adverse.seen"
@@ -81,18 +82,19 @@ done
 # the same executor implementation, so their profiles belong to this scope.
 EXECUTOR_COMPILE_FLAGS=(--coverage)
 coverage_sources=(async-002a async-002a-adverse async-002b async-002b-adverse async-002c async-002f async-002g)
-coverage_objects=(); coverage_profiles=()
+coverage_arguments=()
 for name in "${coverage_sources[@]}"; do
     export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
     compile_case fast "coverage-$name" "$ROOT_DIR/seen_std/tests/async/$name.seen"
-    coverage_objects+=(-object "$TMP_DIR/coverage-$name-fast")
-    coverage_profiles+=("$TMP_DIR/$name.profraw")
+    coverage_arguments+=(--fixture "$TMP_DIR/coverage-$name-fast" "$TMP_DIR/$name.profraw")
 done
-llvm-profdata merge -sparse "${coverage_profiles[@]}" -o "$TMP_DIR/executor.profdata"
-llvm-cov export "${coverage_objects[@]}" -instr-profile "$TMP_DIR/executor.profdata" >"$TMP_DIR/executor-coverage.json"
-python3 "$ROOT_DIR/scripts/check_source_coverage_thresholds.py" "$TMP_DIR/executor-coverage.json" \
-    --source seen_std/src/async/executor_core.seen --source seen_std/src/async/multithread.seen \
-    >"$TMP_DIR/executor-coverage-summary.json"
+export LLVM_PROFILE_FILE="$TMP_DIR/move-witness.profraw"
+compile_case fast coverage-move-witness "$ROOT_DIR/tests/fixtures/async/move_job_witness.seen"
+coverage_arguments+=(--fixture "$TMP_DIR/coverage-move-witness-fast" "$TMP_DIR/move-witness.profraw")
+source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
+seen_verify_source_coverage "$TMP_DIR/executor" "${coverage_arguments[@]}" \
+    --source seen_std/src/async/executor_core.seen --source seen_std/src/async/multithread.seen
+
 
 check_rejection() {
     local name=$1 source=$2 expected=$3
@@ -110,6 +112,7 @@ check_rejection() {
 
 check_rejection unsafe "$ROOT_DIR/tests/fixtures/async/unsafe_job.seen" E_TYPE_BOUND
 check_rejection generic-move "$ROOT_DIR/tests/fixtures/async/generic_move_rejected.seen" E_OWNERSHIP_USE_AFTER_MOVE
+check_rejection move-witness "$ROOT_DIR/tests/fixtures/async/move_job_after_move.seen" E_OWNERSHIP_USE_AFTER_MOVE
 check_rejection unsafe-owned "$ROOT_DIR/tests/fixtures/async/unsafe_owned_job.seen" E_TYPE_BOUND
 
 echo "PASS: fixed-worker typed execution in fast and release/ThinLTO"

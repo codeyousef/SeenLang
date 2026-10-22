@@ -54,8 +54,10 @@ class File {
         r: Result<File, FsError> {
         let contextCheck = validateFsContext(context, "open")
         if contextCheck.isErr() {
-            return Err<File, FsError>(contextCheck.unwrapErr())
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<File, FsError>(error)
         }
+        contextCheck.releaseContainer()
         if path.byteLength() > context.limits.maxPathBytes {
             return Err<File, FsError>(fsFailure(1 as Int32, "open"))
         }

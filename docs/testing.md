@@ -26,7 +26,7 @@ report or a `TOTAL` marker cannot satisfy Seen coverage acceptance. Percentage
 gates must select the issue's applicable source files explicitly; the aggregate
 of every linked library module is not a measure of a single leaf's tests.
 
-The executor and synchronization acceptance contracts enforce aggregate 90%
+The executor, pool, task-policy and synchronization contracts enforce aggregate 90%
 line and 80% branch coverage over their declared implementation files. Their
 adverse tests assert exact error codes, partial progress, retained ownership
 on failed admission, and allocation and native-handle cleanup.

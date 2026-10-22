@@ -191,9 +191,27 @@ fun typeRefIsDelimiter(ch: Char) r: Bool {
 // Semantic identities qualify declarations with `module::name` and encode
 // generic bounds with `generic:bound:...`. Keep those identity colons inside
 // the name while preserving source ownership and bitfield delimiters.
-fun typeRefNameContinues(text: String, cursor: Int, start: Int) r: Bool {
+fun typeRefQualificationEnd(text: String, start: Int) r: Int {
+    var cursor = start; var boundary = -1
+    while cursor < text.length() {
+        let ch = text.byteAt(cursor)
+        if typeRefIsDelimiter(ch) and ch != ':' and ch != '-' { return boundary }
+        if ch == '-' and cursor + 1 < text.length() and text.byteAt(cursor + 1) == '>' { return boundary }
+        if ch == ':' and cursor + 1 < text.length() and text.byteAt(cursor + 1) == ':' {
+            boundary = cursor; cursor = cursor + 1
+        }
+        cursor = cursor + 1
+    }
+    return boundary
+}
+
+fun typeRefNameContinues(text: String, cursor: Int, start: Int,
+    qualificationEnd: Int) r: Bool {
     let ch = text.byteAt(cursor)
     if not typeRefIsDelimiter(ch) { return true }
+    // Canonical module names come from filenames. Only their qualified prefix
+    // admits hyphens; source subtraction and function arrows stay delimiters.
+    if ch == '-' { return cursor < qualificationEnd }
     if ch != ':' { return false }
     if cursor + 1 < text.length() and text.byteAt(cursor + 1) == ':' { return true }
     if cursor > start and text.byteAt(cursor - 1) == ':' { return true }
@@ -376,8 +394,10 @@ fun parseTypeRefAt(text: String, cursor: Array<Int>, line: Int, column: Int,
     }
 
     let start = cursor[0]
+    // Scan the qualification boundary once, keeping long hyphenated names linear.
+    let qualificationEnd = typeRefQualificationEnd(text, start)
     while cursor[0] < text.length() and
-        typeRefNameContinues(text, cursor[0], start) {
+        typeRefNameContinues(text, cursor[0], start, qualificationEnd) {
 
         cursor[0] = cursor[0] + 1
     }

@@ -11107,8 +11107,10 @@ fun shouldDiagnoseUnimportedExtensionMethod(modulePath: String,
             expr.literalValue)
     }
     if receiverType == "" { return false }
+    // This query checks method presence, not instantiated return inference.
+    let declarationReceiver = stripCallGenericArguments(receiverType)
     if findReferencedClassMethodReturnTypeInModules(modulePath, moduleProgram,
-        g_validationModulePaths, g_validationFrontends, receiverType,
+        g_validationModulePaths, g_validationFrontends, declarationReceiver,
         methodName) != "" {
         return false
     }

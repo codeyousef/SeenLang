@@ -28,6 +28,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+POLICY_COMPILE_FLAGS=()
 compile_case() {
     local profile=$1
     local name=$2
@@ -39,7 +40,7 @@ compile_case() {
     bash "$ATTESTED_SEEN" "$COMPILER" compile \
         "$source" "$TMP_DIR/$name-$profile" \
         --no-cache --frozen --target-cpu=x86-64 \
-        "${flags[@]}" >"$log" 2>&1
+        "${flags[@]}" "${POLICY_COMPILE_FLAGS[@]}" >"$log" 2>&1
     local status=0
     if (ulimit -c 0; timeout --foreground --kill-after=5s 120s "$TMP_DIR/$name-$profile") >>"$log" 2>&1; then
         status=0
@@ -54,12 +55,28 @@ compile_case() {
 
 for profile in fast release; do
     compile_case "$profile" lifecycle "$ROOT_DIR/seen_std/tests/async/async-002f.seen"
+    compile_case "$profile" adverse "$ROOT_DIR/seen_std/tests/async/async-002f-adverse.seen"
     compile_case "$profile" unhandled-panic "$ROOT_DIR/tests/fixtures/async/unhandled_task_panic.seen" 134
     rg -Fq "PANIC:" "$TMP_DIR/unhandled-panic-$profile.log"
     for case_name in happy partial invalid limit cancel cleanup; do
         rg -Fq "PASS: ASYNC-002F_$case_name" "$TMP_DIR/lifecycle-$profile.log"
     done
 done
+
+POLICY_COMPILE_FLAGS=(--coverage)
+for name in lifecycle adverse; do
+    source="$ROOT_DIR/seen_std/tests/async/async-002f.seen"
+    if [ "$name" = adverse ]; then source="$ROOT_DIR/seen_std/tests/async/async-002f-adverse.seen"; fi
+    export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
+    compile_case fast "coverage-$name" "$source"
+done
+source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
+seen_verify_source_coverage "$TMP_DIR/policy" \
+    --fixture "$TMP_DIR/coverage-lifecycle-fast" "$TMP_DIR/lifecycle.profraw" \
+    --fixture "$TMP_DIR/coverage-adverse-fast" "$TMP_DIR/adverse.profraw" \
+    --source seen_std/src/async/task_diagnostics.seen \
+    --source seen_std/src/async/owned_strings.seen \
+    --source seen_std/src/async/join_report.seen
 
 if bash "$ATTESTED_SEEN" "$COMPILER" check \
     "$ROOT_DIR/tests/fixtures/async/escaping_task_context.seen" >"$TMP_DIR/unsafe.log" 2>&1; then

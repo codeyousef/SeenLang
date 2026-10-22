@@ -127,16 +127,19 @@ class MD5 {
             4, 11, 16, 23, 6, 10, 15, 21]
         i = 0
         while i < 64 {
-            var f = (bb & cc) | ((~bb) & dd)
+            // Keep complements explicit for the frozen bootstrap frontend.
+            let notB = bb ^ 0xffffffff
+            let notD = dd ^ 0xffffffff
+            var f = (bb & cc) | (notB & dd)
             var g = i
             if i >= 16 and i < 32 {
-                f = (dd & bb) | ((~dd) & cc)
+                f = (dd & bb) | (notD & cc)
                 g = (5 * i + 1) % 16
             } else if i >= 32 and i < 48 {
                 f = bb ^ cc ^ dd
                 g = (3 * i + 5) % 16
             } else if i >= 48 {
-                f = cc ^ (bb | (~dd))
+                f = cc ^ (bb | notD)
                 g = (7 * i) % 16
             }
             let temp = dd

@@ -1,6 +1,7 @@
 import stress_fixture_support.{must, errorIs, atomicValue, context, counter, closeCounter, addOne}
 import core.option.{Option, Some, None}
-import env.env.{args}
+import core.result.{Result}
+import env.env.{args, releaseArgs}
 import async.structured.{AsyncOperationContext}
 import async.executor_core.{ExecutorLimits, ExecutorTaskContext, executorReleaseContext,
     executorCopyContext, executorReleaseSnapshot}
@@ -13,7 +14,7 @@ import async.streams.{AsyncByteSpan, AsyncFdStream}
 import reactor.reactor.{OwnedHandle, Interest}
 import memory.aligned_buffer.{OwnedBuffer}
 import fs.file.{File}
-import fs.types.{Path, OpenOptions, DirectIoPolicy}
+import fs.types.{Path, OpenOptions, DirectIoPolicy, FsError}
 extern "C" fun seen_executor_live_threads() r: UInt64
 extern "C" fun seen_sync_live_atomics() r: UInt64
 extern "C" fun seen_async_readiness_live_handles() r: UInt64
@@ -67,7 +68,8 @@ fun pipeRound(borrow reactor: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperation
     var readFd = -1 as Int64; var writeFd = -1 as Int64
     if seen_async_process_pipe(1 as Int32, &readFd, &writeFd) != (0 as Int32) { abort("stress pipe failed") }
     let writer = must(AsyncFdStream.take(handle(writeFd, true), 1 as UInt64))
-    let registration = must(reactor.register(probe(executed, released, None<AsyncIoLease>()),
+    let readinessJob = probe(executed, released, None<AsyncIoLease>())
+    let registration = must(reactor.register(readinessJob, readinessJob,
         handle(readFd, true), Interest.Readable, -1 as Int64, ctx))
     if cancel {
         must(reactor.cancel(registration))
@@ -97,9 +99,28 @@ fun finishCancellation(borrow queue: AsyncFileCompletionQueue, value: Option<Com
     if value.isSome() { return value.unwrap() }
     return reap(queue)
 }
+fun expectFsError<T>(result: Result<T, FsError>, code: String) r: Void {
+    if result.isOkay() { abort("filesystem validation unexpectedly succeeded") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { abort("filesystem validation changed error code") }
+    error.free()
+}
+fun fileValidationCleanup() r: Void {
+    let memory = seen_memory_used_bytes()
+    expectFsError(Path.fromString(""), "fs.invalid")
+    let path = must(Path.fromString("validation-only.seen")); let options = OpenOptions.createNew()
+    let ctx = context(); ctx.operation.cancellation = true
+    expectFsError(File.open(ctx.operation, path, options, DirectIoPolicy.Required), "fs.cancelled")
+    ctx.operation.cancellation = false; ctx.operation.limits.maxPathBytes = 1
+    expectFsError(File.open(ctx.operation, path, options, DirectIoPolicy.Required), "fs.invalid")
+    options.free(); path.raw.free(); path.free(); executorReleaseContext(ctx)
+    if seen_memory_used_bytes() != memory { abort("filesystem validation leaked allocations") }
+}
 fun main() r: Int {
+    let memoryBaseline = seen_memory_used_bytes()
     let argv = args()
-    if argv.length() != 2 { return 1 }
+    if argv.length() != 2 { releaseArgs(argv); return 1 }
+    fileValidationCleanup()
     let threads = seen_executor_live_threads(); let atomics = seen_sync_live_atomics()
     let readiness = seen_async_readiness_live_handles()
     let ctx = context()
@@ -128,7 +149,8 @@ fun main() r: Int {
     while i < 4096 { buffer.data[i] = 42 as UInt8; i = i + 1 }
     let written = must(queue.submit(fd, buffer, 4096 as UInt64, 0 as Int64, true, ctx))
     let lease = must(queue.notificationLease())
-    let notification = must(reactor.register(probe(executed, released, Some<AsyncIoLease>(lease)),
+    let completionJob = probe(executed, released, Some<AsyncIoLease>(lease))
+    let notification = must(reactor.register(completionJob, completionJob,
         handle(lease.native as Int64, false), Interest.Readable, -1 as Int64, ctx))
     awaitDispatch(reactor, ctx); notification.free()
     let complete = reap(queue)
@@ -146,7 +168,10 @@ fun main() r: Int {
     path.raw.free(); path.free()
     println("PASS: ASYNC-002G_io_completion_cancel")
     must(reactor.release()); must(executor.release()); closeCounter(executed); closeCounter(released)
-    executorReleaseContext(ctx)
+    executorReleaseContext(ctx); releaseArgs(argv)
+    if seen_memory_used_bytes() != memoryBaseline {
+        abort("I/O stress leaked allocations")
+    }
     if seen_executor_live_threads() != threads or seen_sync_live_atomics() != atomics or
         seen_async_readiness_live_handles() != readiness { return 6 }
     println("PASS: ASYNC-002G_io_cleanup")

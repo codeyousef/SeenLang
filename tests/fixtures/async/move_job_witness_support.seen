@@ -1,0 +1,8 @@
+import async.executor_core.{ExecutorTaskContext}
+@send
+@move
+class MoveJob {
+    var number: Int
+    fun run(context: ExecutorTaskContext) r: Bool { return not context.isCancelled() }
+    fun release() r: Bool { this.free(); return true }
+}

@@ -1,0 +1,100 @@
+import stress_fixture_support.{must, errorHasProgress}
+import core.result.{Result}
+import core.error.{RetryClass, RedactionClass}
+import str.string.{StringBuilder}
+import async.structured.{AsyncError}
+import async.task_diagnostics.{TaskDiagnostic, TaskDiagnosticKind, TaskBackend}
+import async.owned_strings.{OwnedCStringVector, seen_string_view_bytes}
+import memory.aligned_buffer.{OwnedBuffer}
+import async.executor_native.{seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+var assertionNumber: Int = 0
+fun expectError<T>(value: Result<T, AsyncError>, code: String, progress: UInt64) r: Void {
+    assertionNumber = assertionNumber + 1
+    if value.isErr() {
+        let actual = value.unwrapErr()
+        if actual.code != code or actual.progress != progress {
+            println("expected " + code + " got " + actual.code + " progress=" + actual.progress.toString())
+        }
+    } else { println("check=" + assertionNumber.toString() + " expected " + code + " but operation succeeded") }
+    if not errorHasProgress<T>(value, code, progress) { abort("task diagnostic error code/progress mismatch") }
+}
+fun textBlocks(count: Int) r: String {
+    let builder = StringBuilder.new(); var index = 0
+    while index < count { builder.append("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"); index = index + 1 }
+    let text = builder.toString(); builder.parts.free(); builder.free(); return text
+}
+fun invalidDiagnostics() r: Void {
+    let causes = Array<String>()
+    expectError(TaskDiagnostic.create(TaskDiagnosticKind.Fallback, 1 as Int32, TaskBackend.Scalar,
+        "fallback", causes, 0 as UInt64, RetryClass.Never, RedactionClass.Public), "async.invalid", 0 as UInt64)
+    expectError(TaskDiagnostic.create(TaskDiagnosticKind.Fallback, 0 as Int32, TaskBackend.Scalar,
+        "fallback", causes, 0 as UInt64, RetryClass.Transient, RedactionClass.Public), "async.invalid", 0 as UInt64)
+    expectError(TaskDiagnostic.create(TaskDiagnosticKind.Panic, 1 as Int32, TaskBackend.Native,
+        "panic", causes, 0 as UInt64, RetryClass.Never, RedactionClass.Public), "async.invalid", 0 as UInt64)
+    expectError(TaskDiagnostic.create(TaskDiagnosticKind.Failure, 1 as Int32, TaskBackend.Native,
+        "failure", causes, 0 as UInt64, RetryClass.Transient, RedactionClass.Public), "async.invalid", 0 as UInt64)
+    expectError(TaskDiagnostic.create(TaskDiagnosticKind.Failure, 1 as Int32, TaskBackend.Native,
+        "bad\t\n\rmessage", causes, 0 as UInt64, RetryClass.Never, RedactionClass.Public), "async.invalid", 0 as UInt64)
+    causes.push("bad\rcause")
+    expectError(TaskDiagnostic.create(TaskDiagnosticKind.Failure, 1 as Int32, TaskBackend.Native,
+        "failure", causes, 0 as UInt64, RetryClass.Never, RedactionClass.Public), "async.invalid", 0 as UInt64)
+    causes.clear(); let chunk = textBlocks(8); var index = 0
+    while index < 8 { causes.push(chunk); index = index + 1 }
+    expectError(TaskDiagnostic.create(TaskDiagnosticKind.Failure, 1 as Int32, TaskBackend.Native,
+        "x", causes, 0 as UInt64, RetryClass.Never, RedactionClass.Public), "async.limit", 0 as UInt64)
+    causes.clear(); seen_string_release_owned(chunk)
+    let large = textBlocks(1024); causes.push(large)
+    expectError(OwnedCStringVector.pack(causes), "async.limit", 0 as UInt64)
+    causes.clear(); seen_string_release_owned(large); causes.free()
+}
+fun ownedCauses() r: Void {
+    let values = ["first", "second", "third"]
+    let diagnostic = must(TaskDiagnostic.create(TaskDiagnosticKind.Failure, 3 as Int32, TaskBackend.Native,
+        "failure", values, 4 as UInt64, RetryClass.Transient, RedactionClass.Public))
+    if diagnostic.code() != "async.unavailable" { abort("diagnostic status code changed") }
+    let vector = diagnostic.causes
+    expectError(vector.get(-1), "async.invalid", 0 as UInt64)
+    expectError(vector.get(3), "async.invalid", 0 as UInt64)
+    vector.count = -1; expectError(vector.get(0), "async.invalid", 0 as UInt64)
+    expectError(diagnostic.snapshot(), "async.invalid", 0 as UInt64)
+    vector.count = 257; expectError(vector.get(0), "async.invalid", 0 as UInt64); vector.count = 3
+    let tableBytes = vector.pointers.byteLength; vector.pointers.byteLength = 8 as UInt64
+    expectError(vector.get(0), "async.invalid", 0 as UInt64); vector.pointers.byteLength = tableBytes
+    let original = ptr_deref_i64((vector.pointers.data as Int) + 16)
+    ptr_store_i64((vector.pointers.data as Int) + 16, (vector.strings.data as Int) - 1)
+    expectError(diagnostic.snapshot(), "async.invalid", 0 as UInt64)
+    ptr_store_i64((vector.pointers.data as Int) + 16, original)
+    let bytes = vector.strings.byteLength; vector.strings.byteLength = 4106 as UInt64
+    expectError(diagnostic.snapshot(), "async.limit", 0 as UInt64); vector.strings.byteLength = bytes
+    let snapshot = must(diagnostic.snapshot()); diagnostic.release()
+    if snapshot.code() != "async.unavailable" or not snapshot.retryable or snapshot.message != "failure" {
+        abort("snapshot lost owned metadata or retry policy")
+    }
+    let firstResult = snapshot.causes.get(0)
+    if firstResult.isErr() { abort("snapshot lost owned cause") }
+    let first: String = firstResult.unwrap(); firstResult.releaseContainer()
+    if first != "first" { abort("snapshot lost owned cause") }
+    seen_string_release_owned(first); snapshot.release()
+    let fallback = must(TaskDiagnostic.create(TaskDiagnosticKind.Fallback, 0 as Int32, TaskBackend.Scalar,
+        "fallback", values, 4 as UInt64, RetryClass.Never, RedactionClass.Public))
+    if fallback.code() != "async.fallback" { abort("fallback status code changed") }
+    fallback.release(); values.free()
+    let nulBytes = must(OwnedBuffer<UInt8>.allocate(3 as UInt64, 1 as UInt64, 16 as UInt64))
+    nulBytes.data[0] = 65 as UInt8; nulBytes.data[1] = 0 as UInt8; nulBytes.data[2] = 66 as UInt8
+    let nul = seen_string_view_bytes(nulBytes.data as *const UInt8, 3 as Int64)
+    let invalid = [nul]
+    expectError(OwnedCStringVector.pack(invalid), "async.invalid", 0 as UInt64)
+    invalid.free(); nulBytes.close(); nulBytes.free()
+    let many = Array<String>(); var index = 0
+    while index < 257 { many.push("value"); index = index + 1 }
+    expectError(OwnedCStringVector.pack(many), "async.limit", 0 as UInt64); many.free()
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    invalidDiagnostics(); ownedCauses()
+    if seen_memory_used_bytes() != memory { abort("task diagnostic adverse paths leaked allocations") }
+    println("PASS: ASYNC-002F adverse diagnostics bound causes, redaction, retry and owned strings")
+    return 0
+}

@@ -60,14 +60,16 @@ for name in lifecycle adverse; do
     export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
     compile_case fast "coverage-$name" "$source"
 done
-llvm-profdata merge -sparse "$TMP_DIR/lifecycle.profraw" "$TMP_DIR/adverse.profraw" -o "$TMP_DIR/sync.profdata"
-llvm-cov export -object "$TMP_DIR/coverage-lifecycle-fast" -object "$TMP_DIR/coverage-adverse-fast" \
-    -instr-profile "$TMP_DIR/sync.profdata" >"$TMP_DIR/sync-coverage.json"
-python3 "$ROOT_DIR/scripts/check_source_coverage_thresholds.py" "$TMP_DIR/sync-coverage.json" \
-    --source seen_std/src/async/barrier.seen --source seen_std/src/async/queue.seen \
-    --source seen_std/src/async/reduction.seen --source seen_std/src/async/sync_domain.seen \
-    --source seen_std/src/async/task_group.seen --source seen_std/src/async/wait_group.seen \
-    >"$TMP_DIR/sync-coverage-summary.json"
+source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
+seen_verify_source_coverage "$TMP_DIR/sync" \
+    --fixture "$TMP_DIR/coverage-lifecycle-fast" "$TMP_DIR/lifecycle.profraw" \
+    --fixture "$TMP_DIR/coverage-adverse-fast" "$TMP_DIR/adverse.profraw" \
+    --source seen_std/src/async/barrier.seen \
+    --source seen_std/src/async/queue.seen \
+    --source seen_std/src/async/reduction.seen \
+    --source seen_std/src/async/sync_domain.seen \
+    --source seen_std/src/async/task_group.seen \
+    --source seen_std/src/async/wait_group.seen
 
 if bash "$ATTESTED_SEEN" "$COMPILER" check \
     "$ROOT_DIR/tests/fixtures/async/unsafe_queue.seen" >"$TMP_DIR/unsafe.log" 2>&1; then
