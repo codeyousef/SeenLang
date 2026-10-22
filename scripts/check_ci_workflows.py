@@ -32,7 +32,7 @@ jobs:
   required:
     name: required
     runs-on: ubuntu-24.04
-    timeout-minutes: 210
+    timeout-minutes: 330
     env:
       GOTOOLCHAIN: local
       SEEN_RELEASE_CPU_BASELINE: x86-64
@@ -356,10 +356,10 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_toolchain_artifact": "exact-main-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
-        "timeout_minutes": 210,
+        "timeout_minutes": 330,
         "trigger": "push-main-or-release-0.23.0-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 10,
+        "version": 11,
     }
 
 

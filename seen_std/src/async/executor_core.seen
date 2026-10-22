@@ -551,7 +551,7 @@ class ExecutorCore {
                 return failure
             }
             valid.releaseContainer()
-            status = executorParkOrHelpLocked(this, context)
+            status = executorJoinParkOrHelpLocked(this, context)
             if status != (0 as Int32) {
                 this.unlock()
                 return status
@@ -814,6 +814,19 @@ fun executorStopStatusLocked(core: ExecutorCore, context: AsyncOperationContext)
 // failure, rather than returning to a caller that assumes ownership of a lock.
 fun executorParkOrHelpLocked(core: ExecutorCore, context: AsyncOperationContext)
     r: Int32 {
+    return executorParkOrHelpPolicyLocked(core, context, false)
+}
+
+// A join has one validated ticket dependency. A child running on a different
+// worker can finish while this nested frame parks. Generic synchronization
+// waits cannot make that guarantee about an outer producer or participant.
+fun executorJoinParkOrHelpLocked(core: ExecutorCore, context: AsyncOperationContext)
+    r: Int32 {
+    return executorParkOrHelpPolicyLocked(core, context, true)
+}
+
+fun executorParkOrHelpPolicyLocked(core: ExecutorCore, context: AsyncOperationContext,
+    allowNestedPark: Bool) r: Int32 {
     let stop = executorStopStatusLocked(core, context)
     if stop != (0 as Int32) { return stop }
     if core.ownsWorker() and core.queued > 0 {
@@ -831,7 +844,7 @@ fun executorParkOrHelpLocked(core: ExecutorCore, context: AsyncOperationContext)
     }
     // A nested helping frame cannot suspend its outer producer/participant.
     // With no ready work, reject instead of deadlocking that dependency.
-    if core.ownsWorker() and executorCurrentDepth() > 0 { return 2 as Int32 }
+    if not allowNestedPark and core.ownsWorker() and executorCurrentDepth() > 0 { return 2 as Int32 }
     if core.syncWaiters >= core.limits.tasks { return 2 as Int32 }
     core.syncWaiters = core.syncWaiters + 1
     let status = seen_sync_condition_wait_until(core.changed, core.mutex,

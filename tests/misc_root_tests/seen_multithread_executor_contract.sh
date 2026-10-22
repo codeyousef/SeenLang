@@ -28,6 +28,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+EXECUTOR_COMPILE_FLAGS=()
 compile_case() {
     local profile=$1
     local name=$2
@@ -38,7 +39,7 @@ compile_case() {
     bash "$ATTESTED_SEEN" "$COMPILER" compile \
         "$source" "$TMP_DIR/$name-$profile" \
         --no-cache --frozen --target-cpu=x86-64 --emit-module-ir-dir "$TMP_DIR/$name-$profile-ir" \
-        "${flags[@]}" >"$log" 2>&1
+        "${flags[@]}" "${EXECUTOR_COMPILE_FLAGS[@]}" >"$log" 2>&1
     timeout --foreground --kill-after=5s 120s "$TMP_DIR/$name-$profile" >>"$log" 2>&1
     test -d "$TMP_DIR/$name-$profile-ir"
     rg --files "$TMP_DIR/$name-$profile-ir" -g '*.ll' > "$TMP_DIR/$name-$profile-ir-files.log"
@@ -68,11 +69,30 @@ for profile in fast release; do
     compile_case "$profile" generic-call-ownership "$ROOT_DIR/tests/fixtures/async/generic_call_ownership.seen"
     compile_case "$profile" pool-release "$ROOT_DIR/tests/fixtures/async/pool_release_pointer_abi.seen"
     compile_case "$profile" lifecycle "$ROOT_DIR/seen_std/tests/async/async-002a.seen"
+    compile_case "$profile" adverse "$ROOT_DIR/seen_std/tests/async/async-002a-adverse.seen"
     compile_case "$profile" imported "$ROOT_DIR/tests/fixtures/async/cross_module.seen"
     for case_name in happy partial invalid limit cancel cleanup; do
         rg -Fq "PASS: ASYNC-002A_$case_name" "$TMP_DIR/lifecycle-$profile.log"
     done
 done
+
+
+# Include scheduler clients: synchronization owners and nested joins exercise
+# the same executor implementation, so their profiles belong to this scope.
+EXECUTOR_COMPILE_FLAGS=(--coverage)
+coverage_sources=(async-002a async-002a-adverse async-002b async-002b-adverse async-002c async-002f async-002g)
+coverage_objects=(); coverage_profiles=()
+for name in "${coverage_sources[@]}"; do
+    export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
+    compile_case fast "coverage-$name" "$ROOT_DIR/seen_std/tests/async/$name.seen"
+    coverage_objects+=(-object "$TMP_DIR/coverage-$name-fast")
+    coverage_profiles+=("$TMP_DIR/$name.profraw")
+done
+llvm-profdata merge -sparse "${coverage_profiles[@]}" -o "$TMP_DIR/executor.profdata"
+llvm-cov export "${coverage_objects[@]}" -instr-profile "$TMP_DIR/executor.profdata" >"$TMP_DIR/executor-coverage.json"
+python3 "$ROOT_DIR/scripts/check_source_coverage_thresholds.py" "$TMP_DIR/executor-coverage.json" \
+    --source seen_std/src/async/executor_core.seen --source seen_std/src/async/multithread.seen \
+    >"$TMP_DIR/executor-coverage-summary.json"
 
 check_rejection() {
     local name=$1 source=$2 expected=$3

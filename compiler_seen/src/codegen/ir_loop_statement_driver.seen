@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{coverSourceBranch, sourceCoverageActive}
 import codegen.simd_report.{appendBoundsLoopRecord}
 // ir_loop_statement_driver.seen - while and for-in statement lowering.
 
@@ -303,6 +304,7 @@ fun tryEmitMemcpyOptimizedWhileLoopState(
     // This legacy bulk transform has no source/destination extent proof.
     // Checked compilation must preserve the ordinary guarded loop instead.
     if getFeatureBoundsCheckEnabledImpl() == 1 { return MemcpyWhileDriverResult.new(false, loopsOptimized) }
+    if sourceCoverageActive() { return MemcpyWhileDriverResult.new(false, loopsOptimized) }
     let memcpyPlan = planMemcpyOptimizedWhileLoopImpl(stmt)
     if not memcpyPlan.isValid {
         return MemcpyWhileDriverResult.new(false, loopsOptimized)
@@ -441,6 +443,7 @@ fun generateWhileStatementState(ctx: CodegenLoweringContext,
         condReg = lowerExpressionInto(ctx, output, stmt.loopCondition,
             varNames, varRegs, varTypes, stringConstants)
     }
+    coverSourceBranch(output, condReg)
     emitWhileConditionBranchState(output, condReg, breakFlagVar,
         loopContext.bodyLabel, loopContext.endLabel, varNames, varRegs)
 

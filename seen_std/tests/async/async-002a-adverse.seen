@@ -1,0 +1,200 @@
+import stress_fixture_support.{must, context, errorHasProgress, counter, closeCounter, atomicValue, addOne}
+import core.result.{Result}
+import async.structured.{AsyncError, AsyncOperationContext}
+import async.executor_core.{ExecutorCore, ExecutorLimits, ExecutorTaskContext, executorReleaseContext, executorErrorStatus, executorFailure}
+import async.multithread.{MultithreadExecutor, ExecutorJoinHandle, spawnExecutorTaskWitness}
+import async.task_diagnostics.{TaskBackend, TaskDiagnostic, TaskDiagnosticKind}
+import core.error.{RetryClass, RedactionClass}
+import async.queue.{AsyncQueue}
+extern "C" fun __ThreadYield() r: Void
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+
+fun expectError<T>(result: Result<T, AsyncError>, code: String, progress: UInt64) r: Void {
+    if result.isErr() {
+        let actual = result.unwrapErr()
+        if actual.code != code or actual.progress != progress {
+            println("FAIL: " + actual.operation + " code=" + actual.code + " progress=" + actual.progress.toString())
+        }
+    } else { println("FAIL: expected " + code + " but operation succeeded") }
+    if not errorHasProgress<T>(result, code, progress) { abort("executor error code/progress mismatch") }
+}
+@send
+class AdverseExecutorJob {
+    var number: Int
+    fun run(task: ExecutorTaskContext) r: Bool {
+        if not task.isCurrent() { return false }
+        if task.core.wait(task.slot, task.id, task.operation, task.depth) != (1 as Int32) {
+            abort("executor admitted a self join")
+        }
+        must(task.checkpoint())
+        if must(task.advanceProgress(3 as UInt64)) != (3 as UInt64) { return false }
+        expectError(task.advanceProgress(9223372036854775807 as UInt64), "async.limit", 3 as UInt64)
+        if task.fail(100 as Int32) { abort("invalid failure status accepted") }
+        let causes = Array<String>()
+        let diagnostic = must(TaskDiagnostic.create(TaskDiagnosticKind.Failure, 1 as Int32,
+            TaskBackend.Native, "test failure", causes, 3 as UInt64, RetryClass.Never, RedactionClass.Public))
+        causes.free()
+        diagnostic.status = 0 as Int32
+        expectError(task.failWith(diagnostic), "async.invalid", 3 as UInt64)
+        diagnostic.status = 1 as Int32
+        if task.core.recordDiagnostic(task.slot, task.id + 1, diagnostic) != (1 as Int32) {
+            abort("stale diagnostic ticket accepted")
+        }
+        diagnostic.release()
+        if this.number == 9 {
+            must(task.recordFallback(TaskBackend.Scalar, "first fallback"))
+            expectError(task.recordFallback(TaskBackend.Scalar, "duplicate fallback"), "async.limit", 3 as UInt64)
+        }
+        return true
+    }
+    fun release() r: Bool { this.free(); return true }
+}
+// Native counters are borrowed by the job and released after its join.
+@send
+class PausedExecutorJob {
+    var started: UInt64
+    var gate: UInt64
+    fun run(task: ExecutorTaskContext) r: Bool {
+        must(task.advanceProgress(3 as UInt64))
+        let ignored = addOne(this.started)
+        while atomicValue(this.gate) == (0 as Int64) { __ThreadYield() }
+        expectError(task.checkpoint(), "async.cancelled", 3 as UInt64)
+        return true
+    }
+    fun release() r: Bool { this.free(); return true }
+}
+fun waitingErrors(ctx: AsyncOperationContext, cancelled: AsyncOperationContext,
+    expired: AsyncOperationContext) r: Void {
+    let started = counter(); let gate = counter(); let cfg = limits()
+    let pool = must(MultithreadExecutor<PausedExecutorJob>.create(cfg)); cfg.free()
+    let job = PausedExecutorJob{started: started, gate: gate}
+    let handle = must(pool.spawn(job, job, ctx))
+    var spins = 0
+    while atomicValue(started) == (0 as Int64) and spins < 1000000 { __ThreadYield(); spins = spins + 1 }
+    if atomicValue(started) != (1 as Int64) { abort("paused executor job did not start") }
+    expectError(pool.core.observe(handle.slot, handle.id, true), "async.unavailable", 3 as UInt64)
+    if pool.core.reap(handle.slot, handle.id, false) { abort("running task was reaped") }
+    if pool.core.wait(handle.slot, handle.id, cancelled, 0) != (9 as Int32) or
+        pool.core.wait(handle.slot, handle.id, expired, 0) != (7 as Int32) { abort("wait ignored cancellation/deadline") }
+    let invalid = context(); invalid.fallbackPolicy = 2
+    if pool.core.wait(handle.slot, handle.id, invalid, 0) != (1 as Int32) { abort("wait accepted invalid context") }
+    invalid.fallbackPolicy = 0; invalid.limits.maxTasks = 0
+    if pool.core.wait(handle.slot, handle.id, invalid, 0) != (2 as Int32) { abort("wait accepted invalid limits") }
+    executorReleaseContext(invalid)
+    expectError(handle.waitForTerminal(cancelled), "async.cancelled", 3 as UInt64)
+    expectError(handle.join(expired), "async.timeout", 3 as UInt64)
+    must(handle.cancel()); let ignored = addOne(gate)
+    expectError(handle.join(ctx), "async.cancelled", 3 as UInt64)
+    handle.free(); must(pool.release()); closeCounter(started); closeCounter(gate)
+}
+fun errorStatuses() r: Void {
+    var index = 0
+    while index < 5 {
+        var status = 1 as Int32
+        if index == 1 { status = 2 as Int32 }
+        if index == 2 { status = 3 as Int32 }
+        if index == 3 { status = 7 as Int32 }
+        if index == 4 { status = 9 as Int32 }
+        let error = executorFailure(status, "executor.test", 0 as UInt64)
+        if executorErrorStatus(error) != status { abort("executor error status changed") }
+        error.free(); index = index + 1
+    }
+}
+fun limits() r: ExecutorLimits {
+    return ExecutorLimits{workers: 1, tasks: 4, queued: 4, helpDepth: 2, stackBytes: 1048576 as UInt64}
+}
+fun invalidLimits() r: Void {
+    var index = 0
+    while index < 11 {
+        let cfg = limits()
+        if index == 0 { cfg.workers = 0 }
+        if index == 1 { cfg.workers = 17 }
+        if index == 2 { cfg.tasks = 0 }
+        if index == 3 { cfg.tasks = 1048577 }
+        if index == 4 { cfg.queued = 0 }
+        if index == 5 { cfg.queued = 5 }
+        if index == 6 { cfg.helpDepth = 0 }
+        if index == 7 { cfg.helpDepth = 65 }
+        if index == 8 { cfg.stackBytes = 65536 as UInt64 }
+        if index == 9 { cfg.stackBytes = 8388609 as UInt64 }
+        if index == 10 { cfg.tasks = -1 }
+        expectError(MultithreadExecutor<AdverseExecutorJob>.create(cfg), "async.limit", 0 as UInt64)
+        cfg.free(); index = index + 1
+    }
+}
+fun inactive(handle: ExecutorJoinHandle<AdverseExecutorJob>, ctx: AsyncOperationContext) r: Void {
+    expectError(handle.cancel(), "async.invalid", 0 as UInt64)
+    expectError(handle.isTerminal(), "async.invalid", 0 as UInt64)
+    expectError(handle.waitForTerminal(ctx), "async.invalid", 0 as UInt64)
+    expectError(handle.join(ctx), "async.invalid", 0 as UInt64)
+    expectError(handle.joinOwned(ctx), "async.invalid", 0 as UInt64)
+    expectError(handle.joinDetailed(ctx), "async.invalid", 0 as UInt64)
+}
+fun staleTickets(core: ExecutorCore, ctx: AsyncOperationContext) r: Void {
+    if core.cancel(-1, 0) != (1 as Int32) or core.wait(-1, 0, ctx, 0) != (1 as Int32) { abort("stale ticket admitted") }
+    expectError(core.isTerminal(-1, 0), "async.invalid", 0 as UInt64)
+    expectError(core.observe(-1, 0, true), "async.invalid", 0 as UInt64)
+    if not core.isCancelled(-1, 0) or core.taskProgress(-1, 0) != (0 as UInt64) or core.reap(-1, 0, false) {
+        abort("stale ticket had progress or ownership")
+    }
+    expectError(core.isTerminal(core.limits.tasks, 0), "async.invalid", 0 as UInt64)
+    expectError(core.isTerminal(0, 0), "async.invalid", 0 as UInt64)
+    let foreign = ExecutorTaskContext{core: core, slot: -1, id: 0, depth: 0, operation: ctx}
+    if foreign.isCurrent() or not foreign.isCancelled() or foreign.fail(1 as Int32) { abort("foreign task context accepted") }
+    expectError(foreign.capture(), "async.invalid", 0 as UInt64)
+    expectError(foreign.checkpoint(), "async.invalid", 0 as UInt64)
+    expectError(foreign.advanceProgress(1 as UInt64), "async.invalid", 0 as UInt64)
+    expectError(foreign.panic("private"), "async.invalid", 0 as UInt64)
+    expectError(foreign.recordFallback(TaskBackend.Scalar, "private"), "async.invalid", 0 as UInt64)
+    let retained = AdverseExecutorJob{number: 1}
+    expectError(spawnExecutorTaskWitness<AdverseExecutorJob>(foreign, retained, retained), "async.cancelled", 0 as UInt64)
+    retained.release(); foreign.free()
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let threads = seen_executor_live_threads()
+    let mutexes = seen_sync_live_mutexes(); let conditions = seen_sync_live_conditions()
+    invalidLimits(); errorStatuses()
+    let ctx = context(); let cancelled = context(); let expired = context()
+    cancelled.operation.cancellation = true; expired.operation.monotonicDeadline = 1 as Int64
+    waitingErrors(ctx, cancelled, expired)
+    let cfg = limits(); let pool = must(MultithreadExecutor<AdverseExecutorJob>.create(cfg)); cfg.free()
+    if pool.core.progress() != (0 as UInt64) { abort("new executor had progress") }
+    let first = AdverseExecutorJob{number: 1}
+    expectError(pool.spawn(first, first, cancelled), "async.cancelled", 0 as UInt64); first.release()
+    let second = AdverseExecutorJob{number: 2}
+    expectError(pool.spawn(second, second, expired), "async.timeout", 0 as UInt64); second.release()
+    staleTickets(pool.core, ctx)
+    let task = AdverseExecutorJob{number: 7}
+    let handle = must(pool.spawn(task, task, ctx))
+    if must(handle.waitForTerminal(ctx)) != (0 as Int32) or not must(handle.isTerminal()) { abort("completed task not terminal") }
+    let value = must(handle.join(ctx)); if value.number != 7 { abort("join changed its owned task") }
+    value.release(); inactive(handle, ctx); handle.free()
+    let detailed = AdverseExecutorJob{number: 9}
+    ctx.fallbackPolicy = 1
+    let reportHandle = must(pool.spawn(detailed, detailed, ctx))
+    let report = must(reportHandle.joinDetailed(ctx))
+    if report.progress != (3 as UInt64) or report.error.isSome() { abort("detailed join progress changed") }
+    let taken = must(report.takeTask()); if taken.number != 9 { abort("report lost task ownership") }; taken.release()
+    expectError(report.takeTask(), "async.invalid", 3 as UInt64)
+    expectError(report.takeError(), "async.invalid", 3 as UInt64)
+    report.release(); inactive(reportHandle, ctx); reportHandle.free()
+    let queue = must(AsyncQueue<AdverseExecutorJob>.create(pool.core, 1))
+    expectError(pool.release(), "async.invalid", 0 as UInt64)
+    must(queue.close()); must(queue.release())
+    must(pool.close()); if pool.core.progress() != (2 as UInt64) { abort("closed executor lost completion progress") }
+    must(pool.close())
+    let retained = AdverseExecutorJob{number: 10}
+    expectError(pool.spawn(retained, retained, ctx), "async.invalid", 0 as UInt64); retained.release()
+    expectError(pool.core.observe(0, 0, true), "async.invalid", 0 as UInt64)
+    must(pool.release())
+    executorReleaseContext(ctx); executorReleaseContext(cancelled); executorReleaseContext(expired)
+    if seen_memory_used_bytes() != memory or seen_executor_live_threads() != threads or
+        seen_sync_live_mutexes() != mutexes or seen_sync_live_conditions() != conditions {
+        abort("executor adverse paths leaked resources")
+    }
+    println("PASS: ASYNC-002A adverse paths preserve limits, stale-handle errors and ownership")
+    return 0
+}

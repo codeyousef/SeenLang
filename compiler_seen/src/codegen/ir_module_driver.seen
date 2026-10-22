@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{finishSourceCoverageModule}
 // ir_module_driver.seen - recursive module generation orchestration.
 
 import parser.real_parser.{ProgramNode}
@@ -49,6 +50,7 @@ fun emitMultipleState(ctx: CodegenLoweringContext,
     emitSharedModuleTailState(output, stringConstants,
         stringConstCountBeforeGen, 0, 0, false, false,
         currentLoweringFunctionOptions(ctx))
+    finishSourceCoverageModule(output)
 }
 
 fun generateSingleState(ctx: CodegenLoweringContext,
@@ -94,4 +96,5 @@ fun emitSingleWithInitializationState(ctx: CodegenLoweringContext,
         stringConstCountBeforeGen, moduleIndex, globalInitializationIndex,
         true, true,
         currentLoweringFunctionOptions(ctx))
+    finishSourceCoverageModule(output)
 }

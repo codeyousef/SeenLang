@@ -28,6 +28,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+SYNC_COMPILE_FLAGS=()
 compile_case() {
     local profile=$1
     local name=$2
@@ -38,7 +39,7 @@ compile_case() {
     bash "$ATTESTED_SEEN" "$COMPILER" compile \
         "$source" "$TMP_DIR/$name-$profile" \
         --no-cache --frozen --target-cpu=x86-64 \
-        "${flags[@]}" >"$log" 2>&1
+        "${flags[@]}" "${SYNC_COMPILE_FLAGS[@]}" >"$log" 2>&1
     timeout --foreground --kill-after=5s 120s "$TMP_DIR/$name-$profile" >>"$log" 2>&1
 }
 
@@ -46,10 +47,27 @@ for profile in fast release; do
     compile_case "$profile" nested-generics "$ROOT_DIR/tests/fixtures/async/nested_generic_constructors.seen"
     compile_case "$profile" atomic-cleanup "$ROOT_DIR/tests/fixtures/async/atomic_validation_cleanup.seen"
     compile_case "$profile" lifecycle "$ROOT_DIR/seen_std/tests/async/async-002b.seen"
+    compile_case "$profile" adverse "$ROOT_DIR/seen_std/tests/async/async-002b-adverse.seen"
     for case_name in happy partial invalid limit cancel cleanup; do
         rg -Fq "PASS: ASYNC-002B_$case_name" "$TMP_DIR/lifecycle-$profile.log"
     done
 done
+
+SYNC_COMPILE_FLAGS=(--coverage)
+for name in lifecycle adverse; do
+    source="$ROOT_DIR/seen_std/tests/async/async-002b.seen"
+    if [ "$name" = adverse ]; then source="$ROOT_DIR/seen_std/tests/async/async-002b-adverse.seen"; fi
+    export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
+    compile_case fast "coverage-$name" "$source"
+done
+llvm-profdata merge -sparse "$TMP_DIR/lifecycle.profraw" "$TMP_DIR/adverse.profraw" -o "$TMP_DIR/sync.profdata"
+llvm-cov export -object "$TMP_DIR/coverage-lifecycle-fast" -object "$TMP_DIR/coverage-adverse-fast" \
+    -instr-profile "$TMP_DIR/sync.profdata" >"$TMP_DIR/sync-coverage.json"
+python3 "$ROOT_DIR/scripts/check_source_coverage_thresholds.py" "$TMP_DIR/sync-coverage.json" \
+    --source seen_std/src/async/barrier.seen --source seen_std/src/async/queue.seen \
+    --source seen_std/src/async/reduction.seen --source seen_std/src/async/sync_domain.seen \
+    --source seen_std/src/async/task_group.seen --source seen_std/src/async/wait_group.seen \
+    >"$TMP_DIR/sync-coverage-summary.json"
 
 if bash "$ATTESTED_SEEN" "$COMPILER" check \
     "$ROOT_DIR/tests/fixtures/async/unsafe_queue.seen" >"$TMP_DIR/unsafe.log" 2>&1; then

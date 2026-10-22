@@ -16,7 +16,7 @@ jobs:
   required:
     name: required
     runs-on: ubuntu-24.04
-    timeout-minutes: 210
+    timeout-minutes: 330
     env:
       GOTOOLCHAIN: local
       SEEN_RELEASE_CPU_BASELINE: x86-64

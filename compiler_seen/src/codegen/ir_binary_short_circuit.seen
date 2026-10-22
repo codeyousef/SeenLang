@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{coverSourceBranch}
 // ir_binary_short_circuit.seen - short-circuit binary label and branch helpers.
 
 import str.string.{StringBuilder}
@@ -46,6 +47,7 @@ fun emitShortCircuitCheckBridgeImpl(output: StringBuilder,
 fun emitShortCircuitAndDecisionImpl(output: StringBuilder,
     leftBoolReg: String, rightLabel: String, mergeLabel: String) r: Void {
 
+    coverSourceBranch(output, leftBoolReg)
     output.append("  br i1 " + leftBoolReg + ", label %" + rightLabel +
         ", label %" + mergeLabel + "\n")
 }
@@ -53,6 +55,7 @@ fun emitShortCircuitAndDecisionImpl(output: StringBuilder,
 fun emitShortCircuitOrDecisionImpl(output: StringBuilder,
     leftBoolReg: String, rightLabel: String, mergeLabel: String) r: Void {
 
+    coverSourceBranch(output, leftBoolReg)
     output.append("  br i1 " + leftBoolReg + ", label %" + mergeLabel +
         ", label %" + rightLabel + "\n")
 }

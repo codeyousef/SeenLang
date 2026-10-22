@@ -1,0 +1,189 @@
+import stress_fixture_support.{must, context, errorHasProgress}
+import core.result.{Result}
+import async.structured.{AsyncError, AsyncOperationContext}
+import async.executor_core.{ExecutorCore, ExecutorLimits, ExecutorJob, ExecutorTaskContext, executorReleaseContext}
+import async.multithread.{MultithreadExecutor}
+import async.task_group.{TaskGroup}
+import async.wait_group.{AsyncWaitGroup}
+import async.barrier.{AsyncBarrier}
+import async.queue.{AsyncQueue}
+import async.reduction.{AsyncIntReduction}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+
+@send
+class AdverseSyncJob {
+    var number: Int
+    fun run(task: ExecutorTaskContext) r: Bool { return true }
+    fun release() r: Bool { this.free(); return true }
+}
+fun expectError<T>(result: Result<T, AsyncError>, code: String, progress: UInt64) r: Void {
+    if result.isErr() {
+        let actual = result.unwrapErr()
+        if actual.code != code or actual.progress != progress {
+            println("FAIL: " + actual.operation + " code=" + actual.code + " progress=" + actual.progress.toString() +
+                " expected=" + code + "/" + progress.toString())
+        }
+    } else { println("FAIL: expected " + code + " but operation succeeded") }
+    if not errorHasProgress<T>(result, code, progress) { abort("synchronization error code/progress mismatch") }
+}
+fun submit(group: TaskGroup<AdverseSyncJob>, job: AdverseSyncJob,
+    ctx: AsyncOperationContext) r: Result<Bool, AsyncError> {
+    return group.spawn(job, job, ctx)
+}
+fun admissionLimits(core: ExecutorCore, ctx: AsyncOperationContext) r: Void {
+    expectError(AsyncWaitGroup.create(core, -1, 1), "async.limit", 0 as UInt64)
+    expectError(AsyncWaitGroup.create(core, 0, 0), "async.limit", 0 as UInt64)
+    expectError(AsyncWaitGroup.create(core, 2, 1), "async.limit", 0 as UInt64)
+    expectError(AsyncWaitGroup.create(core, 0, 9), "async.limit", 0 as UInt64)
+    expectError(AsyncQueue<Int>.create(core, 0), "async.limit", 0 as UInt64)
+    expectError(AsyncQueue<Int>.create(core, 9), "async.limit", 0 as UInt64)
+    expectError(AsyncBarrier.create(core, 0), "async.limit", 0 as UInt64)
+    expectError(AsyncBarrier.create(core, 9), "async.limit", 0 as UInt64)
+    expectError(AsyncIntReduction.create(core, 0), "async.limit", 0 as UInt64)
+    expectError(AsyncIntReduction.create(core, 9), "async.limit", 0 as UInt64)
+    expectError(TaskGroup<AdverseSyncJob>.create(core, 0, ctx), "async.limit", 0 as UInt64)
+    expectError(TaskGroup<AdverseSyncJob>.create(core, 9, ctx), "async.limit", 0 as UInt64)
+    ctx.limits.maxFanOut = 1
+    expectError(TaskGroup<AdverseSyncJob>.create(core, 2, ctx), "async.limit", 0 as UInt64)
+    ctx.limits.maxFanOut = 16
+}
+fun queueFailures(core: ExecutorCore, ctx: AsyncOperationContext,
+    cancelled: AsyncOperationContext, expired: AsyncOperationContext) r: Void {
+    let queue = must(AsyncQueue<Int>.create(core, 1))
+    expectError(queue.release(), "async.invalid", 0 as UInt64)
+    expectError(queue.put(1, cancelled), "async.cancelled", 0 as UInt64)
+    expectError(queue.take(cancelled), "async.cancelled", 0 as UInt64)
+    expectError(queue.put(1, expired), "async.timeout", 0 as UInt64)
+    expectError(queue.take(expired), "async.timeout", 0 as UInt64)
+    must(queue.put(19, ctx)); must(queue.close())
+    expectError(queue.release(), "async.invalid", 0 as UInt64)
+    expectError(queue.put(1, ctx), "async.invalid", 0 as UInt64)
+    if must(queue.take(ctx)) != 19 { abort("closed queue lost its owned item") }
+    expectError(queue.take(ctx), "async.invalid", 0 as UInt64)
+    must(queue.close()); must(queue.release())
+}
+fun waitFailures(core: ExecutorCore, ctx: AsyncOperationContext,
+    cancelled: AsyncOperationContext) r: Void {
+    let group = must(AsyncWaitGroup.create(core, 1, 2))
+    expectError(group.release(), "async.invalid", 0 as UInt64)
+    expectError(group.wait(cancelled), "async.cancelled", 0 as UInt64)
+    if not must(group.done()) { abort("wait group failed to complete") }
+    expectError(group.done(), "async.invalid", 0 as UInt64)
+    must(group.wait(ctx)); must(group.cancel())
+    expectError(group.wait(ctx), "async.cancelled", 1 as UInt64)
+    expectError(group.done(), "async.invalid", 0 as UInt64)
+    must(group.close())
+    expectError(group.wait(ctx), "async.invalid", 0 as UInt64)
+    expectError(group.done(), "async.invalid", 0 as UInt64)
+    must(group.close()); must(group.release())
+}
+fun barrierFailures(core: ExecutorCore, ctx: AsyncOperationContext,
+    cancelled: AsyncOperationContext) r: Void {
+    let barrier = must(AsyncBarrier.create(core, 1))
+    expectError(barrier.release(), "async.invalid", 0 as UInt64)
+    expectError(barrier.arrive(cancelled), "async.cancelled", 0 as UInt64)
+    if must(barrier.arrive(ctx)) != 0 { abort("single-party barrier generation changed") }
+    expectError(barrier.arrive(ctx), "async.invalid", 0 as UInt64)
+    must(barrier.close()); expectError(barrier.arrive(ctx), "async.invalid", 0 as UInt64)
+    must(barrier.close()); must(barrier.release())
+    let partial = must(AsyncBarrier.create(core, 2))
+    let deadline = context()
+    deadline.operation.monotonicDeadline = seen_time_monotonic_nanos() + (100000000 as Int64)
+    expectError(partial.arrive(deadline), "async.timeout", 1 as UInt64)
+    expectError(partial.arrive(ctx), "async.timeout", 0 as UInt64)
+    must(partial.close()); must(partial.release()); executorReleaseContext(deadline)
+}
+fun reductionFailures(core: ExecutorCore, ctx: AsyncOperationContext,
+    cancelled: AsyncOperationContext) r: Void {
+    let reduction = must(AsyncIntReduction.create(core, 2))
+    expectError(reduction.release(), "async.invalid", 0 as UInt64)
+    expectError(reduction.submit(0, 1, cancelled), "async.cancelled", 0 as UInt64)
+    expectError(reduction.finish(cancelled), "async.cancelled", 0 as UInt64)
+    expectError(reduction.submit(-1, 1, ctx), "async.invalid", 0 as UInt64)
+    expectError(reduction.submit(2, 1, ctx), "async.invalid", 0 as UInt64)
+    must(reduction.submit(0, -9223372036854775807 - 1, ctx))
+    expectError(reduction.submit(0, 1, ctx), "async.invalid", 1 as UInt64)
+    must(reduction.submit(1, -1, ctx))
+    expectError(reduction.finish(ctx), "async.limit", 1 as UInt64)
+    must(reduction.close())
+    expectError(reduction.submit(0, 1, ctx), "async.invalid", 2 as UInt64)
+    expectError(reduction.finish(ctx), "async.cancelled", 0 as UInt64)
+    must(reduction.close()); must(reduction.release())
+}
+fun taskGroupFailures(core: ExecutorCore, ctx: AsyncOperationContext,
+    cancelled: AsyncOperationContext) r: Void {
+    expectError(TaskGroup<AdverseSyncJob>.create(core, 1, cancelled), "async.cancelled", 0 as UInt64)
+    let failed = must(TaskGroup<AdverseSyncJob>.create(core, 1, ctx))
+    let retained = AdverseSyncJob{number: 1}
+    expectError(submit(failed, retained, cancelled), "async.cancelled", 0 as UInt64)
+    retained.release()
+    expectError(failed.barrier(cancelled), "async.cancelled", 0 as UInt64)
+    expectError(failed.barrier(ctx), "async.invalid", 0 as UInt64)
+    let closed = AdverseSyncJob{number: 2}
+    expectError(submit(failed, closed, ctx), "async.invalid", 0 as UInt64)
+    closed.release(); must(failed.close()); must(failed.release())
+    let full = must(TaskGroup<AdverseSyncJob>.create(core, 1, ctx))
+    must(submit(full, AdverseSyncJob{number: 3}, ctx))
+    let excess = AdverseSyncJob{number: 4}
+    expectError(submit(full, excess, ctx), "async.limit", 1 as UInt64)
+    excess.release()
+    let values = must(full.barrier(ctx))
+    if values.length() != 1 or values[0].number != 3 { abort("task group ownership changed") }
+    values[0].release(); values.free()
+    expectError(full.barrier(ctx), "async.invalid", 0 as UInt64)
+    must(full.close()); must(full.release())
+}
+fun ownerBudget(core: ExecutorCore, ctx: AsyncOperationContext) r: Void {
+    let owners = Array<AsyncQueue<Int>>()
+    var index = 0
+    while index < 8 { owners.push(must(AsyncQueue<Int>.create(core, 1))); index = index + 1 }
+    expectError(AsyncQueue<Int>.create(core, 1), "async.limit", 0 as UInt64)
+    expectError(AsyncWaitGroup.create(core, 0, 1), "async.limit", 0 as UInt64)
+    expectError(AsyncBarrier.create(core, 1), "async.limit", 0 as UInt64)
+    expectError(AsyncIntReduction.create(core, 1), "async.limit", 0 as UInt64)
+    expectError(TaskGroup<AdverseSyncJob>.create(core, 1, ctx), "async.limit", 0 as UInt64)
+    index = 0
+    while index < owners.length() { must(owners[index].close()); must(owners[index].release()); index = index + 1 }
+    owners.free()
+    let empty = must(TaskGroup<AdverseSyncJob>.create(core, 1, ctx))
+    must(empty.close()); must(empty.close()); must(empty.release())
+}
+fun stoppedAdmission(core: ExecutorCore, ctx: AsyncOperationContext) r: Void {
+    expectError(AsyncQueue<Int>.create(core, 1), "async.invalid", 0 as UInt64)
+    expectError(AsyncWaitGroup.create(core, 0, 1), "async.invalid", 0 as UInt64)
+    expectError(AsyncBarrier.create(core, 1), "async.invalid", 0 as UInt64)
+    expectError(AsyncIntReduction.create(core, 1), "async.invalid", 0 as UInt64)
+    expectError(TaskGroup<AdverseSyncJob>.create(core, 1, ctx), "async.invalid", 0 as UInt64)
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    let threads = seen_executor_live_threads()
+    let mutexes = seen_sync_live_mutexes()
+    let conditions = seen_sync_live_conditions()
+    let ctx = context(); let cancelled = context(); let expired = context()
+    cancelled.operation.cancellation = true
+    expired.operation.monotonicDeadline = 1 as Int64
+    let limits = ExecutorLimits{workers: 1, tasks: 8, queued: 8, helpDepth: 8, stackBytes: 1048576 as UInt64}
+    let pool = must(MultithreadExecutor<AdverseSyncJob>.create(limits)); limits.free()
+    admissionLimits(pool.core, ctx)
+    queueFailures(pool.core, ctx, cancelled, expired)
+    waitFailures(pool.core, ctx, cancelled)
+    barrierFailures(pool.core, ctx, cancelled)
+    reductionFailures(pool.core, ctx, cancelled)
+    taskGroupFailures(pool.core, ctx, cancelled)
+    ownerBudget(pool.core, ctx)
+    must(pool.shutdown(true)); stoppedAdmission(pool.core, ctx)
+    must(pool.close()); stoppedAdmission(pool.core, ctx)
+    must(pool.release())
+    executorReleaseContext(ctx); executorReleaseContext(cancelled); executorReleaseContext(expired)
+    if seen_memory_used_bytes() != memory or seen_executor_live_threads() != threads or
+        seen_sync_live_mutexes() != mutexes or seen_sync_live_conditions() != conditions {
+        abort("synchronization adverse paths leaked resources")
+    }
+    println("PASS: ASYNC-002B adverse paths preserve exact errors, progress and ownership")
+    return 0
+}

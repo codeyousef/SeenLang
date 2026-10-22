@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{sourceCoverageValid}
 ///
 Public LLVM IR generator facade.
 
@@ -147,6 +148,7 @@ class LLVMIRGenerator {
         resetSharedModuleGenerationScratchState()
         emitMultipleState(this as Int, this.output, this.stringConstants,
             programs)
+        if not sourceCoverageValid() { return false }
         return this.output.writeToFile(outputPath)
     }
 
@@ -164,6 +166,7 @@ class LLVMIRGenerator {
         resetSharedModuleGenerationScratchState()
         emitSingleState(this as Int, this.output, this.stringConstants,
             program, moduleIndex)
+        if not sourceCoverageValid() { return false }
         return this.output.writeToFile(outputPath)
     }
 
@@ -181,6 +184,7 @@ class LLVMIRGenerator {
         emitSingleWithInitializationState(this as Int, this.output,
             this.stringConstants, program, moduleIndex,
             globalInitializationIndex)
+        if not sourceCoverageValid() { return false }
         return this.output.writeToFile(outputPath)
     }
     fun generateExpression(expr: ParserExpressionNode) r: String { return generateExpressionWithGlobalState(this as Int, this.output, expr, this.varNames, this.varRegs, this.varTypes, this.stringConstants) }

@@ -660,6 +660,10 @@ run_fixture test-fixtures-example \
     "$REPO_ROOT/compiler_seen/examples/test_fixture.seen"
 run_fixture test-reporters \
     "$REPO_ROOT/compiler_seen/tests/test_001e_reporters.seen"
+run_fixture test-source-coverage-encoding \
+    "$REPO_ROOT/compiler_seen/tests/source_coverage_encoding.seen"
+run_fixture test-source-coverage-scopes \
+    "$REPO_ROOT/compiler_seen/tests/source_coverage_scopes.seen"
 run_fixture test-reporters-example \
     "$REPO_ROOT/compiler_seen/examples/test_reporters.seen"
 run_fixture test-migration \

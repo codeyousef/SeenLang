@@ -35,7 +35,7 @@ EXPECTED = {
         "allocation_limit": "aggregate-cap",
         "main_vmem_limit": "aggregate-cap",
         "optimizer_vmem_max_kib": 2097152,
-        "timeout_seconds": 10800,
+        "timeout_seconds": 18000,
     },
     "tasks": {"hard_max": 24, "jobs": 1, "optimizer_jobs": 1},
 }

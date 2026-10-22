@@ -3,7 +3,6 @@ seen_std.crypto.md5
 RFC 1321 compliant MD5 hash implementation in pure Seen.
 ///
 
-import collections.vec.{Vec}
 import str.string.{StringBuilder}
 
 class MD5 {
@@ -11,12 +10,12 @@ class MD5 {
     var b: Int
     var c: Int
     var d: Int
-    var buffer: Vec<Int>
+    var buffer: Array<Int>
     var bufferLen: Int
     var totalLen: Int
 
     fun new() -> MD5 {
-        var buffer = Vec<Int>.new()
+        var buffer = Array<Int>()
         var i = 0
         while i < 64 {
             buffer.push(0)
@@ -37,28 +36,36 @@ class MD5 {
         let len = data.length()
         var i = 0
         while i < len {
-            let byte = data.charCodeAt(i)
-            this.buffer.set(this.bufferLen, byte)
-            this.bufferLen = this.bufferLen + 1
-            this.totalLen = this.totalLen + 1
-
-            if this.bufferLen == 64 {
-                this.processBlock()
-                this.bufferLen = 0
-            }
+            this.updateByte(data.byteAt(i))
             i = i + 1
         }
     }
 
+    /// Append one octet, including arbitrary binary mapping data.
+    fun updateByte(this: MD5, byte: Int) -> Void {
+        this.buffer[this.bufferLen] = byte & 0xFF
+        this.bufferLen = this.bufferLen + 1
+        this.totalLen = this.totalLen + 1
+        if this.bufferLen == 64 {
+            this.processBlock()
+            this.bufferLen = 0
+        }
+    }
+
     fun finalize(this: MD5) -> String {
+        this.finishState()
+        return this.toHexString()
+    }
+
+    fun finishState(this: MD5) -> Void {
         let originalLen = this.totalLen
         
-        this.buffer.set(this.bufferLen, 0x80)
+        this.buffer[this.bufferLen] = 0x80
         this.bufferLen = this.bufferLen + 1
 
         if this.bufferLen > 56 {
             while this.bufferLen < 64 {
-                this.buffer.set(this.bufferLen, 0)
+                this.buffer[this.bufferLen] = 0
                 this.bufferLen = this.bufferLen + 1
             }
             this.processBlock()
@@ -66,31 +73,30 @@ class MD5 {
         }
 
         while this.bufferLen < 56 {
-            this.buffer.set(this.bufferLen, 0)
+            this.buffer[this.bufferLen] = 0
             this.bufferLen = this.bufferLen + 1
         }
 
         let bitLen = originalLen * 8
         var i = 0
         while i < 8 {
-            this.buffer.set(56 + i, (bitLen >> (i * 8)) & 0xFF)
+            this.buffer[56 + i] = (bitLen >> (i * 8)) & 0xFF
             i = i + 1
         }
 
         this.processBlock()
 
-        return this.toHexString()
     }
 
     fun processBlock(this: MD5) -> Void {
-        let x = Vec<Int>.new()
+        let x = Array<Int>()
         var i = 0
         while i < 16 {
             let j = i * 4
-            let value = this.buffer.get(j) |
-                       (this.buffer.get(j + 1) << 8) |
-                       (this.buffer.get(j + 2) << 16) |
-                       (this.buffer.get(j + 3) << 24)
+            let value = this.buffer[j] |
+                       (this.buffer[j + 1] << 8) |
+                       (this.buffer[j + 2] << 16) |
+                       (this.buffer[j + 3] << 24)
             x.push(value)
             i = i + 1
         }
@@ -100,37 +106,59 @@ class MD5 {
         var cc = this.c
         var dd = this.d
 
-        let round1K = Vec<Int>.new()
-        round1K.push(0xD76AA478); round1K.push(0xE8C7B756)
-        round1K.push(0x242070DB); round1K.push(0xC1BDCEEE)
-        round1K.push(0xF57C0FAF); round1K.push(0x4787C62A)
-        round1K.push(0xA8304613); round1K.push(0xFD469501)
-        round1K.push(0x698098D8); round1K.push(0x8B44F7AF)
-        round1K.push(0xFFFF5BB1); round1K.push(0x895CD7BE)
-        round1K.push(0x6B901122); round1K.push(0xFD987193)
-        round1K.push(0xA679438E); round1K.push(0x49B40821)
-
+        let constants = [
+            0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
+            0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+            0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
+            0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+            0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa,
+            0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+            0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
+            0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+            0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
+            0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+            0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05,
+            0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+            0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039,
+            0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+            0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
+            0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391]
+        let shifts = [7, 12, 17, 22, 5, 9, 14, 20,
+            4, 11, 16, 23, 6, 10, 15, 21]
         i = 0
-        while i < 16 {
-            let f = (bb & cc) | ((~bb) & dd)
-            let g = i
+        while i < 64 {
+            var f = (bb & cc) | ((~bb) & dd)
+            var g = i
+            if i >= 16 and i < 32 {
+                f = (dd & bb) | ((~dd) & cc)
+                g = (5 * i + 1) % 16
+            } else if i >= 32 and i < 48 {
+                f = bb ^ cc ^ dd
+                g = (3 * i + 5) % 16
+            } else if i >= 48 {
+                f = cc ^ (bb | (~dd))
+                g = (7 * i) % 16
+            }
             let temp = dd
             dd = cc
             cc = bb
-            bb = bb + this.rotateLeft(aa + f + round1K.get(i) + x.get(g), 
-                                       this.getShift1(i))
+            bb = (bb + this.rotateLeft(aa + f + constants[i] + x[g],
+                shifts[(i / 16) * 4 + i % 4])) & 0xffffffff
             aa = temp
             i = i + 1
         }
-
-        this.a = this.a + aa
-        this.b = this.b + bb
-        this.c = this.c + cc
-        this.d = this.d + dd
+        this.a = (this.a + aa) & 0xffffffff
+        this.b = (this.b + bb) & 0xffffffff
+        this.c = (this.c + cc) & 0xffffffff
+        this.d = (this.d + dd) & 0xffffffff
+        x.free()
+        constants.free()
+        shifts.free()
     }
 
     fun rotateLeft(this: MD5, value: Int, shift: Int) -> Int {
-        return (value << shift) | (value >> (32 - shift))
+        let word = value & 0xffffffff
+        return ((word << shift) | (word >> (32 - shift))) & 0xffffffff
     }
 
     fun getShift1(this: MD5, i: Int) -> Int {
@@ -154,8 +182,8 @@ class MD5 {
         var i = 0
         while i < 4 {
             let byte = (value >> (i * 8)) & 0xFF
-            sb.append(hex.charAt(byte >> 4))
-            sb.append(hex.charAt(byte & 0x0F))
+            sb.append(hex.substring(byte >> 4, (byte >> 4) + 1))
+            sb.append(hex.substring(byte & 0x0F, (byte & 0x0F) + 1))
             i = i + 1
         }
     }
@@ -164,5 +192,8 @@ class MD5 {
 fun md5Hash(data: String) -> String {
     let hasher = MD5.new()
     hasher.update(data)
-    return hasher.finalize()
+    let digest = hasher.finalize()
+    hasher.buffer.free()
+    hasher.free()
+    return digest
 }

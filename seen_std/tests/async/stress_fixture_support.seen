@@ -11,11 +11,18 @@ fun must<T, E>(result: Result<T, E>) r: T {
     let value = result.unwrap(); result.releaseContainer(); return value
 }
 
-fun errorIs<T>(result: Result<T, AsyncError>, code: String) r: Bool {
+fun errorMatches<T>(result: Result<T, AsyncError>, code: String,
+    checkProgress: Bool, progress: UInt64) r: Bool {
     if result.isOkay() { result.releaseContainer(); return false }
     let error = result.unwrapErr(); result.releaseContainer()
-    let matches = error.code == code
+    let matches = error.code == code and (not checkProgress or error.progress == progress)
     error.free(); return matches
+}
+fun errorIs<T>(result: Result<T, AsyncError>, code: String) r: Bool {
+    return errorMatches<T>(result, code, false, 0 as UInt64)
+}
+fun errorHasProgress<T>(result: Result<T, AsyncError>, code: String, progress: UInt64) r: Bool {
+    return errorMatches<T>(result, code, true, progress)
 }
 
 fun atomicValue(handle: UInt64) r: Int64 {

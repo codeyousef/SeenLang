@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{coverSourceBranch}
 // ir_forin_iterator_driver.seen - iterator-protocol for-in lowering.
 
 import parser.real_parser.{StatementNode, ParserExpressionNode}
@@ -61,6 +62,7 @@ fun tryEmitIteratorProtocolForInLoopState(
     output.append("  " + hasNextReg + " = call i1 @" +
         quoteIdentIfNeededImpl(iterPlan.hasNextFuncName) + "(ptr " +
         iterPtrReg + ")\n")
+    coverSourceBranch(output, hasNextReg)
     output.append("  br i1 " + hasNextReg + ", label %" + bodyLabel +
         ", label %" + endLabel + "\n")
 

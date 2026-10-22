@@ -1,5 +1,36 @@
 # Testing
 
+## Seen source coverage
+
+On Linux x86-64 with LLVM 20, `seen test . --filter <case> --profile coverage
+--jobs 1` emits counters and source mappings for Seen function entries and
+executable statements, alongside linked native runtime coverage. Structured
+conditionals, match patterns and guards, loop tests and short-circuit decisions record both outcomes.
+Counters use atomic updates so concurrent executor work contributes without
+lost increments. Anonymous callbacks inherit their containing statement's
+source location. Coverage maps refer to source locations, not GPU device
+execution; running a compiler or GPU source emitter does not execute a kernel.
+
+The compiler owns LLVM profile identities and mappings in Seen. It uses bounded
+function, region, counter and filename budgets and rejects malformed filenames
+or exhausted budgets. Native LLVM tools merge profiles and render reports.
+The module cache includes the selected compiler and coverage mode.
+
+`run_test_instrumentation_acceptance.sh` retains text and JSON coverage exports.
+The instrumented host exercises the typed SPIR-V CLI, and the native GPU probe
+executes the Seen frontend and emitter directly. The probe checks cleanup and
+retains a SPIR-V artifact with its reflection; no GPU execution is claimed.
+The evidence checker requires executed Seen compiler-host and GPU-emitter source
+rows, an executed Seen test row, and executed native runtime rows. A C-only
+report or a `TOTAL` marker cannot satisfy Seen coverage acceptance. Percentage
+gates must select the issue's applicable source files explicitly; the aggregate
+of every linked library module is not a measure of a single leaf's tests.
+
+The executor and synchronization acceptance contracts enforce aggregate 90%
+line and 80% branch coverage over their declared implementation files. Their
+adverse tests assert exact error codes, partial progress, retained ownership
+on failed admission, and allocation and native-handle cleanup.
+
 ## Leak and soak resource providers
 
 TEST-002D defines `seen-test-leak-soak-v1`. A canonical snapshot registers

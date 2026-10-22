@@ -23,10 +23,10 @@ class StressTask {
     var started: UInt64
     var result: Int
     fun run(context: ExecutorTaskContext) r: Bool {
-        if addOne(this.unique) != (0 as Int64) { return false }
+        if addOne(this.unique) != (0 as Int64) { println("FAIL: stress duplicate execution depth=" + this.depth.toString()); return false }
         let previous = addOne(this.executions)
         let advanced = context.advanceProgress(1 as UInt64)
-        if advanced.isErr() { advanced.unwrapErr().free(); advanced.releaseContainer(); return false }
+        if advanced.isErr() { let error = advanced.unwrapErr(); println("FAIL: stress progress " + error.code + " task_depth=" + this.depth.toString() + " context_depth=" + context.depth.toString()); error.free(); advanced.releaseContainer(); return false }
         advanced.releaseContainer()
         if this.mode == 1 {
             let signalled = addOne(this.started)
@@ -43,7 +43,7 @@ class StressTask {
             if submitted.isErr() { abort("nested stress task admission failed") }
             let handle = submitted.unwrap(); submitted.releaseContainer()
             let joined = handle.join(context.operation)
-            if joined.isErr() { abort("nested stress child did not terminate") }
+            if joined.isErr() { let error = joined.unwrapErr(); println("FAIL: nested join " + error.code + " operation=" + error.operation + " progress=" + error.progress.toString() + " parent_depth=" + this.depth.toString() + " context_depth=" + context.depth.toString() + " child_slot=" + handle.slot.toString() + " parent_slot=" + context.slot.toString()); abort("nested stress child did not terminate") }
             let value = joined.unwrap(); joined.releaseContainer()
             this.result = value.result + 2
             value.release(); handle.free()

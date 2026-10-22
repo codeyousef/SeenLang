@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"; F="$ROOT/tests/fixtures/test-002a"; C="$ROOT/scripts/check_test_instrumentation.py"; B="$ROOT/scripts/benchmark_test_instrumentation.py"; fail(){ echo "FAIL: TEST-002A contract: $*" >&2; exit 1; }
 python3 -m py_compile "$C" "$B" "$ROOT/tests/runner/test_test_instrumentation_unit.py" || fail syntax
 python3 "$ROOT/tests/runner/test_test_instrumentation_unit.py" >/dev/null || fail unit
+python3 "$ROOT/tests/runner/test_source_coverage_thresholds_unit.py" >/dev/null || fail source-coverage-threshold-unit
 python3 "$C" --evidence "$F/happy/evidence.json" >/dev/null || fail TEST-002A_happy
 if python3 "$C" --evidence "$F/invalid/evidence.json" >/dev/null 2>"$ROOT/.seen/test-002a-invalid.err"; then fail TEST-002A_invalid; fi
 grep -Fq test.002a.invalid "$ROOT/.seen/test-002a-invalid.err" || fail invalid-code
@@ -22,7 +23,8 @@ grep -Fq -- '--threads=1,--thinlto-jobs=1' "$ROOT/compiler_seen/src/main_compile
 grep -Fq 'llvm-profdata merge' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail coverage-merge
 grep -Fq 'llvm-cov report' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail coverage-report
 grep -Fq 'workingRoot + "/.seen_cache/test/run"' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail working-root-artifacts
-grep -Fq 'test_002a_gpu_emitters.seen' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail gpu-emitter-wiring
+grep -Fq 'test_002a_gpu_emitters.seen' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail gpu-emitter-wiring
+if grep -Fq -- '--emit-glsl' "$ROOT/compiler_seen/src/testing/cli_runner.seen"; then fail removed-glsl-test-fallback; fi
 grep -Fq 'hardwareExecuted' "$ROOT/compiler_seen/src/testing/instrumentation.seen" || fail hardware-separation
 for module in fuzz benchmark; do [ -f "$ROOT/compiler_seen/src/testing/$module.seen" ] || fail "native-$module"; done
 [ -f "$ROOT/tests/fixtures/soak/test_002a_instrumentation.seen" ] || fail soak-fixture

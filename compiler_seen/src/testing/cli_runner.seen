@@ -205,9 +205,6 @@ fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
                 testCliShellQuote(sanitizer) + " --instrumentation-report " +
                 testCliShellQuote(report)
         }
-        if relative.endsWith("test_002a_gpu_emitters.seen") {
-            instrumentationFlags = instrumentationFlags + " --emit-glsl"
-        }
         command = "SEEN_COMPILER_SOURCE_ROOT=" +
             testCliShellQuote(compilerSourceRoot) +
             " SEEN_PACKAGE_CLIENT=" +

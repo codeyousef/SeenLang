@@ -74,6 +74,16 @@ Foundations**.
 
 ### Fixed
 
+- Allow nested executor joins to wait for children already running on another
+  worker while preserving the synchronization guard against producer deadlocks.
+  Enforce Seen source coverage thresholds for executor and synchronization APIs,
+  including cancellation, invalid-context and ownership cleanup paths.
+- Exercise the typed SPIR-V emitter in instrumentation probes and remove the
+  obsolete GLSL exception from test orchestration. Build the instrumented host
+  with bounded serial forks so module heaps are reclaimed.
+- Emit Seen source coverage counters and LLVM mappings, with atomic updates
+  for concurrent code and checked mapping budgets. Reject C-only coverage
+  evidence, and correct the Seen MD5 implementation used by profile identities.
 - Give test CLI catalogs and reports their own bounded output budget and preserve
   reporter error codes instead of masking size-limit failures as invalid reports.
 - Retain trait receiver field types and generic function return signatures during
@@ -81,6 +91,10 @@ Foundations**.
   Keep completion ownership fixtures on current canonical declarations.
 - Release atomic ordering-validation result containers on successful and
   rejected integer operations, preserving returned errors and values.
+- Run the SPIR-V emitter fuzzer for its required wall-clock duration; retain
+  the outer timeout instead of failing early on faster hosts at an iteration cap.
+- Budget three hours for serial acceptance inside a five-hour CI scope, with
+  thirty minutes for job setup and artifact retention. Preserve resource caps.
 - Run required CI directly on the 0.23.0 release branch using the existing
   concurrency rule to replace superseded runs. Keep the canonical workflow
   contract and fixture aligned with that trigger.

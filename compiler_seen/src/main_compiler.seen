@@ -1,3 +1,8 @@
+import codegen.source_coverage_state.{beginSourceCoverageModule}
+import codegen.source_coverage_model.{SourceCoverageRegion, SourceCoverageFunction}
+import codegen.source_coverage_encoding.{coverageFilenames}
+import codegen.source_coverage_emit.{emitSourceCoverageRecords}
+import crypto.md5.{MD5}
 import codegen.simd_report.{configureSimdReporting, emitCollectedSimdReports,
     emitSimdObservationUnavailable, emitSimdPolicyRecord}
 import codegen.ir_bounds_proof.{BoundsProofPlan, proveRangeArrayBounds}
@@ -9386,6 +9391,10 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_assignment_coerce")
         modules.push("codegen.ir_option_aggregate")
         modules.push("codegen.ir_option_constructor_state")
+        modules.push("codegen.source_coverage_model")
+        modules.push("codegen.source_coverage_encoding")
+        modules.push("codegen.source_coverage_emit")
+        modules.push("codegen.source_coverage_state")
         modules.push("codegen.ir_assignment_gen")
         modules.push("codegen.ir_member_assignment_driver")
         modules.push("codegen.ir_assignment_move_driver")
@@ -14231,6 +14240,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println("    [" + moduleIndex.toString() + "] Codegen start")
             }
             let codegenStartTime = getTraceTimeSeconds()
+            beginSourceCoverageModule(path, g_coverageCli == 1)
             let irWritten =
                 generator.generateSingleToFileWithInitializationIndex(
                     frontend.program, moduleIndex,
@@ -14298,6 +14308,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         writeText(statusFile, "parse_done\n" + path)
                         writeText(statusFile, "codegen_start\n" + path)
                     }
+                    beginSourceCoverageModule(path, g_coverageCli == 1)
                     let irWritten =
                         generator.generateSingleToFileWithInitializationIndex(
                             frontend.program, moduleIndex,
@@ -16622,6 +16633,7 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
         }
         let llFile = jitWorkRoot + "/seen_jit_module_" +
             moduleIndex.toString() + ".ll"
+        beginSourceCoverageModule(path, false)
         if not generator.generateSingleToFileWithInitializationIndex(
             frontend.program, moduleIndex,
             jitGlobalInitializationRanks[moduleIndex], llFile) {

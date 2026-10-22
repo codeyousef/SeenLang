@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{beginSourceCoverageClosure, endSourceCoverageFunction}
 // ir_closure_driver.seen - closure expression lowering.
 
 import parser.real_parser.{ParserExpressionNode, getUiCallbackBlock}
@@ -68,7 +69,9 @@ fun generateClosureState(ctx: CodegenLoweringContext,
         paramIdx = paramIdx + 1
     }
 
+    beginSourceCoverageClosure(nestedOutput, closureName)
     let clBodyReg = lowerExpression(ctx, expr.operands[0])
+    endSourceCoverageFunction()
     if not isLoweringBlockTerminated(ctx) {
         nestedOutput.append("  ret i64 " + clBodyReg + "\n")
     }
@@ -99,10 +102,12 @@ fun generateUiCallbackState(ctx: CodegenLoweringContext,
     nestedOutput.append("define i64 @" + quoteIdentIfNeededImpl(closureName) +
         "() {\n")
     nestedOutput.append("entry:\n")
+    beginSourceCoverageClosure(nestedOutput, closureName)
     let callbackBlock = getUiCallbackBlock(expr)
     if callbackBlock.statements.length() > 0 {
         lowerBlock(ctx, callbackBlock)
     }
+    endSourceCoverageFunction()
     if not isLoweringBlockTerminated(ctx) {
         nestedOutput.append("  ret i64 0\n")
     }
