@@ -280,6 +280,10 @@ separate backend and hardware evidence.
 
 ## Packed precision and cooperative IR
 
+Precision intrinsics belong to `@compute` and `@device` bodies. Ordinary CPU
+functions require definitions or imports even in a module containing GPU entries.
+`seen check` applies the shared GPU validation rules to annotated bodies.
+
 Precision intrinsics operate on explicit `UInt32` storage words. `unpackFp32`,
 `unpackFp16`, `unpackBf16`, `unpackFp8E4M3FN` and `unpackMxfp4` return `Float32`;
 `unpackInt8/Int4/Int2/Int32` return `Int32`, and the corresponding `UInt` forms
@@ -475,7 +479,8 @@ The experimental runtime C ABI requires a Vulkan loader, device and driver.
 Check initialization/availability and choose fallback explicitly in caller
 policy. The frontend performs no device discovery and selects no fallback.
 `@vertex` and `@fragment` extraction and WebGPU bindings are separate APIs;
-they do not establish typed compute backend or Wasm target support.
+the typed compute frontend rejects these stages with `E_GPU_SIGNATURE`. They do
+not establish typed compute backend or Wasm target support.
 
 See [SIMD and GPU](../simd-and-gpu.md) for related compiler controls.
 

@@ -1,3 +1,4 @@
+import ir_fuzz_support.{GPU_IR_FUZZ_MAX_ITERATIONS, irFuzzDeadline, irFuzzRequireComplete}
 import ir_fixture_support.{irRequire, irCopyFixture}
 import codegen.gpu_manifest.{parseGpuManifest}
 import codegen.gpu_options.{GpuOptions}
@@ -10,10 +11,10 @@ fun main() r: Int {
     let invalid = ["[gpu]\nbackend = \"invalid\"", "[gpu]\nentries = [\"duplicate\", \"duplicate\"]",
         "[gpu]\nunknown = true", "[gpu]\nbackend = \"cuda\"\ntarget = \"gfx942\"", "[gpu]\n[gpu]", "[gpu.nested]\nvalue = 1"]
     let module = irCopyFixture(); let options = GpuOptions.create(); let capabilities = module.requiredCapabilities
-    let start = seen_time_monotonic_nanos(); irRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
-    let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1086
+    let start = seen_time_monotonic_nanos()
+    let deadline = irFuzzDeadline(start); var now = start; var iterations = 0; var seed = 1086
     let baseline = seen_memory_used_bytes()
-    while now < deadline and iterations < 10000000 {
+    while now < deadline and iterations < GPU_IR_FUZZ_MAX_ITERATIONS {
         seed = (seed * 48271) % 2147483647
         let parsed = parseGpuManifest(invalid[seed % invalid.length()]); irRequire(parsed.isErr())
         let error = parsed.unwrapErr(); error.free(); parsed.releaseContainer()
@@ -27,7 +28,7 @@ fun main() r: Int {
         irRequire(seen_memory_used_bytes() == baseline); iterations = iterations + 1
         if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); irRequire(next >= now); now = next }
     }
-    irRequire(now >= deadline and iterations >= 32); invalid.free(); module.release(); options.release()
+    irFuzzRequireComplete(now, deadline, iterations); invalid.free(); module.release(); options.release()
     println("PASS: GPU-001D reflection metadata fuzz 60s seed=1086 checked malformed policy IR and ownership")
     return 0
 }

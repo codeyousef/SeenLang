@@ -26,6 +26,12 @@ for profile in fast release undefined address; do
 done
 run_compiler check "$ROOT_DIR/tests/typed_gpu_compiler/precision_happy.seen" --frozen > "$TMP_DIR/source-check.log" 2>&1
 rg -Fq '[OK] Check passed' "$TMP_DIR/source-check.log"
+for specification in cpu_rejected:E009 unknown_call:E_GPU_UNSUPPORTED; do
+    name=${specification%:*}; code=${specification#*:}; status=0
+    run_compiler check "$ROOT_DIR/tests/typed_gpu_compiler/precision_$name.seen" --frozen > "$TMP_DIR/$name.log" 2>&1 || status=$?
+    test "$status" -eq 1
+    rg -Fq "$code" "$TMP_DIR/$name.log"
+done
 compile_case fast fuzz "$ROOT_DIR/tests/typed_gpu_compiler/ir_precision_fuzz.seen"
 rg -Fq 'PASS: GPU-001C precision metadata fuzz 60s seed=1084 rejected malformed profiles and overrides without leaks' "$TMP_DIR/fuzz-fast.log"
 echo 'PASS: GPU precision and cooperative matrix IR contract'

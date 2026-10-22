@@ -16,6 +16,8 @@ FIXTURE_ARTIFACT_PREFIX=gpu-ir-e
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 test ! -e "$ROOT_DIR/compiler_seen/src/codegen/glsl_gen.seen"
 for profile in fast release undefined address; do
+    compile_case "$profile" nested-inline "$ROOT_DIR/tests/compiler_regressions/nested_inline_field_assignment.seen"
+    rg -Fq 'PASS: nested inline fields update original storage preserve copies and neighbors and evaluate receivers once' "$TMP_DIR/nested-inline-$profile.log"
     compile_case "$profile" rejection "$ROOT_DIR/tests/typed_gpu_compiler/ir_rejection_contract.seen"
     rg -Fq 'PASS: GPU-001E kernel names cannot replace parsed body behavior' "$TMP_DIR/rejection-$profile.log"
     rg -Fq 'PASS: GPU-001E stable rejection goldens unsupported stages and CPU marker isolation' "$TMP_DIR/rejection-$profile.log"

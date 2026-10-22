@@ -72,6 +72,16 @@ Foundations**.
 
 ### Fixed
 
+- Store nested inline aggregate field assignments in their original receiver,
+  preserving adjacent fields and evaluating receiver expressions once.
+- Validate GPU intrinsic and helper calls through shared GPU lowering during
+  `seen check`, while preserving unresolved-call rejection in CPU code.
+- Keep compiler acceptance fixtures on the owning GPU annotation and type
+  mapping APIs so required checks link after module refactoring. Release GPU
+  frontend fixtures through the shared AST owner and verify exact cleanup.
+- Share checked GPU IR fuzz timing and fuel limits so faster compilers still
+  complete the required duration without exhausting a short iteration budget.
+
 - Speed up canonical test-path validation while preserving strict path checks
   and the existing discovery performance gate.
 

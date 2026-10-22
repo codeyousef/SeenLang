@@ -1,3 +1,4 @@
+import ir_fuzz_support.{GPU_IR_FUZZ_MAX_ITERATIONS, irFuzzDeadline, irFuzzRequireComplete}
 import bootstrap.owned_frontend.{runOwnedFrontendCompat}
 import ir_fixture_support.{irRequire}
 import ir_rejection_support.{rejectionExpect, rejectionObserve}
@@ -11,9 +12,9 @@ fun main() r: Int {
     let function = frontend.program.items[0].function; let statement = function.body.statements[0]
     let statementKind = statement.kind; let expressionKind = statement.expression.kind
     let parameterType = function.params[0].paramType.typeName; let baseline = seen_memory_used_bytes()
-    let start = seen_time_monotonic_nanos(); irRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
-    let deadline = start + (60000000000 as Int64); var now = start; var seed = 1087; var iterations = 0
-    while now < deadline and iterations < 10000000 {
+    let start = seen_time_monotonic_nanos()
+    let deadline = irFuzzDeadline(start); var now = start; var seed = 1087; var iterations = 0
+    while now < deadline and iterations < GPU_IR_FUZZ_MAX_ITERATIONS {
         seed = (seed * 48271) % 2147483647; let mode = seed % 8
         let number = seed.toString(); let unknown = "UnsupportedNode_" + number
         statement.line = 7 + seed % 100; statement.column = 1 + seed % 80
@@ -31,11 +32,15 @@ fun main() r: Int {
         } else { rejectionObserve(frontend.program, 7) }
         statement.kind = statementKind; statement.expression.kind = expressionKind; function.decorators[0].name = "compute"
         function.isAsync = false; function.params[0].paramType.typeName = parameterType
-        releaseJsonText(unknown); releaseJsonText(number); irRequire(seen_memory_used_bytes() == baseline)
+        releaseJsonText(unknown); releaseJsonText(number)
+        if seen_memory_used_bytes() != baseline { abort("GPU rejection fuzz did not restore its allocation baseline") }
         iterations = iterations + 1
-        if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); irRequire(next >= now); now = next }
+        if iterations % 32 == 0 {
+            let next = seen_time_monotonic_nanos()
+            if next < now { abort("GPU rejection fuzz monotonic clock moved backwards") }; now = next
+        }
     }
-    irRequire(now >= deadline and iterations >= 32)
+    irFuzzRequireComplete(now, deadline, iterations)
     owner.release()
     println("PASS: GPU-001E rejection fuzz 60s seed=1087 preserved diagnostics source positions and allocation baseline")
     return 0

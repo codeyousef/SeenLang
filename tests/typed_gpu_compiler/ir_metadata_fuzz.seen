@@ -1,13 +1,13 @@
+import ir_fuzz_support.{GPU_IR_FUZZ_MAX_ITERATIONS, irFuzzDeadline, irFuzzRequireComplete}
 import ir_fixture_support.{irRequire, irExpect, irCopyFixture}
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 extern "C" fun seen_memory_used_bytes() r: Int64
 
 fun main() r: Int {
     let start = seen_time_monotonic_nanos()
-    irRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
-    let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1081
+    let deadline = irFuzzDeadline(start); var now = start; var iterations = 0; var seed = 1081
     let baseline = seen_memory_used_bytes()
-    while now < deadline and iterations < 10000000 {
+    while now < deadline and iterations < GPU_IR_FUZZ_MAX_ITERATIONS {
         seed = (seed * 48271) % 2147483647
         let module = irCopyFixture(); let function = module.functions[0]
         let root = function.blocks[0]; let load = function.blocks[1].instructions[0]
@@ -30,7 +30,7 @@ fun main() r: Int {
             let next = seen_time_monotonic_nanos(); irRequire(next >= now); now = next
         }
     }
-    irRequire(now >= deadline and iterations >= 32)
+    irFuzzRequireComplete(now, deadline, iterations)
     println("PASS: GPU-001B IR metadata fuzz 60s seed=1081 checked identities limits and allocation baseline")
     return 0
 }

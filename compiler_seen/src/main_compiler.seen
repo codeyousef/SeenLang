@@ -54,7 +54,7 @@ import typechecker.gpu_frontend.{gpuCheckFunction as _seedGpuCheckFunction}
 import typechecker.gpu_types.{gpuParseType as _seedGpuParseType}
 import typechecker.gpu_scope.{GpuCheckContext as _seedGpuCheckContext}
 import typechecker.gpu_workgroup.{gpuParseWorkgroup as _seedGpuParseWorkgroup}
-import typechecker.gpu_annotations.{gpuFunctionStage as _seedGpuAnnotations}
+import typechecker.gpu_annotations.{gpuFunctionStage}
 import codegen.gpu_extract.{hasGpuFunctions}
 import codegen.gpu_options.{GpuOptions as _seedGpuOptions}
 import codegen.gpu_bytes.{consumeGpuBytes as _seedGpuBytes}
@@ -435,6 +435,7 @@ import codegen.ir_assignment_gen.{emitFieldStoreImpl, emitPreparedIndexAssignmen
 import codegen.ir_member_assignment_driver.{emitValueReceiverMemberAssignmentState}
 import codegen.ir_assignment_move_driver.{applyMoveAssignmentSemanticsState}
 import codegen.ir_assignment_driver.{generateAssignmentStatementState}
+import codegen.ir_assignment_receiver_driver.{tryAssignInlineReceiverFieldState}
 import codegen.ir_variable_gen.{getExprVariableNameImpl, shouldNullifyMovedArgumentSourceImpl, resolveMovedArgumentSourceNameImpl}
 import codegen.ir_variable_driver.{generateVariableState}
 import codegen.ir_field_layout.{resolveFieldAccessLayoutImpl}
@@ -9384,6 +9385,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_member_assignment_driver")
         modules.push("codegen.ir_assignment_move_driver")
         modules.push("codegen.ir_assignment_driver")
+        modules.push("codegen.ir_assignment_receiver_driver")
         modules.push("codegen.ir_variable_gen")
         modules.push("codegen.ir_variable_driver")
         modules.push("codegen.ir_field_layout")
@@ -11860,6 +11862,10 @@ fun checkUnresolvedFreeCallBlock(result: FrontendResult,
 fun checkUnresolvedFreeCallsInFunction(result: FrontendResult,
     modulePath: String, moduleProgram: ProgramNode, func: FunctionNode,
     ownerClassName: String) r: Void {
+
+    // Shared GPU lowering validates annotated bodies and their intrinsic/helper
+    // calls in the lexical semantic gate.
+    if gpuFunctionStage(func) != 0 { return }
 
     let boundNames = Array<String>()
     let boundTypes = Array<String>()

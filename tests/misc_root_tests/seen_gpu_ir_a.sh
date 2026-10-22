@@ -58,9 +58,11 @@ expect_rejected no-backend E_GPU_BACKEND_UNAVAILABLE compile \
 expect_rejected spaced-backend E_GPU_BACKEND_UNAVAILABLE compile \
     "$ROOT_DIR/tests/typed_gpu_compiler/frontend_spaced_annotation.seen" "$TMP_DIR/spaced-backend" --fast --no-cache --frozen
 [ ! -e "$TMP_DIR/spaced-backend" ]
-expect_rejected vertex-backend E_GPU_BACKEND_UNAVAILABLE compile \
-    "$ROOT_DIR/tests/typed_gpu_compiler/frontend_vertex_unsupported.seen" "$TMP_DIR/vertex-backend" --fast --no-cache --frozen
-[ ! -e "$TMP_DIR/vertex-backend" ]
+for stage in vertex fragment; do
+    expect_rejected "$stage-stage" E_GPU_SIGNATURE compile \
+        "$ROOT_DIR/tests/typed_gpu_compiler/frontend_${stage}_unsupported.seen" "$TMP_DIR/$stage-stage" --fast --no-cache --frozen
+    [ ! -e "$TMP_DIR/$stage-stage" ]
+done
 expect_rejected legacy-glsl E_GPU_BACKEND_UNAVAILABLE compile \
     "$ROOT_DIR/tests/typed_gpu_compiler/frontend_happy.seen" "$TMP_DIR/legacy-glsl" --emit-glsl --fast --no-cache --frozen
 [ ! -e "$TMP_DIR/legacy-glsl" ] && [ ! -e "$TMP_DIR/legacy-glsl.shaders" ]

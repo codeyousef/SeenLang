@@ -7,12 +7,18 @@ import ir_scalar_machine.{runIrScalarWitness}
 import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
 
 fun rejectionExpect(program: ProgramNode, code: String, message: String, line: Int, column: Int, emit: Bool) r: Void {
-    let result = lowerGpuProgram(program, "rejection.seen"); irRequire(result.isErr())
-    let validation = result.unwrapErr(); result.releaseContainer(); irRequire(validation.diagnostics.length() == 1)
-    let error = validation.diagnostics[0]; irRequire(error.code == code)
+    let result = lowerGpuProgram(program, "rejection.seen")
+    if not result.isErr() { abort("GPU rejection fixture unexpectedly lowered successfully; expected " + code) }
+    let validation = result.unwrapErr(); result.releaseContainer()
+    if validation.diagnostics.length() != 1 { abort("GPU rejection fixture expected exactly one diagnostic") }
+    let error = validation.diagnostics[0]
+    if error.code != code { abort("GPU rejection fixture diagnostic code differs from its golden") }
     if message != "" {
-        irRequire(error.message == message and error.line == line and error.column == column)
-        irRequire(error.functionIndex == 0 and error.blockIndex == 0 and error.instructionIndex == -1)
+        if error.message != message { abort("GPU rejection fixture diagnostic message differs from its golden") }
+        if error.line != line or error.column != column { abort("GPU rejection fixture source location differs from its golden") }
+        if error.functionIndex != 0 or error.blockIndex != 0 or error.instructionIndex != -1 {
+            abort("GPU rejection fixture IR location differs from its golden")
+        }
     }
     if emit {
         let json = JsonBuilder_new(); json.startObject(); json.stringProp("schema", "seen-gpu-rejection-golden-v1")

@@ -1,3 +1,4 @@
+import ir_fuzz_support.{GPU_IR_FUZZ_MAX_ITERATIONS, irFuzzDeadline, irFuzzRequireComplete}
 import ir_fixture_support.{irRequire, irExpect}
 import ir_lowering_support.{irLowerSource}
 import ir_precision_support.{precisionTarget, precisionExpectTarget, precisionExpectOverride, precisionCooperativeSource}
@@ -8,10 +9,10 @@ fun main() r: Int {
     let module = irLowerSource(precisionCooperativeSource()); let target = precisionTarget(module); irRequire(target.addMatrix(0, 2))
     let specialized = irLowerSource("@compute(1) fun bounded() { let x = specializeInt32(7, 4, 1, 8) }")
     let features = target.features; let key = target.matrixKeys[0]
-    let start = seen_time_monotonic_nanos(); irRequire(start >= (0 as Int64) and start <= (9223371976854775807 as Int64))
-    let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1084
+    let start = seen_time_monotonic_nanos()
+    let deadline = irFuzzDeadline(start); var now = start; var iterations = 0; var seed = 1084
     let baseline = seen_memory_used_bytes()
-    while now < deadline and iterations < 10000000 {
+    while now < deadline and iterations < GPU_IR_FUZZ_MAX_ITERATIONS {
         seed = (seed * 48271) % 2147483647; let mode = seed % 7
         if mode == 0 {
             target.features = 67108864 as UInt64; precisionExpectTarget(module, target, "E_GPU_CAPABILITY_PROFILE"); target.features = features
@@ -27,7 +28,7 @@ fun main() r: Int {
         irRequire(seen_memory_used_bytes() == baseline); iterations = iterations + 1
         if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); irRequire(next >= now); now = next }
     }
-    irRequire(now >= deadline and iterations >= 32); precisionExpectTarget(module, target, ""); irExpect(specialized, "")
+    irFuzzRequireComplete(now, deadline, iterations); precisionExpectTarget(module, target, ""); irExpect(specialized, "")
     target.release(); module.release(); specialized.release()
     println("PASS: GPU-001C precision metadata fuzz 60s seed=1084 rejected malformed profiles and overrides without leaks")
     return 0
