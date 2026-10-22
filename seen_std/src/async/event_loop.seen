@@ -1,10 +1,11 @@
+import memory.allocation.{releaseTraitDispatchBox}
 // Exclusive coordinator policy. Workers own only jobs removed from this loop.
 // The fixed executor is borrowed, never expanded by an I/O registration.
 import core.option.{Option, Some, None}
 import core.result.{Result, Ok, Err}
 import sync.contracts.{Send}
 import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext, seen_time_monotonic_nanos}
-import async.executor_core.{ExecutorTaskContext, executorFailure, executorCopyContext, executorWitnessMatches, executorFreeWitnessAddress,
+import async.executor_core.{ExecutorTaskContext, executorFailure, executorCopyContext, executorWitnessMatches,
     executorReleaseSnapshot, EXECUTOR_FOREVER}
 import async.multithread.{MultithreadExecutor, ExecutorJoinHandle}
 import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
@@ -32,7 +33,7 @@ class OwnedAsyncIoJob<T: Send + AsyncIoJob> {
     var dispatchAddress: UInt64
     static fun bind(value: T, dispatch: dyn AsyncIoJob) r: Result<OwnedAsyncIoJob<T>, AsyncError> {
         if not executorWitnessMatches(value as UInt64, dispatch as UInt64) {
-            executorFreeWitnessAddress(dispatch as UInt64)
+            releaseTraitDispatchBox(dispatch as UInt64)
             return Err<OwnedAsyncIoJob<T>, AsyncError>(executorFailure(1 as Int32, "io.job.alias", 0 as UInt64))
         }
         return Ok<OwnedAsyncIoJob<T>, AsyncError>(OwnedAsyncIoJob<T>{value: value, dispatchAddress: dispatch as UInt64})
@@ -42,11 +43,11 @@ class OwnedAsyncIoJob<T: Send + AsyncIoJob> {
         return dispatch.onEvent(event, descriptor, context)
     }
     fun take() r: T {
-        let value = this.value; executorFreeWitnessAddress(this.dispatchAddress); this.free(); return value
+        let value = this.value; releaseTraitDispatchBox(this.dispatchAddress); this.free(); return value
     }
     fun release() r: Bool {
         let dispatch: dyn AsyncIoJob = this.dispatchAddress as dyn AsyncIoJob
-        let released = dispatch.release(); executorFreeWitnessAddress(this.dispatchAddress); this.free(); return released
+        let released = dispatch.release(); releaseTraitDispatchBox(this.dispatchAddress); this.free(); return released
     }
 }
 

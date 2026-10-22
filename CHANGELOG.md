@@ -16,6 +16,9 @@ Foundations**.
   catalogs, with independent owning snapshots, explicit provider membership,
   duplicate/quota rejection and cleanup checks. CPU-default imports require no
   accelerator SDK; native device/context creation remains separate.
+- Add move-only GPU device/context ownership with explicit provider dispatch,
+  generation-checked quotas, cancellation/deadline admission and retained late
+  cleanup failures. Verify lifecycle behavior with a test-only native-call oracle.
 - Add experimental Seen-to-MSL source emission for macOS 13/14/15, a reflected
   native Metal buffer ABI, structured helper/loop lowering, checked scalar and
   vector memory, and bounded threadgroup storage. Add shared scalar CPU witnesses
@@ -83,6 +86,8 @@ Foundations**.
 
 ### Fixed
 
+- Emit dynamic `Void` trait calls without an LLVM result assignment. Exercise
+  mixed return types, receiver arguments and repeated destructor cleanup.
 - Admit bounded GPU validator tools after cached builds by accounting for clean
   unmapped file cache while preserving the aggregate memory limit.
 - Check Seen streams, process and DNS policies against source coverage gates,

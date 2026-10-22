@@ -41,7 +41,7 @@ class GpuDeviceInfo {
     var capabilities: GpuCapabilities
     var freeBytes: UInt64
 
-    fun validate(limits: GpuLimits) r: Result<Bool, GpuError> {
+    fun validate(borrow limits: GpuLimits) r: Result<Bool, GpuError> {
         let valid = limits.validate()
         if valid.isErr() { return valid }
         valid.releaseContainer()
@@ -53,7 +53,7 @@ class GpuDeviceInfo {
         }
         return Ok<Bool, GpuError>(true)
     }
-    fun snapshot(limits: GpuLimits) r: Result<GpuDeviceInfo, GpuError> {
+    fun snapshot(borrow limits: GpuLimits) r: Result<GpuDeviceInfo, GpuError> {
         let valid = this.validate(limits)
         if valid.isErr() { let error = valid.unwrapErr(); valid.releaseContainer(); return Err<GpuDeviceInfo, GpuError>(error) }
         valid.releaseContainer()

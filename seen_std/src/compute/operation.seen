@@ -1,0 +1,27 @@
+/// GPU adapters observe immutable operation metadata before and after a native
+/// call. The owner retains any late native result until destruction succeeds.
+import core.operation_context.{OperationContext, operationContextValidationStatus}
+import core.result.{Result, Ok, Err}
+import compute.error.{GpuError, gpuFailure}
+import sync.contracts.{syncValidateContext}
+
+fun gpuCheckOperation(context: OperationContext, operation: String) r: Result<Bool, GpuError> {
+    if context.monotonicDeadline < (0 as Int64) and not context.cancellation {
+        return Err<Bool, GpuError>(gpuFailure("gpu.timeout", operation, "GPU operation deadline expired"))
+    }
+    let status = operationContextValidationStatus(context)
+    if status == 1 { return Err<Bool, GpuError>(gpuFailure("gpu.cancelled", operation, "GPU operation is cancelled")) }
+    if status == 2 { return Err<Bool, GpuError>(gpuFailure("gpu.limit", operation, "GPU operation context exceeds a bound")) }
+    if status != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", operation, "GPU operation context is invalid")) }
+    let checked = syncValidateContext(context, operation, 0 as UInt64)
+    if checked.isErr() {
+        let error = checked.unwrapErr(); checked.releaseContainer()
+        var code = "gpu.unavailable"; var message = "GPU monotonic clock is unavailable"
+        if error.code == "sync.timeout" { code = "gpu.timeout"; message = "GPU operation deadline expired" }
+        if error.code == "sync.cancelled" { code = "gpu.cancelled"; message = "GPU operation is cancelled" }
+        error.free()
+        return Err<Bool, GpuError>(gpuFailure(code, operation, message))
+    }
+    checked.releaseContainer()
+    return Ok<Bool, GpuError>(true)
+}

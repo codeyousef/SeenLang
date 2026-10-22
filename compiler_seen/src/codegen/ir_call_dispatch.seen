@@ -230,6 +230,10 @@ fun emitDynTraitVtableCallImpl(output: StringBuilder, regBox: Array<Int>, receiv
         rSearchPos = rNextPipe + 1
     }
     // Indirect call through vtable
+    if dynRetType == "void" {
+        output.append("  call void " + fnPtrReg + "(" + argStr + ") ; dyn " + dynTraitName + "." + methodName + "\n")
+        return "0"
+    }
     let resultReg = getNextRegFn(regBox)
     output.append("  " + resultReg + " = call " + dynRetType + " " + fnPtrReg + "(" + argStr + ") ; dyn " + dynTraitName + "." + methodName + "\n")
     return resultReg

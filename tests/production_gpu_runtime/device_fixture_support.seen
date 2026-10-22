@@ -1,4 +1,6 @@
 import core.result.{Result}
+import core.operation_context.{OperationContext, OperationLimits}
+import core.error.{AsciiString}
 import compute.error.{GpuError}
 import compute.backend.{GpuBackend}
 import compute.capabilities.{GpuCapabilities, GPU_FEATURE_COMPUTE, GPU_FEATURE_ASYNC_TRANSFER}
@@ -19,4 +21,16 @@ fun gpuFixtureRejected(value: Result<Bool, GpuError>, code: String) r: Void {
     let error = value.unwrapErr(); value.releaseContainer()
     if error.code != code or error.retryable { abort("GPU metadata diagnostic changed") }
     error.release()
+}
+
+fun operation() r: OperationContext {
+    return OperationContext{cancellation: false,
+        monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096, maxPathBytes: 4095,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "gpu-fixture"}}
+}
+fun releaseOperation(value: OperationContext) r: Void {
+    value.traceId.free(); value.limits.free(); value.free()
 }

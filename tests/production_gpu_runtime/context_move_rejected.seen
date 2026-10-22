@@ -1,0 +1,7 @@
+import compute.device.{GpuContext}
+fun consume(value: GpuContext) r: Void {}
+fun invalid(value: GpuContext) r: Void {
+    consume(value)
+    value.close()
+}
+fun main() r: Int { return 0 }

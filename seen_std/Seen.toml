@@ -148,6 +148,9 @@ modules = [
     "src/compute/capabilities.seen",
     "src/compute/device_info.seen",
     "src/compute/discovery.seen",
+    "src/compute/operation.seen",
+    "src/compute/provider.seen",
+    "src/compute/device.seen",
 
     # Portable SIMD representation and dispatch planning
     "src/simd/ir_types.seen",

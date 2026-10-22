@@ -1,3 +1,4 @@
+import memory.allocation.{releaseTraitDispatchBox}
 /// Fixed-worker execution. Scheduling and task ownership are native Seen;
 /// executor_abi only creates and joins OS threads. Internal state is guarded
 /// by one mutex. User jobs always run with that mutex released.
@@ -55,9 +56,6 @@ trait ExecutorJob {
 fun executorWitnessMatches(value: UInt64, address: UInt64) r: Bool {
     let words = address as *UInt64; return words[0] == value
 }
-fun executorFreeWitnessAddress(address: UInt64) r: Void {
-    seen_pool_free(address as *Void, 16 as Int64)
-}
 
 /// Capture dispatch without moving the concrete job. Argument coercion creates
 /// the owned trait box; the returned box must be bound or dropped while the
@@ -67,7 +65,7 @@ fun executorCaptureWitness(borrow witness: dyn ExecutorJob) r: dyn ExecutorJob {
 }
 
 fun executorDropWitness(witness: dyn ExecutorJob) r: Void {
-    executorFreeWitnessAddress(witness as UInt64)
+    releaseTraitDispatchBox(witness as UInt64)
 }
 
 /// Capture a concrete trait witness before crossing an erased generic ABI.
@@ -84,7 +82,7 @@ class ExecutorOwnedJob<T: Send + ExecutorJob> {
 
     static fun bind(value: T, dispatch: dyn ExecutorJob) r: Result<ExecutorOwnedJob<T>, AsyncError> {
         if not executorWitnessMatches(value as UInt64, dispatch as UInt64) {
-            executorFreeWitnessAddress(dispatch as UInt64)
+            releaseTraitDispatchBox(dispatch as UInt64)
             return Err<ExecutorOwnedJob<T>, AsyncError>(executorFailure(1 as Int32, "executor.job.alias", 0 as UInt64))
         }
         return Ok<ExecutorOwnedJob<T>, AsyncError>(ExecutorOwnedJob<T>{value: value, dispatchAddress: dispatch as UInt64})
@@ -95,12 +93,12 @@ class ExecutorOwnedJob<T: Send + ExecutorJob> {
     }
     fun take() r: T {
         let value = this.value
-        executorFreeWitnessAddress(this.dispatchAddress); this.free(); return value
+        releaseTraitDispatchBox(this.dispatchAddress); this.free(); return value
     }
     fun release() r: Bool {
         let dispatch: dyn ExecutorJob = this.dispatchAddress as dyn ExecutorJob
         let released = dispatch.release()
-        executorFreeWitnessAddress(this.dispatchAddress); this.free(); return released
+        releaseTraitDispatchBox(this.dispatchAddress); this.free(); return released
     }
 }
 

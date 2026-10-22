@@ -1,0 +1,76 @@
+import compute.backend.{GpuBackend}
+import compute.device.{GpuDevice, GpuContext}
+import compute.error.{GpuError, gpuFailure}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+
+class ProviderCounts {
+    var creates: Int
+    var destroys: Int
+    var live: Int
+    var releases: Int
+    var next: UInt64
+    var failCreate: Bool
+    var failDestroy: Int
+    var empty: Bool
+    var alias: UInt64
+    var late: Bool
+    var refuseDestroy: Bool
+}
+// Test-only native-call oracle: it never discovers hardware or implements a
+// production backend. Counts independently enforce ownership of opaque tokens.
+@move
+class FixtureProvider {
+    var counts: ProviderCounts
+    var context: OperationContext
+    fun backend() r: GpuBackend { return GpuBackend.Vulkan }
+    fun identity() r: UInt64 { return 1 as UInt64 }
+    fun createContext(ordinal: Int) r: Result<UInt64, GpuError> {
+        if ordinal != 0 { abort("provider received another device ordinal") }
+        this.counts.creates = this.counts.creates + 1
+        if this.counts.failCreate { return Err<UInt64, GpuError>(gpuFailure("gpu.unavailable", "gpu.fixture", "native creation failed")) }
+        if this.counts.empty { return Ok<UInt64, GpuError>(0 as UInt64) }
+        if this.counts.alias != (0 as UInt64) { return Ok<UInt64, GpuError>(this.counts.alias) }
+        this.counts.next = this.counts.next + (1 as UInt64)
+        this.counts.live = this.counts.live + 1
+        if this.counts.late { this.context.monotonicDeadline = 1 as Int64 }
+        return Ok<UInt64, GpuError>(this.counts.next)
+    }
+    fun destroyContext(native: UInt64) r: Result<Bool, GpuError> {
+        if native == (0 as UInt64) or this.counts.live <= 0 { abort("provider destroyed an unowned context") }
+        if this.counts.failDestroy > 0 {
+            this.counts.failDestroy = this.counts.failDestroy - 1
+            return Err<Bool, GpuError>(gpuFailure("gpu.unavailable", "gpu.fixture.close", "native destruction failed"))
+        }
+        if this.counts.refuseDestroy { return Ok<Bool, GpuError>(false) }
+        this.counts.live = this.counts.live - 1; this.counts.destroys = this.counts.destroys + 1
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Void {
+        if this.counts.live != 0 { abort("provider released before its contexts") }
+        this.counts.releases = this.counts.releases + 1; this.free()
+    }
+}
+fun provider(counts: ProviderCounts, context: OperationContext) r: FixtureProvider {
+    return FixtureProvider{counts: counts, context: context}
+}
+fun opened(result: Result<GpuDevice, GpuError>) r: GpuDevice {
+    if result.isErr() { abort("valid provider could not open device") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun created(result: Result<GpuContext, GpuError>) r: GpuContext {
+    if result.isErr() { abort("valid provider could not create context") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun rejectedContext(result: Result<GpuContext, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid context creation succeeded") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.retryable { abort("context diagnostic changed") }
+    error.release()
+}
+fun completed(result: Result<Bool, GpuError>, expected: Bool) r: Void {
+    if result.isErr() or result.unwrap() != expected { abort("context cleanup result changed") }
+    result.releaseContainer()
+}
+fun newProviderCounts() r: ProviderCounts { return ProviderCounts{creates: 0, destroys: 0, live: 0, releases: 0, next: 0 as UInt64, failCreate: false,
+        failDestroy: 0, empty: false, alias: 0 as UInt64, late: false, refuseDestroy: false} }

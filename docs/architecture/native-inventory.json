@@ -6040,6 +6040,7 @@
       "sources": [
         "compiler_seen/src/bootstrap/allocation_owner.seen",
         "seen_std/src/async/executor_native.seen",
+        "seen_std/src/memory/allocation.seen",
         "seen_std/src/simd/dot_clock.seen"
       ]
     },

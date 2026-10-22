@@ -14,7 +14,7 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-runtime-a.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-runtime-a
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
-fixtures=(backend error limits device_info discovery)
+fixtures=(backend error limits device_info discovery operation device device_stress)
 for profile in fast release undefined address; do
     for name in "${fixtures[@]}"; do
         compile_case "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
@@ -41,5 +41,24 @@ seen_verify_source_coverage "$TMP_DIR/foundations" "${coverage[@]}" \
     --source seen_std/src/compute/limits.seen \
     --source seen_std/src/compute/capabilities.seen \
     --source seen_std/src/compute/device_info.seen \
-    --source seen_std/src/compute/discovery.seen
-echo 'PASS: bounded GPU discovery metadata and ownership; driver contexts and hardware execution unverified'
+    --source seen_std/src/compute/discovery.seen \
+    --source seen_std/src/compute/operation.seen \
+    --source seen_std/src/compute/provider.seen \
+    --source seen_std/src/compute/device.seen
+for name in device context; do
+    if run_compiler check "$ROOT_DIR/tests/production_gpu_runtime/${name}_move_rejected.seen" > "$TMP_DIR/$name-move.log" 2>&1; then
+        echo 'FAIL: GPU ownership transfer allowed use of the previous owner' >&2
+        exit 1
+    fi
+    rg -Fq E_OWNERSHIP_USE_AFTER_MOVE "$TMP_DIR/$name-move.log"
+    if run_compiler check "$ROOT_DIR/tests/production_gpu_runtime/${name}_share_rejected.seen" > "$TMP_DIR/$name-share.log" 2>&1; then
+        echo 'FAIL: GPU owner was implicitly admitted to cross-thread sharing' >&2
+        exit 1
+    fi
+    rg -Fq E_TYPE_BOUND "$TMP_DIR/$name-share.log"
+done
+FIXTURE_COMPILE_FLAGS=()
+unset LLVM_PROFILE_FILE
+compile_case fast metadata-fuzz "$ROOT_DIR/tests/production_gpu_runtime/metadata_fuzz.seen"
+rg -Fq 'PASS: GPU-006A metadata fuzz 60s seed=1100 preserves typed diagnostics bounds and ownership' "$TMP_DIR/metadata-fuzz-fast.log"
+echo 'PASS: bounded discovery and typed provider lifecycle; native backend integration and hardware execution unverified'

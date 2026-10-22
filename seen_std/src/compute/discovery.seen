@@ -14,7 +14,7 @@ class GpuDeviceCatalog {
     var devices: Array<GpuDeviceInfo>
     var closed: Bool
 
-    static fun create(backend: GpuBackend, providerId: UInt64, limits: GpuLimits)
+    static fun create(backend: GpuBackend, providerId: UInt64, borrow limits: GpuLimits)
         r: Result<GpuDeviceCatalog, GpuError> {
         if not gpuBackendKnown(backend) or backend == GpuBackend.CpuOnly or providerId == (0 as UInt64) {
             return Err<GpuDeviceCatalog, GpuError>(gpuFailure("gpu.invalid", "gpu.discovery", "discovery requires an explicit accelerator provider"))
