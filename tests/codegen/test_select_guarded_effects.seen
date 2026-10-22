@@ -1,0 +1,34 @@
+class Counter { var calls: Int }
+@noinline
+fun tick(counter: Counter, value: Int) r: Int {
+    counter.calls = counter.calls + 1; return value
+}
+@noinline
+fun single(counter: Counter, enabled: Int) r: Int {
+    var value = 5
+    if enabled > 0 { value = tick(counter, 7) + 1 }
+    return value
+}
+@noinline
+fun paired(counter: Counter, enabled: Bool) r: Int {
+    var value = 0
+    if enabled { value = tick(counter, 3) + 1 } else { value = tick(counter, 7) + 1 }
+    return value
+}
+@noinline
+fun scalarMax(left: Int, right: Int) r: Int {
+    var value = right
+    if left > right { value = left }
+    return value
+}
+fun main() r: Int {
+    let counter = Counter{calls: 0}
+    if single(counter, 0) != 5 or counter.calls != 0 { abort("untaken single-arm assignment executed its nested call") }
+    if single(counter, 1) != 8 or counter.calls != 1 { abort("taken single-arm assignment call count changed") }
+    if paired(counter, false) != 8 or counter.calls != 2 { abort("paired assignment evaluated its untaken arm") }
+    if paired(counter, true) != 4 or counter.calls != 3 { abort("paired assignment call ordering changed") }
+    if scalarMax(3, 7) != 7 or scalarMax(7, 3) != 7 { abort("safe scalar select behavior changed") }
+    counter.free()
+    println("PASS: conditional assignments preserve guarded nested effects and safe scalar selection")
+    return 0
+}
