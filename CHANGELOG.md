@@ -97,6 +97,8 @@ Foundations**.
 
 ### Fixed
 
+- Store fields of local native ABI values in their original aggregate storage,
+  preserving pointers and layout when Seen constructs native SDK requests.
 - Preserve conditional guards around array/member reads and nested effects.
   Branchless assignment optimization now requires safe scalar operands, so
   untaken branches cannot read absent elements or execute hidden calls.

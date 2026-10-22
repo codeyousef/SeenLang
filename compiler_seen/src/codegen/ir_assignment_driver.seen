@@ -241,20 +241,24 @@ fun generateMemberAssignmentState(ctx: CodegenLoweringContext,
         return
     }
 
-    if receiverName.contains(".") {
+    if receiverName != "" {
         let receiverExpr = buildChainedPathExprImpl(receiverName)
         if receiverExpr.kind != "" {
-            let receiverType = inferLoweredExpressionType(ctx, receiverExpr)
+            // Named native locals and chained inline fields both require
+            // their original aggregate storage, never a loaded class handle.
             if tryAssignInlineReceiverFieldState(ctx, output, receiverExpr,
                 fieldName, valueReg, value.kind, valueSeenType,
                 varNames, varRegs, varTypes) {
                 return
             }
-            let receiverReg = lowerExpression(ctx, receiverExpr)
-            if emitValueReceiverMemberAssignmentState(output, receiverReg,
-                receiverType, fieldName, valueReg, value.kind,
-                valueSeenType) == 1 {
-                return
+            if receiverName.contains(".") {
+                let receiverType = inferLoweredExpressionType(ctx, receiverExpr)
+                let receiverReg = lowerExpression(ctx, receiverExpr)
+                if emitValueReceiverMemberAssignmentState(output, receiverReg,
+                    receiverType, fieldName, valueReg, value.kind,
+                    valueSeenType) == 1 {
+                    return
+                }
             }
         }
     }
