@@ -74,6 +74,12 @@ Foundations**.
 
 ### Fixed
 
+- Check Seen streams, process and DNS policies against source coverage gates,
+  including stricter DNS/process-input branch thresholds, CNAME/IPv6 corpus, real
+  loopback UDP, closed-peer progress and retry policy, and unclaimed-child cleanup.
+- Check reactor admission, context snapshots, stale registrations, wake leases,
+  loopback transfer/EOF and deadline ordering against Seen source coverage gates.
+  Assert exact allocation cleanup across the full reactor lifecycle.
 - Resolve methods on generic receiver declarations before diagnosing unrelated
   extension calls. Capture borrowed executor dispatch before moving process jobs,
   while continuing to reject use after ownership binding.

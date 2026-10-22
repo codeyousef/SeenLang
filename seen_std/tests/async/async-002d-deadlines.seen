@@ -1,0 +1,76 @@
+import async.deadline_heap.{AsyncDeadlineHeap}
+import async.structured.{AsyncError}
+import core.result.{Result}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun takeHeap(value: Result<AsyncDeadlineHeap, AsyncError>) r: AsyncDeadlineHeap {
+    if value.isErr() { abort("deadline heap construction failed") }
+    let heap = value.unwrap(); value.releaseContainer(); return heap
+}
+fun rejected(value: Result<AsyncDeadlineHeap, AsyncError>) r: Void {
+    if value.isOkay() { abort("invalid deadline capacity accepted") }
+    let error = value.unwrapErr(); value.releaseContainer()
+    if error.code != "async.limit" { abort("wrong deadline capacity error") }
+    error.free()
+}
+
+// Compare the indexed heap against an independent bounded linear oracle after
+// every insertion/removal. Equal deadlines must select the lower slot number.
+fun verify(heap: AsyncDeadlineHeap, oracle: Array<Int64>) r: Void {
+    var first = -1; var count = 0; var slot = 0
+    while slot < oracle.length() {
+        if oracle[slot] >= (0 as Int64) {
+            count = count + 1
+            if first < 0 { first = slot }
+            else if oracle[slot] < oracle[first] { first = slot }
+        }
+        slot = slot + 1
+    }
+    if heap.first() != first or heap.count != count {
+        abort("deadline heap disagrees with independent order oracle")
+    }
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    rejected(AsyncDeadlineHeap.create(0)); rejected(AsyncDeadlineHeap.create(1048577))
+    let heap = takeHeap(AsyncDeadlineHeap.create(31))
+    let oracle = Array<Int64>(); var slot = 0
+    while slot < 31 { oracle.push(-1 as Int64); slot = slot + 1 }
+    if heap.insert(-1, 0 as Int64) or heap.insert(31, 0 as Int64) or
+        heap.insert(0, -1 as Int64) or heap.remove(-1) or heap.remove(31) or
+        heap.remove(0) { abort("invalid deadline operation accepted") }
+    var state = 1101; var iteration = 0
+    while iteration < 20000 {
+        state = (state * 48271) % 2147483647
+        slot = state % 31
+        if iteration % 3 == 0 {
+            let expected = oracle[slot] >= (0 as Int64)
+            if heap.remove(slot) != expected { abort("deadline remove status mismatch") }
+            oracle[slot] = -1 as Int64
+        } else {
+            let deadline = (state % 17) as Int64
+            let expected = oracle[slot] < (0 as Int64)
+            if heap.insert(slot, deadline) != expected { abort("deadline insert status mismatch") }
+            if expected { oracle[slot] = deadline }
+        }
+        verify(heap, oracle); iteration = iteration + 1
+    }
+    slot = 0
+    while slot < 31 {
+        let removed = heap.remove(slot); oracle[slot] = -1 as Int64; slot = slot + 1
+    }
+    slot = 30
+    while slot >= 0 {
+        if not heap.insert(slot, 7 as Int64) { abort("deadline refill failed") }
+        oracle[slot] = 7 as Int64; verify(heap, oracle); slot = slot - 1
+    }
+    slot = 0
+    while slot < 31 {
+        if heap.first() != slot or not heap.remove(slot) { abort("deadline tie order changed") }
+        oracle[slot] = -1 as Int64; verify(heap, oracle); slot = slot + 1
+    }
+    oracle.free(); heap.release()
+    if seen_memory_used_bytes() != memory { abort("deadline operations leaked allocations") }
+    println("PASS: ASYNC-002D deadline ordering, cancellation and slot reuse")
+    return 0
+}

@@ -26,10 +26,18 @@ report or a `TOTAL` marker cannot satisfy Seen coverage acceptance. Percentage
 gates must select the issue's applicable source files explicitly; the aggregate
 of every linked library module is not a measure of a single leaf's tests.
 
-The executor, pool, task-policy and synchronization contracts enforce aggregate 90%
+The executor, pool, reactor, streams/process/DNS, task-policy and synchronization contracts enforce aggregate 90%
 line and 80% branch coverage over their declared implementation files. Their
 adverse tests assert exact error codes, partial progress, retained ownership
 on failed admission, and allocation and native-handle cleanup.
+The reactor also checks loopback byte transfer and EOF, context snapshot isolation,
+stale registrations, bounded wake leases, and indexed deadline ordering against
+an independent reference model over 20,000 insertion/removal operations.
+The streams/process/DNS contract separately requires 90% branch coverage for
+the DNS wire parser and process argument validators. A structured CNAME/IPv6 corpus supplements the seed-1101
+60-second mutation fuzzer. The DNS integration test exchanges real loopback UDP
+datagrams using the existing socket ABI; query/answer policy stays in Seen.
+Process tests own, terminate and reap every child, including unclaimed spawn jobs.
 
 ## Leak and soak resource providers
 

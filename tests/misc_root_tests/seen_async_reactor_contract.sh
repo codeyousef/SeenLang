@@ -28,26 +28,52 @@ cleanup() {
 }
 trap cleanup EXIT
 
+REACTOR_COMPILE_FLAGS=()
 compile_case() {
     local profile=$1
     local name=$2
     local source=$3
+    shift 3
     local flags=(--fast)
     if [ "$profile" = release ]; then flags=(--release --lto=thin); fi
     local log="$TMP_DIR/$name-$profile.log"
     bash "$ATTESTED_SEEN" "$COMPILER" compile \
         "$source" "$TMP_DIR/$name-$profile" \
         --no-cache --frozen --target-cpu=x86-64 \
-        "${flags[@]}" >"$log" 2>&1
-    timeout --foreground --kill-after=5s 120s "$TMP_DIR/$name-$profile" >>"$log" 2>&1
+        "${flags[@]}" "${REACTOR_COMPILE_FLAGS[@]}" >"$log" 2>&1
+    timeout --foreground --kill-after=5s 120s "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
 }
 
 for profile in fast release; do
     compile_case "$profile" lifecycle "$ROOT_DIR/seen_std/tests/async/async-002d.seen"
+    for name in adverse deadlines sockets; do
+        compile_case "$profile" "$name" "$ROOT_DIR/seen_std/tests/async/async-002d-$name.seen"
+    done
     for case_name in happy partial invalid limit cancel cleanup; do
         rg -Fq "PASS: ASYNC-002D_$case_name" "$TMP_DIR/lifecycle-$profile.log"
     done
 done
+
+REACTOR_COMPILE_FLAGS=(--coverage)
+for name in lifecycle adverse deadlines sockets io; do
+    source="$ROOT_DIR/seen_std/tests/async/async-002d-$name.seen"
+    if [ "$name" = lifecycle ]; then source="$ROOT_DIR/seen_std/tests/async/async-002d.seen"; fi
+    if [ "$name" = io ]; then source="$ROOT_DIR/seen_std/tests/async/io_completion_stress.seen"; fi
+    export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
+    compile_case fast "coverage-$name" "$source" "$TMP_DIR/completion.bin"
+done
+source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
+seen_verify_source_coverage "$TMP_DIR/reactor" \
+    --fixture "$TMP_DIR/coverage-lifecycle-fast" "$TMP_DIR/lifecycle.profraw" \
+    --fixture "$TMP_DIR/coverage-adverse-fast" "$TMP_DIR/adverse.profraw" \
+    --fixture "$TMP_DIR/coverage-deadlines-fast" "$TMP_DIR/deadlines.profraw" \
+    --fixture "$TMP_DIR/coverage-sockets-fast" "$TMP_DIR/sockets.profraw" \
+    --fixture "$TMP_DIR/coverage-io-fast" "$TMP_DIR/io.profraw" \
+    --source seen_std/src/async/event_loop.seen \
+    --source seen_std/src/async/deadline_heap.seen \
+    --source seen_std/src/async/sockets.seen \
+    --source seen_std/src/async/io_lease.seen \
+    --source seen_std/src/async/io_wakeup.seen
 
 if bash "$ATTESTED_SEEN" "$COMPILER" check \
     "$ROOT_DIR/tests/fixtures/async/unsafe_io_job.seen" >"$TMP_DIR/unsafe.log" 2>&1; then

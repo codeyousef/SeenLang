@@ -1,0 +1,95 @@
+import stress_fixture_support.{must, errorHasProgress}
+import dns_fixture_support.{dnsFixtureAnswer, dnsFixtureResponse}
+import dns_wire_corpus_support.{DnsCorpus}
+import async.dns_wire.{DnsQuestion, DnsWire, DnsResponse, decodeDnsName, decodeDnsResponse}
+import async.structured.{AsyncError}
+import async.executor_native.{seen_string_release_owned}
+import core.result.{Result}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun expectError<T>(value: Result<T, AsyncError>, code: String) r: Void {
+    if not errorHasProgress<T>(value, code, 0 as UInt64) { abort("DNS corpus error mismatch") }
+}
+fun verifyAddress(response: DnsResponse, ipv6: Bool, name: String, ttl: UInt64) r: Void {
+    if response.canonicalName != name or response.addresses.length() != 1 { abort("DNS name/address count mismatch") }
+    let address = response.addresses[0]; var size = 4
+    if ipv6 { size = 16 }
+    if address.bytes.length() != size or address.bytes[size - 1] != 1 or address.ttl != ttl {
+        abort("DNS address/TTL mismatch")
+    }
+    if not ipv6 and address.bytes[0] != 127 { abort("DNS IPv4 payload mismatch") }
+    let socket = must(address.socketAddress(443))
+    if socket.packed.byteLength != (size as UInt64) or socket.port != (443 as UInt16) { abort("DNS socket conversion failed") }
+    socket.release(); response.release()
+}
+fun records() r: Void {
+    let question = must(DnsQuestion.create("Example.Test.", 1, 1101))
+    let chain = DnsCorpus.create(question); chain.wire.put(7, 3)
+    chain.alias("example.test", "alias.test", 30); chain.alias("alias.test", "final.test", 20)
+    chain.address("final.test", false, 1, 60)
+    verifyAddress(must(decodeDnsResponse(chain.wire, question, 4)), false, "final.test", 20 as UInt64)
+    chain.release()
+    let cycle = DnsCorpus.create(question); cycle.wire.put(7, 2)
+    cycle.alias("example.test", "alias.test", 30); cycle.alias("alias.test", "example.test", 20)
+    expectError(decodeDnsResponse(cycle.wire, question, 4), "async.invalid"); cycle.release()
+    let names = ["example.test", "one.test", "two.test", "three.test", "four.test",
+        "five.test", "six.test", "seven.test", "eight.test", "nine.test"]
+    let deep = DnsCorpus.create(question); deep.wire.put(7, 9); var index = 0
+    while index < 9 { deep.alias(names[index], names[index + 1], 60); index = index + 1 }
+    expectError(decodeDnsResponse(deep.wire, question, 4), "async.limit"); deep.release(); names.free()
+    let mixed = DnsCorpus.create(question); mixed.wire.put(7, 2); mixed.wire.put(9, 1)
+    mixed.address("example.test", false, 3, 10); mixed.address("example.test", false, 1, 60)
+    mixed.alias("ignored.test", "outside.test", 5)
+    verifyAddress(must(decodeDnsResponse(mixed.wire, question, 4)), false, "example.test", 60 as UInt64)
+    mixed.release()
+    let excess = DnsCorpus.create(question); excess.wire.put(7, 2)
+    excess.address("example.test", false, 1, 60); excess.address("example.test", false, 1, 60)
+    expectError(decodeDnsResponse(excess.wire, question, 1), "async.limit"); excess.release()
+    let wrong = DnsCorpus.create(question); wrong.wire.put(7, 1)
+    let at = wrong.header("example.test", 1, 1, 60); wrong.byte(127); wrong.finish(at)
+    expectError(decodeDnsResponse(wrong.wire, question, 4), "async.invalid"); wrong.release()
+    let q6 = must(DnsQuestion.create("v6.test", 28, 65535)); let v6 = DnsCorpus.create(q6)
+    v6.wire.put(7, 1); v6.address("v6.test", true, 1, 120)
+    verifyAddress(must(decodeDnsResponse(v6.wire, q6, 4)), true, "v6.test", 120 as UInt64)
+    v6.release(); q6.release(); question.release()
+}
+fun bounds() r: Void {
+    let question = must(DnsQuestion.create("example.test", 1, 1101))
+    let wire = dnsFixtureAnswer(question)
+    expectError(decodeDnsResponse(wire, question, 0), "async.invalid")
+    expectError(decodeDnsResponse(wire, question, 129), "async.invalid")
+    expectError(decodeDnsName(wire, 11), "async.invalid")
+    expectError(decodeDnsName(wire, wire.length), "async.invalid")
+    let length = wire.length
+    wire.length = 11; expectError(decodeDnsName(wire, 12), "async.invalid")
+    wire.length = 4097; expectError(decodeDnsResponse(wire, question, 4), "async.invalid")
+    wire.length = 513; expectError(decodeDnsName(wire, 12), "async.invalid")
+    wire.length = length
+    wire.put(7, 129); expectError(decodeDnsResponse(wire, question, 4), "async.limit"); wire.put(7, 1)
+    wire.put(3, 130)
+    let failed = decodeDnsResponse(wire, question, 4)
+    if failed.isOkay() { abort("DNS failure response accepted") }
+    let error = failed.unwrapErr(); failed.releaseContainer()
+    if error.code != "async.unavailable" or not error.retryable { abort("DNS server-failure retry policy changed") }
+    error.free(); wire.put(3, 128)
+    wire.storage.close(); expectError(decodeDnsName(wire, 12), "async.invalid")
+    wire.release(); question.release()
+}
+fun questionBounds() r: Void {
+    let invalid = ["", ".", "bad..name", "-bad.test", "bad-.test", "bad_name.test", "é.test",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.test"]
+    var index = 0
+    while index < invalid.length() {
+        expectError(DnsQuestion.create(invalid[index], 1, 0), "async.invalid"); index = index + 1
+    }
+    invalid.free()
+    expectError(DnsQuestion.create("example.test", 1, -1), "async.invalid")
+    expectError(DnsQuestion.create("example.test", 1, 65536), "async.invalid")
+    expectError(DnsQuestion.create("example.test", 5, 0), "async.invalid")
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); records(); bounds(); questionBounds()
+    if seen_memory_used_bytes() != memory { abort("DNS corpus leaked allocations") }
+    println("PASS: DNS structured CNAME/IPv6 corpus, bounds, retry and cleanup")
+    return 0
+}

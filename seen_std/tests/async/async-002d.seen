@@ -10,6 +10,7 @@ import async.sockets.{AsyncTcpSocket, SocketAddress}
 import async.completion_io.{AsyncFileCompletionQueue}
 import reactor.reactor.{OwnedHandle, Interest}
 import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_memory_used_bytes() r: Int64
 extern "C" fun seen_async_readiness_live_handles() r: UInt64
 extern "C" fun seen_reactor_live_handles() r: UInt64
 extern "C" fun seen_sync_live_atomics() r: UInt64
@@ -70,6 +71,7 @@ fun emptyHandle() r: OwnedHandle {
 }
 fun probe(releases: UInt64) r: IoProbe { return IoProbe{releases: releases, observed: false} }
 fun main() r: Int {
+    let memory = seen_memory_used_bytes()
     let readiness = seen_async_readiness_live_handles()
     let reactors = seen_reactor_live_handles(); let atomics = seen_sync_live_atomics()
     let threads = seen_executor_live_threads()
@@ -158,6 +160,7 @@ fun main() r: Int {
     if seen_reactor_live_handles() != reactors or seen_sync_live_atomics() != atomics { return 22 }
     if seen_executor_live_threads() != threads or seen_sync_live_mutexes() != mutexes or
         seen_sync_live_conditions() != conditions { return 17 }
+    if seen_memory_used_bytes() != memory { abort("reactor lifecycle leaked allocations") }
     println("PASS: ASYNC-002D_cleanup")
     return 0
 }
