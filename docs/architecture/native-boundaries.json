@@ -33,6 +33,7 @@
         "vkFreeMemory",
         "vkGetBufferMemoryRequirements",
         "vkGetPhysicalDeviceFeatures",
+        "vkGetPhysicalDeviceFeatures2",
         "vkGetPhysicalDeviceMemoryProperties",
         "vkGetPhysicalDeviceProperties2",
         "vkGetPhysicalDeviceQueueFamilyProperties"

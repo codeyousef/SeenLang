@@ -1,0 +1,31 @@
+import compute.vulkan_timeline.{gpuVkCaptureTimeline, gpuVkTimelineSupported}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop}
+import device_fixture_support.{gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let missing = gpuVkCaptureTimeline(0 as UInt64)
+    if missing.isOkay() { abort("timeline query admitted an absent native device") }
+    let error = missing.unwrapErr(); missing.releaseContainer()
+    if error.code != "gpu.invalid" { abort("timeline missing-device diagnostic changed") }; error.release()
+    let allocated = gpuVkAllocate(24 as UInt64)
+    if allocated.isErr() { abort("timeline metadata fixture allocation failed") }
+    let buffer = allocated.unwrap(); allocated.releaseContainer()
+    let words = buffer.data as *UInt32; let wide = buffer.data as *UInt64
+    words[0] = 1000207000 as UInt32
+    completed(gpuVkTimelineSupported(buffer), false)
+    words[4] = 1 as UInt32; completed(gpuVkTimelineSupported(buffer), true)
+    words[4] = 2 as UInt32; gpuFixtureRejected(gpuVkTimelineSupported(buffer), "gpu.invalid")
+    words[4] = 1 as UInt32; words[0] = 0 as UInt32
+    gpuFixtureRejected(gpuVkTimelineSupported(buffer), "gpu.invalid")
+    words[0] = 1000207000 as UInt32; wide[1] = 1 as UInt64
+    gpuFixtureRejected(gpuVkTimelineSupported(buffer), "gpu.invalid")
+    wide[1] = 0 as UInt64; buffer.byteLength = 0 as UInt64
+    gpuFixtureRejected(gpuVkTimelineSupported(buffer), "gpu.invalid")
+    buffer.byteLength = 25 as UInt64; gpuFixtureRejected(gpuVkTimelineSupported(buffer), "gpu.invalid")
+    buffer.byteLength = 24 as UInt64; gpuVkDrop(buffer)
+    if seen_memory_used_bytes() != baseline { abort("timeline malformed metadata leaked ownership") }
+    println("PASS: GPU-006C timeline SDK feature storage identity bounds and native Boolean rejection")
+    return 0
+}

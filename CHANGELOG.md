@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Add bounded staging reservations, checked buffer byte borrows and validated
+  Vulkan timeline feature admission. Submitted staging metadata retains its
+  range until explicit completion; native copy submission is a separate API.
 - Add typed pooled GPU buffers, explicit memory kinds and device-wide commitment
   budgets. Reuse bounded free ranges, report native allocation padding and
   unknown residency accurately, and retain failed or late cleanup ownership.

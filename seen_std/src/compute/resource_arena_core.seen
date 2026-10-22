@@ -42,6 +42,8 @@ class GpuBufferSlot {
     var lease: GpuContextLease
     var requestedBytes: UInt64
     var generation: UInt64
+    var readers: Int
+    var writers: Int
     var active: Bool
 }
 @move
@@ -218,7 +220,7 @@ class GpuArenaCore {
         let range = reserved.unwrap(); reserved.releaseContainer(); var generation = 1 as UInt64
         if slotIndex < this.slots.length() { generation = this.slots[slotIndex].generation }
         let slot = GpuBufferSlot{block: blockIndex, range: range, lease: lease,
-            requestedBytes: geometry.byteLength, generation: generation, active: true}
+            requestedBytes: geometry.byteLength, generation: generation, readers: 0, writers: 0, active: true}
         if slotIndex == this.slots.length() { this.slots.push(slot) } else { this.slots[slotIndex].free(); this.slots[slotIndex] = slot }
         block.liveBuffers = block.liveBuffers + 1; this.liveBuffers = this.liveBuffers + 1
         this.requestedBytes = this.requestedBytes + geometry.byteLength
@@ -229,7 +231,11 @@ class GpuArenaCore {
         if not this.validSlot(index, generation) {
             return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.close", "GPU buffer generation or allocator owner is stale"))
         }
-        let slot = this.slots[index]; let block = this.blocks[slot.block]
+        let slot = this.slots[index]
+        if slot.readers != 0 or slot.writers != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.buffer.close", "GPU buffer still owns transfer or mapping borrows"))
+        }
+        let block = this.blocks[slot.block]
         let recycled = block.ranges.recycle(slot.range.offset, slot.range.bytes)
         if recycled.isErr() { return recycled }
         recycled.releaseContainer()

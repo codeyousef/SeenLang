@@ -72,6 +72,7 @@ bash -n \
     tests/misc_root_tests/seen_gpu_metal_a.sh \
     tests/misc_root_tests/seen_gpu_runtime_a.sh \
     tests/misc_root_tests/seen_gpu_runtime_b.sh \
+    tests/misc_root_tests/seen_gpu_staging_foundations.sh \
     tests/misc_root_tests/seen_select_guard_safety.sh \
     scripts/vulkan_reference_fixture_support.sh \
     tests/misc_root_tests/seen_dyn_trait_void_contract.sh \

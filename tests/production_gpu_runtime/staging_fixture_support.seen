@@ -1,0 +1,19 @@
+import compute.staging_ring.{GpuStagingRing, GpuStagingSlice}
+import compute.error.{GpuError}
+import core.result.{Result}
+
+fun ring(capacity: UInt64, slots: Int) r: GpuStagingRing {
+    let created = GpuStagingRing.create(capacity, slots)
+    if created.isErr() { abort("valid staging metadata rejected") }
+    let owner = created.unwrap(); created.releaseContainer(); return owner
+}
+fun claimed(result: Result<GpuStagingSlice, GpuError>) r: GpuStagingSlice {
+    if result.isErr() { abort("valid staging range rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun rejected(result: Result<GpuStagingSlice, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid staging range admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.retryable { abort("staging rejection changed") }
+    error.release()
+}

@@ -10,6 +10,8 @@ _Static_assert(sizeof(void *) == 8, "64-bit Vulkan ABI required");
 _Static_assert(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 == 1000059001, "properties sType");
 _Static_assert(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES == 1000071004, "identity sType");
 _Static_assert(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES == 1000094000, "subgroup sType");
+_Static_assert(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 == 1000059000, "features2 sType");
+_Static_assert(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES == 1000207000, "timeline feature sType");
 int main(void) {
     SIZE(VkApplicationInfo, 48); SIZE(VkInstanceCreateInfo, 64);
     SIZE(VkDeviceQueueCreateInfo, 40); SIZE(VkDeviceCreateInfo, 72);
@@ -17,6 +19,9 @@ int main(void) {
     SIZE(VkPhysicalDeviceIDProperties, 64); SIZE(VkPhysicalDeviceSubgroupProperties, 32);
     SIZE(VkPhysicalDeviceMemoryProperties, 520); SIZE(VkPhysicalDeviceFeatures, 220);
     SIZE(VkQueueFamilyProperties, 24);
+    SIZE(VkPhysicalDeviceFeatures2, 240); SIZE(VkPhysicalDeviceTimelineSemaphoreFeatures, 24);
+    FIELD(VkPhysicalDeviceFeatures2, pNext, 8); FIELD(VkPhysicalDeviceFeatures2, features, 16);
+    FIELD(VkPhysicalDeviceTimelineSemaphoreFeatures, timelineSemaphore, 16);
     SIZE(VkBufferCreateInfo, 56); SIZE(VkMemoryAllocateInfo, 32); SIZE(VkMemoryRequirements, 24);
     FIELD(VkBufferCreateInfo, size, 24); FIELD(VkBufferCreateInfo, usage, 32);
     FIELD(VkBufferCreateInfo, queueFamilyIndexCount, 40); FIELD(VkBufferCreateInfo, pQueueFamilyIndices, 48);

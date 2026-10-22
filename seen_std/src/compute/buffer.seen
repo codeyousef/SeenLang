@@ -2,6 +2,7 @@
 /// its range to the pool; only explicit trim or allocator shutdown frees blocks.
 import compute.resource_arena_core.{GpuArenaCore}
 import compute.allocator.{GpuAllocator}
+import compute.buffer_region.{GpuBufferRegion}
 import compute.resource_geometry.{GpuBufferGeometry, gpuResourceAlignmentValid}
 import core.operation_context.{OperationContext}
 import compute.error.{GpuError, gpuFailure}
@@ -50,6 +51,12 @@ class GpuBuffer<T> {
             return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.offset", "GPU buffer owner or generation is inactive"))
         }
         return Ok<UInt64, GpuError>(this.core.slots[this.slot].range.offset)
+    }
+    fun region(offset: UInt64, bytes: UInt64, write: Bool, operation: OperationContext) r: Result<GpuBufferRegion, GpuError> {
+        if not this.active {
+            return Err<GpuBufferRegion, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.region", "GPU byte region requires an active buffer owner"))
+        }
+        return GpuBufferRegion.acquire(this.core, this.slot, this.generation, offset, bytes, write, operation)
     }
     fun close() r: Result<Bool, GpuError> {
         if not this.active { return Ok<Bool, GpuError>(false) }

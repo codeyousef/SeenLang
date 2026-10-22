@@ -158,8 +158,10 @@ modules = [
     "src/compute/resource_geometry.seen",
     "src/compute/resource_ranges.seen",
     "src/compute/resource_arena_core.seen",
+    "src/compute/buffer_region.seen",
     "src/compute/buffer.seen",
     "src/compute/allocator.seen",
+    "src/compute/staging_ring.seen",
     "src/compute/vulkan_abi.seen",
     "src/compute/vulkan_native.seen",
     "src/compute/vulkan_error.seen",
@@ -169,6 +171,7 @@ modules = [
     "src/compute/vulkan_buffer_abi.seen",
     "src/compute/vulkan_memory_info.seen",
     "src/compute/vulkan_memory.seen",
+    "src/compute/vulkan_timeline.seen",
     "src/compute/vulkan_provider.seen",
 
     # Portable SIMD representation and dispatch planning

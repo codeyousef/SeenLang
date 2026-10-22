@@ -1,0 +1,38 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_timeline.{gpuVkCaptureTimeline}
+import compute.vulkan_abi.{gpuVkDrop, gpuVkU32}
+import compute.capabilities.{GPU_FEATURE_TIMELINE_EVENTS}
+import compute.limits.{GpuLimits}
+import device_fixture_support.{operation, releaseOperation}
+import provider_fixture_support.{completed}
+import env.env.{args, releaseArgs}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    var expected = 1 as UInt32
+    if arguments.length() == 2 and arguments[1] == "unsupported" { expected = 0 as UInt32 }
+    else if arguments.length() != 1 { abort("timeline reference fixture expects an optional unsupported case") }
+    let op = operation(); let limits = GpuLimits.bounded(4, 2, 64, 1048576 as UInt64)
+    let discovered = GpuVulkanProvider.discover(op, limits, true)
+    if discovered.isErr() { abort("Vulkan timeline reference discovery failed") }
+    let provider = discovered.unwrap(); discovered.releaseContainer()
+    let queried = gpuVkCaptureTimeline(provider.records[0].physical)
+    if queried.isErr() { abort("Vulkan timeline reference query failed") }
+    let enabled = queried.unwrap(); queried.releaseContainer()
+    let reported = (provider.catalog.devices[0].capabilities.features & GPU_FEATURE_TIMELINE_EVENTS) != (0 as UInt64)
+    if gpuVkU32(enabled, 16 as UInt64) != expected or reported != (expected == (1 as UInt32)) {
+        abort("Vulkan reference timeline feature was not reported and enabled")
+    }
+    gpuVkDrop(enabled)
+    let opened = openVulkanDevice(provider, 0, op)
+    if opened.isErr() { abort("Vulkan timeline reference device selection failed") }
+    let device = opened.unwrap(); opened.releaseContainer(); let created = device.createContext(op)
+    if created.isErr() { abort("Vulkan timeline feature chain was not accepted during context creation") }
+    let context = created.unwrap(); created.releaseContainer(); completed(context.release(), true); completed(device.release(), true)
+    limits.release(); releaseOperation(op); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("Vulkan timeline feature query leaked ownership") }
+    println("PASS: GPU-006C Vulkan SDK timeline feature query and logical-device enable chain")
+    return 0
+}

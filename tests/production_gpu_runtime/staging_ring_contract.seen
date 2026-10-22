@@ -1,0 +1,62 @@
+import staging_fixture_support.{ring, claimed, rejected}
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let op = operation(); let owner = ring(64 as UInt64, 3)
+    let first = claimed(owner.reserve(16 as UInt64, 16 as UInt64, op))
+    let second = claimed(owner.reserve(16 as UInt64, 16 as UInt64, op))
+    let third = claimed(owner.reserve(16 as UInt64, 16 as UInt64, op))
+    if first.offset != (0 as UInt64) or second.offset != (16 as UInt64) or third.offset != (32 as UInt64) or
+        owner.core.occupiedBytes != (48 as UInt64) or owner.core.borrowers != 3 { abort("staging fixed-offset partition changed") }
+    rejected(owner.reserve(1 as UInt64, 1 as UInt64, op), "gpu.limit")
+    gpuFixtureRejected(owner.close(), "gpu.busy")
+    gpuFixtureRejected(first.submitted(2 as UInt64), "gpu.invalid")
+    let next = first.nextSignal()
+    if next.isErr() or next.unwrap() != (1 as UInt64) { abort("staging timeline did not start at one") }
+    next.releaseContainer(); completed(first.submitted(1 as UInt64), true)
+    gpuFixtureRejected(first.close(), "gpu.busy")
+    completed(second.submitted(2 as UInt64), true); gpuFixtureRejected(second.submitted(3 as UInt64), "gpu.invalid")
+    completed(third.close(), true)
+    if owner.core.occupiedBytes != (32 as UInt64) or owner.core.inFlight != 2 { abort("reserved staging cancellation changed submitted owners") }
+    gpuFixtureRejected(owner.complete(3 as UInt64), "gpu.invalid")
+    completed(owner.complete(1 as UInt64), true); completed(owner.complete(1 as UInt64), false)
+    gpuFixtureRejected(owner.complete(0 as UInt64), "gpu.invalid")
+    if not first.isComplete() or second.isComplete() or owner.core.occupiedBytes != (16 as UInt64) { abort("staging completion recycled unfinished storage") }
+    let oldSlot = first.slot; let oldGeneration = first.generation
+    completed(first.close(), true)
+    let reused = claimed(owner.reserve(16 as UInt64, 16 as UInt64, op))
+    if reused.offset % (16 as UInt64) != (0 as UInt64) or reused.offset > (48 as UInt64) or
+        (reused.offset < (32 as UInt64) and (16 as UInt64) < reused.offset + reused.bytes) {
+        abort("staging reuse overlaps a submitted range or escapes alignment and bounds")
+    }
+    if reused.slot != oldSlot or reused.generation == oldGeneration or owner.core.validSlot(oldSlot, oldGeneration) {
+        abort("staging ticket reuse accepted a stale generation")
+    }
+    completed(reused.release(), true); completed(owner.complete(2 as UInt64), true)
+    // Completed storage is free, but a live ticket still pins metadata.
+    gpuFixtureRejected(owner.release(), "gpu.busy")
+    completed(second.release(), true); completed(first.release(), true)
+    completed(owner.release(), true)
+    completed(third.close(), false); completed(third.release(), true)
+
+    let stress = ring(64 as UInt64, 8); let warm = seen_memory_used_bytes(); var cycle = 0
+    while cycle < 10000 {
+        let slice = claimed(stress.reserve(8 as UInt64, 8 as UInt64, op)); let signal = slice.nextSignal()
+        if signal.isErr() { abort("staging timeline exhausted early") }
+        let value = signal.unwrap(); signal.releaseContainer()
+        completed(slice.submitted(value), true); completed(stress.complete(value), true); completed(slice.release(), true)
+        if stress.core.occupiedBytes != (0 as UInt64) or stress.core.borrowers != 0 or stress.core.inFlight != 0 or seen_memory_used_bytes() != warm {
+            abort("warmed staging reuse leaked storage or completion ownership")
+        }
+        cycle = cycle + 1
+    }
+    completed(stress.close(), true); completed(stress.close(), false)
+    rejected(stress.reserve(1 as UInt64, 1 as UInt64, op), "gpu.invalid")
+    gpuFixtureRejected(stress.complete(0 as UInt64), "gpu.invalid")
+    completed(stress.release(), true); releaseOperation(op)
+    if seen_memory_used_bytes() != baseline { abort("staging slot lifecycle leaked Seen ownership") }
+    println("PASS: GPU-006C staging metadata bounds generations submission completion and 10000 warmed lifecycles")
+    return 0
+}

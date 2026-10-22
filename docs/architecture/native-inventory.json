@@ -8121,6 +8121,13 @@
       ]
     },
     {
+      "name": "vkGetPhysicalDeviceFeatures2",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_timeline.seen"
+      ]
+    },
+    {
       "name": "vkGetPhysicalDeviceMemoryProperties",
       "abi": "C",
       "sources": [

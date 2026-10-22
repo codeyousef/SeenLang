@@ -16,6 +16,8 @@ import compute.vulkan_queue.{gpuVkComputeFamily}
 import compute.vulkan_native.{vkEnumeratePhysicalDevices, vkCreateDevice, vkDestroyDevice}
 import compute.vulkan_error.{gpuVkFailure}
 import compute.resource_provider.{GpuResourceProviderHandle}
+import compute.capabilities.{GPU_FEATURE_TIMELINE_EVENTS}
+import compute.vulkan_timeline.{gpuVkCaptureTimeline}
 import compute.vulkan_memory.{gpuVkCreateResourceProvider}
 import memory.aligned_buffer.{OwnedBuffer}
 import memory.allocation.{allocationBudgetAvailable}
@@ -147,6 +149,15 @@ class GpuVulkanProvider {
         words[0] = gpuVkU32(supported, 0 as UInt64)
         words[39] = gpuVkU32(supported, 156 as UInt64); words[40] = gpuVkU32(supported, 160 as UInt64)
         let priority = record.buffers[1]; let value = priority.data as *Float32; value[0] = 1.0 as Float32
+        let capturedTimeline = gpuVkCaptureTimeline(record.physical)
+        if capturedTimeline.isErr() {
+            let error = capturedTimeline.unwrapErr(); capturedTimeline.releaseContainer(); report.release(); record.release()
+            return Err<Bool, GpuError>(error)
+        }
+        let timeline = capturedTimeline.unwrap(); capturedTimeline.releaseContainer(); record.buffers.push(timeline)
+        if gpuVkU32(timeline, 16 as UInt64) == (1 as UInt32) {
+            report.capabilities.features = report.capabilities.features | GPU_FEATURE_TIMELINE_EVENTS
+        }
         let admitted = this.catalog.admit(report)
         if admitted.isErr() { record.release(); return admitted }
         admitted.releaseContainer(); this.records.push(record); return Ok<Bool, GpuError>(true)
@@ -162,6 +173,7 @@ class GpuVulkanProvider {
                 let enabled = record.buffers[0]; let priority = record.buffers[1]
                 let queue = gpuVkQueueInfo(record.family, priority.data as *const Float32)
                 let info = gpuVkDeviceInfo((&queue) as *const VulkanDeviceQueueCreateInfo, enabled.data as *const UInt8)
+                info.pNext = record.buffers[2].data as *Void
                 var native = 0 as UInt64
                 let status = vkCreateDevice(record.physical, (&info) as *const VulkanDeviceCreateInfo, null as *Void, &native)
                 if status != (0 as Int32) { return Err<UInt64, GpuError>(gpuVkFailure(status, "gpu.vulkan.context")) }

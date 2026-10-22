@@ -63,6 +63,19 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceQueueFamilyProperties(VkPhysicalDe
         for (uint32_t i = 0; i < *count; ++i) properties[i].queueFlags = VK_QUEUE_TRANSFER_BIT;
     }
 }
+VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceFeatures2(VkPhysicalDevice physical,
+    VkPhysicalDeviceFeatures2 *features) {
+    NEXT(vkGetPhysicalDeviceFeatures2); next(physical, features);
+    VkPhysicalDeviceTimelineSemaphoreFeatures *timeline = features->pNext;
+    if (fault("timeline-root-tag")) features->sType = 0;
+    if (fault("timeline-root-chain")) features->pNext = NULL;
+    if (timeline) {
+        if (fault("timeline-tag")) timeline->sType = 0;
+        if (fault("timeline-chain")) timeline->pNext = (void *)(uintptr_t)1;
+        if (fault("timeline-bool")) timeline->timelineSemaphore = 2;
+        if (fault("timeline-none")) timeline->timelineSemaphore = VK_FALSE;
+    }
+}
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physical,
     const VkDeviceCreateInfo *info, const VkAllocationCallbacks *allocator, VkDevice *device) {
     if (fault("context-status")) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
