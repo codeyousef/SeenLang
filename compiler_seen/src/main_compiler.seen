@@ -490,7 +490,7 @@ import codegen.ir_type_header_registry.{applyTypeHeaderStructLineReg}
 import codegen.ir_type_header.{emitBuiltinTypeHeaderImpl}
 import tools.translator.{translateSource}
 import tools.cli_args.{CliArguments, parseCliArguments}
-import seen_compiler.testing.cli_runner.{runCanonicalTests}
+import seen_compiler.testing.cli_runner.{runCanonicalTests, testCliOperationContext}
 import seen_compiler.testing.migration.{TestMigrationEntry as _seedTestMigrationEntry,
     TestMigrationPlan as _seedTestMigrationPlan,
     TestMigrationOutcome as _seedTestMigrationOutcome}
@@ -17885,7 +17885,7 @@ fun main() r: Int {
             parsed.hasOption("--include-ignored"),
             parsed.hasOption("--include-slow"),
             parsed.hasOption("--allow-privileged"),
-            parsed.valuesFor("--report"), packageCompatibilityContext())
+            parsed.valuesFor("--report"), testCliOperationContext())
     }
 
     if command == "check" {

@@ -74,6 +74,8 @@ Foundations**.
 
 ### Fixed
 
+- Give test CLI catalogs and reports their own bounded output budget and preserve
+  reporter error codes instead of masking size-limit failures as invalid reports.
 - Retain trait receiver field types and generic function return signatures during
   inference, and validate lifecycle bounds on static factory type applications.
   Keep completion ownership fixtures on current canonical declarations.
