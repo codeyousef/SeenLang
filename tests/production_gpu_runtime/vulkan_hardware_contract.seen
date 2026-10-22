@@ -1,0 +1,80 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.allocator.{GpuAllocator}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import compute.error.{GpuError}
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun hardwareFailure(error: GpuError) r: Void {
+    println(error.code); println(error.operation); println(error.message)
+    error.release(); abort("required Vulkan hardware operation failed")
+}
+
+// Opt-in device execution. The ordinary reference-provider fixtures remain
+// runnable without hardware; this fixture must never accept a software ICD.
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let op = operation(); let limits = GpuLimits.bounded(4, 2, 64, 1048576 as UInt64)
+    let discovered = GpuVulkanProvider.discover(op, limits, false)
+    if discovered.isErr() { hardwareFailure(discovered.unwrapErr()) }
+    let provider = discovered.unwrap(); discovered.releaseContainer()
+    var ordinal = -1; var i = 0
+    while i < provider.catalog.devices.length() {
+        let info = provider.catalog.devices[i]
+        if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") {
+            ordinal = info.identity.ordinal
+        }
+        i = i + 1
+    }
+    if ordinal < 0 { abort("required RTX 4090 Vulkan device unavailable") }
+    let opened = openVulkanDevice(provider, ordinal, op)
+    if opened.isErr() { hardwareFailure(opened.unwrapErr()) }
+    let device = opened.unwrap(); opened.releaseContainer()
+    println(device.core.info.name)
+    println(device.core.info.identity.uuid)
+    let created = device.createContext(op)
+    if created.isErr() { hardwareFailure(created.unwrapErr()) }
+    let context = created.unwrap(); created.releaseContainer()
+    var cycle = 0
+    while cycle < 32 {
+        let pooled = GpuAllocator.create(context, GpuMemoryKind.DeviceLocal, 1024 as UInt64, 2, op)
+        if pooled.isErr() { hardwareFailure(pooled.unwrapErr()) }
+        let allocator = pooled.unwrap(); pooled.releaseContainer()
+        let a = GpuBuffer<UInt32>.allocate(allocator, 8 as UInt64, 4 as UInt64, 256 as UInt64, op)
+        let b = GpuBuffer<Float32>.allocate(allocator, 8 as UInt64, 4 as UInt64, 256 as UInt64, op)
+        if a.isErr() { hardwareFailure(a.unwrapErr()) }
+        if b.isErr() { hardwareFailure(b.unwrapErr()) }
+        let first = a.unwrap(); let second = b.unwrap()
+        a.releaseContainer(); b.releaseContainer()
+        let statsResult = allocator.stats()
+        if statsResult.isErr() { abort("Vulkan hardware statistics unavailable") }
+        let stats = statsResult.unwrap(); statsResult.releaseContainer()
+        if not stats.valid() or stats.requestedBytes != (64 as UInt64) or
+            stats.allocatedBytes != (512 as UInt64) or stats.blocks != 1 or
+            stats.committedBytes < (1024 as UInt64) or stats.residentBytes.isSome() or
+            allocator.core.slots[first.slot].block != allocator.core.slots[second.slot].block {
+            abort("Vulkan hardware accounting or pooling differs")
+        }
+        stats.release()
+        gpuFixtureRejected(allocator.release(), "gpu.busy")
+        gpuFixtureRejected(context.close(), "gpu.busy")
+        completed(first.release(), true); completed(second.release(), true)
+        completed(allocator.trim(), true); completed(allocator.release(), true)
+        if device.core.resourceCommittedBytes != (0 as UInt64) or device.core.resourceBorrowers != 0 {
+            abort("Vulkan hardware retained commitment or resource leases")
+        }
+        cycle = cycle + 1
+    }
+    completed(context.release(), true); completed(device.release(), true)
+    limits.release(); releaseOperation(op)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics {
+        abort("Vulkan hardware lifecycle retained ownership")
+    }
+    println("PASS: GPU-006A/B RTX 4090 Vulkan discovery context typed allocation accounting and cleanup")
+    return 0
+}

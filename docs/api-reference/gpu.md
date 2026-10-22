@@ -576,6 +576,33 @@ remain **compile-only** with hardware/device verification false. A successful
 assembler check establishes accepted PTX syntax and layout, not numerical GPU
 execution, launch safety or production certification.
 
+On a machine with an SM89 CUDA device, these fixtures also execute their emitted
+layout and capability kernels through the CUDA driver. The test-only host checks
+independent output values, buffer sentinels, explicit faults, vector uniform
+packing, ordered atomics and full/partial-warp collectives in all four profiles.
+It records device identity, source-artifact hashes and read-back memory/swap/task
+limits separately from the unchanged compile-only compiler manifests. Set
+`SEEN_REQUIRE_PTX_HARDWARE=1` to require this device rather than reporting an
+explicit unsupported record. Driver, launch, synchronization and cleanup errors
+fail the fixture; there is no execution fallback or performance-certification
+claim. `scripts/safe_rebuild.sh --regression-script PATH` can enter the existing
+verified scope and serializer path for a focused repository shell harness without
+installing a compiler or claiming full bootstrap acceptance.
+
+For a device-only follow-up, run `tests/misc_root_tests/seen_gpu_ptx_hardware.sh`
+through that focused entry point with an explicit source-matched builder. It
+requires SM89 hardware, assembles emitted CLI artifacts with the pinned tool,
+and checks packed words and asymmetric FP16/BF16 matrices as well as layout,
+faults, atomics and subgroup results. Its `compiler-cli` evidence is separate
+from the four host sanitizer/optimization profiles and does not replace them.
+
+`tests/misc_root_tests/seen_gpu_vulkan_hardware.sh` separately requires
+`SEEN_REQUIRE_VULKAN_HARDWARE=1` and an RTX 4090 hardware ICD. It tests discovery,
+context ownership and 32 device-local pooled-resource lifecycles per profile,
+with exact Seen allocation/atomic baselines and native commitment accounting.
+It does not submit kernels or certify transfers. Sanitizer findings from any
+component remain failures; device success does not override leak detection.
+
 ### PTX capabilities, specialization and cooperative ownership
 
 CUDA subgroups have a fixed width of 32. Their synchronization masks come from
