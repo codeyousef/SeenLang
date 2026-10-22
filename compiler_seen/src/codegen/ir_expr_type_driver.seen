@@ -234,6 +234,13 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
         operandReceiverType = inferExpressionTypeState(expr.operands[0],
             varNames, varTypes, stringConstants)
     }
+    var memberOwner = getGlobalCurrentClassNameImpl()
+    if expr.literalValue == "this" {
+        let thisIdx = findActiveVariableIndexWithGlobalStateImpl(varNames, "this")
+        if thisIdx >= 0 and varTypes[thisIdx] != "" and varTypes[thisIdx] != "Unknown" {
+            memberOwner = varTypes[thisIdx]
+        }
+    }
     var literalValueType: String = ""
     if memberPlan.shouldFindLiteralValueType {
         literalValueType = findVarTypeState(varNames, varTypes,
@@ -241,7 +248,7 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
     }
     let jsonFieldType = inferJsonValueMemberAccessTypeImpl(fieldName,
         operandReceiverType, expr.literalValue,
-        getGlobalCurrentClassNameImpl(), literalValueType,
+        memberOwner, literalValueType,
         getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
         getGlobalStructFieldTypesImpl())
     if jsonFieldType != "" {
@@ -274,7 +281,7 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
             getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl())
     }
     let directFieldType = inferDirectMemberAccessTypeImpl(fieldName,
-        expr.literalValue, getGlobalCurrentClassNameImpl(),
+        expr.literalValue, memberOwner,
         operandReceiverType, literalReceiverFieldType,
         getGlobalStructNamesImpl(), getGlobalStructFieldNamesImpl(),
         getGlobalStructFieldTypesImpl())

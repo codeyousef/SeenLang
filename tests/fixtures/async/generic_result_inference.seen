@@ -7,7 +7,20 @@ fun unwrapInferred<T, E>(result: Result<T, E>) r: T {
     let value = result.unwrap(); result.releaseContainer(); return value
 }
 fun identityInferred<Payload>(value: Payload) r: Payload { return value }
+fun wrapInferred<T>(value: T) r: Result<T, InferenceError> {
+    return Ok<T, InferenceError>(value)
+}
+fun forwardInferred<T>(value: T) r: T {
+    let result = wrapInferred<T>(value)
+    if result.isErr() { abort("generic passthrough lost Result type") }
+    let returned = result.unwrap(); result.releaseContainer(); return returned
+}
 fun checkGenericInference() r: Void {
+    if forwardInferred<Int>(47) != 47 { abort("in-scope generic Result call lost its signature") }
+    let passed = Array<Int>(); passed.push(53)
+    let forwarded = forwardInferred<Array<Int>>(passed)
+    if forwarded[0] != 53 { abort("generic Result passthrough lost array pointer") }
+    forwarded.free()
     let object = unwrapInferred(Ok<InferredValue, InferenceError>(InferredValue{number: 37}))
     if object.number != 37 { abort("generic object return lost its type") }; object.free()
     let values = Array<Int>(); values.push(41)

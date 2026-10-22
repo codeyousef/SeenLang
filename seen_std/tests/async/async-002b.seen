@@ -16,6 +16,7 @@ extern "C" fun __ThreadYield() r: Void
 extern "C" fun seen_executor_live_threads() r: UInt64
 extern "C" fun seen_sync_live_mutexes() r: UInt64
 extern "C" fun seen_sync_live_conditions() r: UInt64
+extern "C" fun seen_memory_used_bytes() r: Int64
 
 fun must<T, E>(result: Result<T, E>) r: T {
     if result.isErr() { abort("async synchronization fixture failed") }
@@ -148,6 +149,7 @@ fun releaseJobs(values: Array<SyncProbe>) r: Void {
 }
 
 fun main() r: Int {
+    let memory = seen_memory_used_bytes()
     let mutexes = seen_sync_live_mutexes()
     let conditions = seen_sync_live_conditions()
     let threads = seen_executor_live_threads()
@@ -213,8 +215,17 @@ fun main() r: Int {
     cancel.release(ctx, 1 as Int64)
     println("PASS: ASYNC-002B_cancel")
     executorReleaseContext(ctx)
+    let remainingMemory = seen_memory_used_bytes()
     if seen_sync_live_mutexes() != mutexes or seen_sync_live_conditions() != conditions or
-        seen_executor_live_threads() != threads { return 13 }
+        seen_executor_live_threads() != threads or
+        remainingMemory != memory {
+        println("FAIL: ASYNC-002B_cleanup bytes=" + remainingMemory.toString() +
+            " expected=" + memory.toString() +
+            " mutexes=" + seen_sync_live_mutexes().toString() +
+            " conditions=" + seen_sync_live_conditions().toString() +
+            " threads=" + seen_executor_live_threads().toString())
+        return 13
+    }
     println("PASS: ASYNC-002B_cleanup")
     return 0
 }

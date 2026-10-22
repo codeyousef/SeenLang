@@ -365,6 +365,7 @@ import codegen.ir_constructor_field_plan.{planNextConstructorFieldTypeImpl, plan
 import codegen.ir_constructor_field_emit.{emitPreparedReprCConstructorImpl, emitPreparedClassConstructorFieldStoreImpl}
 import codegen.ir_method_finalize.{normalizeInstanceMethodTypeNameImpl, emitPreparedFinalMethodDispatchState}
 import codegen.ir_option_aggregate.{emitOptionAggregateConstructorImpl}
+import codegen.ir_option_constructor_state.{emitTypedSomeConstructorState}
 import codegen.ir_method_fastpath.{resolveStaticMethodClassNamesImpl}
 import codegen.ir_method_receiver_predicates.{isOptionReceiverTypeImpl, isSmallVecReceiverTypeImpl, isCollectionReceiverTypeImpl, isArrayReceiverTypeImpl, isStringBuilderRuntimeMethodImpl, isNumericReceiverMethodImpl, needsStaticFactoryArgumentImpl}
 import codegen.ir_method_call_plan.{planResolvedReceiverFastPathImpl, shouldReadOptionDefaultFastPathArgImpl, shouldReadSmallVecFastPathArgImpl, shouldReadReceiverFastPathArgImpl, shouldTryStaticMethodCallImpl, isPascalStaticReceiverNameImpl, planArrayMutatorMethodImpl, hasGeneratorFieldReceiverImpl, hasStructFieldReceiverImpl}
@@ -9384,6 +9385,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_field_registry")
         modules.push("codegen.ir_assignment_coerce")
         modules.push("codegen.ir_option_aggregate")
+        modules.push("codegen.ir_option_constructor_state")
         modules.push("codegen.ir_assignment_gen")
         modules.push("codegen.ir_member_assignment_driver")
         modules.push("codegen.ir_assignment_move_driver")

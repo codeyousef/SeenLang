@@ -74,6 +74,15 @@ Foundations**.
 
 ### Fixed
 
+- Retain trait receiver field types and generic function return signatures during
+  inference, and validate lifecycle bounds on static factory type applications.
+  Keep completion ownership fixtures on current canonical declarations.
+- Release atomic ordering-validation result containers on successful and
+  rejected integer operations, preserving returned errors and values.
+- Run required CI directly on the 0.23.0 release branch using the existing
+  concurrency rule to replace superseded runs.
+- Preserve array pointers in Option payloads so nested synchronization
+  containers retain their typed values and ownership.
 - Restore instantiated pointer and scalar representations after generic method
   returns, preserving the declared word ABI and typed executor cleanup.
 - Store nested inline aggregate field assignments in their original receiver,

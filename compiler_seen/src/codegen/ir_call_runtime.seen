@@ -6,7 +6,8 @@ from higher-level call orchestration and AST dispatch.
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
-import codegen.ir_declarations.{emitMathBuiltinImpl, emitSomeConstructorImpl, emitNoneConstructorImpl}
+import codegen.ir_declarations.{emitMathBuiltinImpl, emitNoneConstructorImpl}
+import codegen.ir_option_constructor_state.{emitTypedSomeConstructorState}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructSizesImpl}
 import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
@@ -49,7 +50,7 @@ fun emitPrintLikeCallImpl(output: StringBuilder, regBox: Array<Int>, printName: 
 
 fun emitOptionRuntimeBuiltinCallImpl(output: StringBuilder, regBox: Array<Int>, funcName: String, argReg: String, argType: String, isClassArg: Int) r: String {
     if funcName == "Some" {
-        return emitSomeConstructorImpl(output, regBox, argReg, argType, isClassArg)
+        return emitTypedSomeConstructorState(output, regBox, argReg, argType, isClassArg)
     }
     if funcName == "None" {
         return emitNoneConstructorImpl(output, regBox)

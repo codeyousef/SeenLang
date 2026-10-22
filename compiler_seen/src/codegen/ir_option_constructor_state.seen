@@ -1,0 +1,15 @@
+/// Normalize typed payloads at the boundary of Option's erased word ABI.
+import str.string.{StringBuilder}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_declarations.{emitSomeConstructorImpl}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+
+fun emitTypedSomeConstructorState(output: StringBuilder, regBox: Array<Int>,
+    value: String, seenType: String, isClass: Int) r: String {
+    var payload = value
+    if mapTypeState(seenType) == "ptr" {
+        payload = coerceValueForLlvmTargetImpl(output, regBox,
+            "i64", seenType, "ptr", value)
+    }
+    return emitSomeConstructorImpl(output, regBox, payload, seenType, isClass)
+}

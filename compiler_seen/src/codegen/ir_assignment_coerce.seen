@@ -3,7 +3,8 @@
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_type_mapping.{isClassTypeImpl, isDataTypeImpl, isClassHandleLikeTypeImpl, getFixedWidthScalarLlvmTypeImpl}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
-import codegen.ir_declarations.{emitSomeConstructorImpl, emitNoneConstructorImpl}
+import codegen.ir_declarations.{emitNoneConstructorImpl}
+import codegen.ir_option_constructor_state.{emitTypedSomeConstructorState}
 import codegen.ir_codegen_type_state.{isDataTypeState, mapTypeState, getDataTypeSizeState}
 import codegen.ir_option_aggregate.{emitOptionAggregateConstructorImpl}
 import str.string.{StringBuilder}
@@ -88,7 +89,7 @@ fun coerceOptionStoreValueCoreImpl(output: StringBuilder, regBox: Array<Int>,
             valueKind == "StructLiteral")
     }
     let isClassArg = optionStoreInnerIsClassCoreImpl(innerType, structNames)
-    return emitSomeConstructorImpl(output, regBox, valueReg, innerType,
+    return emitTypedSomeConstructorState(output, regBox, valueReg, innerType,
         isClassArg)
 }
 

@@ -1,6 +1,7 @@
 // ir_infer_method_leaf_driver.seen - method/call inference leaves.
 
 import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl}
 import trace.{traceGen}
 import codegen.ir_codegen_global_state.{getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findStructWithGlobalStateImpl, inferMethodCallBoolSuffixWithGlobalStateImpl}
 import codegen.ir_codegen_feature_state.{isAsyncFunctionWithFeatureStateImpl}
@@ -196,7 +197,8 @@ fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
 
 fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
     let resolvedPlan = planResolvedCallInferenceImpl(getGlobalCurrentClassNameImpl())
-    let userRetType = getFunctionReturnTypeWithGlobalStateImpl(expr.callee)
+    let userRetType = getFunctionReturnTypeWithGlobalStateImpl(
+        stripGenericCalleeNameImpl(expr.callee))
     var asyncFlag = 0
     if isAsyncFunctionWithFeatureStateImpl(expr.callee) {
         asyncFlag = 1

@@ -1,0 +1,45 @@
+import core.result.{Result}
+import sync.atomic.{AtomicInt, MemoryOrder}
+import sync.contracts.{SyncError}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun atomicValue<T>(result: Result<T, SyncError>) r: T {
+    if result.isErr() { abort("atomic cleanup fixture received unexpected error") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun requireAtomicRejection<T>(result: Result<T, SyncError>) r: Void {
+    if result.isOkay() { abort("atomic cleanup fixture accepted invalid ordering") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != "sync.invalid" { abort("atomic ordering rejection code changed") }
+    error.free()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let atomic = atomicValue(AtomicInt.create(0 as Int64))
+    let active = seen_memory_used_bytes()
+    var round = 0
+    while round < 1000 {
+        let value = round as Int64
+        atomicValue(atomic.store(value, MemoryOrder.SeqCst))
+        if atomicValue(atomic.load(MemoryOrder.SeqCst)) != value { return 1 }
+        requireAtomicRejection(atomic.load(MemoryOrder.Release))
+        requireAtomicRejection(atomic.store(-1 as Int64, MemoryOrder.Acquire))
+        let exchanged = atomicValue(atomic.compareExchange(value, value + (1 as Int64),
+            MemoryOrder.SeqCst, MemoryOrder.Acquire))
+        if not exchanged.exchanged or exchanged.previous != value { return 2 }
+        exchanged.free()
+        requireAtomicRejection(atomic.compareExchange(value, 0 as Int64,
+            MemoryOrder.Relaxed, MemoryOrder.SeqCst))
+        let failed = atomicValue(atomic.compareExchange(value, 0 as Int64,
+            MemoryOrder.SeqCst, MemoryOrder.Acquire))
+        if failed.exchanged or failed.previous != value + (1 as Int64) { return 3 }
+        failed.free()
+        if atomicValue(atomic.load(MemoryOrder.SeqCst)) != value + (1 as Int64) { return 4 }
+        if seen_memory_used_bytes() != active { return 5 }
+        round = round + 1
+    }
+    atomicValue(atomic.close()); atomic.free()
+    if seen_memory_used_bytes() != baseline { return 6 }
+    println("PASS: integer atomic validation preserves errors values and allocation baseline")
+    return 0
+}

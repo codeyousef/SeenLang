@@ -67,8 +67,8 @@ case "$outside_error" in
 esac
 
 grep -Fxq 'name: CI' "$WORKFLOW" || fail "workflow name is not CI"
-grep -Fxq '    branches: [main]' "$WORKFLOW" ||
-    fail "required CI is not scoped to main pushes"
+grep -Fxq '    branches: [main, release/0.23.0]' "$WORKFLOW" ||
+    fail "required CI must cover main and the 0.23.0 release branch"
 grep -Fxq '  workflow_dispatch:' "$WORKFLOW" ||
     fail "required CI has no explicit manual fallback when push dispatch is lost"
 if grep -Fq 'pull_request:' "$WORKFLOW"; then
