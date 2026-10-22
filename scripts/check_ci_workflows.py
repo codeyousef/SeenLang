@@ -26,7 +26,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
 
 jobs:
   required:

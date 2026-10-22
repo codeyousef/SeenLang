@@ -126,7 +126,7 @@ Foundations**.
 - Budget three hours for serial acceptance inside a five-hour CI scope, with
   thirty minutes for job setup and artifact retention. Preserve resource caps.
 - Run required CI directly on the 0.23.0 release branch using the existing
-  concurrency rule to replace superseded runs. Keep the canonical workflow
+  concurrency rule to queue version-branch runs. Keep the canonical workflow
   contract and fixture aligned with that trigger.
 - Preserve array pointers in Option payloads so nested synchronization
   containers retain their typed values and ownership.
