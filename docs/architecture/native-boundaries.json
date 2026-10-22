@@ -14,18 +14,24 @@
     {
       "id": "accelerator-vulkan-device-ffi",
       "subsystem": "stdlib.compute.vulkan",
-      "purpose": "Direct Vulkan 1.2 loader ABI; Seen owns bounded metadata, explicit software admission, provider identities, device/context lifetimes, quotas and cleanup. Borrowed create-info/output pointers expire on return; instance/device handles are consumed exactly once. SDK layout oracle, malformed-metadata fuzz and Mesa software reference cover Linux x86-64. No GPU execution certification. Permanent vendor ABI; no C policy adapter.",
+      "purpose": "Direct Vulkan 1.2 loader ABI. Seen owns discovery, memory-type validation, quotas, suballocation, provider/context lifetimes and cleanup. Borrowed SDK/output pointers expire on return; instance, device, buffer and memory handles have explicit owners. SDK layout assertions, metadata fuzz, injected native faults and Mesa reference lifecycle tests cover Linux x86-64. No hardware certification. Permanent vendor ABI; no foreign policy adapter.",
       "abi": "Vulkan 1.2 C",
       "platforms": [
         "linux-x86_64"
       ],
       "symbols": [
+        "vkAllocateMemory",
+        "vkBindBufferMemory",
+        "vkCreateBuffer",
         "vkCreateDevice",
         "vkCreateInstance",
+        "vkDestroyBuffer",
         "vkDestroyDevice",
         "vkDestroyInstance",
         "vkEnumerateInstanceVersion",
         "vkEnumeratePhysicalDevices",
+        "vkFreeMemory",
+        "vkGetBufferMemoryRequirements",
         "vkGetPhysicalDeviceFeatures",
         "vkGetPhysicalDeviceMemoryProperties",
         "vkGetPhysicalDeviceProperties2",

@@ -12,6 +12,10 @@ Foundations**.
 
 ### Added
 
+- Add typed pooled GPU buffers, explicit memory kinds and device-wide commitment
+  budgets. Reuse bounded free ranges, report native allocation padding and
+  unknown residency accurately, and retain failed or late cleanup ownership.
+  Vulkan resource creation uses direct FFI with Seen-owned policy and state.
 - Add move-only resource context leases with device-wide quotas, generation
   validation and shutdown ordering that prevents native context destruction
   while resource owners remain alive.
@@ -93,6 +97,9 @@ Foundations**.
 
 ### Fixed
 
+- Preserve conditional guards around array/member reads and nested effects.
+  Branchless assignment optimization now requires safe scalar operands, so
+  untaken branches cannot read absent elements or execute hidden calls.
 - Size pooled allocator slabs to available budget and preserve room for error
   construction. Checked pool exhaustion now exits with a bounded allocation
   diagnostic instead of returning a null address to generated field stores.

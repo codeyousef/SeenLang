@@ -1,0 +1,7 @@
+/// Explicit requirements, never a preferred kind with an implicit fallback.
+enum GpuMemoryKind { DeviceLocal; HostVisible; HostCoherent; Unified }
+
+fun gpuMemoryKindKnown(kind: GpuMemoryKind) r: Bool {
+    return kind == GpuMemoryKind.DeviceLocal or kind == GpuMemoryKind.HostVisible or
+        kind == GpuMemoryKind.HostCoherent or kind == GpuMemoryKind.Unified
+}

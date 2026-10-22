@@ -15,6 +15,8 @@ import compute.vulkan_properties.{VulkanMetadata}
 import compute.vulkan_queue.{gpuVkComputeFamily}
 import compute.vulkan_native.{vkEnumeratePhysicalDevices, vkCreateDevice, vkDestroyDevice}
 import compute.vulkan_error.{gpuVkFailure}
+import compute.resource_provider.{GpuResourceProviderHandle}
+import compute.vulkan_memory.{gpuVkCreateResourceProvider}
 import memory.aligned_buffer.{OwnedBuffer}
 import memory.allocation.{allocationBudgetAvailable}
 import sync.atomic.{seen_sync_atomic_create, seen_sync_atomic_destroy}
@@ -173,6 +175,15 @@ class GpuVulkanProvider {
     fun destroyContext(native: UInt64) r: Result<Bool, GpuError> {
         if native == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.context.close", "Vulkan device identity is empty")) }
         vkDestroyDevice(native, null as *Void); return Ok<Bool, GpuError>(true)
+    }
+    fun resources(native: UInt64, ordinal: Int) r: Result<GpuResourceProviderHandle, GpuError> {
+        var index = 0
+        while index < this.records.length() {
+            let record = this.records[index]
+            if record.ordinal == ordinal { return gpuVkCreateResourceProvider(native, this.domain, record.metadata) }
+            index = index + 1
+        }
+        return Err<GpuResourceProviderHandle, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.memory", "resource provider device ordinal is not admitted"))
     }
     /// The typed device core drains every context before consuming this owner.
     fun release() r: Void {

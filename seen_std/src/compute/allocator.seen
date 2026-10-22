@@ -1,0 +1,81 @@
+/// Explicit pooled resource ownership. Supplying a provider is a typed opt-in;
+/// CPU defaults, memory kind and fallback policy never change implicitly.
+import compute.device.{GpuContext}
+import compute.context_lease.{GpuContextLease}
+import compute.resource_provider.{GpuResourceProviderHandle}
+import compute.resource_arena_core.{GpuArenaCore, GpuArenaBlock, GpuBufferSlot, gpuReleaseResourceLease}
+import compute.resource_geometry.{gpuResourceAlignmentValid}
+import compute.resource_stats.{GpuStats}
+import compute.memory_kind.{GpuMemoryKind, gpuMemoryKindKnown}
+import compute.error.{GpuError, gpuFailure}
+import compute.operation.{gpuCheckOperation}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+import memory.allocation.{allocationBudgetAvailable}
+
+@move
+class GpuAllocator {
+    var core: GpuArenaCore
+
+    /// Consumes the provider on success and every rejection; borrows context.
+    static fun open(borrow context: GpuContext, provider: GpuResourceProviderHandle,
+        kind: GpuMemoryKind, blockBytes: UInt64, maxBlocks: Int, operation: OperationContext)
+        r: Result<GpuAllocator, GpuError> {
+        let acquired = GpuContextLease.acquire(context, operation)
+        if acquired.isErr() { let error = acquired.unwrapErr(); acquired.releaseContainer(); provider.release(); return Err<GpuAllocator, GpuError>(error) }
+        let lease = acquired.unwrap(); acquired.releaseContainer()
+        return GpuAllocator.fromLease(lease, provider, kind, blockBytes, maxBlocks)
+    }
+    /// Ask the already-selected device for a resource adapter. No backend or
+    /// memory-kind fallback is attempted. The lease pins native factory work.
+    static fun create(borrow context: GpuContext, kind: GpuMemoryKind, blockBytes: UInt64,
+        maxBlocks: Int, operation: OperationContext) r: Result<GpuAllocator, GpuError> {
+        let acquired = GpuContextLease.acquire(context, operation)
+        if acquired.isErr() { let error = acquired.unwrapErr(); acquired.releaseContainer(); return Err<GpuAllocator, GpuError>(error) }
+        let lease = acquired.unwrap(); acquired.releaseContainer()
+        let native = lease.native()
+        if native.isErr() { let error = native.unwrapErr(); native.releaseContainer(); gpuReleaseResourceLease(lease); return Err<GpuAllocator, GpuError>(error) }
+        let identity = native.unwrap(); native.releaseContainer()
+        let provided = context.core.provider.resources(identity, context.core.info.identity.ordinal)
+        if provided.isErr() { let error = provided.unwrapErr(); provided.releaseContainer(); gpuReleaseResourceLease(lease); return Err<GpuAllocator, GpuError>(error) }
+        let provider = provided.unwrap(); provided.releaseContainer()
+        let observed = gpuCheckOperation(operation, "gpu.allocator.open")
+        if observed.isErr() { let error = observed.unwrapErr(); observed.releaseContainer(); provider.release(); gpuReleaseResourceLease(lease); return Err<GpuAllocator, GpuError>(error) }
+        observed.releaseContainer(); return GpuAllocator.fromLease(lease, provider, kind, blockBytes, maxBlocks)
+    }
+    /// Internal ownership admission shared by explicit and device factories.
+    static fun fromLease(lease: GpuContextLease, provider: GpuResourceProviderHandle,
+        kind: GpuMemoryKind, blockBytes: UInt64, maxBlocks: Int) r: Result<GpuAllocator, GpuError> {
+        if not lease.valid() or not gpuMemoryKindKnown(kind) {
+            provider.release(); gpuReleaseResourceLease(lease)
+            return Err<GpuAllocator, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.open", "GPU allocator requires a live context and explicit memory kind"))
+        }
+        if blockBytes == (0 as UInt64) or blockBytes > lease.core.limits.maxBytes or
+            blockBytes > lease.core.info.capabilities.totalBytes or maxBlocks <= 0 or
+            maxBlocks > lease.core.limits.maxResources or not allocationBudgetAvailable(8192) {
+            provider.release(); gpuReleaseResourceLease(lease)
+            return Err<GpuAllocator, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.open", "GPU block policy or metadata budget exceeds its context limits"))
+        }
+        let alignment = provider.value.bindingAlignment()
+        if provider.value.backend() != lease.core.info.identity.backend or
+            provider.value.identity() != lease.core.info.identity.providerId or
+            provider.value.contextIdentity() != lease.core.slots[lease.slot].native or
+            not gpuResourceAlignmentValid(alignment) or blockBytes % alignment != (0 as UInt64) {
+            provider.release(); gpuReleaseResourceLease(lease)
+            return Err<GpuAllocator, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.open", "GPU resource provider identity or binding alignment is invalid"))
+        }
+        return Ok<GpuAllocator, GpuError>(GpuAllocator{core: GpuArenaCore{lease: lease, provider: provider,
+            kind: kind, blockBytes: blockBytes, maxBlocks: maxBlocks, blocks: Array<GpuArenaBlock>(),
+            slots: Array<GpuBufferSlot>(), requestedBytes: 0 as UInt64, allocatedBytes: 0 as UInt64,
+            usableBytes: 0 as UInt64, committedBytes: 0 as UInt64, peakReservedBytes: 0 as UInt64,
+            liveBuffers: 0, liveBlocks: 0, quarantined: 0, closed: false}})
+    }
+    fun stats() r: Result<GpuStats, GpuError> { return this.core.stats() }
+    fun trim() r: Result<Bool, GpuError> { return this.core.trim() }
+    fun close() r: Result<Bool, GpuError> { return this.core.close() }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.core.free(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}

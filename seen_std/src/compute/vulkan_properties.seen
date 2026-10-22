@@ -3,13 +3,14 @@
 import core.result.{Result, Ok, Err}
 import core.option.{None}
 import compute.error.{GpuError, gpuFailure}
-import compute.limits.{GpuLimits, GPU_MAX_MEMORY_BYTES}
+import compute.limits.{GpuLimits}
 import compute.backend.{GpuBackend}
 import compute.device_info.{GpuDeviceInfo, GpuDeviceIdentity, GpuDeviceKind, gpuDeviceTextValid}
 import compute.capabilities.{GpuCapabilities, GPU_FEATURE_COMPUTE, GPU_FEATURE_ASYNC_TRANSFER,
     GPU_FEATURE_HOST_VISIBLE, GPU_FEATURE_SUBGROUP, GPU_FEATURE_FLOAT64}
 import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop, gpuVkU32, gpuVkU64, GPU_VK_API_VERSION,
-    GPU_VK_PROPERTIES_BYTES, GPU_VK_ID_BYTES, GPU_VK_SUBGROUP_BYTES, GPU_VK_MEMORY_BYTES, GPU_VK_FEATURE_BYTES}
+    GPU_VK_PROPERTIES_BYTES, GPU_VK_ID_BYTES, GPU_VK_SUBGROUP_BYTES, GPU_VK_MEMORY_BYTES, GPU_VK_FEATURE_BYTES, gpuVkVersionSupported}
+import compute.vulkan_memory_info.{gpuVkDecodeMemory}
 import compute.vulkan_native.{vkGetPhysicalDeviceProperties2, vkGetPhysicalDeviceMemoryProperties, vkGetPhysicalDeviceFeatures}
 import memory.aligned_buffer.{OwnedBuffer}
 import json.builder.{seen_string_clone_owned, seen_string_release_owned}
@@ -70,7 +71,7 @@ class VulkanMetadata {
             gpuVkU32(subgroup, 0 as UInt64) != (1000094000 as UInt32) {
             return Err<GpuDeviceInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan output structure identity changed"))
         }
-        if gpuVkU32(properties, 16 as UInt64) < GPU_VK_API_VERSION {
+        if not gpuVkVersionSupported(gpuVkU32(properties, 16 as UInt64)) {
             return Err<GpuDeviceInfo, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.properties", "physical device requires Vulkan 1.2"))
         }
         let nativeKind = gpuVkU32(properties, 32 as UInt64)
@@ -94,37 +95,13 @@ class VulkanMetadata {
         }
         let properties = this.buffers[0]; let subgroup = this.buffers[2]
         let memory = this.buffers[3]; let features = this.buffers[4]
-        let typeCount = gpuVkU32(memory, 0 as UInt64) as Int; let heapCount = gpuVkU32(memory, 260 as UInt64) as Int
-        if typeCount == 0 or typeCount > 32 or heapCount == 0 or heapCount > 16 {
-            return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "invalid Vulkan memory property counts"))
-        }
-        var total = 0 as UInt64; var index = 0
-        while index < heapCount {
-            let offset = (264 as UInt64) + (index as UInt64) * (16 as UInt64)
-            let size = gpuVkU64(memory, offset)
-            if size == (0 as UInt64) or size > GPU_MAX_MEMORY_BYTES {
-                return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory heap size is invalid"))
-            }
-            if (gpuVkU32(memory, offset + (8 as UInt64)) & (1 as UInt32)) != (0 as UInt32) {
-                if size > GPU_MAX_MEMORY_BYTES - total {
-                    return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory heap total exceeds its bound"))
-                }
-                total = total + size
-            }
-            index = index + 1
-        }
-        var bits = GPU_FEATURE_COMPUTE
+        let decodedMemory = gpuVkDecodeMemory(memory)
+        if decodedMemory.isErr() { let error = decodedMemory.unwrapErr(); decodedMemory.releaseContainer(); return Err<GpuCapabilities, GpuError>(error) }
+        let memoryInfo = decodedMemory.unwrap(); decodedMemory.releaseContainer()
+        let total = memoryInfo.totalLocalBytes; var bits = GPU_FEATURE_COMPUTE
         if (queueFlags & (4 as UInt32)) != (0 as UInt32) { bits = bits | GPU_FEATURE_ASYNC_TRANSFER }
-        index = 0
-        while index < typeCount {
-            if (gpuVkU32(memory, (8 as UInt64) + (index as UInt64) * (8 as UInt64)) as Int) >= heapCount {
-                return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory type refers to an absent heap"))
-            }
-            if (gpuVkU32(memory, (4 as UInt64) + (index as UInt64) * (8 as UInt64)) & (2 as UInt32)) != (0 as UInt32) {
-                bits = bits | GPU_FEATURE_HOST_VISIBLE
-            }
-            index = index + 1
-        }
+        if memoryInfo.hostVisible { bits = bits | GPU_FEATURE_HOST_VISIBLE }
+        memoryInfo.release()
         let float64 = gpuVkU32(features, 156 as UInt64); let int64 = gpuVkU32(features, 160 as UInt64)
         if float64 > (1 as UInt32) or int64 > (1 as UInt32) or gpuVkU32(features, 0 as UInt64) > (1 as UInt32) {
             return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan feature flag is not a native Boolean"))

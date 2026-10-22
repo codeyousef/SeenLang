@@ -64,30 +64,14 @@ compile_case fast metadata-fuzz "$ROOT_DIR/tests/production_gpu_runtime/metadata
 rg -Fq 'PASS: GPU-006A metadata fuzz 60s seed=1100 preserves typed diagnostics bounds and ownership' "$TMP_DIR/metadata-fuzz-fast.log"
 # Native execution deliberately selects the software reference driver. This is
 # not hardware certification and production callers must opt into software use.
-reference_icd=
-for candidate in /usr/share/vulkan/icd.d/lvp_icd.json /usr/share/vulkan/icd.d/lvp_icd.x86_64.json; do
-    if [ -f "$candidate" ] && [ ! -L "$candidate" ]; then reference_icd=$candidate; break; fi
-done
-[ -n "$reference_icd" ] || { echo 'FAIL: explicit Mesa Vulkan reference ICD is unavailable' >&2; exit 1; }
-export VK_DRIVER_FILES="$reference_icd" LP_NUM_THREADS=1
-# Compile the SDK oracle independently of the Seen layout declarations.
-timeout --foreground --kill-after=5s 60s clang -std=c11 -Wall -Wextra -Werror \
-    "$ROOT_DIR/tests/production_gpu_runtime/vulkan_abi_oracle.c" -o "$TMP_DIR/vulkan-abi-oracle"
-"$TMP_DIR/vulkan-abi-oracle" > "$TMP_DIR/vulkan-abi-oracle.log"
-timeout --foreground --kill-after=5s 60s clang -std=c11 -O1 -g -Wall -Wextra -Werror \
-    -fPIC -shared "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_driver.c" -ldl \
-    -o "$TMP_DIR/vulkan-fault-driver.so"
+source "$ROOT_DIR/scripts/vulkan_reference_fixture_support.sh"
+seen_prepare_vulkan_reference
 fault_modes=(version-status version-old instance-status instance-empty devices-count-status devices-limit devices-fill-status devices-overflow queue-limit queue-overflow queue-none context-status context-empty)
 fault_codes=(gpu.unavailable gpu.unsupported_capability gpu.out_of_memory gpu.invalid gpu.device_lost gpu.limit gpu.invalid gpu.invalid gpu.limit gpu.invalid gpu.unsupported_capability gpu.out_of_memory gpu.invalid)
 run_vendor_faults() {
     local profile=$1 name=$2 index
     for index in "${!fault_modes[@]}"; do
-        export SEEN_VULKAN_FIXTURE_FAULT="${fault_modes[index]}" LD_PRELOAD="$TMP_DIR/vulkan-fault-driver.so"
-        export LLVM_PROFILE_FILE="$TMP_DIR/fault-${fault_modes[index]}.profraw"
-        run_fixture "$profile" "$name" "${fault_modes[index]}" "${fault_codes[index]}"
-        unset LD_PRELOAD SEEN_VULKAN_FIXTURE_FAULT
-        cp -- "$TMP_DIR/$name-$profile.log" "$TMP_DIR/fault-${fault_modes[index]}-$profile.log"
-        rg -Fq 'PASS: Vulkan vendor fault' "$TMP_DIR/fault-${fault_modes[index]}-$profile.log"
+        seen_run_vulkan_fault "$profile" "$name" "${fault_modes[index]}" "${fault_codes[index]}"
     done
 }
 native_fixtures=(vulkan_abi vulkan_instance vulkan_properties vulkan_provider)
@@ -102,7 +86,7 @@ done
 FIXTURE_COMPILE_FLAGS=(--coverage)
 compile_fixture fast coverage-vulkan_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
 run_vendor_faults fast coverage-vulkan_fault
-llvm-profdata merge -sparse "$TMP_DIR"/fault-*.profraw -o "$TMP_DIR/fault.profdata"
+llvm-profdata merge -sparse "$TMP_DIR"/fault-coverage-vulkan_fault-*.profraw -o "$TMP_DIR/fault.profdata"
 native_coverage=(--fixture "$TMP_DIR/coverage-vulkan_fault-fast" "$TMP_DIR/fault.profdata")
 for name in "${native_fixtures[@]}" vulkan_properties_fuzz; do
     export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
@@ -116,9 +100,10 @@ seen_verify_source_coverage "$TMP_DIR/vulkan" "${native_coverage[@]}" \
     --source seen_std/src/compute/vulkan_error.seen \
     --source seen_std/src/compute/vulkan_instance.seen \
     --source seen_std/src/compute/vulkan_properties.seen \
+    --source seen_std/src/compute/vulkan_memory_info.seen \
     --source seen_std/src/compute/vulkan_provider.seen \
     --source seen_std/src/compute/vulkan_queue.seen
 python3 "$ROOT_DIR/scripts/check_source_coverage_thresholds.py" "$TMP_DIR/vulkan-coverage.json" \
-    --source seen_std/src/compute/vulkan_properties.seen --min-lines 90 --min-branches 90 \
+    --source seen_std/src/compute/vulkan_properties.seen --source seen_std/src/compute/vulkan_memory_info.seen --min-lines 90 --min-branches 90 \
     > "$TMP_DIR/vulkan-parser-coverage-summary.json"
 echo 'PASS: bounded GPU ownership and explicit Vulkan software reference discovery; hardware execution unverified'

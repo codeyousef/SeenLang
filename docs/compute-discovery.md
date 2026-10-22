@@ -34,6 +34,10 @@ implicit shared mutation or driver synchronization.
 report on success and rejection. It validates provider membership and owns a
 snapshot of the caller's limits. Provider dispatch owns its concrete payload and
 dispatch box; shared memory cleanup releases each exactly once.
+Its `resources(native, ordinal)` factory returns an owning
+`GpuResourceProviderHandle` for that context, or an explicit unsupported error.
+Resource allocation and cleanup live in the separate resource provider; device
+discovery does not own pool policy.
 
 `createContext` accepts an immutable `OperationContext`. It checks cancellation,
 deadline, context bounds and metadata allocation budget before calling the
@@ -55,6 +59,7 @@ An inactive context can close after its device has been released, without
 dereferencing the former owner. Exhausted generations retire slots instead of
 wrapping to a stale identity. These owners are confined to their creator and do
 not authorize sharing mutable provider state across threads.
+Resource pools and typed buffer ownership are described in [compute-resources.md](compute-resources.md).
 
 The executable examples in `tests/production_gpu_runtime/` cover bounded backend
 names, owned error messages, limit boundaries, hostile driver metadata,
@@ -78,7 +83,8 @@ report current free memory. It never substitutes total capacity for free memory.
 `GpuContextLease.acquire(context, operation)` pins a context for a resource
 owner. Leases are move-only and creator-confined. Their device-wide quota is
 shared across contexts, checked before metadata allocation, and bounded by
-`GpuLimits.maxResources`. `native` returns a checked native identity only while
+`GpuLimits.maxResources`. `borrow(operation)` creates an explicit descendant lease through the same quota
+and operation checks. `native` returns a checked native identity only while
 the lease is active and its owner and generation remain valid. Context shutdown
 returns `gpu.busy` until every lease closes. Closing a lease releases its borrow;
 it does not destroy the native context. An inactive lease can close after its
@@ -93,8 +99,8 @@ SDK property, UUID, memory, feature and compute-queue records. No device is
 selected implicitly. Software devices are excluded unless `allowSoftware` is
 explicitly true. `openVulkanDevice(provider, ordinal, context)` consumes discovery
 ownership on success and rejection and returns the typed device owner. Each
-`createContext` creates a distinct native logical device. Contexts own no queues,
-commands or submitted work in this API; creation does not execute a kernel.
+`createContext` creates a distinct native logical device. This API exposes no queues,
+commands or submitted work; context creation does not execute a kernel.
 
 The provider retains the instance, physical-device records and enabled-feature
 storage until all logical devices have been destroyed through their context

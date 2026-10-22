@@ -18,7 +18,7 @@ fun main() r: Int {
         owned.freeBytes.isSome() { abort("Vulkan SDK metadata golden or independent ownership changed") }
     owned.release(); limits.release()
     var field = 0
-    while field < 35 {
+    while field < 40 {
         let value = metadata(); let bound = GpuLimits.bounded(4, 4, 16, 4096 as UInt64)
         var expected = "gpu.invalid"; var providerId = 1 as UInt64; var ordinal = 0; var flags = 7 as UInt32
         if field == 0 { put32(value, 0, 0, 0 as UInt32) }
@@ -64,10 +64,16 @@ fun main() r: Int {
         if field == 32 { put64(value, 3, 264, 0 as UInt64) }
         if field == 33 { bound.maxDevices = 0; expected = "gpu.limit" }
         if field == 34 { put32(value, 3, 16, 2 as UInt32) }
+        if field == 35 { put32(value, 3, 4, 6 as UInt32) }
+        if field == 36 { put32(value, 3, 0, 4294967295 as UInt32) }
+        if field == 37 { put32(value, 3, 260, 4294967295 as UInt32) }
+        if field == 38 { let storage = value.buffers[3]; storage.byteLength = 519 as UInt64 }
+        if field == 39 { put32(value, 0, 16, (0xe0000000 as UInt32) | GPU_VK_API_VERSION); expected = "gpu.unsupported_capability" }
         let result = value.decode(ordinal, providerId, flags, bound)
         if result.isOkay() { abort("hostile Vulkan SDK metadata accepted") }
         let error = result.unwrapErr(); result.releaseContainer()
         if error.code != expected or error.retryable { abort("Vulkan SDK metadata rejection changed") }
+        if field == 38 { let storage = value.buffers[3]; storage.byteLength = 520 as UInt64 }
         error.release(); value.release(); bound.release(); field = field + 1
     }
     if seen_memory_used_bytes() != memory { abort("Vulkan SDK metadata success or rejection leaked") }

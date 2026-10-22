@@ -1,6 +1,6 @@
 import vulkan_fixture_support.{put32, put64, metadata}
 import compute.limits.{GpuLimits}
-import compute.device_info.{GpuDeviceKind}
+import compute.vulkan_abi.{GPU_VK_API_VERSION}
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 extern "C" fun seen_memory_used_bytes() r: Int64
 
@@ -11,11 +11,11 @@ fun main() r: Int {
     while not finished {
         random = random ^ (random << 13); random = random ^ (random >> 7); random = random ^ (random << 17)
         let value = metadata(); let limits = GpuLimits.bounded(4, 4, 16, 4096 as UInt64)
-        let mode = cases % 12; var expected = "gpu.invalid"
+        let mode = cases % 13; var expected = "gpu.invalid"
         if mode == 0 {
             expected = ""; put32(value, 0, 32, (random % (5 as UInt64)) as UInt32)
             put32(value, 4, 156, 0 as UInt32); put32(value, 4, 160, 0 as UInt32)
-            put32(value, 2, 20, 0 as UInt32); put32(value, 3, 288, 0 as UInt32)
+            put32(value, 2, 20, 0 as UInt32); put32(value, 3, 288, 0 as UInt32); put32(value, 3, 12, 0 as UInt32)
         }
         if mode == 1 {
             let bytes = value.buffers[0]; bytes.data[36] = (1 + (random % (31 as UInt64)) as Int) as UInt8
@@ -38,6 +38,11 @@ fun main() r: Int {
         }
         if mode == 10 { put32(value, 2, 20, 32 as UInt32); put32(value, 2, 24, 0 as UInt32); expected = "" }
         if mode == 11 { put32(value, 0, 32, 4294967295 as UInt32) }
+        if mode == 12 {
+            let variant = (1 + (random % (7 as UInt64)) as Int) as UInt32
+            put32(value, 0, 16, (variant << (29 as UInt32)) | GPU_VK_API_VERSION)
+            expected = "gpu.unsupported_capability"
+        }
         let result = value.decode(0, 1 as UInt64, 7 as UInt32, limits)
         if expected == "" {
             if result.isErr() { abort("Vulkan fuzz rejected valid generated SDK metadata") }

@@ -2,7 +2,7 @@
 /// no queue is created, and no CPU or alternate backend is chosen here.
 import compute.vulkan_native.{vkEnumerateInstanceVersion, vkCreateInstance, vkDestroyInstance}
 import compute.vulkan_abi.{gpuVkAbiValid, gpuVkApplicationInfo, gpuVkInstanceInfo,
-    VulkanApplicationInfo, VulkanInstanceCreateInfo, GPU_VK_API_VERSION}
+    VulkanApplicationInfo, VulkanInstanceCreateInfo, GPU_VK_API_VERSION, gpuVkVersionSupported}
 import compute.vulkan_error.{gpuVkFailure}
 import compute.operation.{gpuCheckOperation}
 import compute.error.{GpuError, gpuFailure}
@@ -27,7 +27,7 @@ class GpuVulkanInstance {
         var version = 0 as UInt32
         let queried = vkEnumerateInstanceVersion(&version)
         if queried != (0 as Int32) { return Err<GpuVulkanInstance, GpuError>(gpuVkFailure(queried, "gpu.vulkan.version")) }
-        if (version & (0xe0000000 as UInt32)) != (0 as UInt32) or version < GPU_VK_API_VERSION {
+        if not gpuVkVersionSupported(version) {
             return Err<GpuVulkanInstance, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.version", "Vulkan 1.2 is required"))
         }
         let app = gpuVkApplicationInfo()

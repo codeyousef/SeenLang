@@ -1,0 +1,54 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.allocator.{GpuAllocator}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.limits.{GpuLimits}
+import device_fixture_support.{operation, releaseOperation}
+import provider_fixture_support.{completed}
+import env.env.{args, releaseArgs}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    if arguments.length() != 3 { abort("Vulkan resource fault requires mode and expected code") }
+    let op = operation(); let limits = GpuLimits.bounded(4, 2, 64, 1048576 as UInt64)
+    let discovered = GpuVulkanProvider.discover(op, limits, true)
+    if discovered.isErr() { abort("Vulkan resource fault failed before reference discovery") }
+    let provider = discovered.unwrap(); discovered.releaseContainer(); let opened = openVulkanDevice(provider, 0, op)
+    if opened.isErr() { abort("Vulkan resource fault failed before reference selection") }
+    let device = opened.unwrap(); opened.releaseContainer(); let created = device.createContext(op)
+    if created.isErr() { abort("Vulkan resource fault failed before native context creation") }
+    let context = created.unwrap(); created.releaseContainer()
+    var index = 0
+    while index < 16 {
+        var kind = GpuMemoryKind.DeviceLocal; var blockBytes = 1024 as UInt64
+        if arguments[1] == "memory-kind" { kind = GpuMemoryKind.HostCoherent }
+        if arguments[1] == "memory-heap" { blockBytes = 49152 as UInt64 }
+        let pooled = GpuAllocator.create(context, kind, blockBytes, 2, op)
+        if arguments[1] == "binding-alignment-zero" {
+            if pooled.isOkay() { abort("invalid native binding alignment admitted") }
+            let error = pooled.unwrapErr()
+            if error.code != arguments[2] or error.retryable { abort("Vulkan binding alignment diagnostic changed") }
+            error.release()
+        } else {
+            if pooled.isErr() { abort("Vulkan resource fault failed before native buffer construction") }
+            let allocator = pooled.unwrap()
+            let allocated = GpuBuffer<UInt32>.allocate(allocator, 8 as UInt64, 4 as UInt64, 256 as UInt64, op)
+            if allocated.isOkay() { abort("injected Vulkan native buffer fault was ignored") }
+            let error = allocated.unwrapErr(); allocated.releaseContainer()
+            if error.code != arguments[2] or error.retryable { abort("Vulkan native resource diagnostic changed") }
+            error.release(); completed(allocator.release(), true)
+        }
+        pooled.releaseContainer()
+        if device.core.resourceCommittedBytes != (0 as UInt64) or device.core.resourceBorrowers != 0 {
+            abort("Vulkan native resource rejection retained commitment or context leases")
+        }
+        index = index + 1
+    }
+    completed(context.release(), true); completed(device.release(), true)
+    limits.release(); releaseOperation(op); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("Vulkan resource fault leaked Seen-owned resources") }
+    println("PASS: GPU-006B Vulkan native allocation and binding faults release every construction prefix")
+    return 0
+}

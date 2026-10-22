@@ -13,6 +13,10 @@ let GPU_VK_FEATURE_BYTES: UInt64 = 220 as UInt64
 let GPU_VK_QUEUE_BYTES: UInt64 = 24 as UInt64
 let GPU_VK_MAX_QUEUE_FAMILIES: UInt32 = 128 as UInt32
 
+fun gpuVkVersionSupported(version: UInt32) r: Bool {
+    return (version & (0xe0000000 as UInt32)) == (0 as UInt32) and version >= GPU_VK_API_VERSION
+}
+
 @repr(C)
 class VulkanApplicationInfo {
     var sType: UInt32

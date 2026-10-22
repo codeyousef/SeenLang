@@ -8030,6 +8030,27 @@
       ]
     },
     {
+      "name": "vkAllocateMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkBindBufferMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreateBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
       "name": "vkCreateDevice",
       "abi": "C",
       "sources": [
@@ -8041,6 +8062,13 @@
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
       ]
     },
     {
@@ -8069,6 +8097,20 @@
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkFreeMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkGetBufferMemoryRequirements",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
       ]
     },
     {

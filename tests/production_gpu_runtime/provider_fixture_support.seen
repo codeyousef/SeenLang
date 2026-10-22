@@ -1,6 +1,7 @@
 import compute.backend.{GpuBackend}
 import compute.device.{GpuDevice, GpuContext}
 import compute.context_lease.{GpuContextLease}
+import compute.resource_provider.{GpuResourceProviderHandle}
 import compute.error.{GpuError, gpuFailure}
 import core.operation_context.{OperationContext}
 import core.result.{Result, Ok, Err}
@@ -46,6 +47,9 @@ class FixtureProvider {
         if this.counts.refuseDestroy { return Ok<Bool, GpuError>(false) }
         this.counts.live = this.counts.live - 1; this.counts.destroys = this.counts.destroys + 1
         return Ok<Bool, GpuError>(true)
+    }
+    fun resources(native: UInt64, ordinal: Int) r: Result<GpuResourceProviderHandle, GpuError> {
+        return Err<GpuResourceProviderHandle, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.fixture.resources", "test context provider has no native resource adapter"))
     }
     fun release() r: Void {
         if this.counts.live != 0 { abort("provider released before its contexts") }

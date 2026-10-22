@@ -1,0 +1,109 @@
+/// Direct native block construction. Selection and ownership policy remain
+/// Seen; no allocation, cache, scheduling or fallback adapter is introduced.
+import compute.backend.{GpuBackend}
+import compute.memory_kind.{GpuMemoryKind, gpuMemoryKindKnown}
+import compute.resource_provider.{GpuResourceProviderHandle, GpuNativeBlock}
+import compute.resource_geometry.{gpuResourceAlignmentValid}
+import compute.vulkan_memory_info.{GpuVulkanMemoryInfo, gpuVkDecodeMemory}
+import compute.vulkan_properties.{VulkanMetadata}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop, gpuVkU32, gpuVkU64}
+import compute.vulkan_buffer_abi.{VulkanBufferCreateInfo, VulkanMemoryAllocateInfo,
+    gpuVkBufferInfo, gpuVkMemoryInfo, gpuVkBufferAbiValid, vkCreateBuffer, vkGetBufferMemoryRequirements,
+    vkAllocateMemory, vkBindBufferMemory, vkDestroyBuffer, vkFreeMemory}
+import compute.error.{GpuError, gpuFailure}
+import compute.vulkan_error.{gpuVkFailure}
+import core.result.{Result, Ok, Err}
+
+fun gpuVkMemoryRequiredFlags(kind: GpuMemoryKind) r: UInt32 {
+    if kind == GpuMemoryKind.DeviceLocal { return 1 as UInt32 }
+    if kind == GpuMemoryKind.HostVisible { return 2 as UInt32 }
+    if kind == GpuMemoryKind.HostCoherent { return 6 as UInt32 }
+    if kind == GpuMemoryKind.Unified { return 3 as UInt32 }
+    return 0 as UInt32
+}
+
+@move
+class GpuVulkanResources {
+    var native: UInt64
+    var domain: UInt64
+    var alignment: UInt64
+    var memory: GpuVulkanMemoryInfo
+
+    fun backend() r: GpuBackend { return GpuBackend.Vulkan }
+    fun identity() r: UInt64 { return this.domain }
+    fun contextIdentity() r: UInt64 { return this.native }
+    fun bindingAlignment() r: UInt64 { return this.alignment }
+    fun createBlock(capacity: UInt64, commitLimit: UInt64, kind: GpuMemoryKind) r: Result<GpuNativeBlock, GpuError> {
+        if capacity == (0 as UInt64) or capacity > commitLimit or not gpuMemoryKindKnown(kind) {
+            return Err<GpuNativeBlock, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.memory", "native buffer capacity or memory kind is invalid"))
+        }
+        let prepared = gpuVkAllocate(24 as UInt64)
+        if prepared.isErr() { let error = prepared.unwrapErr(); prepared.releaseContainer(); return Err<GpuNativeBlock, GpuError>(error) }
+        let requirements = prepared.unwrap(); prepared.releaseContainer(); let info = gpuVkBufferInfo(capacity)
+        var buffer = 0 as UInt64
+        let created = vkCreateBuffer(this.native, (&info) as *const VulkanBufferCreateInfo, null as *Void, &buffer)
+        if created != (0 as Int32) { gpuVkDrop(requirements); return Err<GpuNativeBlock, GpuError>(gpuVkFailure(created, "gpu.vulkan.buffer")) }
+        if buffer == (0 as UInt64) { gpuVkDrop(requirements); return Err<GpuNativeBlock, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.buffer", "Vulkan returned an empty buffer identity")) }
+        vkGetBufferMemoryRequirements(this.native, buffer, requirements.data)
+        let bytes = gpuVkU64(requirements, 0 as UInt64); let alignment = gpuVkU64(requirements, 8 as UInt64)
+        let typeBits = gpuVkU32(requirements, 16 as UInt64); gpuVkDrop(requirements)
+        if alignment == (0 as UInt64) or (alignment & (alignment - (1 as UInt64))) != (0 as UInt64) or
+            bytes < capacity or bytes > commitLimit or bytes % alignment != (0 as UInt64) {
+            vkDestroyBuffer(this.native, buffer, null as *Void)
+            return Err<GpuNativeBlock, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.memory", "Vulkan memory requirements exceed allocation bounds or alignment"))
+        }
+        let required = gpuVkMemoryRequiredFlags(kind); var index = 0; var selected = -1; var supported = false
+        while index < this.memory.types.length() {
+            let candidate = this.memory.types[index]
+            if (typeBits & ((1 as UInt32) << (index as UInt32))) != (0 as UInt32) and (candidate.flags & required) == required {
+                supported = true
+                if selected < 0 and bytes <= candidate.heapBytes { selected = index }
+            }
+            index = index + 1
+        }
+        if selected < 0 {
+            vkDestroyBuffer(this.native, buffer, null as *Void)
+            if supported { return Err<GpuNativeBlock, GpuError>(gpuFailure("gpu.out_of_memory", "gpu.vulkan.memory", "Vulkan memory heaps cannot satisfy this allocation")) }
+            return Err<GpuNativeBlock, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.memory", "requested Vulkan memory kind is unavailable"))
+        }
+        let allocation = gpuVkMemoryInfo(bytes, selected as UInt32); var memory = 0 as UInt64
+        let allocated = vkAllocateMemory(this.native, (&allocation) as *const VulkanMemoryAllocateInfo, null as *Void, &memory)
+        if allocated != (0 as Int32) {
+            vkDestroyBuffer(this.native, buffer, null as *Void)
+            return Err<GpuNativeBlock, GpuError>(gpuVkFailure(allocated, "gpu.vulkan.memory"))
+        }
+        if memory == (0 as UInt64) {
+            vkDestroyBuffer(this.native, buffer, null as *Void)
+            return Err<GpuNativeBlock, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.memory", "Vulkan returned an empty memory identity"))
+        }
+        let bound = vkBindBufferMemory(this.native, buffer, memory, 0 as UInt64)
+        if bound != (0 as Int32) {
+            vkDestroyBuffer(this.native, buffer, null as *Void); vkFreeMemory(this.native, memory, null as *Void)
+            return Err<GpuNativeBlock, GpuError>(gpuVkFailure(bound, "gpu.vulkan.memory.bind"))
+        }
+        return Ok<GpuNativeBlock, GpuError>(GpuNativeBlock{buffer: buffer, memory: memory,
+            capacity: capacity, committedBytes: bytes, bindingAlignment: this.alignment, kind: kind})
+    }
+    fun destroyBlock(borrow block: GpuNativeBlock) r: Result<Bool, GpuError> {
+        if block.buffer == (0 as UInt64) and block.memory == (0 as UInt64) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.memory.close", "native GPU block has no owned handles"))
+        }
+        if block.buffer != (0 as UInt64) { vkDestroyBuffer(this.native, block.buffer, null as *Void) }
+        if block.memory != (0 as UInt64) { vkFreeMemory(this.native, block.memory, null as *Void) }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Void { this.memory.release(); this.free() }
+}
+
+fun gpuVkCreateResourceProvider(native: UInt64, domain: UInt64, borrow metadata: VulkanMetadata)
+    r: Result<GpuResourceProviderHandle, GpuError> {
+    let alignment = gpuVkU64(metadata.buffers[0], 640 as UInt64)
+    if native == (0 as UInt64) or domain == (0 as UInt64) or not gpuResourceAlignmentValid(alignment) or not gpuVkBufferAbiValid() {
+        return Err<GpuResourceProviderHandle, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.memory", "Vulkan resource context or SDK alignment is invalid"))
+    }
+    let decoded = gpuVkDecodeMemory(metadata.buffers[3])
+    if decoded.isErr() { let error = decoded.unwrapErr(); decoded.releaseContainer(); return Err<GpuResourceProviderHandle, GpuError>(error) }
+    let memory = decoded.unwrap(); decoded.releaseContainer()
+    return Ok<GpuResourceProviderHandle, GpuError>(GpuResourceProviderHandle.create(GpuVulkanResources{
+        native: native, domain: domain, alignment: alignment, memory: memory}))
+}

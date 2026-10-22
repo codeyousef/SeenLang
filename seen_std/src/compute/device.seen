@@ -26,6 +26,7 @@ class GpuDeviceCore {
     var slots: Array<GpuContextSlot>
     var borrowers: Int
     var resourceBorrowers: Int
+    var resourceCommittedBytes: UInt64
     var closed: Bool
 
     fun validSlot(index: Int, generation: UInt64) r: Bool {
@@ -65,7 +66,7 @@ class GpuDeviceCore {
 
     fun close() r: Result<Bool, GpuError> {
         if this.closed { return Ok<Bool, GpuError>(false) }
-        if this.borrowers != 0 or this.resourceBorrowers != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.device.close", "GPU device still has context borrowers")) }
+        if this.borrowers != 0 or this.resourceBorrowers != 0 or this.resourceCommittedBytes != (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.device.close", "GPU device still has context borrowers")) }
         var index = 0; var progress = 0 as UInt64
         while index < this.slots.length() {
             let slot = this.slots[index]
@@ -141,7 +142,7 @@ class GpuDevice {
         }
         let owned = copied.unwrap(); copied.releaseContainer()
         return Ok<GpuDevice, GpuError>(GpuDevice{core: GpuDeviceCore{provider: provider,
-            info: report, limits: owned, slots: Array<GpuContextSlot>(), borrowers: 0, resourceBorrowers: 0, closed: false}})
+            info: report, limits: owned, slots: Array<GpuContextSlot>(), borrowers: 0, resourceBorrowers: 0, resourceCommittedBytes: 0 as UInt64, closed: false}})
     }
 
     fun createContext(context: OperationContext) r: Result<GpuContext, GpuError> {

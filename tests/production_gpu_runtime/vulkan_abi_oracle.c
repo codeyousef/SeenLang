@@ -5,6 +5,7 @@
 
 #define SIZE(type, expected) _Static_assert(sizeof(type) == (expected), #type " size"); printf(#type "=%zu\n", sizeof(type))
 #define FIELD(type, field, expected) _Static_assert(offsetof(type, field) == (expected), #type "." #field " offset"); printf(#type "." #field "=%zu\n", offsetof(type, field))
+_Static_assert(VK_API_VERSION_1_2 == 4202496, "Vulkan 1.2 version encoding");
 _Static_assert(sizeof(void *) == 8, "64-bit Vulkan ABI required");
 _Static_assert(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 == 1000059001, "properties sType");
 _Static_assert(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES == 1000071004, "identity sType");
@@ -16,6 +17,11 @@ int main(void) {
     SIZE(VkPhysicalDeviceIDProperties, 64); SIZE(VkPhysicalDeviceSubgroupProperties, 32);
     SIZE(VkPhysicalDeviceMemoryProperties, 520); SIZE(VkPhysicalDeviceFeatures, 220);
     SIZE(VkQueueFamilyProperties, 24);
+    SIZE(VkBufferCreateInfo, 56); SIZE(VkMemoryAllocateInfo, 32); SIZE(VkMemoryRequirements, 24);
+    FIELD(VkBufferCreateInfo, size, 24); FIELD(VkBufferCreateInfo, usage, 32);
+    FIELD(VkBufferCreateInfo, queueFamilyIndexCount, 40); FIELD(VkBufferCreateInfo, pQueueFamilyIndices, 48);
+    FIELD(VkMemoryAllocateInfo, allocationSize, 16); FIELD(VkMemoryAllocateInfo, memoryTypeIndex, 24);
+    FIELD(VkPhysicalDeviceLimits, minStorageBufferOffsetAlignment, 328);
     FIELD(VkPhysicalDeviceProperties2, properties, 16);
     FIELD(VkPhysicalDeviceProperties, deviceName, 20);
     FIELD(VkPhysicalDeviceProperties, limits, 296);

@@ -58,6 +58,8 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_metal_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_metal_b.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_select_guard_safety.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_dyn_trait_void_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"

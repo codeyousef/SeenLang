@@ -1,0 +1,158 @@
+/// Bounded first-fit ranges. Native allocation and typed buffer ownership are
+/// separate responsibilities; this module only partitions a fixed byte span.
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GPU_MAX_MEMORY_BYTES, GPU_MAX_RESOURCES}
+import compute.resource_geometry.{gpuResourceAlignmentValid}
+import core.result.{Result, Ok, Err}
+import memory.allocation.{allocationBudgetAvailable}
+
+class GpuFreeRange { var offset: UInt64; var bytes: UInt64; var active: Bool }
+@move
+class GpuRangeReservation { var offset: UInt64; var bytes: UInt64 }
+
+@move
+class GpuRangeSet {
+    var capacity: UInt64
+    var freeBytes: UInt64
+    var maxRanges: Int
+    var ranges: Array<GpuFreeRange>
+    var closed: Bool
+
+    static fun create(capacity: UInt64, maxRanges: Int) r: Result<GpuRangeSet, GpuError> {
+        if capacity == (0 as UInt64) or capacity > GPU_MAX_MEMORY_BYTES or
+            maxRanges <= 0 or maxRanges > 2 * GPU_MAX_RESOURCES + 1 or not allocationBudgetAvailable(4096) {
+            return Err<GpuRangeSet, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.ranges", "GPU free-range capacity or metadata budget is outside its bound"))
+        }
+        let ranges = Array<GpuFreeRange>()
+        ranges.push(GpuFreeRange{offset: 0 as UInt64, bytes: capacity, active: true})
+        return Ok<GpuRangeSet, GpuError>(GpuRangeSet{capacity: capacity, freeBytes: capacity,
+            maxRanges: maxRanges, ranges: ranges, closed: false})
+    }
+    /// Internal search index; -1 means no fitting free range. The public
+    /// reservation entry point reports a typed error instead of a sentinel.
+    fun find(bytes: UInt64, alignment: UInt64) r: Int {
+        if this.closed or bytes == (0 as UInt64) or bytes > this.freeBytes or not gpuResourceAlignmentValid(alignment) { return -1 }
+        let mask = alignment - (1 as UInt64); var index = 0
+        while index < this.ranges.length() {
+            let range = this.ranges[index]
+            if range.active {
+                let aligned = (range.offset + mask) & ~mask
+                let padding = aligned - range.offset
+                if padding <= range.bytes and bytes <= range.bytes - padding { return index }
+            }
+            index = index + 1
+        }
+        return -1
+    }
+    fun fits(bytes: UInt64, alignment: UInt64) r: Bool { return this.find(bytes, alignment) >= 0 }
+    /// Admit records before publishing allocations. With N live ranges, at
+    /// most N+1 free gaps can exist; clients can reserve that complete bound
+    /// so recycling never needs another metadata allocation.
+    fun prepare(minimum: Int) r: Result<Bool, GpuError> {
+        if this.closed { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.ranges", "GPU range metadata owner is closed")) }
+        if minimum <= 0 or minimum > this.maxRanges {
+            return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.ranges", "GPU range metadata reservation exceeds its bound"))
+        }
+        let before = this.ranges.length()
+        if minimum <= before { return Ok<Bool, GpuError>(false) }
+        let metadata = 4096 + 48 * (minimum - before) + 16 * (minimum + 1)
+        if not allocationBudgetAvailable(metadata) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.ranges", "GPU range metadata allocation budget exhausted"))
+        }
+        while this.ranges.length() < minimum {
+            this.ranges.push(GpuFreeRange{offset: 0 as UInt64, bytes: 0 as UInt64, active: false})
+        }
+        return Ok<Bool, GpuError>(this.ranges.length() != before)
+    }
+    fun spare() r: Int {
+        if this.closed { return -1 }
+        var index = 0
+        while index < this.ranges.length() {
+            if not this.ranges[index].active { return index }
+            index = index + 1
+        }
+        if this.ranges.length() >= this.maxRanges or not allocationBudgetAvailable(4096 + 16 * (this.ranges.length() + 1)) { return -1 }
+        this.ranges.push(GpuFreeRange{offset: 0 as UInt64, bytes: 0 as UInt64, active: false})
+        return index
+    }
+    fun reserve(bytes: UInt64, alignment: UInt64) r: Result<GpuRangeReservation, GpuError> {
+        if this.closed or bytes == (0 as UInt64) or not gpuResourceAlignmentValid(alignment) {
+            return Err<GpuRangeReservation, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.ranges", "GPU range reservation has invalid geometry or a closed owner"))
+        }
+        let index = this.find(bytes, alignment)
+        if index < 0 or not allocationBudgetAvailable(4096) {
+            return Err<GpuRangeReservation, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.ranges", "GPU free ranges or metadata budget cannot satisfy this allocation"))
+        }
+        let range = this.ranges[index]; let mask = alignment - (1 as UInt64)
+        let start = (range.offset + mask) & ~mask; let prefix = start - range.offset
+        let suffix = range.bytes - prefix - bytes; var extra = -1
+        if prefix > (0 as UInt64) and suffix > (0 as UInt64) {
+            extra = this.spare()
+            if extra < 0 {
+                return Err<GpuRangeReservation, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.ranges", "GPU split free-range ceiling reached"))
+            }
+        }
+        let reservation = GpuRangeReservation{offset: start, bytes: bytes}
+        if prefix > (0 as UInt64) {
+            range.bytes = prefix
+            if suffix > (0 as UInt64) {
+                let tail = this.ranges[extra]; tail.offset = start + bytes; tail.bytes = suffix; tail.active = true
+            }
+        } else {
+            range.offset = start + bytes; range.bytes = suffix; range.active = suffix > (0 as UInt64)
+        }
+        this.freeBytes = this.freeBytes - bytes
+        return Ok<GpuRangeReservation, GpuError>(reservation)
+    }
+    fun recycle(offset: UInt64, bytes: UInt64) r: Result<Bool, GpuError> {
+        if this.closed or bytes == (0 as UInt64) or offset > this.capacity or bytes > this.capacity - offset {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.ranges", "GPU recycled range is outside its owner"))
+        }
+        let end = offset + bytes; var index = 0; var left = -1; var right = -1
+        while index < this.ranges.length() {
+            let range = this.ranges[index]
+            if range.active {
+                let rangeEnd = range.offset + range.bytes
+                if offset < rangeEnd and range.offset < end {
+                    return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.ranges", "GPU recycled range overlaps already-free storage"))
+                }
+                if rangeEnd == offset { left = index }
+                if range.offset == end { right = index }
+            }
+            index = index + 1
+        }
+        if left >= 0 {
+            let range = this.ranges[left]; range.bytes = range.bytes + bytes
+            if right >= 0 {
+                let tail = this.ranges[right]; range.bytes = range.bytes + tail.bytes; tail.active = false
+            }
+        } else {
+            if right >= 0 {
+                let range = this.ranges[right]; range.offset = offset; range.bytes = range.bytes + bytes
+            } else {
+                let available = this.spare()
+                if available < 0 {
+                    return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.ranges", "GPU recycled range metadata ceiling reached"))
+                }
+                let range = this.ranges[available]; range.offset = offset; range.bytes = bytes; range.active = true
+            }
+        }
+        this.freeBytes = this.freeBytes + bytes
+        return Ok<Bool, GpuError>(true)
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.freeBytes != this.capacity {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.allocator.ranges", "GPU range owner still has allocations"))
+        }
+        var index = 0
+        while index < this.ranges.length() { this.ranges[index].free(); index = index + 1 }
+        this.ranges.free(); this.closed = true
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}

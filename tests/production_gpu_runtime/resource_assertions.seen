@@ -1,0 +1,14 @@
+import compute.buffer.{GpuBuffer}
+import compute.error.{GpuError}
+import core.result.{Result}
+
+fun rejected(result: Result<GpuBuffer<UInt32>, GpuError>, code: String, causes: Int) r: Void {
+    if result.isOkay() { abort("invalid GPU buffer request admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.retryable or error.causes.length() != causes { abort("GPU buffer failure or cleanup cause changed") }
+    error.release()
+}
+fun allocated(result: Result<GpuBuffer<UInt32>, GpuError>) r: GpuBuffer<UInt32> {
+    if result.isErr() { abort("valid GPU buffer request rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
