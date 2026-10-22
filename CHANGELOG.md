@@ -66,6 +66,8 @@ Foundations**.
 
 ### Changed
 
+- Queue version-branch CI behind its active run so publishing acceptance fixes
+  preserves the verification already underway.
 - Share bounded text construction and explicit launch-argument packing between
   CUDA and AMDGPU. Describe both launch ABIs in the published GPU JSON schemas.
 - Share bounded packed-number conversion plans across PTX, SPIR-V and AMDGPU while
