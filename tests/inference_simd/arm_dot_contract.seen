@@ -38,6 +38,7 @@ fun capabilitiesMatrix() r: Void {
     denied.free()
 }
 fun main() r: Int {
+    let initial = seen_memory_used_bytes()
     let ctx = context(); let backendProvider = ArmDotBackend{reserved: 0}; let backend = DotBackendHandle.create(backendProvider)
     let left: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
     let right: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(32768 as UInt64, 1 as UInt64, 64 as UInt64))
@@ -93,6 +94,7 @@ fun main() r: Int {
     caps.free(); backend.release(); backendProvider.free(); reference.free(); actual.free()
     left.close(); left.free(); right.close(); right.free()
     ctx.limits.free(); ctx.traceId.free(); ctx.free()
+    if seen_memory_used_bytes() != initial { abort("ARM dot lifecycle retained live allocations") }
     println("PASS: SEEN-INF-002C_cleanup")
     return 0
 }

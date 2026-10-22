@@ -12,6 +12,10 @@ Foundations**.
 
 ### Added
 
+- Add bounded device execution checks for Seen-emitted PTX layout, packed
+  values, integer atomics, subgroups and FP16/BF16 matrices on SM89, with independent value/fault oracles
+  and separate hardware evidence. Add a focused regression entry point that
+  retains exact-version builder admission and scope-attested containment.
 - Add bounded staging reservations, checked buffer byte borrows and validated
   Vulkan timeline feature admission. Submitted staging metadata retains its
   range until explicit completion; native copy submission is a separate API.
@@ -100,6 +104,9 @@ Foundations**.
 
 ### Fixed
 
+- Keep scalar dot controls from auto-vectorizing and retain the candidate's
+  selected variant before the alternating scalar call overwrites progress.
+  Preserve thirty raw timing pairs and assert cold ARM lifecycle cleanup.
 - Store fields of local native ABI values in their original aggregate storage,
   preserving pointers and layout when Seen constructs native SDK requests.
 - Preserve conditional guards around array/member reads and nested effects.

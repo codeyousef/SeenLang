@@ -23,6 +23,10 @@ done
 rg '^\{' "$TMP_DIR/contract-release.log"
 compile_case fast metadata-fuzz "$ROOT_DIR/tests/inference_simd/arm_capability_fuzz.seen"
 rg -Fq 'PASS: ARM capability metadata fuzz 60s seed=1101' "$TMP_DIR/metadata-fuzz-fast.log"
+compile_case fast benchmark-metadata "$ROOT_DIR/tests/inference_simd/dot_benchmark_metadata.seen"
+rg -Fxq 'BENCH: selected_variant=1' "$TMP_DIR/benchmark-metadata-fast.log"
+[ "$(rg -c '^BENCH: candidate_ns=' "$TMP_DIR/benchmark-metadata-fast.log")" = 30 ]
+[ "$(rg -c '^BENCH: scalar_ns=' "$TMP_DIR/benchmark-metadata-fast.log")" = 30 ]
 status=0
 run_compiler check "$ROOT_DIR/tests/inference_simd/bad_arm_arity.seen" >"$TMP_DIR/00-active.log" 2>&1 || status=$?
 if [ "$status" -eq 0 ]; then echo 'FAIL: malformed ARM intrinsic accepted' >&2; exit 1; fi

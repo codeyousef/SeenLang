@@ -486,7 +486,7 @@ hash = "bfe37e4305d2c5fc306834e51ea7a67d6d6f7dabd43dbd9aa604c532c472eed5"
 
 [[modules]]
 path = "src/simd/dot_scalar.seen"
-hash = "4e15868418df4b71646305a05f10cc18d590e7bd443cd7d33173dc18a57120b2"
+hash = "9b60b8f49df2391dca7b25ce59afb53d34aea4ff70909a537836270d8c0f8f22"
 
 [[modules]]
 path = "src/simd/x86_dispatch.seen"

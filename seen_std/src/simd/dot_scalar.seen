@@ -6,6 +6,7 @@ fun bf16Float(bits: UInt16) r: Float32 {
 }
 
 @simd_target("scalar")
+@no_vectorize
 fun dotF32Scalar(left: *Float32, right: *Float32, count: UInt64) r: Float32 {
     var value = 0.0 as Float32; var i = 0 as UInt64
     while i < count { value = value + left[i] * right[i]; i = i + (1 as UInt64) }
@@ -13,6 +14,7 @@ fun dotF32Scalar(left: *Float32, right: *Float32, count: UInt64) r: Float32 {
 }
 
 @simd_target("scalar")
+@no_vectorize
 fun dotU8S8Scalar(left: *UInt8, right: *Int8, count: UInt64) r: Int64 {
     var value = 0 as Int64; var i = 0 as UInt64
     while i < count {
@@ -22,6 +24,7 @@ fun dotU8S8Scalar(left: *UInt8, right: *Int8, count: UInt64) r: Int64 {
 }
 
 @simd_target("scalar")
+@no_vectorize
 fun dotBf16Scalar(left: *UInt16, right: *UInt16, count: UInt64) r: Float32 {
     var value = 0.0 as Float32; var i = 0 as UInt64
     while i < count {

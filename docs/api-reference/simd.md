@@ -265,12 +265,18 @@ IR and objects cover Linux arm64, macOS arm64, Windows x86-64 and macOS x86-64;
 each is recorded as compile-only and is never substituted for execution.
 Fixture JSON separates an executing host's verified software paths from
 unsupported paths and always sets hardware_certified:false. Physical ARM
-execution and platform certification remain deferred until actually run.
+execution and platform certification need separate machine-bound evidence.
 
 The shared five-warmup/thirty-sample paired benchmark observes native/scalar
 performance and live allocations. `SEEN_REQUIRE_ARM_PERF=1` enables the 1.05
 ceiling on a designated ARM machine and requires an available native variant.
 The default CI run does not invent a designated machine or RSS measurement.
+Scalar dot controls use `@no_vectorize` so LLVM cannot turn the reference loop
+into another SIMD candidate. The benchmark captures each candidate's variant
+before its paired scalar call, rejects mixed measured variants, and preserves
+all thirty candidate/control durations outside the timed interval. The
+test-only `seen_simd_benchmark_metadata.sh` probe checks that ordering; its mock
+provider is never hardware or performance evidence.
 
 ### Portable memory and lane operations
 

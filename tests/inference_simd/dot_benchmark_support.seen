@@ -39,29 +39,46 @@ fun runDotBenchmark(borrow backend: DotBackendHandle) r: Int {
         let candidate = sample(backend, left, right, progress, "auto")
         let reference = sample(backend, left, right, progress, "scalar"); i = i + 1
     }
-    let ratios = Array<Int64>(); i = 0
-    while i < 30 { ratios.push(0 as Int64); i = i + 1 }
+    let ratios = Array<Int64>(); let candidates = Array<Int64>(); let controls = Array<Int64>()
+    let variants = Array<Int>(); i = 0
+    while i < 30 {
+        ratios.push(0 as Int64); candidates.push(0 as Int64); controls.push(0 as Int64)
+        variants.push(0); i = i + 1
+    }
     let memory = seen_memory_used_bytes(); i = 0
     while i < 30 {
         var candidate = 0 as Int64; var reference = 0 as Int64
         if i % 2 == 0 {
             reference = sample(backend, left, right, progress, "scalar")
             candidate = sample(backend, left, right, progress, "auto")
+            variants[i] = progress.variant
         } else {
             candidate = sample(backend, left, right, progress, "auto")
+            variants[i] = progress.variant
             reference = sample(backend, left, right, progress, "scalar")
         }
+        candidates[i] = candidate; controls[i] = reference
         ratios[i] = candidate * (1000000 as Int64) / reference
         if seen_memory_used_bytes() != memory { return 2 }
+        i = i + 1
+    }
+    let selectedVariant = variants[0]; var stable = true; i = 0
+    while i < 30 {
+        if variants[i] != selectedVariant { stable = false }
+        metric("BENCH: candidate_ns=", candidates[i]); metric("BENCH: scalar_ns=", controls[i])
         i = i + 1
     }
     let ratio = medianRatioPpm(ratios)
     println("BENCH: dot warmups=5 samples=30 control=scalar clock=monotonic paired=true")
     metric("BENCH: median_ratio_ppm=", ratio)
     metric("BENCH: allocator_peak_bytes=", seen_memory_peak_bytes())
-    metric("BENCH: selected_variant=", progress.variant as Int64)
-    if enforce and (progress.variant == 0 or ratio > (1050000 as Int64)) { return 3 }
-    ratios.free(); progress.free(); left.close(); left.free(); right.close(); right.free()
+    metric("BENCH: selected_variant=", selectedVariant as Int64)
+    var result = 0
+    if not stable { result = 4 }
+    if enforce and (selectedVariant == 0 or ratio > (1050000 as Int64)) { result = 3 }
+    ratios.free(); candidates.free(); controls.free(); variants.free()
+    progress.free(); left.close(); left.free(); right.close(); right.free()
+    if result != 0 { return result }
     println("PASS: SIMD observed performance and live-allocation stability")
     if enforce { println("PASS: SIMD designated scalar control five-percent gate") }
     else { println("PENDING: designated-machine performance enforcement; hardware certification is deferred") }
