@@ -1,4 +1,4 @@
-import async.multithread.{ExecutorJob, ExecutorTaskContext}
+import async.executor_core.{ExecutorJob, ExecutorTaskContext}
 
 @send
 class ImportedExecutorJob {

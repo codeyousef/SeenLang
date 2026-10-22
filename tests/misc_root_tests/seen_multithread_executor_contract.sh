@@ -73,25 +73,22 @@ for profile in fast release; do
     done
 done
 
-if bash "$ATTESTED_SEEN" "$COMPILER" check \
-    "$ROOT_DIR/tests/fixtures/async/unsafe_job.seen" >"$TMP_DIR/unsafe.log" 2>&1; then
-    echo "FAIL: executor admitted a task with a borrowed raw pointer" >&2
-    exit 1
-fi
-rg -Fq E_TYPE_BOUND "$TMP_DIR/unsafe.log"
+check_rejection() {
+    local name=$1 source=$2 expected=$3
+    local log="$TMP_DIR/$name.log"
+    if bash "$ATTESTED_SEEN" "$COMPILER" check "$source" >"$log" 2>&1; then
+        echo "FAIL: executor accepted negative fixture $name" >&2
+        exit 1
+    fi
+    rg -Fq "$expected" "$log"
+    if rg -q 'error\[E_(TYPE|BINDING)_UNKNOWN\]' "$log"; then
+        echo "FAIL: negative fixture $name contains unresolved types or bindings" >&2
+        exit 1
+    fi
+}
 
-if bash "$ATTESTED_SEEN" "$COMPILER" check \
-    "$ROOT_DIR/tests/fixtures/async/generic_move_rejected.seen" >"$TMP_DIR/generic-move.log" 2>&1; then
-    echo "FAIL: generic consuming call retained its caller owner" >&2
-    exit 1
-fi
-rg -Fq E_OWNERSHIP_USE_AFTER_MOVE "$TMP_DIR/generic-move.log"
-
-if bash "$ATTESTED_SEEN" "$COMPILER" check \
-    "$ROOT_DIR/tests/fixtures/async/unsafe_owned_job.seen" >"$TMP_DIR/unsafe-owned.log" 2>&1; then
-    echo 'FAIL: capturing a trait witness bypassed the Send admission bound' >&2
-    exit 1
-fi
-rg -Fq E_TYPE_BOUND "$TMP_DIR/unsafe-owned.log"
+check_rejection unsafe "$ROOT_DIR/tests/fixtures/async/unsafe_job.seen" E_TYPE_BOUND
+check_rejection generic-move "$ROOT_DIR/tests/fixtures/async/generic_move_rejected.seen" E_OWNERSHIP_USE_AFTER_MOVE
+check_rejection unsafe-owned "$ROOT_DIR/tests/fixtures/async/unsafe_owned_job.seen" E_TYPE_BOUND
 
 echo "PASS: fixed-worker typed execution in fast and release/ThinLTO"

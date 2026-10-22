@@ -4,6 +4,21 @@ import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 
+/// Preserve floating bit patterns when storing a scalar in a generic word.
+fun eraseFloatingWordImpl(output: StringBuilder, regBox: Array<Int>,
+    source: String, value: String) r: String {
+    let bits = getNextRegFn(regBox)
+    if source == "double" {
+        output.append("  " + bits + " = bitcast double " +
+            normalizeDoubleLiteralForLlvmImpl(value) + " to i64\n")
+        return bits
+    }
+    output.append("  " + bits + " = bitcast float " + value + " to i32\n")
+    let word = getNextRegFn(regBox)
+    output.append("  " + word + " = zext i32 " + bits + " to i64\n")
+    return word
+}
+
 /// Restore scalar/pointer bit patterns from the generic single-word ABI.
 /// This is representation conversion, rather than numeric conversion.
 fun reifyErasedWordImpl(output: StringBuilder, regBox: Array<Int>,

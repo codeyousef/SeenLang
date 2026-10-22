@@ -1,4 +1,5 @@
-import async.multithread.{MultithreadExecutor, ExecutorJob, ExecutorTaskContext}
+import async.multithread.{MultithreadExecutor}
+import async.executor_core.{ExecutorJob, ExecutorTaskContext}
 
 class UnsafeJob { var borrowed: *Int }
 

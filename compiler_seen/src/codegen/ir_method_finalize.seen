@@ -7,6 +7,7 @@ receiver discovery and dispatch rather than ABI normalization details.
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_value_coercion.{reifyErasedWordImpl}
+import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
 import codegen.ir_option_aggregate.{emitOptionAggregateUnwrapImpl}
 import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl, emitUserMethodCallImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
@@ -564,9 +565,19 @@ fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
     }
 
     if shouldEmitUserMethod {
-        return emitUserMethodCallImpl(output, regBox,
+        let result = emitUserMethodCallImpl(output, regBox,
             quoteIdentIfNeededImpl(funcName), llvmReturnType,
             receiverLlvmType, normalizedReceiverReg, argRegs, argTypeStrs, 0)
+        // Generic method bodies keep their declared word ABI. Restore the
+        // instantiated value representation before expression consumers use it.
+        if llvmReturnType == "i64" and receiverType.contains("<") {
+            let semanticType = getMethodReturnTypeState(receiverType, methodName)
+            if semanticType != "" {
+                return reifyErasedWordImpl(output, regBox,
+                    mapTypeState(semanticType), result)
+            }
+        }
+        return result
     }
     return ""
 }

@@ -74,6 +74,8 @@ Foundations**.
 
 ### Fixed
 
+- Restore instantiated pointer and scalar representations after generic method
+  returns, preserving the declared word ABI and typed executor cleanup.
 - Store nested inline aggregate field assignments in their original receiver,
   preserving adjacent fields and evaluating receiver expressions once.
 - Validate GPU intrinsic and helper calls through shared GPU lowering during

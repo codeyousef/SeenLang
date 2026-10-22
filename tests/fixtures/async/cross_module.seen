@@ -2,8 +2,8 @@ import imported_job.{ImportedExecutorJob}
 import core.error.{AsciiString}
 import core.operation_context.{OperationContext, OperationLimits}
 import async.structured.{AsyncLimits, AsyncOperationContext}
-import async.multithread.{MultithreadExecutor, ExecutorLimits}
-import async.executor_core.{executorReleaseContext, ExecutorOwnedJob}
+import async.multithread.{MultithreadExecutor}
+import async.executor_core.{ExecutorLimits, executorReleaseContext, ExecutorOwnedJob}
 
 fun main() r: Int {
     let limits = ExecutorLimits{workers: 1, tasks: 2, queued: 2,
