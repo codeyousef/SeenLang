@@ -1,0 +1,50 @@
+/// Driver reports are untrusted data. These are runtime capabilities, separate
+/// from a shader artifact's required instruction set.
+import core.result.{Result, Ok, Err}
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GPU_MAX_MEMORY_BYTES}
+
+let GPU_FEATURE_COMPUTE: UInt64 = 1 as UInt64
+let GPU_FEATURE_ASYNC_TRANSFER: UInt64 = 2 as UInt64
+let GPU_FEATURE_TIMELINE_EVENTS: UInt64 = 4 as UInt64
+let GPU_FEATURE_TIMESTAMPS: UInt64 = 8 as UInt64
+let GPU_FEATURE_PEER: UInt64 = 16 as UInt64
+let GPU_FEATURE_COMMAND_GRAPHS: UInt64 = 32 as UInt64
+let GPU_FEATURE_HOST_VISIBLE: UInt64 = 64 as UInt64
+let GPU_FEATURE_COOPERATIVE: UInt64 = 128 as UInt64
+let GPU_FEATURE_SUBGROUP: UInt64 = 256 as UInt64
+let GPU_FEATURE_FLOAT16: UInt64 = 512 as UInt64
+let GPU_FEATURE_FLOAT64: UInt64 = 1024 as UInt64
+let GPU_FEATURE_ATOMIC64: UInt64 = 2048 as UInt64
+let GPU_KNOWN_FEATURES: UInt64 = 4095 as UInt64
+
+@move
+class GpuCapabilities {
+    var features: UInt64
+    var totalBytes: UInt64
+    var maxWorkgroupX: UInt64
+    var maxWorkgroupY: UInt64
+    var maxWorkgroupZ: UInt64
+    var maxThreads: UInt64
+    var maxSharedBytes: UInt64
+    var subgroupWidth: Int
+
+    fun valid() r: Bool {
+        return (this.features & GPU_FEATURE_COMPUTE) != (0 as UInt64) and
+            (this.features & GPU_KNOWN_FEATURES) == this.features and
+            this.totalBytes > (0 as UInt64) and this.totalBytes <= GPU_MAX_MEMORY_BYTES and
+            this.maxWorkgroupX > (0 as UInt64) and this.maxWorkgroupX <= (65535 as UInt64) and
+            this.maxWorkgroupY > (0 as UInt64) and this.maxWorkgroupY <= (65535 as UInt64) and
+            this.maxWorkgroupZ > (0 as UInt64) and this.maxWorkgroupZ <= (65535 as UInt64) and
+            this.maxThreads > (0 as UInt64) and this.maxThreads <= (65535 as UInt64) and
+            this.maxSharedBytes <= (16777216 as UInt64) and this.subgroupWidth > 0 and this.subgroupWidth <= 128
+    }
+    fun snapshot() r: Result<GpuCapabilities, GpuError> {
+        if not this.valid() { return Err<GpuCapabilities, GpuError>(gpuFailure("gpu.invalid", "gpu.capabilities", "GPU capability report is invalid")) }
+        return Ok<GpuCapabilities, GpuError>(GpuCapabilities{features: this.features, totalBytes: this.totalBytes,
+            maxWorkgroupX: this.maxWorkgroupX, maxWorkgroupY: this.maxWorkgroupY,
+            maxWorkgroupZ: this.maxWorkgroupZ, maxThreads: this.maxThreads,
+            maxSharedBytes: this.maxSharedBytes, subgroupWidth: this.subgroupWidth})
+    }
+    fun release() r: Void { this.free() }
+}

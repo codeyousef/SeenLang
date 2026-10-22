@@ -1,0 +1,70 @@
+/// A bounded owning discovery report. It contains metadata, never driver
+/// handles: opening a device is a separate operation owned by its provider.
+import core.result.{Result, Ok, Err}
+import compute.backend.{GpuBackend, gpuBackendKnown}
+import compute.device_info.{GpuDeviceInfo}
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GpuLimits}
+
+@move
+class GpuDeviceCatalog {
+    var backend: GpuBackend
+    var providerId: UInt64
+    var limits: GpuLimits
+    var devices: Array<GpuDeviceInfo>
+    var closed: Bool
+
+    static fun create(backend: GpuBackend, providerId: UInt64, limits: GpuLimits)
+        r: Result<GpuDeviceCatalog, GpuError> {
+        if not gpuBackendKnown(backend) or backend == GpuBackend.CpuOnly or providerId == (0 as UInt64) {
+            return Err<GpuDeviceCatalog, GpuError>(gpuFailure("gpu.invalid", "gpu.discovery", "discovery requires an explicit accelerator provider"))
+        }
+        let copied = limits.snapshot()
+        if copied.isErr() { let error = copied.unwrapErr(); copied.releaseContainer(); return Err<GpuDeviceCatalog, GpuError>(error) }
+        let owned = copied.unwrap(); copied.releaseContainer()
+        return Ok<GpuDeviceCatalog, GpuError>(GpuDeviceCatalog{backend: backend,
+            providerId: providerId, limits: owned, devices: Array<GpuDeviceInfo>(), closed: false})
+    }
+
+    /// Consumes the report on success and rejection. Validate identity and
+    /// quotas before growing storage; ordinals and UUIDs must both be unique.
+    fun admit(report: GpuDeviceInfo) r: Result<Bool, GpuError> {
+        if this.closed { report.release(); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.discovery", "discovery report is closed")) }
+        let valid = report.validate(this.limits)
+        if valid.isErr() { let error = valid.unwrapErr(); valid.releaseContainer(); report.release(); return Err<Bool, GpuError>(error) }
+        valid.releaseContainer()
+        if report.identity.backend != this.backend or report.identity.providerId != this.providerId {
+            report.release(); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.discovery", "device report belongs to another provider"))
+        }
+        var index = 0
+        while index < this.devices.length() {
+            if this.devices[index].identity.ordinal == report.identity.ordinal or
+                this.devices[index].identity.uuid == report.identity.uuid {
+                report.release(); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.discovery", "duplicate device identity"))
+            }
+            index = index + 1
+        }
+        if this.devices.length() >= this.limits.maxDevices {
+            report.release(); return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.discovery", "discovery device ceiling reached"))
+        }
+        this.devices.push(report)
+        return Ok<Bool, GpuError>(true)
+    }
+
+    fun snapshot(index: Int) r: Result<GpuDeviceInfo, GpuError> {
+        if this.closed or index < 0 or index >= this.devices.length() {
+            return Err<GpuDeviceInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.discovery", "device snapshot is outside an open discovery report"))
+        }
+        return this.devices[index].snapshot(this.limits)
+    }
+
+    fun close() r: Bool {
+        if this.closed { return false }
+        this.closed = true
+        var index = 0
+        while index < this.devices.length() { this.devices[index].release(); index = index + 1 }
+        this.devices.free()
+        return true
+    }
+    fun release() r: Void { this.close(); this.limits.release(); this.free() }
+}

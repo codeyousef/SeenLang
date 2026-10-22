@@ -141,6 +141,14 @@ modules = [
     "src/accelerator/cuda/error.seen",
     "src/accelerator/cuda/mod.seen",
 
+    # Explicit backend GPU runtime foundations
+    "src/compute/backend.seen",
+    "src/compute/error.seen",
+    "src/compute/limits.seen",
+    "src/compute/capabilities.seen",
+    "src/compute/device_info.seen",
+    "src/compute/discovery.seen",
+
     # Portable SIMD representation and dispatch planning
     "src/simd/ir_types.seen",
     "src/simd/operation_types.seen",

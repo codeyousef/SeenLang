@@ -1,0 +1,22 @@
+import core.result.{Result}
+import compute.error.{GpuError}
+import compute.backend.{GpuBackend}
+import compute.capabilities.{GpuCapabilities, GPU_FEATURE_COMPUTE, GPU_FEATURE_ASYNC_TRANSFER}
+import compute.device_info.{GpuDeviceIdentity, GpuDeviceInfo}
+import json.builder.{seen_string_clone_owned}
+
+fun report() r: GpuDeviceInfo {
+    return GpuDeviceInfo{identity: GpuDeviceIdentity{backend: GpuBackend.Vulkan, ordinal: 0,
+        providerId: 1 as UInt64, uuid: seen_string_clone_owned("fixture-device-0")},
+        name: seen_string_clone_owned("Fixture Device"), driverVersion: seen_string_clone_owned("test-1.0"),
+        capabilities: GpuCapabilities{features: GPU_FEATURE_COMPUTE | GPU_FEATURE_ASYNC_TRANSFER,
+            totalBytes: 1024 as UInt64, maxWorkgroupX: 1024 as UInt64,
+            maxWorkgroupY: 1024 as UInt64, maxWorkgroupZ: 64 as UInt64,
+            maxThreads: 1024 as UInt64, maxSharedBytes: 32768 as UInt64, subgroupWidth: 32}, freeBytes: 512 as UInt64}
+}
+fun gpuFixtureRejected(value: Result<Bool, GpuError>, code: String) r: Void {
+    if value.isOkay() { abort("invalid GPU metadata accepted") }
+    let error = value.unwrapErr(); value.releaseContainer()
+    if error.code != code or error.retryable { abort("GPU metadata diagnostic changed") }
+    error.release()
+}

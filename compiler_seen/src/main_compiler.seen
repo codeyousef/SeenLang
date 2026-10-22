@@ -6096,6 +6096,7 @@ fun isStdlibImportRoot(segment: String) r: Bool {
     if segment == "async" { return true }
     if segment == "audio" { return true }
     if segment == "collections" { return true }
+    if segment == "compute" { return true }
     if segment == "core" { return true }
     if segment == "crypto" { return true }
     if segment == "determinism" { return true }

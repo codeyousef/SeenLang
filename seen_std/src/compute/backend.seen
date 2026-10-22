@@ -1,0 +1,32 @@
+/// Closed backend identities. Importing this module performs no driver/SDK
+/// lookup, native initialization, device selection or fallback.
+import core.result.{Result, Ok, Err}
+import compute.error.{GpuError, gpuFailure}
+
+enum GpuBackend { CpuOnly; Vulkan; Cuda; Hip; Metal }
+
+fun gpuBackendName(backend: GpuBackend) r: String {
+    if backend == GpuBackend.CpuOnly { return "none" }
+    if backend == GpuBackend.Vulkan { return "vulkan" }
+    if backend == GpuBackend.Cuda { return "cuda" }
+    if backend == GpuBackend.Hip { return "hip" }
+    if backend == GpuBackend.Metal { return "metal" }
+    return ""
+}
+fun gpuBackendKnown(backend: GpuBackend) r: Bool { return gpuBackendName(backend) != "" }
+
+fun gpuBackendFromName(name: String) r: Result<GpuBackend, GpuError> {
+    if name.length() >= 3 and name.length() <= 6 {
+        let candidates = [GpuBackend.CpuOnly, GpuBackend.Vulkan, GpuBackend.Cuda, GpuBackend.Hip, GpuBackend.Metal]
+        var index = 0
+        while index < candidates.length() {
+            let backend = candidates[index]
+            if gpuBackendName(backend) == name {
+                candidates.free(); return Ok<GpuBackend, GpuError>(backend)
+            }
+            index = index + 1
+        }
+        candidates.free()
+    }
+    return Err<GpuBackend, GpuError>(gpuFailure("gpu.invalid", "gpu.backend", "GPU backend must be an explicit canonical identity"))
+}

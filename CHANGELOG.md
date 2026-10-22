@@ -12,6 +12,10 @@ Foundations**.
 
 ### Added
 
+- Add Seen compute backend identities, bounded device metadata and discovery
+  catalogs, with independent owning snapshots, explicit provider membership,
+  duplicate/quota rejection and cleanup checks. CPU-default imports require no
+  accelerator SDK; native device/context creation remains separate.
 - Add experimental Seen-to-MSL source emission for macOS 13/14/15, a reflected
   native Metal buffer ABI, structured helper/loop lowering, checked scalar and
   vector memory, and bounded threadgroup storage. Add shared scalar CPU witnesses
