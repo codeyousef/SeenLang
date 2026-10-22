@@ -80,7 +80,8 @@ Foundations**.
 - Release atomic ordering-validation result containers on successful and
   rejected integer operations, preserving returned errors and values.
 - Run required CI directly on the 0.23.0 release branch using the existing
-  concurrency rule to replace superseded runs.
+  concurrency rule to replace superseded runs. Keep the canonical workflow
+  contract and fixture aligned with that trigger.
 - Preserve array pointers in Option payloads so nested synchronization
   containers retain their typed values and ownership.
 - Restore instantiated pointer and scalar representations after generic method
