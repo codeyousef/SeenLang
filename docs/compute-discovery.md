@@ -75,6 +75,16 @@ checking owned-result cleanup throughout the run.
 other devices. `freeBytes` is optional: an absent value means the provider cannot
 report current free memory. It never substitutes total capacity for free memory.
 
+`GpuContextLease.acquire(context, operation)` pins a context for a resource
+owner. Leases are move-only and creator-confined. Their device-wide quota is
+shared across contexts, checked before metadata allocation, and bounded by
+`GpuLimits.maxResources`. `native` returns a checked native identity only while
+the lease is active and its owner and generation remain valid. Context shutdown
+returns `gpu.busy` until every lease closes. Closing a lease releases its borrow;
+it does not destroy the native context. An inactive lease can close after its
+former device owner has been released. Buffers, resource pools and other native
+owners must keep a lease until their native cleanup completes.
+
 ## Explicit Vulkan discovery
 
 `GpuVulkanProvider.discover(context, limits, allowSoftware)` creates an owned

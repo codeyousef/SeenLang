@@ -1,0 +1,81 @@
+import compute.context_lease.{GpuContextLease}
+import compute.device.{GpuDevice}
+import compute.error.{GpuError}
+import core.result.{Result}
+import compute.limits.{GpuLimits}
+import device_fixture_support.{report, operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{newProviderCounts, provider, opened, created, completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+extern "C" fun seen_memory_limit_bytes() r: Int64
+extern "C" fun seen_memory_set_limit_bytes(bytes: Int64) r: Void
+
+fun rejected(result: Result<GpuContextLease, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid context resource lease admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.retryable { abort("resource lease rejection changed") }
+    error.release()
+}
+fun rejectedNative(result: Result<UInt64, GpuError>) r: Void {
+    if result.isOkay() { abort("stale resource context exposed a native identity") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != "gpu.invalid" { abort("stale resource context diagnostic changed") }
+    error.release()
+}
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let operationContext = operation()
+    let counts = newProviderCounts(); let limits = GpuLimits.bounded(2, 2, 2, 4096 as UInt64)
+    let device = opened(GpuDevice.open(provider(counts, operationContext), report(), limits))
+    let context = created(device.createContext(operationContext))
+    operationContext.cancellation = true
+    rejected(GpuContextLease.acquire(context, operationContext), "gpu.cancelled")
+    operationContext.cancellation = false
+    context.generation = context.generation + (1 as UInt64)
+    rejected(GpuContextLease.acquire(context, operationContext), "gpu.invalid")
+    context.generation = context.generation - (1 as UInt64)
+    let budget = seen_memory_limit_bytes()
+    seen_memory_set_limit_bytes(seen_memory_used_bytes() + seen_memory_reserved_bytes() + (4095 as Int64))
+    let exhausted = GpuContextLease.acquire(context, operationContext)
+    seen_memory_set_limit_bytes(budget); rejected(exhausted, "gpu.limit")
+    let acquired = GpuContextLease.acquire(context, operationContext)
+    if acquired.isErr() { abort("valid resource context lease rejected") }
+    let lease = acquired.unwrap(); acquired.releaseContainer()
+    let native = lease.native()
+    if native.isErr() or native.unwrap() != counts.next { abort("context lease lost its native identity") }
+    native.releaseContainer()
+    let otherContext = created(device.createContext(operationContext))
+    let secondResult = GpuContextLease.acquire(otherContext, operationContext)
+    if secondResult.isErr() { abort("second resource lease rejected") }
+    let second = secondResult.unwrap(); secondResult.releaseContainer()
+    rejected(GpuContextLease.acquire(context, operationContext), "gpu.limit")
+    rejected(GpuContextLease.acquire(otherContext, operationContext), "gpu.limit")
+    lease.generation = lease.generation + (1 as UInt64)
+    rejectedNative(lease.native()); gpuFixtureRejected(lease.close(), "gpu.invalid")
+    gpuFixtureRejected(lease.release(), "gpu.invalid")
+    lease.generation = lease.generation - (1 as UInt64)
+    let originalSlot = lease.slot; lease.slot = -1
+    rejectedNative(lease.native()); lease.slot = originalSlot
+    device.core.slots[originalSlot].resourceBorrowers = 0
+    rejectedNative(lease.native()); device.core.slots[originalSlot].resourceBorrowers = 1
+    device.core.resourceBorrowers = 0
+    rejectedNative(lease.native()); device.core.resourceBorrowers = 2
+    gpuFixtureRejected(context.close(), "gpu.busy")
+    gpuFixtureRejected(context.release(), "gpu.busy")
+    if counts.destroys != 0 { abort("context destroyed before its resource borrower") }
+    completed(lease.close(), true); completed(lease.close(), false)
+    rejectedNative(lease.native())
+    if device.core.resourceBorrowers != 1 { abort("closing one lease detached another context resource") }
+    gpuFixtureRejected(otherContext.close(), "gpu.busy")
+    completed(second.release(), true); completed(otherContext.release(), true)
+    counts.failDestroy = 1; gpuFixtureRejected(context.close(), "gpu.unavailable")
+    completed(context.close(), true)
+    rejected(GpuContextLease.acquire(context, operationContext), "gpu.invalid")
+    completed(context.release(), true); completed(device.release(), true)
+    // A closed lease must never touch the former owner after it has been freed.
+    completed(lease.close(), false); completed(lease.release(), true)
+    counts.free(); limits.release(); releaseOperation(operationContext)
+    if seen_memory_used_bytes() != memory { abort("resource context lease leaked Seen ownership") }
+    println("PASS: GPU-006A resource context leases retain native owner until every borrower closes")
+    return 0
+}

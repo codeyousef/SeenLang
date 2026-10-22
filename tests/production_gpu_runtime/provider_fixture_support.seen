@@ -1,5 +1,6 @@
 import compute.backend.{GpuBackend}
 import compute.device.{GpuDevice, GpuContext}
+import compute.context_lease.{GpuContextLease}
 import compute.error.{GpuError, gpuFailure}
 import core.operation_context.{OperationContext}
 import core.result.{Result, Ok, Err}
@@ -74,3 +75,8 @@ fun completed(result: Result<Bool, GpuError>, expected: Bool) r: Void {
 }
 fun newProviderCounts() r: ProviderCounts { return ProviderCounts{creates: 0, destroys: 0, live: 0, releases: 0, next: 0 as UInt64, failCreate: false,
         failDestroy: 0, empty: false, alias: 0 as UInt64, late: false, refuseDestroy: false} }
+
+fun leased(result: Result<GpuContextLease, GpuError>) r: GpuContextLease {
+    if result.isErr() { abort("valid provider context resource lease rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}

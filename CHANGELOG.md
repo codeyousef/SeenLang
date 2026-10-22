@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Add move-only resource context leases with device-wide quotas, generation
+  validation and shutdown ordering that prevents native context destruction
+  while resource owners remain alive.
 - Add explicit Vulkan 1.2 discovery and owned native device/context creation in
   Seen, with optional free-memory reports, device kinds, bounded SDK metadata,
   software-device opt-in and a Mesa software reference acceptance suite.

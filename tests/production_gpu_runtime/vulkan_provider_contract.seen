@@ -3,7 +3,8 @@ import compute.device.{GpuDevice}
 import compute.device_info.{GpuDeviceKind}
 import compute.limits.{GpuLimits}
 import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
-import provider_fixture_support.{completed}
+import provider_fixture_support.{completed, leased}
+import compute.context_lease.{GpuContextLease}
 extern "C" fun seen_memory_used_bytes() r: Int64
 extern "C" fun seen_memory_reserved_bytes() r: Int64
 extern "C" fun seen_memory_limit_bytes() r: Int64
@@ -56,6 +57,12 @@ fun main() r: Int {
     let firstResult = device.createContext(context)
     if firstResult.isErr() { abort("Vulkan logical device creation failed") }
     let first = firstResult.unwrap(); firstResult.releaseContainer()
+    let resource = leased(GpuContextLease.acquire(first, context))
+    let borrowedNative = resource.native()
+    if borrowedNative.isErr() or borrowedNative.unwrap() != device.core.slots[first.slot].native {
+        abort("Vulkan resource lease borrowed a different logical device")
+    }
+    borrowedNative.releaseContainer(); gpuFixtureRejected(first.release(), "gpu.busy")
     let generation = first.generation
     let secondResult = device.createContext(context)
     if secondResult.isErr() { abort("second bounded Vulkan logical device failed") }
@@ -64,6 +71,7 @@ fun main() r: Int {
     if saturated.isOkay() { abort("Vulkan context ceiling did not reject") }
     saturated.unwrapErr().release(); saturated.releaseContainer()
     gpuFixtureRejected(device.release(), "gpu.busy")
+    completed(resource.release(), true)
     completed(first.close(), true); completed(first.close(), false); completed(second.release(), true)
     let reusedResult = device.createContext(context)
     if reusedResult.isErr() { abort("Vulkan context slot could not be reused") }

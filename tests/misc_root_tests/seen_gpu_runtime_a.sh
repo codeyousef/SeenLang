@@ -14,7 +14,7 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-runtime-a.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-runtime-a
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
-fixtures=(backend error limits device_info discovery operation device device_stress)
+fixtures=(backend error limits device_info discovery operation device device_stress context_lease)
 for profile in fast release undefined address; do
     for name in "${fixtures[@]}"; do
         compile_case "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
@@ -44,8 +44,9 @@ seen_verify_source_coverage "$TMP_DIR/foundations" "${coverage[@]}" \
     --source seen_std/src/compute/discovery.seen \
     --source seen_std/src/compute/operation.seen \
     --source seen_std/src/compute/provider.seen \
-    --source seen_std/src/compute/device.seen
-for name in device context; do
+    --source seen_std/src/compute/device.seen \
+    --source seen_std/src/compute/context_lease.seen
+for name in device context context_lease; do
     if run_compiler check "$ROOT_DIR/tests/production_gpu_runtime/${name}_move_rejected.seen" > "$TMP_DIR/$name-move.log" 2>&1; then
         echo 'FAIL: GPU ownership transfer allowed use of the previous owner' >&2
         exit 1

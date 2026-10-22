@@ -151,6 +151,7 @@ modules = [
     "src/compute/operation.seen",
     "src/compute/provider.seen",
     "src/compute/device.seen",
+    "src/compute/context_lease.seen",
     "src/compute/vulkan_abi.seen",
     "src/compute/vulkan_native.seen",
     "src/compute/vulkan_error.seen",

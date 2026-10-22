@@ -16,6 +16,7 @@ class GpuContextSlot {
     var native: UInt64
     var generation: UInt64
     var borrowed: Bool
+    var resourceBorrowers: Int
 }
 
 class GpuDeviceCore {
@@ -24,7 +25,14 @@ class GpuDeviceCore {
     var limits: GpuLimits
     var slots: Array<GpuContextSlot>
     var borrowers: Int
+    var resourceBorrowers: Int
     var closed: Bool
+
+    fun validSlot(index: Int, generation: UInt64) r: Bool {
+        if this.closed or index < 0 or index >= this.slots.length() { return false }
+        let slot = this.slots[index]
+        return slot.borrowed and slot.generation == generation and slot.native != (0 as UInt64)
+    }
 
     fun reserve() r: Result<Int, GpuError> {
         var index = 0
@@ -38,11 +46,14 @@ class GpuDeviceCore {
         if this.slots.length() >= this.limits.maxContexts {
             return Err<Int, GpuError>(gpuFailure("gpu.limit", "gpu.context", "GPU context ceiling reached"))
         }
-        this.slots.push(GpuContextSlot{native: 0 as UInt64, generation: 1 as UInt64, borrowed: false})
+        this.slots.push(GpuContextSlot{native: 0 as UInt64, generation: 1 as UInt64, borrowed: false, resourceBorrowers: 0})
         return Ok<Int, GpuError>(index)
     }
 
     fun destroy(slot: GpuContextSlot) r: Result<Bool, GpuError> {
+        if slot.resourceBorrowers != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.context.close", "GPU context still has resource borrowers"))
+        }
         let result = this.provider.destroyContext(slot.native)
         if result.isErr() { return result }
         let destroyed = result.unwrap(); result.releaseContainer()
@@ -54,7 +65,7 @@ class GpuDeviceCore {
 
     fun close() r: Result<Bool, GpuError> {
         if this.closed { return Ok<Bool, GpuError>(false) }
-        if this.borrowers != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.device.close", "GPU device still has context borrowers")) }
+        if this.borrowers != 0 or this.resourceBorrowers != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.device.close", "GPU device still has context borrowers")) }
         var index = 0; var progress = 0 as UInt64
         while index < this.slots.length() {
             let slot = this.slots[index]
@@ -83,15 +94,16 @@ class GpuContext {
     var generation: UInt64
     var active: Bool
 
+    fun valid() r: Bool {
+        if not this.active { return false }
+        return this.core.validSlot(this.slot, this.generation)
+    }
     fun close() r: Result<Bool, GpuError> {
         if not this.active { return Ok<Bool, GpuError>(false) }
-        if this.core.closed or this.slot < 0 or this.slot >= this.core.slots.length() {
-            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.context.close", "GPU context owner is invalid"))
+        if not this.valid() {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.context.close", "GPU context identity is stale or its owner is invalid"))
         }
         let slot = this.core.slots[this.slot]
-        if not slot.borrowed or slot.generation != this.generation or slot.native == (0 as UInt64) {
-            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.context.close", "GPU context identity is stale"))
-        }
         let closed = this.core.destroy(slot)
         if closed.isErr() { return closed }
         closed.releaseContainer(); slot.borrowed = false
@@ -129,7 +141,7 @@ class GpuDevice {
         }
         let owned = copied.unwrap(); copied.releaseContainer()
         return Ok<GpuDevice, GpuError>(GpuDevice{core: GpuDeviceCore{provider: provider,
-            info: report, limits: owned, slots: Array<GpuContextSlot>(), borrowers: 0, closed: false}})
+            info: report, limits: owned, slots: Array<GpuContextSlot>(), borrowers: 0, resourceBorrowers: 0, closed: false}})
     }
 
     fun createContext(context: OperationContext) r: Result<GpuContext, GpuError> {
