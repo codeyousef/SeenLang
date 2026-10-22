@@ -1,0 +1,50 @@
+import ir_fuzz_support.{GPU_IR_FUZZ_MAX_ITERATIONS, irFuzzDeadline, irFuzzRequireComplete}
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_RMW, GPU_IR_ATOMIC_COMPARE}
+import codegen.gpu_options.{GpuOptions}
+import codegen.gpu_artifact.{buildGpuArtifact}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+fun requireAtomicFuzz(value: Bool) r: Void { if not value { abort("Metal atomic malformed-IR or target fuzz contract failed") } }
+fun main() r: Int {
+    let initial = seen_memory_used_bytes()
+    let lowered = lowerGpuSource("@compute(1) fun checked(data: Buffer<Int32>, output: WriteBuffer<Int32>) { output[0] = atomicAdd(data, 0, 1, AcquireRelease, DeviceScope) }", "metal-atomic-fuzz.seen")
+    requireAtomicFuzz(lowered.isOkay()); let module = lowered.unwrap(); lowered.releaseContainer()
+    let block = module.functions[0].blocks[0]; var index = 0
+    while index < block.instructions.length() and block.instructions[index].opcode != GPU_IR_ATOMIC_RMW { index = index + 1 }
+    requireAtomicFuzz(index < block.instructions.length()); let operation = block.instructions[index]
+    let resource = operation.operands[0]; let options = GpuOptions.create(); options.backend = "metal"; options.target = "macos15"
+    let baseline = seen_memory_used_bytes(); let deadline = irFuzzDeadline(seen_time_monotonic_nanos())
+    var now = seen_time_monotonic_nanos(); var seed = 1098; var iterations = 0
+    while now < deadline and iterations < GPU_IR_FUZZ_MAX_ITERATIONS {
+        seed = (seed * 48271) % 2147483647; let mode = seed % 10
+        if mode == 0 { operation.memoryScope = 5 + seed % 100 }
+        if mode == 1 { operation.memoryOrder = 6 + seed % 100 }
+        if mode == 2 { operation.immediate = 9 + seed % 100 }
+        if mode == 3 { operation.operands[0] = 0 }
+        if mode == 4 { options.target = "macos13" }
+        if mode == 5 { operation.memorySpaces = 2 }
+        if mode == 7 { options.target = "macos14" }
+        if mode == 8 { operation.opcode = GPU_IR_ATOMIC_COMPARE }
+        if mode == 9 { options.target = "macos99" }
+        let result = buildGpuArtifact(module, options)
+        if mode == 6 {
+            requireAtomicFuzz(result.isOkay()); let artifact = result.unwrap(); artifact.release()
+        } else {
+            requireAtomicFuzz(result.isErr()); let error = result.unwrapErr()
+            requireAtomicFuzz(not error.valid and error.diagnostics.length() > 0 and error.diagnostics.length() <= 64)
+            if mode == 4 or mode == 7 { requireAtomicFuzz(error.diagnostics[0].code == "E_GPU_METAL_CAPABILITY") }
+            error.release()
+        }; result.releaseContainer()
+        operation.opcode = GPU_IR_ATOMIC_RMW; operation.memoryScope = 4; operation.memoryOrder = 4
+        operation.memorySpaces = 1; operation.immediate = 2; operation.operands[0] = resource; options.target = "macos15"
+        requireAtomicFuzz(seen_memory_used_bytes() == baseline); iterations = iterations + 1
+        if iterations % 32 == 0 {
+            let next = seen_time_monotonic_nanos(); requireAtomicFuzz(next >= now); now = next
+        }
+    }
+    irFuzzRequireComplete(now, deadline, iterations); options.release(); module.release()
+    requireAtomicFuzz(seen_memory_used_bytes() == initial)
+    println("PASS: Metal atomic fuzz 60s seed=1098 rejects malformed semantics and unsupported targets without leaks")
+    return 0
+}

@@ -18,6 +18,22 @@ def require(value, message):
         raise ToolProcessError(message)
 
 
+def cgroup_headroom(maximum, current, statistics):
+    """Count clean unmapped file cache as reclaimable, retaining the hard cap."""
+    retained_fields = ('file_mapped', 'shmem', 'file_dirty', 'file_writeback')
+    fields = ('file', 'inactive_file') + retained_fields
+    require(maximum >= 0 and current >= 0 and
+            all(statistics.get(field, 0) >= 0 for field in fields),
+            'invalid cgroup memory accounting')
+    # Recently read build objects may remain on the active file list after all
+    # compiler processes exit. Unmapped clean filesystem pages are reclaimable;
+    # shared-memory, mapped, dirty and writeback pages stay in the working set.
+    cache = statistics.get('file', statistics.get('inactive_file', 0))
+    clean = max(0, cache - sum(statistics.get(field, 0) for field in retained_fields))
+    reclaimable = min(current, clean)
+    return max(0, maximum - current + reclaimable)
+
+
 def memory_budget():
     available = next(int(line.split()[1]) * 1024 for line in Path('/proc/meminfo').read_text().splitlines()
                      if line.startswith('MemAvailable:'))
@@ -25,7 +41,13 @@ def memory_budget():
     if maximum_path.is_file():
         maximum = maximum_path.read_text().strip()
         if maximum != 'max':
-            available = min(available, max(0, int(maximum) - int(Path('/sys/fs/cgroup/memory.current').read_text())))
+            current = int(Path('/sys/fs/cgroup/memory.current').read_text())
+            statistics_path = Path('/sys/fs/cgroup/memory.stat')
+            statistics = {}
+            if statistics_path.is_file():
+                statistics = {key: int(value) for key, value in
+                              (line.split() for line in statistics_path.read_text().splitlines())}
+            available = min(available, cgroup_headroom(int(maximum), current, statistics))
     budget = min(2 * 1024**3, available // 4)
     require(budget >= 256 * 1024**2, 'insufficient validator memory headroom')
     return budget

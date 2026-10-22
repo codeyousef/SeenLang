@@ -1,0 +1,10 @@
+@compute(1)
+fun synchronization(output: WriteBuffer<UInt32>) {
+    memoryBarrier(InvocationScope, Acquire, StorageMemory)
+    memoryBarrier(SubgroupScope, Release, WorkgroupMemory)
+    memoryBarrier(WorkgroupScope, AcquireRelease, StorageAndWorkgroupMemory)
+    memoryBarrier(DeviceScope, SequentiallyConsistent, StorageMemory)
+    barrier(WorkgroupScope, SequentiallyConsistent, StorageAndWorkgroupMemory)
+    barrier(SubgroupScope, AcquireRelease, StorageMemory)
+    output[0] = 23 as UInt32
+}

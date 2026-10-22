@@ -8,13 +8,13 @@ import codegen.gpu_reflection.{gpuReflectionSelection}
 import codegen.gpu_reflection_layout.{gpuBackendEntryRequirements}
 import codegen.gpu_emission_frame.{createGpuEmissionFrame}
 import codegen.gpu.text_buffer.{GpuTextBuffer}
-import codegen.gpu.metal_target.{metalTargetValid, metalLanguageVersion, metalSupportedCapabilities}
+import codegen.gpu.metal_target.{metalTargetValid, metalLanguageVersion, metalSupportedCapabilities, metalEffectiveTarget}
 import codegen.gpu.metal_abi.{metalEntryName, metalEntryLayoutAdmitted}
 import codegen.gpu.metal_context.{createGpuMetalFunction}
 import codegen.gpu.metal_layout.{metalEntryParameters, metalLoadEntryResource, metalValidateLaunch}
 import codegen.gpu.metal_regions.{metalInitializeFrame, metalLowerRegion}
 
-fun metalEmitEntry(borrow module: GpuIrModule, index: Int, text: GpuTextBuffer) r: Void {
+fun metalEmitEntry(borrow module: GpuIrModule, index: Int, text: GpuTextBuffer, target: String) r: Void {
     let source = module.functions[index]; let requirements = gpuBackendEntryRequirements(module, index, "metal")
     if (requirements.capabilities & metalSupportedCapabilities()) != requirements.capabilities {
         text.validation.reject("E_GPU_METAL_CAPABILITY", "Metal entry requires an unsupported capability", index, -1, -1); requirements.free(); return
@@ -23,6 +23,7 @@ fun metalEmitEntry(borrow module: GpuIrModule, index: Int, text: GpuTextBuffer) 
         text.validation.reject("E_GPU_METAL_LAYOUT", "Metal entry exceeds its name, buffer-slot or threadgroup-storage ceiling", index, -1, -1); requirements.free(); return
     }
     let function = createGpuMetalFunction(text.validation, index, source.workgroupX, source.workgroupY, source.workgroupZ)
+    function.target = metalEffectiveTarget(target)
     let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
     while i < source.parameterTypes.length() {
         arguments.push(0); resources.push(metalLoadEntryResource(function, source.parameterTypes[i], i)); i = i + 1
@@ -52,7 +53,7 @@ fun emitGpuMetal(borrow module: GpuIrModule, borrow options: GpuOptions) r: Resu
     let selected = selection.unwrap(); selection.releaseContainer(); let text = GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT")
     text.literal("// seen-metal-kernel-v1; compile-only; official SDK and device execution unverified\n// msl-version: ")
     text.literal(metalLanguageVersion(options.target)); text.literal("\n#include <metal_stdlib>\nusing namespace metal;\n#pragma clang fp contract(off)\n")
-    var i = 0; while i < selected.length() and validation.valid { metalEmitEntry(module, selected[i], text); i = i + 1 }; selected.free()
+    var i = 0; while i < selected.length() and validation.valid { metalEmitEntry(module, selected[i], text, options.target); i = i + 1 }; selected.free()
     if not validation.valid { text.release(); return Err<String, GpuIrValidation>(validation) }
     let output = text.finish(); text.release(); validation.release(); return Ok<String, GpuIrValidation>(output)
 }

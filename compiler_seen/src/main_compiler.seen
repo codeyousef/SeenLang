@@ -139,6 +139,9 @@ import codegen.gpu.metal_values.{metalLowerValue}
 import codegen.gpu.metal_scalar_bits.{metalScalarField}
 import codegen.gpu.metal_scalar_plan.{emitMetalScalarPlan}
 import codegen.gpu.metal_packed.{metalPacked}
+import codegen.gpu.metal_sync_plan.{metalAtomicOrderAdmitted}
+import codegen.gpu.metal_sync.{metalSynchronization}
+import codegen.gpu.metal_atomics.{metalAtomic}
 import codegen.gpu.metal_regions.{metalLowerRegion}
 import codegen.gpu.metal_emitter.{emitGpuMetal}
 import codegen.gpu.spirv_emitter.{emitGpuSpirv as _seedSpirv_emitter}

@@ -794,10 +794,30 @@ returns inside nested loops. Each loop has an independent million-iteration
 budget. Threadgroup storage is zero-initialized cooperatively, padded to 16-byte
 boundaries and limited to 32 KiB per emitted entry. The shared IR permits shared
 declarations only in kernel bodies; helpers may borrow those resources.
-Unsupported precision profiles, atomic, subgroup and cooperative operations return
+Unsupported precision profiles, subgroup and cooperative operations return
 `E_GPU_METAL_CAPABILITY`; layout, target and resource limits have explicit
 `E_GPU_METAL_LAYOUT`, `E_GPU_METAL_TARGET` and `E_GPU_METAL_LIMIT` diagnostics.
 No operation silently falls back to a CPU implementation.
+
+The ordering and scope mappings follow §6.16 of the
+[Metal Shading Language specification](https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf).
+
+Native signed/unsigned 32-bit integer atomics support relaxed ordering on all
+three targets. Bounds checks precede typed atomic pointer formation; invalid
+loads and read-modify-write operations return zero, invalid stores are skipped,
+and no data atomic or associated ordering fence executes for an invalid index.
+Compare/exchange retries native weak-CAS spurious failures to preserve the strong
+operation. Its million-attempt ceiling records loop fault bit 4 and returns zero
+if retries are exhausted.
+
+On `macos15`, MSL 3.2 scoped fences preserve acquire/release atomic ordering and
+standalone memory barriers, including sequentially consistent fences. Older
+targets reject these atomic orders and standalone fences with
+`E_GPU_METAL_CAPABILITY`. Sequentially consistent atomics remain unsupported on
+all three language targets. Execution barriers retain subgroup/workgroup scope
+and the requested memory-space mask; sequentially consistent execution barriers
+require MSL 3.2 fences around the native rendezvous. No fence mapping establishes
+device certification.
 
 Compile emitted source with `-fno-fast-math`; Metal's default fast-math mode
 does not preserve the required NaN and signed-zero selections. The source also
@@ -814,7 +834,12 @@ materialization preserves the original module and gives the caller an independen
 owner. These operations emit MSL source for all three deployment targets.
 `tests/misc_root_tests/seen_gpu_metal_b.sh` checks 140 fixed cases and 420
 result/validity words, exact cleanup, four compiler profiles, deterministic source
-and a 60-second malformed-IR corpus. Its numeric witnesses execute on the CPU.
+and 60-second packed/atomic malformed-IR corpora. Atomic CPU witnesses normalize
+only the emitted atomic pointer targets to corresponding CPU word pointers and
+use CPU atomic builtins. They check old values, wraparound, invalid addresses,
+spurious failures, retry exhaustion and the emitted fence trace. They do not
+model GPU memory ordering or execution barriers. Artifact checks admit only the
+generated scalar atomic cast form and reject re-signed malformed pointer forms.
 
 The source manifest records `official_validation: "not-run"` and both execution
 flags as false. `.metal` source is not AIR or a metallib. The Linux diagnostic

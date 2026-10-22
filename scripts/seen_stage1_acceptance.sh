@@ -496,6 +496,7 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_inf_simd_e.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_inf_simd_f.sh"
+python3 "$REPO_ROOT/tests/gpu_artifacts/toolchain_memory_contract.py"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_a.sh"
 COMPILER="$REAL_COMPILER" \

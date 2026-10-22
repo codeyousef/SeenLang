@@ -1,0 +1,72 @@
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu_options.{GpuOptions}
+import codegen.gpu_artifact.{buildGpuArtifact}
+import codegen.gpu_ir_model.{GpuIrModule}
+import tools.gpu_command.{gpuPrintValidation}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun requireSynchronization(value: Bool) r: Void {
+    if not value { abort("Metal target-specific synchronization admission or ownership failed") }
+}
+// Keep corpus orchestration out of whole-program inlining; production emitter
+// functions still receive the unchanged release/ThinLTO optimization profile.
+@noinline
+fun checkSynchronizationArtifact(module: GpuIrModule, options: GpuOptions, admitted: Bool) r: Void {
+    let built = buildGpuArtifact(module, options)
+    if admitted {
+        if built.isErr() { gpuPrintValidation(built.unwrapErr()) }
+        requireSynchronization(built.isOkay()); let artifact = built.unwrap(); artifact.release()
+    } else {
+        requireSynchronization(built.isErr()); let error = built.unwrapErr()
+        requireSynchronization(error.diagnostics.length() == 1 and error.diagnostics[0].code == "E_GPU_METAL_CAPABILITY")
+        requireSynchronization(error.diagnostics[0].functionIndex == 0); error.release()
+    }
+    built.releaseContainer()
+}
+@noinline
+fun checkSynchronization(source: String, mode: Int) r: Void {
+    let initial = seen_memory_used_bytes(); let parsed = lowerGpuSource(source, "metal-sync.seen")
+    if parsed.isErr() { gpuPrintValidation(parsed.unwrapErr()) }
+    requireSynchronization(parsed.isOkay()); let module = parsed.unwrap(); parsed.releaseContainer()
+    let options = GpuOptions.create(); options.backend = "metal"
+    let targets = ["macos13", "macos14", "macos15"]; var target = 0
+    let baseline = seen_memory_used_bytes()
+    while target < targets.length() {
+        options.target = targets[target]; let admitted = mode == 0 or (mode == 1 and target == 2); var round = 0
+        while round < 20 {
+            checkSynchronizationArtifact(module, options, admitted)
+            requireSynchronization(seen_memory_used_bytes() == baseline); round = round + 1
+        }; target = target + 1
+    }; targets.free(); options.release(); module.release(); requireSynchronization(seen_memory_used_bytes() == initial)
+}
+fun main() r: Int {
+    let initial = seen_memory_used_bytes()
+    // One call site keeps release/LTO verification bounded as the corpus grows.
+    let sources = [
+        "@compute(1) fun checked(data: Buffer<Int32>) { let value = atomicLoad(data, 0, Relaxed, DeviceScope) }",
+        "@compute(1) fun checked(data: Buffer<Int32>) { let value = atomicLoad(data, 0, Acquire, DeviceScope) }",
+        "@compute(1) fun checked(data: Buffer<Int32>) { atomicStore(data, 0, 1, Release, DeviceScope) }",
+        "@compute(1) fun checked(data: Buffer<Int32>) { let value = atomicAdd(data, 0, 1, AcquireRelease, DeviceScope) }",
+        "@compute(1) fun checked(data: Buffer<Int32>) { let value = atomicCompareExchange(data, 0, 1, 2, AcquireRelease, Acquire, DeviceScope) }",
+        "@compute(1) fun checked(data: Buffer<Int32>) { let value = atomicLoad(data, 0, SequentiallyConsistent, DeviceScope) }",
+        "@compute(1) fun checked(data: Buffer<Int32>) { atomicStore(data, 0, 1, SequentiallyConsistent, DeviceScope) }",
+        "@compute(1) fun checked(data: Buffer<Int32>) { let value = atomicAdd(data, 0, 1, SequentiallyConsistent, DeviceScope) }",
+        "@compute(1) fun checked(data: Buffer<Int32>) { let value = atomicCompareExchange(data, 0, 1, 2, SequentiallyConsistent, SequentiallyConsistent, DeviceScope) }",
+        "@compute(1) fun checked() { memoryBarrier(DeviceScope, Acquire, StorageMemory) }",
+        "@compute(1) fun checked() { memoryBarrier(DeviceScope, SequentiallyConsistent, StorageMemory) }",
+        "@compute(1) fun checked() { barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory) }",
+        "@compute(1) fun checked() { barrier(SubgroupScope, AcquireRelease, StorageMemory) }",
+        "@compute(1) fun checked() { barrier(WorkgroupScope, SequentiallyConsistent, WorkgroupMemory) }",
+        "@compute(64) fun checked() { let value = subgroupElect() }",
+        "@compute(64) fun checked() { let value = subgroupAll(true) }",
+        "@compute(64) fun checked() { let value = subgroupShuffle(1, 0 as UInt32) }",
+        "@compute(64) fun checked() { let value = subgroupAdd(1) }"]
+    let modes = [0, 1, 1, 1, 1, 2, 2, 2, 2, 1, 1, 0, 0, 1, 2, 2, 2, 2]
+    var index = 0
+    while index < sources.length() {
+        checkSynchronization(sources[index], modes[index]); index = index + 1
+    }
+    sources.free(); modes.free()
+    requireSynchronization(seen_memory_used_bytes() == initial)
+    println("PASS: Metal per-target atomic ordering fences barriers typed rejections and repeated ownership")
+    return 0
+}

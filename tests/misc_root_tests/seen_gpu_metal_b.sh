@@ -19,11 +19,27 @@ for profile in fast release undefined address; do
     rg -Fq 'PASS: emitted Metal scalar cases share fixed IEEE packed goldens and restore allocation baseline' "$TMP_DIR/numeric-$profile.log"
     compile_case "$profile" specialization "$ROOT_DIR/tests/gpu_artifacts/specialization_contract.seen" metal
     rg -Fq 'PASS: Metal bounded specialization overrides preserve source and independent clone ownership' "$TMP_DIR/specialization-$profile.log"
-    compile_case "$profile" packed "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen" metal "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
-    rg -Fq 'PASS: Metal target coverage deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/packed-$profile.log"
+    compile_case "$profile" synchronization "$ROOT_DIR/tests/metal_msl_metallib_lowering/synchronization_contract.seen"
+    rg -Fq 'PASS: Metal per-target atomic ordering fences barriers typed rejections and repeated ownership' "$TMP_DIR/synchronization-$profile.log"
+    compile_fixture "$profile" text "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
+    for pair in packed:spir_v_vulkan_lowering/packed_happy atomic:metal_msl_metallib_lowering/atomic_relaxed edges:metal_msl_metallib_lowering/atomic_edges ordered:metal_msl_metallib_lowering/atomic_ordered fences:metal_msl_metallib_lowering/synchronization_happy; do
+        name=${pair%%:*}; source="$ROOT_DIR/tests/${pair#*:}.seen"; arguments=()
+        if [ "$name" = ordered ] || [ "$name" = fences ]; then arguments=(metal3.2); fi
+        cp -- "$TMP_DIR/text-$profile" "$TMP_DIR/$name-$profile"
+        cp -- "$TMP_DIR/text-$profile.log" "$TMP_DIR/$name-$profile.log"
+        run_fixture "$profile" "$name" metal "$source" "${arguments[@]}"
+        rg -Fq 'PASS: Metal target coverage deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/$name-$profile.log"
+    done
 done
-python3 "$ROOT_DIR/scripts/check_gpu_metal_artifacts.py" "$TMP_DIR" packed > "$TMP_DIR/source-evidence.json"
+python3 "$ROOT_DIR/scripts/check_gpu_metal_artifacts.py" "$TMP_DIR" packed atomic edges ordered fences --msl32-only ordered fences > "$TMP_DIR/source-evidence.json"
 python3 "$ROOT_DIR/scripts/check_gpu_metal_numerics.py" "$TMP_DIR/numeric-fast.log"
+for target in macos13 macos14 macos15; do
+    python3 "$ROOT_DIR/scripts/check_gpu_metal_atomics.py" "$TMP_DIR/atomic-fast-$target.metal"
+    python3 "$ROOT_DIR/scripts/check_gpu_metal_atomics.py" "$TMP_DIR/edges-fast-$target.metal" --edges
+done
+python3 "$ROOT_DIR/scripts/check_gpu_metal_atomics.py" "$TMP_DIR/ordered-fast-macos15.metal" --ordered
+python3 "$ROOT_DIR/scripts/check_gpu_metal_atomics.py" "$TMP_DIR/fences-fast-macos15.metal" --fences
+python3 "$ROOT_DIR/tests/gpu_artifacts/metal_metadata_contract.py" --atomic "$TMP_DIR/atomic-fast-macos13.metal"
 python3 - "$ROOT_DIR/scripts" "$TMP_DIR" <<'PY'
 from pathlib import Path
 import sys
@@ -36,4 +52,6 @@ print('PASS: Metal numeric source and shared fixed corpus identity across four c
 PY
 compile_case fast fuzz "$ROOT_DIR/tests/gpu_scalar_words/packed_fuzz.seen" metal "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
 rg -Fq 'PASS: packed capability fuzz 60s seed=1089 preserved typed rejection and artifact ownership' "$TMP_DIR/fuzz-fast.log"
-echo 'PASS: Metal packed precision scalar goldens specialization and ownership; SDK and GPU execution unverified'
+compile_case fast atomic-fuzz "$ROOT_DIR/tests/typed_gpu_compiler/ir_metal_atomic_fuzz.seen"
+rg -Fq 'PASS: Metal atomic fuzz 60s seed=1098 rejects malformed semantics and unsupported targets without leaks' "$TMP_DIR/atomic-fuzz-fast.log"
+echo 'PASS: Metal packed precision native atomics scoped synchronization specialization and ownership; SDK and GPU execution unverified'

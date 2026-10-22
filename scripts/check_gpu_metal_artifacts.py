@@ -13,6 +13,9 @@ PROFILES = ('fast', 'release', 'undefined', 'address')
 ABI_KEYS = ('msl_version', 'requires_apple_silicon', 'buffer_slot_ceiling', 'source_parameter_ceiling',
             'buffer_offset_alignment', 'fault_buffer_bytes', 'launch_binding', 'launch_bytes',
             'launch_alignment', 'launch_fault_mask', 'entry_name_prefix', 'launch_counts')
+ATOMIC_POINTER_CAST = re.compile(
+    r'reinterpret_cast<(?P<const>const )?(?P<space>device|threadgroup) atomic_(?P<kind>int|uint)\*>\( &'
+    r'seen_(?:buffer|shared)[0-9]+\[ulong\(seen_w[1-9][0-9]*\) \* 1ul \+ 0ul\]\)(?=,)')
 
 
 def check_artifact(record, reflection, manifest):
@@ -22,7 +25,8 @@ def check_artifact(record, reflection, manifest):
     raw = text.encode('ascii')
     require(text.startswith('// seen-metal-kernel-v1; compile-only;') and
             '// msl-version: ' + TARGETS[target] + '\n' in text, 'MSL header differs')
-    require(not re.search(r'\b(goto|reinterpret_cast|new|delete|asm)\b', text), 'unexpected MSL construct')
+    admitted = ATOMIC_POINTER_CAST.sub('seen_atomic_address', text)
+    require(not re.search(r'\b(goto|reinterpret_cast|new|delete|asm)\b', admitted), 'unexpected MSL construct')
     entries = reflection['entries']
     require(entries and len(entries) <= 256, 'invalid Metal entry count')
     names = re.findall(r'\nkernel void (seen_metal_entry_[A-Za-z0-9_]+)\(', text)
@@ -53,19 +57,21 @@ def check_artifact(record, reflection, manifest):
     return raw
 
 
-def collect(root, names, profiles=PROFILES):
+def collect(root, names, profiles=PROFILES, *, msl32_only=()):
     require(root.is_dir() and not root.is_symlink(), 'invalid Metal evidence directory')
     require(profiles and len(set(profiles)) == len(profiles) and set(profiles) <= set(PROFILES), 'invalid Metal compiler profiles')
+    require(set(msl32_only) <= set(names), 'unknown MSL 3.2 fixture')
     records = []
     for name in names:
         require(re.fullmatch('[a-z][a-z0-9-]{0,63}', name) is not None, 'invalid Metal fixture name')
+        targets = ('macos15',) if name in msl32_only else tuple(TARGETS)
         baseline = {}
         for profile in profiles:
             path = root / f'{name}-{profile}.log'
             lines = read_bounded(path, 67108864).decode('utf-8').splitlines()
             documents = [json.loads(line) for line in lines if line.startswith('{"schema":')]
-            require(len(documents) == 9, 'expected three Metal artifact/reflection/manifest records')
-            for index, target in enumerate(TARGETS):
+            require(len(documents) == len(targets) * 3, 'Metal target artifact/reflection/manifest coverage differs')
+            for index, target in enumerate(targets):
                 record, reflection, manifest = documents[index * 3:index * 3 + 3]
                 require(record['schema'] == 'seen-metal-artifact-v1' and record['target'] == target,
                         'Metal target order differs')
@@ -85,6 +91,7 @@ def collect(root, names, profiles=PROFILES):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('root', type=Path); parser.add_argument('names', nargs='+')
-    args = parser.parse_args(); records = collect(args.root, args.names)
+    parser.add_argument('--msl32-only', nargs='*', default=[])
+    args = parser.parse_args(); records = collect(args.root, args.names, msl32_only=args.msl32_only)
     print(json.dumps({'schema': 'seen-metal-source-check-v1', 'records': records,
                       'official_validation': 'not-run', 'gpu_execution_verified': False}, sort_keys=True))

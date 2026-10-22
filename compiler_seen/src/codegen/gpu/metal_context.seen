@@ -17,6 +17,7 @@ class GpuMetalResource {
     var shared: Bool
 }
 class GpuMetalFunction {
+    var target: String
     var validation: GpuIrValidation
     var body: GpuTextBuffer
     var declarations: GpuTextBuffer
@@ -79,7 +80,7 @@ class GpuMetalFunction {
     }
 }
 fun createGpuMetalFunction(validation: GpuIrValidation, index: Int, x: Int, y: Int, z: Int) r: GpuMetalFunction {
-    return GpuMetalFunction{validation: validation, body: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"),
+    return GpuMetalFunction{target: "macos13", validation: validation, body: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"),
         declarations: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"), initializers: GpuTextBuffer.create(validation, "E_GPU_METAL_LIMIT"),
         resources: Array<GpuMetalResource>(), words: Array<Int>(), constants: Array<Int>(), nextWord: 1, sharedBytes: 0,
         workgroupX: x, workgroupY: y, workgroupZ: z,

@@ -100,13 +100,14 @@ def semantic_edges(harness):
     harness.call('threadgroup', [('negative_store', 1)]); harness.check_array('negative_store', [37]); harness.fault(0)
 
 
-def run(source, cases, profile):
+def run(source, cases, profile, *, normalize=None, preamble=b''):
     raw = read_bounded(source, 33554432)
     reflection = json.loads(read_bounded(source.with_suffix('.json'), 4194304))
     manifest = json.loads(read_bounded(source.with_suffix('.manifest.json'), 1048576))
     check_artifact({'text': raw.decode('ascii'), 'target': reflection['target']}, reflection, manifest)
     harness = Harness(reflection); cases(harness)
-    program = raw + harness.finish().encode('ascii')
+    body = raw if normalize is None else normalize(raw)
+    program = preamble + body + harness.finish().encode('ascii')
     host = source.with_suffix('.host.cpp'); executable = source.with_suffix('.host')
     prepare_output(host); prepare_output(executable); host.write_bytes(program)
     headers = Path(__file__).resolve().parent.parent / 'tests/metal_msl_metallib_lowering/host'

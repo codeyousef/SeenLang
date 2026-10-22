@@ -18,6 +18,9 @@ Foundations**.
   and explicit separation from Apple SDK validation and device execution.
 - Add Metal packed floating/integer word conversions through shared scalar plans,
   bounded specialization clones and independent CPU numeric witnesses.
+- Add checked Metal integer atomics, bounded strong compare/exchange and native
+  execution barriers, with MSL 3.2 scoped acquire/release and standalone fences.
+  Reject unsupported target/order combinations explicitly.
 - Certify HIP artifact integrity, source relocation and deterministic HSA code
   objects with the pinned LLVM toolchain and malformed-input fuzzing.
 
@@ -74,6 +77,8 @@ Foundations**.
 
 ### Fixed
 
+- Admit bounded GPU validator tools after cached builds by accounting for clean
+  unmapped file cache while preserving the aggregate memory limit.
 - Check Seen streams, process and DNS policies against source coverage gates,
   including stricter DNS/process-input branch thresholds, CNAME/IPv6 corpus, real
   loopback UDP, closed-peer progress and retry policy, and unclaimed-child cleanup.

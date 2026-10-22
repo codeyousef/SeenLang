@@ -59,6 +59,7 @@ fun main() r: Int {
     let baseline = seen_memory_used_bytes(); var target = 0; var targetLimit = targets.length()
     if arguments.length() == 4 {
         if cuda { textRequire(arguments[3] == "sm_80+"); target = 2 }
+        else if arguments[1] == "metal" { textRequire(arguments[3] == "metal3.2"); target = 2 }
         else { textRequire(arguments[1] == "hip" and arguments[3] == "cdna"); targetLimit = 2 }
     }
     while target < targetLimit {
