@@ -26,6 +26,11 @@ for profile in fast release undefined address; do
     done
 done
 python3 "$ROOT_DIR/scripts/check_gpu_ptx_artifacts.py" "$TMP_DIR" layout splat
+hardware_args=()
+if [ "${SEEN_REQUIRE_PTX_HARDWARE:-0}" = 1 ]; then hardware_args+=(--require-device); fi
+timeout --foreground --kill-after=5s 120s python3 "$ROOT_DIR/scripts/check_gpu_ptx_hardware.py" "$TMP_DIR" --kind layout --compiler "$COMPILER" "${hardware_args[@]}" > "$TMP_DIR/hardware-evidence.json"
+cp "$TMP_DIR/hardware-evidence.json" "$SEEN_ARTIFACT_ROOT/ptx-a-hardware-evidence.json"
+cat "$TMP_DIR/hardware-evidence.json"
 for target in sm_70 sm_75 sm_80 sm_86 sm_89 sm_90 sm_100; do
     run_compiler gpu emit "$ROOT_DIR/tests/spir_v_vulkan_lowering/return_control.seen" \
         --gpu-backend cuda --gpu-target "$target" --output "$TMP_DIR/returns-$target.ptx" \

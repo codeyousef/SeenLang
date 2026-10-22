@@ -33,6 +33,11 @@ for profile in fast release undefined address; do
     done
 done
 python3 "$ROOT_DIR/scripts/check_gpu_ptx_artifacts.py" "$TMP_DIR" capabilities packed cooperative bf16 --sm80-minimum bf16
+hardware_args=()
+if [ "${SEEN_REQUIRE_PTX_HARDWARE:-0}" = 1 ]; then hardware_args+=(--require-device); fi
+timeout --foreground --kill-after=5s 120s python3 "$ROOT_DIR/scripts/check_gpu_ptx_hardware.py" "$TMP_DIR" --kind capabilities --compiler "$COMPILER" "${hardware_args[@]}" > "$TMP_DIR/hardware-evidence.json"
+cp "$TMP_DIR/hardware-evidence.json" "$SEEN_ARTIFACT_ROOT/ptx-b-hardware-evidence.json"
+cat "$TMP_DIR/hardware-evidence.json"
 compile_case fast fuzz "$ROOT_DIR/tests/gpu_scalar_words/packed_fuzz.seen" cuda "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
 rg -Fq 'PASS: packed capability fuzz 60s seed=1089 preserved typed rejection and artifact ownership' "$TMP_DIR/fuzz-fast.log"
 echo 'PASS: CUDA PTX precision atomics subgroup specialization and native cooperative capability contracts'
