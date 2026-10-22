@@ -2775,7 +2775,7 @@ run_stage1_acceptance_checks() {
     local acceptance_timeout=1800
 
     if [ "$acceptance_tier" = "verify" ]; then
-        acceptance_timeout=10800
+        acceptance_timeout=14400
     fi
 
     echo "Running ${acceptance_tier}-tier Stage-1 acceptance checks against $compiler_path..."

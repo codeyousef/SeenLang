@@ -218,6 +218,7 @@ python3 -m py_compile \
     scripts/measure_release_artifact_manifest_coverage.py \
     tests/runner/test_release_artifact_manifest_unit.py
 python3 scripts/check_ci_workflows.py >/dev/null
+python3 tests/misc_root_tests/verification_log_retention_contract.py
 python3 scripts/check_ci_containment.py \
     docs/architecture/ci-containment.json >/dev/null
 python3 scripts/check_compatibility_manifest.py \

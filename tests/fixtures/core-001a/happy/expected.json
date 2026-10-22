@@ -37,7 +37,7 @@
   "required_check": "CI / required",
   "runner": "ubuntu-24.04",
   "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
-  "timeout_minutes": 330,
+  "timeout_minutes": 360,
   "trigger": "push-main-or-release-0.23.0-or-explicit-manual",
   "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
   "version": 11

@@ -70,7 +70,8 @@ Foundations**.
 ### Changed
 
 - Queue version-branch CI behind its active run so publishing acceptance fixes
-  preserves the verification already underway.
+  preserves the verification already underway. Explicit `[replace-ci]` repair
+  commits can replace a run with a proven obsolete configuration.
 - Share bounded text construction and explicit launch-argument packing between
   CUDA and AMDGPU. Describe both launch ABIs in the published GPU JSON schemas.
 - Share bounded packed-number conversion plans across PTX, SPIR-V and AMDGPU while
@@ -128,8 +129,9 @@ Foundations**.
   rejected integer operations, preserving returned errors and values.
 - Run the SPIR-V emitter fuzzer for its required wall-clock duration; retain
   the outer timeout instead of failing early on faster hosts at an iteration cap.
-- Budget three hours for serial acceptance inside a five-hour CI scope, with
-  thirty minutes for job setup and artifact retention. Preserve resource caps.
+- Budget four hours for serial acceptance inside a five-hour-forty-five-minute
+  CI scope and a six-hour job. Preserve memory, swap, task and per-case caps.
+  Retain bounded diagnostic log tails separately from large frontend artifacts.
 - Run required CI directly on the 0.23.0 release branch using the existing
   concurrency rule to queue version-branch runs. Keep the canonical workflow
   contract and fixture aligned with that trigger.

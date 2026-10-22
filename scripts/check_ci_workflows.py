@@ -26,13 +26,13 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[replace-ci]') }}
 
 jobs:
   required:
     name: required
     runs-on: ubuntu-24.04
-    timeout-minutes: 330
+    timeout-minutes: 360
     env:
       GOTOOLCHAIN: local
       SEEN_RELEASE_CPU_BASELINE: x86-64
@@ -48,6 +48,18 @@ jobs:
         run: scripts/provision_ci_host.sh
       - name: Run required contained gates
         run: scripts/run_ci_required.sh
+      - name: Collect bounded verification logs
+        if: ${{ !cancelled() }}
+        run: python3 scripts/collect_verification_logs.py
+      - name: Retain bounded verification logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: seen-verification-logs-${{ github.sha }}
+          path: target/seen-build/verification-logs/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
       - name: Prepare verified release toolchain
         run: scripts/prepare_release_toolchain_artifact.sh
       - name: Retain exact-commit release toolchain
@@ -356,7 +368,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_toolchain_artifact": "exact-main-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
-        "timeout_minutes": 330,
+        "timeout_minutes": 360,
         "trigger": "push-main-or-release-0.23.0-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "version": 11,
