@@ -121,6 +121,9 @@ and keep reports and raw coverage profiles below
 `.seen_cache/test/run`. Coverage mode also merges every raw profile with
 `llvm-profdata` and emits a text report with `llvm-cov`; missing post-processing
 tools are an infrastructure failure, never an implicit downgrade.
+Coverage export/report and profile merge explicitly use one worker, including
+the compiler/GPU execution acceptance, so post-processing stays within the same
+aggregate task ceiling as compilation and execution.
 On LLD targets, no-fork mode also pins the linker and ThinLTO backend to one
 worker so the compilation remains valid inside the aggregate task cap.
 

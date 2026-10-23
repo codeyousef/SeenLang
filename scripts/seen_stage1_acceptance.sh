@@ -668,6 +668,9 @@ run_fixture test-runner-example \
     "$REPO_ROOT/compiler_seen/examples/test_runner.seen"
 run_fixture test-instrumentation \
     "$REPO_ROOT/compiler_seen/tests/test_002a_instrumentation.seen"
+if [ "$TIER" = "verify" ]; then
+    "$REPO_ROOT/scripts/run_test_instrumentation_acceptance.sh" "$REAL_COMPILER"
+fi
 run_fixture test-fuzz-corpus \
     "$REPO_ROOT/compiler_seen/tests/test_002b_fuzz_corpus.seen"
 run_fixture test-fuzz-corpus-example \
@@ -980,7 +983,7 @@ mkdir -p -- "$release_dir"
         --release --lto thin --pgo-generate --no-cache \
         "${COMPILER_WORKER_FLAGS[@]}"
     LLVM_PROFILE_FILE="$release_raw" "$release_generate"
-    llvm-profdata merge -sparse "$release_raw" -o "$release_profile"
+    llvm-profdata merge -sparse --num-threads=1 "$release_raw" -o "$release_profile"
     "$DIRECT_COMPILER" compile "$release_fixture" "$release_use" \
         --release --lto thin --pgo-use "$release_profile_rel" --no-cache \
         "${COMPILER_WORKER_FLAGS[@]}"

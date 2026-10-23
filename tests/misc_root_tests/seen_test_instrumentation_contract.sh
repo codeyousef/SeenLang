@@ -22,6 +22,9 @@ grep -Fq -- '--no-fork' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fai
 grep -Fq -- '--threads=1,--thinlto-jobs=1' "$ROOT/compiler_seen/src/main_compiler.seen" || fail serialized-link
 grep -Fq 'llvm-profdata merge' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail coverage-merge
 grep -Fq 'llvm-cov report' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail coverage-report
+grep -Fq 'llvm-profdata merge -sparse --num-threads=1' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail serial-profile-merge
+grep -Fq 'llvm-cov report --num-threads=1' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail serial-coverage-report
+if grep -E '^[[:space:]]*llvm-(cov|profdata) ' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" | grep -vF -- '--num-threads=1'; then fail parallel-coverage-tool; fi
 grep -Fq 'workingRoot + "/.seen_cache/test/run"' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail working-root-artifacts
 grep -Fq 'test_002a_gpu_emitters.seen' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail gpu-emitter-wiring
 if grep -Fq -- '--emit-glsl' "$ROOT/compiler_seen/src/testing/cli_runner.seen"; then fail removed-glsl-test-fallback; fi
@@ -29,7 +32,11 @@ grep -Fq 'hardwareExecuted' "$ROOT/compiler_seen/src/testing/instrumentation.see
 for module in fuzz benchmark; do [ -f "$ROOT/compiler_seen/src/testing/$module.seen" ] || fail "native-$module"; done
 [ -f "$ROOT/tests/fixtures/soak/test_002a_instrumentation.seen" ] || fail soak-fixture
 grep -Fq 'derive-execution' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail execution-acceptance
+grep -Fq -- '--filter test_002a_instrumentation --profile "$profile"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail real-cli-profile-matrix
 grep -Fq 'compiler_seen/tests/test_002a_instrumentation.seen' "$ROOT/scripts/seen_stage1_acceptance.sh" || fail stage1
+grep -Fq '"$REPO_ROOT/scripts/run_test_instrumentation_acceptance.sh" "$REAL_COMPILER"' "$ROOT/scripts/seen_stage1_acceptance.sh" || fail source-coverage-execution-wiring
+grep -Fq 'PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT/compiler_seen/target/seen-pkg}"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail selected-package-client
+if grep -Fq 'SEEN_PACKAGE_CLIENT="$ROOT/compiler_seen/target/seen-pkg"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh"; then fail stale-package-client; fi
 grep -Fq seen-test-instrumentation-v1 "$ROOT/schemas/compatibility-manifest.schema.json" || fail compatibility
 [ -z "$(jobs -pr)" ] || fail TEST-002A_cleanup
 echo "PASS: sanitizer and coverage test modes"

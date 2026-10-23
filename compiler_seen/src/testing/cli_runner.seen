@@ -191,9 +191,9 @@ fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
                 testCliShellQuote(report)
             executionPrefix = "LLVM_PROFILE_FILE=" +
                 testCliShellQuote(rawProfile) + " "
-            executionPostfix = " && llvm-profdata merge -sparse " +
+            executionPostfix = " && llvm-profdata merge -sparse --num-threads=1 " +
                 testCliShellQuote(rawProfile) + " -o " +
-                testCliShellQuote(mergedProfile) + " && llvm-cov report " +
+                testCliShellQuote(mergedProfile) + " && llvm-cov report --num-threads=1 " +
                 testCliShellQuote(binary) + " -instr-profile " +
                 testCliShellQuote(mergedProfile) + " >" +
                 testCliShellQuote(coverageReport)

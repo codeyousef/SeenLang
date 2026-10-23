@@ -189,6 +189,11 @@ Foundations**.
 - Emit Seen source coverage counters and LLVM mappings, with atomic updates
   for concurrent code and checked mapping budgets. Reject C-only coverage
   evidence, and correct the Seen MD5 implementation used by profile identities.
+- Run the instrumented compiler and GPU-emitter source-coverage acceptance in
+  verify-tier checks, preserving the guarded build's selected package client
+  instead of requiring an already installed checkout sidecar.
+- Bound coverage reporting and profile merging to one worker in the test CLI
+  and execution acceptance so post-processing respects the aggregate task cap.
 - Give test CLI catalogs and reports their own bounded output budget and preserve
   reporter error codes instead of masking size-limit failures as invalid reports.
 - Retain trait receiver field types and generic function return signatures during
