@@ -79,6 +79,24 @@ class TestDiscoveryTests(unittest.TestCase):
                 DISCOVERY.discover(link)
             self.assertEqual("invalid", raised.exception.code)
 
+    def test_allocator_failure_inputs_have_runnable_owner(self) -> None:
+        # Expected-abort payloads are not exit-zero unit tests. Their owning
+        # harness must remain selected and execute each payload explicitly.
+        paths = {entry["path"]: entry for entry in DISCOVERY.discover(ROOT)["tests"]}
+        owner = "tests/misc_root_tests/seen_allocator_oom_exit.sh"
+        self.assertIn(owner, paths)
+        self.assertFalse(paths[owner]["ignored"])
+        source = (ROOT / owner).read_text()
+        for name in ("allocator_oom_exit.seen", "allocator_aligned_oom_exit.seen",
+                     "allocator_pool_oom_exit.seen"):
+            fixture = "tests/compiler_regressions/" + name
+            self.assertTrue((ROOT / fixture).is_file())
+            self.assertIn(fixture, source)
+            self.assertNotIn(fixture, paths)
+            self.assertFalse((ROOT / "compiler_seen/tests" / name).exists())
+        self.assertIn("process.returncode != 134", source)
+        self.assertIn('"Seen allocation failure" not in stderr', source)
+
 
 if __name__ == "__main__":
     unittest.main()

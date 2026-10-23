@@ -173,6 +173,12 @@ failure cases delegate to the fixed failure-probe regression. Its separate C12
 late-declaration negative requires LLVM verification followed by the expected
 missing-symbol linker failure; that result is not successful native execution.
 
+Allocator expected-abort source inputs live in `tests/compiler_regressions/`,
+not the automatically executed `compiler_seen/tests/` root. The discovered
+`seen_allocator_oom_exit.sh` harness compiles all three, requires exit134 and
+their specific checked-allocation diagnostics, and also executes the positive
+small-budget case. They are tested negative inputs, not ignored unit tests.
+
 The compiler accepts AddressSanitizer and MemorySanitizer build flags, but they
 are not general runnable `seen test` profiles under the normal finite VMEM
 ceiling. The runner rejects those profile names instead of silently relaxing
