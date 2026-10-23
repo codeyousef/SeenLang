@@ -332,7 +332,7 @@
     {
       "id": "json-owned-string-memory",
       "subsystem": "stdlib.json",
-      "purpose": "Runtime allocation ABI for JSON-owned strings. Parser, serializer, and incremental-builder flattening, cloning, and owned character encoding return pool storage that release frees exactly once; borrowed strings never cross as owned. Exercised under ASan/UBSan by the FEL-507 tiny-object and FEL-543 safetensors lifetime regressions. Permanent until native Seen owned/move string semantics replace it; migrate all callers and symbols together.",
+      "purpose": "Runtime allocation ABI for owned strings in JSON and tokenizers. Parser, serializer, builder and BPE policy remain native Seen. Flattening, cloning and owned character encoding allocate length-plus-NUL storage; release frees matching pool or heap storage exactly once, while borrowed strings never cross as owned. Exercised under ASan/UBSan by JSON, safetensors and BPE lifetime regressions. Permanent until native Seen owned/move string semantics replace it; migrate all callers and symbols together.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_char_to_owned_string", "seen_string_builder_flatten_owned", "seen_string_clone_owned", "seen_string_release_owned"],

@@ -4325,7 +4325,7 @@ static SeenString seen_char_to_str_with_allocator(int64_t c, bool pool_owned) {
     buf[len] = '\0';
     char* owned = pool_owned
         ? seen_runtime_alloc_pool_chars(len, "seen_char_to_owned_string")
-        : seen_runtime_alloc_chars(7, "seen_char_to_str");
+        : seen_runtime_alloc_chars(len, "seen_char_to_str");
     memcpy(owned, local, (size_t)len + 1);
     SeenString result = { len, owned };
     return result;

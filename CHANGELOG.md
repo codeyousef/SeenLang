@@ -49,6 +49,12 @@ Foundations**.
   cleanup, distinguishing direct-ready memory streams from OS completion I/O.
 - Isolate standalone artifact-namespace probes from inherited rebuild roles
   without changing their real resource limits or production rejection guards.
+- Preserve special-token error positions before releasing tokenizer scratch
+  arrays, avoiding use-after-free in disallowed-token and output-limit errors.
+- Pair character strings with their UTF-8-length allocation size, and release
+  BPE symbol, substring, result-container and decode temporaries on success
+  and rejection. Exercise cold/warm exact live-byte and reserve baselines in
+  fast, ThinLTO, undefined- and address-sanitized tokenizer lifecycle tests.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.

@@ -17,3 +17,12 @@ and the package exposes the classification digest used to lock the tables.
 The default special-token policy is caller-selected and fail-closed. No token
 is treated specially unless the caller chooses `SPECIAL_TOKENS_ALLOW_LISTED`;
 silent fallback is not provided.
+
+Encoding and decoding borrow the specification and their input text/IDs.
+Encoding returns an owned ID array; decoding returns independent owned UTF-8
+text. Extract the payload before calling `Result.releaseContainer()`, then
+release the ID array with `.free()` or decoded text with the ledgered
+`seen_string_release_owned` runtime ABI. Internal symbol, substring and decode
+scratch storage does not escape. Error positions are captured before scratch
+cleanup. After the specification's last use, call `close()` and release its
+object with `.free()` exactly once.
