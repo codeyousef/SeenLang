@@ -135,6 +135,8 @@ Foundations**.
 
 ### Fixed
 
+- Keep sanitizer-runner setup diagnostics on stderr so supervised JSON
+  checkpoint streams remain unchanged, with exact stdout regression checks.
 - Preserve generic `@repr(C)` span descriptor fields in local value storage and
   match aggregate argument types between class methods and their callers.
 

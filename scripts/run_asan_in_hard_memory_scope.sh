@@ -263,13 +263,15 @@ ulimit -S -v "$SANITIZER_VMEM_LIMIT_KB" 2>/dev/null ||
 active_soft_vmem_kb=$(ulimit -S -v 2>/dev/null || true)
 [ "$active_soft_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ] ||
     fail "the finite $shadow_label virtual-memory allowance failed exact read-back"
-printf 'sanitizer-vmem soft_kb=%s hard_kb=%s\n' "$active_soft_vmem_kb" "$active_hard_vmem_kb"
-printf 'sanitizer-address-layout=%s %s\n' "$ADDRESS_LAYOUT" "$address_layout_options"
+# Preserve the exec'd fixture's stdout protocol byte-for-byte. Setup/readback
+# evidence belongs on stderr, including when a supervisor pipes JSON checkpoints.
+printf 'sanitizer-vmem soft_kb=%s hard_kb=%s\n' "$active_soft_vmem_kb" "$active_hard_vmem_kb" >&2
+printf 'sanitizer-address-layout=%s %s\n' "$ADDRESS_LAYOUT" "$address_layout_options" >&2
 
 if [ -n "$FIXTURE_PRELOAD" ]; then
     [ "$(sha256sum -- "$FIXTURE_PRELOAD" | cut -d ' ' -f1)" = "$FIXTURE_PRELOAD_SHA256" ] ||
         fail "fixture library changed after admission"
-    printf 'sanitizer-fixture-preload sha256=%s path=%s\n' "$FIXTURE_PRELOAD_SHA256" "$FIXTURE_PRELOAD"
+    printf 'sanitizer-fixture-preload sha256=%s path=%s\n' "$FIXTURE_PRELOAD_SHA256" "$FIXTURE_PRELOAD" >&2
 fi
 
 exec env \

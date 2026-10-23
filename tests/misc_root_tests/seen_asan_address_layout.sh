@@ -19,11 +19,24 @@ for layout in default cuda; do
         status=0
         timeout --foreground --kill-after=5s 30s bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
             --address-layout "$layout" --target-root "$work" --compile-log "$work/compile.log" \
-            -- "$work/control" "$mode" > "$work/$layout-$mode.log" 2>&1 || status=$?
+            -- "$work/control" "$mode" > "$work/$layout-$mode.stdout" 2> "$work/$layout-$mode.stderr" || status=$?
+        cat -- "$work/$layout-$mode.stdout" "$work/$layout-$mode.stderr" > "$work/$layout-$mode.log"
         printf '%s\n' "$status" > "$work/$layout-$mode.status"
         case "$mode" in
             clean|gap-clean)
                 [ "$status" = 0 ] && rg -Fq 'PASS: ASan address-layout control' "$work/$layout-$mode.log" || exit 1
+                # Protocol consumers own stdout. Wrapper readback and sanitizer
+                # setup must remain visible, but only on the diagnostic stream.
+                python3 - "$work/$layout-$mode.stdout" <<'PY'
+from pathlib import Path
+import sys
+actual = Path(sys.argv[1]).read_bytes()
+expected = b"PASS: ASan address-layout control\n"
+if actual != expected:
+    raise SystemExit(f"FAIL: sanitizer wrapper changed fixture stdout: {actual!r}")
+PY
+                rg -Fq 'sanitizer-vmem soft_kb=' "$work/$layout-$mode.stderr"
+                rg -Fq "sanitizer-address-layout=$layout " "$work/$layout-$mode.stderr"
                 ;;
             *)
                 case "$status" in 23|134) ;; *) echo "FAIL: $layout $mode exited $status, not a sanitizer finding" >&2; exit 1 ;; esac
