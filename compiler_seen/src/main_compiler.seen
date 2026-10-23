@@ -14508,26 +14508,30 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         var optPasses = ""
         var optThreshold = ""
         var optInternalize = ""
-        var pgoPasses = ""
-        var pgoOptFlags = ""
-        if pgoMode == "use" {
-            pgoPasses = "pgo-instr-use,"
-            pgoOptFlags = " -pgo-test-profile-file=" + pgoPath
+        let pgoPasses = buildPgoOptPasses(pgoMode)
+        let pgoOptFlags = buildPgoOptFlags(pgoMode, pgoPath)
+        // Bitcode handed to ThinLTO must not already contain post-link CG
+        // profile flags: LLD produces those at its own post-link phase.
+        var moduleDefaultPipeline = "default"
+        if pgoMode != "" and g_ltoMode == "thin" and g_fastMode == 0 and
+            g_picMode == 0 and moduleInstrumentationFlags == "" {
+
+            moduleDefaultPipeline = "thinlto-pre-link"
         }
         if boundedLargeProjectOptWorkers > 0 and g_noFork == 1 {
-            optPasses = pgoPasses + "default<O1>"
+            optPasses = pgoPasses + moduleDefaultPipeline + "<O1>"
             optThreshold = "250"
         } else if g_fastMode == 1 {
-            optPasses = pgoPasses + "default<O1>"
+            optPasses = pgoPasses + moduleDefaultPipeline + "<O1>"
             optThreshold = "250"
         } else {
             if g_O2Mode == 1 {
-                optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "default<O2>"
+                optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + moduleDefaultPipeline + "<O2>"
                 optThreshold = "500"
             } else {
                 if modulePaths.length() == 1 and not hasExportDecorators and
                     g_objectManifestPath == "" {
-                    optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "internalize,default<O3>,function(loop-unroll-and-jam)"
+                    optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "internalize," + moduleDefaultPipeline + "<O3>,function(loop-unroll-and-jam)"
                     optThreshold = "1500"
                     optInternalize = " -internalize-public-api-list=main"
                 } else {
@@ -14535,7 +14539,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     if g_releaseMode {
                         inlineThreshold = "2000"
                     }
-                    optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + "default<O3>,function(loop-interchange,loop-unroll-and-jam)"
+                    optPasses = "function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," + pgoPasses + moduleDefaultPipeline + "<O3>,function(loop-interchange,loop-unroll-and-jam)"
                     optThreshold = inlineThreshold
                 }
             }
@@ -15024,6 +15028,31 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 return 1
             }
             if modulePaths.length() <= 1 {
+                // This is already a complete program. Emit native code with
+                // the resolved CPU instead of sending post-link profile flags
+                // through ThinLTO a second time. Never link the old bitcode if
+                // native emission fails.
+                if llvmLlcTool == "" {
+                    println("Error: [core.rel.003.platform] full LTO requires llc")
+                    return 1
+                }
+                let completeIr = moduleTempPathInt(compileTempDir, 0, ".opt.ll")
+                let completeObj = compileTempDir + "/seen_single_release.o"
+                let completeCmd = llvmLlcTool +
+                    " -filetype=obj -O3 -relocation-model=pic -mcpu=" +
+                    llvmLlcCpu + " " + mainCompilerShellQuote(completeIr) +
+                    " -o " + mainCompilerShellQuote(completeObj)
+                let completeResult: CommandResult = runCommand(completeCmd)
+                if not commandWasSuccessful(completeResult) or
+                    not exists(completeObj) {
+
+                    println("Error: [core.rel.003.invalid] full LTO native object emission failed")
+                    println(completeResult.output)
+                    return 1
+                }
+                objectFiles = Array<String>()
+                objectFiles.push(completeObj)
+                expectedLinkObjects = 1
                 buildTraceEmit("release lto mode", "merged", 0,
                     "mode=full single_module=1")
             }
@@ -15095,25 +15124,21 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         // Run opt with internalize on merged module (enables cross-module inlining)
                         let mergedOpt = compileTempDir + "/seen_merged_release.opt.ll"
                         let mergedOptCmd = llvmOptTool +
-                            " -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg),internalize,default<O3>,function(loop-unroll-and-jam)' -internalize-public-api-list=main -inline-threshold=2000 -S " +
+                            " -passes='function(sroa,instcombine<no-verify-fixpoint>,simplifycfg)," +
+                            buildPgoOptPasses(pgoMode) +
+                            "internalize,default<O3>,function(loop-unroll-and-jam)' -internalize-public-api-list=main -inline-threshold=2000 -S " +
                             mainCompilerShellQuote(mergedInput) + " -o " +
-                            mainCompilerShellQuote(mergedOpt)
+                            mainCompilerShellQuote(mergedOpt) +
+                            buildPgoOptFlags(pgoMode, pgoPath)
                         let mergedOptResult: CommandResult = runCommand(mergedOptCmd)
                         if commandWasSuccessful(mergedOptResult) {
                             // Compile merged optimized IR to single object file
                             let mergedObj = compileTempDir + "/seen_merged_release.o"
-                            var mergedLlcCmd = llvmLlcTool +
+                            let mergedLlcCmd = llvmLlcTool +
                                 " -filetype=obj -O3 -relocation-model=pic -enable-misched -enable-post-misched -enable-shrink-wrap -fp-contract=fast -mcpu=" +
                                 llvmLlcCpu + " " +
                                 mainCompilerShellQuote(mergedOpt) + " -o " +
                                 mainCompilerShellQuote(mergedObj)
-                            if pgoMode == "generate" {
-                                mergedLlcCmd = targetClangDriver +
-                                    " -O3 -Wno-unused-command-line-argument" +
-                                    pgoClangFlags + " -c -x ir " +
-                                    mainCompilerShellQuote(mergedOpt) + " -o " +
-                                    mainCompilerShellQuote(mergedObj)
-                            }
                             let mergedLlcResult: CommandResult = runCommand(mergedLlcCmd)
                             if commandWasSuccessful(mergedLlcResult) {
                                 // Replace all per-module object files with single merged object
@@ -17469,6 +17494,22 @@ fun buildInstrumentationClangFlags(sanitizePolicy: String) r: String {
             " -fno-omit-frame-pointer -g"
     }
     return flags
+}
+
+// Runtime/link driver flags do not instrument modules emitted by opt. Insert
+// IR PGO passes before optimization so Seen functions, not only C runtime
+// functions, participate in generation and use with the same CFG identity.
+fun buildPgoOptPasses(pgoMode: String) r: String {
+    if pgoMode == "generate" { return "pgo-instr-gen,instrprof," }
+    if pgoMode == "use" { return "pgo-instr-use," }
+    return ""
+}
+
+fun buildPgoOptFlags(pgoMode: String, pgoPath: String) r: String {
+    if pgoMode == "use" {
+        return " -pgo-test-profile-file=" + mainCompilerShellQuote(pgoPath)
+    }
+    return ""
 }
 
 fun buildPgoClangFlags(pgoMode: String, pgoPath: String) r: String {

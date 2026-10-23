@@ -984,6 +984,10 @@ mkdir -p -- "$release_dir"
         "${COMPILER_WORKER_FLAGS[@]}"
     LLVM_PROFILE_FILE="$release_raw" "$release_generate"
     llvm-profdata merge -sparse --num-threads=1 "$release_raw" -o "$release_profile"
+    llvm-profdata show --all-functions --counts "$release_profile" \
+        >"$release_dir/profile-counters.log"
+    grep -Eq '^  main:$' "$release_dir/profile-counters.log"
+    grep -Eq '^  compute:$' "$release_dir/profile-counters.log"
     "$DIRECT_COMPILER" compile "$release_fixture" "$release_use" \
         --release --lto thin --pgo-use "$release_profile_rel" --no-cache \
         "${COMPILER_WORKER_FLAGS[@]}"

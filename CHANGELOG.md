@@ -203,6 +203,10 @@ Foundations**.
 - Run incremental CLI tests with an isolated project cache, verify actual warm
   source-object hits and uncached execution, and keep the warm cache unchanged
   during `--no-cache` compilation.
+- Instrument Seen LLVM functions for PGO generation and consume their profiles
+  in both per-module and merged optimization. Require actual Seen function
+  counters in the project-local PGO cycle instead of accepting C-runtime-only
+  profiles, and verify profile-use execution in ThinLTO and full-LTO modes.
 - Avoid temporary name/profile strings in instrumentation validation and verify
   10,000 success/error lifecycle iterations return live allocations to baseline,
   with bounded recyclable reserve and native sanitizer/coverage checks.

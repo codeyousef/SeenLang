@@ -37,6 +37,9 @@ if grep -Fq 'detect_leaks=0' "$ROOT/tests/misc_root_tests/test_sanitizers.sh"; t
 grep -Fq 'SEEN_ATTESTED_COMPILER_RUNNER' "$ROOT/tests/misc_root_tests/test_incremental.sh" || fail incremental-cli-attestation
 grep -Fq 'cache.before.sha256' "$ROOT/tests/misc_root_tests/test_incremental.sh" || fail incremental-cache-immutability
 if grep -Fq 'rm -rf .seen_cache' "$ROOT/tests/misc_root_tests/test_incremental.sh"; then fail incremental-shared-cache-deletion; fi
+grep -Fq 'SEEN_ATTESTED_COMPILER_RUNNER' "$ROOT/tests/misc_root_tests/test_pgo.sh" || fail pgo-cli-attestation
+grep -Fq -- '--num-threads=1' "$ROOT/tests/misc_root_tests/test_pgo.sh" || fail pgo-cli-serial-merge
+grep -Fq "'^  compute:$'" "$ROOT/tests/misc_root_tests/test_pgo.sh" || fail pgo-seen-counters
 grep -Fq 'seen_test_instrumentation_soak.sh' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail measured-soak-wiring
 grep -Fq 'derive-execution' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail execution-acceptance
 grep -Fq -- '--filter test_002a_instrumentation --profile "$profile"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail real-cli-profile-matrix

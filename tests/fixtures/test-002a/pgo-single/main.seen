@@ -1,0 +1,18 @@
+fun compute(n: Int) r: Int {
+    var sum = 0
+    var i = 0
+    while i < n {
+        sum = sum + i
+        i = i + 1
+    }
+    return sum
+}
+
+fun main() r: Int {
+    let result = compute(1000)
+    if result != 499500 { return 1 }
+    println(result)
+    return 0
+}
+
+main()

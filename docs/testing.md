@@ -137,6 +137,12 @@ artifact root. It exercises cold, warm and `--no-cache` compilation/execution,
 requires actual warm source-cache hits and checks that uncached compilation
 does not alter the warm cache. It never clears the checkout's shared cache.
 
+The PGO CLI regression collects and merges profiles serially in its own artifact
+directory. ThinLTO and full-LTO cycles must contain counters for the Seen entry
+and imported helper functions, then execute the profile-use binary with identical
+results. C-runtime-only profiles, missing profiles and unavailable merge tools
+are failures, not successful skips.
+
 The compiler accepts AddressSanitizer and MemorySanitizer build flags, but they
 are not general runnable `seen test` profiles under the normal finite VMEM
 ceiling. The runner rejects those profile names instead of silently relaxing
