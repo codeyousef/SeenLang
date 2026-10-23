@@ -12,6 +12,10 @@ Foundations**.
 
 ### Added
 
+- Add nonblocking CUDA event observation through the existing opt-in resource
+  ABI and `CudaEvent.poll()`, preserving pending/error ownership without event,
+  stream or device synchronization. Include pinned-byte hardware round trips
+  and deterministic pending/error probes.
 - Add owned, fixed-capacity Vulkan staging rings with synchronous checked host
   spans, asynchronous byte transfers, retained completion tickets and consumer
   acknowledgement. Backing and native commands are preallocated; host-coherent

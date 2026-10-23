@@ -583,6 +583,20 @@ SeenCudaStatus seen_cuda_event_synchronize(SeenCudaHandle event) {
                                 : cuda_failure("event-synchronize", error, object->device);
 }
 
+SeenCudaStatus seen_cuda_event_query(SeenCudaHandle event, int32_t *ready) {
+    if (!ready) return invalid("event-query", "missing completion output");
+    *ready = 0;
+    Event *object = checked<Event>(event, kEventMagic);
+    if (!object) return invalid("event-query", "invalid event");
+    SeenCudaStatus selected = select_device(object->device, "event-query");
+    if (selected.code != SEEN_CUDA_OK) return selected;
+    const cudaError_t error = cudaEventQuery(object->value);
+    if (error == cudaErrorNotReady) return ok("event-query", object->device);
+    if (error != cudaSuccess) return cuda_failure("event-query", error, object->device);
+    *ready = 1;
+    return ok("event-query", object->device);
+}
+
 SeenCudaStatus seen_cuda_event_elapsed_ms(SeenCudaHandle start,
     SeenCudaHandle end, float *milliseconds) {
     Event *start_object = checked<Event>(start, kEventMagic);

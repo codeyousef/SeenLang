@@ -124,6 +124,31 @@ check fixed pool/semaphore/command/memory counts and reject per-copy fences or
 global idle waits. Fast, ThinLTO, ASan and UBSan software-reference execution is
 distinct from physical hardware, pinning, throughput and other-platform evidence.
 
+## CUDA completion primitive
+
+The existing opt-in `accelerator.cuda.mod` resource family includes
+`CudaEvent.poll()`. It returns `Ok(false)` while the recorded event is pending,
+`Ok(true)` after native completion, or the existing typed `CudaError` without
+granting completion. The owner must retain the event and submitted resources
+while pending or after a query error. Polling neither records nor destroys an
+event, allocates staging policy, synchronizes a stream/device/event, nor changes
+fallback policy. A caller must bound repeated queries by its deadline or fuel.
+
+The additive `seen_cuda_event_query(event, int32_t *ready)` C ABI sets `ready`
+to zero before checking the event and before any fallible native work. CUDA's
+not-ready status is normal pending progress. Only a successful native query
+sets it to one. A missing output is invalid. This is the same version-1 resource
+ABI, not a second allocator/stream interface. CPU-only headers still need no
+CUDA SDK; native use requires the existing explicit bundled dependency.
+
+`bash tests/misc_root_tests/seen_cuda_event_query.sh` checks the CPU-only header
+and Seen frontend. With `SEEN_CUDA_QUERY_HARDWARE=1`, it explicitly requires the
+RTX 4090, runs 64 pinned H2D/D2H byte round trips with event reuse, injects one
+pending or failed query, rejects synchronization calls, runs device memcheck,
+and exercises fast/ThinLTO Seen consumers including exact live-usage cleanup.
+This primitive is necessary for composing a pinned CUDA staging ring; it does
+not by itself provide that ring or certify unrelated backends.
+
 ## Independent staging metadata
 
 `GpuStagingRing.create(capacity, slots)` bounds bytes, ticket count and metadata

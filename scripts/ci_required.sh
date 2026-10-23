@@ -76,6 +76,7 @@ bash -n \
     tests/misc_root_tests/seen_gpu_vulkan_mapping.sh \
     tests/misc_root_tests/seen_gpu_vulkan_transfer.sh \
     tests/misc_root_tests/seen_gpu_vulkan_staging.sh \
+    tests/misc_root_tests/seen_cuda_event_query.sh \
     tests/misc_root_tests/seen_generic_reprc_abi.sh \
     tests/misc_root_tests/seen_compiled_fixture_status.sh \
     tests/misc_root_tests/seen_select_guard_safety.sh \

@@ -4149,6 +4149,13 @@
       ]
     },
     {
+      "name": "seen_cuda_event_query",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
       "name": "seen_cuda_event_record",
       "abi": "C",
       "sources": [

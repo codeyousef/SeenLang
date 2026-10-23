@@ -85,6 +85,7 @@ extern "C" fun seen_cuda_event_create(device: Int32,
 extern "C" fun seen_cuda_event_record(event: UInt64,
     stream: UInt64) r: CudaNativeStatus
 extern "C" fun seen_cuda_event_synchronize(event: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_event_query(event: UInt64, ready: *Int32) r: CudaNativeStatus
 extern "C" fun seen_cuda_event_elapsed_ms(start: UInt64, finish: UInt64,
     milliseconds: *Float32) r: CudaNativeStatus
 extern "C" fun seen_cuda_event_destroy(event: *UInt64) r: CudaNativeStatus
@@ -309,6 +310,15 @@ class CudaEvent {
         let status = seen_cuda_event_synchronize(this.handle)
         if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
         return Ok<Bool, CudaError>(true)
+    }
+
+    /// Nonblocking completion observation. A pending event returns false;
+    /// errors retain caller ownership and never imply valid output.
+    fun poll() r: Result<Bool, CudaError> {
+        var ready: Int32 = 0 as Int32
+        let status = seen_cuda_event_query(this.handle, &ready)
+        if not cudaSucceeded(status) { return Err<Bool, CudaError>(cudaError(status)) }
+        return Ok<Bool, CudaError>(ready == (1 as Int32))
     }
 
     fun elapsedMilliseconds(finish: CudaEvent) r: Result<Float32, CudaError> {

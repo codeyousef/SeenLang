@@ -156,6 +156,11 @@ SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_create(int32_t device,
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_record(SeenCudaHandle event,
     SeenCudaHandle stream);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_synchronize(SeenCudaHandle event);
+/* Nonblocking observation only. Initializes *ready to zero, returns OK/0 for
+ * cudaErrorNotReady and OK/1 only for observed completion. Failure never grants
+ * completion. The caller retains event and submitted resources while pending. */
+SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_query(SeenCudaHandle event,
+    int32_t *ready);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_elapsed_ms(SeenCudaHandle start,
     SeenCudaHandle end, float *milliseconds);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_destroy(SeenCudaHandle *event);
