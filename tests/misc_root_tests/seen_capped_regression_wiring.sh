@@ -125,8 +125,6 @@ MIGRATED_CLI_TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/test_sanitizers.sh"
     "$ROOT_DIR/tests/misc_root_tests/test_simd_flags_linux_x86_64.sh"
     "$ROOT_DIR/tests/misc_root_tests/test_simd_integration_linux_x86_64.sh"
-)
-BLOCKED_DISABLED=(
     "$ROOT_DIR/tests/misc_root_tests/seen_fix_regressions.sh"
 )
 RELEASE_STABILIZATION_TARGETS=(
@@ -162,7 +160,7 @@ fi
 command -v rg >/dev/null 2>&1 || fail "rg is required"
 bash -n "$ENTRY" "$RUNNER" "$ASAN_RUNNER" "$STAGE1_ACCEPTANCE" "${TARGETS[@]}" \
     "${STANDALONE_COMPILER_TARGETS[@]}" "${PLATFORM_TARGETS[@]}" \
-    "${MIGRATED_CLI_TARGETS[@]}" "${BLOCKED_DISABLED[@]}" \
+    "${MIGRATED_CLI_TARGETS[@]}" \
     "${CAPABILITY_CALLERS[@]}" ||
     fail "shell syntax"
 
@@ -659,6 +657,17 @@ grep -Fq 'bash "$probe_helper" "$tool_name" "$probe_root" "$@"' \
     "$ROOT_DIR/scripts/prepare_bounded_toolchain.sh" ||
     fail 'bounded wrappers omitted the fail-only provider'
 
+FIX_SUITE="$ROOT_DIR/tests/misc_root_tests/seen_fix_regressions.sh"
+for required in 'seen_llvm_failure_probes_linux_x86_64.sh' \
+    '--emit-llvm' 'recovery-input' 'recovery_opt.sh' \
+    'run_result_pointer_payload_regression_case' \
+    'run_prebuilt_artifact_interface_index_case' 'run_cyclic_import_diagnostic_case'; do
+    grep -Fq -- "$required" "$FIX_SUITE" || fail "fix suite lost $required"
+done
+if rg -n 'setup_fake_llvm_dir|PATH=.*path_prefix|rm -[rf]|--jobs|--opt-jobs' "$FIX_SUITE"; then
+    fail 'fix suite retains tool shadowing, shared deletion or worker overrides'
+fi
+
 for target in "${MIGRATED_CLI_TARGETS[@]}"; do
     grep -Fq 'run_capped_regression.sh' "$target" ||
         fail "migrated CLI omitted capped entry: $(basename "$target")"
@@ -692,22 +701,6 @@ for target in "${MIGRATED_CLI_TARGETS[@]}"; do
             *) fail "migrated CLI invokes compiler directly: $(basename "$target"):$line" ;;
         esac
     done < <(rg -n --with-filename '\$\{?COMPILER\}?"?[[:space:]]+(compile|run|pkg|check|test)' "$target" || true)
-done
-
-for blocked in "${BLOCKED_DISABLED[@]}"; do
-    stop_line=$(grep -n -m1 'RESOURCE STOP: fix regressions require an attested bounded fault-injection toolchain' \
-        "$blocked" | cut -d: -f1)
-    exit_line=$(grep -n -m1 '^exit 126$' "$blocked" | cut -d: -f1)
-    first_tmp_line=$(grep -n -m1 '/tmp' "$blocked" | cut -d: -f1 || true)
-    case "$stop_line:$exit_line" in
-        *[!0-9:]*) fail "blocked regression guard is malformed in $(basename "$blocked")" ;;
-    esac
-    [ "$stop_line" -lt "$exit_line" ] ||
-        fail "blocked regression guard ordering is invalid in $(basename "$blocked")"
-    if [ -n "$first_tmp_line" ]; then
-        [ "$exit_line" -lt "$first_tmp_line" ] ||
-            fail "blocked regression can reach a host temporary path: $(basename "$blocked")"
-    fi
 done
 
 # Every standalone SIMD/GPU acceptance harness must use the freshly rebuilt

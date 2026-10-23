@@ -165,6 +165,14 @@ IR, objects or executables. Ordinary invocations clear ambient probe settings.
 The regression requires successful native baseline execution and rejection of
 wrong scopes, sources, output paths, stages and arguments.
 
+The historical fix-regression suite retains its import, manifest, ABI, semantic,
+package and recovery cases under the same attested execution contract. It uses
+unique project-private workspaces and explicit per-output LLVM exports instead
+of deleting shared caches or inspecting global temporary files. LLVM phase
+failure cases delegate to the fixed failure-probe regression. Its separate C12
+late-declaration negative requires LLVM verification followed by the expected
+missing-symbol linker failure; that result is not successful native execution.
+
 The compiler accepts AddressSanitizer and MemorySanitizer build flags, but they
 are not general runnable `seen test` profiles under the normal finite VMEM
 ceiling. The runner rejects those profile names instead of silently relaxing
