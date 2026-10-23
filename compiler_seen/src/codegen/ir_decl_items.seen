@@ -8,7 +8,7 @@ import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, isClassTypeImpl,
     normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
 import codegen.ir_call_args.{hasFloatParamFuncImpl}
-import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl, shouldSkipStringBuilderMethodDeclImpl, shouldSkipVecMethodDeclImpl}
+import codegen.ir_decl_scan.{buildDeclareParamsImpl, buildDeclareStringImpl, shouldRegisterCrossModuleFunctionImpl, shouldSkipStringBuilderMethodDeclImpl, shouldSkipVecMethodDeclImpl, shouldSkipStringHashMapMetadataDeclImpl}
 import codegen.ir_decl_registry.{DeclarationPassState, registerFunctionStateImpl, registerEnumDeclarationStateImpl}
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, getDeclaredFunctionNameImpl}
@@ -312,8 +312,10 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
         let methodDecl = buildDeclareStringImpl(
             quoteIdentIfNeededImpl(mangledName), methodRetLlvm,
             methodDeclParams, false)
-        recordCrossModuleDeclareIntoStateImpl(mangledName, methodDecl,
-            visibility, ctx.state)
+        if not shouldSkipStringHashMapMetadataDeclImpl(className, method.name) {
+            recordCrossModuleDeclareIntoStateImpl(mangledName, methodDecl,
+                visibility, ctx.state)
+        }
         methodIdx = methodIdx + 1
     }
 }

@@ -36,6 +36,12 @@ Foundations**.
 - Launch deterministic time compatibility tests with bounded startup inputs,
   preserving immutable clock capture and auditing fast and ThinLTO executables
   before execution through the attested time-contract harness.
+- Lower StringHashMap capacity and load-factor queries against the native map
+  layout without nonexistent source-method declarations. Preserve explicit
+  factory type arguments and cover integer- and String-valued native maps.
+- Preserve concrete Option payload layouts through both default-value call
+  paths, loading only present payloads and merging typed String, scalar and
+  aggregate values instead of eagerly selecting erased integer words.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
