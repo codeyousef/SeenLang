@@ -13,7 +13,8 @@ static int fault(const char *name) {
 }
 #define NEXT(name) PFN_##name next = (PFN_##name)dlsym(RTLD_NEXT, #name); if (!next) abort()
 
-static uint64_t buffer_ids[64], memory_ids[64];
+static uint64_t buffer_ids[64], memory_ids[64], mapped_ids[64];
+static unsigned map_calls, unmap_calls, flush_calls, invalidate_calls, buffer_calls;
 static void track(uint64_t *ids, uint64_t value, int adding) {
     int available = -1;
     for (int i = 0; i < 64; ++i) {
@@ -28,11 +29,14 @@ static void track(uint64_t *ids, uint64_t value, int adding) {
 }
 __attribute__((destructor)) static void require_native_drain(void) {
     for (int i = 0; i < 64; ++i) {
-        if (buffer_ids[i] || memory_ids[i]) {
+        if (buffer_ids[i] || memory_ids[i] || mapped_ids[i]) {
             fputs("FAIL: Vulkan fixture retained native buffer or memory ownership\n", stderr);
             _Exit(97);
         }
     }
+    if (getenv("SEEN_VULKAN_FIXTURE_MAP_TRACE") && (buffer_calls || map_calls))
+        fprintf(stderr, "VULKAN_MAP_TRACE map=%u unmap=%u flush=%u invalidate=%u\n",
+                map_calls, unmap_calls, flush_calls, invalidate_calls);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL vkEnumerateInstanceVersion(uint32_t *version) {
@@ -90,6 +94,14 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceProperties2(VkPhysicalDevice physi
 VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice physical,
     VkPhysicalDeviceMemoryProperties *properties) {
     NEXT(vkGetPhysicalDeviceMemoryProperties); next(physical, properties);
+    if (fault("map-not-visible")) {
+        for (uint32_t i = 0; i < properties->memoryTypeCount; ++i)
+            properties->memoryTypes[i].propertyFlags &= ~(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    }
+    if (fault("map-noncoherent") || fault("map-flush-once") || fault("map-invalidate")) {
+        for (uint32_t i = 0; i < properties->memoryTypeCount; ++i)
+            properties->memoryTypes[i].propertyFlags &= ~VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    }
     if (fault("memory-kind")) {
         for (uint32_t i = 0; i < properties->memoryTypeCount; ++i)
             properties->memoryTypes[i].propertyFlags =
@@ -106,6 +118,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice 
 }
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateBuffer(VkDevice device, const VkBufferCreateInfo *info,
     const VkAllocationCallbacks *allocator, VkBuffer *buffer) {
+    ++buffer_calls;
     if (fault("buffer-status")) return VK_ERROR_OUT_OF_HOST_MEMORY;
     if (fault("buffer-empty")) { *buffer = VK_NULL_HANDLE; return VK_SUCCESS; }
     NEXT(vkCreateBuffer); VkResult status = next(device, info, allocator, buffer);
@@ -142,4 +155,39 @@ VKAPI_ATTR void VKAPI_CALL vkFreeMemory(VkDevice device, VkDeviceMemory memory,
     const VkAllocationCallbacks *allocator) {
     if (memory) track(memory_ids, (uint64_t)(uintptr_t)memory, 0);
     NEXT(vkFreeMemory); next(device, memory, allocator);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL vkMapMemory(VkDevice device, VkDeviceMemory memory,
+    VkDeviceSize offset, VkDeviceSize size, VkMemoryMapFlags flags, void **data) {
+    ++map_calls;
+    if (fault("map-status")) return VK_ERROR_MEMORY_MAP_FAILED;
+    NEXT(vkMapMemory);
+    VkResult result = next(device, memory, offset, size, flags, data);
+    if (result == VK_SUCCESS) {
+        track(mapped_ids, (uint64_t)(uintptr_t)memory, 1);
+        if (fault("map-empty")) *data = NULL;
+        if (fault("map-address-overflow") || fault("map-span-overflow")) *data = (void *)(UINTPTR_MAX - 4);
+    }
+    return result;
+}
+VKAPI_ATTR void VKAPI_CALL vkUnmapMemory(VkDevice device, VkDeviceMemory memory) {
+    ++unmap_calls;
+    track(mapped_ids, (uint64_t)(uintptr_t)memory, 0);
+    NEXT(vkUnmapMemory); next(device, memory);
+}
+VKAPI_ATTR VkResult VKAPI_CALL vkFlushMappedMemoryRanges(VkDevice device,
+    uint32_t count, const VkMappedMemoryRange *ranges) {
+    ++flush_calls;
+    if (count != 1 || ranges[0].sType != VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE ||
+        ranges[0].pNext || ranges[0].offset != 0 || ranges[0].size != VK_WHOLE_SIZE) abort();
+    if (fault("map-flush-once") && flush_calls == 1) return VK_ERROR_OUT_OF_HOST_MEMORY;
+    NEXT(vkFlushMappedMemoryRanges); return next(device, count, ranges);
+}
+VKAPI_ATTR VkResult VKAPI_CALL vkInvalidateMappedMemoryRanges(VkDevice device,
+    uint32_t count, const VkMappedMemoryRange *ranges) {
+    ++invalidate_calls;
+    if (count != 1 || ranges[0].sType != VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE ||
+        ranges[0].pNext || ranges[0].offset != 0 || ranges[0].size != VK_WHOLE_SIZE) abort();
+    if (fault("map-invalidate")) return VK_ERROR_OUT_OF_HOST_MEMORY;
+    NEXT(vkInvalidateMappedMemoryRanges); return next(device, count, ranges);
 }

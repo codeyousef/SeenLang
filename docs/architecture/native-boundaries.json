@@ -14,7 +14,7 @@
     {
       "id": "accelerator-vulkan-device-ffi",
       "subsystem": "stdlib.compute.vulkan",
-      "purpose": "Direct Vulkan 1.2 loader ABI. Seen owns discovery, memory-type validation, quotas, suballocation, provider/context lifetimes and cleanup. Borrowed SDK/output pointers expire on return; instance, device, buffer and memory handles have explicit owners. SDK layout assertions, metadata fuzz, injected native faults and Mesa reference lifecycle tests cover Linux x86-64. No hardware certification. Permanent vendor ABI; no foreign policy adapter.",
+      "purpose": "Direct Vulkan 1.2 ABI. Seen owns discovery, memory selection, quotas, pools, map leases, cache visibility and cleanup. SDK argument pointers expire on return; mapped pointers live until the last checked block view closes. Noncoherent maps exclude other block borrows. Failed flush retains ownership. SDK layout, fault and Mesa lifecycle tests cover Linux x86-64; no hardware certification. Permanent vendor ABI without foreign policy.",
       "abi": "Vulkan 1.2 C",
       "platforms": [
         "linux-x86_64"
@@ -30,13 +30,17 @@
         "vkDestroyInstance",
         "vkEnumerateInstanceVersion",
         "vkEnumeratePhysicalDevices",
+        "vkFlushMappedMemoryRanges",
         "vkFreeMemory",
         "vkGetBufferMemoryRequirements",
         "vkGetPhysicalDeviceFeatures",
         "vkGetPhysicalDeviceFeatures2",
         "vkGetPhysicalDeviceMemoryProperties",
         "vkGetPhysicalDeviceProperties2",
-        "vkGetPhysicalDeviceQueueFamilyProperties"
+        "vkGetPhysicalDeviceQueueFamilyProperties",
+        "vkInvalidateMappedMemoryRanges",
+        "vkMapMemory",
+        "vkUnmapMemory"
       ],
       "production": false
     },

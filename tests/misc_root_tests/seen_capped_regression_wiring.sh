@@ -60,6 +60,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_b.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_staging_foundations.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_vulkan_mapping.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_select_guard_safety.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_dyn_trait_void_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
@@ -175,6 +176,9 @@ for required in \
     '-u LD_PRELOAD' '-u SEEN_FORK_SERIALIZER_TARGET' \
     '-u SEEN_FORK_SERIALIZER_ROOT_PID' \
     '-u LSAN_OPTIONS' '-u ASAN_SYMBOLIZER_PATH' \
+    '--fixture-preload-sha256' 'fixture library SHA-256 mismatch' \
+    'fixture library changed after admission' 'fixture library must be an ELF shared object' \
+    '"${fixture_preload_env[@]}"' \
     'detect_leaks=1' 'LSAN_OPTIONS=exitcode=23'; do
 
     grep -Fq -- "$required" "$ASAN_RUNNER" ||

@@ -50,7 +50,8 @@ class ResourceFixtureProvider {
         if this.counts.late { this.operation.monotonicDeadline = 1 as Int64 }
         return Ok<GpuNativeBlock, GpuError>(GpuNativeBlock{buffer: this.counts.next,
             memory: this.counts.next + (1000000 as UInt64), capacity: capacity,
-            committedBytes: committed, bindingAlignment: this.counts.alignment, kind: kind})
+            committedBytes: committed, bindingAlignment: this.counts.alignment, kind: kind,
+            hostVisible: false, hostCoherent: false})
     }
     fun destroyBlock(borrow block: GpuNativeBlock) r: Result<Bool, GpuError> {
         if block.buffer == (0 as UInt64) or this.ownedBlocks <= 0 { abort("resource fixture destroyed an unowned native block") }

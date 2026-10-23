@@ -8100,6 +8100,13 @@
       ]
     },
     {
+      "name": "vkFlushMappedMemoryRanges",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_mapping.seen"
+      ]
+    },
+    {
       "name": "vkFreeMemory",
       "abi": "C",
       "sources": [
@@ -8146,6 +8153,27 @@
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkInvalidateMappedMemoryRanges",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_mapping.seen"
+      ]
+    },
+    {
+      "name": "vkMapMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_mapping.seen"
+      ]
+    },
+    {
+      "name": "vkUnmapMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_mapping.seen"
       ]
     },
     {

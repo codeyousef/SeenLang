@@ -1,0 +1,7 @@
+import compute.vulkan_mapping.{GpuVulkanMappedRegion}
+fun consume(value: GpuVulkanMappedRegion) r: Void {}
+fun invalid(value: GpuVulkanMappedRegion) r: Void {
+    consume(value)
+    value.close()
+}
+fun main() r: Int { return 0 }

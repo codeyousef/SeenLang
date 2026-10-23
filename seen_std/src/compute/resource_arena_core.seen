@@ -35,6 +35,9 @@ class GpuArenaBlock {
     var liveBuffers: Int
     var active: Bool
     var quarantined: Bool
+    var mappedAddress: UInt64
+    var mappedBorrowers: Int
+    var regionBorrowers: Int
 }
 class GpuBufferSlot {
     var block: Int
@@ -106,7 +109,7 @@ class GpuArenaCore {
         }
         let block = this.blocks[index]
         if not block.active { return Ok<Bool, GpuError>(false) }
-        if block.liveBuffers != 0 or block.ranges.freeBytes != block.ranges.capacity {
+        if block.liveBuffers != 0 or block.regionBorrowers != 0 or block.mappedBorrowers != 0 or block.mappedAddress != (0 as UInt64) or block.ranges.freeBytes != block.ranges.capacity {
             return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.allocator.block.close", "GPU block still owns live buffer ranges"))
         }
         if not block.lease.valid() or block.chargedBytes > this.lease.core.resourceCommittedBytes {
@@ -165,7 +168,8 @@ class GpuArenaCore {
         // allowed commitment and reject further allocations until cleanup;
         // stats must not invent an exact commitment for this state.
         let record = GpuArenaBlock{native: native, lease: lease, ranges: ranges,
-            chargedBytes: charged, usableBytes: usable, liveBuffers: 0, active: true, quarantined: not valid}
+            chargedBytes: charged, usableBytes: usable, liveBuffers: 0, active: true, quarantined: not valid,
+            mappedAddress: 0 as UInt64, mappedBorrowers: 0, regionBorrowers: 0}
         if index == this.blocks.length() { this.blocks.push(record) } else { this.blocks[index].free(); this.blocks[index] = record }
         this.lease.core.resourceCommittedBytes = this.lease.core.resourceCommittedBytes + charged
         this.committedBytes = this.committedBytes + charged; this.usableBytes = this.usableBytes + usable

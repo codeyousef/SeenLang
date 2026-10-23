@@ -1,0 +1,37 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.device.{GpuDevice, GpuContext}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.limits.{GpuLimits}
+import core.operation_context.{OperationContext}
+import device_fixture_support.{operation, releaseOperation}
+import provider_fixture_support.{completed}
+
+class VulkanMappingWorld {
+    var operation: OperationContext
+    var limits: GpuLimits
+    var device: GpuDevice
+    var context: GpuContext
+    var allocator: GpuAllocator
+    fun release() r: Void {
+        completed(this.allocator.release(), true)
+        completed(this.context.release(), true); completed(this.device.release(), true)
+        this.limits.release(); releaseOperation(this.operation); this.free()
+    }
+}
+fun mappingWorld(kind: GpuMemoryKind) r: VulkanMappingWorld {
+    let op = operation(); let limits = GpuLimits.bounded(4, 2, 64, 1048576 as UInt64)
+    let discovered = GpuVulkanProvider.discover(op, limits, true)
+    if discovered.isErr() { abort("explicit Vulkan reference unavailable") }
+    let provider = discovered.unwrap(); discovered.releaseContainer()
+    let opened = openVulkanDevice(provider, 0, op)
+    if opened.isErr() { abort("explicit Vulkan reference open failed") }
+    let device = opened.unwrap(); opened.releaseContainer()
+    let created = device.createContext(op)
+    if created.isErr() { abort("Vulkan mapping context failed") }
+    let context = created.unwrap(); created.releaseContainer()
+    let pooled = GpuAllocator.create(context, kind, 1024 as UInt64, 2, op)
+    if pooled.isErr() { abort("Vulkan staging allocator unavailable") }
+    let allocator = pooled.unwrap(); pooled.releaseContainer()
+    return VulkanMappingWorld{operation: op, limits: limits, device: device, context: context, allocator: allocator}
+}

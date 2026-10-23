@@ -25,6 +25,10 @@ class GpuBufferRegion {
             return Err<GpuBufferRegion, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.region", "GPU byte region requires a live buffer generation"))
         }
         let slot = core.slots[index]
+        let block = core.blocks[slot.block]
+        if block.mappedBorrowers != 0 and not block.native.hostCoherent {
+            return Err<GpuBufferRegion, GpuError>(gpuFailure("gpu.busy", "gpu.buffer.region", "noncoherent host mapping excludes every other block borrow"))
+        }
         if bytes == (0 as UInt64) or relative > slot.requestedBytes or bytes > slot.requestedBytes - relative {
             return Err<GpuBufferRegion, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.region", "GPU byte region escapes its logical buffer payload"))
         }
@@ -38,11 +42,13 @@ class GpuBufferRegion {
             offset: slot.range.offset + relative, bytes: bytes, spanBytes: slot.range.bytes - relative,
             write: write, active: true}
         if write { slot.writers = slot.writers + 1 } else { slot.readers = slot.readers + 1 }
+        block.regionBorrowers = block.regionBorrowers + 1
         return Ok<GpuBufferRegion, GpuError>(region)
     }
     fun valid() r: Bool {
         if not this.active or not this.core.validSlot(this.slot, this.generation) or not this.lease.valid() { return false }
         let slot = this.core.slots[this.slot]
+        if this.core.blocks[slot.block].regionBorrowers <= 0 { return false }
         if this.write { return slot.writers == 1 and slot.readers == 0 }
         return slot.readers > 0 and slot.writers == 0
     }
@@ -54,6 +60,7 @@ class GpuBufferRegion {
         let slot = this.core.slots[this.slot]
         gpuReleaseResourceLease(this.lease)
         if this.write { slot.writers = slot.writers - 1 } else { slot.readers = slot.readers - 1 }
+        let block = this.core.blocks[slot.block]; block.regionBorrowers = block.regionBorrowers - 1
         this.active = false
         return Ok<Bool, GpuError>(true)
     }

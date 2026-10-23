@@ -82,7 +82,9 @@ class GpuVulkanResources {
             return Err<GpuNativeBlock, GpuError>(gpuVkFailure(bound, "gpu.vulkan.memory.bind"))
         }
         return Ok<GpuNativeBlock, GpuError>(GpuNativeBlock{buffer: buffer, memory: memory,
-            capacity: capacity, committedBytes: bytes, bindingAlignment: this.alignment, kind: kind})
+            capacity: capacity, committedBytes: bytes, bindingAlignment: this.alignment, kind: kind,
+            hostVisible: (this.memory.types[selected].flags & (2 as UInt32)) != (0 as UInt32),
+            hostCoherent: (this.memory.types[selected].flags & (4 as UInt32)) != (0 as UInt32)})
     }
     fun destroyBlock(borrow block: GpuNativeBlock) r: Result<Bool, GpuError> {
         if block.buffer == (0 as UInt64) and block.memory == (0 as UInt64) {

@@ -536,6 +536,8 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_staging_foundations.sh"
 COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_vulkan_mapping.sh"
+COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_select_guard_safety.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_dyn_trait_void_contract.sh"

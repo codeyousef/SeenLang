@@ -171,6 +171,7 @@ modules = [
     "src/compute/vulkan_buffer_abi.seen",
     "src/compute/vulkan_memory_info.seen",
     "src/compute/vulkan_memory.seen",
+    "src/compute/vulkan_mapping.seen",
     "src/compute/vulkan_timeline.seen",
     "src/compute/vulkan_provider.seen",
 

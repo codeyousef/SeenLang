@@ -46,7 +46,7 @@ hash = "1851ea5159da358974bd5609034efeaaccd1ec7aa9d65ac2988a5dcc4c70e576"
 
 [[modules]]
 path = "src/core/operation_context.seen"
-hash = "3afdda48eceaf14b9091e518f3a44ff6abd05f68bfd425875964d44261993069"
+hash = "80cf77431b5ce918991a45be23786a4dd0a7c7e4f7ad4fd9fd46c9aa9a2634b1"
 
 [[modules]]
 path = "src/core/ownership.seen"
@@ -190,11 +190,11 @@ hash = "e721eea024158d7a0fd66b1840739cd5a22ceb5d67c0e947991db4afe7614d50"
 
 [[modules]]
 path = "src/fs/types.seen"
-hash = "73e7033a969faba051057481c0e5f8af9823daddaed532d6caa426a7cc804e49"
+hash = "3a4b1eab673e89cc3c715e1fd991598ca557517e5c8f12d68d24283621184bd7"
 
 [[modules]]
 path = "src/fs/file.seen"
-hash = "c9bd8b8069423dee31abd2b42cc6fac935779f6e2d72c6f7feebf808dcdb1be6"
+hash = "a2b3434d177aed8b09e65ab6e39b60007e1a5650b43243deb639256e30e883ae"
 
 [[modules]]
 path = "src/fs/operations.seen"
@@ -258,7 +258,7 @@ hash = "b69639f5fc16e6f6ea8e02d7e221281d7920b4188801bc18dfe65b857daddc53"
 
 [[modules]]
 path = "src/async/event_loop.seen"
-hash = "f2da0a6424a3538fcc8f2234388f5f2645d8dab52eec3f864b4517753eb86e5b"
+hash = "75cebb7ab3640ba190db5ce34d322c0ad8ddd21f2129376f3feb1aac743b8acb"
 
 [[modules]]
 path = "src/async/io_wakeup.seen"
@@ -290,7 +290,7 @@ hash = "2dc7e23925834a427acd1469b5468a34c5b0597bdddccbedcc1d0584ad507509"
 
 [[modules]]
 path = "src/async/processes.seen"
-hash = "45965587703ff913a49cd6246994febc3c2e5cafc9d2d86d005ff9743b588992"
+hash = "e43b11435c7c30a08214cf95f43d78a7b05ec5edc097919cd4ab6908b812776e"
 
 [[modules]]
 path = "src/async/task_diagnostics.seen"
@@ -342,7 +342,7 @@ hash = "f9c174d152c2ae5f23ed51a7a8454ad7b666ce75ff5f8098f9ca57c859da3534"
 
 [[modules]]
 path = "src/async/executor_core.seen"
-hash = "ab229d9c0d26c39e0a63d8b1b32efb3143bf9a681000e899d9faafff12696bb5"
+hash = "10fab7024c6826f7e2923e6aa7ee34c86b98ce2c981ccc4f5a28ac89d7951baf"
 
 [[modules]]
 path = "src/async/executor_native.seen"
@@ -358,7 +358,7 @@ hash = "39c4a5bc5f2c69264246605d7579db81e4e1c1646b076ccded771bddc40fccb1"
 
 [[modules]]
 path = "src/sync/atomic.seen"
-hash = "8a6f56d881d1fe8e306abd29cabe77dda64f03dba5d691d3d5a465664381d606"
+hash = "13b9b99382f2de4bcf5ee9b9c0639e9bf3d68d9f078d905284606307f6c19d42"
 
 [[modules]]
 path = "src/sync/arc.seen"
@@ -459,6 +459,134 @@ hash = "54f81e35f8e4df15d7dc5b55c1378667b991c24e4dc9954d1ed1083ccb86a903"
 [[modules]]
 path = "src/accelerator/cuda/mod.seen"
 hash = "f1161d3e3302b0ba82f71b0e92b296956eb046cd9e494fb5d645d0421e97fb24"
+
+[[modules]]
+path = "src/compute/backend.seen"
+hash = "a826d965a551ba8f48b9e9ab2834788eb7be9af00d5451f300148868b83a82a7"
+
+[[modules]]
+path = "src/compute/error.seen"
+hash = "61a7d4bc77983ab7ae96c1292baf5c373531ef4efedbc15e3f0c92cba880073c"
+
+[[modules]]
+path = "src/compute/limits.seen"
+hash = "1c0f303b22664d6df896f8943d152f2edd3da9618402f6119e4384098409c3b4"
+
+[[modules]]
+path = "src/compute/capabilities.seen"
+hash = "c6718a1a8f80155cefdf2850e1bfffe8c1801aa82a6b174279283db78243081c"
+
+[[modules]]
+path = "src/compute/device_info.seen"
+hash = "eb61d8ea64dd7571bcff64dc09f737a0763fabdab781fe89f628680ca44a90f5"
+
+[[modules]]
+path = "src/compute/discovery.seen"
+hash = "cbecf821d9ca9848b945c0c0615f2f1bcb1e602ba0326ffe1f370c7ae53482be"
+
+[[modules]]
+path = "src/compute/operation.seen"
+hash = "dd4523c05ab58c361173d01396a24e3ccefc83709fad2af8b05ce840c94cd3ee"
+
+[[modules]]
+path = "src/compute/provider.seen"
+hash = "c818826ded15caff418a94a8ea64b6f42327187fd02a6723dcbdd2d50411b41e"
+
+[[modules]]
+path = "src/compute/device.seen"
+hash = "fa36fb15cd13da994dc5ea68f87e95afebd14c4fb1758fe741d3d5668cad8392"
+
+[[modules]]
+path = "src/compute/context_lease.seen"
+hash = "c2856dc2786d52bb1bb51e2a6b526c3ceaee76d9a032cfd1e90c755903eeff9d"
+
+[[modules]]
+path = "src/compute/memory_kind.seen"
+hash = "3b947fd0c047804ce024449f3a0d04698306a906419c07f4093fc46cc2a709cd"
+
+[[modules]]
+path = "src/compute/resource_provider.seen"
+hash = "36020cfdf8fdf68f4bc4f647d11d727c44e29ba2703a91bd99b61ada190185ba"
+
+[[modules]]
+path = "src/compute/resource_stats.seen"
+hash = "c0992363e01aaed5b19e1e56e5b16dc54ea0880a6e01ef647443a0014f25634c"
+
+[[modules]]
+path = "src/compute/resource_geometry.seen"
+hash = "ac59f0c9d9ebfda9b8113e4c274c8ec4c97593a57d46d48a9ed6c7a991e50a81"
+
+[[modules]]
+path = "src/compute/resource_ranges.seen"
+hash = "d547c389d2a069b3160619bda40847b96292ed9dc6c9ded71653c9e59aa66920"
+
+[[modules]]
+path = "src/compute/resource_arena_core.seen"
+hash = "a0dfdd0226236cfb7cc59286e081b7709f054ab00c1e0716c27459cb37b4a8a0"
+
+[[modules]]
+path = "src/compute/buffer_region.seen"
+hash = "f641a9410a71929626c49c2f99ae2a6edb53ba1788138323a0c2959349be8569"
+
+[[modules]]
+path = "src/compute/buffer.seen"
+hash = "92173083bf6b81b50b07132916224eb2f528cd719d5a6a0a12d5cf006e7cd09a"
+
+[[modules]]
+path = "src/compute/allocator.seen"
+hash = "d3491a0018a15cc4193c4210dbfcdd4e5e7026178ee4cab1e497f27bd6ae785b"
+
+[[modules]]
+path = "src/compute/staging_ring.seen"
+hash = "65e0a04be1d498db4b21c1d80cd9ae57e76d81ae73fcce4014afb86739c2bde1"
+
+[[modules]]
+path = "src/compute/vulkan_abi.seen"
+hash = "16376232079f98e878f872787bb174dfec33cb8d47ea04aa611b41835bcef679"
+
+[[modules]]
+path = "src/compute/vulkan_native.seen"
+hash = "0d405c4f6aef57ef0d536bfcc67dd8c08fdb028ac0c220f4b442b6f599895e44"
+
+[[modules]]
+path = "src/compute/vulkan_error.seen"
+hash = "4e6da74e8811836898a02bebc4bb3747be31a2dc0240c9061011085dfa0c18a7"
+
+[[modules]]
+path = "src/compute/vulkan_instance.seen"
+hash = "2cebeb123b32d6d322c230d0a47a59880b14b22f3efddb86b3fe223c89e101e1"
+
+[[modules]]
+path = "src/compute/vulkan_properties.seen"
+hash = "a98cadb8f00f0ec3d976650c754fc6227be4b4f9db12575490d34a3d9886cafe"
+
+[[modules]]
+path = "src/compute/vulkan_queue.seen"
+hash = "240e204e0b969aa48fb09478a18f7644f9c95ed8238bf31d27cc81954e707fd3"
+
+[[modules]]
+path = "src/compute/vulkan_buffer_abi.seen"
+hash = "ae00b6d587da30c50e36814f15e7314d17239ee26f3fdfe3b3b9b80a333d2180"
+
+[[modules]]
+path = "src/compute/vulkan_memory_info.seen"
+hash = "d4fc31be81ba067d99b29e426e676ab186d8243652cce6ce3000ea0093b7a3c7"
+
+[[modules]]
+path = "src/compute/vulkan_memory.seen"
+hash = "b921aebbd603dbc0245d24e1804ecf39de273d2076cf8ed021702f841884d2b1"
+
+[[modules]]
+path = "src/compute/vulkan_mapping.seen"
+hash = "8ccd392fe6de2ef4710b72635db63ce065d5f823c04231362d30b09899d325d9"
+
+[[modules]]
+path = "src/compute/vulkan_timeline.seen"
+hash = "ed30687f00e8b95a8f648d98183f19ca7935d8cd1a9fc707d7e93f7ef5e86085"
+
+[[modules]]
+path = "src/compute/vulkan_provider.seen"
+hash = "40f36aee95b0942397044592351f0d7e103a1c1c159ce7fa698ae79fc4c14cc7"
 
 [[modules]]
 path = "src/simd/ir_types.seen"

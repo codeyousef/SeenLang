@@ -23,6 +23,11 @@ int main(void) {
     FIELD(VkPhysicalDeviceFeatures2, pNext, 8); FIELD(VkPhysicalDeviceFeatures2, features, 16);
     FIELD(VkPhysicalDeviceTimelineSemaphoreFeatures, timelineSemaphore, 16);
     SIZE(VkBufferCreateInfo, 56); SIZE(VkMemoryAllocateInfo, 32); SIZE(VkMemoryRequirements, 24);
+    SIZE(VkMappedMemoryRange, 40);
+    FIELD(VkMappedMemoryRange, pNext, 8); FIELD(VkMappedMemoryRange, memory, 16);
+    FIELD(VkMappedMemoryRange, offset, 24); FIELD(VkMappedMemoryRange, size, 32);
+    _Static_assert(VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE == 6, "mapped range sType");
+    _Static_assert(VK_WHOLE_SIZE == UINT64_MAX, "whole mapped allocation encoding");
     FIELD(VkBufferCreateInfo, size, 24); FIELD(VkBufferCreateInfo, usage, 32);
     FIELD(VkBufferCreateInfo, queueFamilyIndexCount, 40); FIELD(VkBufferCreateInfo, pQueueFamilyIndices, 48);
     FIELD(VkMemoryAllocateInfo, allocationSize, 16); FIELD(VkMemoryAllocateInfo, memoryTypeIndex, 24);

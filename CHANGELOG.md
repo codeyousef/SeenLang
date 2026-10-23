@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Add checked, lease-owned Vulkan host mappings over pooled buffers, with
+  coherent sharing, exclusive noncoherent visibility operations and retryable
+  cleanup ownership. Native byte-copy submission remains separate.
 - Add bounded device execution checks for Seen-emitted PTX layout, packed
   values, integer atomics, subgroups and FP16/BF16 matrices on SM89, with independent value/fault oracles
   and separate hardware evidence. Add a focused regression entry point that
@@ -104,6 +107,8 @@ Foundations**.
 
 ### Fixed
 
+- Preserve explicitly hash-bound SDK fault libraries in sanitizer fixtures
+  while continuing to reject inherited preloads and unsafe fixture paths.
 - Keep scalar dot controls from auto-vectorizing and retain the candidate's
   selected variant before the alternating scalar call overwrites progress.
   Preserve thirty raw timing pairs and assert cold ARM lifecycle cleanup.
