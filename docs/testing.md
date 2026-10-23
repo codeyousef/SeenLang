@@ -132,11 +132,13 @@ self-wrapping harness re-enters and verifies its own binding. Kernel limits,
 serial worker settings, project namespace and serializer proof remain inherited;
 the shell test cannot substitute a different binding or skip verification.
 
-The compiler still accepts AddressSanitizer and MemorySanitizer build flags as
-compile-only capabilities. They are deliberately not runnable `seen test`
-profiles under the mandatory finite VMEM ceiling because their multi-terabyte
-shadow-address reservations cannot coexist with that containment. The runner
-rejects those profile names instead of weakening limits or claiming execution.
+The compiler accepts AddressSanitizer and MemorySanitizer build flags, but they
+are not general runnable `seen test` profiles under the normal finite VMEM
+ceiling. The runner rejects those profile names instead of silently relaxing
+limits. Reviewed ASan contracts, including `test_sanitizers.sh`, use the separate
+generated-executable runner: its finite shadow allowance is read back while
+kernel RAM, zero-swap, task and timeout containment remain enforced. That narrow
+ASan admission does not qualify MemorySanitizer or ThreadSanitizer execution.
 
 Acceptance evidence names compiler host code, GPU emitters, Seen modules, the
 native runtime, and ledgered ABI shims separately. Each must be compiled and

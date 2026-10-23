@@ -197,6 +197,9 @@ Foundations**.
 - Re-enter self-wrapping shell regressions with their own verified scope and
   the test CLI's selected compiler and package client, retaining aggregate
   containment and serializer proofs.
+- Migrate the legacy sanitizer CLI test to attested, project-local compilation
+  and finite ASan/LSan admission, preserving its address/undefined execution
+  checks without suppressed leaks or checkout-wide cleanup.
 - Avoid temporary name/profile strings in instrumentation validation and verify
   10,000 success/error lifecycle iterations return live allocations to baseline,
   with bounded recyclable reserve and native sanitizer/coverage checks.

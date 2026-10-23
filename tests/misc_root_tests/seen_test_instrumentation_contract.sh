@@ -31,6 +31,9 @@ if grep -Fq -- '--emit-glsl' "$ROOT/compiler_seen/src/testing/cli_runner.seen"; 
 grep -Fq 'hardwareExecuted' "$ROOT/compiler_seen/src/testing/instrumentation.seen" || fail hardware-separation
 for module in fuzz benchmark; do [ -f "$ROOT/compiler_seen/src/testing/$module.seen" ] || fail "native-$module"; done
 [ -f "$ROOT/tests/fixtures/soak/test_002a_instrumentation.seen" ] || fail soak-fixture
+grep -Fq 'SEEN_ATTESTED_COMPILER_RUNNER' "$ROOT/tests/misc_root_tests/test_sanitizers.sh" || fail sanitizer-cli-attestation
+grep -Fq 'run_asan_in_hard_memory_scope.sh' "$ROOT/tests/misc_root_tests/test_sanitizers.sh" || fail sanitizer-cli-scope
+if grep -Fq 'detect_leaks=0' "$ROOT/tests/misc_root_tests/test_sanitizers.sh"; then fail sanitizer-cli-leak-suppression; fi
 grep -Fq 'seen_test_instrumentation_soak.sh' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail measured-soak-wiring
 grep -Fq 'derive-execution' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail execution-acceptance
 grep -Fq -- '--filter test_002a_instrumentation --profile "$profile"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail real-cli-profile-matrix
