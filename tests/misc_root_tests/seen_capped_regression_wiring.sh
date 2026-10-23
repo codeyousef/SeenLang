@@ -644,6 +644,21 @@ grep -Fq 'PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_macos_package_client_packaging.sh" ||
     fail "macOS fixture can displace the bounded toolchain"
 
+for required in 'reserved scope' 'fixed source fixture' \
+    'uncached serialized arguments' 'output already exists' \
+    'output escapes its private work root'; do
+    grep -Fq "$required" "$RUNNER" || fail "failure-probe admission omitted $required"
+done
+grep -Fq 'unset SEEN_LLVM_FAILURE_PROBE_STAGE' "$ENTRY" ||
+    fail 'ordinary capped entry inherits failure-probe control'
+grep -Fq 'unset SEEN_LLVM_FAILURE_PROBE_STAGE' "$RUNNER" ||
+    fail 'ordinary compiler invocation inherits failure-probe control'
+grep -Fq 'exit 86' "$ROOT_DIR/scripts/llvm_failure_probe.sh" ||
+    fail 'failure probe omitted its explicit failure status'
+grep -Fq 'bash "$probe_helper" "$tool_name" "$probe_root" "$@"' \
+    "$ROOT_DIR/scripts/prepare_bounded_toolchain.sh" ||
+    fail 'bounded wrappers omitted the fail-only provider'
+
 for target in "${MIGRATED_CLI_TARGETS[@]}"; do
     grep -Fq 'run_capped_regression.sh' "$target" ||
         fail "migrated CLI omitted capped entry: $(basename "$target")"

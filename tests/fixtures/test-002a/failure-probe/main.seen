@@ -1,0 +1,9 @@
+import helper.{probeValue}
+
+fun main() r: Int {
+    if probeValue() != 42 { return 1 }
+    println("PASS: native compiler failure probe baseline")
+    return 0
+}
+
+main()

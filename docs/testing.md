@@ -155,6 +155,16 @@ The separate Linux x86-64 toolchain-driver-alias regression executes the bounded
 ELF linker alias and compiles/links/runs a C++ allocation witness. It protects
 multicall-driver identity after resolving symlinks, not just version output.
 
+The Linux LLVM failure-probe regression exercises real optimizer and object
+emission failures in fast and ThinLTO compilation. The explicit attested-runner
+option `--llvm-failure-probe opt|object` admits only the fixed two-module fixture,
+uncached serial compilation, a fresh private output and the verified reserved
+scope. Bounded tool wrappers retain their real executable identities and limits;
+the probe can only return a failure at the selected phase, never create or repair
+IR, objects or executables. Ordinary invocations clear ambient probe settings.
+The regression requires successful native baseline execution and rejection of
+wrong scopes, sources, output paths, stages and arguments.
+
 The compiler accepts AddressSanitizer and MemorySanitizer build flags, but they
 are not general runnable `seen test` profiles under the normal finite VMEM
 ceiling. The runner rejects those profile names instead of silently relaxing

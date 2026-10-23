@@ -12,6 +12,8 @@ Foundations**.
 
 ### Added
 
+- Add contained LLVM optimizer/object failure probes with native fast/ThinLTO
+  controls, preserving bounded tool identities and rejecting invalid requests.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
