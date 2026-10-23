@@ -126,6 +126,11 @@ the compiler/GPU execution acceptance, so post-processing stays within the same
 aggregate task ceiling as compilation and execution.
 On LLD targets, no-fork mode also pins the linker and ThinLTO backend to one
 worker so the compilation remains valid inside the aggregate task cap.
+Shell regressions receive the selected compiler, source root and package
+client. Their stale caller-specific active-scope markers are cleared so each
+self-wrapping harness re-enters and verifies its own binding. Kernel limits,
+serial worker settings, project namespace and serializer proof remain inherited;
+the shell test cannot substitute a different binding or skip verification.
 
 The compiler still accepts AddressSanitizer and MemorySanitizer build flags as
 compile-only capabilities. They are deliberately not runnable `seen test`

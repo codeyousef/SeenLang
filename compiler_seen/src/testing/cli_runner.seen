@@ -214,7 +214,15 @@ fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
             " --fast --no-fork" + instrumentationFlags + " && " +
             executionPrefix + testCliShellQuote(binary) + executionPostfix
     } else if relative.endsWith(".sh") {
-        command = "bash " + testCliShellQuote(absolute)
+        // A self-wrapping test must establish its own scope-bound identity,
+        // not mistake this caller's active binding for its own. Keep the
+        // namespace, kernel limits and serializer evidence inherited.
+        command = "env -u SEEN_CAPPED_REGRESSION_ACTIVE " +
+            "-u SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE COMPILER=" +
+            testCliShellQuote(selfPath) + " SEEN_COMPILER_SOURCE_ROOT=" +
+            testCliShellQuote(compilerSourceRoot) + " SEEN_PACKAGE_CLIENT=" +
+            testCliShellQuote(packageClientPath) + " bash " +
+            testCliShellQuote(absolute)
     } else if relative.endsWith("_unit.py") {
         command = "python3 " + testCliShellQuote(absolute)
     } else { return -1 }

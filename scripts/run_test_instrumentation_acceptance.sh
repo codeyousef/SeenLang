@@ -124,6 +124,21 @@ for profile in ci coverage sanitizer-undefined sanitizer-thread; do
     python3 "$ROOT/scripts/check_test_reporters.py" --format junit \
         --validate "$RUN/cli-$profile.xml" >/dev/null
 done
+scope_log="$RUN/cli-shell-scope.log"
+if ! SEEN_COMPILER_SOURCE_ROOT="$ROOT" SEEN_PACKAGE_CLIENT="$PACKAGE_CLIENT" \
+    "$COMPILER" test "$ROOT" --filter seen_sha256_file_ownership \
+    --profile ci --jobs 1 --timeout 10m \
+    --report "json:$RUN_REL/cli-shell-scope.json" \
+    --report "junit:$RUN_REL/cli-shell-scope.xml" >"$scope_log" 2>&1; then
+    tail -c 32768 "$scope_log" >&2
+    fail "self-wrapping shell test failed scope re-entry"
+fi
+grep -Fq 'test result: 1 passed; 0 failed;' "$scope_log" ||
+    fail "shell scope regression did not execute its fixture"
+python3 "$ROOT/scripts/check_test_reporters.py" --format json \
+    --validate "$RUN/cli-shell-scope.json" >/dev/null
+python3 "$ROOT/scripts/check_test_reporters.py" --format junit \
+    --validate "$RUN/cli-shell-scope.xml" >/dev/null
 "$ROOT/scripts/run_capped_regression.sh" test-instrumentation-soak \
     --compiler "$COMPILER" -- bash "$ROOT/tests/misc_root_tests/seen_test_instrumentation_soak.sh"
 echo "PASS: TEST-002A instrumented compiler, GPU emitter, runtime, and ABI execution"

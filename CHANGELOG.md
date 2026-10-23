@@ -194,6 +194,9 @@ Foundations**.
   instead of requiring an already installed checkout sidecar.
 - Bound coverage reporting and profile merging to one worker in the test CLI
   and execution acceptance so post-processing respects the aggregate task cap.
+- Re-enter self-wrapping shell regressions with their own verified scope and
+  the test CLI's selected compiler and package client, retaining aggregate
+  containment and serializer proofs.
 - Avoid temporary name/profile strings in instrumentation validation and verify
   10,000 success/error lifecycle iterations return live allocations to baseline,
   with bounded recyclable reserve and native sanitizer/coverage checks.

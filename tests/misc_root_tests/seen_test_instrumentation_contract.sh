@@ -34,6 +34,9 @@ for module in fuzz benchmark; do [ -f "$ROOT/compiler_seen/src/testing/$module.s
 grep -Fq 'seen_test_instrumentation_soak.sh' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail measured-soak-wiring
 grep -Fq 'derive-execution' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail execution-acceptance
 grep -Fq -- '--filter test_002a_instrumentation --profile "$profile"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail real-cli-profile-matrix
+grep -Fq -- '--filter seen_sha256_file_ownership' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail shell-scope-execution
+grep -Fq 'env -u SEEN_CAPPED_REGRESSION_ACTIVE' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail shell-scope-reentry
+grep -Fq 'SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE COMPILER=' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail selected-shell-compiler
 grep -Fq 'compiler_seen/tests/test_002a_instrumentation.seen' "$ROOT/scripts/seen_stage1_acceptance.sh" || fail stage1
 grep -Fq '"$REPO_ROOT/scripts/run_test_instrumentation_acceptance.sh" "$REAL_COMPILER"' "$ROOT/scripts/seen_stage1_acceptance.sh" || fail source-coverage-execution-wiring
 grep -Fq 'PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT/compiler_seen/target/seen-pkg}"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail selected-package-client
