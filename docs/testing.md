@@ -132,6 +132,11 @@ self-wrapping harness re-enters and verifies its own binding. Kernel limits,
 serial worker settings, project namespace and serializer proof remain inherited;
 the shell test cannot substitute a different binding or skip verification.
 
+The incremental CLI regression uses a disposable project below the verified
+artifact root. It exercises cold, warm and `--no-cache` compilation/execution,
+requires actual warm source-cache hits and checks that uncached compilation
+does not alter the warm cache. It never clears the checkout's shared cache.
+
 The compiler accepts AddressSanitizer and MemorySanitizer build flags, but they
 are not general runnable `seen test` profiles under the normal finite VMEM
 ceiling. The runner rejects those profile names instead of silently relaxing

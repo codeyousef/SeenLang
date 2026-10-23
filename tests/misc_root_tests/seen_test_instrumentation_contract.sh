@@ -34,6 +34,9 @@ for module in fuzz benchmark; do [ -f "$ROOT/compiler_seen/src/testing/$module.s
 grep -Fq 'SEEN_ATTESTED_COMPILER_RUNNER' "$ROOT/tests/misc_root_tests/test_sanitizers.sh" || fail sanitizer-cli-attestation
 grep -Fq 'run_asan_in_hard_memory_scope.sh' "$ROOT/tests/misc_root_tests/test_sanitizers.sh" || fail sanitizer-cli-scope
 if grep -Fq 'detect_leaks=0' "$ROOT/tests/misc_root_tests/test_sanitizers.sh"; then fail sanitizer-cli-leak-suppression; fi
+grep -Fq 'SEEN_ATTESTED_COMPILER_RUNNER' "$ROOT/tests/misc_root_tests/test_incremental.sh" || fail incremental-cli-attestation
+grep -Fq 'cache.before.sha256' "$ROOT/tests/misc_root_tests/test_incremental.sh" || fail incremental-cache-immutability
+if grep -Fq 'rm -rf .seen_cache' "$ROOT/tests/misc_root_tests/test_incremental.sh"; then fail incremental-shared-cache-deletion; fi
 grep -Fq 'seen_test_instrumentation_soak.sh' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail measured-soak-wiring
 grep -Fq 'derive-execution' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail execution-acceptance
 grep -Fq -- '--filter test_002a_instrumentation --profile "$profile"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail real-cli-profile-matrix

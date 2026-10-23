@@ -200,6 +200,9 @@ Foundations**.
 - Migrate the legacy sanitizer CLI test to attested, project-local compilation
   and finite ASan/LSan admission, preserving its address/undefined execution
   checks without suppressed leaks or checkout-wide cleanup.
+- Run incremental CLI tests with an isolated project cache, verify actual warm
+  source-object hits and uncached execution, and keep the warm cache unchanged
+  during `--no-cache` compilation.
 - Avoid temporary name/profile strings in instrumentation validation and verify
   10,000 success/error lifecycle iterations return live allocations to baseline,
   with bounded recyclable reserve and native sanitizer/coverage checks.
