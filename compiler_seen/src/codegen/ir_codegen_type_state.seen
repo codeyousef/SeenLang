@@ -68,6 +68,11 @@ fun mapTypeForParameterState(seenType: String) r: String {
         let mtpDefPos = cleanType.indexOf("~default~", 0)
         cleanType = cleanType.substring(0, mtpDefPos)
     }
+    // repr(C) arguments use aggregate values, matching ordinary function and
+    // call-site lowering. Only legacy inline data types borrow a pointer.
+    if isReprCDataTypeState(cleanType) {
+        return mapTypeState(cleanType)
+    }
     if isDataTypeState(cleanType) {
         return "ptr noalias nonnull"
     }

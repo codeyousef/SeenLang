@@ -112,6 +112,9 @@ Foundations**.
 
 ### Fixed
 
+- Preserve generic `@repr(C)` span descriptor fields in local value storage and
+  match aggregate argument types between class methods and their callers.
+
 - Preserve explicitly hash-bound SDK fault libraries in sanitizer fixtures
   while continuing to reject inherited preloads and unsafe fixture paths.
 - Keep scalar dot controls from auto-vectorizing and retain the candidate's

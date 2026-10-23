@@ -8,6 +8,7 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
 import codegen.ir_simd_type_helpers.{swizzleLaneIndexImpl, simdLaneCountImpl, isSwizzlePatternImpl}
 import codegen.ir_method_receiver.{getSemanticFieldTypeImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl}
 
 ///
 emitSimdSwizzleMemberAccessImpl — emit vec.x / vec.xy / vec.xzyw swizzles.
@@ -218,7 +219,8 @@ fun prepareExpressionMemberReceiverImpl(output: StringBuilder, regBox: Array<Int
     isClassReceiver: Int, isDataReceiver: Int) r: String {
 
     if reprCClassNames != "" {
-        if reprCClassNames.contains(receiverType + "|") {
+        if not receiverType.endsWith("?") and not receiverType.startsWith("*") and
+            reprCClassNames.contains(getBaseTypeNameImpl(receiverType) + "|") {
             return receiverReg
         }
     }
@@ -245,9 +247,11 @@ fun prepareVariableMemberReceiverImpl(output: StringBuilder, regBox: Array<Int>,
     isClassReceiver: Int, isDataReceiver: Int) r: String {
 
     if reprCClassNames != "" {
-        if reprCClassNames.contains(varType + "|") {
+        let baseType = getBaseTypeNameImpl(varType)
+        if not varType.endsWith("?") and not varType.startsWith("*") and
+            reprCClassNames.contains(baseType + "|") {
             let loadReg = getNextRegFn(regBox)
-            output.append("  " + loadReg + " = load %" + varType + ", ptr " + varReg + "\n")
+            output.append("  " + loadReg + " = load %" + baseType + ", ptr " + varReg + "\n")
             return loadReg
         }
     }

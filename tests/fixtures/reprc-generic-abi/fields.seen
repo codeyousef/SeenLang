@@ -1,0 +1,30 @@
+import inference.span.{Span, MutableSpan}
+import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let result = OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64)
+    if result.isErr() { abort("generic span backing unavailable") }
+    let storage = result.unwrap(); result.releaseContainer()
+    var i = 0 as UInt64
+    while i < storage.byteLength { storage.data[i] = 0 as UInt8; i = i + (1 as UInt64) }
+    storage.data[1 as UInt64] = 173 as UInt8
+    let words = storage.data as *UInt16; words[1 as UInt64] = 4660 as UInt16
+    let immutable = Span<UInt8>{data: storage.data as *const UInt8, length: 29 as UInt64}
+    let mutable = MutableSpan<UInt8>{data: storage.data, length: 31 as UInt64}
+    let wide = Span<UInt16>{data: words as *const UInt16, length: 2 as UInt64}
+    if immutable.length != (29 as UInt64) or immutable.data != storage.data as *const UInt8 {
+        abort("generic repr(C) local descriptor was read as a class handle")
+    }
+    if mutable.length != (31 as UInt64) or mutable.data != storage.data {
+        abort("mutable generic repr(C) local descriptor changed")
+    }
+    if immutable.data[1 as UInt64] != (173 as UInt8) or wide.data[1 as UInt64] != (4660 as UInt16) {
+        abort("generic repr(C) pointer field lost its concrete element width")
+    }
+    storage.close(); storage.free()
+    if seen_memory_used_bytes() != baseline { abort("generic repr(C) local storage leaked") }
+    println("PASS: generic repr(C) span local field values")
+    return 0
+}

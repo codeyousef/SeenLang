@@ -8,8 +8,17 @@ void *seen_pool_alloc(int64_t size);
 void seen_pool_free(void *ptr, int64_t size);
 SeenString seen_float_to_string(double value);
 
+// Current internal slab has base, used, capacity and next. The capacity field
+// was added for bounded small-budget slabs; do not retain the old 24-byte ABI.
+struct PoolSlabHeaderContract {
+    char *base;
+    size_t used;
+    size_t capacity;
+    void *next;
+};
+
 int main(void) {
-    const int64_t slab_bytes = 1048576 + 24;
+    const int64_t slab_bytes = 1048576 + (int64_t)sizeof(struct PoolSlabHeaderContract);
     const int64_t initial = seen_memory_used_bytes();
     const int64_t failures = seen_memory_allocation_failures();
     void *first = seen_pool_alloc(1);

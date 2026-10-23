@@ -1,0 +1,26 @@
+import inference.span.{Span, MutableSpan}
+import memory.aligned_buffer.{OwnedBuffer}
+import span_probe.{GenericSpanProbe, directSpanLength}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun sameModuleSpan(value: Span<UInt8>) r: UInt64 { return value.length }
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let result = OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64)
+    if result.isErr() { abort("generic span method backing unavailable") }
+    let storage = result.unwrap(); result.releaseContainer(); var i = 0 as UInt64
+    while i < storage.byteLength { storage.data[i] = 0 as UInt8; i = i + (1 as UInt64) }
+    let immutable = Span<UInt8>{data: storage.data as *const UInt8, length: 29 as UInt64}
+    let mutable = MutableSpan<UInt8>{data: storage.data, length: 31 as UInt64}
+    let probe = GenericSpanProbe{bias: 7 as UInt64}
+    if sameModuleSpan(immutable) != (29 as UInt64) or directSpanLength(immutable) != (29 as UInt64) {
+        abort("generic repr(C) function parameter ABI changed")
+    }
+    if probe.lengthOf(immutable) != (36 as UInt64) or probe.mutableLengthOf(mutable) != (38 as UInt64) {
+        abort("generic repr(C) method parameter ABI differs from caller")
+    }
+    probe.free(); storage.close(); storage.free()
+    if seen_memory_used_bytes() != baseline { abort("generic repr(C) method payload leaked") }
+    println("PASS: generic repr(C) span method and function ABI")
+    return 0
+}

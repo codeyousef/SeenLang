@@ -38,6 +38,13 @@ its temporary storage. Local aggregate initialization follows the same rule.
 The copy preserves borrowed pointer fields; it does not extend their owners'
 lifetimes. Both pooled and larger literal storage follow this cleanup rule.
 
+Concrete generic record spellings such as `Span<UInt8>` and
+`MutableSpan<UInt8>` retain aggregate value storage. Reading their fields reads
+the descriptor, not a heap object at the descriptor's data address. Ordinary
+functions and class methods pass these `@repr(C)` arguments by the same
+aggregate-value ABI. This rule does not turn legacy compiler inline-data types
+into foreign ABI records, and a copied span still borrows its original storage.
+
 `inference.span.packedGet` checks untrusted packed-view geometry and returns an
 owned Option. `unsafePackedGet` returns a byte without allocating; its caller
 must first prove the data owner remains alive, the index and bit multiplication
