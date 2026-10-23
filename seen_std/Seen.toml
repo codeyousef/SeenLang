@@ -174,6 +174,7 @@ modules = [
     "src/compute/vulkan_mapping.seen",
     "src/compute/vulkan_transfer_abi.seen",
     "src/compute/vulkan_transfer.seen",
+    "src/compute/vulkan_staging.seen",
     "src/compute/vulkan_timeline.seen",
     "src/compute/vulkan_provider.seen",
 

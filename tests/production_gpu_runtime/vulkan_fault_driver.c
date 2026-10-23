@@ -132,6 +132,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateBuffer(VkDevice device, const VkBufferCreateInfo *info,
     const VkAllocationCallbacks *allocator, VkBuffer *buffer) {
     ++buffer_calls;
+    if (fault("staging-buffer-second") && buffer_calls == 2) return VK_ERROR_OUT_OF_HOST_MEMORY;
     if (fault("buffer-status")) return VK_ERROR_OUT_OF_HOST_MEMORY;
     if (fault("buffer-empty")) { *buffer = VK_NULL_HANDLE; return VK_SUCCESS; }
     NEXT(vkCreateBuffer); VkResult status = next(device, info, allocator, buffer);

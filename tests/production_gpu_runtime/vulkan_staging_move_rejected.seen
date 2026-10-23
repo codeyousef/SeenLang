@@ -1,0 +1,6 @@
+import compute.vulkan_staging.{GpuVulkanStagingRing, GpuVulkanStagingTicket}
+fun consumeRing(value: GpuVulkanStagingRing) r: Void {}
+fun consumeTicket(value: GpuVulkanStagingTicket) r: Void {}
+fun invalidRing(value: GpuVulkanStagingRing) r: Void { consumeRing(value); value.close() }
+fun invalidTicket(value: GpuVulkanStagingTicket) r: Void { consumeTicket(value); value.close() }
+fun main() r: Int { return 0 }

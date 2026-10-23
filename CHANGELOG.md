@@ -12,6 +12,10 @@ Foundations**.
 
 ### Added
 
+- Add owned, fixed-capacity Vulkan staging rings with synchronous checked host
+  spans, asynchronous byte transfers, retained completion tickets and consumer
+  acknowledgement. Backing and native commands are preallocated; host-coherent
+  storage is explicit and does not claim OS page locking.
 - Add preallocated Vulkan asynchronous byte-copy queues with private timeline
   completion, retained buffer leases, OOM retry, uncertain-submission quarantine
   and explicit supported unified-memory access. No per-copy native fence,

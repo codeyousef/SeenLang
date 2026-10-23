@@ -84,6 +84,48 @@ semaphore or memory creation, fences and global idle waits. Such traces describe
 SDK calls made by Seen, not every internal driver allocation. Physical-device,
 benchmark and other-platform certification are separate evidence.
 
+## Owned Vulkan staging
+
+`compute.vulkan_staging.GpuVulkanStagingRing.open(context, blockBytes,
+slotBytes, count, operation)` composes fixed host-coherent backing, bounded
+metadata and a private preallocated copy queue. Slots can share a native arena
+block but own disjoint byte ranges. Counts, bytes, context quotas and metadata
+budgets are checked before admission. Partial construction releases its acquired
+prefix. This creator-confined, move-only API does not silently change backend or
+memory kind, and host coherence is not a claim of OS page locking.
+
+`ring.reserve(bytes, operation)` returns a move-only ticket no larger than its
+fixed slot. `ticket.write(Span<UInt8>, offset, operation)` synchronously copies a
+checked, nonempty host span into reserved backing. Only a contiguous initialized
+prefix can be extended, and upload requires the entire payload initialized.
+The caller keeps the source alive for that call; its pointer is never retained
+for asynchronous device work.
+
+`gpuVkStagingUpload(ticket, destination, offset, operation)` and
+`gpuVkStagingDownload(ticket, source, offset, operation)` submit checked bytes
+without numeric conversion. Rejected recording or guaranteed OOM leaves the
+ticket reserved and reusable. Potentially accepted submissions are recorded in
+the private timeline even when the native call returns an error; backing remains
+owned until observed retirement. A poisoned queue rejects new reservations.
+
+`ticket.poll()` observes only that private timeline, regardless of cancellation.
+Completion does not recycle a ticket. `ticket.read(MutableSpan<UInt8>, offset,
+operation)` synchronously copies valid completed download bytes into exclusively
+borrowed caller storage. Device loss retires native use but never permits output
+reads. Closing the consumer ticket acknowledges its bytes and allows reuse;
+closing submitted work or a ring with outstanding tickets returns `gpu.busy`.
+Close is idempotent; `release()` closes and destroys its wrapper once.
+
+Run `bash tests/misc_root_tests/seen_gpu_vulkan_staging.sh` through the attested
+capped entry point. It exercises bulk high-bit bytes, retained unread output,
+bounded reuse, cancellation, invalid spans and geometry, partial construction,
+mapping, submit/poll faults and exact cold live-allocation cleanup. Native traces
+check fixed pool/semaphore/command/memory counts and reject per-copy fences or
+global idle waits. Fast, ThinLTO, ASan and UBSan software-reference execution is
+distinct from physical hardware, pinning, throughput and other-platform evidence.
+
+## Independent staging metadata
+
 `GpuStagingRing.create(capacity, slots)` bounds bytes, ticket count and metadata
 before admission. Free-range records are prepared up front. `reserve(bytes,
 alignment, operation)` checks cancellation, deadline, alignment, capacity and
