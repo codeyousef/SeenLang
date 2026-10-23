@@ -25,7 +25,8 @@ Foundations**.
   retains exact-version builder admission and scope-attested containment.
 - Add bounded staging reservations, checked buffer byte borrows and validated
   Vulkan timeline feature admission. Submitted staging metadata retains its
-  range until explicit completion; native copy submission is a separate API.
+  range until native completion and consumer acknowledgement, preventing reuse
+  of unread download bytes; native copy submission is a separate API.
 - Add typed pooled GPU buffers, explicit memory kinds and device-wide commitment
   budgets. Reuse bounded free ranges, report native allocation padding and
   unknown residency accurately, and retain failed or late cleanup ownership.

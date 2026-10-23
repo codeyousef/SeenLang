@@ -98,9 +98,13 @@ submitted slice returns `gpu.busy` and retains its storage.
 
 `ring.complete(observed)` accepts only a monotonically increasing value within
 that ring's submitted timeline. The engine must supply a value observed from its
-own native timeline. Completion returns ranges to the free set. Completed ticket
-wrappers still borrow ring metadata until closed. The ring rejects shutdown while
-any tickets remain. Cleanup does not depend on the cancelled operation context.
+own native timeline. Completion retires native work but retains each completed
+range until its consumer closes the ticket. This acknowledgement returns the
+range to the free set; observing completion alone must not allow a later upload
+to overwrite unread download bytes. Consumers may close completed tickets out of
+order: each close releases only that ticket's range and metadata lease. The ring
+rejects shutdown while any tickets remain. Cleanup does not depend on the
+cancelled operation context.
 
 `GpuBuffer<T>.region(offset, bytes, write, operation)` creates a move-only byte
 borrow with checked payload bounds and a context lease. Shared readers can

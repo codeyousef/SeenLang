@@ -23,7 +23,7 @@ fun main() r: Int {
     gpuFixtureRejected(owner.complete(3 as UInt64), "gpu.invalid")
     completed(owner.complete(1 as UInt64), true); completed(owner.complete(1 as UInt64), false)
     gpuFixtureRejected(owner.complete(0 as UInt64), "gpu.invalid")
-    if not first.isComplete() or second.isComplete() or owner.core.occupiedBytes != (16 as UInt64) { abort("staging completion recycled unfinished storage") }
+    if not first.isComplete() or second.isComplete() or owner.core.occupiedBytes != (32 as UInt64) { abort("staging completion recycled unacknowledged storage") }
     let oldSlot = first.slot; let oldGeneration = first.generation
     completed(first.close(), true)
     let reused = claimed(owner.reserve(16 as UInt64, 16 as UInt64, op))
@@ -35,7 +35,7 @@ fun main() r: Int {
         abort("staging ticket reuse accepted a stale generation")
     }
     completed(reused.release(), true); completed(owner.complete(2 as UInt64), true)
-    // Completed storage is free, but a live ticket still pins metadata.
+    // Completed storage and metadata remain owned until consumer acknowledgement.
     gpuFixtureRejected(owner.release(), "gpu.busy")
     completed(second.release(), true); completed(first.release(), true)
     completed(owner.release(), true)

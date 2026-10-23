@@ -14,7 +14,7 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-staging-foundations.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-staging-foundations
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
-fixtures=(staging_ring staging_adverse buffer_region)
+fixtures=(staging_ring staging_readback staging_adverse buffer_region)
 for profile in fast release undefined address; do
     for name in "${fixtures[@]}"; do
         compile_case "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"

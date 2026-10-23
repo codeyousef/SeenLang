@@ -54,7 +54,11 @@ class GpuStagingCore {
         if slot.state == GPU_STAGING_SUBMITTED {
             return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.staging.close", "submitted staging storage must remain owned until native completion"))
         }
-        if slot.state == GPU_STAGING_RESERVED {
+        // Native completion permits host consumption; it does not acknowledge
+        // that consumption. Both reserved and completed ranges stay occupied
+        // until their ticket closes, so unread download bytes cannot alias a
+        // later reservation even when spare metadata slots are available.
+        if slot.state == GPU_STAGING_RESERVED or slot.state == GPU_STAGING_COMPLETED {
             let recycled = this.ranges.recycle(slot.offset, slot.bytes)
             if recycled.isErr() { return recycled }
             recycled.releaseContainer(); this.occupiedBytes = this.occupiedBytes - slot.bytes
@@ -76,12 +80,6 @@ class GpuStagingCore {
         while index < this.slots.length() {
             let slot = this.slots[index]
             if slot.state == GPU_STAGING_SUBMITTED and slot.sequence <= observed {
-                let recycled = this.ranges.recycle(slot.offset, slot.bytes)
-                if recycled.isErr() {
-                    let error = recycled.unwrapErr(); recycled.releaseContainer(); error.progress = progress
-                    return Err<Bool, GpuError>(error)
-                }
-                recycled.releaseContainer(); this.occupiedBytes = this.occupiedBytes - slot.bytes
                 progress = progress + slot.bytes; slot.state = GPU_STAGING_COMPLETED
                 this.inFlight = this.inFlight - 1
             }
