@@ -27,7 +27,7 @@ const (
 	prebuiltPackageSchema           = "seen-prebuilt-package-v2"
 	prebuiltInterfaceSchema         = "seen-package-interface-v2"
 	prebuiltObjectManifestSchema    = "seen-package-object-manifest-v2"
-	prebuiltLayoutABI               = "seen-layout-abi-v2"
+	prebuiltLayoutABI               = "seen-layout-abi-v3"
 	prebuiltObjectCacheABI          = "seen-object-cache-abi-v3"
 	prebuiltArtifactFormatVersion   = 2
 	prebuiltArtifactRebuildGuidance = "rebuild using Seen 0.11"
@@ -563,6 +563,7 @@ type artifactManifest struct {
 	InterfacePath         string `toml:"interface_path"`
 	InterfaceIndex        string `toml:"interface_index"`
 	ObjectManifest        string `toml:"object_manifest"`
+	ObjectManifestDigest  string `toml:"object_manifest_sha256"`
 	DeclarationDigest     string `toml:"declaration_digest"`
 	BuildSignature        string `toml:"build_signature"`
 }
@@ -661,16 +662,25 @@ func validateArtifactInterfaceRows(root string, rows []string) error {
 	return nil
 }
 
+func validArtifactSHA256(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
 func validateArtifactObjectRows(root string, rows []string) error {
-	if len(rows) == 0 {
-		return fmt.Errorf("object manifest has no object rows")
+	if len(rows) == 0 || len(rows) > maxLocalViewEntries {
+		return fmt.Errorf("object manifest row count is outside the supported bounds")
 	}
 	for _, row := range rows {
 		fields := strings.Split(row, "\t")
-		if len(fields) != 2 || fields[0] == "" || fields[1] == "" {
+		if len(fields) != 3 || fields[0] == "" || fields[1] == "" || !validArtifactSHA256(fields[2]) {
 			return fmt.Errorf("malformed object row")
 		}
-		if _, err := requireArtifactRelativeMember(root, fields[0], true); err != nil {
+		objectPath, err := requireArtifactRelativeMember(root, fields[0], true)
+		if err != nil {
 			return fmt.Errorf("object %q: %w", fields[0], err)
 		}
 		// The source column is immutable provenance, not an interface fallback.
@@ -679,6 +689,25 @@ func validateArtifactObjectRows(root string, rows []string) error {
 		// portable and incapable of escaping the artifact namespace.
 		if err := validateArtifactRelativePath(fields[1]); err != nil {
 			return fmt.Errorf("object source provenance %q: %w", fields[1], err)
+		}
+		object, err := os.Open(objectPath)
+		if err != nil {
+			return fmt.Errorf("open object %q: %w", fields[0], err)
+		}
+		hash := sha256.New()
+		count, hashErr := io.Copy(hash, io.LimitReader(object, maxLocalViewFile+1))
+		closeErr := object.Close()
+		if hashErr != nil {
+			return fmt.Errorf("hash object %q: %w", fields[0], hashErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close object %q: %w", fields[0], closeErr)
+		}
+		if count == 0 || count > maxLocalViewFile {
+			return fmt.Errorf("object %q exceeds its supported size bounds", fields[0])
+		}
+		if hex.EncodeToString(hash.Sum(nil)) != fields[2] {
+			return fmt.Errorf("object %q digest mismatch", fields[0])
 		}
 	}
 	return nil
@@ -716,7 +745,8 @@ func validateArtifactDependency(base string, dependency model.Dependency) (strin
 		return "", incompatibleArtifact(artifactRoot, "has an unsupported schema or ABI")
 	}
 	if metadata.Language == "" || metadata.InterfacePath == "" || metadata.InterfaceIndex == "" ||
-		metadata.ObjectManifest == "" || len(metadata.DeclarationDigest) != sha256.Size*2 ||
+		metadata.ObjectManifest == "" || !validArtifactSHA256(metadata.DeclarationDigest) ||
+		!validArtifactSHA256(metadata.ObjectManifestDigest) ||
 		!strings.Contains(metadata.BuildSignature, "layout="+prebuiltLayoutABI) ||
 		!strings.Contains(metadata.BuildSignature, "object-cache="+prebuiltObjectCacheABI) {
 		return "", incompatibleArtifact(artifactRoot, "has incomplete v2 metadata")
@@ -761,6 +791,10 @@ func validateArtifactDependency(base string, dependency model.Dependency) (strin
 	objectRaw, err := os.ReadFile(objectManifest)
 	if err != nil {
 		return "", incompatibleArtifact(artifactRoot, fmt.Sprintf("cannot read object manifest: %v", err))
+	}
+	objectManifestDigest := sha256.Sum256(objectRaw)
+	if hex.EncodeToString(objectManifestDigest[:]) != metadata.ObjectManifestDigest {
+		return "", incompatibleArtifact(artifactRoot, "has an object manifest digest mismatch")
 	}
 	objectRows, err := validateArtifactTableHeader(objectRaw, prebuiltObjectManifestSchema)
 	if err != nil {

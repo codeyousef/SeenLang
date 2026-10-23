@@ -79,6 +79,7 @@ bash -n \
     tests/misc_root_tests/seen_cuda_event_query.sh \
     tests/misc_root_tests/seen_gpu_cuda_staging.sh \
     tests/misc_root_tests/seen_generic_reprc_abi.sh \
+    tests/misc_root_tests/seen_prebuilt_generic_reprc_abi.sh \
     tests/misc_root_tests/seen_compiled_fixture_status.sh \
     tests/misc_root_tests/seen_select_guard_safety.sh \
     scripts/vulkan_reference_fixture_support.sh \

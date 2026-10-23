@@ -45,6 +45,11 @@ functions and class methods pass these `@repr(C)` arguments by the same
 aggregate-value ABI. This rule does not turn legacy compiler inline-data types
 into foreign ABI records, and a copied span still borrows its original storage.
 
+Prebuilt packages using these aggregate method arguments require
+`seen-layout-abi-v3`. Rebuild packages with an earlier layout identity; their
+method calling conventions are incompatible. Package consumption verifies both
+the object-manifest SHA-256 and each referenced object's SHA-256 before linking.
+
 `inference.span.packedGet` checks untrusted packed-view geometry and returns an
 owned Option. `unsafePackedGet` returns a byte without allocating; its caller
 must first prove the data owner remains alive, the index and bit multiplication

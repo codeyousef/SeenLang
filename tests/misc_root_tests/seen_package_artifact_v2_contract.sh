@@ -19,7 +19,7 @@ for schema in \
     seen-prebuilt-package-v2 \
     seen-package-interface-v2 \
     seen-package-object-manifest-v2 \
-    seen-layout-abi-v2 \
+    seen-layout-abi-v3 \
     seen-object-cache-abi-v3
 do
     require_literal "$COMPILER_SOURCE" "$schema"

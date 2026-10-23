@@ -612,7 +612,9 @@ fun hashString(data: String) r: String {
 /// accidentally reuses an executable version string.
 ///
 fun compilerLayoutAbiIdentity() r: String {
-    return "seen-layout-abi-v2"
+    // Generic repr(C) method arguments use aggregate values, not borrowed
+    // descriptor pointers. Prebuilt v2 objects cannot be called with this ABI.
+    return "seen-layout-abi-v3"
 }
 
 fun frozenBootstrapObjectCacheCompatibilityActive() r: Bool {

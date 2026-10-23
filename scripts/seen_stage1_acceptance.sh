@@ -551,6 +551,8 @@ bash "$REPO_ROOT/tests/misc_root_tests/seen_asan_address_layout.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_generic_reprc_abi.sh"
 COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_prebuilt_generic_reprc_abi.sh"
+COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_select_guard_safety.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_dyn_trait_void_contract.sh"

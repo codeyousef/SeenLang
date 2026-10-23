@@ -117,7 +117,7 @@ grep -Fq 'compiler_seen/tests/compatibility_manifest.seen' \
     "$STAGE1_ACCEPTANCE" ||
     fail "native compiling regression is not in Stage-1 acceptance"
 
-for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
+for identity in seen-layout-abi-v3 seen-object-cache-abi-v3 \
     seen-prebuilt-package-v2 seen-package-interface-v2 \
     seen-package-object-manifest-v2 SEENPKG1 \
     seen-deterministic-context-v1 seen-program-build-input-v1 \
@@ -127,7 +127,7 @@ for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
     grep -Fq "$identity" "$PRODUCTION" ||
         fail "production manifest omitted current identity $identity"
 done
-python3 - "$PRODUCTION" "$COMPILER_ENTRY" "$ROOT_DIR/seen_std/Seen.toml" "$ROOT_DIR/scripts/build_windows.sh" <<'PY_CURRENT' || fail "current compatibility identity agreement"
+python3 - "$PRODUCTION" "$COMPILER_ENTRY" "$ROOT_DIR/seen_std/Seen.toml" "$ROOT_DIR/scripts/build_windows.sh" "$ROOT_DIR/tools/seen-pkg/internal/commands/local.go" <<'PY_CURRENT' || fail "current compatibility identity agreement"
 import json
 from pathlib import Path
 import re
@@ -136,6 +136,10 @@ import tomllib
 manifest = json.loads(Path(sys.argv[1]).read_text())
 compiler = Path(sys.argv[2]).read_text()
 stdlib = tomllib.loads(Path(sys.argv[3]).read_text())
+layout = manifest["components"]["compiler"]["layout_abi"]
+assert re.search(r'fun compilerLayoutAbiIdentity\(\)[^{]+\{[^}]*return "' + re.escape(layout) + r'"', compiler)
+sidecar = Path(sys.argv[5]).read_text()
+assert re.search(r'prebuiltLayoutABI\s*=\s*"' + re.escape(layout) + r'"', sidecar)
 for field, expected in (
     ("runtimeAbi", manifest["components"]["runtime"]["abi"]),
     ("standardLibraryVersion", manifest["components"]["standard_library"]["version"]),

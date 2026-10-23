@@ -66,6 +66,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_cuda_event_query.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_cuda_staging.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_generic_reprc_abi.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_prebuilt_generic_reprc_abi.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_compiled_fixture_status.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_select_guard_safety.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_dyn_trait_void_contract.sh"

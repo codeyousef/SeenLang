@@ -135,6 +135,9 @@ Foundations**.
 
 ### Fixed
 
+- Invalidate prebuilt objects using the previous generic record method ABI;
+  advance the live layout identity and verify object and manifest SHA-256
+  digests consistently in the compiler and package client.
 - Keep sanitizer-runner setup diagnostics on stderr so supervised JSON
   checkpoint streams remain unchanged, with exact stdout regression checks.
 - Preserve generic `@repr(C)` span descriptor fields in local value storage and
