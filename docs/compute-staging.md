@@ -179,9 +179,10 @@ Tickets record potential native ownership before entering CUDA. A copy or
 event-record error conservatively consumes the signal and poisons further
 admission; CUDA may be reporting an earlier asynchronous error. Pending owners
 must still be drained. `ticket.poll()` normally queries the preallocated event.
-If recording failed, it uses `seen_cuda_stream_query` on the private stream:
-an old/unrecorded event is never completion proof for new work. Query errors
-preserve pending owners and poison output; a later successful observation can
+If recording or a later event query failed, subsequent polls use
+`seen_cuda_stream_query` on the private stream: an old/unrecorded/unusable event
+is never completion proof for new work. The first query error does not imply
+completion. Query errors preserve pending owners and poison output; a later successful observation can
 retire resource use but cannot validate poisoned bytes. `ticket.retired()` lets
 the caller distinguish safe cleanup from valid output. Permanent native failures
 retain ownership rather than inventing completion or silently resetting a device.
@@ -202,7 +203,21 @@ executes byte parity, bounds, saturation, cancellation, partial initialization,
 potentially accepted copy errors, failed event recording, failed queries and
 retryable cleanup in fast, ThinLTO, UBSan and strict ASan, plus device memcheck.
 It also checks native error classification, closed tickets, cross-ring rejection
-and a deadline expiring after accepted work. Coverage requires at least 90% of
+and a deadline expiring after accepted work. A three-submission batch verifies
+same-stream completion ordering and rejects an old closed ticket after its
+physical slot is recycled. A bounded, seeded 4,096-cycle state corpus exercises
+every payload width from 1 through 64 bytes, partial writes, source offsets,
+cancellation, consumer retention, canaries and alternate cleanup order. Every
+cycle must restore exact Seen live allocation and pending/borrower/dependency
+counts. Native resources remain fixed at three pinned buffers, three device
+buffers, one stream and three events for all 12,288 copies.
+The test reports process RSS high-water after 256 cycles and at shutdown, plus
+elapsed time from its first native copy through cleanup. The
+ordinary-profile growth envelope is 16 MiB; instrumented ASan allows 320 MiB for
+its unchanged default quarantine/shadow overhead. Neither changes the enclosing
+hard physical cap or relaxes exact live-resource and leak checks. This short,
+small-payload corpus is not a throughput benchmark or long-duration soak.
+Coverage requires at least 90% of
 owned source lines and 80% of branch directions, without excluding guard paths.
 CUDA host ASan uses an explicit `--address-layout cuda`: NVIDIA documents that
 CUDA requires the default shadow gap as application address space. LLVM maps

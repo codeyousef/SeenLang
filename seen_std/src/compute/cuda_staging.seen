@@ -42,7 +42,7 @@ class GpuCudaStagingSlot {
     var readers: Int
     var direction: Int
     var pending: Bool
-    var recorded: Bool
+    var recorded: Bool // Event record AND observation remain usable as proof.
     var deviceReady: Bool
 
     fun close() r: Result<Bool, GpuError> {
@@ -240,10 +240,17 @@ class GpuCudaStagingTicket {
             var ready = 0 as Int32
             if slot.recorded {
                 let status = seen_cuda_event_query(slot.event.handle, &ready)
-                if not cudaSucceeded(status) { this.core.poisoned = true; return Err<Bool, GpuError>(gpuCudaStagingFailure(status, "gpu.cuda.staging.poll", slot.sequence)) }
+                if not cudaSucceeded(status) {
+                    // An unusable event must not make accepted work impossible
+                    // to drain while its private stream is still observable.
+                    // Preserve this failure/output poison and use stream proof
+                    // on the next poll, never assume this error is completion.
+                    slot.recorded = false; this.core.poisoned = true
+                    return Err<Bool, GpuError>(gpuCudaStagingFailure(status, "gpu.cuda.staging.poll", slot.sequence))
+                }
                 if ready == (1 as Int32) { this.core.retire(slot.sequence) }
             } else {
-                // A failed event record must never query an older/unrecorded
+                // A failed record or observation must never query an unusable
                 // event as evidence of new work. Drain only the private stream.
                 let status = seen_cuda_stream_query(this.core.stream.handle, &ready)
                 if not cudaSucceeded(status) { this.core.poisoned = true; return Err<Bool, GpuError>(gpuCudaStagingFailure(status, "gpu.cuda.staging.poll", slot.sequence)) }

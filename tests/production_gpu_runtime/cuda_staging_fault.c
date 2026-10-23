@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 #include <sys/syscall.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #define NEXT(name) __typeof__(&name) next = (__typeof__(&name))dlsym(RTLD_NEXT, #name); if (!next) abort()
@@ -14,6 +15,16 @@ static void *live[4][256];
 static unsigned hosts, devices, streams, events, copies, records, event_queries, stream_queries;
 static unsigned failed, pending_once;
 static int late_clock;
+static long warm_rss_kb;
+static int64_t soak_started_ns;
+#if __has_feature(address_sanitizer)
+/* Default ASan quarantine and shadow grow even with exact live cleanup.
+ * Do not shrink/disable them to manufacture a flat RSS result. The enclosing
+ * aggregate physical-memory limit remains unchanged for every profile. */
+static const long soak_rss_growth_kb = 327680;
+#else
+static const long soak_rss_growth_kb = 16384;
+#endif
 static int mode(const char *name) {
     const char *value = getenv("SEEN_CUDA_STAGING_FAULT");
     return value && strcmp(value, name) == 0;
@@ -79,24 +90,36 @@ cudaError_t CUDARTAPI cudaEventDestroy(cudaEvent_t event) {
     return status;
 }
 cudaError_t CUDARTAPI cudaMemcpyAsync(void *to, const void *from, size_t bytes, enum cudaMemcpyKind kind, cudaStream_t stream) {
-    ++copies; NEXT(cudaMemcpyAsync); cudaError_t status = next(to, from, bytes, kind, stream);
+    ++copies;
+    if (mode("soak") && copies == 1) {
+        struct timespec sample;
+        if (syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &sample)) abort();
+        soak_started_ns = (int64_t)sample.tv_sec * INT64_C(1000000000) + sample.tv_nsec;
+    }
+    NEXT(cudaMemcpyAsync); cudaError_t status = next(to, from, bytes, kind, stream);
     if (status == cudaSuccess && (once("copy-error") || (mode("copy-second-error") && copies == 2))) return cudaErrorUnknown;
     return status;
 }
 cudaError_t CUDARTAPI cudaEventRecord(cudaEvent_t event, cudaStream_t stream) {
     ++records; NEXT(cudaEventRecord); cudaError_t status = next(event, stream);
     if (status == cudaSuccess && mode("late-timeout")) late_clock = 1;
+    if (status == cudaSuccess && mode("soak") && records == 768) {
+        struct rusage sample;
+        if (getrusage(RUSAGE_SELF, &sample)) abort();
+        warm_rss_kb = sample.ru_maxrss;
+    }
     if (status == cudaSuccess && once("record-error")) return cudaErrorUnknown;
     return status;
 }
 cudaError_t CUDARTAPI cudaEventQuery(cudaEvent_t event) {
     ++event_queries;
+    if (mode("query-permanent")) return cudaErrorUnknown;
     if (once("query-error")) return cudaErrorUnknown;
     NEXT(cudaEventQuery); return next(event);
 }
 cudaError_t CUDARTAPI cudaStreamQuery(cudaStream_t stream) {
     ++stream_queries;
-    if (mode("record-error") && !pending_once) { pending_once = 1; return cudaErrorNotReady; }
+    if ((mode("record-error") || mode("query-permanent")) && !pending_once) { pending_once = 1; return cudaErrorNotReady; }
     NEXT(cudaStreamQuery); return next(stream);
 }
 cudaError_t CUDARTAPI cudaEventSynchronize(cudaEvent_t event) {
@@ -120,6 +143,23 @@ __attribute__((destructor)) static void require_drain(void) {
     if (!hosts && !streams) return; // timeout launcher also inherits preload
     if (mode("record-error") && (event_queries || stream_queries < 2)) {
         fputs("FAIL: unrecorded event used as completion proof\n", stderr); _Exit(98);
+    }
+    if (mode("query-permanent") && (event_queries != 1 || stream_queries < 2)) {
+        fputs("FAIL: unusable event did not switch to private-stream retirement\n", stderr); _Exit(98);
+    }
+    if (mode("soak")) {
+        struct rusage sample;
+        if (getrusage(RUSAGE_SELF, &sample) || warm_rss_kb <= 0 ||
+            sample.ru_maxrss > warm_rss_kb + soak_rss_growth_kb) {
+            fputs("FAIL: bounded CUDA soak RSS envelope exceeded\n", stderr); _Exit(99);
+        }
+        fprintf(stderr, "CUDA_STAGING_RSS warm_peak_kb=%ld final_peak_kb=%ld growth_limit_kb=%ld\n",
+                warm_rss_kb, sample.ru_maxrss, soak_rss_growth_kb);
+        struct timespec finished;
+        if (syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &finished)) abort();
+        int64_t elapsed = (int64_t)finished.tv_sec * INT64_C(1000000000) + finished.tv_nsec - soak_started_ns;
+        if (soak_started_ns <= 0 || elapsed < 0) abort();
+        fprintf(stderr, "CUDA_STAGING_SOAK_ELAPSED_MS=%lld\n", (long long)(elapsed / INT64_C(1000000)));
     }
     fprintf(stderr, "CUDA_STAGING_TRACE host=%u device=%u stream=%u event=%u copies=%u record=%u event_query=%u stream_query=%u drained=1 waits=0\n",
         hosts, devices, streams, events, copies, records, event_queries, stream_queries);

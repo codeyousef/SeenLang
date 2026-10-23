@@ -43,7 +43,7 @@ timeout --foreground --kill-after=5s 60s clang -std=c11 -Wall -Wextra -Werror -f
     -I /opt/cuda/include "$ROOT_DIR/tests/production_gpu_runtime/cuda_staging_fault.c" -ldl -o "$TMP_DIR/staging-fault-address.so"
 FIXTURE_ASAN_PRELOAD_LIBRARY="$TMP_DIR/staging-fault-address.so"
 FIXTURE_ASAN_ADDRESS_LAYOUT=cuda
-staging_modes=(reference host-second event-second copy-error record-error query-error close-host close-stream copy-second-error cross-ring late-timeout)
+staging_modes=(reference host-second event-second copy-error record-error query-error query-permanent close-host close-stream copy-second-error cross-ring late-timeout batch-reuse soak)
 run_staging_modes() {
     local profile=$1 name=$2 mode status
     for mode in "${staging_modes[@]}"; do
@@ -55,6 +55,14 @@ run_staging_modes() {
         [ "$status" = 0 ] || return "$status"
         rg -Fq 'PASS: CUDA pinned staging' "$TMP_DIR/$name-$profile-$mode.log" || return
         rg -Fq 'drained=1 waits=0' "$TMP_DIR/$name-$profile-$mode.log" || return
+        if [ "$mode" = soak ]; then
+            rg -Fq 'CUDA_STAGING_SOAK seed=17317 cycles=4096 copies=12288 live=stable' "$TMP_DIR/$name-$profile-$mode.log" || return
+            rg -Fq 'CUDA_STAGING_TRACE host=3 device=3 stream=1 event=3 copies=12288 record=12288' "$TMP_DIR/$name-$profile-$mode.log" || return
+            rg -Fq 'CUDA_STAGING_RSS warm_peak_kb=' "$TMP_DIR/$name-$profile-$mode.log" || return
+        fi
+        if [ "$mode" = batch-reuse ]; then
+            rg -Fq 'CUDA_STAGING_TRACE host=3 device=3 stream=1 event=3 copies=4 record=4' "$TMP_DIR/$name-$profile-$mode.log" || return
+        fi
     done
 }
 diagnose_cuda_asan_initialization() {
@@ -95,9 +103,12 @@ for profile in fast release undefined address; do
     fi
     rg -Fq 'CUDA_STAGING_TRACE host=3 device=3 stream=1 event=3 copies=192 record=192' "$TMP_DIR/staging-$profile-reference.log"
     if [ "$profile" = fast ]; then
-        timeout --foreground --kill-after=5s 180s /opt/cuda/bin/compute-sanitizer --tool memcheck \
-            --leak-check full --error-exitcode 99 "$TMP_DIR/staging-fast" reference > "$TMP_DIR/compute-sanitizer.log" 2>&1
-        rg -Fq 'ERROR SUMMARY: 0 errors' "$TMP_DIR/compute-sanitizer.log"
+        for mode in reference batch-reuse soak; do
+            timeout --foreground --kill-after=5s 180s /opt/cuda/bin/compute-sanitizer --tool memcheck \
+                --leak-check full --error-exitcode 99 "$TMP_DIR/staging-fast" "$mode" > "$TMP_DIR/compute-sanitizer-$mode.log" 2>&1
+            rg -Fq 'ERROR SUMMARY: 0 errors' "$TMP_DIR/compute-sanitizer-$mode.log"
+            rg -Fq 'LEAK SUMMARY: 0 bytes leaked in 0 allocations' "$TMP_DIR/compute-sanitizer-$mode.log"
+        done
     fi
 done
 echo 'PASS: real RTX 4090 pinned staging byte parity ownership and device memcheck'

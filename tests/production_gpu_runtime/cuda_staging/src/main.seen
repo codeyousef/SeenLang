@@ -10,17 +10,22 @@ import env.env.{args, releaseArgs}
 extern "C" fun seen_memory_used_bytes() r: Int64
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 
+// Keep assertions/poll drivers separate so ThinLTO optimizes production paths
+// without repeatedly expanding the diagnostic machinery into the seeded loop.
+@noinline
 fun done(value: Result<Bool, GpuError>, expected: Bool) r: Void {
     if value.isErr() { let error = value.unwrapErr(); println(error.operation); println(error.code); println(error.message); abort("CUDA staging operation failed") }
     if value.unwrap() != expected { abort("CUDA staging progress changed") }
     value.releaseContainer()
 }
+@noinline
 fun rejected(value: Result<Bool, GpuError>, code: String) r: Void {
     if value.isOkay() { abort("CUDA staging invalid operation succeeded") }
     let error = value.unwrapErr(); value.releaseContainer()
     if error.code != code { println(error.code); abort("CUDA staging rejection changed") }
     error.release()
 }
+@noinline
 fun ticket(value: Result<GpuCudaStagingTicket, GpuError>) r: GpuCudaStagingTicket {
     if value.isErr() { abort("CUDA staging reservation unavailable") }
     let result = value.unwrap(); value.releaseContainer(); return result
@@ -30,6 +35,7 @@ fun rejectedPrepare(value: Result<GpuCudaStagingRing, GpuError>) r: Void {
     let error = value.unwrapErr(); value.releaseContainer()
     if error.code != "gpu.limit" { abort("CUDA staging preparation diagnostic changed") }; error.release()
 }
+@noinline
 fun rejectReservation(value: Result<GpuCudaStagingTicket, GpuError>, code: String) r: Void {
     if value.isOkay() { abort("invalid CUDA staging reservation succeeded") }
     let error = value.unwrapErr(); value.releaseContainer()
@@ -48,6 +54,7 @@ fun classification() r: Void {
     }
     codes.free(); expected.free()
 }
+@noinline
 fun ready(borrow value: GpuCudaStagingTicket) r: Void {
     var fuel = 0
     while fuel < 1000000 {
@@ -124,9 +131,125 @@ fun crossRing(borrow ring: GpuCudaStagingRing, op: OperationContext) r: Void {
     rejected(gpuCudaStagingCopy(target, source, 0 as UInt64, op), "gpu.invalid")
     done(target.release(), true); done(other.release(), true); done(source.release(), true)
 }
-fun drainFailed(borrow value: GpuCudaStagingTicket) r: Void {
+@noinline
+fun seededCycle(borrow ring: GpuCudaStagingRing, op: OperationContext,
+    borrow host: OwnedBuffer<UInt8>, cycle: Int, seed: Int) r: Int {
+    let output = ((host.data as UInt64) + (64 as UInt64)) as *UInt8
+    let bytes = (seed % 64) + 1
+    let offset = (seed / 64) % bytes
+    let copiedBytes = bytes - offset
+    let first = (seed / 4096) % bytes + 1
+    var index = 0
+    while index < 64 {
+        host.data[index] = ((cycle + index * 17) % 256) as UInt8
+        output[index] = 165 as UInt8; index = index + 1
+    }
+    let upload = ticket(ring.reserve(bytes as UInt64, op))
+    let copied = ticket(ring.reserve(copiedBytes as UInt64, op))
+    let download = ticket(ring.reserve(copiedBytes as UInt64, op))
+    rejectReservation(ring.reserve(1 as UInt64, op), "gpu.limit")
+    rejected(ring.close(), "gpu.busy")
+    rejected(upload.write(Span<UInt8>{data: host.data as *const UInt8, length: bytes as UInt64}, 1 as UInt64, op), "gpu.invalid")
+    done(upload.write(Span<UInt8>{data: host.data as *const UInt8, length: first as UInt64}, 0 as UInt64, op), true)
+    if first < bytes {
+        rejected(gpuCudaStagingUpload(upload, op), "gpu.invalid")
+        let tail = ((host.data as UInt64) + (first as UInt64)) as *const UInt8
+        done(upload.write(Span<UInt8>{data: tail, length: (bytes - first) as UInt64}, first as UInt64, op), true)
+    }
+    if cycle % 2 == 0 {
+        op.cancellation = true; rejected(gpuCudaStagingUpload(upload, op), "gpu.cancelled"); op.cancellation = false
+    }
+    done(gpuCudaStagingUpload(upload, op), true)
+    rejected(upload.close(), "gpu.busy"); ready(upload)
+    rejected(gpuCudaStagingCopy(copied, upload, (offset + 1) as UInt64, op), "gpu.invalid")
+    done(gpuCudaStagingCopy(copied, upload, offset as UInt64, op), true)
+    rejected(upload.close(), "gpu.busy"); ready(copied)
+    done(gpuCudaStagingDownload(download, copied, 0 as UInt64, op), true)
+    rejected(copied.close(), "gpu.busy")
+    op.cancellation = cycle % 3 == 0; ready(download); op.cancellation = false
+    done(download.read(MutableSpan<UInt8>{data: output, length: copiedBytes as UInt64}, 0 as UInt64, op), true)
+    index = 0
+    while index < 64 {
+        if index < copiedBytes {
+            if output[index] != ((cycle + (index + offset) * 17) % 256) as UInt8 { abort("seeded CUDA copy byte oracle disagreed") }
+        } else if output[index] != (165 as UInt8) { abort("seeded CUDA read overwrote its canary") }
+        index = index + 1
+    }
+    // The completed consumer is still retained and cannot be overwritten.
+    rejectReservation(ring.reserve(1 as UInt64, op), "gpu.limit")
+    if cycle % 2 == 0 {
+        done(upload.release(), true); done(copied.release(), true); done(download.release(), true)
+    } else {
+        done(download.release(), true); done(copied.release(), true); done(upload.release(), true)
+    }
+    if ring.core.metadata.core.borrowers != 0 or ring.core.metadata.core.inFlight != 0 or
+        ring.core.metadata.core.occupiedBytes != (0 as UInt64) { abort("seeded CUDA metadata did not return to baseline") }
+    index = 0
+    while index < ring.core.slots.length() {
+        let slot = ring.core.slots[index]
+        if slot.pending or slot.readers != 0 or slot.source != -1 { abort("seeded CUDA retained a native dependency") }
+        index = index + 1
+    }
+    return bytes
+}
+fun seededSoak(borrow ring: GpuCudaStagingRing, op: OperationContext) r: Void {
+    let storage = OwnedBuffer<UInt8>.allocate(128 as UInt64, 1 as UInt64, 64 as UInt64)
+    if storage.isErr() { abort("CUDA soak host storage unavailable") }
+    let host = storage.unwrap(); storage.releaseContainer()
+    let widths = Array<Int>(); var width = 0
+    while width < 64 { widths.push(0); width = width + 1 }
+    let steady = seen_memory_used_bytes()
+    var seed = 17317; var cycle = 0
+    while cycle < 4096 {
+        // Park-Miller arithmetic stays below 2^47; no signed overflow or
+        // dependence on the compiler's unsigned shift implementation.
+        seed = (seed * 48271) % 2147483647
+        let bytes = seededCycle(ring, op, host, cycle, seed)
+        widths[bytes - 1] = widths[bytes - 1] + 1
+        if seen_memory_used_bytes() != steady { abort("seeded CUDA cycle retained live allocation") }
+        cycle = cycle + 1
+    }
+    width = 0
+    while width < 64 { if widths[width] == 0 { abort("seeded CUDA corpus omitted a payload width") }; width = width + 1 }
+    widths.free(); host.close(); host.free()
+    println("CUDA_STAGING_SOAK seed=17317 cycles=4096 copies=12288 live=stable")
+}
+fun batchReuse(borrow ring: GpuCudaStagingRing, op: OperationContext) r: Void {
+    let first = ticket(ring.reserve(1 as UInt64, op))
+    let second = ticket(ring.reserve(1 as UInt64, op))
+    let third = ticket(ring.reserve(1 as UInt64, op))
+    var byte = 213 as UInt8
+    done(first.write(Span<UInt8>{data: (&byte) as *const UInt8, length: 1 as UInt64}, 0 as UInt64, op), true)
+    byte = 128 as UInt8
+    done(second.write(Span<UInt8>{data: (&byte) as *const UInt8, length: 1 as UInt64}, 0 as UInt64, op), true)
+    byte = 1 as UInt8
+    done(third.write(Span<UInt8>{data: (&byte) as *const UInt8, length: 1 as UInt64}, 0 as UInt64, op), true)
+    // All three submissions are retained concurrently. Only observation of the
+    // last event on the SAME private stream may retire every earlier lease.
+    done(gpuCudaStagingUpload(first, op), true); done(gpuCudaStagingUpload(second, op), true)
+    done(gpuCudaStagingUpload(third, op), true)
+    if ring.core.metadata.core.inFlight != 3 { abort("CUDA batch failed to retain all submitted work") }
+    rejected(ring.close(), "gpu.busy"); rejected(second.close(), "gpu.busy")
+    ready(third)
+    if not first.retired() or not second.retired() or ring.core.metadata.core.inFlight != 0 {
+        abort("CUDA last-event observation failed to retire earlier same-stream work")
+    }
+    done(first.close(), true)
+    let reused = ticket(ring.reserve(1 as UInt64, op))
+    rejected(first.poll(), "gpu.invalid"); done(first.close(), false)
+    rejected(gpuCudaStagingDownload(reused, first, 0 as UInt64, op), "gpu.invalid")
+    done(gpuCudaStagingDownload(reused, second, 0 as UInt64, op), true)
+    done(first.release(), true) // Must not close the replacement's backing.
+    rejected(second.close(), "gpu.busy"); ready(reused)
+    byte = 0 as UInt8
+    done(reused.read(MutableSpan<UInt8>{data: &byte, length: 1 as UInt64}, 0 as UInt64, op), true)
+    if byte != (128 as UInt8) { abort("CUDA recycled slot or stale ticket corrupted byte output") }
+    done(reused.release(), true); done(second.release(), true); done(third.release(), true)
+}
+@noinline
+fun drainFailed(borrow value: GpuCudaStagingTicket, maxPolls: Int) r: Void {
     var fuel = 0
-    while fuel < 1000000 {
+    while fuel < maxPolls {
         let observed = value.poll()
         if observed.isOkay() { abort("failed CUDA staging work produced valid output") }
         let error = observed.unwrapErr(); observed.releaseContainer()
@@ -160,13 +283,15 @@ fun failureCycle(borrow ring: GpuCudaStagingRing, op: OperationContext, mode: St
         let target = ticket(ring.reserve(29 as UInt64, op))
         rejected(gpuCudaStagingCopy(target, source, 0 as UInt64, op), "gpu.unavailable")
         rejected(source.close(), "gpu.busy"); rejected(target.close(), "gpu.busy")
-        op.cancellation = true; drainFailed(target); op.cancellation = false
+        op.cancellation = true; drainFailed(target, 1000000); op.cancellation = false
         done(target.release(), true)
     } else {
-        if mode == "query-error" { done(gpuCudaStagingUpload(source, op), true) }
+        if mode == "query-error" or mode == "query-permanent" { done(gpuCudaStagingUpload(source, op), true) }
         else { rejected(gpuCudaStagingUpload(source, op), "gpu.unavailable") }
         rejected(source.close(), "gpu.busy")
-        op.cancellation = true; drainFailed(source); op.cancellation = false
+        var maxPolls = 1000000
+        if mode == "query-permanent" { maxPolls = 1024 }
+        op.cancellation = true; drainFailed(source, maxPolls); op.cancellation = false
     }
     rejected(source.read(MutableSpan<UInt8>{data: host.data, length: 29 as UInt64}, 0 as UInt64, op), "gpu.invalid")
     let admission = ring.reserve(1 as UInt64, op)
@@ -204,6 +329,8 @@ fun main() r: Int {
         rejectReservation(ring.reserve(0 as UInt64, op), "gpu.invalid")
         rejectReservation(ring.reserve(65 as UInt64, op), "gpu.invalid")
         if mode == "reference" { happy(ring, op) }
+        else if mode == "soak" { seededSoak(ring, op) }
+        else if mode == "batch-reuse" { batchReuse(ring, op) }
         else if mode == "cross-ring" { crossRing(ring, op) }
         else if mode == "close-host" or mode == "close-stream" { rejected(ring.close(), "gpu.unavailable") }
         else { failureCycle(ring, op, mode) }

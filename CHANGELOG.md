@@ -15,9 +15,12 @@ Foundations**.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
-  Private-stream observation drains uncertain event records without waiting.
+  Private-stream observation drains uncertain or unqueryable events without
+  waiting, while preserving the error and rejecting poisoned output.
   Exercise CPU-only imports, cross-ring rejection, late-deadline ownership and
   measured source coverage; retain native initialization failure diagnostics.
+  Add seeded byte-range reuse, multi-submission completion and stale-ticket
+  regressions with per-cycle live-resource checks and bounded RSS telemetry.
   Full hardware/sanitizer certification remains separate.
 - Add an explicit CUDA-compatible ASan shadow layout, retaining strict leak and
   access checks and fixed resource limits. Negative controls verify ordinary and
