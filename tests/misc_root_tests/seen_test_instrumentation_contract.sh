@@ -31,6 +31,7 @@ if grep -Fq -- '--emit-glsl' "$ROOT/compiler_seen/src/testing/cli_runner.seen"; 
 grep -Fq 'hardwareExecuted' "$ROOT/compiler_seen/src/testing/instrumentation.seen" || fail hardware-separation
 for module in fuzz benchmark; do [ -f "$ROOT/compiler_seen/src/testing/$module.seen" ] || fail "native-$module"; done
 [ -f "$ROOT/tests/fixtures/soak/test_002a_instrumentation.seen" ] || fail soak-fixture
+grep -Fq 'seen_test_instrumentation_soak.sh' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail measured-soak-wiring
 grep -Fq 'derive-execution' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail execution-acceptance
 grep -Fq -- '--filter test_002a_instrumentation --profile "$profile"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail real-cli-profile-matrix
 grep -Fq 'compiler_seen/tests/test_002a_instrumentation.seen' "$ROOT/scripts/seen_stage1_acceptance.sh" || fail stage1

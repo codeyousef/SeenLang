@@ -194,6 +194,12 @@ Foundations**.
   instead of requiring an already installed checkout sidecar.
 - Bound coverage reporting and profile merging to one worker in the test CLI
   and execution acceptance so post-processing respects the aggregate task cap.
+- Avoid temporary name/profile strings in instrumentation validation and verify
+  10,000 success/error lifecycle iterations return live allocations to baseline,
+  with bounded recyclable reserve and native sanitizer/coverage checks.
+- Match generic class release to allocator provenance: free malloc-backed
+  native headers normally and reject mismatched pool size classes instead of
+  corrupting freelists or hiding retained headers behind negative live counts.
 - Give test CLI catalogs and reports their own bounded output budget and preserve
   reporter error codes instead of masking size-limit failures as invalid reports.
 - Retain trait receiver field types and generic function return signatures during

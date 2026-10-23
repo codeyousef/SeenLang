@@ -124,4 +124,6 @@ for profile in ci coverage sanitizer-undefined sanitizer-thread; do
     python3 "$ROOT/scripts/check_test_reporters.py" --format junit \
         --validate "$RUN/cli-$profile.xml" >/dev/null
 done
+"$ROOT/scripts/run_capped_regression.sh" test-instrumentation-soak \
+    --compiler "$COMPILER" -- bash "$ROOT/tests/misc_root_tests/seen_test_instrumentation_soak.sh"
 echo "PASS: TEST-002A instrumented compiler, GPU emitter, runtime, and ABI execution"

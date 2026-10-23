@@ -359,7 +359,7 @@
     {
       "id": "memory-pool-accounting",
       "subsystem": "stdlib.memory",
-      "purpose": "Read live checked-out allocation bytes independently from recyclable slab reserve without changing the physical memory limit or swap policy. The runtime reports a nonallocating fixed-layout snapshot and retained slab capacity; native Seen owns resource lifetime, failure policy, and cleanup tests.",
+      "purpose": "Read live allocation bytes separately from recyclable reserve without changing physical limits or swap policy. Existing class release distinguishes slab slots from budgeted malloc headers, validates pool size classes and pairs each release with its allocator. The runtime reports a nonallocating fixed-layout snapshot; Seen owns lifetimes and failure policy. C/ASan provenance and Seen instrumentation lifecycle tests cover cleanup. Permanent until compiler-managed storage replaces both sides together.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_memory_reserved_bytes", "seen_memory_snapshot", "seen_pool_free"],

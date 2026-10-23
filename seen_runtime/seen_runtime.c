@@ -245,16 +245,49 @@ void *seen_pool_alloc(int64_t size) {
     return pointer;
 }
 
+/* Generic class cleanup also receives malloc-backed native headers. A size
+ * alone cannot prove slab provenance: putting a raw header on a freelist
+ * makes pool_live_bytes negative and retains one raw allocation per cycle.
+ * Search the expected class first; the other classes detect wrong-size frees
+ * without moving a slot into an incompatible freelist. The allocator guard
+ * keeps slab metadata stable throughout this lookup and the release. */
+static int seen_pool_pointer_class(const void *pointer, int preferred) {
+    uintptr_t address = (uintptr_t)pointer;
+    for (int pass = -1; pass < POOL_NUM_CLASSES; ++pass) {
+        int cls = pass < 0 ? preferred : pass;
+        if (cls < 0 || cls >= POOL_NUM_CLASSES ||
+            (pass >= 0 && cls == preferred)) continue;
+        for (PoolSlab *slab = pool_slabs[cls]; slab; slab = slab->next) {
+            uintptr_t base = (uintptr_t)slab->base;
+            if (address < base || address - base >= slab->capacity) continue;
+            size_t offset = (size_t)(address - base);
+            size_t slot = (size_t)(cls + 1) * 8;
+            if (offset >= slab->used || offset % slot != 0) {
+                fputs("Seen pool release is not an allocated slot boundary\n", stderr);
+                abort();
+            }
+            return cls;
+        }
+    }
+    return -1;
+}
+
 __attribute__((hot))
 void seen_pool_free(void *ptr, int64_t size) {
     SEEN_ALLOCATOR_SCOPE();
     if (__builtin_expect(!ptr, 0)) return;
     if (seen_allocation_observe(4, (uint64_t)(uintptr_t)ptr, NULL, size, 1)) return;
-    if (__builtin_expect(size <= 0 || size > POOL_MAX_SIZE, 0)) {
+    int expected = size > 0 && size <= POOL_MAX_SIZE ?
+        pool_class((size_t)size) : -1;
+    int cls = seen_pool_pointer_class(ptr, expected);
+    if (cls < 0) {
         seen_memory_release_bytes(size > 0 ? size : 1);
         free(ptr); return;
     }
-    int cls = pool_class((size_t)size);
+    if (cls != expected || pool_live_bytes < (int64_t)(cls + 1) * 8) {
+        fputs("Seen pool release size class mismatch\n", stderr);
+        abort();
+    }
     pool_live_bytes -= (int64_t)(cls + 1) * 8;
     *(void **)ptr = pool_freelists[cls];
     pool_freelists[cls] = ptr;

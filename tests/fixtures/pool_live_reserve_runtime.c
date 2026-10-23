@@ -2,6 +2,12 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#if defined(__linux__)
+#include <signal.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 // Internal slab ABI exercised directly to certify reserve accounting.
 void *seen_pool_alloc(int64_t size);
@@ -17,10 +23,43 @@ struct PoolSlabHeaderContract {
     void *next;
 };
 
+#if defined(__linux__)
+static int rejected_release(void *pointer, int64_t size) {
+    pid_t child = fork();
+    if (child < 0) return 0;
+    if (child == 0) {
+        struct rlimit no_core = {0, 0};
+        if (setrlimit(RLIMIT_CORE, &no_core) != 0) _exit(101);
+        seen_pool_free(pointer, size);
+        _exit(100);
+    }
+    int status = 0;
+    return waitpid(child, &status, 0) == child &&
+        WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT;
+}
+#endif
+
 int main(void) {
     const int64_t slab_bytes = 1048576 + (int64_t)sizeof(struct PoolSlabHeaderContract);
     const int64_t initial = seen_memory_used_bytes();
     const int64_t failures = seen_memory_allocation_failures();
+    const int64_t initial_reserve = seen_memory_reserved_bytes();
+    // Native Result/Vec headers use budgeted malloc, not pool slots. Generic
+    // class cleanup must release that allocation rather than enroll it in an
+    // unrelated freelist and cancel raw live usage with a negative pool count.
+    const int64_t raw_sizes[] = {8, 16, 24, 32, 64, 72, 80, 88};
+    for (size_t i = 0; i < sizeof(raw_sizes) / sizeof(raw_sizes[0]); ++i) {
+        for (int repeat = 0; repeat < 1000; ++repeat) {
+            void *raw = seen_try_malloc(raw_sizes[i]);
+            if (!raw) return 13;
+            seen_pool_free(raw, raw_sizes[i]);
+            if (seen_memory_used_bytes() != initial ||
+                seen_memory_reserved_bytes() != initial_reserve) {
+                fputs("FAIL: malloc-backed class release entered a pool freelist\n", stderr);
+                return 14;
+            }
+        }
+    }
     void *first = seen_pool_alloc(1);
     if (!first || seen_memory_used_bytes() != initial + 8 ||
         seen_memory_reserved_bytes() != slab_bytes - 8) return 1;
@@ -80,6 +119,16 @@ int main(void) {
     if (seen_memory_used_bytes() != initial ||
         seen_memory_reserved_bytes() != 12 * slab_bytes ||
         seen_memory_allocation_failures() != failures) return 11;
+#if defined(__linux__)
+    void *sized_slot = seen_pool_alloc(16);
+    if (!rejected_release(sized_slot, 8) ||
+        !rejected_release(sized_slot, 88) ||
+        !rejected_release((char *)sized_slot + 1, 16)) return 15;
+    seen_pool_free(sized_slot, 16);
+    if (seen_memory_used_bytes() != initial ||
+        seen_memory_reserved_bytes() != 12 * slab_bytes ||
+        seen_memory_allocation_failures() != failures) return 16;
+#endif
     puts("PASS: pooled live usage, recyclable reserve, physical budget");
     return 0;
 }

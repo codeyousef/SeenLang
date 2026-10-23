@@ -141,6 +141,13 @@ produces hardware evidence. Compile-only evidence cannot close TEST-002A.
 The capped execution acceptance therefore builds and runs an instrumented
 compiler, exercises the software GPU emitter, then runs the instrumented Seen
 fixture before deriving the five-component evidence document.
+Its measured lifecycle soak checks 10,000 iterations of accepted and rejected
+plans, cancellation and unsupported targets. Result containers, owned errors,
+components and contexts are explicitly released; live usage must return to the
+initial baseline, allocation-failure counts must stay unchanged, and recyclable
+reserve must remain stable after the first iteration. The soak runs in fast,
+release/ThinLTO, UBSan, ASan/LSan and source-coverage modes. Sanitizer shadow
+admission retains the enclosing kernel memory, zero-swap and task ceilings.
 
 ## Deterministic test discovery
 
