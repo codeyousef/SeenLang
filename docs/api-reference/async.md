@@ -501,7 +501,7 @@ rejected admission and complete thread/synchronization cleanup. Sample timing is
 reported as observation; it does not substitute for a designated performance
 control or certify a five-percent regression threshold.
 
-`seen_std/tests/async/io_completion_stress.seen <new-file-path>` exercises a
+`seen_std/tests/async/io_completion_stress_fixture.seen <new-file-path>` exercises a
 thousand pipe readiness/cancellation pairs, stale generations, real Linux direct
 file completions, notification leases and cancellation while the kernel borrows
 buffers. The source filesystem File closes before the independently owned

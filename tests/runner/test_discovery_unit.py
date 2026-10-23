@@ -97,6 +97,47 @@ class TestDiscoveryTests(unittest.TestCase):
         self.assertIn("process.returncode != 134", source)
         self.assertIn('"Seen allocation failure" not in stderr', source)
 
+    def test_helper_and_harness_input_roles_are_not_standalone_tests(self) -> None:
+        for root in ("compiler_seen/tests", "seen_std/tests",
+                     "tests/fixtures/external_package/tests"):
+            for suffix in ("_support.seen", "_fixture.seen"):
+                path = f"{root}/sample{suffix}"
+                self.assertEqual("", DISCOVERY.expected_category(path))
+                with self.assertRaises(DISCOVERY.TestDiscoveryError):
+                    DISCOVERY.descriptor(path)
+                injected = {"schema": DISCOVERY.SCHEMA, "tests": [{
+                    "category": "unit" if root != "tests/fixtures/external_package/tests" else "integration",
+                    "path": path, "ignored": False, "slow": False,
+                    "privileged": False, "platform": "all"}]}
+                self.code("invalid", json.dumps(injected).encode())
+            self.assertTrue(DISCOVERY.expected_category(f"{root}/sample_support_test.seen"))
+            self.assertTrue(DISCOVERY.expected_category(f"{root}/sample_fixture_test.seen"))
+
+    def test_argument_driven_programs_keep_runnable_owners(self) -> None:
+        paths = {entry["path"]: entry for entry in DISCOVERY.discover(ROOT)["tests"]}
+        cases = (
+            ("async/io_completion_stress_fixture.seen", "seen_async_reactor_contract.sh"),
+            ("async/io_completion_stress_fixture.seen", "seen_async_stress_contract.sh"),
+            ("json/large_object_release_fixture.seen", "seen_json_large_object_release.sh"),
+            ("memory/uint8_pointer_deref_fixture.seen", "seen_open_issue_regressions.sh"),
+        )
+        for fixture, owner_name in cases:
+            fixture_path = "seen_std/tests/" + fixture
+            owner = "tests/misc_root_tests/" + owner_name
+            self.assertTrue((ROOT / fixture_path).is_file())
+            self.assertNotIn(fixture_path, paths)
+            self.assertIn(owner, paths)
+            self.assertFalse(paths[owner]["ignored"])
+            self.assertIn(fixture_path, (ROOT / owner).read_text())
+        for consumer, helper in (
+                ("async/dns_wire_adverse.seen", "dns_wire_corpus_support"),
+                ("async/dns_policy_adverse.seen", "dns_fixture_support"),
+                ("async/async-002g.seen", "stress_fixture_support")):
+            path = "seen_std/tests/" + consumer
+            self.assertIn(path, paths)
+            self.assertFalse(paths[path]["ignored"])
+            self.assertIn("import " + helper + ".", (ROOT / path).read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

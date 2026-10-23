@@ -55,6 +55,8 @@ def canonical_path(path: object) -> bool:
 
 
 def expected_category(path: str) -> str:
+    if path.endswith(("_support.seen", "_fixture.seen")):
+        return ""
     if path.startswith(("compiler_seen/tests/", "seen_std/tests/")):
         return "unit" if path.endswith(".seen") else ""
     if path.startswith("tests/fixtures/external_package/tests/"):

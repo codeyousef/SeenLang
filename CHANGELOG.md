@@ -25,6 +25,9 @@ Foundations**.
   exercise bitwise token kinds, spellings and EOF through the shipped lexer API.
 - Bound shared fixture coverage merging and export to one worker, the optimizer
   VMEM ceiling and a hard command timeout; retain fail-closed tool errors.
+- Distinguish imported test helpers and harness-driven program inputs from
+  standalone tests in native and host discovery, retaining their owning gates.
+  Keep the large-JSON gate's serial flags compatible with attested execution.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.

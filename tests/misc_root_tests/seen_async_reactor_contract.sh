@@ -58,7 +58,7 @@ REACTOR_COMPILE_FLAGS=(--coverage)
 for name in lifecycle adverse deadlines sockets io; do
     source="$ROOT_DIR/seen_std/tests/async/async-002d-$name.seen"
     if [ "$name" = lifecycle ]; then source="$ROOT_DIR/seen_std/tests/async/async-002d.seen"; fi
-    if [ "$name" = io ]; then source="$ROOT_DIR/seen_std/tests/async/io_completion_stress.seen"; fi
+    if [ "$name" = io ]; then source="$ROOT_DIR/seen_std/tests/async/io_completion_stress_fixture.seen"; fi
     export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
     compile_case fast "coverage-$name" "$source" "$TMP_DIR/completion.bin"
 done

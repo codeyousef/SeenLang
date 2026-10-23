@@ -224,6 +224,15 @@ The maintained roots and primary categories are:
 | `tests/fixtures/external_package/tests/` | `.seen` | `integration` |
 | `tests/misc_root_tests/` | `.sh`, `_unit.py`, `_test.seen` | `integration` |
 
+Within the three package test roots, `*_support.seen` files are imported helper
+modules and `*_fixture.seen` files are argument-driven programs owned by a
+runnable harness. Neither is a standalone test or an ignored test. The native
+runner and host migration/discovery oracles exclude these exact suffixes and
+reject injected test descriptors for them. Names such as
+`example_support_test.seen` remain runnable. Harness inputs retain their owning
+tests, arguments and assertions; moving an input into this role does not waive
+its execution requirement.
+
 Names may add orthogonal `ignored`, `slow`, or `privileged` markers using a
 matching directory or underscore-delimited filename segment. Platform markers
 are `linux`, `linux_x86_64`, `linux_arm64`, `macos`, and `windows`; unmarked

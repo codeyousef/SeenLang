@@ -128,7 +128,8 @@ fun testCliDiscover(root: String, context: OperationContext,
     }
     let unit = runCommand("find " + testCliShellQuote(compilerTests) + " " +
         testCliShellQuote(stdTests) + " " + testCliShellQuote(externalTests) +
-        " -type f -name '*.seen' -print")
+        " -type f -name '*.seen' ! -name '*_support.seen' " +
+        "! -name '*_fixture.seen' -print")
     if not commandWasSuccessful(unit) or
         not testCliCollectFindOutput(root, unit.output, candidates) { return false }
     let misc = runCommand("find " + testCliShellQuote(miscTests) +
