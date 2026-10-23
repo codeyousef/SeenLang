@@ -23,6 +23,8 @@ Foundations**.
   decoded input bytes before testing parser behavior.
 - Refresh reproducible-program fixtures with the required source epoch pin and
   exercise bitwise token kinds, spellings and EOF through the shipped lexer API.
+- Bound shared fixture coverage merging and export to one worker, the optimizer
+  VMEM ceiling and a hard command timeout; retain fail-closed tool errors.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.

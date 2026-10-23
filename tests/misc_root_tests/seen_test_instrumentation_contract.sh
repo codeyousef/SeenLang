@@ -24,6 +24,9 @@ grep -Fq 'llvm-profdata merge' "$ROOT/compiler_seen/src/testing/cli_runner.seen"
 grep -Fq 'llvm-cov report' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail coverage-report
 grep -Fq 'llvm-profdata merge -sparse --num-threads=1' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail serial-profile-merge
 grep -Fq 'llvm-cov report --num-threads=1' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail serial-coverage-report
+grep -Fq 'llvm-profdata merge -sparse --num-threads=1' "$ROOT/scripts/source_coverage_fixture_support.sh" || fail fixture-serial-profile-merge
+grep -Fq 'llvm-cov export --num-threads=1' "$ROOT/scripts/source_coverage_fixture_support.sh" || fail fixture-serial-coverage-export
+grep -Fq 'ulimit -S -v "$limit_kb"' "$ROOT/scripts/source_coverage_fixture_support.sh" || fail fixture-profiler-vmem
 if grep -E '^[[:space:]]*llvm-(cov|profdata) ' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" | grep -vF -- '--num-threads=1'; then fail parallel-coverage-tool; fi
 grep -Fq 'workingRoot + "/.seen_cache/test/run"' "$ROOT/compiler_seen/src/testing/cli_runner.seen" || fail working-root-artifacts
 grep -Fq 'test_002a_gpu_emitters.seen' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail gpu-emitter-wiring

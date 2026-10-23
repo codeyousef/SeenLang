@@ -15,6 +15,10 @@ The compiler owns LLVM profile identities and mappings in Seen. It uses bounded
 function, region, counter and filename budgets and rejects malformed filenames
 or exhausted budgets. Native LLVM tools merge profiles and render reports.
 The module cache includes the selected compiler and coverage mode.
+Use matching LLVM profile producers and consumers: an incompatible raw-profile
+format is an infrastructure failure, not a coverage result. The shared fixture
+export helper merges and exports serially, with the optimizer VMEM ceiling and
+a hard command timeout in addition to the calling harness's aggregate scope.
 
 `run_test_instrumentation_acceptance.sh` retains text and JSON coverage exports.
 The instrumented host exercises the typed SPIR-V CLI, and the native GPU probe
