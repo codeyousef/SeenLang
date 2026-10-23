@@ -1,0 +1,7 @@
+version = 2
+manifest_sha256 = "3ff54e64b12f202873348127b781952851e07bbf3b77b68ea75c0b1fdb2b253e"
+
+[root]
+name = "cuda_pinned_staging_contract"
+version = "0.23.0"
+dependencies = []

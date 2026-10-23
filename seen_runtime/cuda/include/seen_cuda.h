@@ -148,6 +148,10 @@ SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_create(int32_t device,
     SeenCudaHandle *stream);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_destroy(SeenCudaHandle *stream);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_synchronize(SeenCudaHandle stream);
+/* Nonblocking private-stream drain observation, including when event recording
+ * failed. *ready starts at zero; pending is OK/0 and complete is OK/1. */
+SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_query(SeenCudaHandle stream,
+    int32_t *ready);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_borrow_launch_token(
     SeenCudaHandle stream, int32_t expected_device,
     SeenCudaStreamLaunchToken *token);

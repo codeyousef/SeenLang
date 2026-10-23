@@ -12,6 +12,11 @@ Foundations**.
 
 ### Added
 
+- Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
+  retained initialization and cleanup failures, source dependencies for
+  asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
+  Private-stream observation drains uncertain event records without waiting.
+  Full hardware/sanitizer certification remains separate.
 - Add nonblocking CUDA event observation through the existing opt-in resource
   ABI and `CudaEvent.poll()`, preserving pending/error ownership without event,
   stream or device synchronization. Include pinned-byte hardware round trips

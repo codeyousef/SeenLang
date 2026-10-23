@@ -78,6 +78,7 @@ extern "C" fun seen_cuda_stream_create(device: Int32,
     stream: *UInt64) r: CudaNativeStatus
 extern "C" fun seen_cuda_stream_destroy(stream: *UInt64) r: CudaNativeStatus
 extern "C" fun seen_cuda_stream_synchronize(stream: UInt64) r: CudaNativeStatus
+extern "C" fun seen_cuda_stream_query(stream: UInt64, ready: *Int32) r: CudaNativeStatus
 extern "C" fun seen_cuda_stream_borrow_launch_token(stream: UInt64,
     expectedDevice: Int32, token: *CudaStreamLaunchToken) r: CudaNativeStatus
 extern "C" fun seen_cuda_event_create(device: Int32,

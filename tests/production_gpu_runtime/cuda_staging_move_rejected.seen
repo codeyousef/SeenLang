@@ -1,0 +1,6 @@
+import compute.cuda_staging.{GpuCudaStagingRing, GpuCudaStagingTicket}
+fun takeRing(value: GpuCudaStagingRing) r: Void {}
+fun takeTicket(value: GpuCudaStagingTicket) r: Void {}
+fun badRing(value: GpuCudaStagingRing) r: Void { takeRing(value); value.close() }
+fun badTicket(value: GpuCudaStagingTicket) r: Void { takeTicket(value); value.close() }
+fun main() r: Int { return 0 }

@@ -1,0 +1,345 @@
+/// Creator-confined pinned staging. Existing CUDA owners/ABI supply resources;
+/// Seen owns admission, initialization, byte ranges, dependencies and retirement.
+import accelerator.cuda.mod.{PinnedHostAllocation, CudaAllocation, CudaStream, CudaEvent,
+    seen_cuda_set_device, seen_cuda_host_alloc, seen_cuda_host_allocation_address,
+    seen_cuda_malloc, seen_cuda_allocation_address, seen_cuda_stream_create,
+    seen_cuda_event_create, seen_cuda_event_record, seen_cuda_event_query,
+    seen_cuda_stream_query, seen_cuda_memcpy_async, seen_cuda_event_destroy,
+    seen_cuda_stream_destroy, seen_cuda_free, seen_cuda_host_free}
+import accelerator.cuda.error.{CudaNativeStatus, cudaSucceeded}
+import compute.staging_ring.{GpuStagingRing, GpuStagingSlice, GPU_STAGING_RESERVED}
+import compute.error.{GpuError, gpuFailure}
+import compute.operation.{gpuCheckOperation}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+import core.option.{Some}
+import inference.span.{Span, MutableSpan}
+import memory.allocation.{allocationBudgetAvailable}
+
+fun gpuCudaStagingFailure(status: CudaNativeStatus, operation: String, progress: UInt64) r: GpuError {
+    var code = "gpu.unavailable"
+    if status.code == (1 as Int32) or status.code == (8 as Int32) { code = "gpu.invalid" }
+    if status.code == (2 as Int32) { code = "gpu.unsupported_capability" }
+    if status.code == (4 as Int32) { code = "gpu.out_of_memory" }
+    if status.code == (7 as Int32) { code = "gpu.busy" }
+    if status.code == (9 as Int32) { code = "gpu.limit" }
+    let error = gpuFailure(code, operation, "CUDA staging native operation failed; owner retained for explicit drain or close")
+    error.nativeCode.free(); error.nativeCode = Some<Int64>(status.nativeCode as Int64)
+    error.progress = progress; return error
+}
+fun gpuCudaStagingSpan(data: *const UInt8, bytes: UInt64) r: Bool {
+    return data != (null as *const UInt8) and bytes > (0 as UInt64) and
+        bytes <= (9223372036854775807 as UInt64) and
+        (data as UInt64) <= (18446744073709551615 as UInt64) - bytes
+}
+
+class GpuCudaStagingSlot {
+    var host: PinnedHostAllocation
+    var device: CudaAllocation
+    var event: CudaEvent
+    var sequence: UInt64
+    var source: Int
+    var readers: Int
+    var direction: Int
+    var pending: Bool
+    var recorded: Bool
+    var deviceReady: Bool
+
+    fun close() r: Result<Bool, GpuError> {
+        let event = seen_cuda_event_destroy(&this.event.handle)
+        if not cudaSucceeded(event) { return Err<Bool, GpuError>(gpuCudaStagingFailure(event, "gpu.cuda.staging.close", 0 as UInt64)) }
+        let device = seen_cuda_free(&this.device.handle)
+        if not cudaSucceeded(device) { return Err<Bool, GpuError>(gpuCudaStagingFailure(device, "gpu.cuda.staging.close", 0 as UInt64)) }
+        this.device.data = null as *Void; this.device.byteLength = 0 as UInt64
+        let host = seen_cuda_host_free(&this.host.handle)
+        if not cudaSucceeded(host) { return Err<Bool, GpuError>(gpuCudaStagingFailure(host, "gpu.cuda.staging.close", 0 as UInt64)) }
+        this.host.data = null as *Void; this.host.byteLength = 0 as UInt64
+        return Ok<Bool, GpuError>(true)
+    }
+}
+class GpuCudaStagingCore {
+    var metadata: GpuStagingRing
+    var slots: Array<GpuCudaStagingSlot>
+    var stream: CudaStream
+    var stride: UInt64
+    var started: Bool
+    var ready: Bool
+    var poisoned: Bool
+    var closed: Bool
+
+    fun retire(observed: UInt64) r: Void {
+        let completed = this.metadata.complete(observed)
+        if completed.isErr() { abort("private CUDA staging completion diverged") }
+        completed.releaseContainer(); var index = 0
+        while index < this.slots.length() {
+            let slot = this.slots[index]
+            if slot.pending and slot.sequence <= observed {
+                if slot.source >= 0 {
+                    let source = this.slots[slot.source]
+                    if source.readers <= 0 { abort("CUDA staging dependency underflow") }
+                    source.readers = source.readers - 1; slot.source = -1
+                }
+                slot.pending = false
+                slot.deviceReady = not this.poisoned and (slot.direction == 1 or slot.direction == 3)
+            }
+            index = index + 1
+        }
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.metadata.core.borrowers != 0 or this.metadata.core.inFlight != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.cuda.staging.close", "CUDA staging tickets or native work still own backing"))
+        }
+        this.ready = false; var index = 0
+        while index < this.slots.length() {
+            let closed = this.slots[index].close()
+            if closed.isErr() { return closed }
+            closed.releaseContainer(); index = index + 1
+        }
+        let stream = seen_cuda_stream_destroy(&this.stream.handle)
+        if not cudaSucceeded(stream) { return Err<Bool, GpuError>(gpuCudaStagingFailure(stream, "gpu.cuda.staging.close", 0 as UInt64)) }
+        let metadata = this.metadata.close()
+        if metadata.isErr() { return metadata }
+        metadata.releaseContainer(); this.closed = true
+        return Ok<Bool, GpuError>(true)
+    }
+}
+
+@move
+class GpuCudaStagingRing {
+    var core: GpuCudaStagingCore
+
+    /// Prepare the cleanup owner BEFORE acquiring native resources. maxBytes
+    /// bounds pinned plus device payload, not merely one side of the transfer.
+    static fun prepare(slotBytes: UInt64, count: Int, maxBytes: UInt64) r: Result<GpuCudaStagingRing, GpuError> {
+        if count <= 0 or count > 256 or slotBytes == (0 as UInt64) or
+            maxBytes > (9223372036854775807 as UInt64) or slotBytes > maxBytes / (count as UInt64) / (2 as UInt64) or
+            not allocationBudgetAvailable(32768 + count * 2048) {
+            return Err<GpuCudaStagingRing, GpuError>(gpuFailure("gpu.limit", "gpu.cuda.staging.prepare", "CUDA pinned/device or metadata budget exceeded"))
+        }
+        let partitioned = GpuStagingRing.create(slotBytes * (count as UInt64), count)
+        if partitioned.isErr() { let error = partitioned.unwrapErr(); partitioned.releaseContainer(); return Err<GpuCudaStagingRing, GpuError>(error) }
+        let metadata = partitioned.unwrap(); partitioned.releaseContainer()
+        let slots = Array<GpuCudaStagingSlot>(); var index = 0
+        while index < count {
+            slots.push(GpuCudaStagingSlot{
+                host: PinnedHostAllocation{handle: 0 as UInt64, data: null as *Void, byteLength: 0 as UInt64},
+                device: CudaAllocation{handle: 0 as UInt64, data: null as *Void, byteLength: 0 as UInt64, device: -1 as Int32},
+                event: CudaEvent{handle: 0 as UInt64, device: -1 as Int32},
+                sequence: 0 as UInt64, source: -1, readers: 0, direction: 0, pending: false, recorded: false, deviceReady: false})
+            index = index + 1
+        }
+        return Ok<GpuCudaStagingRing, GpuError>(GpuCudaStagingRing{core: GpuCudaStagingCore{
+            metadata: metadata, slots: slots, stream: CudaStream{handle: 0 as UInt64, device: -1 as Int32},
+            stride: slotBytes, started: false, ready: false, poisoned: false, closed: false}})
+    }
+    /// On failure THIS owner retains every acquired prefix, including failed
+    /// cleanup handles. Call close/release; never discard the prepared owner.
+    fun open(device: Int32, operation: OperationContext) r: Result<Bool, GpuError> {
+        if this.core.closed or this.core.started or device < (0 as Int32) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.open", "CUDA staging open requires a fresh owner and explicit device"))
+        }
+        let checked = gpuCheckOperation(operation, "gpu.cuda.staging.open")
+        if checked.isErr() { return checked }; checked.releaseContainer()
+        this.core.started = true; this.core.stream.device = device
+        let selected = seen_cuda_set_device(device)
+        if not cudaSucceeded(selected) { return Err<Bool, GpuError>(gpuCudaStagingFailure(selected, "gpu.cuda.staging.open", 0 as UInt64)) }
+        let stream = seen_cuda_stream_create(device, &this.core.stream.handle)
+        if not cudaSucceeded(stream) { return Err<Bool, GpuError>(gpuCudaStagingFailure(stream, "gpu.cuda.staging.open", 0 as UInt64)) }
+        if this.core.stream.handle == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.open", "CUDA returned an empty stream")) }
+        var index = 0
+        while index < this.core.slots.length() {
+            let slot = this.core.slots[index]; slot.device.device = device; slot.event.device = device
+            let host = seen_cuda_host_alloc(this.core.stride, &slot.host.handle)
+            if not cudaSucceeded(host) { return Err<Bool, GpuError>(gpuCudaStagingFailure(host, "gpu.cuda.staging.open", 0 as UInt64)) }
+            let hostAddress = seen_cuda_host_allocation_address(slot.host.handle, &slot.host.data, &slot.host.byteLength)
+            if not cudaSucceeded(hostAddress) { return Err<Bool, GpuError>(gpuCudaStagingFailure(hostAddress, "gpu.cuda.staging.open", 0 as UInt64)) }
+            let memory = seen_cuda_malloc(device, this.core.stride, &slot.device.handle)
+            if not cudaSucceeded(memory) { return Err<Bool, GpuError>(gpuCudaStagingFailure(memory, "gpu.cuda.staging.open", 0 as UInt64)) }
+            let address = seen_cuda_allocation_address(slot.device.handle, &slot.device.data, &slot.device.byteLength, &slot.device.device)
+            if not cudaSucceeded(address) { return Err<Bool, GpuError>(gpuCudaStagingFailure(address, "gpu.cuda.staging.open", 0 as UInt64)) }
+            let event = seen_cuda_event_create(device, &slot.event.handle)
+            if not cudaSucceeded(event) { return Err<Bool, GpuError>(gpuCudaStagingFailure(event, "gpu.cuda.staging.open", 0 as UInt64)) }
+            if slot.host.byteLength != this.core.stride or slot.device.byteLength != this.core.stride or
+                slot.device.device != device or slot.event.handle == (0 as UInt64) or
+                not gpuCudaStagingSpan(slot.host.data as *const UInt8, this.core.stride) or
+                not gpuCudaStagingSpan(slot.device.data as *const UInt8, this.core.stride) {
+                return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.open", "CUDA staging resource geometry differs from its fixed policy"))
+            }
+            let observed = gpuCheckOperation(operation, "gpu.cuda.staging.open")
+            if observed.isErr() { return observed }; observed.releaseContainer(); index = index + 1
+        }
+        this.core.ready = true; return Ok<Bool, GpuError>(true)
+    }
+    fun reserve(bytes: UInt64, operation: OperationContext) r: Result<GpuCudaStagingTicket, GpuError> {
+        if not this.core.ready or this.core.closed or bytes == (0 as UInt64) or bytes > this.core.stride {
+            return Err<GpuCudaStagingTicket, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.reserve", "CUDA staging reservation escapes its initialized fixed backing"))
+        }
+        if this.core.poisoned { return Err<GpuCudaStagingTicket, GpuError>(gpuFailure("gpu.unavailable", "gpu.cuda.staging.reserve", "CUDA staging requires drain and shutdown")) }
+        let reserved = this.core.metadata.reserve(this.core.stride, 1 as UInt64, operation)
+        if reserved.isErr() { let error = reserved.unwrapErr(); reserved.releaseContainer(); return Err<GpuCudaStagingTicket, GpuError>(error) }
+        let slice = reserved.unwrap(); reserved.releaseContainer(); let index = (slice.offset / this.core.stride) as Int
+        let slot = this.core.slots[index]
+        slot.sequence = 0 as UInt64; slot.source = -1; slot.direction = 0
+        slot.pending = false; slot.recorded = false; slot.deviceReady = false
+        return Ok<GpuCudaStagingTicket, GpuError>(GpuCudaStagingTicket{core: this.core, slice: slice,
+            buffer: index, bytes: bytes, initialized: 0 as UInt64, active: true})
+    }
+    fun close() r: Result<Bool, GpuError> { return this.core.close() }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }; closed.releaseContainer()
+        var index = 0
+        while index < this.core.slots.length() {
+            let slot = this.core.slots[index]; slot.host.free(); slot.device.free(); slot.event.free(); slot.free(); index = index + 1
+        }
+        this.core.slots.free(); this.core.stream.free()
+        let metadata = this.core.metadata.release(); metadata.releaseContainer()
+        this.core.free(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}
+
+@move
+class GpuCudaStagingTicket {
+    var core: GpuCudaStagingCore
+    var slice: GpuStagingSlice
+    var buffer: Int
+    var bytes: UInt64
+    var initialized: UInt64
+    var active: Bool
+    fun valid() r: Bool {
+        if not this.active { return false }
+        return not this.core.closed and this.slice.active and this.slice.core.validSlot(this.slice.slot, this.slice.generation)
+    }
+    fun reserved() r: Bool {
+        if not this.valid() { return false }
+        return this.slice.core.slots[this.slice.slot].state == GPU_STAGING_RESERVED
+    }
+    fun retired() r: Bool {
+        if not this.valid() { return false }
+        return this.slice.isComplete() and not this.core.slots[this.buffer].pending
+    }
+    fun write(source: Span<UInt8>, offset: UInt64, operation: OperationContext) r: Result<Bool, GpuError> {
+        if not this.reserved() or offset > this.initialized or offset > this.bytes or source.length > this.bytes - offset or
+            not gpuCudaStagingSpan(source.data, source.length) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.write", "host write escapes reserved initialized staging bytes"))
+        }
+        let checked = gpuCheckOperation(operation, "gpu.cuda.staging.write")
+        if checked.isErr() { return checked }; checked.releaseContainer()
+        let target = this.core.slots[this.buffer].host.data as *UInt8; var index = 0 as UInt64
+        while index < source.length { target[offset + index] = source.data[index]; index = index + (1 as UInt64) }
+        if offset + source.length > this.initialized { this.initialized = offset + source.length }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun poll() r: Result<Bool, GpuError> {
+        if not this.valid() or this.core.slots[this.buffer].direction == 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.poll", "CUDA staging ticket has no submitted work"))
+        }
+        let slot = this.core.slots[this.buffer]
+        if slot.pending {
+            var ready = 0 as Int32
+            if slot.recorded {
+                let status = seen_cuda_event_query(slot.event.handle, &ready)
+                if not cudaSucceeded(status) { this.core.poisoned = true; return Err<Bool, GpuError>(gpuCudaStagingFailure(status, "gpu.cuda.staging.poll", slot.sequence)) }
+                if ready == (1 as Int32) { this.core.retire(slot.sequence) }
+            } else {
+                // A failed event record must never query an older/unrecorded
+                // event as evidence of new work. Drain only the private stream.
+                let status = seen_cuda_stream_query(this.core.stream.handle, &ready)
+                if not cudaSucceeded(status) { this.core.poisoned = true; return Err<Bool, GpuError>(gpuCudaStagingFailure(status, "gpu.cuda.staging.poll", slot.sequence)) }
+                if ready == (1 as Int32) { this.core.retire(this.core.metadata.core.lastSubmitted) }
+            }
+        }
+        if this.core.poisoned {
+            let error = gpuFailure("gpu.unavailable", "gpu.cuda.staging.poll", "CUDA staging output is invalid; retire owners before shutdown")
+            error.progress = slot.sequence; return Err<Bool, GpuError>(error)
+        }
+        return Ok<Bool, GpuError>(not slot.pending)
+    }
+    fun read(destination: MutableSpan<UInt8>, offset: UInt64, operation: OperationContext) r: Result<Bool, GpuError> {
+        if not this.retired() or this.core.poisoned or this.core.slots[this.buffer].direction != 2 or
+            offset > this.bytes or destination.length > this.bytes - offset or
+            not gpuCudaStagingSpan(destination.data as *const UInt8, destination.length) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.read", "host read requires completed valid CUDA download bytes"))
+        }
+        let checked = gpuCheckOperation(operation, "gpu.cuda.staging.read")
+        if checked.isErr() { return checked }; checked.releaseContainer()
+        let source = this.core.slots[this.buffer].host.data as *const UInt8; var index = 0 as UInt64
+        while index < destination.length { destination.data[index] = source[offset + index]; index = index + (1 as UInt64) }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if not this.active { return Ok<Bool, GpuError>(false) }
+        if this.core.slots[this.buffer].pending or this.core.slots[this.buffer].readers != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.cuda.staging.close", "native copy still borrows CUDA staging bytes"))
+        }
+        let closed = this.slice.release()
+        if closed.isErr() { return closed }; closed.releaseContainer(); this.active = false
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }; closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}
+
+fun gpuCudaStagingSubmit(borrow ticket: GpuCudaStagingTicket, source: Int, sourceOffset: UInt64,
+    direction: Int, operation: OperationContext) r: Result<Bool, GpuError> {
+    if not ticket.reserved() or ticket.core.poisoned {
+        return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.submit", "CUDA staging submission requires an active unsubmitted ticket"))
+    }
+    if direction < 1 or direction > 3 or (direction == 1 and source != -1) or
+        (direction != 1 and (source < 0 or source >= ticket.core.slots.length() or source == ticket.buffer)) or
+        sourceOffset > ticket.core.stride or ticket.bytes > ticket.core.stride - sourceOffset {
+        return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.submit", "CUDA copy direction or source geometry is invalid"))
+    }
+    let checked = gpuCheckOperation(operation, "gpu.cuda.staging.submit")
+    if checked.isErr() { return checked }; checked.releaseContainer()
+    let signal = ticket.slice.nextSignal()
+    if signal.isErr() { let error = signal.unwrapErr(); signal.releaseContainer(); return Err<Bool, GpuError>(error) }
+    let sequence = signal.unwrap(); signal.releaseContainer()
+    let slot = ticket.core.slots[ticket.buffer]
+    let recorded = ticket.slice.submitted(sequence)
+    if recorded.isErr() { return recorded }; recorded.releaseContainer()
+    slot.sequence = sequence; slot.direction = direction; slot.pending = true; slot.source = source
+    var from = slot.host.data as *const Void; var to = slot.device.data
+    if source >= 0 {
+        let parent = ticket.core.slots[source]; parent.readers = parent.readers + 1
+        from = ((parent.device.data as UInt64) + sourceOffset) as *const Void
+        if direction == 2 { to = slot.host.data }
+    }
+    // CUDA can report earlier asynchronous errors from these calls. Conservatively
+    // retain leases and consume the signal even on OOM; never assume rejection.
+    let copied = seen_cuda_memcpy_async(to, from, ticket.bytes, direction as Int32, ticket.core.stream.handle)
+    let event = seen_cuda_event_record(slot.event.handle, ticket.core.stream.handle)
+    slot.recorded = cudaSucceeded(event)
+    if not cudaSucceeded(copied) or not slot.recorded {
+        ticket.core.poisoned = true
+        if not cudaSucceeded(copied) { return Err<Bool, GpuError>(gpuCudaStagingFailure(copied, "gpu.cuda.staging.submit", sequence)) }
+        return Err<Bool, GpuError>(gpuCudaStagingFailure(event, "gpu.cuda.staging.submit", sequence))
+    }
+    let observed = gpuCheckOperation(operation, "gpu.cuda.staging.submit")
+    if observed.isErr() { let error = observed.unwrapErr(); observed.releaseContainer(); error.progress = sequence; return Err<Bool, GpuError>(error) }
+    observed.releaseContainer(); return Ok<Bool, GpuError>(true)
+}
+fun gpuCudaStagingUpload(borrow ticket: GpuCudaStagingTicket, operation: OperationContext) r: Result<Bool, GpuError> {
+    if ticket.initialized != ticket.bytes { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.upload", "upload payload is not fully initialized")) }
+    return gpuCudaStagingSubmit(ticket, -1, 0 as UInt64, 1, operation)
+}
+fun gpuCudaStagingFrom(borrow destination: GpuCudaStagingTicket, borrow source: GpuCudaStagingTicket,
+    offset: UInt64, direction: Int, operation: OperationContext) r: Result<Bool, GpuError> {
+    if not source.retired() or not destination.reserved() or destination.core != source.core or
+        destination.buffer == source.buffer or not source.core.slots[source.buffer].deviceReady or
+        offset > source.bytes or destination.bytes > source.bytes - offset {
+        return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.staging.copy", "copy requires completed device bytes and disjoint same-ring storage"))
+    }
+    return gpuCudaStagingSubmit(destination, source.buffer, offset, direction, operation)
+}
+fun gpuCudaStagingCopy(borrow destination: GpuCudaStagingTicket, borrow source: GpuCudaStagingTicket,
+    offset: UInt64, operation: OperationContext) r: Result<Bool, GpuError> {
+    return gpuCudaStagingFrom(destination, source, offset, 3, operation)
+}
+fun gpuCudaStagingDownload(borrow destination: GpuCudaStagingTicket, borrow source: GpuCudaStagingTicket,
+    offset: UInt64, operation: OperationContext) r: Result<Bool, GpuError> {
+    return gpuCudaStagingFrom(destination, source, offset, 2, operation)
+}

@@ -149,6 +149,60 @@ and exercises fast/ThinLTO Seen consumers including exact live-usage cleanup.
 This primitive is necessary for composing a pinned CUDA staging ring; it does
 not by itself provide that ring or certify unrelated backends.
 
+## Experimental owned CUDA staging
+
+`compute.cuda_staging.GpuCudaStagingRing.prepare(slotBytes, count, maxBytes)`
+creates the move-only cleanup owner and fixed metadata before acquiring native
+resources. `maxBytes` bounds pinned plus device payload, not just one side;
+count is at most 256. `ring.open(deviceOrdinal, operation)` explicitly selects
+CUDA and preallocates a pinned host allocation, device allocation and event per
+slot plus one private nonblocking stream. It composes existing version-1 CUDA
+owners and resource ABI, not a parallel allocator or stream stack.
+
+Open is a single native-initialization attempt. A cancelled preflight leaves the
+owner fresh. Any native initialization failure leaves every acquired prefix
+inside the caller's owner. The caller must close/release it even after a failed
+open. Close failures preserve their handles and wrappers for retry; successful
+close is idempotent. There is no fallible constructor that discards the only
+handle when cleanup also fails.
+
+`ring.reserve(bytes, operation)` returns a fixed-slot ticket. `ticket.write()`
+borrows a checked `Span<UInt8>` synchronously and tracks the contiguous initialized
+prefix; upload requires all payload bytes initialized. `gpuCudaStagingUpload`
+copies into that ticket's owned device backing. `gpuCudaStagingCopy(destination,
+source, offset, operation)` and `gpuCudaStagingDownload(...)` require completed
+device bytes and disjoint tickets from the same ring. Native transfers retain
+source readers until actual completion; a source close remains busy meanwhile.
+These APIs do not expose caller-owned allocations as untracked DMA pointers.
+
+Tickets record potential native ownership before entering CUDA. A copy or
+event-record error conservatively consumes the signal and poisons further
+admission; CUDA may be reporting an earlier asynchronous error. Pending owners
+must still be drained. `ticket.poll()` normally queries the preallocated event.
+If recording failed, it uses `seen_cuda_stream_query` on the private stream:
+an old/unrecorded event is never completion proof for new work. Query errors
+preserve pending owners and poison output; a later successful observation can
+retire resource use but cannot validate poisoned bytes. `ticket.retired()` lets
+the caller distinguish safe cleanup from valid output. Permanent native failures
+retain ownership rather than inventing completion or silently resetting a device.
+
+Completion does not recycle a consumer ticket. `ticket.read(MutableSpan<UInt8>,
+offset, operation)` synchronously copies valid completed download bytes to the
+caller; closing the ticket acknowledges consumption. Cleanup/polling ignores
+operation cancellation, while writes, reservations, reads and submissions check
+it. Late cancellation after accepted work carries the consumed signal in
+`GpuError.progress` and never revokes ownership. No fallback, per-copy allocation
+of native memory/events/streams, or event/stream/device synchronization is used.
+
+The default capped `seen_gpu_cuda_staging.sh` gate checks frontend and rejected
+move/sharing. `SEEN_CUDA_STAGING_HARDWARE=1` explicitly requires the RTX 4090 and
+executes byte parity, bounds, saturation, cancellation, partial initialization,
+potentially accepted copy errors, failed event recording, failed queries and
+retryable cleanup in fast, ThinLTO, UBSan and strict ASan, plus device memcheck.
+The hardware gate remains failing where native CUDA initialization fails under
+strict ASan; that failure is not skipped or treated as a pass. Passing other
+profiles or device memcheck does not imply complete sanitizer/hardware acceptance.
+
 ## Independent staging metadata
 
 `GpuStagingRing.create(capacity, slots)` bounds bytes, ticket count and metadata
