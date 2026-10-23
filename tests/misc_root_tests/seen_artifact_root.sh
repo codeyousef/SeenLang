@@ -10,6 +10,15 @@ SAFE_REBUILD="$ROOT_DIR/scripts/safe_rebuild.sh"
 TEST_PARENT="$ROOT_DIR/.seen/agent-tools/tests"
 FIXTURE_ROOT="$TEST_PARENT/artifact-root"
 HOST_TMP_EXEC=""
+# Standalone namespace probes must not inherit the rebuild driver's namespace
+# role. Keep its actual hard-memory/task limits and bindings unchanged; remove
+# only artifact-role metadata in these child environments before setting the
+# exact role under test. Otherwise a preflight forgery can take the rebuild
+# branch and fail before reaching the intended namespace-identity assertion.
+standalone_namespace=(env
+    -u SEEN_ARTIFACT_NAMESPACE_ACTIVE -u SEEN_REBUILD_WORK_ROOT
+    -u PROJECT_ARTIFACT_ROOT -u SEEN_PREFLIGHT_NAMESPACE_ACTIVE
+    -u SEEN_PREFLIGHT_WORK_ROOT -u SEEN_PREFLIGHT_OWNS_WORK_ROOT)
 
 fail() {
     printf 'FAIL: %s\n' "$*" >&2
@@ -138,7 +147,7 @@ if [ "$(uname -s)" = "Linux" ]; then
     forged_project_root="$FIXTURE_ROOT/forged-rebuild"
     forged_rebuild_root="$forged_project_root/safe-rebuild/run.forged"
     mkdir -p -- "$forged_rebuild_root"
-    if SEEN_ARTIFACT_ROOT="$forged_rebuild_root" \
+    if "${standalone_namespace[@]}" SEEN_ARTIFACT_ROOT="$forged_rebuild_root" \
         PROJECT_ARTIFACT_ROOT="$forged_project_root" \
         SEEN_ARTIFACT_NAMESPACE_ACTIVE=1 \
         SEEN_REBUILD_WORK_ROOT="$forged_rebuild_root" \
@@ -155,7 +164,7 @@ if [ "$(uname -s)" = "Linux" ]; then
     forged_preflight_root="$FIXTURE_ROOT/forged-preflight"
     forged_preflight_run="$forged_preflight_root/prebuild-gates/run.forged"
     mkdir -p -- "$forged_preflight_run"
-    if SEEN_ARTIFACT_ROOT="$forged_preflight_root" \
+    if "${standalone_namespace[@]}" SEEN_ARTIFACT_ROOT="$forged_preflight_root" \
         SEEN_PREFLIGHT_NAMESPACE_ACTIVE=1 \
         SEEN_PREFLIGHT_WORK_ROOT="$forged_preflight_run" \
         "$PREBUILD_GATES" --artifact-preflight \
@@ -263,7 +272,7 @@ if [ "$(uname -s)" = "Linux" ] && command -v bwrap >/dev/null 2>&1; then
 
     rebuild_root="$FIXTURE_ROOT/rebuild"
     preflight_output=$(
-        SEEN_ARTIFACT_ROOT="$rebuild_root" \
+        "${standalone_namespace[@]}" SEEN_ARTIFACT_ROOT="$rebuild_root" \
             "$ROOT_DIR/scripts/safe_rebuild.sh" --artifact-preflight
     )
     case "$preflight_output" in
@@ -341,7 +350,7 @@ if [ "$(uname -s)" = "Linux" ] && command -v bwrap >/dev/null 2>&1; then
     printf 'outside-stage3-sentinel\n' > "$external_cwd/stage3_head"
     external_preflight_output=$(
         cd -- "$external_cwd"
-        SEEN_ARTIFACT_ROOT="$rebuild_root" \
+        "${standalone_namespace[@]}" SEEN_ARTIFACT_ROOT="$rebuild_root" \
             "$ROOT_DIR/scripts/safe_rebuild.sh" --artifact-preflight
     )
     case "$external_preflight_output" in
@@ -358,7 +367,7 @@ if [ "$(uname -s)" = "Linux" ] && command -v bwrap >/dev/null 2>&1; then
 
     prebuild_root="$FIXTURE_ROOT/prebuild"
     prebuild_output=$(
-        SEEN_ARTIFACT_ROOT="$prebuild_root" \
+        "${standalone_namespace[@]}" SEEN_ARTIFACT_ROOT="$prebuild_root" \
             "$PREBUILD_GATES" --artifact-preflight
     )
     case "$prebuild_output" in

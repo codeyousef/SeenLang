@@ -47,6 +47,8 @@ Foundations**.
   at the reusable helper boundary. Cover native-status width boundaries.
 - Document asynchronous byte-stream ownership, partial progress and explicit
   cleanup, distinguishing direct-ready memory streams from OS completion I/O.
+- Isolate standalone artifact-namespace probes from inherited rebuild roles
+  without changing their real resource limits or production rejection guards.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
