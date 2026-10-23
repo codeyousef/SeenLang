@@ -5,11 +5,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 #define NEXT(name) __typeof__(&name) next = (__typeof__(&name))dlsym(RTLD_NEXT, #name); if (!next) abort()
 static void *live[4][256];
 static unsigned hosts, devices, streams, events, copies, records, event_queries, stream_queries;
 static unsigned failed, pending_once;
+static int late_clock;
 static int mode(const char *name) {
     const char *value = getenv("SEEN_CUDA_STAGING_FAULT");
     return value && strcmp(value, name) == 0;
@@ -81,6 +85,7 @@ cudaError_t CUDARTAPI cudaMemcpyAsync(void *to, const void *from, size_t bytes, 
 }
 cudaError_t CUDARTAPI cudaEventRecord(cudaEvent_t event, cudaStream_t stream) {
     ++records; NEXT(cudaEventRecord); cudaError_t status = next(event, stream);
+    if (status == cudaSuccess && mode("late-timeout")) late_clock = 1;
     if (status == cudaSuccess && once("record-error")) return cudaErrorUnknown;
     return status;
 }
@@ -102,6 +107,11 @@ cudaError_t CUDARTAPI cudaStreamSynchronize(cudaStream_t stream) {
 }
 cudaError_t CUDARTAPI cudaDeviceSynchronize(void) {
     fputs("FAIL: staging device synchronization\n", stderr); abort();
+}
+int clock_gettime(clockid_t clock, struct timespec *value) {
+    int status = (int)syscall(SYS_clock_gettime, clock, value);
+    if (!status && clock == CLOCK_MONOTONIC && late_clock) value->tv_sec += 2;
+    return status;
 }
 __attribute__((destructor)) static void require_drain(void) {
     for (unsigned k = 0; k < 4; ++k) for (unsigned i = 0; i < 256; ++i) if (live[k][i]) {

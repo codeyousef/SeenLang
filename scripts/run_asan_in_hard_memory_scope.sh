@@ -244,6 +244,7 @@ ulimit -S -v "$SANITIZER_VMEM_LIMIT_KB" 2>/dev/null ||
 active_soft_vmem_kb=$(ulimit -S -v 2>/dev/null || true)
 [ "$active_soft_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ] ||
     fail "the finite $shadow_label virtual-memory allowance failed exact read-back"
+printf 'sanitizer-vmem soft_kb=%s hard_kb=%s\n' "$active_soft_vmem_kb" "$active_hard_vmem_kb"
 
 if [ -n "$FIXTURE_PRELOAD" ]; then
     [ "$(sha256sum -- "$FIXTURE_PRELOAD" | cut -d ' ' -f1)" = "$FIXTURE_PRELOAD_SHA256" ] ||

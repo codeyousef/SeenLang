@@ -16,6 +16,8 @@ Foundations**.
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
   Private-stream observation drains uncertain event records without waiting.
+  Exercise CPU-only imports, cross-ring rejection, late-deadline ownership and
+  measured source coverage; retain native initialization failure diagnostics.
   Full hardware/sanitizer certification remains separate.
 - Add nonblocking CUDA event observation through the existing opt-in resource
   ABI and `CudaEvent.poll()`, preserving pending/error ownership without event,

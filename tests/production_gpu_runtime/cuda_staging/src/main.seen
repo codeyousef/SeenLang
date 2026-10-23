@@ -1,4 +1,5 @@
-import compute.cuda_staging.{GpuCudaStagingRing, GpuCudaStagingTicket, gpuCudaStagingUpload, gpuCudaStagingCopy, gpuCudaStagingDownload}
+import compute.cuda_staging.{GpuCudaStagingRing, GpuCudaStagingTicket, gpuCudaStagingUpload, gpuCudaStagingCopy, gpuCudaStagingDownload, gpuCudaStagingFailure}
+import accelerator.cuda.error.{CudaNativeStatus}
 import inference.span.{Span, MutableSpan}
 import memory.aligned_buffer.{OwnedBuffer}
 import core.result.{Result}
@@ -7,6 +8,7 @@ import core.operation_context.{OperationContext, OperationLimits}
 import core.error.{AsciiString}
 import env.env.{args, releaseArgs}
 extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
 
 fun done(value: Result<Bool, GpuError>, expected: Bool) r: Void {
     if value.isErr() { let error = value.unwrapErr(); println(error.operation); println(error.code); println(error.message); abort("CUDA staging operation failed") }
@@ -27,6 +29,24 @@ fun rejectedPrepare(value: Result<GpuCudaStagingRing, GpuError>) r: Void {
     if value.isOkay() { abort("invalid CUDA staging preparation succeeded") }
     let error = value.unwrapErr(); value.releaseContainer()
     if error.code != "gpu.limit" { abort("CUDA staging preparation diagnostic changed") }; error.release()
+}
+fun rejectReservation(value: Result<GpuCudaStagingTicket, GpuError>, code: String) r: Void {
+    if value.isOkay() { abort("invalid CUDA staging reservation succeeded") }
+    let error = value.unwrapErr(); value.releaseContainer()
+    if error.code != code { abort("CUDA reservation diagnostic changed") }; error.release()
+}
+fun classification() r: Void {
+    let codes = [1, 8, 2, 4, 7, 9, 5]
+    let expected = ["gpu.invalid", "gpu.invalid", "gpu.unsupported_capability", "gpu.out_of_memory", "gpu.busy", "gpu.limit", "gpu.unavailable"]
+    var index = 0
+    while index < codes.length() {
+        let status = CudaNativeStatus{code: codes[index] as Int32, nativeCode: 123 as Int32,
+            deviceOrdinal: 0 as Int32, maturity: 2 as Int32, operation: null as *const Char, message: null as *const Char}
+        let error = gpuCudaStagingFailure(status, "gpu.cuda.staging.fixture", 17 as UInt64)
+        if error.code != expected[index] or error.progress != (17 as UInt64) or error.nativeCode.unwrap() != (123 as Int64) { abort("CUDA native status classification changed") }
+        error.release(); index = index + 1
+    }
+    codes.free(); expected.free()
 }
 fun ready(borrow value: GpuCudaStagingTicket) r: Void {
     var fuel = 0
@@ -74,15 +94,35 @@ fun happy(borrow ring: GpuCudaStagingRing, op: OperationContext) r: Void {
         op.cancellation = true; ready(download)
         done(upload.release(), true); op.cancellation = false
         done(download.read(MutableSpan<UInt8>{data: host.data, length: 29 as UInt64}, 0 as UInt64, op), true)
+        op.cancellation = true
+        rejected(download.read(MutableSpan<UInt8>{data: host.data, length: 29 as UInt64}, 0 as UInt64, op), "gpu.cancelled")
+        op.cancellation = false
         index = 0
         while index < 29 { if host.data[index] != (255 - index - cycle) as UInt8 { abort("CUDA staging byte parity failed") }; index = index + 1 }
         // A completed download remains occupied until explicit consumer close.
         let replacement = ticket(ring.reserve(29 as UInt64, op))
+        rejected(gpuCudaStagingCopy(replacement, download, 0 as UInt64, op), "gpu.invalid")
+        done(replacement.close(), true); done(replacement.close(), false)
+        if replacement.valid() or replacement.reserved() or replacement.retired() { abort("closed CUDA ticket remained valid") }
+        rejected(replacement.poll(), "gpu.invalid")
+        rejected(replacement.write(Span<UInt8>{data: host.data as *const UInt8, length: 1 as UInt64}, 0 as UInt64, op), "gpu.invalid")
         done(replacement.release(), true)
         done(copied.release(), true); done(download.release(), true)
         cycle = cycle + 1
     }
     host.close(); host.free()
+}
+fun crossRing(borrow ring: GpuCudaStagingRing, op: OperationContext) r: Void {
+    let source = ticket(ring.reserve(1 as UInt64, op))
+    var byte = 213 as UInt8
+    done(source.write(Span<UInt8>{data: (&byte) as *const UInt8, length: 1 as UInt64}, 0 as UInt64, op), true)
+    done(gpuCudaStagingUpload(source, op), true); ready(source)
+    let prepared = GpuCudaStagingRing.prepare(64 as UInt64, 1, 128 as UInt64)
+    if prepared.isErr() { abort("second CUDA ring preparation failed") }
+    let other = prepared.unwrap(); prepared.releaseContainer(); done(other.open(0 as Int32, op), true)
+    let target = ticket(other.reserve(1 as UInt64, op))
+    rejected(gpuCudaStagingCopy(target, source, 0 as UInt64, op), "gpu.invalid")
+    done(target.release(), true); done(other.release(), true); done(source.release(), true)
 }
 fun drainFailed(borrow value: GpuCudaStagingTicket) r: Void {
     var fuel = 0
@@ -103,7 +143,19 @@ fun failureCycle(borrow ring: GpuCudaStagingRing, op: OperationContext, mode: St
     let host = storage.unwrap(); storage.releaseContainer(); var index = 0
     while index < 29 { host.data[index] = index as UInt8; index = index + 1 }
     done(source.write(Span<UInt8>{data: host.data as *const UInt8, length: 29 as UInt64}, 0 as UInt64, op), true)
-    if mode == "copy-second-error" {
+    if mode == "late-timeout" {
+        op.monotonicDeadline = seen_time_monotonic_nanos() + (1000000000 as Int64)
+        let submitted = gpuCudaStagingUpload(source, op)
+        if submitted.isOkay() { abort("late CUDA deadline was ignored") }
+        let error = submitted.unwrapErr(); submitted.releaseContainer()
+        if error.code != "gpu.timeout" or error.progress != (1 as UInt64) { abort("late CUDA cancellation lost accepted progress") }; error.release()
+        rejected(source.close(), "gpu.busy"); op.cancellation = true; ready(source)
+        op.cancellation = false; op.monotonicDeadline = 9223372036854775807 as Int64
+        let target = ticket(ring.reserve(29 as UInt64, op))
+        done(gpuCudaStagingDownload(target, source, 0 as UInt64, op), true); ready(target)
+        done(target.read(MutableSpan<UInt8>{data: host.data, length: 29 as UInt64}, 0 as UInt64, op), true)
+        done(target.release(), true); done(source.release(), true); host.close(); host.free(); return
+    } else if mode == "copy-second-error" {
         done(gpuCudaStagingUpload(source, op), true); ready(source)
         let target = ticket(ring.reserve(29 as UInt64, op))
         rejected(gpuCudaStagingCopy(target, source, 0 as UInt64, op), "gpu.unavailable")
@@ -125,6 +177,7 @@ fun failureCycle(borrow ring: GpuCudaStagingRing, op: OperationContext, mode: St
 }
 fun main() r: Int {
     let baseline = seen_memory_used_bytes(); let arguments = args()
+    classification()
     if arguments.length() != 2 { abort("CUDA staging requires explicit test mode") }
     let mode = arguments[1]
     let op = OperationContext{cancellation: false, monotonicDeadline: 9223372036854775807 as Int64,
@@ -139,17 +192,26 @@ fun main() r: Int {
     let prepared = GpuCudaStagingRing.prepare(64 as UInt64, 3, 512 as UInt64)
     if prepared.isErr() { abort("CUDA staging metadata unavailable") }
     let ring = prepared.unwrap(); prepared.releaseContainer()
+    rejectReservation(ring.reserve(1 as UInt64, op), "gpu.invalid")
+    rejected(ring.open(-1 as Int32, op), "gpu.invalid")
     op.cancellation = true; rejected(ring.open(0 as Int32, op), "gpu.cancelled"); op.cancellation = false
     let opened = ring.open(0 as Int32, op)
     if mode == "host-second" or mode == "event-second" {
         rejected(opened, "gpu.out_of_memory")
     } else {
         done(opened, true)
+        rejected(ring.open(0 as Int32, op), "gpu.invalid")
+        rejectReservation(ring.reserve(0 as UInt64, op), "gpu.invalid")
+        rejectReservation(ring.reserve(65 as UInt64, op), "gpu.invalid")
         if mode == "reference" { happy(ring, op) }
+        else if mode == "cross-ring" { crossRing(ring, op) }
         else if mode == "close-host" or mode == "close-stream" { rejected(ring.close(), "gpu.unavailable") }
         else { failureCycle(ring, op, mode) }
     }
-    done(ring.close(), true); done(ring.close(), false); done(ring.release(), true)
+    done(ring.close(), true); done(ring.close(), false)
+    rejected(ring.open(0 as Int32, op), "gpu.invalid")
+    rejectReservation(ring.reserve(1 as UInt64, op), "gpu.invalid")
+    done(ring.release(), true)
     op.traceId.free(); op.limits.free(); op.free(); releaseArgs(arguments)
     if seen_memory_used_bytes() != baseline { abort("CUDA pinned staging retained live allocation") }
     println("PASS: CUDA pinned staging H2D D2D D2H bounded tickets retained borrowers consumer acknowledgement and cold cleanup")

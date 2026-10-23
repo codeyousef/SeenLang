@@ -194,14 +194,23 @@ it. Late cancellation after accepted work carries the consumed signal in
 `GpuError.progress` and never revokes ownership. No fallback, per-copy allocation
 of native memory/events/streams, or event/stream/device synchronization is used.
 
-The default capped `seen_gpu_cuda_staging.sh` gate checks frontend and rejected
-move/sharing. `SEEN_CUDA_STAGING_HARDWARE=1` explicitly requires the RTX 4090 and
+The default capped `seen_gpu_cuda_staging.sh` gate checks frontend, rejected
+move/sharing and fast/ThinLTO execution of a CPU-only unused staging import.
+Its executable dependencies must not include accelerator libraries.
+`SEEN_CUDA_STAGING_HARDWARE=1` explicitly requires the RTX 4090 and
 executes byte parity, bounds, saturation, cancellation, partial initialization,
 potentially accepted copy errors, failed event recording, failed queries and
 retryable cleanup in fast, ThinLTO, UBSan and strict ASan, plus device memcheck.
+It also checks native error classification, closed tickets, cross-ring rejection
+and a deadline expiring after accepted work. Coverage requires at least 90% of
+owned source lines and 80% of branch directions, without excluding guard paths.
 The hardware gate remains failing where native CUDA initialization fails under
 strict ASan; that failure is not skipped or treated as a pass. Passing other
 profiles or device memcheck does not imply complete sanitizer/hardware acceptance.
+If the ASan consumer fails initialization, an independent C-only CUDA control
+records whether SDK startup also fails without Seen codegen/runtime or staging.
+It uses the same strict sanitizer runner; its result never replaces the original
+failure. Each executed case retains its own log and status, including failures.
 
 ## Independent staging metadata
 
