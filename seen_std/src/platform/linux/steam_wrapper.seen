@@ -214,7 +214,7 @@ class Steam {
         }
 
         // Check if we need to restart via Steam
-        if steam_restart_app_if_necessary(appId) {
+        if steam_restart_app_if_necessary(appId as Int) {
             return steamWrapperFailure<Steam>("initialize",
                 "application must be launched through Steam")
         }

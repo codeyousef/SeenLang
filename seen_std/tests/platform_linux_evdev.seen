@@ -24,7 +24,7 @@ import platform.linux.evdev.{
     LIBEVDEV_READ_STATUS_SUCCESS, LIBEVDEV_READ_STATUS_SYNC,
     DEVICE_TYPE_KEYBOARD, DEVICE_TYPE_MOUSE, DEVICE_TYPE_GAMEPAD,
     DEVICE_TYPE_TOUCHSCREEN, DEVICE_TYPE_TABLET, DEVICE_TYPE_TOUCHPAD,
-    InputEvent, listInputDevices
+    InputEvent, listInputDevices, evdevFailure
 }
 
 var testsPassed: Int = 0
@@ -267,6 +267,14 @@ fun testListInputDevices() -> Void {
     expect(paths[31] == "/dev/input/event31", "Last path should be /dev/input/event31")
 }
 
+fun testNativeFailureCode(status: Int32, expected: Int64) -> Void {
+    let failure = evdevFailure<Int>("poll", "software native-status fixture", status as Int)
+    expect(failure.isErr(), "native failure must remain an error")
+    let error = failure.unwrapErr()
+    expect(error.nativeCode.isSome(), "a real native status must be retained")
+    expect(error.nativeCode.unwrap() == expected, "signed Int32 native status must widen without changing its value")
+}
+
 fun main() -> Int {
     println("=== evdev FFI Bindings E2E Tests ===")
     println("")
@@ -284,6 +292,10 @@ fun main() -> Int {
     testDeviceTypeFlags()
     testInputEventClass()
     testListInputDevices()
+    // Software ABI checks only: these do not open or poll a physical device.
+    testNativeFailureCode(-1 as Int32, -1 as Int64)
+    testNativeFailureCode(-2147483648 as Int32, -2147483648 as Int64)
+    testNativeFailureCode(2147483647 as Int32, 2147483647 as Int64)
 
     println("")
     println("=== Test Summary ===")

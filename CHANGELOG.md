@@ -42,6 +42,9 @@ Foundations**.
 - Preserve concrete Option payload layouts through both default-value call
   paths, loading only present payloads and merging typed String, scalar and
   aggregate values instead of eagerly selecting erased integer words.
+- Preserve signed evdev statuses through structured errors, report allocation
+  failures without invented native codes, and explicitly widen Steam app IDs
+  at the reusable helper boundary. Cover native-status width boundaries.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
