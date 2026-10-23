@@ -1,0 +1,32 @@
+// Owned by seen_time_contract.sh: deterministic inputs must precede main.
+import time.time.{nowSeconds, nowMillis, parseTimestamp, since}
+import env.env.{set, remove}
+
+fun expect(condition: Bool, message: String) -> Void {
+    if not condition {
+        abort(message)
+    }
+}
+
+fun main() -> Int {
+    expect(nowSeconds() == 42, "nowSeconds should honor SOURCE_DATE_EPOCH")
+    expect(nowMillis() == 42000, "nowMillis should convert to milliseconds")
+    expect(parseTimestamp("-10") == -10, "parseTimestamp negative mismatch")
+
+    let start = nowSeconds()
+    let elapsed = since(start)
+    expect(elapsed.totalSeconds() == 0, "deterministic since should be zero")
+    expect(elapsed.totalMilliseconds() == 0, "totalMilliseconds mismatch")
+
+    expect(not set("SOURCE_DATE_EPOCH", "43"), "captured environment is read-only")
+    expect(not set("SEEN_DETERMINISTIC", "0"), "deterministic mode cannot be disabled")
+    expect(nowSeconds() == 42, "startup time inputs must remain captured")
+    expect(nowMillis() == 42000, "environment mutation must not retime clocks")
+
+    expect(not remove("SEEN_DETERMINISTIC"), "mode removal must be rejected")
+    expect(not remove("SOURCE_DATE_EPOCH"), "epoch removal must be rejected")
+    expect(nowSeconds() == 42, "removal attempts must not unpin startup time")
+
+    println("PASS: deterministic startup time compatibility")
+    return 0
+}

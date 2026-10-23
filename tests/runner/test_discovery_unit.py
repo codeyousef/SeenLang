@@ -113,13 +113,14 @@ class TestDiscoveryTests(unittest.TestCase):
             self.assertTrue(DISCOVERY.expected_category(f"{root}/sample_support_test.seen"))
             self.assertTrue(DISCOVERY.expected_category(f"{root}/sample_fixture_test.seen"))
 
-    def test_argument_driven_programs_keep_runnable_owners(self) -> None:
+    def test_harness_driven_programs_keep_runnable_owners(self) -> None:
         paths = {entry["path"]: entry for entry in DISCOVERY.discover(ROOT)["tests"]}
         cases = (
             ("async/io_completion_stress_fixture.seen", "seen_async_reactor_contract.sh"),
             ("async/io_completion_stress_fixture.seen", "seen_async_stress_contract.sh"),
             ("json/large_object_release_fixture.seen", "seen_json_large_object_release.sh"),
             ("memory/uint8_pointer_deref_fixture.seen", "seen_open_issue_regressions.sh"),
+            ("time_basic_fixture.seen", "seen_time_contract.sh"),
         )
         for fixture, owner_name in cases:
             fixture_path = "seen_std/tests/" + fixture
@@ -137,6 +138,24 @@ class TestDiscoveryTests(unittest.TestCase):
             self.assertIn(path, paths)
             self.assertFalse(paths[path]["ignored"])
             self.assertIn("import " + helper + ".", (ROOT / path).read_text())
+
+    def test_startup_clock_owner_keeps_bounded_inputs_and_attestation(self) -> None:
+        owner = (ROOT / "tests/misc_root_tests/seen_time_contract.sh").read_text()
+        for token in ("SEEN_ATTESTED_COMPILER_RUNNER", "--verify-active",
+                      "env -i", "SEEN_DETERMINISTIC=1", "SOURCE_DATE_EPOCH=42",
+                      "SEEN_DETERMINISTIC_SEED=0", "SEEN_HASH_SEED=0",
+                      "TZ=UTC", "LANG=C", "LC_ALL=C",
+                      'SEEN_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:?}"',
+                      "SEEN_JOBS=1", "SEEN_OPT_JOBS=1"):
+            self.assertIn(token, owner)
+        self.assertNotIn("--jobs 1", owner)
+        launch_loop = owner.index("    for mode in fast release; do")
+        for mode in ("fast", "release"):
+            audit = f'bash "$BASELINE_CHECKER" "$RELEASE_TARGET_CPU" "$WORK_DIR/$name-{mode}"'
+            self.assertLess(owner.index(audit), launch_loop)
+        fixture = (ROOT / "seen_std/tests/time_basic_fixture.seen").read_text()
+        self.assertNotIn('set("SEEN_DETERMINISTIC", "1")', fixture)
+        self.assertIn('expect(not set("SOURCE_DATE_EPOCH", "43")', fixture)
 
 
 if __name__ == "__main__":

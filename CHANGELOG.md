@@ -33,6 +33,9 @@ Foundations**.
   or resolving a missing method against an unrelated same-named class.
 - Keep HashSet constructor type arguments explicit and give the basic file-I/O
   fixture newly owned ignored scratch independent of the package working directory.
+- Launch deterministic time compatibility tests with bounded startup inputs,
+  preserving immutable clock capture and auditing fast and ThinLTO executables
+  before execution through the attested time-contract harness.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
