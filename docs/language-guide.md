@@ -527,6 +527,15 @@ let p = Point.new(3.0, 4.0)
 println("Distance: {p.distanceTo(Point.new(0.0, 0.0))}")
 ```
 
+Use `{{` and `}}` for literal braces. This also applies to embedded JSON:
+
+```seen
+let document = "{{\"params\":{{}}}}"  // Decodes to {"params":{}}
+```
+
+When testing a parser, check the decoded input bytes rather than assuming
+the source literal has the same brace count.
+
 ## Arrays and Collections
 
 ### Array literals

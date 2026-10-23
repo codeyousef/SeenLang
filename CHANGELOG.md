@@ -19,6 +19,8 @@ Foundations**.
   bounded LLVM tools.
 - Keep expected allocator-abort inputs under their dedicated native harness
   instead of discovering them as exit-zero unit tests.
+- Correct JSON-RPC and nesting-budget fixture brace escapes and assert their
+  decoded input bytes before testing parser behavior.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
