@@ -547,6 +547,7 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_cuda_event_query.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_cuda_staging.sh"
+bash "$REPO_ROOT/tests/misc_root_tests/seen_asan_address_layout.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_generic_reprc_abi.sh"
 COMPILER="$REAL_COMPILER" \

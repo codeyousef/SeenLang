@@ -204,9 +204,19 @@ retryable cleanup in fast, ThinLTO, UBSan and strict ASan, plus device memcheck.
 It also checks native error classification, closed tickets, cross-ring rejection
 and a deadline expiring after accepted work. Coverage requires at least 90% of
 owned source lines and 80% of branch directions, without excluding guard paths.
-The hardware gate remains failing where native CUDA initialization fails under
-strict ASan; that failure is not skipped or treated as a pass. Passing other
-profiles or device memcheck does not imply complete sanitizer/hardware acceptance.
+CUDA host ASan uses an explicit `--address-layout cuda`: NVIDIA documents that
+CUDA requires the default shadow gap as application address space. LLVM maps
+additional shadow for that range with `protect_shadow_gap=0`; heap poisoning,
+redzones, quarantine, leak detection and error exits remain enabled. The default
+runner layout remains protected and unchanged. The `seen_asan_address_layout.sh`
+contract requires both layouts to detect heap/UAF/stack/global/leak errors, and
+requires poison detection within the newly supported gap mapping itself.
+See [NVIDIA's ASan build instructions](https://github.com/NVIDIA/nccl/blob/master/makefiles/common.mk)
+and [LLVM's shadow setup](https://github.com/llvm/llvm-project/blob/release/21.x/compiler-rt/lib/asan/asan_shadow_setup.cpp).
+This resolves the independently reproduced startup OOM, but the hardware gate
+still fails on an independently reproduced native-library leak. No leak is
+suppressed or counted as a pass. Passing other profiles or device memcheck does
+not imply complete sanitizer/hardware acceptance.
 If the ASan consumer fails initialization, an independent C-only CUDA control
 records whether SDK startup also fails without Seen codegen/runtime or staging.
 It uses the same strict sanitizer runner; its result never replaces the original

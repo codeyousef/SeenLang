@@ -42,6 +42,7 @@ timeout --foreground --kill-after=5s 60s clang -std=c11 -Wall -Wextra -Werror -f
 timeout --foreground --kill-after=5s 60s clang -std=c11 -Wall -Wextra -Werror -fPIC -shared -fsanitize=address \
     -I /opt/cuda/include "$ROOT_DIR/tests/production_gpu_runtime/cuda_staging_fault.c" -ldl -o "$TMP_DIR/staging-fault-address.so"
 FIXTURE_ASAN_PRELOAD_LIBRARY="$TMP_DIR/staging-fault-address.so"
+FIXTURE_ASAN_ADDRESS_LAYOUT=cuda
 staging_modes=(reference host-second event-second copy-error record-error query-error close-host close-stream copy-second-error cross-ring late-timeout)
 run_staging_modes() {
     local profile=$1 name=$2 mode status
@@ -65,7 +66,7 @@ diagnose_cuda_asan_initialization() {
         -L /opt/cuda/lib64 -Wl,-rpath,/opt/cuda/lib64 -lcudart -o "$TMP_DIR/cuda-init-control") \
         > "$TMP_DIR/cuda-init-control.compile.log" 2>&1 || return
     timeout --foreground --kill-after=5s 120s bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
-        --target-root "$TMP_DIR" --compile-log "$TMP_DIR/cuda-init-control.compile.log" \
+        --address-layout cuda --target-root "$TMP_DIR" --compile-log "$TMP_DIR/cuda-init-control.compile.log" \
         -- "$TMP_DIR/cuda-init-control" > "$TMP_DIR/cuda-init-control.run.log" 2>&1 || status=$?
     printf '%s\n' "$status" > "$TMP_DIR/cuda-init-control.status" || return
     echo "Independent native CUDA/ASan initialization diagnostic status=$status; original staging failure remains authoritative" >&2

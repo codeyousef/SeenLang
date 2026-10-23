@@ -54,6 +54,7 @@ run_fixture() {
                 --fixture-preload-sha256 "$(sha256sum -- "$FIXTURE_ASAN_PRELOAD_LIBRARY" | cut -d ' ' -f1)")
         fi
         timeout --foreground --kill-after=5s "${FIXTURE_RUN_SECONDS}s" bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
+            --address-layout "${FIXTURE_ASAN_ADDRESS_LAYOUT:-default}" \
             --target-root "$TMP_DIR" --compile-log "$log" "${preload_args[@]}" -- "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1 || status=$?
     else
         UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0 \

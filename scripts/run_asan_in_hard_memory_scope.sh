@@ -15,6 +15,7 @@ ASAN_VMEM_LIMIT_KB=68719476736
 TSAN_VMEM_LIMIT_KB=137438953472
 SANITIZER=address
 SANITIZER_VMEM_LIMIT_KB=$ASAN_VMEM_LIMIT_KB
+ADDRESS_LAYOUT=default
 MAX_COMPILE_LOG_BYTES=16777216
 
 fail() {
@@ -38,6 +39,11 @@ while [ "$#" -gt 0 ]; do
         --sanitizer)
             [ "$#" -ge 2 ] || fail "--sanitizer requires a value"
             SANITIZER=$2
+            shift 2
+            ;;
+        --address-layout)
+            [ "$#" -ge 2 ] && [ "$ADDRESS_LAYOUT" = default ] || fail "--address-layout requires one value"
+            ADDRESS_LAYOUT=$2
             shift 2
             ;;
         --target-root)
@@ -74,6 +80,19 @@ case "$SANITIZER" in
         SANITIZER_VMEM_LIMIT_KB=$TSAN_VMEM_LIMIT_KB
         ;;
     *) fail "--sanitizer must be address or thread" ;;
+esac
+case "$ADDRESS_LAYOUT" in
+    default) address_layout_options=protect_shadow_gap=1 ;;
+    cuda)
+        [ "$SANITIZER" = address ] || fail "CUDA address layout requires AddressSanitizer"
+        # CUDA uses addresses in ASan's default inaccessible shadow gap. LLVM
+        # maps additional shadow for this application range in this mode:
+        # compiler-rt/lib/asan/asan_shadow_setup.cpp, ProtectGap(). It does not
+        # disable poisoning, redzones, quarantine, error exits or leak checks.
+        # NVIDIA/nccl makefiles/common.mk documents the CUDA startup requirement.
+        address_layout_options=protect_shadow_gap=0
+        ;;
+    *) fail "--address-layout must be default or cuda" ;;
 esac
 [ -n "$TARGET_ROOT" ] && [ -n "$COMPILE_LOG" ] && [ "$#" -ge 1 ] ||
     fail "usage: $0 --target-root DIR --compile-log FILE -- /absolute/generated/executable [args...]"
@@ -245,6 +264,7 @@ active_soft_vmem_kb=$(ulimit -S -v 2>/dev/null || true)
 [ "$active_soft_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ] ||
     fail "the finite $shadow_label virtual-memory allowance failed exact read-back"
 printf 'sanitizer-vmem soft_kb=%s hard_kb=%s\n' "$active_soft_vmem_kb" "$active_hard_vmem_kb"
+printf 'sanitizer-address-layout=%s %s\n' "$ADDRESS_LAYOUT" "$address_layout_options"
 
 if [ -n "$FIXTURE_PRELOAD" ]; then
     [ "$(sha256sum -- "$FIXTURE_PRELOAD" | cut -d ' ' -f1)" = "$FIXTURE_PRELOAD_SHA256" ] ||
@@ -258,7 +278,7 @@ exec env \
     -u SEEN_FORK_SERIALIZER_ROOT_PID \
     -u LSAN_OPTIONS \
     -u ASAN_SYMBOLIZER_PATH \
-    ASAN_OPTIONS=abort_on_error=1:halt_on_error=1:detect_leaks=1:symbolize=0 \
+    ASAN_OPTIONS="abort_on_error=1:halt_on_error=1:detect_leaks=1:symbolize=0:$address_layout_options" \
     LSAN_OPTIONS=exitcode=23 \
     UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0 \
     TSAN_OPTIONS=halt_on_error=1:exitcode=66:report_signal_unsafe=1 \

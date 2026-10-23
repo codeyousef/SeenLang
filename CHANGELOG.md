@@ -19,6 +19,9 @@ Foundations**.
   Exercise CPU-only imports, cross-ring rejection, late-deadline ownership and
   measured source coverage; retain native initialization failure diagnostics.
   Full hardware/sanitizer certification remains separate.
+- Add an explicit CUDA-compatible ASan shadow layout, retaining strict leak and
+  access checks and fixed resource limits. Negative controls verify ordinary and
+  newly shadowed address ranges; native-library leaks remain acceptance failures.
 - Add nonblocking CUDA event observation through the existing opt-in resource
   ABI and `CudaEvent.poll()`, preserving pending/error ownership without event,
   stream or device synchronization. Include pinned-byte hardware round trips

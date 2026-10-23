@@ -112,6 +112,7 @@ STANDALONE_COMPILER_TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_parallel_for_codegen_regression.sh"
 )
 PLATFORM_TARGETS=(
+    "$ROOT_DIR/tests/misc_root_tests/seen_asan_address_layout.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_executor_native_abi.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_vk_readback_shim.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_macos_package_client_packaging.sh"
@@ -189,6 +190,10 @@ for required in \
 
     grep -Fq -- "$required" "$ASAN_RUNNER" ||
         fail "bounded ASan runner omitted $required"
+done
+for required in 'ADDRESS_LAYOUT=default' 'protect_shadow_gap=1' 'protect_shadow_gap=0' \
+    'CUDA address layout requires AddressSanitizer' 'sanitizer-address-layout='; do
+    grep -Fq -- "$required" "$ASAN_RUNNER" || fail "ASan address-layout policy omitted $required"
 done
 if rg -n 'ulimit[[:space:]]+-S[[:space:]]+-v[[:space:]]+(unlimited|0)' \
     "$ASAN_RUNNER"; then
