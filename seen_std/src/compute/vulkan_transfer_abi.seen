@@ -1,0 +1,113 @@
+/// Vulkan 1.2 copy ABI. Aggregate and out-parameter pointers are synchronous
+/// SDK borrows; native command buffers retain resource handles, not pointers.
+@repr(C)
+class VulkanCopyPoolInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var flags: UInt32
+    var queueFamilyIndex: UInt32
+}
+@repr(C)
+class VulkanCopyAllocateInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var commandPool: UInt64
+    var level: UInt32
+    var commandBufferCount: UInt32
+}
+@repr(C)
+class VulkanCopyBeginInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var flags: UInt32
+    var inheritance: *Void
+}
+@repr(C)
+class VulkanCopySemaphoreType {
+    var sType: UInt32
+    var pNext: *Void
+    var semaphoreType: UInt32
+    var initialValue: UInt64
+}
+@repr(C)
+class VulkanCopySemaphoreInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var flags: UInt32
+}
+@repr(C)
+class VulkanCopyRegion {
+    var srcOffset: UInt64
+    var dstOffset: UInt64
+    var size: UInt64
+}
+@repr(C)
+class VulkanCopyBarrier {
+    var sType: UInt32
+    var pNext: *Void
+    var srcAccessMask: UInt32
+    var dstAccessMask: UInt32
+    var srcQueueFamilyIndex: UInt32
+    var dstQueueFamilyIndex: UInt32
+    var buffer: UInt64
+    var offset: UInt64
+    var size: UInt64
+}
+@repr(C)
+class VulkanCopyTimelineInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var waitCount: UInt32
+    var waitValues: *const UInt64
+    var signalCount: UInt32
+    var signalValues: *const UInt64
+}
+@repr(C)
+class VulkanCopySubmitInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var waitCount: UInt32
+    var waitSemaphores: *const UInt64
+    var waitStages: *const UInt32
+    var commandCount: UInt32
+    var commands: *const UInt64
+    var signalCount: UInt32
+    var signalSemaphores: *const UInt64
+}
+@repr(C)
+class VulkanCopyWaitInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var flags: UInt32
+    var count: UInt32
+    var semaphores: *const UInt64
+    var values: *const UInt64
+}
+extern "C" fun vkGetDeviceQueue(device: UInt64, family: UInt32, index: UInt32, queue: *UInt64) r: Void
+extern "C" fun vkCreateCommandPool(device: UInt64, info: *const VulkanCopyPoolInfo, allocator: *Void, pool: *UInt64) r: Int32
+extern "C" fun vkDestroyCommandPool(device: UInt64, pool: UInt64, allocator: *Void) r: Void
+extern "C" fun vkAllocateCommandBuffers(device: UInt64, info: *const VulkanCopyAllocateInfo, commands: *UInt64) r: Int32
+extern "C" fun vkResetCommandBuffer(command: UInt64, flags: UInt32) r: Int32
+extern "C" fun vkBeginCommandBuffer(command: UInt64, info: *const VulkanCopyBeginInfo) r: Int32
+extern "C" fun vkEndCommandBuffer(command: UInt64) r: Int32
+extern "C" fun vkCreateSemaphore(device: UInt64, info: *const VulkanCopySemaphoreInfo, allocator: *Void, semaphore: *UInt64) r: Int32
+extern "C" fun vkDestroySemaphore(device: UInt64, semaphore: UInt64, allocator: *Void) r: Void
+extern "C" fun vkCmdCopyBuffer(command: UInt64, source: UInt64, destination: UInt64, count: UInt32, regions: *const VulkanCopyRegion) r: Void
+extern "C" fun vkCmdPipelineBarrier(command: UInt64, srcStages: UInt32, dstStages: UInt32,
+    flags: UInt32, memoryCount: UInt32, memory: *Void, bufferCount: UInt32,
+    buffers: *const VulkanCopyBarrier, imageCount: UInt32, images: *Void) r: Void
+extern "C" fun vkQueueSubmit(queue: UInt64, count: UInt32, infos: *const VulkanCopySubmitInfo, fence: UInt64) r: Int32
+extern "C" fun vkWaitSemaphores(device: UInt64, info: *const VulkanCopyWaitInfo, timeout: UInt64) r: Int32
+
+fun gpuVkCopyBarrier(command: UInt64, buffer: UInt64, offset: UInt64, bytes: UInt64,
+    sourceAccess: UInt32, destinationAccess: UInt32, before: Bool) r: Void {
+    let range = VulkanCopyBarrier{sType: 44 as UInt32, pNext: null as *Void,
+        srcAccessMask: sourceAccess, dstAccessMask: destinationAccess,
+        srcQueueFamilyIndex: 4294967295 as UInt32, dstQueueFamilyIndex: 4294967295 as UInt32,
+        buffer: buffer, offset: offset, size: bytes}
+    var sourceStage = 81920 as UInt32; var destinationStage = 4096 as UInt32
+    if not before { sourceStage = 4096 as UInt32; destinationStage = 81920 as UInt32 }
+    vkCmdPipelineBarrier(command, sourceStage, destinationStage, 0 as UInt32,
+        0 as UInt32, null as *Void, 1 as UInt32, (&range) as *const VulkanCopyBarrier,
+        0 as UInt32, null as *Void)
+}

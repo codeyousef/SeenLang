@@ -192,7 +192,7 @@ class GpuVulkanProvider {
         var index = 0
         while index < this.records.length() {
             let record = this.records[index]
-            if record.ordinal == ordinal { return gpuVkCreateResourceProvider(native, this.domain, record.metadata) }
+            if record.ordinal == ordinal { return gpuVkCreateResourceProvider(native, this.domain, record.metadata, record.family) }
             index = index + 1
         }
         return Err<GpuResourceProviderHandle, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.memory", "resource provider device ordinal is not admitted"))

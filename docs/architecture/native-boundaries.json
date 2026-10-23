@@ -14,25 +14,35 @@
     {
       "id": "accelerator-vulkan-device-ffi",
       "subsystem": "stdlib.compute.vulkan",
-      "purpose": "Direct Vulkan 1.2 ABI. Seen owns discovery, memory selection, quotas, pools, map leases, cache visibility and cleanup. SDK argument pointers expire on return; mapped pointers live until the last checked block view closes. Noncoherent maps exclude other block borrows. Failed flush retains ownership. SDK layout, fault and Mesa lifecycle tests cover Linux x86-64; no hardware certification. Permanent vendor ABI without foreign policy.",
+      "purpose": "Direct Vulkan 1.2 ABI. Seen owns discovery, memory selection, quotas, pools, map leases, cache visibility, bounded copy commands and private timelines. SDK pointers expire on return; buffer leases survive accepted or uncertain submission until native completion. Noncoherent maps exclude other block borrows; failed flush retains ownership. SDK layout, fault and Mesa lifecycle tests cover Linux x86-64; no hardware certification. Permanent vendor ABI without foreign policy.",
       "abi": "Vulkan 1.2 C",
       "platforms": [
         "linux-x86_64"
       ],
       "symbols": [
+        "vkAllocateCommandBuffers",
         "vkAllocateMemory",
+        "vkBeginCommandBuffer",
         "vkBindBufferMemory",
+        "vkCmdCopyBuffer",
+        "vkCmdPipelineBarrier",
         "vkCreateBuffer",
+        "vkCreateCommandPool",
         "vkCreateDevice",
         "vkCreateInstance",
+        "vkCreateSemaphore",
         "vkDestroyBuffer",
+        "vkDestroyCommandPool",
         "vkDestroyDevice",
         "vkDestroyInstance",
+        "vkDestroySemaphore",
+        "vkEndCommandBuffer",
         "vkEnumerateInstanceVersion",
         "vkEnumeratePhysicalDevices",
         "vkFlushMappedMemoryRanges",
         "vkFreeMemory",
         "vkGetBufferMemoryRequirements",
+        "vkGetDeviceQueue",
         "vkGetPhysicalDeviceFeatures",
         "vkGetPhysicalDeviceFeatures2",
         "vkGetPhysicalDeviceMemoryProperties",
@@ -40,7 +50,10 @@
         "vkGetPhysicalDeviceQueueFamilyProperties",
         "vkInvalidateMappedMemoryRanges",
         "vkMapMemory",
-        "vkUnmapMemory"
+        "vkQueueSubmit",
+        "vkResetCommandBuffer",
+        "vkUnmapMemory",
+        "vkWaitSemaphores"
       ],
       "production": false
     },

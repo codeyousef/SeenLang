@@ -61,6 +61,8 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_b.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_staging_foundations.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_vulkan_mapping.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_vulkan_transfer.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_compiled_fixture_status.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_select_guard_safety.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_dyn_trait_void_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"

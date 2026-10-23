@@ -36,6 +36,54 @@ partial-view byte parity, cache visibility, malformed native results, failed
 flush retry, rejected aliases and cold cleanup in fast, ThinLTO, ASan and UBSan.
 This is software-reference evidence, not physical-device certification.
 
+## Native asynchronous byte copies
+
+`compute.vulkan_transfer.GpuVulkanCopyQueue.open(allocator, slots, operation)`
+borrows the explicitly selected Vulkan context and preallocates a command pool,
+up to 256 command buffers (also bounded by the context limit), and one private
+timeline semaphore. The selected queue family comes from device discovery,
+never a guessed index. Timeline support must have been enabled during context
+creation. There is no backend or memory-kind fallback.
+
+`gpuVkCopy(queue, source, sourceOffset, destination, destinationOffset, bytes,
+operation)` copies bytes independently of the two buffers' element types. It
+checks logical bounds, context identity, native overlap, aliases, metadata
+headroom and queue capacity before submission. Source read and destination
+exclusive-write leases are retained by the queue. Buffer/context destruction
+and conflicting host mappings remain busy until native completion is observed.
+The queue records range-specific transfer/host visibility barriers, not a
+per-copy fence or a device/queue-wide idle wait.
+
+Successful submission returns the next private timeline value. OOM submission
+failure releases the unaccepted leases and leaves that signal reusable. Other
+submission failures retain potentially accepted work, poison further admission
+and report its signal in `GpuError.progress`; callers must still drain it.
+Cancellation/deadline expiry before submission releases unsubmitted leases.
+Expiry during or after accepted submission cannot revoke native ownership.
+
+`queue.poll(signal)` uses a zero-timeout timeline query: `false` retains pending
+owners; observed completion retires leases for this and earlier signals. Cleanup
+does not consult the cancelled operation. A device-lost observation retires the
+corresponding native resource use but returns an error, never correct output;
+subsequent admission remains poisoned. Other observation failures preserve work
+for retry. Shutdown is deterministic and idempotent, and rejects pending work.
+Queue owners are creator-confined, not a cross-thread submission API.
+
+Host-visible/coherent buffers provide explicit Vulkan staging storage; supported
+`Unified` buffers require actual device-local plus host-visible memory flags.
+This does not promise fault-driven managed migration, universal zero-copy,
+OS page-locking APIs or performance. `GpuStagingRing` below remains independent
+metadata: a transfer engine must compose its tickets with its own private native
+timeline and backing buffer before claiming an integrated pinned ring.
+
+Run `bash tests/misc_root_tests/seen_gpu_vulkan_transfer.sh` through the attested
+capped path. Its software ICD checks byte parity, command reuse, cold cleanup,
+fault-prefix cleanup, OOM retry, uncertain submission, completion failure,
+late deadlines and source coverage. Native-call traces reject per-copy command,
+semaphore or memory creation, fences and global idle waits. Such traces describe
+SDK calls made by Seen, not every internal driver allocation. Physical-device,
+benchmark and other-platform certification are separate evidence.
+
 `GpuStagingRing.create(capacity, slots)` bounds bytes, ticket count and metadata
 before admission. Free-range records are prepared up front. `reserve(bytes,
 alignment, operation)` checks cancellation, deadline, alignment, capacity and

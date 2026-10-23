@@ -35,8 +35,11 @@ trait GpuResourceProvider {
 @move
 class GpuResourceProviderHandle {
     var value: dyn GpuResourceProvider
+    /// SDK queue metadata is absent for a provider without native submission.
+    var nativeQueue: UInt64
+    var queueFamily: UInt32
     static fun create(provider: dyn GpuResourceProvider) r: GpuResourceProviderHandle {
-        return GpuResourceProviderHandle{value: provider}
+        return GpuResourceProviderHandle{value: provider, nativeQueue: 0 as UInt64, queueFamily: 0 as UInt32}
     }
     fun release() r: Void {
         this.value.release(); releaseTraitDispatchBox(this.value as UInt64); this.free()

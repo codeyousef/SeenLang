@@ -1,0 +1,111 @@
+import compute.vulkan_transfer.{GpuVulkanCopyQueue, gpuVkCopy, GPU_VULKAN_COPY_MAX_SIGNAL}
+import compute.vulkan_mapping.{gpuVkMapBuffer, GpuVulkanMappedRegion}
+import compute.allocator.{GpuAllocator}
+import compute.buffer.{GpuBuffer}
+import compute.error.{GpuError}
+import compute.memory_kind.{GpuMemoryKind}
+import core.result.{Result}
+import vulkan_mapping_fixture_support.{mappingWorld}
+import provider_fixture_support.{completed}
+import device_fixture_support.{gpuFixtureRejected}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+extern "C" fun seen_memory_limit_bytes() r: Int64
+extern "C" fun seen_memory_set_limit_bytes(bytes: Int64) r: Void
+
+fun rejectOpen(result: Result<GpuVulkanCopyQueue, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid copy queue admission accepted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("copy admission diagnostic changed") }
+    error.release()
+}
+fun rejectCopy(result: Result<UInt64, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid copy geometry or owner accepted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("copy geometry diagnostic changed") }
+    error.release()
+}
+fun mapped(result: Result<GpuVulkanMappedRegion, GpuError>) r: GpuVulkanMappedRegion {
+    if result.isErr() { abort("copy adverse map rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let world = mappingWorld(GpuMemoryKind.HostCoherent)
+    let op = world.operation; let allocator = world.allocator
+    rejectOpen(GpuVulkanCopyQueue.open(allocator, 0, op), "gpu.limit")
+    rejectOpen(GpuVulkanCopyQueue.open(allocator, 257, op), "gpu.limit")
+    rejectOpen(GpuVulkanCopyQueue.open(allocator, 65, op), "gpu.limit")
+    let previous = seen_memory_limit_bytes()
+    seen_memory_set_limit_bytes(seen_memory_used_bytes() + seen_memory_reserved_bytes() + (8192 as Int64))
+    let denied = GpuVulkanCopyQueue.open(allocator, 1, op)
+    seen_memory_set_limit_bytes(previous); rejectOpen(denied, "gpu.limit")
+    op.cancellation = true
+    rejectOpen(GpuVulkanCopyQueue.open(allocator, 1, op), "gpu.cancelled")
+    op.cancellation = false
+    let opened = GpuVulkanCopyQueue.open(allocator, 1, op)
+    if opened.isErr() { abort("bounded adverse copy queue unavailable") }
+    let queue = opened.unwrap(); opened.releaseContainer()
+    gpuFixtureRejected(queue.prepare(1, 0 as UInt32, op), "gpu.invalid")
+    gpuFixtureRejected(queue.poll(0 as UInt64), "gpu.invalid")
+    gpuFixtureRejected(queue.poll(1 as UInt64), "gpu.invalid")
+    let a = GpuBuffer<UInt32>.allocate(allocator, 16 as UInt64, 4 as UInt64, 256 as UInt64, op)
+    let b = GpuBuffer<UInt8>.allocate(allocator, 64 as UInt64, 1 as UInt64, 256 as UInt64, op)
+    if a.isErr() or b.isErr() { abort("adverse typed copy buffers unavailable") }
+    let source = a.unwrap(); let destination = b.unwrap(); a.releaseContainer(); b.releaseContainer()
+    let writer = mapped(gpuVkMapBuffer(source, 0 as UInt64, 64 as UInt64, true, op))
+    completed(writer.writeByte(0 as UInt64, 199 as UInt8), true)
+    rejectCopy(gpuVkCopy(queue, source, 0 as UInt64, destination, 0 as UInt64, 4 as UInt64, op), "gpu.busy")
+    completed(writer.release(), true)
+    let reader = mapped(gpuVkMapBuffer(destination, 0 as UInt64, 64 as UInt64, false, op))
+    rejectCopy(gpuVkCopy(queue, source, 0 as UInt64, destination, 0 as UInt64, 4 as UInt64, op), "gpu.busy")
+    completed(reader.release(), true)
+    if allocator.core.slots[source.slot].readers != 0 { abort("failed destination borrow retained its source lease") }
+    let original = allocator.core.slots[destination.slot].range.offset
+    allocator.core.slots[destination.slot].range.offset = allocator.core.slots[source.slot].range.offset
+    let aliased = gpuVkCopy(queue, source, 0 as UInt64, destination, 0 as UInt64, 4 as UInt64, op)
+    allocator.core.slots[destination.slot].range.offset = original
+    rejectCopy(aliased, "gpu.invalid")
+    queue.lastSubmitted = GPU_VULKAN_COPY_MAX_SIGNAL
+    rejectCopy(gpuVkCopy(queue, source, 0 as UInt64, destination, 0 as UInt64, 4 as UInt64, op), "gpu.limit")
+    queue.lastSubmitted = 0 as UInt64
+    seen_memory_set_limit_bytes(seen_memory_used_bytes() + seen_memory_reserved_bytes() + (8192 as Int64))
+    let noBudget = gpuVkCopy(queue, source, 0 as UInt64, destination, 0 as UInt64, 4 as UInt64, op)
+    seen_memory_set_limit_bytes(previous); rejectCopy(noBudget, "gpu.limit")
+    let secondContextResult = world.device.createContext(op)
+    if secondContextResult.isErr() { abort("second context unavailable for copy isolation") }
+    let secondContext = secondContextResult.unwrap(); secondContextResult.releaseContainer()
+    let secondPoolResult = GpuAllocator.create(secondContext, GpuMemoryKind.HostCoherent, 1024 as UInt64, 1, op)
+    if secondPoolResult.isErr() { abort("second context allocator unavailable") }
+    let secondPool = secondPoolResult.unwrap(); secondPoolResult.releaseContainer()
+    let otherResult = GpuBuffer<UInt8>.allocate(secondPool, 16 as UInt64, 1 as UInt64, 256 as UInt64, op)
+    if otherResult.isErr() { abort("foreign-context byte buffer unavailable") }
+    let other = otherResult.unwrap(); otherResult.releaseContainer()
+    rejectCopy(gpuVkCopy(queue, source, 0 as UInt64, other, 0 as UInt64, 4 as UInt64, op), "gpu.invalid")
+    completed(other.release(), true); completed(secondPool.release(), true); completed(secondContext.release(), true)
+    let copied = gpuVkCopy(queue, source, 0 as UInt64, destination, 0 as UInt64, 4 as UInt64, op)
+    if copied.isErr() or copied.unwrap() != (1 as UInt64) { abort("cross-element-type byte copy rejected") }
+    copied.releaseContainer(); var done = false; var polls = 0
+    while not done and polls < 100000 {
+        let ready = queue.poll(1 as UInt64)
+        if ready.isErr() { abort("adverse copy completion unavailable") }
+        done = ready.unwrap(); ready.releaseContainer(); polls = polls + 1
+    }
+    if not done { abort("adverse copy completion fuel exhausted") }
+    completed(queue.poll(1 as UInt64), true)
+    let readback = mapped(gpuVkMapBuffer(destination, 0 as UInt64, 4 as UInt64, false, op))
+    let byte = readback.readByte(0 as UInt64)
+    if byte.isErr() or byte.unwrap() != (199 as UInt8) { abort("cross-element-type copy changed bytes") }
+    byte.releaseContainer(); completed(readback.release(), true)
+    completed(source.close(), true)
+    rejectCopy(gpuVkCopy(queue, source, 0 as UInt64, destination, 0 as UInt64, 4 as UInt64, op), "gpu.invalid")
+    completed(queue.close(), true)
+    rejectCopy(gpuVkCopy(queue, destination, 0 as UInt64, destination, 0 as UInt64, 4 as UInt64, op), "gpu.invalid")
+    completed(source.release(), true); completed(destination.release(), true)
+    completed(allocator.close(), true); rejectOpen(GpuVulkanCopyQueue.open(allocator, 1, op), "gpu.invalid")
+    world.release()
+    gpuFixtureRejected(queue.poll(1 as UInt64), "gpu.invalid")
+    completed(queue.close(), false); completed(queue.release(), true)
+    if seen_memory_used_bytes() != baseline { abort("adverse copy validation retained Seen ownership") }
+    println("PASS: GPU-006C copy admission context isolation metadata bounds alias rejection generic bytes and retired owner cleanup")
+    return 0
+}

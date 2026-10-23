@@ -506,7 +506,7 @@ hash = "3b947fd0c047804ce024449f3a0d04698306a906419c07f4093fc46cc2a709cd"
 
 [[modules]]
 path = "src/compute/resource_provider.seen"
-hash = "36020cfdf8fdf68f4bc4f647d11d727c44e29ba2703a91bd99b61ada190185ba"
+hash = "e1eb5044dd1aa95262426751fe20359401285be7f7e9a9d4e3ae1c7ed6f97b4c"
 
 [[modules]]
 path = "src/compute/resource_stats.seen"
@@ -574,11 +574,19 @@ hash = "d4fc31be81ba067d99b29e426e676ab186d8243652cce6ce3000ea0093b7a3c7"
 
 [[modules]]
 path = "src/compute/vulkan_memory.seen"
-hash = "b921aebbd603dbc0245d24e1804ecf39de273d2076cf8ed021702f841884d2b1"
+hash = "6b3e98a4d3d6b5f0711490e978965af55a2c3137bc51b5e56377f7371e074def"
 
 [[modules]]
 path = "src/compute/vulkan_mapping.seen"
 hash = "8ccd392fe6de2ef4710b72635db63ce065d5f823c04231362d30b09899d325d9"
+
+[[modules]]
+path = "src/compute/vulkan_transfer_abi.seen"
+hash = "dfbee47ca8b3206edf7845f3135eb2bbe4d94460e3cd6155505b7e625ff97cb3"
+
+[[modules]]
+path = "src/compute/vulkan_transfer.seen"
+hash = "2465b3767c6b7ae4bc3cef37648345a0d6d5cf172fb0b0f0cb03adfb3e841802"
 
 [[modules]]
 path = "src/compute/vulkan_timeline.seen"
@@ -586,7 +594,7 @@ hash = "ed30687f00e8b95a8f648d98183f19ca7935d8cd1a9fc707d7e93f7ef5e86085"
 
 [[modules]]
 path = "src/compute/vulkan_provider.seen"
-hash = "40f36aee95b0942397044592351f0d7e103a1c1c159ce7fa698ae79fc4c14cc7"
+hash = "76f11b869f501c16f5e8381d4de95fe434d92431af0d2e73dcde34f6e0f03f94"
 
 [[modules]]
 path = "src/simd/ir_types.seen"

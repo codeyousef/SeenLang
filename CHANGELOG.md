@@ -12,6 +12,10 @@ Foundations**.
 
 ### Added
 
+- Add preallocated Vulkan asynchronous byte-copy queues with private timeline
+  completion, retained buffer leases, OOM retry, uncertain-submission quarantine
+  and explicit supported unified-memory access. No per-copy native fence,
+  resource creation, global idle wait or silent fallback is introduced.
 - Add checked, lease-owned Vulkan host mappings over pooled buffers, with
   coherent sharing, exclusive noncoherent visibility operations and retryable
   cleanup ownership. Native byte-copy submission remains separate.

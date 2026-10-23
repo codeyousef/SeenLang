@@ -3,6 +3,7 @@ import compute.device.{GpuDevice, GpuContext}
 import compute.allocator.{GpuAllocator}
 import compute.memory_kind.{GpuMemoryKind}
 import compute.limits.{GpuLimits}
+import compute.device_info.{GpuDeviceKind}
 import core.operation_context.{OperationContext}
 import device_fixture_support.{operation, releaseOperation}
 import provider_fixture_support.{completed}
@@ -20,13 +21,30 @@ class VulkanMappingWorld {
     }
 }
 fun mappingWorld(kind: GpuMemoryKind) r: VulkanMappingWorld {
+    return mappingWorldSelected(kind, false)
+}
+fun mappingHardwareWorld(kind: GpuMemoryKind) r: VulkanMappingWorld {
+    return mappingWorldSelected(kind, true)
+}
+fun mappingWorldSelected(kind: GpuMemoryKind, hardware: Bool) r: VulkanMappingWorld {
     let op = operation(); let limits = GpuLimits.bounded(4, 2, 64, 1048576 as UInt64)
-    let discovered = GpuVulkanProvider.discover(op, limits, true)
+    let discovered = GpuVulkanProvider.discover(op, limits, not hardware)
     if discovered.isErr() { abort("explicit Vulkan reference unavailable") }
     let provider = discovered.unwrap(); discovered.releaseContainer()
-    let opened = openVulkanDevice(provider, 0, op)
+    var selected = 0
+    if hardware {
+        selected = -1; var index = 0
+        while index < provider.catalog.devices.length() {
+            let info = provider.catalog.devices[index]
+            if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") { selected = index }
+            index = index + 1
+        }
+        if selected < 0 { abort("designated RTX 4090 hardware is unavailable; no fallback permitted") }
+    }
+    let opened = openVulkanDevice(provider, selected, op)
     if opened.isErr() { abort("explicit Vulkan reference open failed") }
     let device = opened.unwrap(); opened.releaseContainer()
+    if hardware { println(device.core.info.name); println(device.core.info.identity.uuid) }
     let created = device.createContext(op)
     if created.isErr() { abort("Vulkan mapping context failed") }
     let context = created.unwrap(); created.releaseContainer()

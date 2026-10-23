@@ -1,0 +1,122 @@
+import compute.vulkan_transfer.{GpuVulkanCopyQueue, gpuVkCopy}
+import compute.vulkan_mapping.{gpuVkMapBuffer, GpuVulkanMappedRegion}
+import compute.allocator.{GpuAllocator}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.error.{GpuError}
+import core.result.{Result}
+import vulkan_mapping_fixture_support.{mappingWorldSelected}
+import env.env.{args, releaseArgs}
+import device_fixture_support.{gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun allocated(result: Result<GpuBuffer<UInt8>, GpuError>) r: GpuBuffer<UInt8> {
+    if result.isErr() { abort("copy byte buffer rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+
+fun signal(result: Result<UInt64, GpuError>) r: UInt64 {
+    if result.isErr() { let error = result.unwrapErr(); println(error.code); abort("native copy rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun rejected(result: Result<UInt64, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid native copy accepted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("native copy rejection changed") }
+    error.release()
+}
+fun mapped(result: Result<GpuVulkanMappedRegion, GpuError>) r: GpuVulkanMappedRegion {
+    if result.isErr() { abort("copy host mapping rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun finish(borrow queue: GpuVulkanCopyQueue, sequence: UInt64) r: Void {
+    var polls = 0
+    while polls < 100000 {
+        let ready = queue.poll(sequence)
+        if ready.isErr() { abort("native completion rejected") }
+        let done = ready.unwrap(); ready.releaseContainer()
+        if done { return }
+        polls = polls + 1
+    }
+    abort("bounded copy poll fuel exhausted")
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let arguments = args(); var hardware = false
+    if arguments.length() == 2 and arguments[1] == "--hardware" { hardware = true }
+    else if arguments.length() != 1 { abort("copy fixture accepts only explicit --hardware") }
+    let world = mappingWorldSelected(GpuMemoryKind.HostCoherent, hardware); let op = world.operation
+    let created = GpuAllocator.create(world.context, GpuMemoryKind.DeviceLocal, 1024 as UInt64, 2, op)
+    if created.isErr() { abort("explicit device-local pool rejected") }
+    let devicePool = created.unwrap(); created.releaseContainer()
+    let from = allocated(GpuBuffer<UInt8>.allocate(world.allocator, 64 as UInt64, 1 as UInt64, 256 as UInt64, op))
+    let to = allocated(GpuBuffer<UInt8>.allocate(world.allocator, 64 as UInt64, 1 as UInt64, 256 as UInt64, op))
+    let first = allocated(GpuBuffer<UInt8>.allocate(devicePool, 64 as UInt64, 1 as UInt64, 256 as UInt64, op))
+    let second = allocated(GpuBuffer<UInt8>.allocate(devicePool, 64 as UInt64, 1 as UInt64, 256 as UInt64, op))
+    let opened = GpuVulkanCopyQueue.open(world.allocator, 2, op)
+    if opened.isErr() { abort("explicit bounded Vulkan copy queue rejected") }
+    let queue = opened.unwrap(); opened.releaseContainer(); var cycle = 0
+    while cycle < 20 {
+        let writer = mapped(gpuVkMapBuffer(from, 0 as UInt64, 64 as UInt64, true, op)); var i = 0 as UInt64
+        while i < (64 as UInt64) {
+            completed(writer.writeByte(i, ((255 as UInt64) - i + (cycle as UInt64)) as UInt8), true)
+            i = i + (1 as UInt64)
+        }
+        completed(writer.release(), true)
+        op.cancellation = true
+        rejected(gpuVkCopy(queue, from, 1 as UInt64, first, 3 as UInt64, 29 as UInt64, op), "gpu.cancelled")
+        op.cancellation = false
+        let a = signal(gpuVkCopy(queue, from, 1 as UInt64, first, 3 as UInt64, 29 as UInt64, op))
+        gpuFixtureRejected(queue.close(), "gpu.busy"); gpuFixtureRejected(from.close(), "gpu.busy")
+        gpuFixtureRejected(first.close(), "gpu.busy")
+        op.cancellation = true; finish(queue, a); op.cancellation = false
+        let b = signal(gpuVkCopy(queue, first, 3 as UInt64, second, 5 as UInt64, 29 as UInt64, op)); finish(queue, b)
+        let c = signal(gpuVkCopy(queue, second, 5 as UInt64, to, 7 as UInt64, 29 as UInt64, op)); finish(queue, c)
+        let reader = mapped(gpuVkMapBuffer(to, 7 as UInt64, 29 as UInt64, false, op)); i = 0 as UInt64
+        while i < (29 as UInt64) {
+            let byte = reader.readByte(i)
+            if byte.isErr() or byte.unwrap() != ((254 as UInt64) - i + (cycle as UInt64)) as UInt8 {
+                abort("H2D D2D D2H copy changed high-bit bytes or partial offsets")
+            }
+            byte.releaseContainer(); i = i + (1 as UInt64)
+        }
+        completed(reader.release(), true)
+        rejected(gpuVkCopy(queue, from, 64 as UInt64, first, 0 as UInt64, 1 as UInt64, op), "gpu.invalid")
+        rejected(gpuVkCopy(queue, from, 0 as UInt64, first, 0 as UInt64, 0 as UInt64, op), "gpu.invalid")
+        let d = signal(gpuVkCopy(queue, from, 0 as UInt64, first, 0 as UInt64, 16 as UInt64, op))
+        let e = signal(gpuVkCopy(queue, second, 0 as UInt64, to, 0 as UInt64, 16 as UInt64, op))
+        rejected(gpuVkCopy(queue, from, 0 as UInt64, first, 0 as UInt64, 1 as UInt64, op), "gpu.limit")
+        finish(queue, e); finish(queue, d); cycle = cycle + 1
+    }
+    let unifiedResult = GpuAllocator.create(world.context, GpuMemoryKind.Unified, 1024 as UInt64, 1, op)
+    if unifiedResult.isErr() { abort("explicit unified-memory capability unavailable; no fallback permitted") }
+    let unifiedPool = unifiedResult.unwrap(); unifiedResult.releaseContainer()
+    let unified = allocated(GpuBuffer<UInt8>.allocate(unifiedPool, 64 as UInt64, 1 as UInt64, 256 as UInt64, op))
+    let unifiedCopy = signal(gpuVkCopy(queue, from, 0 as UInt64, unified, 0 as UInt64, 64 as UInt64, op))
+    finish(queue, unifiedCopy)
+    let unifiedReader = mapped(gpuVkMapBuffer(unified, 0 as UInt64, 64 as UInt64, false, op)); var u = 0 as UInt64
+    while u < (64 as UInt64) {
+        let byte = unifiedReader.readByte(u)
+        if byte.isErr() or byte.unwrap() != ((274 as UInt64) - u) as UInt8 { abort("unified native memory changed copied bytes") }
+        byte.releaseContainer(); u = u + (1 as UInt64)
+    }
+    completed(unifiedReader.release(), true)
+    let unifiedReadback = signal(gpuVkCopy(queue, unified, 0 as UInt64, to, 0 as UInt64, 64 as UInt64, op))
+    finish(queue, unifiedReadback)
+    let finalReader = mapped(gpuVkMapBuffer(to, 0 as UInt64, 64 as UInt64, false, op)); u = 0 as UInt64
+    while u < (64 as UInt64) {
+        let byte = finalReader.readByte(u)
+        if byte.isErr() or byte.unwrap() != ((274 as UInt64) - u) as UInt8 { abort("unified readback changed copied bytes") }
+        byte.releaseContainer(); u = u + (1 as UInt64)
+    }
+    completed(finalReader.release(), true); completed(unified.release(), true); completed(unifiedPool.release(), true)
+    completed(queue.close(), true); completed(queue.close(), false); completed(queue.release(), true)
+    completed(from.release(), true); completed(to.release(), true)
+    completed(first.release(), true); completed(second.release(), true)
+    completed(devicePool.release(), true); world.release(); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("Vulkan copy lifecycle retained an owner") }
+    println("PASS: GPU-006C native H2D D2D D2H partial-byte parity bounded reuse completion leases cancellation and cold cleanup")
+    return 0
+}

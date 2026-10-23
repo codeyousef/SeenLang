@@ -8030,10 +8030,24 @@
       ]
     },
     {
+      "name": "vkAllocateCommandBuffers",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
       "name": "vkAllocateMemory",
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkBeginCommandBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
       ]
     },
     {
@@ -8044,10 +8058,31 @@
       ]
     },
     {
+      "name": "vkCmdCopyBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCmdPipelineBarrier",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
       "name": "vkCreateBuffer",
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreateCommandPool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
       ]
     },
     {
@@ -8065,10 +8100,24 @@
       ]
     },
     {
+      "name": "vkCreateSemaphore",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
       "name": "vkDestroyBuffer",
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyCommandPool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
       ]
     },
     {
@@ -8083,6 +8132,20 @@
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkDestroySemaphore",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkEndCommandBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
       ]
     },
     {
@@ -8118,6 +8181,13 @@
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkGetDeviceQueue",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
       ]
     },
     {
@@ -8170,10 +8240,31 @@
       ]
     },
     {
+      "name": "vkQueueSubmit",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkResetCommandBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
       "name": "vkUnmapMemory",
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_mapping.seen"
+      ]
+    },
+    {
+      "name": "vkWaitSemaphores",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
       ]
     },
     {

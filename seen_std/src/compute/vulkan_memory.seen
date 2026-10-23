@@ -13,6 +13,7 @@ import compute.vulkan_buffer_abi.{VulkanBufferCreateInfo, VulkanMemoryAllocateIn
 import compute.error.{GpuError, gpuFailure}
 import compute.vulkan_error.{gpuVkFailure}
 import core.result.{Result, Ok, Err}
+import compute.vulkan_transfer_abi.{vkGetDeviceQueue}
 
 fun gpuVkMemoryRequiredFlags(kind: GpuMemoryKind) r: UInt32 {
     if kind == GpuMemoryKind.DeviceLocal { return 1 as UInt32 }
@@ -97,7 +98,7 @@ class GpuVulkanResources {
     fun release() r: Void { this.memory.release(); this.free() }
 }
 
-fun gpuVkCreateResourceProvider(native: UInt64, domain: UInt64, borrow metadata: VulkanMetadata)
+fun gpuVkCreateResourceProvider(native: UInt64, domain: UInt64, borrow metadata: VulkanMetadata, family: UInt32)
     r: Result<GpuResourceProviderHandle, GpuError> {
     let alignment = gpuVkU64(metadata.buffers[0], 640 as UInt64)
     if native == (0 as UInt64) or domain == (0 as UInt64) or not gpuResourceAlignmentValid(alignment) or not gpuVkBufferAbiValid() {
@@ -106,6 +107,14 @@ fun gpuVkCreateResourceProvider(native: UInt64, domain: UInt64, borrow metadata:
     let decoded = gpuVkDecodeMemory(metadata.buffers[3])
     if decoded.isErr() { let error = decoded.unwrapErr(); decoded.releaseContainer(); return Err<GpuResourceProviderHandle, GpuError>(error) }
     let memory = decoded.unwrap(); decoded.releaseContainer()
-    return Ok<GpuResourceProviderHandle, GpuError>(GpuResourceProviderHandle.create(GpuVulkanResources{
-        native: native, domain: domain, alignment: alignment, memory: memory}))
+    var queue = 0 as UInt64
+    vkGetDeviceQueue(native, family, 0 as UInt32, &queue)
+    if queue == (0 as UInt64) {
+        memory.release()
+        return Err<GpuResourceProviderHandle, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.memory", "Vulkan returned an empty selected queue identity"))
+    }
+    let handle = GpuResourceProviderHandle.create(GpuVulkanResources{
+        native: native, domain: domain, alignment: alignment, memory: memory})
+    handle.nativeQueue = queue; handle.queueFamily = family
+    return Ok<GpuResourceProviderHandle, GpuError>(handle)
 }

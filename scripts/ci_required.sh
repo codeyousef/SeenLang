@@ -74,6 +74,8 @@ bash -n \
     tests/misc_root_tests/seen_gpu_runtime_b.sh \
     tests/misc_root_tests/seen_gpu_staging_foundations.sh \
     tests/misc_root_tests/seen_gpu_vulkan_mapping.sh \
+    tests/misc_root_tests/seen_gpu_vulkan_transfer.sh \
+    tests/misc_root_tests/seen_compiled_fixture_status.sh \
     tests/misc_root_tests/seen_select_guard_safety.sh \
     scripts/vulkan_reference_fixture_support.sh \
     tests/misc_root_tests/seen_dyn_trait_void_contract.sh \
