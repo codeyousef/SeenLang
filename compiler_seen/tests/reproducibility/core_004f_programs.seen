@@ -27,11 +27,11 @@ let CORE004F_SHA8: String =
 let CORE004F_SHA9: String =
     "9999999999999999999999999999999999999999999999999999999999999999"
 let CORE004F_INPUT_VECTOR: String =
-    "c01a2240e0a55668a9408af9a6047f84151b2bebe70f570ace246dd9af99ac34"
+    "ce90dcbfabad34a923a99cac0b0fe787114ca8cf7bff848871c99da8671144bb"
 let CORE004F_ARTIFACT_VECTOR: String =
     "bd0fecefdd6194cb766f4abb934ecca2f8f9822dae87501a6f1022067caa2ec3"
 let CORE004F_CACHE_VECTOR: String =
-    "bfb754c28028c4bb6fc783cce84ba6e9d639935655cac13674f9a1cabd69bd25"
+    "ac88183991dcfea23918d07607197558bc1e3ef5f72637764faf430b7a90131f"
 
 fun core004fContext(cancelled: Bool) r: OperationContext {
     return OperationContext{cancellation: cancelled, monotonicDeadline: 1,
@@ -52,6 +52,8 @@ fun core004fInput(lto: String, pic: Bool) r: ProgramArtifactBuildInput {
         name: "SEEN_DETERMINISTIC_SEED", valueSha256: CORE004F_SHA3})
     environment.push(ProgramArtifactEnvironmentPin{name: "SEEN_HASH_SEED",
         valueSha256: CORE004F_SHA4})
+    environment.push(ProgramArtifactEnvironmentPin{name: "SOURCE_DATE_EPOCH",
+        valueSha256: "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"})
     environment.push(ProgramArtifactEnvironmentPin{name: "TZ",
         valueSha256: CORE004F_SHA5})
     let features = Array<String>()
@@ -152,7 +154,8 @@ fun core004fPass(name: String, caseName: String) r: Bool {
     let result = validateProgramArtifactEvidence(core004fEvidence(caseName),
         core004fContext(false))
     if result.isErr() {
-        println("FAIL: " + name + " " + result.unwrapErr().code.value)
+        println("FAIL: " + name + " " + result.unwrapErr().code.value +
+            ": " + result.unwrapErr().message)
         return false
     }
     println("PASS: " + name)

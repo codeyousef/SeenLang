@@ -21,6 +21,8 @@ Foundations**.
   instead of discovering them as exit-zero unit tests.
 - Correct JSON-RPC and nesting-budget fixture brace escapes and assert their
   decoded input bytes before testing parser behavior.
+- Refresh reproducible-program fixtures with the required source epoch pin and
+  exercise bitwise token kinds, spellings and EOF through the shipped lexer API.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
