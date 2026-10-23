@@ -1,4 +1,6 @@
 import io.file.{readText, writeText, writeLines, appendText, createDirectory, deleteFile, exists, size, hash, ensureParentDirectories}
+import env.env.{getOrDefault}
+import process.process.{getPid}
 
 fun expect(condition: Bool, message: String) -> Void {
     if not condition {
@@ -7,11 +9,13 @@ fun expect(condition: Bool, message: String) -> Void {
 }
 
 fun main() -> Int {
-    let dir = "seen_std/tests/tmp_io"
+    let artifacts = getOrDefault("SEEN_ARTIFACT_ROOT", "")
+    expect(artifacts != "", "verified project artifact root is required")
+    let dir = artifacts + "/io-file-basic-" + getPid().toString()
     let filePath = "{dir}/io_test.txt"
 
-    createDirectory(dir)
-    deleteFile(filePath)
+    expect(not exists(dir), "scratch directory must be newly owned")
+    expect(createDirectory(dir), "createDirectory should succeed")
 
     expect(writeText(filePath, "alpha"), "writeText should succeed")
     expect(readText(filePath) == "alpha", "readText mismatch")

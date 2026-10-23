@@ -31,6 +31,8 @@ Foundations**.
 - Preserve concrete generic receiver return types through method and chained
   lookup, including String-valued maps, without losing qualified-owner identity
   or resolving a missing method against an unrelated same-named class.
+- Keep HashSet constructor type arguments explicit and give the basic file-I/O
+  fixture newly owned ignored scratch independent of the package working directory.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
