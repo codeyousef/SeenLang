@@ -1,0 +1,11 @@
+import env.env.{args, releaseArgs}
+fun main() r: Int {
+    let arguments = args(); var status = 7
+    if arguments.length() == 2 {
+        if arguments[1] == "pass" { println("PASS: fixture status probe"); status = 0 }
+        if arguments[1] == "fail" { println("deliberate fixture exit 23"); status = 23 }
+        if arguments[1] == "stale" { println("FAIL: stale executable ran after compiler failure"); status = 79 }
+    }
+    releaseArgs(arguments); return status
+}
+main()

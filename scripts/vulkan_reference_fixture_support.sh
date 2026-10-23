@@ -56,6 +56,7 @@ seen_run_vulkan_fault() {
         LLVM_PROFILE_FILE="$TMP_DIR/fault-$name-$mode.profraw" \
         run_fixture "$profile" "$name" "$mode" "$expected" || return
     cp -- "$TMP_DIR/$name-$profile.log" "$TMP_DIR/fault-$name-$mode-$profile.log" || return
+    cp -- "$TMP_DIR/$name-$profile.run.status" "$TMP_DIR/fault-$name-$mode-$profile.status" || return
     rg -Fq 'PASS:' "$TMP_DIR/fault-$name-$mode-$profile.log"
 }
 seen_run_vulkan_reference() {
