@@ -28,6 +28,9 @@ Foundations**.
 - Distinguish imported test helpers and harness-driven program inputs from
   standalone tests in native and host discovery, retaining their owning gates.
   Keep the large-JSON gate's serial flags compatible with attested execution.
+- Preserve concrete generic receiver return types through method and chained
+  lookup, including String-valued maps, without losing qualified-owner identity
+  or resolving a missing method against an unrelated same-named class.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.

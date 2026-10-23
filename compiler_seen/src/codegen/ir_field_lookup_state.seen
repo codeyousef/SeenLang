@@ -1,15 +1,13 @@
-import codegen.ir_generic_type_specialize.{specializeGenericTypeImpl}
 // ir_field_lookup_state.seen - field and method lookup helpers over codegen state.
 
 import codegen.ir_field_registry.{resolveFieldIndexImpl, resolveStructFieldLlvmTypeImpl}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
-import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
+import codegen.ir_method_return_type_lookup.{getReceiverMethodReturnTypeImpl}
 import codegen.ir_method_receiver.{inferTypeRegistryFieldTypeImpl, getSemanticFieldTypeImpl}
 import codegen.type_registry_core.{findStructReg}
 import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructLlvmFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl}
 import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl}
 import codegen.ir_codegen_module_state.{findCachedIrgenFieldIndex, cacheIrgenFieldIndex}
-import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_string_collect.{trimSpacesImpl}
 
 
@@ -71,16 +69,7 @@ fun getMethodReturnTypeState(structName: String, methodName: String)
     // rather than part of the registered trait identity.
     var receiverType = structName
     if receiverType.startsWith("dyn ") { receiverType = receiverType.substring(4, receiverType.length()) }
-    let baseType = getBaseTypeNameImpl(receiverType)
-    var retType = getMethodReturnTypeImpl(baseType, methodName,
+    return getReceiverMethodReturnTypeImpl(receiverType, methodName,
         getGlobalStructNamesImpl(), getGlobalStructMethodNamesImpl(),
         getGlobalStructMethodRetTypesImpl())
-    if retType != "" and baseType != receiverType {
-        retType = specializeGenericTypeImpl(receiverType, baseType,
-            retType)
-    }
-    if retType == "Unknown" {
-        return ""
-    }
-    return retType
 }

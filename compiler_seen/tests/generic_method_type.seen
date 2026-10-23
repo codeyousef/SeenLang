@@ -1,5 +1,7 @@
 import codegen.ir_generic_type_specialize.{genericTypeArgumentsImpl,
     replaceGenericTypeIdentifierImpl, specializeGenericTypeImpl}
+import codegen.ir_method_return_type_lookup.{getReceiverMethodReturnTypeImpl}
+import codegen.ir_path_expr.{resolveChainedPathSuffixTypeImpl}
 
 fun main() r: Int {
     let one = genericTypeArgumentsImpl("Arc<Int>")
@@ -20,6 +22,66 @@ fun main() r: Int {
     let untouched = replaceGenericTypeIdentifierImpl("SyncError", "T",
         "Int")
     if untouched != "SyncError" { return 6 }
+    let owners = Array<String>()
+    let methods = Array<String>()
+    let returns = Array<String>()
+    let mapString = getReceiverMethodReturnTypeImpl("HashMap<Int, String>",
+        "get", owners, methods, returns)
+    if mapString != "Option<String>" {
+        println("FAIL: concrete HashMap get type = " + mapString)
+        return 7
+    }
+    if getReceiverMethodReturnTypeImpl("HashMap<String, Int>", "get",
+        owners, methods, returns) != "Option<Int>" or
+        getReceiverMethodReturnTypeImpl("HashMap<Int, String>", "get",
+        owners, methods, returns) != "Option<String>" { return 8 }
+    if getReceiverMethodReturnTypeImpl("BTreeMap<Int, String>",
+        "getOrDefault", owners, methods, returns) != "String" or
+        getReceiverMethodReturnTypeImpl("Map<String, String>",
+        "getUnchecked", owners, methods, returns) != "String" or
+        getReceiverMethodReturnTypeImpl("StringHashMap<String>", "get",
+        owners, methods, returns) != "Option<String>" or
+        getReceiverMethodReturnTypeImpl("StringHashMap<String>", "remove",
+        owners, methods, returns) != "Bool" { return 9 }
+    if getReceiverMethodReturnTypeImpl("collections.hash_map.HashMap<Int, String>",
+        "get", owners, methods, returns) != "Option<String>" or
+        getReceiverMethodReturnTypeImpl("Vec<String>", "get", owners,
+        methods, returns) != "String" { return 10 }
+    owners.push("Box")
+    methods.push("extract,borrow,unknown")
+    returns.push("Result<T, SyncError>|T|Unknown")
+    if getReceiverMethodReturnTypeImpl("Box<Array<String>>", "extract",
+        owners, methods, returns) != "Result<Array<String>, SyncError>" {
+        return 11
+    }
+    if getReceiverMethodReturnTypeImpl("UnknownOwner", "missing", owners,
+        methods, returns) != "" { return 12 }
+    let fields = Array<String>()
+    if resolveChainedPathSuffixTypeImpl("Box<String>", "borrow()",
+        owners, fields, fields, methods, returns) != "String" or
+        getReceiverMethodReturnTypeImpl("Box<package.Value>", "borrow",
+        owners, methods, returns) != "package.Value" { return 13 }
+    if getReceiverMethodReturnTypeImpl("Box<String>", "unknown", owners,
+        methods, returns) != "" { return 14 }
+    owners.push("Counter"); methods.push("read"); returns.push("Int")
+    if getReceiverMethodReturnTypeImpl("Counter", "read", owners,
+        methods, returns) != "Int" { return 15 }
+    owners.push("module.Box"); methods.push("borrow"); returns.push("Bool")
+    let qualified = getReceiverMethodReturnTypeImpl("module.Box<String>",
+        "borrow", owners, methods, returns)
+    if qualified != "Bool" {
+        println("FAIL: qualified receiver owner selected " + qualified)
+        return 16
+    }
+    if resolveChainedPathSuffixTypeImpl("module.Box<String>", "borrow()",
+        owners, fields, fields, methods, returns) != "Bool" { return 17 }
+    owners.push("module.Counter"); methods.push("read"); returns.push("Bool")
+    if getReceiverMethodReturnTypeImpl("module.Counter", "read", owners,
+        methods, returns) != "Bool" { return 18 }
+    if getReceiverMethodReturnTypeImpl("module.Box<String>", "extract",
+        owners, methods, returns) != "" { return 19 }
+    fields.free()
+    owners.free(); methods.free(); returns.free()
     println("PASS: generic receiver method return specialization")
     return 0
 }

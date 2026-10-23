@@ -5,7 +5,7 @@ Extracted from llvm_ir_gen.seen for member-access and method-call resolution.
 
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_seen_field_type_lookup.{getSeenFieldTypeImpl}
-import codegen.ir_method_return_type_lookup.{getMethodReturnTypeImpl}
+import codegen.ir_method_return_type_lookup.{getReceiverMethodReturnTypeImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl}
 import codegen.ir_type_tables.{resolveUnwrapTypeImpl, resolveTryPropagateTypeImpl}
 
@@ -134,7 +134,7 @@ fun resolveChainedPathSuffixTypeImpl(baseType: String, restPath: String,
                 nextType = resolveTryPropagateTypeImpl(currentType)
             }
             if nextType == "" {
-                nextType = getMethodReturnTypeImpl(currentType, segmentName, structNames, structMethodNames, structMethodRetTypes)
+                nextType = getReceiverMethodReturnTypeImpl(currentType, segmentName, structNames, structMethodNames, structMethodRetTypes)
                 if nextType == "Unknown" {
                     nextType = ""
                 }
