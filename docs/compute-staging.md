@@ -217,6 +217,18 @@ ordinary-profile growth envelope is 16 MiB; instrumented ASan allows 320 MiB for
 its unchanged default quarantine/shadow overhead. Neither changes the enclosing
 hard physical cap or relaxes exact live-resource and leak checks. This short,
 small-payload corpus is not a throughput benchmark or long-duration soak.
+The separate `lifecycle-soak` case requires at least 60 seconds and 10,000 full
+child-ring lifecycles, with a hard ceiling of 1,000,000. Each child reuses its
+three fixed slots four times before closing. A retained parent upload survives
+every teardown and must download its original sentinel afterward. Every child
+restores exact live allocation; recyclable Seen reserve must stay flat after
+256 warm-up lifecycles. The native witness independently checks elapsed time,
+copy counts, acquired/released SDK resources and a peak of 20 observed objects
+(parent plus one child). Its pinned-byte metric is requested payload capacity,
+peaking at 384 bytes, not OS page-lock granularity or physical VRAM. This case
+runs in every requested execution profile without increasing existing time,
+memory or worker limits. Its measured JSON does not claim unobserved internal
+driver resources or replace other-platform, sanitizer or release acceptance.
 Coverage requires at least 90% of
 owned source lines and 80% of branch directions, without excluding guard paths.
 CUDA host ASan uses an explicit `--address-layout cuda`: NVIDIA documents that

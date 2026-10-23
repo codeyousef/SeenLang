@@ -80,6 +80,32 @@ diagnose_cuda_asan_initialization() {
     echo "Independent native CUDA/ASan initialization diagnostic status=$status; original staging failure remains authoritative" >&2
     # Diagnostic completion is not acceptance, regardless of this status.
 }
+run_lifecycle_soak() {
+    local profile=$1 status=0
+    SEEN_CUDA_STAGING_FAULT=lifecycle-soak LD_PRELOAD="$TMP_DIR/staging-fault.so" \
+        run_fixture "$profile" staging lifecycle-soak || status=$?
+    cp -- "$TMP_DIR/staging-$profile.log" "$TMP_DIR/staging-$profile-lifecycle-soak.log" || return
+    cp -- "$TMP_DIR/staging-$profile.run.status" "$TMP_DIR/staging-$profile-lifecycle-soak.status" || return
+    [ "$status" = 0 ] || return "$status"
+    rg -Fq 'CUDA_STAGING_LIFECYCLE min_cycles=10000 max_cycles=1000000 min_ms=60000 reuses=4 live=stable reserve=stable parent=227' "$TMP_DIR/staging-$profile-lifecycle-soak.log" || return
+    sed -n 's/^CUDA_STAGING_LIFECYCLE_EVIDENCE //p' "$TMP_DIR/staging-$profile-lifecycle-soak.log" > "$TMP_DIR/lifecycle-$profile.json"
+    python3 -c '
+import json, sys
+e = json.load(sys.stdin)
+c = e["cycles"]
+g = e["gpu_objects"]
+p = e["requested_pinned_bytes"]
+valid = (e["schema"] == "seen-cuda-staging-lifecycle-v1" and
+    type(c) is int and 10000 <= c <= 1000000 and e["elapsed_ms"] >= 60000 and
+    e["copies"] == c*12+2 and e["reuses_per_child"] == 4 and
+    g == {"baseline": 0, "peak": 20, "final": 0, "acquired": (c+1)*10, "released": (c+1)*10} and
+    p == {"baseline": 0, "peak": 384, "final": 0, "acquired": (c+1)*192, "released": (c+1)*192} and
+    e["physical_vram_measured"] is False)
+if not valid:
+    raise SystemExit("FAIL: CUDA lifecycle native witness disagrees with its bounded plan")
+' < "$TMP_DIR/lifecycle-$profile.json" || return
+    rg -Fq 'drained=1 waits=0' "$TMP_DIR/staging-$profile-lifecycle-soak.log" || return
+}
 FIXTURE_COMPILE_FLAGS=(--coverage)
 (cd "$fixture"; compile_fixture fast coverage src/main.seen)
 run_staging_modes fast coverage
@@ -102,6 +128,7 @@ for profile in fast release undefined address; do
         exit "$status"
     fi
     rg -Fq 'CUDA_STAGING_TRACE host=3 device=3 stream=1 event=3 copies=192 record=192' "$TMP_DIR/staging-$profile-reference.log"
+    run_lifecycle_soak "$profile"
     if [ "$profile" = fast ]; then
         for mode in reference batch-reuse soak; do
             timeout --foreground --kill-after=5s 180s /opt/cuda/bin/compute-sanitizer --tool memcheck \

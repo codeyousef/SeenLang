@@ -21,6 +21,8 @@ Foundations**.
   measured source coverage; retain native initialization failure diagnostics.
   Add seeded byte-range reuse, multi-submission completion and stale-ticket
   regressions with per-cycle live-resource checks and bounded RSS telemetry.
+  Require a bounded 60-second native lifecycle test with exact live cleanup,
+  stable recyclable reserve and a parent-owner survival oracle.
   Full hardware/sanitizer certification remains separate.
 - Add an explicit CUDA-compatible ASan shadow layout, retaining strict leak and
   access checks and fixed resource limits. Negative controls verify ordinary and

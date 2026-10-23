@@ -9,6 +9,7 @@ import core.error.{AsciiString}
 import env.env.{args, releaseArgs}
 extern "C" fun seen_memory_used_bytes() r: Int64
 extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
 
 // Keep assertions/poll drivers separate so ThinLTO optimizes production paths
 // without repeatedly expanding the diagnostic machinery into the seeded loop.
@@ -214,6 +215,57 @@ fun seededSoak(borrow ring: GpuCudaStagingRing, op: OperationContext) r: Void {
     widths.free(); host.close(); host.free()
     println("CUDA_STAGING_SOAK seed=17317 cycles=4096 copies=12288 live=stable")
 }
+@noinline
+fun lifecycleCycle(op: OperationContext, borrow host: OwnedBuffer<UInt8>, cycles: Int, seed: Int) r: Void {
+    let prepared = GpuCudaStagingRing.prepare(64 as UInt64, 3, 512 as UInt64)
+    if prepared.isErr() { abort("CUDA lifecycle metadata unavailable") }
+    let child = prepared.unwrap(); prepared.releaseContainer()
+    done(child.open(0 as Int32, op), true)
+    var reuse = 0; var sampleSeed = seed
+    while reuse < 4 {
+        let width = seededCycle(child, op, host, cycles * 4 + reuse, sampleSeed)
+        if width < 1 or width > 64 { abort("CUDA lifecycle corpus width escaped its bound") }
+        sampleSeed = (sampleSeed * 48271) % 2147483647; reuse = reuse + 1
+    }
+    done(child.release(), true)
+}
+fun lifecycleSoak(borrow parent: GpuCudaStagingRing, op: OperationContext) r: Void {
+    let sentinel = ticket(parent.reserve(1 as UInt64, op))
+    var byte = 227 as UInt8
+    done(sentinel.write(Span<UInt8>{data: (&byte) as *const UInt8, length: 1 as UInt64}, 0 as UInt64, op), true)
+    done(gpuCudaStagingUpload(sentinel, op), true); ready(sentinel)
+    let storage = OwnedBuffer<UInt8>.allocate(128 as UInt64, 1 as UInt64, 64 as UInt64)
+    if storage.isErr() { abort("CUDA lifecycle host storage unavailable") }
+    let host = storage.unwrap(); storage.releaseContainer()
+    let steady = seen_memory_used_bytes()
+    let started = seen_time_monotonic_nanos()
+    let deadline = started + (60000000000 as Int64)
+    var cycles = 0; var seed = 17317; var reserved = 0 as Int64
+    while cycles < 1000000 {
+        let now = seen_time_monotonic_nanos()
+        if now < started { abort("CUDA lifecycle monotonic clock regressed") }
+        if cycles >= 10000 and now >= deadline { break }
+        seed = (seed * 48271) % 2147483647
+        lifecycleCycle(op, host, cycles, seed)
+        if seen_memory_used_bytes() != steady { abort("CUDA lifecycle retained live allocation") }
+        cycles = cycles + 1
+        // Live allocation is cold-exact on EVERY cycle. Reserve is separately
+        // reported retained pool capacity, not relabelled live allocation.
+        if cycles == 256 { reserved = seen_memory_reserved_bytes() }
+        if cycles > 256 and seen_memory_reserved_bytes() != reserved { abort("CUDA lifecycle recyclable reserve grew after warm-up") }
+    }
+    if cycles < 10000 or seen_time_monotonic_nanos() < deadline { abort("CUDA lifecycle reached its iteration ceiling before the required duration") }
+    host.close(); host.free()
+    // A separate owner's byte must survive every child teardown. No hidden
+    // device reset or global context destruction can satisfy this oracle.
+    let result = ticket(parent.reserve(1 as UInt64, op))
+    done(gpuCudaStagingDownload(result, sentinel, 0 as UInt64, op), true); ready(result)
+    byte = 0 as UInt8
+    done(result.read(MutableSpan<UInt8>{data: &byte, length: 1 as UInt64}, 0 as UInt64, op), true)
+    if byte != (227 as UInt8) { abort("CUDA lifecycle child teardown corrupted its parent owner") }
+    done(result.release(), true); done(sentinel.release(), true)
+    println("CUDA_STAGING_LIFECYCLE min_cycles=10000 max_cycles=1000000 min_ms=60000 reuses=4 live=stable reserve=stable parent=227")
+}
 fun batchReuse(borrow ring: GpuCudaStagingRing, op: OperationContext) r: Void {
     let first = ticket(ring.reserve(1 as UInt64, op))
     let second = ticket(ring.reserve(1 as UInt64, op))
@@ -330,6 +382,7 @@ fun main() r: Int {
         rejectReservation(ring.reserve(65 as UInt64, op), "gpu.invalid")
         if mode == "reference" { happy(ring, op) }
         else if mode == "soak" { seededSoak(ring, op) }
+        else if mode == "lifecycle-soak" { lifecycleSoak(ring, op) }
         else if mode == "batch-reuse" { batchReuse(ring, op) }
         else if mode == "cross-ring" { crossRing(ring, op) }
         else if mode == "close-host" or mode == "close-stream" { rejected(ring.close(), "gpu.unavailable") }
