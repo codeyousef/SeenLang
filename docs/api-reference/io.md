@@ -107,6 +107,28 @@ state alongside file data or errors.
 | `__DeleteFile(path)` | Delete file |
 | `__CreateDirectory(path)` | Create directory |
 
+## Asynchronous byte I/O
+
+Import `io.bytes` for `AsyncReader`, `AsyncWriter`, `AsyncSeeker`,
+`AsyncBufRead`, and `AsyncFlush`. Their operations accept an
+`OperationContext` and checked `ByteSlice` or `MutableByteSlice` views.
+`AsyncByteReader.fromArray` and `tryAsyncByteWriterWithLimit` provide move-only,
+bounded in-memory owners. They are direct-ready coroutine operations, not
+kernel asynchronous file I/O, background workers, or reactor readiness waits.
+
+Use `await` with the concrete methods or the free entrypoints `asyncRead`,
+`asyncWrite`, `asyncSeek`, `asyncFillBuf`, `asyncConsume`, and `asyncFlush`.
+Read/write return `Result<Int, IoError>` with the exact transferred count;
+short progress and zero-byte EOF are valid results, not implicit retries.
+Cancelled contexts fail before transfer, and closed/stale views are rejected
+through the existing `byte.*` error contract. Writer limits are explicit.
+
+Keep the backing owner alive while a view is borrowed. Close a buffered view
+before consuming its bytes, close acquired views before owner cleanup, and
+call the stream owner's `close()` explicitly. A repeated successful close
+returns `Ok(false)`. The [compiling example](../../seen_std/examples/async_byte_streams.seen)
+shows checked view acquisition, an awaited read, and ordered cleanup.
+
 ## Bounded completion I/O
 
 Import `io.completion_types` and `io.completion_queue`. `IoQueue` is a

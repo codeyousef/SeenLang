@@ -201,6 +201,11 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ### `io`
 
+Asynchronous byte I/O is provided by `io/bytes`: the async stream traits,
+move-only in-memory reader/writer owners, and `await`-compatible entrypoints
+are documented in the [I/O reference](io.md#asynchronous-byte-io). These
+direct-ready memory streams are distinct from OS completion-queue adapters.
+
 - `io/buffered`
 - `io/bytes`
 - `io/completion_bytes`
