@@ -31,6 +31,8 @@ is_positive_integer() {
 
 TARGET_ROOT=""
 COMPILE_LOG=""
+FIXTURE_PRELOAD=""
+FIXTURE_PRELOAD_SHA256=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --sanitizer)
@@ -46,6 +48,16 @@ while [ "$#" -gt 0 ]; do
         --compile-log)
             [ "$#" -ge 2 ] || fail "--compile-log requires a value"
             COMPILE_LOG=$2
+            shift 2
+            ;;
+        --fixture-preload)
+            [ "$#" -ge 2 ] && [ -z "$FIXTURE_PRELOAD" ] || fail "--fixture-preload requires one path"
+            FIXTURE_PRELOAD=$2
+            shift 2
+            ;;
+        --fixture-preload-sha256)
+            [ "$#" -ge 2 ] && [ -z "$FIXTURE_PRELOAD_SHA256" ] || fail "--fixture-preload-sha256 requires one hash"
+            FIXTURE_PRELOAD_SHA256=$2
             shift 2
             ;;
         --)
@@ -116,6 +128,27 @@ case "$canonical_target_root" in
     "$SEEN_ARTIFACT_ROOT"/*) ;;
     *) fail "the regression target root escaped the validated artifact root" ;;
 esac
+
+# Inherited preload state remains forbidden. A fixture may explicitly bind a
+# separately compiled SDK fault library in its exact target directory. This
+# does not relax sanitizer options, scope admission or resource limits.
+fixture_preload_env=()
+if [ -n "$FIXTURE_PRELOAD" ] || [ -n "$FIXTURE_PRELOAD_SHA256" ]; then
+    [[ "$FIXTURE_PRELOAD_SHA256" =~ ^[a-f0-9]{64}$ ]] || fail "fixture library requires a SHA-256 identity"
+    [ "${FIXTURE_PRELOAD%/*}" = "$canonical_target_root" ] &&
+        [ -f "$FIXTURE_PRELOAD" ] && [ ! -L "$FIXTURE_PRELOAD" ] ||
+        fail "fixture library escaped the exact target root or is unsafe"
+    case "$FIXTURE_PRELOAD" in *[[:space:]:]*) fail "fixture library path cannot contain preload separators" ;; esac
+    fixture_bytes=$(stat -c %s -- "$FIXTURE_PRELOAD" 2>/dev/null || true)
+    is_positive_integer "$fixture_bytes" && [ "$fixture_bytes" -le 16777216 ] ||
+        fail "fixture library exceeds its bounded size"
+    [ "$(sha256sum -- "$FIXTURE_PRELOAD" | cut -d ' ' -f1)" = "$FIXTURE_PRELOAD_SHA256" ] ||
+        fail "fixture library SHA-256 mismatch"
+    fixture_elf=$(timeout 10 readelf -hW -- "$FIXTURE_PRELOAD" 2>/dev/null) || fail "fixture library is not ELF"
+    grep -Eq 'Type:[[:space:]]+DYN \(Shared object file\)' <<<"$fixture_elf" ||
+        fail "fixture library must be an ELF shared object"
+    fixture_preload_env=("LD_PRELOAD=$FIXTURE_PRELOAD")
+fi
 
 case "$requested_binary" in
     /*) ;;
@@ -212,6 +245,12 @@ active_soft_vmem_kb=$(ulimit -S -v 2>/dev/null || true)
 [ "$active_soft_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ] ||
     fail "the finite $shadow_label virtual-memory allowance failed exact read-back"
 
+if [ -n "$FIXTURE_PRELOAD" ]; then
+    [ "$(sha256sum -- "$FIXTURE_PRELOAD" | cut -d ' ' -f1)" = "$FIXTURE_PRELOAD_SHA256" ] ||
+        fail "fixture library changed after admission"
+    printf 'sanitizer-fixture-preload sha256=%s path=%s\n' "$FIXTURE_PRELOAD_SHA256" "$FIXTURE_PRELOAD"
+fi
+
 exec env \
     -u LD_PRELOAD \
     -u SEEN_FORK_SERIALIZER_TARGET \
@@ -222,4 +261,5 @@ exec env \
     LSAN_OPTIONS=exitcode=23 \
     UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0 \
     TSAN_OPTIONS=halt_on_error=1:exitcode=66:report_signal_unsafe=1 \
+    "${fixture_preload_env[@]}" \
     "$canonical_binary" "$@"

@@ -38,8 +38,13 @@ run_fixture() {
     local log="$TMP_DIR/00-active.log"
     cp -- "$TMP_DIR/$name-$profile.log" "$log"
     if [ "$profile" = address ]; then
+        local preload_args=()
+        if [ -n "${FIXTURE_ASAN_PRELOAD_LIBRARY:-}" ]; then
+            preload_args=(--fixture-preload "$FIXTURE_ASAN_PRELOAD_LIBRARY"
+                --fixture-preload-sha256 "$(sha256sum -- "$FIXTURE_ASAN_PRELOAD_LIBRARY" | cut -d ' ' -f1)")
+        fi
         timeout --foreground --kill-after=5s "${FIXTURE_RUN_SECONDS}s" bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
-            --target-root "$TMP_DIR" --compile-log "$log" -- "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
+            --target-root "$TMP_DIR" --compile-log "$log" "${preload_args[@]}" -- "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
     else
         UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0 \
             timeout --foreground --kill-after=5s "${FIXTURE_RUN_SECONDS}s" "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1
