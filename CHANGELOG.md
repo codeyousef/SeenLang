@@ -203,6 +203,16 @@ Foundations**.
 - Run incremental CLI tests with an isolated project cache, verify actual warm
   source-object hits and uncached execution, and keep the warm cache unchanged
   during `--no-cache` compilation.
+- Migrate the Linux x86-64 SIMD CLI tests to attested, contained execution with
+  native CPU admission, exact scalar/AVX2/auto comparisons, executable baseline
+  checks, structured report validation, and fail-closed backend rejection.
+  Exercise deterministic compilation with a pure program and require printing
+  to retain its typed nondeterministic-effect rejection.
+- Preserve verified serial linker and auxiliary-tool settings when isolating
+  deterministic compiler environments, rather than failing at ThinLTO linking
+  or losing helper worker limits.
+- Preserve multicall driver names in bounded tool wrappers so canonicalized
+  linker and C++ aliases retain their actual frontend/linker behavior.
 - Instrument Seen LLVM functions for PGO generation and consume their profiles
   in both per-module and merged optimization. Require actual Seen function
   counters in the project-local PGO cycle instead of accepting C-runtime-only

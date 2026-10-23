@@ -113,17 +113,18 @@ STANDALONE_COMPILER_TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_parallel_for_codegen_regression.sh"
 )
 PLATFORM_TARGETS=(
+    "$ROOT_DIR/tests/misc_root_tests/seen_toolchain_driver_aliases_linux_x86_64.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_asan_address_layout.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_executor_native_abi.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_vk_readback_shim.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_macos_package_client_packaging.sh"
 )
-LEGACY_DISABLED=(
+MIGRATED_CLI_TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/test_incremental.sh"
     "$ROOT_DIR/tests/misc_root_tests/test_pgo.sh"
     "$ROOT_DIR/tests/misc_root_tests/test_sanitizers.sh"
-    "$ROOT_DIR/tests/misc_root_tests/test_simd_flags.sh"
-    "$ROOT_DIR/tests/misc_root_tests/test_simd_integration.sh"
+    "$ROOT_DIR/tests/misc_root_tests/test_simd_flags_linux_x86_64.sh"
+    "$ROOT_DIR/tests/misc_root_tests/test_simd_integration_linux_x86_64.sh"
 )
 BLOCKED_DISABLED=(
     "$ROOT_DIR/tests/misc_root_tests/seen_fix_regressions.sh"
@@ -161,7 +162,7 @@ fi
 command -v rg >/dev/null 2>&1 || fail "rg is required"
 bash -n "$ENTRY" "$RUNNER" "$ASAN_RUNNER" "$STAGE1_ACCEPTANCE" "${TARGETS[@]}" \
     "${STANDALONE_COMPILER_TARGETS[@]}" "${PLATFORM_TARGETS[@]}" \
-    "${LEGACY_DISABLED[@]}" "${BLOCKED_DISABLED[@]}" \
+    "${MIGRATED_CLI_TARGETS[@]}" "${BLOCKED_DISABLED[@]}" \
     "${CAPABILITY_CALLERS[@]}" ||
     fail "shell syntax"
 
@@ -335,6 +336,17 @@ grep -Fq -- '--deterministic-environment' "$RUNNER" ||
     fail "runner omitted bounded deterministic-environment mode"
 grep -Fq 'exec env -i' "$RUNNER" ||
     fail "runner does not isolate deterministic compiler inputs"
+for serial_variable in RIPGREP_CONFIG_PATH RAYON_NUM_THREADS OMP_NUM_THREADS \
+    OPENBLAS_NUM_THREADS MKL_NUM_THREADS NUMEXPR_NUM_THREADS \
+    VECLIB_MAXIMUM_THREADS BLIS_NUM_THREADS GOMAXPROCS RUST_TEST_THREADS \
+    CARGO_BUILD_JOBS RPM_BUILD_NCPUS SEEN_LLD_THREADS SEEN_THINLTO_JOBS; do
+    grep -Fq "$serial_variable" "$RUNNER" ||
+        fail "deterministic isolation drops serial auxiliary setting $serial_variable"
+done
+grep -Fq 'exec -a "$driver_argv0"' "$ROOT_DIR/scripts/prepare_bounded_toolchain.sh" ||
+    fail "bounded toolchain loses multicall driver identity"
+grep -Fq '"${real_tool%/*}/$name"' "$ROOT_DIR/scripts/prepare_bounded_toolchain.sh" ||
+    fail "bounded toolchain loses the real driver installation directory"
 grep -Fq 'XDG_CACHE_HOME="$DETERMINISTIC_CACHE"' "$RUNNER" ||
     fail "runner omits its validated project-local package cache"
 grep -Fq 'ARTIFACT_ROOT/deterministic-cache' "$RUNNER" ||
@@ -632,19 +644,39 @@ grep -Fq 'PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_macos_package_client_packaging.sh" ||
     fail "macOS fixture can displace the bounded toolchain"
 
-for legacy in "${LEGACY_DISABLED[@]}"; do
-    stop_line=$(grep -n -m1 'RESOURCE STOP: legacy' "$legacy" | cut -d: -f1)
-    exit_line=$(grep -n -m1 '^exit 126$' "$legacy" | cut -d: -f1)
-    first_tmp_line=$(grep -n -m1 '/tmp' "$legacy" | cut -d: -f1 || true)
-    case "$stop_line:$exit_line" in
-        *[!0-9:]*) fail "legacy guard is malformed in $(basename "$legacy")" ;;
+for target in "${MIGRATED_CLI_TARGETS[@]}"; do
+    grep -Fq 'run_capped_regression.sh' "$target" ||
+        fail "migrated CLI omitted capped entry: $(basename "$target")"
+    grep -Fq 'SEEN_ATTESTED_COMPILER_RUNNER' "$target" ||
+        fail "migrated CLI omitted attested invocation: $(basename "$target")"
+    grep -Fq 'mktemp -d "$SEEN_ARTIFACT_ROOT/' "$target" ||
+        fail "migrated CLI output is not project-local: $(basename "$target")"
+    grep -Fq 'timeout --foreground --kill-after=' "$target" ||
+        fail "migrated CLI omitted command deadline: $(basename "$target")"
+    verify_line=$(grep -n -m1 -- '--verify-active' "$target" | cut -d: -f1)
+    work_line=$(grep -En -m1 '(WORK|BASE_WORK)=.*mktemp' "$target" | cut -d: -f1)
+    case "$verify_line:$work_line" in
+        *[!0-9:]*) fail "migrated CLI scope ordering is malformed: $(basename "$target")" ;;
     esac
-    [ "$stop_line" -lt "$exit_line" ] ||
-        fail "legacy guard ordering is invalid in $(basename "$legacy")"
-    if [ -n "$first_tmp_line" ]; then
-        [ "$exit_line" -lt "$first_tmp_line" ] ||
-            fail "legacy fixture can reach a host temporary path: $(basename "$legacy")"
+    [ "$verify_line" -lt "$work_line" ] ||
+        fail "migrated CLI writes before scope verification: $(basename "$target")"
+    if rg -n 'RESOURCE STOP: legacy|/tmp|detect_leaks=0|rm -rf[[:space:]]+\.seen_cache|SEEN_TEST_NO_ULIMIT|ulimit' "$target"; then
+        fail "migrated CLI retains an unsafe or disabled route: $(basename "$target")"
     fi
+    # Explicit no-fork only reduces concurrency; worker arguments still belong
+    # to the attested runner, which checks the selected compiler's schema.
+    if rg -n -- '--jobs(?:=|[[:space:]])|--opt-jobs(?:=|[[:space:]])' "$target"; then
+        fail "migrated CLI overrides attested worker selection: $(basename "$target")"
+    fi
+    while IFS=: read -r _ line text; do
+        [ -n "$line" ] || continue
+        start=$((line > 2 ? line - 2 : 1))
+        context=$(sed -n "${start},${line}p" "$target")
+        case "$context" in
+            *SEEN_ATTESTED_COMPILER_RUNNER*) ;;
+            *) fail "migrated CLI invokes compiler directly: $(basename "$target"):$line" ;;
+        esac
+    done < <(rg -n --with-filename '\$\{?COMPILER\}?"?[[:space:]]+(compile|run|pkg|check|test)' "$target" || true)
 done
 
 for blocked in "${BLOCKED_DISABLED[@]}"; do

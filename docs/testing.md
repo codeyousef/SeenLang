@@ -143,6 +143,18 @@ and imported helper functions, then execute the profile-use binary with identica
 results. C-runtime-only profiles, missing profiles and unavailable merge tools
 are failures, not successful skips.
 
+The SIMD CLI tests declare `linux-x86_64` in discovery through their filename
+markers. They verify native x86-64-v3 CPU/OS support before running AVX2/v3
+executables, check scalar/deterministic executable baselines, and compare exact
+Float64 math results across scalar, AVX2 and auto modes. Structured frontend and
+LLVM reports must parse and must not claim hardware certification. The
+deterministic success input is pure; a separate printing input must fail with
+the typed nondeterministic-effect error. Unsupported backends must return an
+error without producing an executable or claiming build success.
+The separate Linux x86-64 toolchain-driver-alias regression executes the bounded
+ELF linker alias and compiles/links/runs a C++ allocation witness. It protects
+multicall-driver identity after resolving symlinks, not just version output.
+
 The compiler accepts AddressSanitizer and MemorySanitizer build flags, but they
 are not general runnable `seen test` profiles under the normal finite VMEM
 ceiling. The runner rejects those profile names instead of silently relaxing

@@ -73,11 +73,15 @@ write_wrapper() {
     local tmp
     local quoted_real
     local quoted_name
+    local quoted_argv0
 
     [ ! -L "$output" ] || fail "wrapper target is a symlink: $output"
     tmp=$(mktemp "$toolchain_dir/.${name}.XXXXXX") || fail "could not create wrapper"
     printf -v quoted_real '%q' "$real_tool"
     printf -v quoted_name '%q' "$name"
+    # Preserve both the alias flavor and the real installation directory used
+    # by relocatable drivers to locate their resource files and subprocesses.
+    printf -v quoted_argv0 '%q' "${real_tool%/*}/$name"
     {
         printf '%s\n' '#!/usr/bin/env bash'
         printf '%s\n' 'set -euo pipefail'
@@ -93,11 +97,12 @@ write_wrapper() {
         printf '%s\n' 'esac'
         printf '%s\n' "if [ \"\$active_kb\" -gt \"\$limit_kb\" ]; then echo 'RESOURCE STOP: optimizer/helper cap read-back exceeds request' >&2; exit 126; fi"
         printf 'tool_name=%s\n' "$quoted_name"
+        printf 'driver_argv0=%s\n' "$quoted_argv0"
         printf '%s\n' 'case "$tool_name" in'
         printf '%s\n' '    ld.lld|wasm-ld)'
         printf '%s\n' "        [ \"\${SEEN_LLD_THREADS:-}\" = 1 ] || { echo 'RESOURCE STOP: LLD thread cap is missing' >&2; exit 126; }"
         printf '%s\n' "        [ \"\${SEEN_THINLTO_JOBS:-}\" = 1 ] || { echo 'RESOURCE STOP: ThinLTO job cap is missing' >&2; exit 126; }"
-        printf '        exec %s --threads=1 --thinlto-jobs=1 "$@"\n' "$quoted_real"
+        printf '        exec -a "$driver_argv0" %s --threads=1 --thinlto-jobs=1 "$@"\n' "$quoted_real"
         printf '%s\n' '        ;;'
         printf '%s\n' '    clang|clang++|cc|c++)'
         printf '%s\n' '        link_step=1'
@@ -119,10 +124,10 @@ write_wrapper() {
         printf '%s\n' "            [ \"\${SEEN_THINLTO_JOBS:-}\" = 1 ] || { echo 'RESOURCE STOP: ThinLTO job cap is missing' >&2; exit 126; }"
         printf '%s\n' '            set -- "$@" -Wl,--threads=1 -Wl,--thinlto-jobs=1'
         printf '%s\n' '        fi'
-        printf '        exec %s "$@"\n' "$quoted_real"
+        printf '        exec -a "$driver_argv0" %s "$@"\n' "$quoted_real"
         printf '%s\n' '        ;;'
         printf '%s\n' '    *)'
-        printf '        exec %s "$@"\n' "$quoted_real"
+        printf '        exec -a "$driver_argv0" %s "$@"\n' "$quoted_real"
         printf '%s\n' '        ;;'
         printf '%s\n' 'esac'
     } > "$tmp"

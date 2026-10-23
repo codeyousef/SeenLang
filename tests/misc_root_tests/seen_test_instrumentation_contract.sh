@@ -40,6 +40,12 @@ if grep -Fq 'rm -rf .seen_cache' "$ROOT/tests/misc_root_tests/test_incremental.s
 grep -Fq 'SEEN_ATTESTED_COMPILER_RUNNER' "$ROOT/tests/misc_root_tests/test_pgo.sh" || fail pgo-cli-attestation
 grep -Fq -- '--num-threads=1' "$ROOT/tests/misc_root_tests/test_pgo.sh" || fail pgo-cli-serial-merge
 grep -Fq "'^  compute:$'" "$ROOT/tests/misc_root_tests/test_pgo.sh" || fail pgo-seen-counters
+for harness in test_simd_flags_linux_x86_64.sh test_simd_integration_linux_x86_64.sh; do
+    grep -Fq 'SEEN_ATTESTED_COMPILER_RUNNER' "$ROOT/tests/misc_root_tests/$harness" || fail simd-cli-attestation
+    grep -Fq 'native_cpu_probe.c' "$ROOT/tests/misc_root_tests/$harness" || fail simd-native-admission
+    grep -Fq 'check_x86_executable_baseline.sh' "$ROOT/tests/misc_root_tests/$harness" || fail simd-scalar-baseline
+    if grep -Fq '|| true' "$ROOT/tests/misc_root_tests/$harness"; then fail simd-swallowed-failure; fi
+done
 grep -Fq 'seen_test_instrumentation_soak.sh' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail measured-soak-wiring
 grep -Fq 'derive-execution' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail execution-acceptance
 grep -Fq -- '--filter test_002a_instrumentation --profile "$profile"' "$ROOT/scripts/run_test_instrumentation_acceptance.sh" || fail real-cli-profile-matrix
