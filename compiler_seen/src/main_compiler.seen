@@ -3749,6 +3749,18 @@ fun prebuiltArtifactMemberIsContained(artifactRoot: String,
     return artifactPathIsStrictlyInside(realMember, realRoot)
 }
 
+/// Source columns are portable provenance labels, not interface fallback paths.
+fun prebuiltSourceProvenanceIsPortable(path: String) r: Bool {
+    if path == "" or path.length() > 4096 or isAbsolutePath(path) or
+        path.contains("\\") or
+        path.contains("\t") or artifactPathHasUnsafeSegment(path) {
+        return false
+    }
+    return path != "." and not path.startsWith("./") and
+        not path.endsWith("/.") and not path.contains("/./") and
+        not path.contains("//") and not path.endsWith("/")
+}
+
 fun prebuiltObjectRowsArePinned(artifactRoot: String,
     content: String) r: Bool {
 
@@ -3775,11 +3787,8 @@ fun prebuiltObjectRowsArePinned(artifactRoot: String,
                 let objectDigest = remainder.substring(secondTab + 1,
                     remainder.length()).trim()
                 if objectRelative != "objects/module_" +
-                    rowIndex.toString() + ".o" or sourceRelative == "" or
-                    isAbsolutePath(sourceRelative) or
-                    sourceRelative.startsWith("../") or
-                    sourceRelative.contains("/../") or
-                    sourceRelative.contains("\\") or
+                    rowIndex.toString() + ".o" or
+                    not prebuiltSourceProvenanceIsPortable(sourceRelative) or
                     not isSha256Digest(objectDigest) {
 
                     return false
@@ -5516,12 +5525,20 @@ fun rewritePrebuiltObjectManifest(rawManifestPath: String,
                     let objectDigest = computeFileSha256(dstObjectPath)
                     if not isSha256Digest(objectDigest) { return false }
                     var portableSourcePath = sourcePath
-                    let projectRootReal = resolveRealInputPath(projectRoot)
-                    let sourcePathReal = resolveRealInputPath(sourcePath)
-                    let sourceRel = pathRelativeToProjectRoot(sourcePathReal,
-                        projectRootReal)
-                    if sourceRel != "" and not isAbsolutePath(sourceRel) {
-                        portableSourcePath = sourceRel
+                    if isAbsolutePath(sourcePath) {
+                        let projectRootReal = resolveRealInputPath(projectRoot)
+                        let sourcePathReal = resolveRealInputPath(sourcePath)
+                        let sourceRel = pathRelativeToProjectRoot(sourcePathReal,
+                            projectRootReal)
+                        if sourceRel != "" and not isAbsolutePath(sourceRel) {
+                            portableSourcePath = sourceRel
+                        } else {
+                            portableSourcePath = stableModuleCacheIdentity(sourcePathReal)
+                        }
+                    }
+                    if not prebuiltSourceProvenanceIsPortable(portableSourcePath) {
+                        println("Error: prebuilt object source provenance must be canonical and relative")
+                        return false
                     }
                     rewritten = rewritten + relObjectPath + tab +
                         portableSourcePath + tab + objectDigest + "\n"
@@ -5637,6 +5654,55 @@ fun createPackageInterfaceIndex(manifestPath: String, tomlContent: String,
         indexText = appendPackageInterfaceIndexDeclarations(indexText,
             moduleRel, frontend.program)
         idx = idx + 1
+    }
+    // Flattened objects still need the dependency declarations which gave
+    // their callers concrete types. Copy validated interface modules verbatim
+    // into alias-separated namespaces; never resolve object provenance labels
+    // as source paths or overwrite an entry package's interface module.
+    let deps = extractTomlPackageDependencies(tomlContent)
+    var depIndex = 0
+    while depIndex < deps.length() {
+        let dep = deps[depIndex]
+        if dep.source == "artifact" {
+            if not isPackageDependencyAlias(dep.alias) or
+                not validatePrebuiltPackageArtifactV2(projectRoot, dep) {
+                return false
+            }
+            let artifactRoot = resolvePrebuiltPackageArtifactRoot(projectRoot,
+                dep)
+            let dependencyModules = extractPackageInterfaceIndexModules(artifactRoot)
+            var dependencyIndex = 0
+            while dependencyIndex < dependencyModules.length() {
+                let sourceRel = dependencyModules[dependencyIndex]
+                if not prebuiltSourceProvenanceIsPortable(sourceRel) {
+                    return false
+                }
+                let sourcePath = resolveProjectPath(artifactRoot, sourceRel)
+                let moduleRel = "src/__prebuilt/" + dep.alias + "/" + sourceRel
+                let destination = resolveProjectPath(outputRoot, moduleRel)
+                if exists(destination) or artifactPathTraversesExistingSymlink(destination) or
+                    not ensureDirectory(getSourceDir(destination)) or
+                    not copyProgramArtifactAtomically(sourcePath, destination) {
+                    println("Error: could not preserve dependency interface module")
+                    return false
+                }
+                let dependencyLanguage = prebuiltPackageManifestField(artifactRoot,
+                    "language")
+                let frontend = parseModuleDeclarations(destination, dependencyLanguage)
+                if not frontend.success {
+                    printFrontendDiagnostics(frontend)
+                    return false
+                }
+                let canonicalModule = canonicalProgramDeclarations(frontend.program)
+                indexText = indexText + "module" + tab + moduleRel + tab +
+                    "package" + tab + stripSeenExtension(getLastSegment(moduleRel)) +
+                    tab + hashString(canonicalModule) + "\n"
+                indexText = appendPackageInterfaceIndexDeclarations(indexText,
+                    moduleRel, frontend.program)
+                dependencyIndex = dependencyIndex + 1
+            }
+        }
+        depIndex = depIndex + 1
     }
     return writeTextAtomically(outputRoot + "/interface.index.tsv", indexText)
 }
@@ -12970,6 +13036,13 @@ fun buildTargetLinkLibraries(target: String, hasGpuRuntime: Bool) r: String {
     return libs
 }
 
+fun objectSourceStableIdentity(sourcePath: String) r: String {
+    // Dependency manifests already supply immutable artifact-relative labels.
+    // Resolving those against the caller's cwd invents a different source root.
+    if not isAbsolutePath(sourcePath) { return sourcePath }
+    return stableModuleCacheIdentity(sourcePath)
+}
+
 fun sortObjectInputsByStableSource(objectFiles: Array<String>,
     sourcePaths: Array<String>) r: Void {
 
@@ -12978,8 +13051,8 @@ fun sortObjectInputsByStableSource(objectFiles: Array<String>,
     while index < sourcePaths.length() {
         var cursor = index
         while cursor > 0 and programBuildIdentityTextLess(
-            stableModuleCacheIdentity(sourcePaths[cursor]),
-            stableModuleCacheIdentity(sourcePaths[cursor - 1])) {
+            objectSourceStableIdentity(sourcePaths[cursor]),
+            objectSourceStableIdentity(sourcePaths[cursor - 1])) {
 
             let sourceSwap = sourcePaths[cursor - 1]
             sourcePaths[cursor - 1] = sourcePaths[cursor]
@@ -13056,15 +13129,16 @@ fun writeObjectManifest(manifestPath: String, objectFiles: Array<String>,
                 return false
             }
             objectPath = objectName
-            sourcePath = stableModuleCacheIdentity(sourcePath)
-            if isAbsolutePath(sourcePath) { return false }
+            sourcePath = objectSourceStableIdentity(sourcePath)
+            if not prebuiltSourceProvenanceIsPortable(sourcePath) { return false }
         } else {
             if not isAbsolutePath(objectPath) and cwd != "" {
                 objectPath = resolveProjectPath(cwd, objectPath)
             }
-            if not isAbsolutePath(sourcePath) and cwd != "" {
-                sourcePath = resolveProjectPath(cwd, sourcePath)
-            }
+            // Relative source provenance belongs to the dependency artifact,
+            // unlike relative object filenames which belong to this process.
+            if not isAbsolutePath(sourcePath) and
+                not prebuiltSourceProvenanceIsPortable(sourcePath) { return false }
         }
         content = content + objectPath + "\t" + sourcePath + "\n"
         i = i + 1

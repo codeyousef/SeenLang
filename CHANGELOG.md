@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Preserve portable transitive object provenance and hash-pinned dependency
+  interface modules in prebuilt packages; check downstream fast/ThinLTO
+  execution and reject malformed provenance, collisions and symlink redirection.
 - Verify read-only installed payloads through freshly bound copied compilers,
   isolated project-local caches, portable native execution and genuine runtime
   compiler/cache failure controls without source-tree or stale-object fallbacks.
