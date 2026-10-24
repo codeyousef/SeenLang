@@ -72,6 +72,9 @@ Foundations**.
   API documentation with ownership, limits and links to compiling examples.
 - Isolate standalone artifact-namespace probes from inherited rebuild roles
   without changing their real resource limits or production rejection guards.
+- Split GPU IR input ownership from reflection/CLI acceptance so both mandatory
+  gates retain cold fast, ThinLTO, undefined- and address-sanitized execution
+  within bounded test deadlines, without dropping reflection hashes or fuzzing.
 - Add raw-IR phase regressions for cold/warm caches, SDK-independent cross-
   target emission, no object/link outputs and retained native-policy rejection.
 - Export raw module IR before optimization and native object emission, including

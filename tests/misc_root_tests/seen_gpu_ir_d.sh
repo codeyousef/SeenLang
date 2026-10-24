@@ -15,14 +15,8 @@ TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-ir-d.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-ir-d
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 for profile in fast release undefined address; do
-    compile_case "$profile" allocation-owner "$ROOT_DIR/tests/typed_gpu_compiler/allocation_owner_contract.seen"
-    rg -Fq 'PASS: Seen allocation owner restores all four growing hash-map storage budgets' "$TMP_DIR/allocation-owner-$profile.log"
-    compile_case "$profile" frontend-owner "$ROOT_DIR/tests/typed_gpu_compiler/frontend_ownership_contract.seen"
-    rg -Fq 'PASS: owned GPU frontend success rejection scratch restoration and exact cleanup' "$TMP_DIR/frontend-owner-$profile.log"
-    compile_case "$profile" quotes "$ROOT_DIR/tests/compiler_regressions/escaped_literal_quotes.seen"
-    rg -Fq 'PASS: decoded string literals preserve meaningful quote bytes' "$TMP_DIR/quotes-$profile.log"
-    compile_case "$profile" bytes "$ROOT_DIR/tests/typed_gpu_compiler/ir_bytes_contract.seen"
-    rg -Fq 'PASS: GPU-001D byte text round trip all octets empty rejection and ownership' "$TMP_DIR/bytes-$profile.log"
+    # Input ownership/text contracts run in seen_gpu_ir_d_input_ownership.sh.
+    # Keep each mandatory gate within the standard ten-minute test deadline.
     compile_case "$profile" files "$ROOT_DIR/tests/typed_gpu_compiler/ir_file_contract.seen" "$ROOT_DIR/tests/typed_gpu_compiler/reflection_happy.seen"
     rg -Fq 'PASS: GPU bounded file success rejection and ownership' "$TMP_DIR/files-$profile.log"
     compile_case "$profile" options "$ROOT_DIR/tests/typed_gpu_compiler/ir_options_contract.seen"

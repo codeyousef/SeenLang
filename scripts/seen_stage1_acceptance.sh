@@ -506,6 +506,8 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_d.sh"
 COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_d_input_ownership.sh"
+COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_e.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_spirv_a.sh"

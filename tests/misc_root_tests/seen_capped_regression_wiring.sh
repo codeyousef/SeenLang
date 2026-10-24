@@ -45,6 +45,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_b.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_c.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_d.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_d_input_ownership.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_compiled_fixture_metadata_linux_x86_64.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_ir_only_phase_linux_x86_64.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_e.sh"

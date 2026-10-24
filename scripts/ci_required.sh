@@ -61,6 +61,7 @@ bash -n \
     tests/misc_root_tests/seen_gpu_ir_b.sh \
     tests/misc_root_tests/seen_gpu_ir_c.sh \
     tests/misc_root_tests/seen_gpu_ir_d.sh \
+    tests/misc_root_tests/seen_gpu_ir_d_input_ownership.sh \
     tests/misc_root_tests/seen_gpu_ir_e.sh \
     tests/misc_root_tests/seen_gpu_spirv_a.sh \
     tests/misc_root_tests/seen_gpu_spirv_b.sh \
