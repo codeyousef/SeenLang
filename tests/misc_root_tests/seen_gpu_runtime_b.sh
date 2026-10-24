@@ -14,6 +14,7 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-runtime-b.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-runtime-b
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
 fixtures=(resource_foundations resource_geometry resource_ranges resource_allocator resource_adverse resource_stress resource_cleanup_budget)
 for profile in fast release undefined address; do
     for name in "${fixtures[@]}"; do
@@ -56,9 +57,9 @@ for name in "${fixtures[@]}" "${native_fixtures[@]}" vulkan_properties_fuzz; do
 done
 compile_fixture fast coverage-vulkan_resource_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_resource_fault_contract.seen"
 run_native_faults fast coverage-vulkan_resource_fault
-llvm-profdata merge -sparse "$TMP_DIR"/fault-coverage-vulkan_resource_fault-*.profraw -o "$TMP_DIR/fault.profdata"
+seen_source_coverage_tool llvm-profdata merge -sparse --num-threads=1 \
+    "$TMP_DIR"/fault-coverage-vulkan_resource_fault-*.profraw -o "$TMP_DIR/fault.profdata"
 coverage+=(--fixture "$TMP_DIR/coverage-vulkan_resource_fault-fast" "$TMP_DIR/fault.profdata")
-source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
 seen_verify_source_coverage "$TMP_DIR/resources" "${coverage[@]}" \
     --source seen_std/src/compute/memory_kind.seen \
     --source seen_std/src/compute/resource_stats.seen \
