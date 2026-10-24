@@ -81,6 +81,7 @@ bash -n \
     tests/misc_root_tests/seen_generic_reprc_abi.sh \
     tests/misc_root_tests/seen_prebuilt_generic_reprc_abi.sh \
     tests/misc_root_tests/seen_compiled_fixture_status.sh \
+    tests/misc_root_tests/seen_ir_only_phase_linux_x86_64.sh \
     tests/misc_root_tests/seen_select_guard_safety.sh \
     scripts/vulkan_reference_fixture_support.sh \
     tests/misc_root_tests/seen_dyn_trait_void_contract.sh \

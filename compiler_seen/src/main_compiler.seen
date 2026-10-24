@@ -13507,6 +13507,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             "|profile=" + hashString(loadFileContent(pgoPath))
     }
     var moduleCacheEnabled = useCache
+    // Raw IR is an invocation output, not an object-cache product. A cache hit
+    // (including generated test mains) must not bypass its generation/export.
+    if g_stopAfterIr == 1 { moduleCacheEnabled = false }
     // A report describes this invocation's optimizer decisions. Reusing a
     // cached object would make selected/rejected loop evidence unavailable.
     if simdReport { moduleCacheEnabled = false }
@@ -13535,9 +13538,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     var cacheSignature = buildCacheSignature(profile, language, targetCpu,
         simdPolicy, sanitizePolicy, pgoMode, pgoPath, effectiveTarget,
         panicOnOverflow)
-    let targetClangArgs = buildTargetClangArgs(effectiveTarget)
-    let targetClangDriver = buildTargetClangDriver(effectiveTarget)
-    let targetRuntimeFlags = buildTargetRuntimeCompileFlags(effectiveTarget)
+    var targetClangArgs = ""
+    var targetClangDriver = "clang"
+    var targetRuntimeFlags = ""
+    // Link SDK discovery belongs to native compilation. Raw IR retains the
+    // target triple/layout below without locating a sysroot or SDK driver.
+    if g_stopAfterIr == 0 {
+        targetClangArgs = buildTargetClangArgs(effectiveTarget)
+        targetClangDriver = buildTargetClangDriver(effectiveTarget)
+        targetRuntimeFlags = buildTargetRuntimeCompileFlags(effectiveTarget)
+    }
     let llvmOptTool = resolveLlvmTool("opt")
     let llvmLlcTool = resolveLlvmTool("llc")
     let llvmLinkTool = resolveLlvmTool("llvm-link")
@@ -13552,7 +13562,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
 
-    if normalizedCrossTarget == "android-arm64" and targetClangArgs == "" {
+    if g_stopAfterIr == 0 and normalizedCrossTarget == "android-arm64" and targetClangArgs == "" {
         println("  Error: Android cross-compilation requires ANDROID_NDK_HOME or ANDROID_NDK_ROOT with a valid LLVM sysroot")
         return 1
     }
@@ -13561,16 +13571,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         println("  Hint: install LLVM or set SEEN_LLVM_BIN to your LLVM bin directory")
         return 1
     }
-    if g_fastMode == 1 and normalizedCrossTarget != "android-arm64" and llvmLlcTool == "" {
+    if g_stopAfterIr == 0 and g_fastMode == 1 and normalizedCrossTarget != "android-arm64" and llvmLlcTool == "" {
         println("  Error: LLVM tool not found: llc")
         println("  Hint: install LLVM or set SEEN_LLVM_BIN to your LLVM bin directory")
         return 1
     }
-    if normalizedCrossTarget == "linux-arm64" and detectHostTargetName() != "linux-arm64" and targetClangArgs == "" {
+    if g_stopAfterIr == 0 and normalizedCrossTarget == "linux-arm64" and detectHostTargetName() != "linux-arm64" and targetClangArgs == "" {
         println("  Error: Linux ARM64 cross-compilation requires SEEN_LINUX_ARM64_SYSROOT or an installed aarch64 sysroot such as /usr/aarch64-linux-gnu")
         return 1
     }
-    if normalizedCrossTarget == "linux-riscv64" and detectHostTargetName() != "linux-riscv64" and targetClangArgs == "" {
+    if g_stopAfterIr == 0 and normalizedCrossTarget == "linux-riscv64" and detectHostTargetName() != "linux-riscv64" and targetClangArgs == "" {
         println("  Error: Linux RISC-V cross-compilation requires SEEN_LINUX_RISCV64_SYSROOT, RISCV64_SYSROOT, artifacts/toolchains/linux-riscv64, or an installed riscv64 sysroot such as /usr/riscv64-linux-gnu")
         return 1
     }
@@ -14345,7 +14355,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                             processExit(1)
                         }
                     }
-                    if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+                    if g_stopAfterIr == 0 and g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
                         let objFile = moduleTempPathInt(compileTempDir,
                             moduleIndex, ".o")
                         let childObjCmd = llvmLlcTool +
@@ -14453,7 +14463,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     while forkReg < forkModuleIdxStrs.length() {
         let midxStr = forkModuleIdxStrs[forkReg]
         let llFile = moduleTempPath(compileTempDir, midxStr, ".ll")
-        if g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
+        if g_stopAfterIr == 0 and g_generatedTestMainMode == 1 and normalizedCrossTarget != "android-arm64" {
             let objFile = moduleTempPath(compileTempDir, midxStr, ".o")
             let checkObj: CommandResult = runCommand("test -f " +
                 mainCompilerShellQuote(objFile))
@@ -14470,6 +14480,28 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             uncachedIrKeys.push(forkIrKeys[forkReg])
         }
         forkReg = forkReg + 1
+    }
+
+    // All serial/forked IR generation has succeeded and children are joined.
+    // Stop before optimizers, generated-main objects, runtime objects or links.
+    if g_stopAfterIr == 1 {
+        if g_emitModuleIrDir == "" {
+            println("    Error: --stop-after-ir requires --emit-module-ir-dir <dir>")
+            return 1
+        }
+        if not publishModuleIrArtifacts(compileTempDir, g_emitModuleIrDir) {
+            println("    Error: failed to emit module IR directory: " + g_emitModuleIrDir)
+            buildTraceEmit("module ir export", "failed", 0,
+                "dir=" + g_emitModuleIrDir)
+            return 1
+        }
+        buildTraceFinish("ir generation", pass2Start, "ok",
+            "modules=" + modulePaths.length().toString())
+        println("  Emitted module IR directory: " + g_emitModuleIrDir)
+        buildTraceEmit("module ir export", "ok", 0,
+            "dir=" + g_emitModuleIrDir + " modules=" + llFiles.length().toString())
+        println("  [3] Stopping after module IR emission")
+        return 0
     }
 
     ///
@@ -14918,15 +14950,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
     }
-    if g_stopAfterIr == 1 {
-        if g_emitModuleIrDir == "" {
-            println("    Error: --stop-after-ir requires --emit-module-ir-dir <dir>")
-            return 1
-        }
-        println("  [3] Stopping after module IR emission")
-        return 0
-    }
-
     ///
     Detect host platform before any native object emission so release builds
     can avoid inheriting unsupported ISA features from the build host.

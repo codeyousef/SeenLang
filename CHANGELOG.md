@@ -49,6 +49,11 @@ Foundations**.
   cleanup, distinguishing direct-ready memory streams from OS completion I/O.
 - Isolate standalone artifact-namespace probes from inherited rebuild roles
   without changing their real resource limits or production rejection guards.
+- Add raw-IR phase regressions for cold/warm caches, SDK-independent cross-
+  target emission, no object/link outputs and retained native-policy rejection.
+- Export raw module IR before optimization and native object emission, including
+  generated test mains; bypass object caches for IR-only requests and defer
+  native SDK discovery without relaxing ordinary cross-compilation policy.
 - Preserve special-token error positions before releasing tokenizer scratch
   arrays, avoiding use-after-free in disallowed-token and output-limit errors.
 - Pair character strings with their UTF-8-length allocation size, and release
