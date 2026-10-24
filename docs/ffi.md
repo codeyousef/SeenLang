@@ -77,6 +77,31 @@ seen import-c <header.h>
 
 This parses the C header and outputs `extern fun` declarations.
 
+Imported function parameters and returns use the same scalar/pointer mapping
+as imported record fields and callback aliases: C `int` uses `Int32`, not the
+64-bit Seen `Int`; `float` uses `Float32`, and C string pointers remain pointer
+types rather than `SeenString` values. Callback typedefs retain their complete
+`fn(Parameters) -> Return` signature through frontend checking; `Ptr` denotes
+an opaque pointer, not a parameterized owning pointer. Malformed callback
+types and unknown component types fail before LLVM emission.
+
+Extern scalar declarations and calls retain the target's integer-extension
+attributes together. In particular, signed/unsigned 8- and 16-bit C arguments
+and results use `signext`/`zeroext` on Linux x86-64 and Apple ARM64. Windows x64
+and Linux ARM64 do not use those attributes; RV64 additionally sign-extends
+32-bit integer arguments and results, including unsigned ones. These rules
+do not change ordinary Seen-to-Seen calls. Imported aliases retain their
+underlying signedness; pointer types do not acquire integer attributes.
+
+The current declaration ABI represents raw `*T` addresses as one `i64` word
+on these 64-bit targets; opaque `Ptr` and function-pointer values use LLVM
+`ptr`. Neither representation is the two-word `SeenString` aggregate. Inspect
+both declared and call-site layouts when adapting a C header.
+
+Bindings still require ABI review for the selected target, especially C
+`long`, `long double`, plain `char`, and platform-dependent typedefs. A native
+Linux callback test does not certify every C type or another target's ABI.
+
 ## Exposing Seen to C
 
 Seen declarations exposed to C need an ABI reviewed against emitted LLVM IR.

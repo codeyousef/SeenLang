@@ -79,7 +79,7 @@ fun semanticIsBuiltinType(name: String) r: Bool {
     if name == "Byte" or name == "u8" or name == "i8" or name == "i16" or
         name == "i32" or name == "i64" { return true }
     if name == "u16" or name == "u32" or name == "u64" { return true }
-    if name == "f32" or name == "f64" or name == "ptr" { return true }
+    if name == "f32" or name == "f64" or name == "ptr" or name == "Ptr" { return true }
     if semanticIsSimdBuiltinType(name) { return true }
     return false
 }

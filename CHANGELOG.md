@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Preserve target-specific C scalar extension attributes across extern
+  declarations, imported aliases, renamed wrappers and call sites without
+  changing the Seen-internal ABI; cover signed narrow callback boundaries.
 - Add contained LLVM optimizer/object failure probes with native fast/ThinLTO
   controls, preserving bounded tool identities and rejecting invalid requests.
 - Migrate the historical compiler regression suite to attested serial execution
@@ -60,6 +63,11 @@ Foundations**.
   BPE symbol, substring, result-container and decode temporaries on success
   and rejection. Exercise cold/warm exact live-byte and reserve baselines in
   fast, ThinLTO, undefined- and address-sanitized tokenizer lifecycle tests.
+- Preserve imported callback signatures and opaque pointers through parsing,
+  semantic checking and LLVM mapping; retain source coordinates and reject
+  malformed callback types before code generation. Share fixed-width C
+  function/record mappings and test signed, floating and raw-pointer native
+  roundtrips instead of widening C values into incompatible Seen types.
 - Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
   retained initialization and cleanup failures, source dependencies for
   asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.

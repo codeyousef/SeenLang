@@ -4,6 +4,7 @@ import codegen.ir_dyn_parameter_metadata.{registerDeclaredDynParametersImpl}
 
 import parser.real_parser.{ProgramNode, FunctionNode, ItemNode, ParamNode}
 import codegen.ir_generic_call_type.{registerGenericCallTypeImpl}
+import codegen.ir_codegen_target_state.{registerForeignScalarAbiImpl, foreignScalarReturnPrefixImpl, foreignScalarParameterSuffixImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, isClassTypeImpl,
     normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
@@ -351,6 +352,9 @@ fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
         declLlvmParamTypes, ctx.structNames, ctx.typeAliasNames,
         ctx.typeAliasTargets, ctx.typeAliasCount, ctx.state.enumTypeNames,
         ctx.reprCClassNames)
+    registerForeignScalarAbiImpl(declaredName, funcObj.isExtern,
+        funcRetTypeName, declRetLlvm, declSeenParamTypes, declLlvmParamTypes,
+        ctx.typeAliasNames, ctx.typeAliasTargets, ctx.typeAliasCount)
     registerFunctionStateImpl(declaredName, funcRetTypeName, ctx.funcNames,
         ctx.funcRetTypes)
     if funcObj.isAsync {
@@ -359,10 +363,17 @@ fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
     }
     if shouldRegisterCrossModuleFunctionImpl(declaredName, funcObj.isExtern,
         bodyStmtCount, isRuntimeStringCompat) {
+        var abiParamIdx = 0
+        while abiParamIdx < declLlvmParamTypes.length() {
+            declLlvmParamTypes[abiParamIdx] = declLlvmParamTypes[abiParamIdx] +
+                foreignScalarParameterSuffixImpl(declaredName, abiParamIdx)
+            abiParamIdx = abiParamIdx + 1
+        }
         let declParams = buildDeclareParamsImpl(declSeenParamTypes,
             declLlvmParamTypes, false)
         let declStr = buildDeclareStringImpl(
-            quoteIdentIfNeededImpl(declaredName), declRetLlvm, declParams,
+            quoteIdentIfNeededImpl(declaredName),
+            foreignScalarReturnPrefixImpl(declaredName) + declRetLlvm, declParams,
             funcObj.isExtern and bodyStmtCount == 0)
         recordCrossModuleDeclareIntoStateImpl(declaredName, declStr,
             visibility, ctx.state)

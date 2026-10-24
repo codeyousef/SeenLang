@@ -10,6 +10,7 @@ import codegen.ir_type_info.{findStructIdx}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import codegen.ir_decl_late_declares.{moduleBuilderAlreadyDeclaresFunctionCoreImpl}
 import codegen.ir_type_mapping.{getFixedWidthScalarLlvmTypeImpl}
+import codegen.ir_codegen_target_state.{foreignScalarReturnPrefixImpl, foreignScalarParameterSuffixImpl}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 
 // Check if a function name is defined in the current module
@@ -279,13 +280,15 @@ fun emitExternDeclImpl(output: StringBuilder,
     }
 
     // Build the declaration
-    var externSignature = "declare " + externRetType + " @" + externSymbol + "("
+    let returnPrefix = foreignScalarReturnPrefixImpl(funcName)
+    var externSignature = "declare " + returnPrefix + externRetType + " @" + externSymbol + "("
     var pIdx = 0
     while pIdx < paramCount {
         if pIdx > 0 {
             externSignature = externSignature + ", "
         }
-        externSignature = externSignature + mappedParamTypes[pIdx]
+        externSignature = externSignature + mappedParamTypes[pIdx] +
+            foreignScalarParameterSuffixImpl(funcName, pIdx)
         pIdx = pIdx + 1
     }
     if isVariadic == 1 {
@@ -325,13 +328,14 @@ fun emitExternDeclImpl(output: StringBuilder,
 
     // If symbol differs from function name, emit a wrapper that calls the extern
     if externSymbol != funcName {
-        output.append("define " + externRetType + " @" + funcName + "(")
+        output.append("define " + returnPrefix + externRetType + " @" + funcName + "(")
         pIdx = 0
         while pIdx < paramCount {
             if pIdx > 0 {
                 output.append(", ")
             }
-            output.append(mappedParamTypes[pIdx] + " %p" + pIdx.toString())
+            output.append(mappedParamTypes[pIdx] +
+                foreignScalarParameterSuffixImpl(funcName, pIdx) + " %p" + pIdx.toString())
             pIdx = pIdx + 1
         }
         output.append(") #0 {\n")
@@ -344,7 +348,8 @@ fun emitExternDeclImpl(output: StringBuilder,
             if pIdx > 0 {
                 callArgs = callArgs + ", "
             }
-            callArgs = callArgs + mappedParamTypes[pIdx] + " %p" + pIdx.toString()
+            callArgs = callArgs + mappedParamTypes[pIdx] +
+                foreignScalarParameterSuffixImpl(funcName, pIdx) + " %p" + pIdx.toString()
             pIdx = pIdx + 1
         }
 
@@ -352,7 +357,7 @@ fun emitExternDeclImpl(output: StringBuilder,
             output.append("  call void @" + externSymbol + "(" + callArgs + ")\n")
             output.append("  ret void\n")
         } else {
-            output.append("  %result = call " + externRetType + " @" + externSymbol + "(" + callArgs + ")\n")
+            output.append("  %result = call " + returnPrefix + externRetType + " @" + externSymbol + "(" + callArgs + ")\n")
             output.append("  ret " + externRetType + " %result\n")
         }
         output.append("}\n\n")

@@ -1021,7 +1021,8 @@ class RealParser {
             // 'type' keyword — type alias: type Foo = Bar<Baz>
             if matchTokenStr(SeenTokenType.KeywordType) {
                 if checkToken(SeenTokenType.Identifier) {
-                    let typeAliasName = advance().getValue()
+                    let typeAliasToken = advance()
+                    let typeAliasName = typeAliasToken.getValue()
                     consume(SeenTokenType.Equal, "Expected '=' in type alias")
                     let typeAliasTarget = parseTypeNode()
                     // Emit as a class with no fields and a @type_alias decorator
@@ -1033,6 +1034,8 @@ class RealParser {
                     let typeAliasItem = ItemNode.new()
                     typeAliasItem.itemType = "Class"
                     typeAliasItem.name = typeAliasName
+                    typeAliasItem.line = typeAliasToken.getLine()
+                    typeAliasItem.column = typeAliasToken.getColumn()
                     typeAliasItem.classNode = typeAliasClass
                     typeAliasItem.visibility = inferVisibility(typeAliasName)
                     this.currentProgram.items.push(typeAliasItem)
@@ -1749,7 +1752,8 @@ class RealParser {
 
     fun parseTypeAliasDeclarationOnly(isDistinct: Bool) r: Void {
         if checkToken(SeenTokenType.Identifier) {
-            let aliasName = advance().getValue()
+            let aliasToken = advance()
+            let aliasName = aliasToken.getValue()
             consume(SeenTokenType.Equal, "Expected '=' in type alias")
             let aliasTarget = parseTypeNode()
             let aliasClass = ClassNode.new()
@@ -1765,6 +1769,8 @@ class RealParser {
             let aliasItem = ItemNode.new()
             aliasItem.itemType = "Class"
             aliasItem.name = aliasName
+            aliasItem.line = aliasToken.getLine()
+            aliasItem.column = aliasToken.getColumn()
             aliasItem.classNode = aliasClass
             aliasItem.visibility = inferVisibility(aliasName)
             this.currentProgram.items.push(aliasItem)
@@ -4221,6 +4227,55 @@ class RealParser {
         this.lastFunction.returnType = parsedScratchTypeNode()
     }
 
+    // Keep callback signatures structural rather than treating `fn` as an
+    // opaque type name. The canonical spelling is shared with TypeRef.
+    fun parseFunctionTypeIntoScratch() r: Void {
+        var malformed = not checkToken(SeenTokenType.LeftParen)
+        consume(SeenTokenType.LeftParen, "Expected '(' in function type")
+        var signature = "("
+        var parameterCount = 0
+        while not isAtEnd() and not checkToken(SeenTokenType.RightParen) {
+            let parameterStart = this.current
+            parseTypeNodeIntoScratch()
+            if this.lastParsedTypeName == "Unknown" or this.current == parameterStart {
+                malformed = true
+                recordParserRecoveryError()
+                break
+            }
+            if parameterCount > 0 { signature = signature + "," }
+            signature = signature + this.lastParsedTypeName
+            parameterCount = parameterCount + 1
+            if not matchTokenStr(SeenTokenType.Comma) { break }
+            if checkToken(SeenTokenType.RightParen) {
+                malformed = true
+                recordParserRecoveryError()
+            }
+        }
+        if not checkToken(SeenTokenType.RightParen) { malformed = true }
+        consume(SeenTokenType.RightParen, "Expected ')' in function type")
+        if not matchTokenStr(SeenTokenType.Arrow) {
+            recordParserRecoveryError()
+            this.lastParsedTypeName = "fn" + signature + ")"
+            this.lastParsedTypeNullable = false
+            return
+        }
+        parseTypeNodeIntoScratch()
+        let returnType = this.lastParsedTypeName
+        if returnType == "Unknown" {
+            malformed = true
+            recordParserRecoveryError()
+        }
+        this.lastParsedTypeName = signature + ") -> " + returnType
+        if malformed {
+            // A recovery count alone is not consulted by every frontend.
+            // Retain an invalid structural spelling for E_TYPE_SYNTAX instead
+            // of normalizing a malformed callback into a usable signature.
+            this.lastParsedTypeName = "fn("
+        }
+        // A nullable return is inside its spelling, not a nullable callback.
+        this.lastParsedTypeNullable = false
+    }
+
     // Parse a type annotation into scratch fields.
     fun parseTypeNodeIntoScratch() r: Void {
         this.lastParsedTypeName = "Unknown"
@@ -4230,8 +4285,14 @@ class RealParser {
 
         var typeIdentFound = false
 
+        if checkToken(SeenTokenType.LeftParen) {
+            parseFunctionTypeIntoScratch()
+            typeName = this.lastParsedTypeName
+            typeIdentFound = true
+        }
+
         // : Raw pointer type: *T or *const T
-        if checkToken(SeenTokenType.Multiply) {
+        if not typeIdentFound and checkToken(SeenTokenType.Multiply) {
             advance()
             var ptrPrefix = "*"
             if checkToken(SeenTokenType.KeywordConst) {
@@ -4246,6 +4307,12 @@ class RealParser {
         if not typeIdentFound and checkToken(SeenTokenType.Identifier) {
             let token = advance()
             var name = token.getValue()
+
+            if name == "fn" {
+                parseFunctionTypeIntoScratch()
+                typeName = this.lastParsedTypeName
+                typeIdentFound = true
+            }
 
             // : dyn Trait — dynamic dispatch
             if name == "dyn" and checkToken(SeenTokenType.Identifier) {

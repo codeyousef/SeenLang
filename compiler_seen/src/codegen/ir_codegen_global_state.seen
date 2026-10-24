@@ -4,6 +4,7 @@
 
 import parser.real_parser.{ProgramNode, ClassNode, FunctionNode, StatementNode}
 import codegen.ir_generic_call_type.{resetGenericCallTypesImpl}
+import codegen.ir_codegen_target_state.{resetForeignScalarAbiImpl}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions}
 import codegen.ir_codegen_state_bridge.{CodegenStateBridgeSnapshot, syncCodegenStateBridgeImpl}
@@ -755,6 +756,7 @@ fun createDeclarationItemContextWithGlobalStateImpl(
 
 fun initGlobalBootstrapStateImpl() r: Void {
     resetGenericCallTypesImpl()
+    resetForeignScalarAbiImpl()
     preAllocatedRegs = Array<String>()
     preAllocatedVars = Array<String>()
     preAllocatedTypes = Array<String>()

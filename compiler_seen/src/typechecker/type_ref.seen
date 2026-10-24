@@ -259,6 +259,21 @@ fun parseTypeRefAt(text: String, cursor: Array<Int>, line: Int, column: Int,
 
     typeRefSkipSpace(text, cursor)
 
+    var explicitFunctionPrefix = false
+    if typeRefStartsAt(text, cursor[0], "fn") {
+        let prefixEnd = cursor[0] + 2
+        if prefixEnd == text.length() or text.byteAt(prefixEnd) == '(' or
+            typeRefIsSpace(text.byteAt(prefixEnd)) {
+            explicitFunctionPrefix = true
+            cursor[0] = prefixEnd
+            typeRefSkipSpace(text, cursor)
+            if cursor[0] >= text.length() or text.byteAt(cursor[0]) != '(' {
+                return typeRefInvalid("expected '(' in function type", line,
+                    column, file)
+            }
+        }
+    }
+
     if cursor[0] < text.length() and text.byteAt(cursor[0]) == '(' {
         cursor[0] = cursor[0] + 1
         let functionType = TypeRef.new()
@@ -310,7 +325,7 @@ fun parseTypeRefAt(text: String, cursor: Array<Int>, line: Int, column: Int,
 
         typeRefSkipSpace(text, cursor)
         if not typeRefStartsAt(text, cursor[0], "->") {
-            if functionType.arguments.length() == 0 {
+            if functionType.arguments.length() == 0 and not explicitFunctionPrefix {
                 functionType.kind = "named"
                 functionType.base = "()"
                 return functionType

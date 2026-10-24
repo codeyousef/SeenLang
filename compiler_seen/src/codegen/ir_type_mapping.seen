@@ -352,6 +352,12 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
     if trimmed.startsWith("*") {
         return "ptr"
     }
+    // These are checked structural function signatures / opaque pointer
+    // spellings, not class handles or an unknown-name fallback.
+    if trimmed.startsWith("(") or trimmed.startsWith("fn(") {
+        return "ptr"
+    }
+    if baseType == "Ptr" or baseType == "ptr" { return "ptr" }
     if trimmed.startsWith("ErrorUnion<") {
         return "i64"
     }
