@@ -62,48 +62,5 @@ FIXTURE_COMPILE_FLAGS=()
 unset LLVM_PROFILE_FILE
 compile_case fast metadata-fuzz "$ROOT_DIR/tests/production_gpu_runtime/metadata_fuzz.seen"
 rg -Fq 'PASS: GPU-006A metadata fuzz 60s seed=1100 preserves typed diagnostics bounds and ownership' "$TMP_DIR/metadata-fuzz-fast.log"
-# Native execution deliberately selects the software reference driver. This is
-# not hardware certification and production callers must opt into software use.
-source "$ROOT_DIR/scripts/vulkan_reference_fixture_support.sh"
-seen_prepare_vulkan_reference
-fault_modes=(version-status version-old instance-status instance-empty devices-count-status devices-limit devices-fill-status devices-overflow queue-limit queue-overflow queue-none context-status context-empty)
-fault_codes=(gpu.unavailable gpu.unsupported_capability gpu.out_of_memory gpu.invalid gpu.device_lost gpu.limit gpu.invalid gpu.invalid gpu.limit gpu.invalid gpu.unsupported_capability gpu.out_of_memory gpu.invalid)
-run_vendor_faults() {
-    local profile=$1 name=$2 index
-    for index in "${!fault_modes[@]}"; do
-        seen_run_vulkan_fault "$profile" "$name" "${fault_modes[index]}" "${fault_codes[index]}"
-    done
-}
-native_fixtures=(vulkan_abi vulkan_instance vulkan_properties vulkan_provider)
-for profile in fast release undefined address; do
-    for name in "${native_fixtures[@]}"; do
-        compile_case "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
-        rg -Fq 'PASS:' "$TMP_DIR/$name-$profile.log"
-    done
-    compile_fixture "$profile" vulkan_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
-    run_vendor_faults "$profile" vulkan_fault
-done
-FIXTURE_COMPILE_FLAGS=(--coverage)
-compile_fixture fast coverage-vulkan_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
-run_vendor_faults fast coverage-vulkan_fault
-llvm-profdata merge -sparse "$TMP_DIR"/fault-coverage-vulkan_fault-*.profraw -o "$TMP_DIR/fault.profdata"
-native_coverage=(--fixture "$TMP_DIR/coverage-vulkan_fault-fast" "$TMP_DIR/fault.profdata")
-for name in "${native_fixtures[@]}" vulkan_properties_fuzz; do
-    export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
-    source="$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
-    if [ "$name" = vulkan_properties_fuzz ]; then source="$ROOT_DIR/tests/production_gpu_runtime/$name.seen"; fi
-    compile_case fast "coverage-$name" "$source"
-    native_coverage+=(--fixture "$TMP_DIR/coverage-$name-fast" "$TMP_DIR/$name.profraw")
-done
-seen_verify_source_coverage "$TMP_DIR/vulkan" "${native_coverage[@]}" \
-    --source seen_std/src/compute/vulkan_abi.seen \
-    --source seen_std/src/compute/vulkan_error.seen \
-    --source seen_std/src/compute/vulkan_instance.seen \
-    --source seen_std/src/compute/vulkan_properties.seen \
-    --source seen_std/src/compute/vulkan_memory_info.seen \
-    --source seen_std/src/compute/vulkan_provider.seen \
-    --source seen_std/src/compute/vulkan_queue.seen
-python3 "$ROOT_DIR/scripts/check_source_coverage_thresholds.py" "$TMP_DIR/vulkan-coverage.json" \
-    --source seen_std/src/compute/vulkan_properties.seen --source seen_std/src/compute/vulkan_memory_info.seen --min-lines 90 --min-branches 90 \
-    > "$TMP_DIR/vulkan-parser-coverage-summary.json"
-echo 'PASS: bounded GPU ownership and explicit Vulkan software reference discovery; hardware execution unverified'
+# Vulkan software-reference execution/coverage is a separate mandatory gate.
+echo 'PASS: bounded GPU metadata ownership and foundation source coverage; hardware execution unverified'

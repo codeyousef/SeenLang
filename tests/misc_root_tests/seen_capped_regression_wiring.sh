@@ -63,6 +63,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_metal_b.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_metal_b_numeric.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_a_vulkan.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_b.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_staging_foundations.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_vulkan_mapping.sh"

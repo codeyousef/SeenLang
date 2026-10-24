@@ -81,6 +81,9 @@ Foundations**.
 - Separate PTX numeric/specialization and packed fuzz from capability/hardware
   acceptance, retaining all four compiler profiles, official assembly and
   designated-device execution without increasing test deadlines.
+- Separate GPU foundation metadata coverage from explicit Vulkan software-
+  reference coverage while retaining all profiles, fault cases and parser fuzz
+  thresholds. Keep the fault-profile merge bounded and single-worker too.
 - Add raw-IR phase regressions for cold/warm caches, SDK-independent cross-
   target emission, no object/link outputs and retained native-policy rejection.
 - Export raw module IR before optimization and native object emission, including
