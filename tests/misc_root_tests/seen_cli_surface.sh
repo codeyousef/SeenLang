@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-COMPILER="${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}"
+COMPILER="${COMPILER:-${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}}"
 VERSION="${SEEN_EXPECTED_VERSION:-0.22.9}"
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 SCOPE=seen-cli-surface

@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Bind bundled CUDA, stream-token, checked-allocation and CLI regression gates
+  to the runner-selected attested compiler; replace obsolete role-marker checks
+  with numerical scope readback while retaining native and rejection controls.
 - Preserve target-specific C scalar extension attributes across extern
   declarations, imported aliases, renamed wrappers and call sites without
   changing the Seen-internal ABI; cover signed narrow callback boundaries.

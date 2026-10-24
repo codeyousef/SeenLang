@@ -715,4 +715,19 @@ for index, line in enumerate(lines):
         assert index > 0 and lines[index - 1] == 'COMPILER="$REAL_COMPILER" \\', 'fresh compiler missing before ' + line
 PYTHON
 
+python3 - "$ROOT_DIR" <<'PYTHON'
+import sys
+from pathlib import Path
+root = Path(sys.argv[1]) / 'tests/misc_root_tests'
+for name in ('seen_bundled_cuda_link.sh', 'seen_cuda_after_bounded_array_release.sh',
+             'seen_cuda_stream_launch_token_contract.sh',
+             'seen_checked_allocation_codegen.sh', 'seen_cli_surface.sh'):
+    source = (root / name).read_text()
+    assert '${COMPILER:-${SEEN_BIN:-' in source, 'runner-selected compiler ignored: ' + name
+    assert 'SEEN_HARD_MEMORY_SCOPE_ACTIVE' not in source, 'obsolete scope marker blocks attested entry: ' + name
+    assert 'bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler ' in source, 'missing real scope readback: ' + name
+    assert 'SEEN_CAPPED_REGRESSION_COMPILER' in source, 'missing bound compiler identity: ' + name
+    assert 'SEEN_ATTESTED_COMPILER_RUNNER' in source, 'missing compiler attestation: ' + name
+PYTHON
+
 echo "PASS: compiler-capable regressions require project-local hard containment"
