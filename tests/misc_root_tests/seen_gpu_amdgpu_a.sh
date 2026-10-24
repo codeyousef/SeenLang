@@ -21,6 +21,8 @@ for profile in fast release undefined address; do
         name=${pair%%:*}; source="$ROOT_DIR/tests/${pair#*:}.seen"
         cp -- "$TMP_DIR/text-$profile" "$TMP_DIR/$name-$profile"
         cp -- "$TMP_DIR/text-$profile.log" "$TMP_DIR/$name-$profile.log"
+        cp -- "$TMP_DIR/text-$profile.compile.log" "$TMP_DIR/$name-$profile.compile.log"
+        cp -- "$TMP_DIR/text-$profile.compile.status" "$TMP_DIR/$name-$profile.compile.status"
         run_fixture "$profile" "$name" hip "$source"
         rg -Fq 'PASS: AMDGPU target coverage deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/$name-$profile.log"
     done
