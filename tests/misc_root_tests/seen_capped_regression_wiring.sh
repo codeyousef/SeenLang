@@ -54,6 +54,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_spirv_c.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ptx_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ptx_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ptx_b_numeric.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ptx_c.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_amdgpu_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_amdgpu_b.sh"

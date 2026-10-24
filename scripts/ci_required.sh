@@ -68,6 +68,7 @@ bash -n \
     tests/misc_root_tests/seen_gpu_spirv_c.sh \
     tests/misc_root_tests/seen_gpu_ptx_a.sh \
     tests/misc_root_tests/seen_gpu_ptx_b.sh \
+    tests/misc_root_tests/seen_gpu_ptx_b_numeric.sh \
     tests/misc_root_tests/seen_gpu_ptx_c.sh \
     tests/misc_root_tests/seen_gpu_amdgpu_a.sh \
     tests/misc_root_tests/seen_gpu_amdgpu_b.sh \

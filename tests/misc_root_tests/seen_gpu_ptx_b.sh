@@ -16,10 +16,7 @@ FIXTURE_ARTIFACT_PREFIX=gpu-ptx-b
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 python3 "$ROOT_DIR/scripts/check_gpu_ptx_toolchain.py" > "$TMP_DIR/toolchain.json"
 for profile in fast release undefined address; do
-    compile_case "$profile" numeric "$ROOT_DIR/tests/gpu_scalar_words/ptx_numeric_contract.seen"
-    rg -Fq 'PASS: emitted scalar PTX matches fixed IEEE packed goldens and allocation baseline' "$TMP_DIR/numeric-$profile.log"
-    compile_case "$profile" specialization "$ROOT_DIR/tests/gpu_artifacts/specialization_contract.seen" cuda
-    rg -Fq 'PASS: PTX bounded specialization overrides preserve source and independent clone ownership' "$TMP_DIR/specialization-$profile.log"
+    # Numeric/specialization and packed fuzz run in their mandatory gate.
     compile_case "$profile" rejection "$ROOT_DIR/tests/cuda_ptx_lowering/capabilities_contract.seen"
     rg -Fq 'PASS: PTX native target shape layout and full-warp rejection preserve selected-entry isolation' "$TMP_DIR/rejection-$profile.log"
     compile_fixture "$profile" layout "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
@@ -28,6 +25,8 @@ for profile in fast release undefined address; do
         if [ "$name" = bf16 ]; then arguments=(sm_80+); fi
         cp -- "$TMP_DIR/layout-$profile" "$TMP_DIR/$name-$profile"
         cp -- "$TMP_DIR/layout-$profile.log" "$TMP_DIR/$name-$profile.log"
+        cp -- "$TMP_DIR/layout-$profile.compile.log" "$TMP_DIR/$name-$profile.compile.log"
+        cp -- "$TMP_DIR/layout-$profile.compile.status" "$TMP_DIR/$name-$profile.compile.status"
         run_fixture "$profile" "$name" cuda "$source" "${arguments[@]}"
         rg -Fq 'PASS: PTX target coverage deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/$name-$profile.log"
     done
@@ -38,6 +37,4 @@ if [ "${SEEN_REQUIRE_PTX_HARDWARE:-0}" = 1 ]; then hardware_args+=(--require-dev
 timeout --foreground --kill-after=5s 120s python3 "$ROOT_DIR/scripts/check_gpu_ptx_hardware.py" "$TMP_DIR" --kind capabilities --compiler "$COMPILER" "${hardware_args[@]}" > "$TMP_DIR/hardware-evidence.json"
 cp "$TMP_DIR/hardware-evidence.json" "$SEEN_ARTIFACT_ROOT/ptx-b-hardware-evidence.json"
 cat "$TMP_DIR/hardware-evidence.json"
-compile_case fast fuzz "$ROOT_DIR/tests/gpu_scalar_words/packed_fuzz.seen" cuda "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
-rg -Fq 'PASS: packed capability fuzz 60s seed=1089 preserved typed rejection and artifact ownership' "$TMP_DIR/fuzz-fast.log"
-echo 'PASS: CUDA PTX precision atomics subgroup specialization and native cooperative capability contracts'
+echo 'PASS: CUDA PTX atomics subgroup and native cooperative capability contracts'
