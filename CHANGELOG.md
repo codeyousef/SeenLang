@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Test copied compiler-fixture metadata with real native success and failure
+  controls; reject missing logs, malformed or failed statuses and stale binaries
+  before execution instead of trusting an executable filename alone.
 - Run line/extension, local native-dependency and package-prerequisite regressions
   through the selected attested compiler. Audit CPU isolation against that actual
   binary, with bounded dependency reads even when legacy output paths are absent.
