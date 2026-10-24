@@ -1,0 +1,12 @@
+/// Compatibility entry points for CUDA's versioned physical parameter ABI.
+import json.builder.{JsonBuilder}
+import codegen.gpu_ir_model.{GpuIrFunction}
+import codegen.gpu.launch_abi.{gpuAlignKernelParameter, gpuPackedKernelParameterBytes, gpuWriteKernelParameter, gpuReflectionPackedKernelAbi}
+fun ptxAlignParameter(offset: Int, alignment: Int) r: Int { return gpuAlignKernelParameter(offset, alignment) }
+fun ptxKernelParameterBytes(borrow source: GpuIrFunction, fault: Bool) r: Int { return gpuPackedKernelParameterBytes(source, fault) }
+fun ptxWriteParameter(builder: JsonBuilder, index: Int, binding: Int, kind: String, offset: Int, bytes: Int, alignment: Int) r: Void {
+    gpuWriteKernelParameter(builder, index, binding, kind, offset, bytes, alignment)
+}
+fun ptxReflectionEntryAbi(builder: JsonBuilder, borrow source: GpuIrFunction, fault: Bool) r: Void {
+    gpuReflectionPackedKernelAbi(builder, source, fault, "seen-ptx-kernel-v1")
+}

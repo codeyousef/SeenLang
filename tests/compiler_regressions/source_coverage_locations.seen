@@ -1,0 +1,46 @@
+// Executed and deliberately unexecuted source coverage locations.
+class CoverageVisit {
+    var visits: Int
+    fun visit() r: Bool { this.visits = this.visits + 1; return true }
+    fun choose(flag: Bool) r: Int {
+        if flag { return 7 }
+        return 3
+    }
+}
+fun coverageChoice(value: Int) r: Int {
+    if value > 0 { return value }
+    return 0
+}
+enum CoverageArm { Zero, One, Other }
+fun coverageMatch(value: CoverageArm) r: Int {
+    let result = match value {
+        is Zero -> 7
+        is One -> 11
+        else -> 13
+    }
+    return result
+}
+fun coverageNever() r: Int {
+    return 991
+}
+fun main() r: Int {
+    let probe = CoverageVisit{visits: 0}
+    var yes = true
+    var no = false
+    if no and probe.visit() { return 1 }
+    if yes or probe.visit() { }
+    if yes and probe.visit() { }
+    if no or probe.visit() { }
+    if probe.visits != 2 { return 2 }
+    var index = 0
+    while index < 3 { index = index + 1 }
+    var total = 0
+    for item in 0..3 { total = total + item }
+    if index != 3 or total != 3 { return 3 }
+    if coverageChoice(4) != 4 or coverageChoice(-1) != 0 { return 4 }
+    if probe.choose(true) != 7 or probe.choose(false) != 3 { return 5 }
+    if coverageMatch(CoverageArm.Zero) != 7 or coverageMatch(CoverageArm.One) != 11 or coverageMatch(CoverageArm.Other) != 13 { return 6 }
+    probe.free()
+    println("PASS: source coverage preserves branch and loop behavior")
+    return 0
+}

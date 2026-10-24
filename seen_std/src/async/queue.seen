@@ -1,0 +1,133 @@
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import sync.contracts.{Send}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import async.executor_core.{ExecutorCore, executorFailure, executorContextFailure,
+    EXECUTOR_FOREVER, executorParkOrHelpLocked, executorStopStatusLocked}
+import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
+
+// One bounded ring, with ownership transferred only by successful put/take.
+// The owner must drain values before release; no generic payload is discarded.
+@move
+class AsyncQueue<T: Send> {
+    var core: ExecutorCore
+    var values: Array<Option<T>>
+    var capacity: Int
+    var head: Int
+    var tail: Int
+    var count: Int
+    var waiters: Int
+    var closed: Bool
+
+    static fun create(core: ExecutorCore, capacity: Int)
+        r: Result<AsyncQueue<T>, AsyncError> {
+        if capacity <= 0 or capacity > core.limits.tasks {
+            return Err<AsyncQueue<T>, AsyncError>(executorFailure(2 as Int32,
+                "queue.create", 0 as UInt64))
+        }
+        let status = asyncSyncAttach(core)
+        if status != (0 as Int32) {
+            return Err<AsyncQueue<T>, AsyncError>(executorFailure(status,
+                "queue.create", 0 as UInt64))
+        }
+        let values = Array<Option<T>>()
+        var i = 0
+        while i < capacity { values.push(None<T>()); i = i + 1 }
+        return Ok<AsyncQueue<T>, AsyncError>(AsyncQueue<T>{core: core,
+            values: values, capacity: capacity, head: 0, tail: 0,
+            count: 0, waiters: 0, closed: false})
+    }
+
+    fun put(value: T, context: AsyncOperationContext) r: Result<Bool, AsyncError> {
+        let valid = validateAsyncContext(context, "queue.put", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<Bool, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        var status = this.core.lock(context.operation.monotonicDeadline)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorContextFailure(status, "queue.put", 0 as UInt64, context))
+        }
+        this.waiters = this.waiters + 1
+        while this.count == this.capacity and not this.closed and status == (0 as Int32) {
+            status = executorParkOrHelpLocked(this.core, context)
+        }
+        this.waiters = this.waiters - 1
+        if this.closed { status = 1 as Int32 }
+        if status == (0 as Int32) { status = executorStopStatusLocked(this.core, context) }
+        if status != (0 as Int32) {
+            this.core.unlock()
+            return Err<Bool, AsyncError>(executorContextFailure(status, "queue.put", 0 as UInt64, context))
+        }
+        this.values[this.tail].free()
+        this.values[this.tail] = Some<T>(value)
+        this.tail = (this.tail + 1) % this.capacity
+        this.count = this.count + 1
+        this.core.notify()
+        this.core.unlock()
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun take(context: AsyncOperationContext) r: Result<T, AsyncError> {
+        let valid = validateAsyncContext(context, "queue.take", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<T, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        var status = this.core.lock(context.operation.monotonicDeadline)
+        if status != (0 as Int32) {
+            return Err<T, AsyncError>(executorContextFailure(status, "queue.take", 0 as UInt64, context))
+        }
+        this.waiters = this.waiters + 1
+        while this.count == 0 and not this.closed and status == (0 as Int32) {
+            status = executorParkOrHelpLocked(this.core, context)
+        }
+        this.waiters = this.waiters - 1
+        if this.count == 0 and this.closed { status = 1 as Int32 }
+        if status == (0 as Int32) { status = executorStopStatusLocked(this.core, context) }
+        if status != (0 as Int32) {
+            this.core.unlock()
+            return Err<T, AsyncError>(executorContextFailure(status, "queue.take", 0 as UInt64, context))
+        }
+        let slot = this.values[this.head]
+        let value = slot.unwrap()
+        slot.free()
+        this.values[this.head] = None<T>()
+        this.head = (this.head + 1) % this.capacity
+        this.count = this.count - 1
+        this.core.notify()
+        this.core.unlock()
+        return Ok<T, AsyncError>(value)
+    }
+
+    fun close() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "queue.close", 0 as UInt64))
+        }
+        this.closed = true
+        this.core.notify()
+        this.core.unlock()
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun release() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "queue.release", 0 as UInt64))
+        }
+        if not this.closed or this.count != 0 or this.waiters != 0 {
+            this.core.unlock()
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "queue.release", 0 as UInt64))
+        }
+        this.core.unlock()
+        var i = 0
+        while i < this.capacity { this.values[i].free(); i = i + 1 }
+        this.values.free()
+        asyncSyncDetach(this.core)
+        this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

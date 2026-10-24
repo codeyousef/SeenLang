@@ -120,7 +120,7 @@ fun tryGenerateExplicitOptionMethodCallImpl(output: StringBuilder, regBox: Array
         return ""
     }
     return emitOptionMethodImpl(output, regBox, blockLabelBox, methodName,
-        receiverReg, optDefaultReg)
+        receiverReg, receiverType, optDefaultReg)
 }
 
 fun tryGenerateExplicitHotReloadMethodCallImpl(output: StringBuilder,

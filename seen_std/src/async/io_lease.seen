@@ -1,0 +1,71 @@
+// Coordinator-owned bounded borrowing; producers own independent move leases.
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError}
+import async.executor_core.{executorFailure}
+import sync.atomic.{seen_sync_atomic_create, seen_sync_atomic_load,
+    seen_sync_atomic_fetch_add, seen_sync_atomic_fetch_sub, seen_sync_atomic_destroy}
+
+@send
+class AsyncIoLease {
+    var native: UInt64
+    var counter: UInt64
+    var active: Bool
+
+    fun release() r: Bool {
+        if not this.active { return true }
+        this.active = false
+        var previous = 0 as Int64
+        let status = seen_sync_atomic_fetch_sub(this.counter, 1 as Int64, 4 as Int32, &previous)
+        if status != (0 as Int32) or previous <= (0 as Int64) {
+            abort("I/O lease released after its owner")
+        }
+        this.free(); return true
+    }
+}
+
+@send
+@move
+class AsyncIoLeaseCounter {
+    var native: UInt64
+    var capacity: Int
+
+    static fun create(capacity: Int) r: Result<AsyncIoLeaseCounter, AsyncError> {
+        if capacity <= 0 or capacity > 1048576 {
+            return Err<AsyncIoLeaseCounter, AsyncError>(executorFailure(2 as Int32, "io.lease", 0 as UInt64))
+        }
+        var native = 0 as UInt64
+        let status = seen_sync_atomic_create(0 as Int64, &native)
+        if status != (0 as Int32) {
+            return Err<AsyncIoLeaseCounter, AsyncError>(executorFailure(status, "io.lease", 0 as UInt64))
+        }
+        return Ok<AsyncIoLeaseCounter, AsyncError>(AsyncIoLeaseCounter{native: native, capacity: capacity})
+    }
+    fun idleStatus() r: Int32 {
+        var count = 0 as Int64
+        let status = seen_sync_atomic_load(this.native, 4 as Int32, &count)
+        if status != (0 as Int32) { return status }
+        if count != (0 as Int64) { return 3 as Int32 }
+        return 0 as Int32
+    }
+    fun acquire(native: UInt64) r: Result<AsyncIoLease, AsyncError> {
+        var count = 0 as Int64
+        var status = seen_sync_atomic_load(this.native, 4 as Int32, &count)
+        if status == (0 as Int32) and count >= (this.capacity as Int64) { status = 2 as Int32 }
+        if status != (0 as Int32) {
+            return Err<AsyncIoLease, AsyncError>(executorFailure(status, "io.lease", 0 as UInt64))
+        }
+        var previous = 0 as Int64
+        status = seen_sync_atomic_fetch_add(this.native, 1 as Int64, 4 as Int32, &previous)
+        if status != (0 as Int32) {
+            return Err<AsyncIoLease, AsyncError>(executorFailure(status, "io.lease", 0 as UInt64))
+        }
+        return Ok<AsyncIoLease, AsyncError>(AsyncIoLease{native: native, counter: this.native, active: true})
+    }
+    fun release() r: Int32 {
+        let idle = this.idleStatus()
+        if idle != (0 as Int32) { return idle }
+        let status = seen_sync_atomic_destroy(&this.native)
+        if status == (0 as Int32) { this.free() }
+        return status
+    }
+}

@@ -36,6 +36,9 @@ fi
 # or clean-checkout certification work. CORE-004E execution is deliberately
 # deferred to Stage-1 acceptance, where the verified fresh compiler is explicit.
 bash -n \
+    scripts/compiled_fixture_support.sh \
+    scripts/run_attested_seen.sh \
+    scripts/installed_payload_fixture_worker.sh \
     tests/misc_root_tests/seen_core_004e_deterministic_context.sh \
     tests/misc_root_tests/seen_program_artifacts_contract.sh \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh \
@@ -43,7 +46,55 @@ bash -n \
     tests/misc_root_tests/seen_result_aggregate_array_data_contract.sh \
     tests/misc_root_tests/seen_result_scalar_payload_contract.sh \
     tests/misc_root_tests/seen_inf_simd_a.sh \
+    tests/misc_root_tests/seen_async_io_a.sh \
+    tests/misc_root_tests/seen_async_io_b.sh \
+    tests/misc_root_tests/seen_async_io_c.sh \
+    tests/misc_root_tests/seen_async_io_d.sh \
+    tests/misc_root_tests/seen_async_io_e.sh \
+    tests/misc_root_tests/seen_async_io_f.sh \
     tests/misc_root_tests/seen_inf_simd_b.sh \
+    tests/misc_root_tests/seen_inf_simd_c.sh \
+    tests/misc_root_tests/seen_inf_simd_d.sh \
+    tests/misc_root_tests/seen_inf_simd_e.sh \
+    tests/misc_root_tests/seen_inf_simd_f.sh \
+    tests/misc_root_tests/seen_gpu_ir_a.sh \
+    tests/misc_root_tests/seen_gpu_ir_b.sh \
+    tests/misc_root_tests/seen_gpu_ir_c.sh \
+    tests/misc_root_tests/seen_gpu_ir_d.sh \
+    tests/misc_root_tests/seen_gpu_ir_d_input_ownership.sh \
+    tests/misc_root_tests/seen_gpu_ir_e.sh \
+    tests/misc_root_tests/seen_gpu_spirv_a.sh \
+    tests/misc_root_tests/seen_gpu_spirv_b.sh \
+    tests/misc_root_tests/seen_gpu_spirv_c.sh \
+    tests/misc_root_tests/seen_gpu_ptx_a.sh \
+    tests/misc_root_tests/seen_gpu_ptx_b.sh \
+    tests/misc_root_tests/seen_gpu_ptx_b_numeric.sh \
+    tests/misc_root_tests/seen_gpu_ptx_c.sh \
+    tests/misc_root_tests/seen_gpu_amdgpu_a.sh \
+    tests/misc_root_tests/seen_gpu_amdgpu_b.sh \
+    tests/misc_root_tests/seen_gpu_amdgpu_b_numeric.sh \
+    tests/misc_root_tests/seen_gpu_amdgpu_c.sh \
+    tests/misc_root_tests/seen_gpu_metal_a.sh \
+    tests/misc_root_tests/seen_gpu_metal_b.sh \
+    tests/misc_root_tests/seen_gpu_metal_b_numeric.sh \
+    tests/misc_root_tests/seen_gpu_runtime_a.sh \
+    tests/misc_root_tests/seen_gpu_runtime_a_vulkan.sh \
+    tests/misc_root_tests/seen_gpu_runtime_b.sh \
+    tests/misc_root_tests/seen_gpu_staging_foundations.sh \
+    tests/misc_root_tests/seen_gpu_vulkan_mapping.sh \
+    tests/misc_root_tests/seen_gpu_vulkan_transfer.sh \
+    tests/misc_root_tests/seen_gpu_vulkan_staging.sh \
+    tests/misc_root_tests/seen_cuda_event_query.sh \
+    tests/misc_root_tests/seen_gpu_cuda_staging.sh \
+    tests/misc_root_tests/seen_generic_reprc_abi.sh \
+    tests/misc_root_tests/seen_prebuilt_generic_reprc_abi.sh \
+    tests/misc_root_tests/seen_compiled_fixture_status.sh \
+    tests/misc_root_tests/seen_compiled_fixture_metadata_linux_x86_64.sh \
+    tests/misc_root_tests/seen_ir_only_phase_linux_x86_64.sh \
+    tests/misc_root_tests/seen_select_guard_safety.sh \
+    scripts/vulkan_reference_fixture_support.sh \
+    tests/misc_root_tests/seen_dyn_trait_void_contract.sh \
+    scripts/compiled_fixture_support.sh \
     tests/misc_root_tests/seen_integer_string_width_contract.sh \
     tests/misc_root_tests/seen_aggregate_return_cuda_stdlib_contract.sh \
     tests/misc_root_tests/seen_pointer_field_cast_contract.sh \
@@ -64,6 +115,13 @@ bash -n \
     tests/misc_root_tests/seen_bundled_cuda_link.sh \
     tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh \
     tests/misc_root_tests/seen_async_structured_contract.sh \
+    tests/misc_root_tests/seen_multithread_executor_contract.sh \
+    tests/misc_root_tests/seen_async_synchronization_contract.sh \
+    tests/misc_root_tests/seen_cpu_blocking_pools_contract.sh \
+    tests/misc_root_tests/seen_async_reactor_contract.sh \
+    tests/misc_root_tests/seen_async_streams_process_dns_contract.sh \
+    tests/misc_root_tests/seen_task_context_policy_contract.sh \
+    tests/misc_root_tests/seen_async_stress_contract.sh \
     tests/misc_root_tests/seen_stdlib_component_payload.sh \
     tests/misc_root_tests/seen_mapped_close_ownership.sh \
     tests/misc_root_tests/seen_open_issue_regressions.sh \
@@ -75,6 +133,34 @@ SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh
 
 python3 -m py_compile \
+    scripts/check_gpu_spirv_artifacts.py \
+    scripts/check_gpu_spirv_toolchain.py \
+    scripts/gpu_toolchain_process.py \
+    scripts/check_gpu_ptx_toolchain.py \
+    scripts/check_gpu_ptx_artifacts.py \
+    scripts/install_gpu_ptx_toolchain.py \
+    scripts/certify_gpu_spirv.py \
+    scripts/certify_gpu_ptx.py \
+    scripts/certify_gpu_amdgpu.py \
+    scripts/check_gpu_amdgpu_toolchain.py \
+    scripts/check_gpu_amdgpu_artifacts.py \
+    scripts/check_gpu_amdgpu_scalar.py \
+    scripts/check_gpu_metal_artifacts.py \
+    scripts/check_gpu_metal_scalar.py \
+    scripts/gpu_metal_host.py \
+    scripts/gpu_scalar_corpus.py \
+    tests/gpu_artifacts/metal_metadata_contract.py \
+    scripts/check_gpu_amdgpu_capabilities.py \
+    scripts/check_gpu_amdgpu_numerics.py \
+    scripts/check_gpu_amdgpu_subgroups.py \
+    scripts/check_gpu_amdgpu_cooperative.py \
+    scripts/check_gpu_amdgpu_native.py \
+    scripts/check_simd_packed_allocations.py \
+    scripts/gpu_launch_contract.py \
+    scripts/gpu_certification_io.py \
+    scripts/gpu_certification_profiles.py \
+    tests/gpu_artifacts/certification_io_contract.py \
+    tests/gpu_artifacts/amdgpu_metadata_contract.py \
     scripts/cpu_benchmark_statistics.py \
     scripts/benchmark_compatibility_manifest.py \
     scripts/benchmark_compatibility_runtime.py \
@@ -147,12 +233,14 @@ python3 -m unittest \
     tests.runner.test_release_platform_inputs_unit \
     tests.runner.test_release_draft_api_unit
 python3 -m unittest tests.runner.test_repair_frozen_coro_ir_unit
+python3 -m unittest tests.runner.test_ir_failure_diagnostics_unit
 python3 -m py_compile \
     scripts/check_release_artifact_manifest.py \
     scripts/benchmark_release_artifact_manifest.py \
     scripts/measure_release_artifact_manifest_coverage.py \
     tests/runner/test_release_artifact_manifest_unit.py
 python3 scripts/check_ci_workflows.py >/dev/null
+python3 tests/misc_root_tests/verification_log_retention_contract.py
 python3 scripts/check_ci_containment.py \
     docs/architecture/ci-containment.json >/dev/null
 python3 scripts/check_compatibility_manifest.py \
@@ -205,6 +293,7 @@ tests/misc_root_tests/seen_native_boundaries_ledger.sh
 tests/misc_root_tests/seen_native_inventory_gate.sh
 tests/misc_root_tests/seen_sync_contract.sh
 tests/misc_root_tests/seen_sync_native_abi.sh
+tests/misc_root_tests/seen_executor_native_abi.sh
 tests/misc_root_tests/seen_ci_workflow_contract.sh
 tests/misc_root_tests/seen_ci_containment_contract.sh
 tests/misc_root_tests/seen_ci_required_wiring.sh

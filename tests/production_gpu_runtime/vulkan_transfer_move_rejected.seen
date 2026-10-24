@@ -1,0 +1,7 @@
+import compute.vulkan_transfer.{GpuVulkanCopyQueue}
+fun consume(value: GpuVulkanCopyQueue) r: Void {}
+fun invalid(value: GpuVulkanCopyQueue) r: Void {
+    consume(value)
+    value.close()
+}
+fun main() r: Int { return 0 }

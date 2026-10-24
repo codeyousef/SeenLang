@@ -656,6 +656,32 @@ This specialized path covers the currently supported value layouts: i64 ABI slot
 values and SeenString values.
 ///
 fun emitStringHashMapMethodImpl(output: StringBuilder, regBox: Array<Int>, methodName: String, mapPtrReg: String, arg0: String, arg1: String, hasStrVal: Bool) r: String {
+    if methodName == "capacity" or methodName == "loadFactorPercent" {
+        // SeenHashMapStr and SeenHashMapStrStr share this header. Source
+        // fallback methods instead use Vec fields and cannot read native maps.
+        let capacityPtr = getNextRegFn(regBox)
+        output.append("  " + capacityPtr + " = getelementptr inbounds { ptr, ptr, ptr, i64, i64, i64 }, ptr " + mapPtrReg + ", i32 0, i32 3\n")
+        let capacity = getNextRegFn(regBox)
+        output.append("  " + capacity + " = load i64, ptr " + capacityPtr + "\n")
+        if methodName == "capacity" { return capacity }
+
+        let lengthPtr = getNextRegFn(regBox)
+        output.append("  " + lengthPtr + " = getelementptr inbounds { ptr, ptr, ptr, i64, i64, i64 }, ptr " + mapPtrReg + ", i32 0, i32 4\n")
+        let length = getNextRegFn(regBox)
+        output.append("  " + length + " = load i64, ptr " + lengthPtr + "\n")
+        let emptyCapacity = getNextRegFn(regBox)
+        output.append("  " + emptyCapacity + " = icmp eq i64 " + capacity + ", 0\n")
+        let denominator = getNextRegFn(regBox)
+        output.append("  " + denominator + " = select i1 " + emptyCapacity + ", i64 1, i64 " + capacity + "\n")
+        let scaledLength = getNextRegFn(regBox)
+        output.append("  " + scaledLength + " = mul i64 " + length + ", 100\n")
+        let percent = getNextRegFn(regBox)
+        output.append("  " + percent + " = sdiv i64 " + scaledLength + ", " + denominator + "\n")
+        let result = getNextRegFn(regBox)
+        output.append("  " + result + " = select i1 " + emptyCapacity + ", i64 0, i64 " + percent + "\n")
+        return result
+    }
+
     if methodName == "len" or methodName == "length" {
         let resultReg = getNextRegFn(regBox)
         if hasStrVal {

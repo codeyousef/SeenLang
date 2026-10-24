@@ -1,0 +1,223 @@
+/// Native Seen discovery and explicit device selection. Software devices are
+/// excluded unless the caller explicitly enables the reference-driver path.
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import compute.backend.{GpuBackend}
+import compute.device.{GpuDevice}
+import compute.discovery.{GpuDeviceCatalog}
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GpuLimits}
+import compute.operation.{gpuCheckOperation}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop, gpuVkU32, gpuVkQueueInfo, gpuVkDeviceInfo,
+    VulkanDeviceQueueCreateInfo, VulkanDeviceCreateInfo, GPU_VK_FEATURE_BYTES}
+import compute.vulkan_instance.{GpuVulkanInstance}
+import compute.vulkan_properties.{VulkanMetadata}
+import compute.vulkan_queue.{gpuVkComputeFamily}
+import compute.vulkan_native.{vkEnumeratePhysicalDevices, vkCreateDevice, vkDestroyDevice}
+import compute.vulkan_error.{gpuVkFailure}
+import compute.resource_provider.{GpuResourceProviderHandle}
+import compute.capabilities.{GPU_FEATURE_TIMELINE_EVENTS}
+import compute.vulkan_timeline.{gpuVkCaptureTimeline}
+import compute.vulkan_memory.{gpuVkCreateResourceProvider}
+import memory.aligned_buffer.{OwnedBuffer}
+import memory.allocation.{allocationBudgetAvailable}
+import sync.atomic.{seen_sync_atomic_create, seen_sync_atomic_destroy}
+
+fun gpuVkReleaseIdentity(identity: UInt64) r: Void {
+    var native = identity
+    if seen_sync_atomic_destroy(&native) != (0 as Int32) { abort("Vulkan provider identity ownership was invalidated") }
+}
+
+@move
+class VulkanDeviceRecord {
+    var physical: UInt64
+    var ordinal: Int
+    var family: UInt32
+    var metadata: VulkanMetadata
+    // Partial construction is owned here: enabled features, then priority.
+    var buffers: Array<OwnedBuffer<UInt8>>
+    fun release() r: Void {
+        var index = 0
+        while index < this.buffers.length() { gpuVkDrop(this.buffers[index]); index = index + 1 }
+        this.buffers.free(); this.metadata.release(); this.free()
+    }
+}
+
+@move
+class GpuVulkanProvider {
+    var instance: GpuVulkanInstance
+    var domain: UInt64
+    var limits: GpuLimits
+    var catalog: GpuDeviceCatalog
+    var records: Array<VulkanDeviceRecord>
+
+    static fun discover(context: OperationContext, borrow limits: GpuLimits, allowSoftware: Bool)
+        r: Result<GpuVulkanProvider, GpuError> {
+        let valid = limits.validate()
+        if valid.isErr() { let error = valid.unwrapErr(); valid.releaseContainer(); return Err<GpuVulkanProvider, GpuError>(error) }
+        valid.releaseContainer()
+        if not allocationBudgetAvailable(65536 + limits.maxDevices * 16384) {
+            return Err<GpuVulkanProvider, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.discovery", "Vulkan discovery metadata budget exhausted"))
+        }
+        let copied = limits.snapshot()
+        if copied.isErr() { let error = copied.unwrapErr(); copied.releaseContainer(); return Err<GpuVulkanProvider, GpuError>(error) }
+        let owned = copied.unwrap(); copied.releaseContainer()
+        let opened = GpuVulkanInstance.open(context)
+        if opened.isErr() { let error = opened.unwrapErr(); opened.releaseContainer(); owned.release(); return Err<GpuVulkanProvider, GpuError>(error) }
+        let instance = opened.unwrap(); opened.releaseContainer(); var domain = 0 as UInt64
+        let status = seen_sync_atomic_create(0 as Int64, &domain)
+        if status != (0 as Int32) {
+            instance.release(); owned.release()
+            return Err<GpuVulkanProvider, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.identity", "Vulkan provider identity allocation failed"))
+        }
+        let created = GpuDeviceCatalog.create(GpuBackend.Vulkan, domain, owned)
+        if created.isErr() {
+            let error = created.unwrapErr(); created.releaseContainer(); gpuVkReleaseIdentity(domain); instance.release(); owned.release()
+            return Err<GpuVulkanProvider, GpuError>(error)
+        }
+        let catalog = created.unwrap(); created.releaseContainer()
+        let provider = GpuVulkanProvider{instance: instance, domain: domain, limits: owned,
+            catalog: catalog, records: Array<VulkanDeviceRecord>()}
+        let enumerated = provider.enumerate(context, allowSoftware)
+        if enumerated.isErr() {
+            let error = enumerated.unwrapErr(); enumerated.releaseContainer(); provider.release()
+            return Err<GpuVulkanProvider, GpuError>(error)
+        }
+        enumerated.releaseContainer(); return Ok<GpuVulkanProvider, GpuError>(provider)
+    }
+
+    fun enumerate(context: OperationContext, allowSoftware: Bool) r: Result<Bool, GpuError> {
+        var count = 0 as UInt32
+        let counted = vkEnumeratePhysicalDevices(this.instance.native, &count, null as *UInt64)
+        if counted != (0 as Int32) { return Err<Bool, GpuError>(gpuVkFailure(counted, "gpu.vulkan.discovery")) }
+        if count == (0 as UInt32) or (count as Int) > this.limits.maxDevices {
+            return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.discovery", "Vulkan physical-device count is outside its discovery limit"))
+        }
+        let allocated = gpuVkAllocate((count as UInt64) * (8 as UInt64))
+        if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); return Err<Bool, GpuError>(error) }
+        let buffer = allocated.unwrap(); allocated.releaseContainer(); var written = count
+        let filled = vkEnumeratePhysicalDevices(this.instance.native, &written, buffer.data as *UInt64)
+        if filled != (0 as Int32) or written > count {
+            gpuVkDrop(buffer)
+            if filled != (0 as Int32) { return Err<Bool, GpuError>(gpuVkFailure(filled, "gpu.vulkan.discovery")) }
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.discovery", "Vulkan device output exceeded its capacity"))
+        }
+        let devices = buffer.data as *UInt64; var index = 0
+        while index < (written as Int) {
+            let checked = gpuCheckOperation(context, "gpu.vulkan.discovery")
+            if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); gpuVkDrop(buffer); return Err<Bool, GpuError>(error) }
+            checked.releaseContainer()
+            let admitted = this.admit(devices[index], index, allowSoftware)
+            if admitted.isErr() { let error = admitted.unwrapErr(); admitted.releaseContainer(); error.progress = index as UInt64; gpuVkDrop(buffer); return Err<Bool, GpuError>(error) }
+            admitted.releaseContainer(); index = index + 1
+        }
+        gpuVkDrop(buffer)
+        if this.records.length() == 0 { return Err<Bool, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.discovery", "no permitted Vulkan compute devices were discovered")) }
+        return gpuCheckOperation(context, "gpu.vulkan.discovery")
+    }
+
+    fun admit(physical: UInt64, ordinal: Int, allowSoftware: Bool) r: Result<Bool, GpuError> {
+        let allocated = VulkanMetadata.create()
+        if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); return Err<Bool, GpuError>(error) }
+        let metadata = allocated.unwrap(); allocated.releaseContainer()
+        let record = VulkanDeviceRecord{physical: physical, ordinal: ordinal,
+            family: 0 as UInt32, metadata: metadata, buffers: Array<OwnedBuffer<UInt8>>()}
+        let captured = record.metadata.capture(physical)
+        if captured.isErr() { let error = captured.unwrapErr(); captured.releaseContainer(); record.release(); return Err<Bool, GpuError>(error) }
+        captured.releaseContainer()
+        if not allowSoftware and gpuVkU32(record.metadata.buffers[0], 32 as UInt64) == (4 as UInt32) {
+            record.release(); return Ok<Bool, GpuError>(false)
+        }
+        let selected = gpuVkComputeFamily(physical)
+        if selected.isErr() { let error = selected.unwrapErr(); selected.releaseContainer(); record.release(); return Err<Bool, GpuError>(error) }
+        let family = selected.unwrap(); selected.releaseContainer(); record.family = family.index
+        let decoded = record.metadata.decode(ordinal, this.domain, family.flags, this.limits); family.free()
+        if decoded.isErr() { let error = decoded.unwrapErr(); decoded.releaseContainer(); record.release(); return Err<Bool, GpuError>(error) }
+        let report = decoded.unwrap(); decoded.releaseContainer()
+        let sizes = [GPU_VK_FEATURE_BYTES, 4 as UInt64]; var index = 0
+        while index < sizes.length() {
+            let buffer = gpuVkAllocate(sizes[index])
+            if buffer.isErr() {
+                let error = buffer.unwrapErr(); buffer.releaseContainer(); sizes.free(); report.release(); record.release()
+                return Err<Bool, GpuError>(error)
+            }
+            let owned = buffer.unwrap(); buffer.releaseContainer(); record.buffers.push(owned); index = index + 1
+        }
+        sizes.free()
+        let enabled = record.buffers[0]; let words = enabled.data as *UInt32
+        let supported = record.metadata.buffers[4]
+        words[0] = gpuVkU32(supported, 0 as UInt64)
+        words[39] = gpuVkU32(supported, 156 as UInt64); words[40] = gpuVkU32(supported, 160 as UInt64)
+        let priority = record.buffers[1]; let value = priority.data as *Float32; value[0] = 1.0 as Float32
+        let capturedTimeline = gpuVkCaptureTimeline(record.physical)
+        if capturedTimeline.isErr() {
+            let error = capturedTimeline.unwrapErr(); capturedTimeline.releaseContainer(); report.release(); record.release()
+            return Err<Bool, GpuError>(error)
+        }
+        let timeline = capturedTimeline.unwrap(); capturedTimeline.releaseContainer(); record.buffers.push(timeline)
+        if gpuVkU32(timeline, 16 as UInt64) == (1 as UInt32) {
+            report.capabilities.features = report.capabilities.features | GPU_FEATURE_TIMELINE_EVENTS
+        }
+        let admitted = this.catalog.admit(report)
+        if admitted.isErr() { record.release(); return admitted }
+        admitted.releaseContainer(); this.records.push(record); return Ok<Bool, GpuError>(true)
+    }
+
+    fun backend() r: GpuBackend { return GpuBackend.Vulkan }
+    fun identity() r: UInt64 { return this.domain }
+    fun createContext(ordinal: Int) r: Result<UInt64, GpuError> {
+        var index = 0
+        while index < this.records.length() {
+            let record = this.records[index]
+            if record.ordinal == ordinal {
+                let enabled = record.buffers[0]; let priority = record.buffers[1]
+                let queue = gpuVkQueueInfo(record.family, priority.data as *const Float32)
+                let info = gpuVkDeviceInfo((&queue) as *const VulkanDeviceQueueCreateInfo, enabled.data as *const UInt8)
+                info.pNext = record.buffers[2].data as *Void
+                var native = 0 as UInt64
+                let status = vkCreateDevice(record.physical, (&info) as *const VulkanDeviceCreateInfo, null as *Void, &native)
+                if status != (0 as Int32) { return Err<UInt64, GpuError>(gpuVkFailure(status, "gpu.vulkan.context")) }
+                if native == (0 as UInt64) { return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.context", "Vulkan returned an empty device identity")) }
+                return Ok<UInt64, GpuError>(native)
+            }
+            index = index + 1
+        }
+        return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.context", "device ordinal is not admitted by this provider"))
+    }
+    fun destroyContext(native: UInt64) r: Result<Bool, GpuError> {
+        if native == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.context.close", "Vulkan device identity is empty")) }
+        vkDestroyDevice(native, null as *Void); return Ok<Bool, GpuError>(true)
+    }
+    fun resources(native: UInt64, ordinal: Int) r: Result<GpuResourceProviderHandle, GpuError> {
+        var index = 0
+        while index < this.records.length() {
+            let record = this.records[index]
+            if record.ordinal == ordinal { return gpuVkCreateResourceProvider(native, this.domain, record.metadata, record.family) }
+            index = index + 1
+        }
+        return Err<GpuResourceProviderHandle, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.memory", "resource provider device ordinal is not admitted"))
+    }
+    /// The typed device core drains every context before consuming this owner.
+    fun release() r: Void {
+        var index = 0
+        while index < this.records.length() { this.records[index].release(); index = index + 1 }
+        this.records.free(); this.catalog.release(); this.limits.release()
+        this.instance.release(); gpuVkReleaseIdentity(this.domain); this.free()
+    }
+}
+
+/// Consumes the discovery owner on success and rejection. Index selects one
+/// catalog entry explicitly; its native ordinal and stable UUID are preserved.
+fun openVulkanDevice(provider: GpuVulkanProvider, index: Int, context: OperationContext)
+    r: Result<GpuDevice, GpuError> {
+    let checked = gpuCheckOperation(context, "gpu.vulkan.device")
+    if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); provider.release(); return Err<GpuDevice, GpuError>(error) }
+    checked.releaseContainer()
+    let selected = provider.catalog.snapshot(index)
+    if selected.isErr() { let error = selected.unwrapErr(); selected.releaseContainer(); provider.release(); return Err<GpuDevice, GpuError>(error) }
+    let report = selected.unwrap(); selected.releaseContainer()
+    let copied = provider.limits.snapshot()
+    if copied.isErr() { let error = copied.unwrapErr(); copied.releaseContainer(); report.release(); provider.release(); return Err<GpuDevice, GpuError>(error) }
+    let limits = copied.unwrap(); copied.releaseContainer()
+    let device = GpuDevice.open(provider, report, limits); limits.release(); return device
+}

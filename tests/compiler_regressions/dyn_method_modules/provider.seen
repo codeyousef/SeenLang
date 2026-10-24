@@ -4,3 +4,9 @@ class ImportedGenericProvider<T> {
     fun run(delta: Int) r: Int { return this.number + delta }
     fun release() r: Bool { this.free(); return true }
 }
+
+class ImportedReceiverProvider { var number: Int }
+impl ImportedReceiverProvider {
+    fun run(this: ImportedReceiverProvider, delta: Int) r: Int { return this.number + delta }
+    fun release(this: ImportedReceiverProvider) r: Bool { this.free(); return true }
+}

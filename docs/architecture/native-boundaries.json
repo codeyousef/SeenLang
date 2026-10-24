@@ -5,16 +5,185 @@
     {
       "id": "accelerator-cuda-resource-abi",
       "subsystem": "stdlib.accelerator.cuda",
-      "purpose": "Explicit CUDA resource adapter for allocation, pinned staging, streams, events, graphs, deterministic cuBLASLt, and generation-checked borrowed launch tokens. Seen owns policy, ownership, cache identity, fallback, and diagnostics. Token borrowing only validates lifetime and device identity; it does not allocate or synchronize CUDA work. CPU-only builds neither discover nor link the adapter. RTX 4090 foundation and separate model-adapter canaries exercise it. Experimental until hardware certification.",
+      "purpose": "Opt-in CUDA allocation, pinned memory, streams/events, graphs, cuBLASLt and borrowed launch tokens. Seen owns ownership, scheduling, caching, fallback and diagnostics. Token access validates lifetime/device only. Event query initializes fixed-width completion, reports pending without waiting, and never allocates or synchronizes; Seen retains work on pending/error. CPU-only builds never discover/link CUDA. RTX 4090 and fault canaries exercise the ABI; experimental until full certification.",
       "abi": "CUDA C",
       "platforms": ["linux-x86_64"],
-      "symbols": ["seen_cublaslt_create", "seen_cublaslt_destroy", "seen_cublaslt_matmul", "seen_cublaslt_select_algorithm", "seen_cuda_abi_version", "seen_cuda_allocation_address", "seen_cuda_device_capability", "seen_cuda_device_count", "seen_cuda_device_get", "seen_cuda_driver_version", "seen_cuda_event_create", "seen_cuda_event_destroy", "seen_cuda_event_elapsed_ms", "seen_cuda_event_record", "seen_cuda_event_synchronize", "seen_cuda_free", "seen_cuda_graph_begin_capture", "seen_cuda_graph_destroy", "seen_cuda_graph_end_capture", "seen_cuda_graph_exec_destroy", "seen_cuda_graph_exec_update", "seen_cuda_graph_instantiate", "seen_cuda_graph_launch", "seen_cuda_host_alloc", "seen_cuda_host_allocation_address", "seen_cuda_host_free", "seen_cuda_malloc", "seen_cuda_memcpy_async", "seen_cuda_memset_async", "seen_cuda_runtime_version", "seen_cuda_set_device", "seen_cuda_stream_borrow_launch_token", "seen_cuda_stream_create", "seen_cuda_stream_destroy", "seen_cuda_stream_synchronize"],
+      "symbols": ["seen_cublaslt_create", "seen_cublaslt_destroy", "seen_cublaslt_matmul", "seen_cublaslt_select_algorithm", "seen_cuda_abi_version", "seen_cuda_allocation_address", "seen_cuda_device_capability", "seen_cuda_device_count", "seen_cuda_device_get", "seen_cuda_driver_version", "seen_cuda_event_create", "seen_cuda_event_destroy", "seen_cuda_event_elapsed_ms", "seen_cuda_event_query", "seen_cuda_event_record", "seen_cuda_event_synchronize", "seen_cuda_free", "seen_cuda_graph_begin_capture", "seen_cuda_graph_destroy", "seen_cuda_graph_end_capture", "seen_cuda_graph_exec_destroy", "seen_cuda_graph_exec_update", "seen_cuda_graph_instantiate", "seen_cuda_graph_launch", "seen_cuda_host_alloc", "seen_cuda_host_allocation_address", "seen_cuda_host_free", "seen_cuda_malloc", "seen_cuda_memcpy_async", "seen_cuda_memset_async", "seen_cuda_runtime_version", "seen_cuda_set_device", "seen_cuda_stream_borrow_launch_token", "seen_cuda_stream_create", "seen_cuda_stream_destroy", "seen_cuda_stream_query", "seen_cuda_stream_synchronize"],
+      "production": false
+    },
+    {
+      "id": "accelerator-vulkan-device-ffi",
+      "subsystem": "stdlib.compute.vulkan",
+      "purpose": "Direct Vulkan 1.2 ABI. Seen owns discovery, memory selection, quotas, pools, map leases, cache visibility, bounded copy commands and private timelines. SDK pointers expire on return; buffer leases survive accepted or uncertain submission until native completion. Noncoherent maps exclude other block borrows; failed flush retains ownership. SDK layout, fault and Mesa lifecycle tests cover Linux x86-64; no hardware certification. Permanent vendor ABI without foreign policy.",
+      "abi": "Vulkan 1.2 C",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "vkAllocateCommandBuffers",
+        "vkAllocateMemory",
+        "vkBeginCommandBuffer",
+        "vkBindBufferMemory",
+        "vkCmdCopyBuffer",
+        "vkCmdPipelineBarrier",
+        "vkCreateBuffer",
+        "vkCreateCommandPool",
+        "vkCreateDevice",
+        "vkCreateInstance",
+        "vkCreateSemaphore",
+        "vkDestroyBuffer",
+        "vkDestroyCommandPool",
+        "vkDestroyDevice",
+        "vkDestroyInstance",
+        "vkDestroySemaphore",
+        "vkEndCommandBuffer",
+        "vkEnumerateInstanceVersion",
+        "vkEnumeratePhysicalDevices",
+        "vkFlushMappedMemoryRanges",
+        "vkFreeMemory",
+        "vkGetBufferMemoryRequirements",
+        "vkGetDeviceQueue",
+        "vkGetPhysicalDeviceFeatures",
+        "vkGetPhysicalDeviceFeatures2",
+        "vkGetPhysicalDeviceMemoryProperties",
+        "vkGetPhysicalDeviceProperties2",
+        "vkGetPhysicalDeviceQueueFamilyProperties",
+        "vkInvalidateMappedMemoryRanges",
+        "vkMapMemory",
+        "vkQueueSubmit",
+        "vkResetCommandBuffer",
+        "vkUnmapMemory",
+        "vkWaitSemaphores"
+      ],
+      "production": false
+    },
+    {
+      "id": "arm-sve-thread-state",
+      "subsystem": "runtime.cpu",
+      "purpose": "Per-call Linux PR_SVE_GET_VL normalization copies the calling thread vector length into a borrowed UInt64 output and clears it on failure. No allocations or retained pointers. Seen validates lengths, discovers capabilities, chooses fallback, computes kernels and owns progress. Other platforms return unsupported. Covered by changing-length/errno/null-output mocks, metadata fuzz and SIMD fixtures. Permanent OS ABI until direct compiler normalization preserves these rules.",
+      "abi": "OS prctl C",
+      "platforms": [
+        "linux-x86_64",
+        "linux-aarch64",
+        "macos",
+        "windows"
+      ],
+      "symbols": [
+        "seen_arm_sve_vector_bytes"
+      ],
+      "production": true
+    },
+    {
+      "id": "async-executor-thread-adapter",
+      "subsystem": "stdlib.async",
+      "purpose": "Generation-checked pthread lifetime, Linux affinity/NUMA calls and opaque TLS identity. Seen owns task slots, fixed workers, typed admission, scheduling, cancellation and cleanup. Failed joins retain ownership. Linux x86-64 and macOS x86-64/arm64; macOS accepts inherited placement only. Executor/native lifetime and I/O worker suites cover this permanent OS boundary. macOS execution remains uncertified.",
+      "abi": "OS thread C",
+      "platforms": ["linux-x86_64", "macos"],
+      "symbols": ["seen_executor_apply_placement", "seen_executor_current_owner", "seen_executor_current_task", "seen_executor_live_threads", "seen_executor_swap_task", "seen_executor_thread_create", "seen_executor_thread_join", "seen_executor_validate_placement"],
+      "production": false
+    },
+    {
+      "id": "async-file-completion-os-adapter",
+      "subsystem": "stdlib.async",
+      "purpose": "Linux kernel AIO request struct normalization, io_setup/submit/cancel/getevents/destroy and semaphore eventfd calls. Seen owns fixed request slots, buffer/descriptor/request storage, alignment and transfer budgets, generation tokens, cancellation state, completion progress, leases and cleanup. Only explicit O_DIRECT descriptors are accepted; unsupported kernels/targets fail explicitly.",
+      "abi": "Linux AIO C",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "seen_async_completion_cancel",
+        "seen_async_completion_close",
+        "seen_async_completion_create",
+        "seen_async_completion_drain_notification",
+        "seen_async_completion_duplicate_file",
+        "seen_async_completion_reap",
+        "seen_async_completion_submit"
+      ],
+      "production": false
+    },
+    {
+      "id": "async-process-os-adapter",
+      "subsystem": "stdlib.async",
+      "purpose": "POSIX spawn action/attribute normalization, explicit pipe endpoints, Linux pidfd open/signal and waitpid result decoding. Seen owns packed argv/envp storage, absolute-program validation, bounded live-child quotas, blocking-pool admission, every construction prefix, pipe ownership, cancellation and reaping. No shell, PATH search, implicit environment, task scheduler or detached child. Software probes cover explicit child I/O and pidfd cancellation.",
+      "abi": "Linux process C",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "seen_async_process_kill_unreaped",
+        "seen_async_process_live_children",
+        "seen_async_process_pidfd",
+        "seen_async_process_pipe",
+        "seen_async_process_signal",
+        "seen_async_process_spawn",
+        "seen_async_process_wait"
+      ],
+      "production": false
+    },
+    {
+      "id": "async-readiness-os-adapter",
+      "subsystem": "stdlib.async",
+      "purpose": "Direct Linux epoll/eventfd OS normalization with no native registration table, slot lookup, timer storage, work queue or scheduling. Seen owns event-buffer memory, indexed generation identities, registration ownership, bounded producer leases, deadline heap and ready FIFO. OS wake saturation coalesces without allocation. Native probes cover one-shot deregistration, raw identity retention, wake coalescing and handle counts.",
+      "abi": "Linux readiness C",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "seen_async_readiness_close",
+        "seen_async_readiness_consume_wake",
+        "seen_async_readiness_create",
+        "seen_async_readiness_deregister",
+        "seen_async_readiness_event",
+        "seen_async_readiness_live_handles",
+        "seen_async_readiness_poll",
+        "seen_async_readiness_register",
+        "seen_async_readiness_wakeup"
+      ],
+      "production": false
+    },
+    {
+      "id": "async-socket-os-adapter",
+      "subsystem": "stdlib.async",
+      "purpose": "Nonblocking TCP socket OS calls and packed IPv4/IPv6 sockaddr normalization. Seen owns address validation, bounded transfers, partial progress, event-loop admission, timer heap, descriptor ownership, cancellation and worker dispatch. Linux x86-64 only; other targets return unsupported. No DNS, protocol, retry loop or scheduler in this adapter. Connected UDP datagrams and OS entropy are normalized here; DNS wire policy stays in Seen.",
+      "abi": "OS socket C",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "seen_async_datagram_nonce",
+        "seen_async_datagram_open",
+        "seen_async_datagram_receive",
+        "seen_async_socket_accept",
+        "seen_async_socket_bind",
+        "seen_async_socket_bound_port",
+        "seen_async_socket_connect",
+        "seen_async_socket_connect_status",
+        "seen_async_socket_listen",
+        "seen_async_socket_open",
+        "seen_async_socket_read",
+        "seen_async_socket_write"
+      ],
+      "production": false
+    },
+    {
+      "id": "async-stream-os-adapter",
+      "subsystem": "stdlib.async",
+      "purpose": "Single nonblocking pipe/socket read/write calls and per-thread SIGPIPE normalization. Seen owns checked owning spans, buffer offsets and limits, context checks, 64-bit progress, retry policy, descriptor lifetime and readiness integration. Regular files/devices and blocking descriptors are rejected. Native probes verify partial reads/writes, saturation, closed-peer behavior and preservation of a previously pending SIGPIPE.",
+      "abi": "OS stream C",
+      "platforms": [
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "seen_async_stream_read",
+        "seen_async_stream_validate",
+        "seen_async_stream_write"
+      ],
       "production": false
     },
     {
       "id": "borrowed-trait-box-storage",
       "subsystem": "stdlib.simd",
-      "purpose": "Existing runtime pool deallocation releases exactly the 16-byte compiler-created trait box owned by a DotClockHandle. The concrete clock remains caller-owned and must outlive the handle. Seen owns dispatch, provider lifetime rules, progress and error policy. Contract allocation baselines and sanitizer profiles cover native and deterministic providers. Permanent until compiler-managed borrowed trait boxes replace explicit handle cleanup; migrate creation and release together.",
+      "purpose": "Existing runtime pool deallocation releases exactly the 16-byte compiler-created trait box owned by a DotClockHandle or DotBackendHandle. The concrete provider remains caller-owned and must outlive the handle. Seen owns dispatch, provider lifetime rules, progress and error policy. Contract allocation baselines and sanitizer profiles cover native and deterministic providers. Permanent until compiler-managed borrowed trait boxes replace explicit handle cleanup; migrate creation and release together.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_pool_free"],
@@ -23,11 +192,29 @@
     {
       "id": "c-string-conversion-memory",
       "subsystem": "runtime.ffi",
-      "purpose": "Explicit C-string conversion ownership boundary. Converting a Seen string to a C string allocates a NUL-terminated copy that Seen code releases exactly once through the paired free symbol; converting a C string to Seen produces a borrowed view and never takes ownership. Exercised by packaged standard-library executable tests with non-null CUDA diagnostic strings and deterministic cleanup.",
+      "purpose": "Explicit C-string ownership: conversion to C allocates a copy, conversion to Seen borrows. Seen releaseArgs consumes copied argument snapshots, pairing each malloc free with allocation-budget release before freeing array storage. Seen owns the loop and lifetimes; native symbols only free storage and adjust accounting. Packaged CUDA-string tests, repeated argument snapshots and ASan verify cleanup. Permanent until compiler-managed owners replace both allocation and release.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
-      "symbols": ["seen_cstr_free", "seen_cstr_to_str", "seen_str_to_cstr"],
+      "symbols": ["seen_cstr_free", "seen_cstr_to_str", "seen_memory_release_bytes", "seen_str_to_cstr"],
       "production": true
+    },
+    {
+      "id": "compiler-byte-array-storage-view",
+      "subsystem": "compiler.gpu",
+      "purpose": "Existing array-data accessor borrows exclusive Array<Int> storage without allocation or retention. Seen validates byte domains and the 32 MiB ceiling, compacts forward, clones a length-delimited string view, and frees the input once. No resize or alias is permitted. All-octet, NUL, empty, rejection and allocation tests cover it. Permanent runtime layout projection until a portable bootstrap array-data intrinsic replaces this accessor and its owner together.",
+      "abi": "Seen runtime C",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_arr_data_ptr"],
+      "production": true
+    },
+    {
+      "id": "compiler-trait-box-ownership",
+      "subsystem": "stdlib.async",
+      "purpose": "Seen job owners capture the compiler's immutable two-pointer dyn box. bind checks its first data word against the concrete Send job before transport; only that owner restores dispatch and frees the 16-byte box. take transfers the concrete job; release calls its destructor first. Existing pool ABI only; no native policy. Alias, rejection, cancellation and live-allocation regressions cover ownership. Retain until the compiler provides an owned existential ABI.",
+      "abi": "Seen compiler dyn box (64-bit)",
+      "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
+      "symbols": ["seen_pool_free"],
+      "production": false
     },
     {
       "id": "deterministic-process-input-adapter",
@@ -48,6 +235,23 @@
       "production": true
     },
     {
+      "id": "frontend-allocation-observer",
+      "subsystem": "compiler.frontend",
+      "purpose": "Thread-local allocation events with recursion protection and exclusive registration. Seen owns bounded address lookup, allocator provenance, heap/count limits, parser scratch restoration and release. No native ownership list or parsing policy. GPU lowering returns independent IR before temporary cleanup. Repeated success/rejection and four growing map shapes check exact accounting under sanitizers. Also owns immutable CLI snapshots. Permanent callback ABI; serial parser sessions only.",
+      "abi": "C callback / runtime-v14",
+      "platforms": [
+        "linux-x86_64",
+        "linux-aarch64",
+        "macos",
+        "windows"
+      ],
+      "symbols": [
+        "seen_allocation_observer_install",
+        "seen_allocation_observer_remove"
+      ],
+      "production": false
+    },
+    {
       "id": "host-aligned-buffer",
       "subsystem": "stdlib.memory",
       "purpose": "Minimal allocation ABI for move-only aligned Seen buffers. Seen validates geometry and alignment and owns lifetime policy; the runtime only performs platform-correct allocation and free. Exercised by layout, alignment, move, and leak tests. Permanent until compiler-owned allocation intrinsics can preserve the same C ABI.",
@@ -55,6 +259,66 @@
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_aligned_buffer_free", "seen_try_aligned_realloc"],
       "production": true
+    },
+    {
+      "id": "io-macos-positional-abi",
+      "subsystem": "stdlib.io",
+      "purpose": "Direct Darwin open, fstat, F_NOCACHE and positional pread/pwrite only. Seen owns regular-file and cache policy, checked geometry, admission, worker budgets, synchronous borrow lifetime, cancellation, partial results and deterministic drain. The shared Seen worker queue reuses the executor. Other platforms fail explicitly with Darwin error vocabulary. No retries, scheduler, allocation policy, io_uring emulation or hidden fallback. Contract/fuzz/native fixtures cover this permanent OS boundary.",
+      "abi": "Darwin POSIX C",
+      "platforms": [
+        "macos"
+      ],
+      "symbols": [
+        "seen_macos_io_abi",
+        "seen_macos_io_cache",
+        "seen_macos_io_mode",
+        "seen_macos_io_open",
+        "seen_macos_io_transfer"
+      ],
+      "production": false
+    },
+    {
+      "id": "io-uring-syscall-abi",
+      "subsystem": "stdlib.io",
+      "purpose": "Direct Linux io_uring syscalls, mappings, eventfd, page size, descriptor duplication and shared-memory atomics. Seen owns UAPI encoding, checked geometry, page-rounded mapping and worker budgets, submission, cancellation, completion, leases and partial cleanup. Other platforms fail explicitly. No liburing, retry, scheduler or fallback policy. Contract/fuzz/native fixtures cover this permanent OS boundary; hardware certification remains separate.",
+      "abi": "Linux syscall C",
+      "platforms": [
+        "linux-aarch64",
+        "linux-x86_64"
+      ],
+      "symbols": [
+        "seen_uring_duplicate_file",
+        "seen_uring_enter",
+        "seen_uring_eventfd_create",
+        "seen_uring_eventfd_drain",
+        "seen_uring_load_acquire",
+        "seen_uring_map",
+        "seen_uring_page_size",
+        "seen_uring_register",
+        "seen_uring_setup",
+        "seen_uring_store_release",
+        "seen_uring_unmap"
+      ],
+      "production": false
+    },
+    {
+      "id": "io-windows-overlapped-abi",
+      "subsystem": "stdlib.io",
+      "purpose": "Direct Win32 IOCP creation/association/dequeue, overlapped ReadFile/WriteFile, CancelIoEx, UTF-8 to UTF-16 ABI normalization and CreateFileW. Seen owns bounded OVERLAPPED storage, generation keys, fresh file ownership, admission, error classification, cancellation and drain ordering. Non-Windows targets fail explicitly. No scheduler, allocation policy or fallback. Contract/fuzz/native fixtures cover the permanent OS boundary; Windows execution certification remains separate.",
+      "abi": "Win32 C",
+      "platforms": [
+        "windows"
+      ],
+      "symbols": [
+        "seen_iocp_associate",
+        "seen_iocp_cancel",
+        "seen_iocp_create",
+        "seen_iocp_dequeue",
+        "seen_iocp_open",
+        "seen_iocp_transfer",
+        "seen_iocp_utf"
+      ],
+      "production": false
     },
     {
       "id": "json-number-range-parser",
@@ -68,7 +332,7 @@
     {
       "id": "json-owned-string-memory",
       "subsystem": "stdlib.json",
-      "purpose": "Runtime allocation ABI for JSON-owned strings. Parser, serializer, and incremental-builder flattening, cloning, and owned character encoding return pool storage that release frees exactly once; borrowed strings never cross as owned. Exercised under ASan/UBSan by the FEL-507 tiny-object and FEL-543 safetensors lifetime regressions. Permanent until native Seen owned/move string semantics replace it; migrate all callers and symbols together.",
+      "purpose": "Runtime allocation ABI for owned strings in JSON and tokenizers. Parser, serializer, builder and BPE policy remain native Seen. Flattening, cloning and owned character encoding allocate length-plus-NUL storage; release frees matching pool or heap storage exactly once, while borrowed strings never cross as owned. Exercised under ASan/UBSan by JSON, safetensors and BPE lifetime regressions. Permanent until native Seen owned/move string semantics replace it; migrate all callers and symbols together.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
       "symbols": ["seen_char_to_owned_string", "seen_string_builder_flatten_owned", "seen_string_clone_owned", "seen_string_release_owned"],
@@ -95,10 +359,10 @@
     {
       "id": "memory-pool-accounting",
       "subsystem": "stdlib.memory",
-      "purpose": "Read live checked-out allocation bytes independently from recyclable slab reserve without changing the physical memory limit or swap policy. The runtime reports a nonallocating fixed-layout snapshot and retained slab capacity; native Seen owns resource lifetime, failure policy, and cleanup tests.",
+      "purpose": "Read live allocation bytes separately from recyclable reserve without changing physical limits or swap policy. Existing class release distinguishes slab slots from budgeted malloc headers, validates pool size classes and pairs each release with its allocator. The runtime reports a nonallocating fixed-layout snapshot; Seen owns lifetimes and failure policy. C/ASan provenance and Seen instrumentation lifecycle tests cover cleanup. Permanent until compiler-managed storage replaces both sides together.",
       "abi": "Seen runtime C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
-      "symbols": ["seen_memory_reserved_bytes", "seen_memory_snapshot"],
+      "symbols": ["seen_memory_reserved_bytes", "seen_memory_snapshot", "seen_pool_free"],
       "production": true
     },
     {
@@ -122,10 +386,10 @@
     {
       "id": "reactor-os-adapter",
       "subsystem": "stdlib.reactor",
-      "purpose": "Narrow epoll, kqueue, IOCP, wakeup, native-handle, and fixed-worker execution ABI. Native Seen owns bounds, registration generations, readiness/completion scheduling, timers, fairness, cancellation, fallback policy, diagnostics, and exactly-once cleanup. Exercised by named cross-platform capability fixtures plus Linux readiness, stale-generation, cancellation, sanitizer, leak, and 30-sample wakeup contracts.",
+      "purpose": "Narrow epoll, kqueue, IOCP, wakeup, native-handle, and native-handle ABI. Native Seen owns bounds, registration generations, readiness/completion scheduling, timers, fairness, cancellation, fallback policy, diagnostics, and exactly-once cleanup. Exercised by named cross-platform capability fixtures plus Linux readiness, stale-generation, cancellation, sanitizer, leak, and 30-sample wakeup contracts.",
       "abi": "OS event queue C",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
-      "symbols": ["seen_blocking_pool_cancel", "seen_blocking_pool_close", "seen_blocking_pool_completion", "seen_blocking_pool_create", "seen_blocking_pool_live_workers", "seen_blocking_pool_submit", "seen_reactor_backend_capability", "seen_reactor_close", "seen_reactor_create", "seen_reactor_deregister", "seen_reactor_event", "seen_reactor_live_handles", "seen_reactor_native_handle_close", "seen_reactor_poll", "seen_reactor_register", "seen_reactor_wakeup"],
+      "symbols": ["seen_reactor_backend_capability", "seen_reactor_close", "seen_reactor_create", "seen_reactor_deregister", "seen_reactor_event", "seen_reactor_live_handles", "seen_reactor_native_handle_close", "seen_reactor_poll", "seen_reactor_register", "seen_reactor_wakeup"],
       "production": true
     },
     {

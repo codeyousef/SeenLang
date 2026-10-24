@@ -1,0 +1,66 @@
+/// Reflection layout and requirements come from validated IR, including the
+/// reachable helper closure for each entry rather than unrelated functions.
+import json.builder.{JsonBuilder}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction}
+import codegen.gpu_ir_ops.{GPU_IR_CALL, GPU_IR_SHARED}
+import codegen.gpu_ir_requirements.{gpuIrInstructionCapabilities, gpuIrInstructionNeedsFaultBuffer}
+import codegen.gpu_ir_facts.{gpuIrElementStride}
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeValue, gpuTypeScalar, gpuTypeLanes}
+
+class GpuEntryRequirements {
+    var capabilities: UInt64
+    var sharedBytes: UInt64
+    var faultBuffer: Bool
+}
+fun gpuEntryRequirements(borrow module: GpuIrModule, entry: Int) r: GpuEntryRequirements {
+    let result = GpuEntryRequirements{capabilities: 0 as UInt64, sharedBytes: 0 as UInt64, faultBuffer: false}
+    let visited = Array<Int>(); let pending = Array<Int>(); var i = 0
+    while i < module.functions.length() { visited.push(0); i = i + 1 }; pending.push(entry); visited[entry] = 1; i = 0
+    while i < pending.length() {
+        let function = module.functions[pending[i]]; var blockIndex = 0
+        while blockIndex < function.blocks.length() {
+            let block = function.blocks[blockIndex]; var j = 0
+            while j < block.instructions.length() {
+                let op = block.instructions[j]
+                result.capabilities = result.capabilities | gpuIrInstructionCapabilities(op.opcode, op.typeCode, op.immediate, op.memoryScope, op.memorySpaces)
+                if gpuIrInstructionNeedsFaultBuffer(op.opcode, op.immediate) { result.faultBuffer = true }
+                if op.opcode == GPU_IR_SHARED { result.sharedBytes = result.sharedBytes + ((op.immediate * gpuIrElementStride(op.typeCode)) as UInt64) }
+                if op.opcode == GPU_IR_CALL and visited[op.immediate] == 0 { visited[op.immediate] = 1; pending.push(op.immediate) }
+                j = j + 1
+            }
+            blockIndex = blockIndex + 1
+        }
+        i = i + 1
+    }
+    pending.free(); visited.free(); return result
+}
+fun gpuBackendEntryRequirements(borrow module: GpuIrModule, entry: Int, backend: String) r: GpuEntryRequirements {
+    let result = gpuEntryRequirements(module, entry)
+    // HSA's versioned launch guard reports invalid implicit geometry even for
+    // a kernel whose source has no checked memory or arithmetic operations.
+    if backend == "hip" or backend == "metal" { result.faultBuffer = true }; return result
+}
+fun gpuReflectionBindings(builder: JsonBuilder, borrow function: GpuIrFunction) r: Void {
+    builder.key("bindings"); builder.startArray(); var i = 0
+    while i < function.parameterTypes.length() {
+        let typeCode = function.parameterTypes[i]; let resource = gpuTypeResource(typeCode)
+        var access = "read"; if resource == 2 { access = "write" }; if resource == 3 { access = "read_write" }
+        var kind = "storage"; if resource == 4 { kind = "uniform" }
+        builder.startObject(); builder.intProp("group", 0); builder.intProp("binding", i)
+        builder.stringProp("kind", kind); builder.stringProp("access", access); builder.intProp("type", typeCode)
+        builder.intProp("value_type", gpuTypeValue(typeCode)); builder.intProp("scalar_type", gpuTypeScalar(typeCode))
+        builder.intProp("lanes", gpuTypeLanes(typeCode)); builder.intProp("element_stride", gpuIrElementStride(typeCode))
+        var minimum = 0; if resource == 4 { minimum = 16 }; builder.intProp("minimum_binding_bytes", minimum)
+        builder.endObject(); i = i + 1
+    }
+    builder.endArray()
+}
+fun gpuReflectionEntryAbi(builder: JsonBuilder, borrow function: GpuIrFunction, requirements: GpuEntryRequirements) r: Void {
+    builder.key("workgroup"); builder.startArray(); builder.number(function.workgroupX); builder.number(function.workgroupY); builder.number(function.workgroupZ); builder.endArray()
+    gpuReflectionBindings(builder, function)
+    builder.intProp("required_capabilities", requirements.capabilities as Int)
+    builder.intProp("shared_bytes", requirements.sharedBytes as Int)
+    var fault = 0; if requirements.faultBuffer { fault = 1 }; builder.boolProp("requires_fault_buffer", fault)
+    var binding = -1; if requirements.faultBuffer { binding = function.parameterTypes.length() }
+    builder.intProp("fault_binding", binding)
+}

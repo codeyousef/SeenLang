@@ -1,0 +1,79 @@
+import stress_fixture_support.{must, context, errorHasProgress}
+import async.structured.{AsyncError}
+import async.executor_core.{executorReleaseContext}
+import async.process_native.{seen_async_process_pipe}
+import async.streams.{AsyncFdStream, AsyncByteSpan, asyncStreamFailure}
+import reactor.reactor.{OwnedHandle}
+import memory.aligned_buffer.{OwnedBuffer}
+import core.result.{Result}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun expectError<T>(value: Result<T, AsyncError>, code: String, progress: UInt64) r: Void {
+    if not errorHasProgress<T>(value, code, progress) { abort("stream error code/progress mismatch") }
+}
+fun handle(native: Int64) r: OwnedHandle { return OwnedHandle{native: native, valid: true, owned: true} }
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let ctx = context()
+    let cancelled = context(); cancelled.operation.cancellation = true
+    let bytes = must(OwnedBuffer<UInt8>.allocate(8 as UInt64, 1 as UInt64, 16 as UInt64))
+    expectError(AsyncByteSpan.take(bytes, 9 as UInt64, 0 as UInt64), "async.invalid", 0 as UInt64)
+    expectError(AsyncByteSpan.take(bytes, 7 as UInt64, 2 as UInt64), "async.invalid", 0 as UInt64)
+    let big = must(OwnedBuffer<UInt8>.allocate(16777218 as UInt64, 1 as UInt64, 16 as UInt64))
+    expectError(AsyncByteSpan.take(big, 0 as UInt64, 16777217 as UInt64), "async.invalid", 0 as UInt64)
+    big.close(); big.free()
+    let span = must(AsyncByteSpan.take(bytes, 0 as UInt64, 1 as UInt64)); bytes.data[0] = 42 as UInt8
+    var readFd = -1 as Int64; var writeFd = -1 as Int64
+    if seen_async_process_pipe(1 as Int32, &readFd, &writeFd) != (0 as Int32) { abort("writer pipe construction failed") }
+    let read = handle(readFd); let write = handle(writeFd)
+    expectError(AsyncFdStream.take(read, 1 as UInt64), "async.unsupported_platform", 0 as UInt64)
+    expectError(AsyncFdStream.take(write, 0 as UInt64), "async.invalid", 0 as UInt64)
+    expectError(AsyncFdStream.take(write, 16777217 as UInt64), "async.invalid", 0 as UInt64)
+    let writer = must(AsyncFdStream.take(write, 1 as UInt64))
+    let sent = must(writer.write(span, ctx))
+    if sent.bytes != (1 as UInt64) or sent.eof or writer.writeProgress != (1 as UInt64) { abort("stream write progress mismatch") }
+    sent.free()
+    expectError(writer.write(span, cancelled), "async.cancelled", 1 as UInt64)
+    span.length = 2 as UInt64; expectError(writer.write(span, ctx), "async.limit", 1 as UInt64)
+    span.length = 1 as UInt64; writer.writeProgress = 9223372036854775807 as UInt64
+    expectError(writer.write(span, ctx), "async.limit", 9223372036854775807 as UInt64)
+    writer.writeProgress = 1 as UInt64
+    span.offset = 9 as UInt64; expectError(writer.write(span, ctx), "async.invalid", 1 as UInt64)
+    span.offset = 7 as UInt64; span.length = 2 as UInt64
+    expectError(writer.write(span, ctx), "async.invalid", 1 as UInt64)
+    span.offset = 0 as UInt64; span.length = 0 as UInt64
+    let empty = must(writer.write(span, ctx))
+    if empty.bytes != (0 as UInt64) or empty.eof { abort("empty stream write changed EOF") }
+    empty.free(); span.length = 1 as UInt64
+    must(read.close()); read.free()
+    let broken = writer.write(span, ctx)
+    if broken.isOkay() { abort("closed pipe write accepted") }
+    let error = broken.unwrapErr(); broken.releaseContainer()
+    if error.code != "async.unavailable" or error.retryable or error.progress != (1 as UInt64) {
+        abort("closed-peer stream retry/progress policy changed")
+    }
+    error.free(); must(writer.descriptor.close())
+    expectError(writer.write(span, ctx), "async.invalid", 1 as UInt64)
+    must(writer.release()); span.release()
+    readFd = -1 as Int64; writeFd = -1 as Int64
+    if seen_async_process_pipe(0 as Int32, &readFd, &writeFd) != (0 as Int32) { abort("reader pipe construction failed") }
+    let peer = handle(writeFd); let reader = must(AsyncFdStream.take(handle(readFd), 1 as UInt64))
+    let buffer = must(OwnedBuffer<UInt8>.allocate(1 as UInt64, 1 as UInt64, 16 as UInt64))
+    let target = must(AsyncByteSpan.take(buffer, 0 as UInt64, 1 as UInt64))
+    expectError(reader.read(target, ctx), "async.unavailable", 0 as UInt64)
+    must(peer.close()); peer.free()
+    let eof = must(reader.read(target, ctx))
+    if eof.bytes != (0 as UInt64) or not eof.eof { abort("stream EOF lost") }
+    eof.free(); buffer.close()
+    expectError(reader.read(target, ctx), "async.invalid", 0 as UInt64)
+    expectError(AsyncByteSpan.take(buffer, 0 as UInt64, 0 as UInt64), "async.invalid", 0 as UInt64)
+    target.release(); let returned = reader.intoHandle(); must(returned.close())
+    expectError(AsyncFdStream.take(returned, 1 as UInt64), "async.invalid", 0 as UInt64); returned.free()
+    let permanent = asyncStreamFailure(11 as Int32, "stream.test", 3 as UInt64)
+    if permanent.code != "async.unavailable" or permanent.retryable or permanent.progress != (3 as UInt64) {
+        abort("permanent stream error retry policy changed")
+    }
+    permanent.free(); executorReleaseContext(ctx); executorReleaseContext(cancelled)
+    if seen_memory_used_bytes() != memory { abort("stream adverse paths leaked allocations") }
+    println("PASS: stream spans, progress, cancellation, EOF and closed-peer cleanup")
+    return 0
+}

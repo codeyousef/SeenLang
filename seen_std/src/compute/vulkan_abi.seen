@@ -1,0 +1,140 @@
+/// Vulkan 1.2 ABI on 64-bit targets. The SDK oracle checks these layouts;
+/// importing this file does not load a driver or link a Vulkan library.
+import core.result.{Result, Ok, Err}
+import compute.error.{GpuError, gpuFailure}
+import memory.aligned_buffer.{OwnedBuffer}
+
+let GPU_VK_API_VERSION: UInt32 = 4202496 as UInt32
+let GPU_VK_PROPERTIES_BYTES: UInt64 = 840 as UInt64
+let GPU_VK_ID_BYTES: UInt64 = 64 as UInt64
+let GPU_VK_SUBGROUP_BYTES: UInt64 = 32 as UInt64
+let GPU_VK_MEMORY_BYTES: UInt64 = 520 as UInt64
+let GPU_VK_FEATURE_BYTES: UInt64 = 220 as UInt64
+let GPU_VK_QUEUE_BYTES: UInt64 = 24 as UInt64
+let GPU_VK_MAX_QUEUE_FAMILIES: UInt32 = 128 as UInt32
+
+fun gpuVkVersionSupported(version: UInt32) r: Bool {
+    return (version & (0xe0000000 as UInt32)) == (0 as UInt32) and version >= GPU_VK_API_VERSION
+}
+
+@repr(C)
+class VulkanApplicationInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var pApplicationName: *const Char
+    var applicationVersion: UInt32
+    var pEngineName: *const Char
+    var engineVersion: UInt32
+    var apiVersion: UInt32
+}
+@repr(C)
+class VulkanInstanceCreateInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var flags: UInt32
+    var pApplicationInfo: *const VulkanApplicationInfo
+    var enabledLayerCount: UInt32
+    var ppEnabledLayerNames: **const Char
+    var enabledExtensionCount: UInt32
+    var ppEnabledExtensionNames: **const Char
+}
+@repr(C)
+class VulkanDeviceQueueCreateInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var flags: UInt32
+    var queueFamilyIndex: UInt32
+    var queueCount: UInt32
+    var pQueuePriorities: *const Float32
+}
+@repr(C)
+class VulkanDeviceCreateInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var flags: UInt32
+    var queueCreateInfoCount: UInt32
+    var pQueueCreateInfos: *const VulkanDeviceQueueCreateInfo
+    var enabledLayerCount: UInt32
+    var ppEnabledLayerNames: **const Char
+    var enabledExtensionCount: UInt32
+    var ppEnabledExtensionNames: **const Char
+    var pEnabledFeatures: *const UInt8
+}
+
+fun gpuVkApplicationInfo() r: VulkanApplicationInfo {
+    return VulkanApplicationInfo{sType: 0 as UInt32, pNext: null as *Void,
+        pApplicationName: null as *const Char, applicationVersion: 0 as UInt32,
+        pEngineName: null as *const Char, engineVersion: 0 as UInt32, apiVersion: GPU_VK_API_VERSION}
+}
+fun gpuVkInstanceInfo(app: *const VulkanApplicationInfo) r: VulkanInstanceCreateInfo {
+    return VulkanInstanceCreateInfo{sType: 1 as UInt32, pNext: null as *Void, flags: 0 as UInt32,
+        pApplicationInfo: app, enabledLayerCount: 0 as UInt32,
+        ppEnabledLayerNames: null as **const Char, enabledExtensionCount: 0 as UInt32,
+        ppEnabledExtensionNames: null as **const Char}
+}
+fun gpuVkQueueInfo(family: UInt32, priorities: *const Float32) r: VulkanDeviceQueueCreateInfo {
+    return VulkanDeviceQueueCreateInfo{sType: 2 as UInt32, pNext: null as *Void,
+        flags: 0 as UInt32, queueFamilyIndex: family, queueCount: 1 as UInt32, pQueuePriorities: priorities}
+}
+fun gpuVkDeviceInfo(queue: *const VulkanDeviceQueueCreateInfo, features: *const UInt8) r: VulkanDeviceCreateInfo {
+    return VulkanDeviceCreateInfo{sType: 3 as UInt32, pNext: null as *Void, flags: 0 as UInt32,
+        queueCreateInfoCount: 1 as UInt32, pQueueCreateInfos: queue,
+        enabledLayerCount: 0 as UInt32, ppEnabledLayerNames: null as **const Char,
+        enabledExtensionCount: 0 as UInt32, ppEnabledExtensionNames: null as **const Char,
+        pEnabledFeatures: features}
+}
+
+fun gpuVkAbiValid() r: Bool {
+    // repr(C) factory results are native values. Borrow their local storage;
+    // inspect SDK-defined offsets instead of treating a value as a heap handle.
+    let app = gpuVkApplicationInfo()
+    let instance = gpuVkInstanceInfo((&app) as *const VulkanApplicationInfo)
+    var priority = 1.0 as Float32
+    let queue = gpuVkQueueInfo(7 as UInt32, (&priority) as *const Float32)
+    let device = gpuVkDeviceInfo((&queue) as *const VulkanDeviceQueueCreateInfo, (&app) as *const UInt8)
+    let appWords = (&app) as *UInt32
+    let instanceWords = (&instance) as *UInt64
+    let queueWords = (&queue) as *UInt32
+    let queuePointers = (&queue) as *UInt64
+    let deviceWords = (&device) as *UInt32
+    let devicePointers = (&device) as *UInt64
+    return appWords[0] == (0 as UInt32) and appWords[11] == GPU_VK_API_VERSION and
+        instanceWords[3] == ((&app) as UInt64) and
+        queueWords[5] == (7 as UInt32) and queueWords[6] == (1 as UInt32) and
+        queuePointers[4] == ((&priority) as UInt64) and
+        deviceWords[5] == (1 as UInt32) and devicePointers[3] == ((&queue) as UInt64) and
+        devicePointers[8] == ((&app) as UInt64)
+}
+
+fun gpuVkAllocate(bytes: UInt64) r: Result<OwnedBuffer<UInt8>, GpuError> {
+    if bytes == (0 as UInt64) or bytes > (4096 as UInt64) {
+        return Err<OwnedBuffer<UInt8>, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.abi", "Vulkan ABI buffer exceeds its bound"))
+    }
+    let allocated = OwnedBuffer<UInt8>.allocate(bytes, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() {
+        allocated.unwrapErr().free(); allocated.releaseContainer()
+        return Err<OwnedBuffer<UInt8>, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.abi", "Vulkan ABI buffer allocation failed"))
+    }
+    let buffer = allocated.unwrap(); allocated.releaseContainer()
+    var index = 0 as UInt64
+    while index < bytes { buffer.data[index] = 0 as UInt8; index = index + (1 as UInt64) }
+    return Ok<OwnedBuffer<UInt8>, GpuError>(buffer)
+}
+
+/// Internal fixed-layout access. Every offset is SDK-checked, aligned and
+/// checked against the owning buffer before forming the native view.
+fun gpuVkU32(borrow buffer: OwnedBuffer<UInt8>, offset: UInt64) r: UInt32 {
+    if buffer.byteLength < (4 as UInt64) or offset % (4 as UInt64) != (0 as UInt64) or offset > buffer.byteLength - (4 as UInt64) {
+        abort("invalid Vulkan ABI word offset")
+    }
+    let words = buffer.data as *UInt32
+    return words[offset / (4 as UInt64)]
+}
+fun gpuVkU64(borrow buffer: OwnedBuffer<UInt8>, offset: UInt64) r: UInt64 {
+    if buffer.byteLength < (8 as UInt64) or offset % (8 as UInt64) != (0 as UInt64) or offset > buffer.byteLength - (8 as UInt64) {
+        abort("invalid Vulkan ABI double-word offset")
+    }
+    let words = buffer.data as *UInt64
+    return words[offset / (8 as UInt64)]
+}
+fun gpuVkDrop(buffer: OwnedBuffer<UInt8>) r: Void { buffer.close(); buffer.free() }

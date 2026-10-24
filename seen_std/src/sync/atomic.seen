@@ -62,6 +62,7 @@ fun atomicValidateCompareExchangeOrders(successOrder: MemoryOrder,
 
     let loadValid = atomicValidateLoadOrder(failureOrder)
     if loadValid.isErr() { return loadValid }
+    loadValid.releaseContainer()
     if failureOrder == MemoryOrder.SeqCst and
         successOrder != MemoryOrder.SeqCst {
         return Err<Bool, SyncError>(syncFailure("sync.invalid",
@@ -107,7 +108,11 @@ class AtomicInt {
                 "atomic.load", "atomic value is closed", false, 0 as UInt64))
         }
         let valid = atomicValidateLoadOrder(order)
-        if valid.isErr() { return Err<Int64, SyncError>(valid.unwrapErr()) }
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<Int64, SyncError>(error)
+        }
+        valid.releaseContainer()
         var value: Int64 = 0 as Int64
         let status = seen_sync_atomic_load(this.handle,
             atomicOrderNumber(order), &value)
@@ -124,7 +129,8 @@ class AtomicInt {
                 "atomic.store", "atomic value is closed", false, 0 as UInt64))
         }
         let valid = atomicValidateStoreOrder(order)
-        if valid.isErr() { return Err<Bool, SyncError>(valid.unwrapErr()) }
+        if valid.isErr() { return valid }
+        valid.releaseContainer()
         let status = seen_sync_atomic_store(this.handle, value,
             atomicOrderNumber(order))
         if status != SYNC_NATIVE_OK {
@@ -197,9 +203,11 @@ class AtomicInt {
         let failureValid = atomicValidateCompareExchangeOrders(successOrder,
             failureOrder)
         if failureValid.isErr() {
+            let error = failureValid.unwrapErr(); failureValid.releaseContainer()
             return Err<AtomicCompareExchange, SyncError>(
-                failureValid.unwrapErr())
+                error)
         }
+        failureValid.releaseContainer()
         var observed = expected
         var exchanged: Int32 = 0 as Int32
         let status = seen_sync_atomic_compare_exchange(this.handle,

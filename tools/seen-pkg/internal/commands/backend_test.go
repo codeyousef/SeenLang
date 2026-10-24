@@ -42,11 +42,18 @@ func prebuiltArtifactV2(t *testing.T, root string) {
 	t.Helper()
 	interfaceIndex := "schema\tseen-package-interface-v2\n" +
 		"version\t2\n" +
-		"layout_abi\tseen-layout-abi-v2\n" +
+		"layout_abi\tseen-layout-abi-v3\n" +
 		"object_cache_abi\tseen-object-cache-abi-v3\n" +
 		"module\tsrc/value.seen\tpackage\tvalue\tmodule-fingerprint\n" +
 		"function\tsrc/value.seen\tpublic\tvalue\tdeclaration-fingerprint\tcanonical-declaration\n"
 	digest := sha256.Sum256([]byte(interfaceIndex))
+	objectDigest := sha256.Sum256([]byte("object"))
+	objectManifest := "schema\tseen-package-object-manifest-v2\n" +
+		"version\t2\n" +
+		"layout_abi\tseen-layout-abi-v3\n" +
+		"object_cache_abi\tseen-object-cache-abi-v3\n" +
+		"objects/value.o\tsrc/value.seen\t" + hex.EncodeToString(objectDigest[:]) + "\n"
+	manifestDigest := sha256.Sum256([]byte(objectManifest))
 	manifest := "schema = \"seen-prebuilt-package-v2\"\n" +
 		"version = 2\n" +
 		"name = \"mathx\"\n" +
@@ -57,23 +64,88 @@ func prebuiltArtifactV2(t *testing.T, root string) {
 		"interface_version = 2\n" +
 		"object_manifest_schema = \"seen-package-object-manifest-v2\"\n" +
 		"object_manifest_version = 2\n" +
-		"layout_abi = \"seen-layout-abi-v2\"\n" +
+		"layout_abi = \"seen-layout-abi-v3\"\n" +
 		"object_cache_abi = \"seen-object-cache-abi-v3\"\n" +
 		"interface_path = \"src\"\n" +
 		"interface_index = \"interface.index.tsv\"\n" +
 		"object_manifest = \"objects.tsv\"\n" +
+		"object_manifest_sha256 = \"" + hex.EncodeToString(manifestDigest[:]) + "\"\n" +
 		"declaration_digest = \"" + hex.EncodeToString(digest[:]) + "\"\n" +
-		"build_signature = \"target=linux-x86_64|pic=1|layout=seen-layout-abi-v2|object-cache=seen-object-cache-abi-v3\"\n"
-	objectManifest := "schema\tseen-package-object-manifest-v2\n" +
-		"version\t2\n" +
-		"layout_abi\tseen-layout-abi-v2\n" +
-		"object_cache_abi\tseen-object-cache-abi-v3\n" +
-		"objects/value.o\tsrc/value.seen\n"
+		"build_signature = \"target=linux-x86_64|pic=1|layout=seen-layout-abi-v3|object-cache=seen-object-cache-abi-v3\"\n"
 	writeTestFile(t, filepath.Join(root, "Seen.pkg.toml"), manifest)
 	writeTestFile(t, filepath.Join(root, "interface.index.tsv"), interfaceIndex)
 	writeTestFile(t, filepath.Join(root, "objects.tsv"), objectManifest)
 	writeTestFile(t, filepath.Join(root, "objects", "value.o"), "object")
 	writeTestFile(t, filepath.Join(root, "src", "value.seen"), "pub fun value() r: Int { return 1 }\n")
+}
+
+func TestArtifactObjectRowsRequireConcreteDigests(t *testing.T) {
+	root := t.TempDir()
+	prebuiltArtifactV2(t, root)
+	digest := sha256.Sum256([]byte("object"))
+	valid := "objects/value.o\tsrc/value.seen\t" + hex.EncodeToString(digest[:])
+	if err := validateArtifactObjectRows(root, []string{valid}); err != nil {
+		t.Fatalf("current compiler's hash-bearing row rejected: %v", err)
+	}
+	for _, row := range []string{
+		"objects/value.o\tsrc/value.seen",
+		"objects/value.o\tsrc/value.seen\t",
+		"objects/value.o\tsrc/value.seen\t" + strings.Repeat("x", 64),
+		"objects/value.o\tsrc/value.seen\t" + strings.ToUpper(hex.EncodeToString(digest[:])),
+		"objects/value.o\tsrc/value.seen\t" + strings.Repeat("0", 64),
+		valid + "\textra",
+		"objects/value.o\t../escaped.seen\t" + hex.EncodeToString(digest[:]),
+	} {
+		if err := validateArtifactObjectRows(root, []string{row}); err == nil {
+			t.Fatalf("unverified object row accepted: %q", row)
+		}
+	}
+	writeTestFile(t, filepath.Join(root, "objects", "value.o"), "tampered")
+	if err := validateArtifactObjectRows(root, []string{valid}); err == nil {
+		t.Fatal("changed object bytes accepted with original digest")
+	}
+}
+
+func TestProductionFetchRejectsArtifactObjectIntegrityDrift(t *testing.T) {
+	for _, member := range []string{"objects.tsv", "objects/value.o"} {
+		t.Run(member, func(t *testing.T) {
+			root := t.TempDir()
+			project := filepath.Join(root, "project")
+			artifact := filepath.Join(root, "artifact")
+			prebuiltArtifactV2(t, artifact)
+			name := filepath.Join(artifact, filepath.FromSlash(member))
+			raw, err := os.ReadFile(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeTestFile(t, name, string(raw)+"# tampered\n")
+			writeTestFile(t, filepath.Join(project, "Seen.toml"), "[project]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nmathx = { artifact = \"../artifact\" }\n")
+			code, stderr := runBackend(t, "fetch", filepath.Join(project, "Seen.toml"), "--quiet")
+			if code == 0 || !strings.Contains(stderr, "digest mismatch") ||
+				!strings.Contains(stderr, prebuiltArtifactRebuildGuidance) {
+				t.Fatalf("integrity drift code=%d stderr=%s", code, stderr)
+			}
+		})
+	}
+}
+
+func TestProductionFetchRejectsObsoleteArtifactLayout(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	artifact := filepath.Join(root, "artifact")
+	prebuiltArtifactV2(t, artifact)
+	name := filepath.Join(artifact, "Seen.pkg.toml")
+	raw, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, name, strings.ReplaceAll(string(raw), prebuiltLayoutABI, "seen-layout-abi-v2"))
+	writeTestFile(t, filepath.Join(project, "Seen.toml"), "[project]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nmathx = { artifact = \"../artifact\" }\n")
+	code, stderr := runBackend(t, "fetch", filepath.Join(project, "Seen.toml"), "--quiet")
+	if code == 0 || !strings.Contains(stderr, "unsupported schema or ABI") ||
+		!strings.Contains(stderr, prebuiltArtifactRebuildGuidance) {
+		t.Fatalf("obsolete layout code=%d stderr=%s", code, stderr)
+	}
 }
 
 func thawLocalState(project string) {

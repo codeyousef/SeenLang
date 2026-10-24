@@ -10,7 +10,7 @@ locks, and certification gates; the model engine itself is not part of 0.14.
 `Float16`, `BFloat16`, `Float8E4M3`, and `Float8E5M2`, plus checked 64-bit
 tensor geometry. The existing fixed-width integer names remain canonical.
 `inference/span` provides checked borrowed spans and bounded 2/3/4/8-bit
-packed views. `memory/aligned_buffer` owns 16–256-byte-aligned storage and
+packed views. `memory/aligned_buffer` owns 16–4096-byte-aligned storage and
 closes idempotently. The matching public C declarations are in
 `seen_runtime/seen_inference.h`.
 

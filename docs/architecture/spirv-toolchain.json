@@ -1,0 +1,17 @@
+{
+  "schema": "seen-spirv-toolchain-v1",
+  "profiles": {
+    "linux-x86_64": {
+      "package": "spirv-tools",
+      "package_version": "2025.1~rc1-1~ubuntu0.24.04.2",
+      "package_sha256": "529e396c337d15beb8ed0f03fcbeb2a066e5a818e032e197b6ef2d3328dc7ae9",
+      "package_url": "https://archive.ubuntu.com/ubuntu/pool/universe/s/spirv-tools/spirv-tools_2025.1~rc1-1~ubuntu0.24.04.2_amd64.deb",
+      "version_prefix": "SPIRV-Tools v2025.1",
+      "tools": {
+        "spirv-val": {"path": "/usr/bin/spirv-val", "sha256": "20c5998a46f02310f56bf11be238c34d374bb50104b7ccf85bb909f9da883ff9"},
+        "spirv-as": {"path": "/usr/bin/spirv-as", "sha256": "ef27f4a3890f80abd21bd9cb919b16471472bcbb94dfa6f455b6bb3f1f047bdd"},
+        "spirv-dis": {"path": "/usr/bin/spirv-dis", "sha256": "7e69bcb69d0bad2dc46556a7959fa5c2f0334b3b016712657d70ac5c67902a90"}
+      }
+    }
+  }
+}

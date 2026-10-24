@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Seen structured GPU IR v1",
+  "description": "Data-only structural schema. Consumers must also enforce the 32 MiB UTF-8 byte ceiling, byte-counted names/payloads, aggregate budgets and the Seen IR semantic verifier. This schema alone does not establish valid types, dominance, memory semantics or collective convergence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "module",
+    "required_capabilities",
+    "shared_bytes",
+    "requires_fault_buffer",
+    "max_loop_iterations",
+    "functions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "seen-gpu-ir-v1"
+    },
+    "module": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+    },
+    "required_capabilities": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 67108863
+    },
+    "shared_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65536
+    },
+    "requires_fault_buffer": {
+      "type": "boolean"
+    },
+    "max_loop_iterations": {
+      "const": 1000000
+    },
+    "functions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/function"
+      },
+      "minItems": 1,
+      "maxItems": 256
+    }
+  },
+  "$defs": {
+    "instruction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "opcode",
+        "result",
+        "type",
+        "operands",
+        "immediate",
+        "left_block",
+        "right_block",
+        "text",
+        "memory_scope",
+        "memory_order",
+        "memory_spaces",
+        "line",
+        "column"
+      ],
+      "properties": {
+        "opcode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 47
+        },
+        "result": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "type": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7023
+        },
+        "operands": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65536
+          },
+          "minItems": 0,
+          "maxItems": 64
+        },
+        "immediate": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16384
+        },
+        "left_block": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 4095
+        },
+        "right_block": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 4095
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "memory_scope": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "memory_order": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "memory_spaces": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parent",
+        "parent_instruction",
+        "instructions"
+      ],
+      "properties": {
+        "parent": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 4095
+        },
+        "parent_instruction": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 65535
+        },
+        "instructions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/instruction"
+          },
+          "minItems": 0,
+          "maxItems": 65536
+        }
+      }
+    },
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kernel",
+        "return_type",
+        "parameter_types",
+        "workgroup",
+        "register_count",
+        "local_count",
+        "line",
+        "blocks"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+        },
+        "kernel": {
+          "type": "boolean"
+        },
+        "return_type": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 52
+        },
+        "parameter_types": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7023
+          },
+          "minItems": 0,
+          "maxItems": 64
+        },
+        "workgroup": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1024
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "register_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "local_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block"
+          },
+          "minItems": 1,
+          "maxItems": 4096
+        }
+      }
+    }
+  }
+}

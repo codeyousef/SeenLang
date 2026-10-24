@@ -2,6 +2,7 @@
 
 import str.string.{StringBuilder}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
+import codegen.ir_array_scalar_emit.{emitArrayBooleanPushImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
 import codegen.ir_member_access.{extractLastMemberFieldSegmentImpl}
 import codegen.ir_member_access_driver.{tryGenerateChainedReceiverMemberAccessState, tryGenerateImplicitThisFieldVariableState, tryGenerateImplicitThisReceiverMemberAccessState, tryGenerateModuleConstReceiverMemberAccessState, tryGenerateVariableReceiverMemberAccessState}
@@ -9,7 +10,9 @@ import codegen.ir_method_call_plan.{isDottedArrayMutatorLiteralImpl, planArrayMu
 import codegen.ir_method_receiver_predicates.{isArrayReceiverTypeImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_codegen_type_state.{isClassHandleLikeTypeState,
-    isClassTypeState, isDataTypeState}
+    isClassTypeState, isDataTypeState, getDataTypeSizeState}
+import codegen.ir_assignment_coerce.{optionStoreInnerTypeCoreImpl}
+import codegen.ir_option_aggregate.{emitOptionAggregateDropImpl}
 import codegen.ir_type_mapping.{isClassTypeImpl, isFixedWidthScalarTypeImpl,
     getFixedWidthScalarLlvmTypeImpl}
 import codegen.ir_type_tables.{resolvePopElementTypeImpl}
@@ -210,11 +213,7 @@ fun emitArrayPushMutationImpl(output: StringBuilder, regBox: Array<Int>,
         return "0"
     }
     if pushElemType == "Bool" or receiverType == "Array<Bool>" {
-        let widenedBoolReg = getNextRegFn(regBox)
-        output.append("  " + widenedBoolReg + " = zext i1 " + argReg +
-            " to i64\n")
-        output.append("  call void @seen_arr_push_i64(ptr " + arrayPtrReg +
-            ", i64 " + widenedBoolReg + ")\n")
+        emitArrayBooleanPushImpl(output, regBox, arrayPtrReg, argReg)
         return "0"
     }
     if pushElemType != "String" and pushElemType != "Int" and
@@ -477,6 +476,22 @@ fun emitPreparedArrayFreeMutatorMethodStateImpl(output: StringBuilder,
     variableName: String, freePtrReg: String, varNames: Array<String>,
     varRegs: Array<String>, activeVarCount: Int, structNames: Array<String>,
     structSizes: Array<Int>) r: String {
+
+    let optionPayload = optionStoreInnerTypeCoreImpl(freeReceiverType)
+    if optionPayload != "" and isDataTypeState(optionPayload) {
+        let name = resolveArrayMutatorVariableNameImpl(literalValue, variableName)
+        let index = findActiveVariableIndexImpl(varNames, activeVarCount, name)
+        var word = freePtrReg
+        if index >= 0 {
+            word = emitLocalVariableLoadImpl(output, regBox, "i64", varRegs[index])
+        }
+        if word != "" {
+            emitOptionAggregateDropImpl(output, regBox, word,
+                getDataTypeSizeState(optionPayload))
+            return emitIndexedClassFreeMutationImpl(output, regBox, word, 24)
+        }
+        return ""
+    }
 
     let isArrayType = isArrayReceiverTypeImpl(freeReceiverType)
     if isArrayType {

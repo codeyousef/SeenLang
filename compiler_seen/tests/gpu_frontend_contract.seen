@@ -1,0 +1,116 @@
+import bootstrap.owned_frontend.{OwnedFrontend, runOwnedFrontendCompat}
+import parser.real_parser.{FunctionNode, StatementNode}
+import typechecker.semantic_registry.{SemanticDiagnostic}
+import typechecker.gpu_frontend.{gpuCheckFunction}
+import typechecker.gpu_annotations.{gpuFunctionStage}
+import codegen.gpu_extract.{inferBindingCount, extractWorkgroupSize}
+import typechecker.gpu_types.{gpuParseType, gpuTypeAddressSpace, gpuTypeBytes, gpuTypeReadable, gpuTypeWritable,
+    gpuWorkgroupValid, gpuBoundedDecimal, gpuFloatLiteralValid}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
+fun gpuRequire(valid: Bool) r: Void { if not valid { abort("typed GPU frontend contract failed") } }
+fun gpuFixture(source: String) r: OwnedFrontend {
+    let frontend = runOwnedFrontendCompat(source, "gpu-contract.seen", "en")
+    gpuRequire(frontend.result.success); return frontend
+}
+// The function is borrowed until the frontend owner releases its full AST.
+fun gpuFixtureFunction(frontend: OwnedFrontend) r: FunctionNode {
+    let program = frontend.result.program
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Function" and (gpuFunctionStage(item.function) & 1) != 0 { return item.function }
+        i = i + 1
+    }
+    abort("parsed compute definition was lost")
+    return FunctionNode.new()
+}
+fun gpuReleaseDiagnostics(diagnostics: Array<SemanticDiagnostic>) r: Void {
+    var i = 0
+    while i < diagnostics.length() { diagnostics[i].location.free(); diagnostics[i].free(); i = i + 1 }; diagnostics.free()
+}
+fun gpuExpect(source: String, code: String) r: Void {
+    let frontend = gpuFixture(source); let function = gpuFixtureFunction(frontend)
+    let diagnostics = gpuCheckFunction(function, "gpu-contract.seen")
+    var found = false; var i = 0
+    while i < diagnostics.length() {
+        gpuRequire(diagnostics[i].location.file == "gpu-contract.seen")
+        if diagnostics[i].code == code { found = true }; i = i + 1
+    }
+    if code == "" { gpuRequire(diagnostics.length() == 0) }
+    else { gpuRequire(found and diagnostics.length() <= 64) }
+    gpuReleaseDiagnostics(diagnostics); frontend.release()
+}
+fun main() r: Int {
+    let initial = seen_memory_used_bytes()
+    gpuRequire(gpuParseType("ReadBuffer<Float32>") == 1004 and gpuParseType("WriteBuffer<UInt32>") == 2003)
+    gpuRequire(gpuParseType("Buffer<i32x4>") == 3050 and gpuParseType("Uniform<f32x3>") == 4036)
+    gpuRequire(gpuTypeAddressSpace(1004) == "storage" and gpuTypeAddressSpace(4004) == "uniform" and gpuTypeBytes(4036) == 12)
+    gpuRequire(gpuTypeReadable(1004) and not gpuTypeWritable(1004) and gpuTypeWritable(2004) and not gpuTypeReadable(2004))
+    let invalidTypes = ["ReadBuffer<Float>", "ReadBuffer<Int64>", "ReadBuffer<Bool>", "WriteBuffer<ReadBuffer<f32>>",
+        "Uniform<String>", "ReadBuffer<f32", "Uniform<f32>>", "*UInt32", "dyn Resource", "ReadBuffer<f32x9>"]
+    for text in invalidTypes {
+        gpuRequire(gpuParseType(text) == 0)
+    }
+    invalidTypes.free()
+    gpuRequire(gpuBoundedDecimal("4294967295", 4294967295) == 4294967295)
+    gpuRequire(gpuBoundedDecimal("4294967296", 4294967295) == -1 and gpuBoundedDecimal("12junk", 1024) == -1)
+    gpuRequire(gpuWorkgroupValid(8, 8, 16) and not gpuWorkgroupValid(1024, 2, 1) and not gpuWorkgroupValid(1, 0, 1))
+    gpuRequire(not gpuWorkgroupValid(9223372036854775807, 9223372036854775807, 9223372036854775807))
+    gpuRequire(gpuFloatLiteralValid("1.25") and gpuFloatLiteralValid("1.0e-38") and gpuFloatLiteralValid("0.0e200"))
+    gpuRequire(not gpuFloatLiteralValid("3.5e38") and not gpuFloatLiteralValid("1e257") and not gpuFloatLiteralValid("NaN"))
+    println("PASS: GPU-001A closed types address spaces literal bounds and checked workgroups")
+    gpuExpect("@compute(workgroup: [8,8,1]) fun renamed(input: ReadBuffer<Float32>, output: WriteBuffer<Float32>, factor: Uniform<Float32>) { let i = globalInvocationId.x; if i < input.length { output[i] = input[i] * factor } }", "")
+    gpuExpect("@compute(workgroup=64) fun arbitrary(input: Buffer<Int32>, count: Uniform<Int32>) { var i = 0; while i < count { input[i] = input[i] + 1; i = i + 1 } }", "")
+    gpuExpect("@compute(4,4,4) fun wide(input: Buffer<f32x4>) { let i = globalInvocationId.x; input[i] = f32x4(1.0,2.0,3.0,4.0) }", "")
+    gpuExpect("@ compute(64) fun spaced(input: ReadBuffer<Float32>, output: WriteBuffer<Float32>) { let i = globalInvocationId.x; output[i] = input[i] }", "")
+    gpuExpect("@compute(64) fun tensorElementwiseAdd(input: ReadBuffer<Float32>) { input[0] = 1.0 }", "E_GPU_ACCESS")
+    gpuExpect("@compute(64) fun renamed(output: WriteBuffer<Float32>) { let x = output[0] }", "E_GPU_ACCESS")
+    gpuExpect("@compute(64) fun renamed(input: ReadBuffer<Float32>, output: WriteBuffer<Float32>) { output[0] = input[0] + 1 }", "E_GPU_TYPE")
+    gpuExpect("@compute(64) fun renamed(input: ReadBuffer<Float32>) { let alias = input }", "E_GPU_RESOURCE")
+    gpuExpect("@compute(64) fun renamed(input: ReadBuffer<Float32>) { println(1) }", "E_GPU_UNSUPPORTED")
+    gpuExpect("@compute(64) fun renamed(input: ReadBuffer<Float32>) { let i = 0; i = 1 }", "E_GPU_ACCESS")
+    gpuExpect("@compute(64) fun renamed(input: ReadBuffer<Float32>) { let i = hiddenHostValue }", "E_GPU_BINDING")
+    gpuExpect("@compute(64) fun renamed(input: ReadBuffer<Float32>) { let globalInvocationId = 0 }", "E_GPU_BINDING")
+    gpuExpect("@compute(64) fun renamed(input: ReadBuffer<Float32>) { return input }", "E_GPU_TYPE")
+    gpuExpect("@compute(0) fun renamed() { }", "E_GPU_WORKGROUP")
+    gpuExpect("@compute(1024,2,1) fun renamed() { }", "E_GPU_WORKGROUP")
+    gpuExpect("@compute(other=64) fun renamed() { }", "E_GPU_WORKGROUP")
+    gpuExpect("@compute(18446744073709551615) fun renamed() { }", "E_GPU_WORKGROUP")
+    gpuExpect("@compute(64) fun renamed(input: ReadBuffer<Int64>) { }", "E_GPU_RESOURCE")
+    gpuExpect("@compute(64) fun renamed(input: Float32) { }", "E_GPU_RESOURCE")
+    gpuExpect("@compute(64) fun renamed(input: ReadBuffer<Float32>) { let x = 3.5e38 }", "E_GPU_LITERAL")
+    gpuExpect("@compute(64) fun renamed(output: WriteBuffer<UInt32>) { output[0] = 4294967295 as UInt32 }", "")
+    gpuExpect("@compute(64) fun renamed(output: WriteBuffer<Int32>) { output[0] = -2147483648 }", "")
+    println("PASS: GPU-001A actual parsed bodies enforce access typing scope and host isolation")
+    let extractedOwner = gpuFixture("@compute(workgroup: [8,8,1]) fun extracted(a: ReadBuffer<Float32>, b: WriteBuffer<Float32>, count: Uniform<UInt32>) { }")
+    let extracted = gpuFixtureFunction(extractedOwner)
+    gpuRequire(inferBindingCount(extracted) == 3)
+    let shape = extractWorkgroupSize(extracted); gpuRequire(shape == "8,8,1"); seen_string_release_owned(shape)
+    extractedOwner.release()
+    let stableOwner = gpuFixture("@compute(64) fun clean(input: ReadBuffer<Float32>, output: WriteBuffer<Float32>) { let i = globalInvocationId.x; output[i] = input[i] + 1.0 }")
+    let stable = gpuFixtureFunction(stableOwner)
+    let warmup = gpuCheckFunction(stable, "gpu-contract.seen"); gpuRequire(warmup.length() == 0); gpuReleaseDiagnostics(warmup)
+    let baseline = seen_memory_used_bytes(); var round = 0
+    while round < 1000 {
+        let diagnostics = gpuCheckFunction(stable, "gpu-contract.seen"); gpuRequire(diagnostics.length() == 0)
+        gpuReleaseDiagnostics(diagnostics); gpuRequire(seen_memory_used_bytes() == baseline); round = round + 1
+    }
+    stableOwner.release()
+    let boundedOwner = gpuFixture("@compute(64) fun bounded() { }")
+    let bounded = gpuFixtureFunction(boundedOwner); let allocations = boundedOwner.allocations
+    // Synthetic nodes and array growth belong to the same test AST owner.
+    allocations.recording = true
+    let statement = StatementNode.new(); statement.kind = "Return"; round = 0
+    while round < 65537 { bounded.body.statements.push(statement); round = round + 1 }
+    allocations.pause()
+    let diagnostics = gpuCheckFunction(bounded, "gpu-contract.seen"); gpuRequire(diagnostics.length() > 0 and diagnostics.length() <= 64)
+    var limited = false; round = 0
+    while round < diagnostics.length() { if diagnostics[round].code == "E_GPU_LIMIT" { limited = true }; round = round + 1 }
+    gpuRequire(limited); gpuReleaseDiagnostics(diagnostics); boundedOwner.release()
+    gpuRequire(seen_memory_used_bytes() == initial)
+    println("PASS: GPU-001A bounded diagnostics traversal and validator cleanup")
+    println("{\"schema\":\"seen-gpu-frontend-v1\",\"classification\":\"verified\",\"scope\":\"frontend-only\",\"kernel_execution_verified\":false,\"legacy_name_substitution\":false}")
+    return 0
+}

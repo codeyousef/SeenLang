@@ -1,7 +1,7 @@
 extern "C" fun seen_pool_free(value: *Void, bytes: Int64) r: Void
 extern "C" fun seen_memory_used_bytes() r: Int64
 import dyn_method_modules.consumer.{ImportedMethodBridge}
-import dyn_method_modules.provider.{ImportedGenericProvider}
+import dyn_method_modules.provider.{ImportedGenericProvider, ImportedReceiverProvider}
 trait MethodValue { fun value(this: MethodValue) r: Int }
 class MethodProvider {
     var number: Int
@@ -45,6 +45,8 @@ fun main() r: Int {
         if genericMethodValue<Int>(i, provider) != i + 41 { abort("generic trait argument changed identity") }
         let imported = ImportedGenericProvider<Int>{identity: i, number: i + 41}
         if not ImportedMethodBridge.execute(imported, i + 42) { abort("imported generic witness lost method slots or ownership") }
+        let receiver = ImportedReceiverProvider{number: i + 41}
+        if not ImportedMethodBridge.execute(receiver, i + 42) { abort("imported receiver witness lost declared slots") }
         provider.free()
         if seen_memory_used_bytes() != baseline { abort("method trait box did not return to allocation baseline") }; i = i + 1
     }

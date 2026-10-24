@@ -1,0 +1,31 @@
+import codegen.ir_member_access.{prepareVariableMemberReceiverImpl}
+import codegen.ir_field_layout.{generateFieldAccessImpl}
+import str.string.{StringBuilder}
+
+fun main() r: Int {
+    let output = StringBuilder.new(); let registers = Array<Int>(); registers.push(0)
+    // Declaration keys are bare names; concrete receiver spellings carry args.
+    let names = Array<String>(); names.push("Span"); names.push("OwnedBuffer")
+    let layouts = Array<String>(); layouts.push("{ ptr, i64 }"); layouts.push("{ ptr, i64, i64, i64 }")
+    let fields = Array<String>(); fields.push("data,length"); fields.push("data,byteLength,elementCount,alignment")
+    let types = Array<String>(); types.push("*const T|UInt64"); types.push("*T|UInt64|UInt64|UInt64")
+    let descriptor = prepareVariableMemberReceiverImpl(output, registers, "%local", "Span<UInt8>", "Span|", 1, 0)
+    let data = generateFieldAccessImpl(output, registers, descriptor, "Span<UInt8>", "data", "i64",
+        names, layouts, fields, types, "Span|", "", "", "", 0, "", 0, "", "")
+    let text = output.toString()
+    if not text.contains("load %Span, ptr %local") or not text.contains("extractvalue %Span ") or
+        not text.contains(data + " = ptrtoint ptr ") {
+        println(text); println(data)
+        abort("generic descriptor extraction lost its aggregate or pointer-word boundary")
+    }
+    let heap = StringBuilder.new()
+    let pointer = generateFieldAccessImpl(heap, registers, "%heap", "OwnedBuffer<UInt8>", "data", "i64",
+        names, layouts, fields, types, "Span|", "", "", "", 0, "", 0, "", "")
+    let heapText = heap.toString()
+    if not heapText.contains("load ptr, ptr ") or not heapText.contains(pointer + " = ptrtoint ptr ") {
+        println(heapText); println(pointer)
+        abort("ordinary heap pointer field no longer returns a Seen word")
+    }
+    println("PASS: generic descriptor and heap pointer expression boundaries remain distinct")
+    return 0
+}

@@ -3,7 +3,8 @@
 
 import io.file.{readText, writeTextAtomically, exists}
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
-import core.operation_context.{OperationContext}
+import core.operation_context.{OperationContext, OperationLimits}
+import core.error.{AsciiString}
 import testing.categories.{TestPrimaryCategory, TestPlatformCategory}
 import seen_compiler.testing.discovery.{TestDiscoveryCandidate, discoverTestsChecked,
     testDiscoveryExpectedCategory, testDiscoveryExpectedPlatform,
@@ -13,6 +14,16 @@ import seen_compiler.testing.runner.{TestRunnerOptions,
 import seen_compiler.testing.reporters.{TestReporterFormat,
     TestReporterRequest, renderTestReportChecked}
 import seen_compiler.testing.migration.{testMigrationWorkingRoot}
+
+/// Test catalogs and reports have their own bounded CLI budget. Package
+/// compatibility manifest limits and explicit caller contexts stay independent.
+fun testCliOperationContext() r: OperationContext {
+    return OperationContext{cancellation: false, monotonicDeadline: 0,
+        limits: OperationLimits{maxTargets: 32, maxIdentityBytes: 128,
+            maxVersionBytes: 64, maxManifestBytes: 1048576, maxPathBytes: 4096,
+            maxGraphModules: 4096, maxGraphEdges: 65536, maxGraphDepth: 4096},
+        traceId: AsciiString{value: "test-cli"}}
+}
 
 fun testCliShellQuote(value: String) r: String {
     var quoted = "'"
@@ -117,7 +128,8 @@ fun testCliDiscover(root: String, context: OperationContext,
     }
     let unit = runCommand("find " + testCliShellQuote(compilerTests) + " " +
         testCliShellQuote(stdTests) + " " + testCliShellQuote(externalTests) +
-        " -type f -name '*.seen' -print")
+        " -type f -name '*.seen' ! -name '*_support.seen' " +
+        "! -name '*_fixture.seen' -print")
     if not commandWasSuccessful(unit) or
         not testCliCollectFindOutput(root, unit.output, candidates) { return false }
     let misc = runCommand("find " + testCliShellQuote(miscTests) +
@@ -180,9 +192,9 @@ fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
                 testCliShellQuote(report)
             executionPrefix = "LLVM_PROFILE_FILE=" +
                 testCliShellQuote(rawProfile) + " "
-            executionPostfix = " && llvm-profdata merge -sparse " +
+            executionPostfix = " && llvm-profdata merge -sparse --num-threads=1 " +
                 testCliShellQuote(rawProfile) + " -o " +
-                testCliShellQuote(mergedProfile) + " && llvm-cov report " +
+                testCliShellQuote(mergedProfile) + " && llvm-cov report --num-threads=1 " +
                 testCliShellQuote(binary) + " -instr-profile " +
                 testCliShellQuote(mergedProfile) + " >" +
                 testCliShellQuote(coverageReport)
@@ -194,9 +206,6 @@ fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
                 testCliShellQuote(sanitizer) + " --instrumentation-report " +
                 testCliShellQuote(report)
         }
-        if relative.endsWith("test_002a_gpu_emitters.seen") {
-            instrumentationFlags = instrumentationFlags + " --emit-glsl"
-        }
         command = "SEEN_COMPILER_SOURCE_ROOT=" +
             testCliShellQuote(compilerSourceRoot) +
             " SEEN_PACKAGE_CLIENT=" +
@@ -206,7 +215,15 @@ fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
             " --fast --no-fork" + instrumentationFlags + " && " +
             executionPrefix + testCliShellQuote(binary) + executionPostfix
     } else if relative.endsWith(".sh") {
-        command = "bash " + testCliShellQuote(absolute)
+        // A self-wrapping test must establish its own scope-bound identity,
+        // not mistake this caller's active binding for its own. Keep the
+        // namespace, kernel limits and serializer evidence inherited.
+        command = "env -u SEEN_CAPPED_REGRESSION_ACTIVE " +
+            "-u SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE COMPILER=" +
+            testCliShellQuote(selfPath) + " SEEN_COMPILER_SOURCE_ROOT=" +
+            testCliShellQuote(compilerSourceRoot) + " SEEN_PACKAGE_CLIENT=" +
+            testCliShellQuote(packageClientPath) + " bash " +
+            testCliShellQuote(absolute)
     } else if relative.endsWith("_unit.py") {
         command = "python3 " + testCliShellQuote(absolute)
     } else { return -1 }
@@ -358,7 +375,11 @@ fun runCanonicalTests(rootArgument: String, selfPath: String,
     if not jsonRendered.success or not junitRendered.success or
         not humanRendered.success {
 
-        println("Error: [test.001e.invalid] test report rendering failed")
+        var failure = jsonRendered
+        if failure.success { failure = junitRendered }
+        if failure.success { failure = humanRendered }
+        println("Error: [" + failure.errors[0].code.value + "] " +
+            failure.errors[0].message)
         return 3
     }
     let jsonReport = jsonRendered.values[0].content

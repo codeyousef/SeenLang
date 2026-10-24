@@ -23,6 +23,9 @@
 // ============================================================================
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
 
 #include "seen_runtime.h"
 #include <errno.h>
@@ -88,8 +91,63 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 
 #include "reactor_abi.c"
 #include "sync_abi.c"
+#include "src/executor_abi.c"
+#include "src/executor_socket_abi.c"
+#include "src/executor_completion_abi.c"
+#include "src/io_uring_abi.c"
+#include "src/iocp_abi.c"
+#include "src/macos_io_abi.c"
+#include "src/executor_readiness_abi.c"
+#include "src/executor_process_abi.c"
+#include "src/executor_stream_abi.c"
+
+/* Allocation and reservation form one transaction across worker threads.
+ * Nested allocator helpers reuse the owning thread's guard. In particular,
+ * a slab allocation may reserve physical memory without deadlocking itself.
+ * The cleanup guard releases on every early return. */
+static atomic_flag seen_allocator_guard = ATOMIC_FLAG_INIT;
+static _Thread_local unsigned int seen_allocator_depth;
+
+static void seen_allocator_enter(void) {
+    if (seen_allocator_depth++ != 0) return;
+    while (atomic_flag_test_and_set_explicit(&seen_allocator_guard,
+                                            memory_order_acquire)) {
+#if defined(_WIN32)
+        SwitchToThread();
+#else
+        sched_yield();
+#endif
+    }
+}
+
+static void seen_allocator_leave(void) {
+    if (--seen_allocator_depth == 0)
+        atomic_flag_clear_explicit(&seen_allocator_guard, memory_order_release);
+}
+
+static void seen_allocator_scope_leave(int *active) {
+    if (*active) seen_allocator_leave();
+}
+
+#define SEEN_ALLOCATOR_SCOPE() \
+    int seen_allocator_scope __attribute__((cleanup(seen_allocator_scope_leave))) \
+        = (seen_allocator_enter(), 1)
+
+#if !defined(_WIN32)
+static pthread_once_t seen_allocator_fork_once = PTHREAD_ONCE_INIT;
+static void seen_allocator_register_fork_handlers(void) {
+    if (pthread_atfork(seen_allocator_enter, seen_allocator_leave,
+                       seen_allocator_leave) != 0) {
+        fputs("Seen runtime cannot install allocator fork guards\n", stderr);
+        abort();
+    }
+}
+#endif
+#include "src/arm_vector_abi.c"
+#include "src/allocation_observer_abi.c"
 
 static inline size_t seen_align_up(size_t n, size_t align);
+static void seen_oom_abort(const char* context, int64_t size);
 
 // ============================================================================
 // Pool Allocator - size-class slab allocator with free-list recycling
@@ -102,14 +160,15 @@ static inline size_t seen_align_up(size_t n, size_t align);
 typedef struct PoolSlab {
     char *base;
     size_t used;
+    size_t capacity;
     struct PoolSlab *next;
 } PoolSlab;
 
 static void *pool_freelists[POOL_NUM_CLASSES]; // per-class free lists
 static PoolSlab *pool_slabs[POOL_NUM_CLASSES]; // per-class slab chains
 // Physical slab capacity remains charged against the allocation budget, but
-// only checked-out slots are live user allocations. Both counters are updated
-// together with the freelist (the current allocator is not thread-safe).
+// only checked-out slots are live user allocations. Both counters and the
+// freelist are protected by the same reentrant allocator transaction.
 static int64_t pool_committed_bytes = 0;
 static int64_t pool_live_bytes = 0;
 
@@ -117,8 +176,22 @@ static inline int pool_class(size_t size) {
     return (int)((size + 7) / 8) - 1; // 8->0, 16->1, ..., 80->9
 }
 
+static size_t seen_pool_slab_capacity(size_t slot) {
+    int64_t remaining = seen_memory_remaining_bytes();
+    size_t capacity = POOL_SLAB_SIZE;
+    /* Preserve headroom for other size classes and diagnostics. A small
+       request must not require a full megabyte of unneeded slab reserve. */
+    if (remaining < (int64_t)POOL_SLAB_SIZE * (POOL_NUM_CLASSES * 2)) {
+        capacity = remaining > 0 ? (size_t)remaining / (POOL_NUM_CLASSES * 2) : 0;
+        if (capacity < slot) capacity = slot;
+        capacity -= capacity % slot;
+    }
+    return capacity;
+}
+
 __attribute__((hot, malloc))
-void *seen_pool_alloc(int64_t size) {
+static void *seen_pool_alloc_inner(int64_t size) {
+    SEEN_ALLOCATOR_SCOPE();
     if (__builtin_expect(size <= 0 || size > POOL_MAX_SIZE, 0))
         return seen_try_malloc(size > 0 ? size : 1);
     int cls = pool_class((size_t)size);
@@ -137,10 +210,11 @@ void *seen_pool_alloc(int64_t size) {
 
     // Slow path: bump-allocate from slab
     PoolSlab *slab = pool_slabs[cls];
-    if (__builtin_expect(!slab || slab->used + slot > POOL_SLAB_SIZE, 0)) {
+    if (__builtin_expect(!slab || slab->used + slot > slab->capacity, 0)) {
         slab = (PoolSlab *)seen_try_malloc(sizeof(PoolSlab));
         if (!slab) return NULL;
-        slab->base = (char *)seen_try_malloc(POOL_SLAB_SIZE);
+        slab->capacity = seen_pool_slab_capacity(slot);
+        slab->base = (char *)seen_try_malloc(slab->capacity);
         if (!slab->base) {
             seen_memory_release_bytes((int64_t)sizeof(PoolSlab));
             free(slab);
@@ -149,7 +223,7 @@ void *seen_pool_alloc(int64_t size) {
         slab->used = 0;
         slab->next = pool_slabs[cls];
         pool_slabs[cls] = slab;
-        pool_committed_bytes += (int64_t)(POOL_SLAB_SIZE + sizeof(PoolSlab));
+        pool_committed_bytes += (int64_t)(slab->capacity + sizeof(PoolSlab));
     }
     p = slab->base + slab->used;
     slab->used += slot;
@@ -157,14 +231,63 @@ void *seen_pool_alloc(int64_t size) {
     return p;
 }
 
+void *seen_pool_alloc(int64_t size) {
+    if (!seen_allocation_observer || seen_allocation_observer_busy) {
+        void *pointer = seen_pool_alloc_inner(size);
+        if (!pointer) seen_oom_abort("pool allocation", size > 0 ? size : 1);
+        return pointer;
+    }
+    seen_allocation_observer_nested++;
+    void *pointer = seen_pool_alloc_inner(size);
+    seen_allocation_observer_nested--;
+    if (!pointer) seen_oom_abort("pool allocation", size > 0 ? size : 1);
+    seen_allocation_observe(1, 0, pointer, size > 0 ? size : 1, 1);
+    return pointer;
+}
+
+/* Generic class cleanup also receives malloc-backed native headers. A size
+ * alone cannot prove slab provenance: putting a raw header on a freelist
+ * makes pool_live_bytes negative and retains one raw allocation per cycle.
+ * Search the expected class first; the other classes detect wrong-size frees
+ * without moving a slot into an incompatible freelist. The allocator guard
+ * keeps slab metadata stable throughout this lookup and the release. */
+static int seen_pool_pointer_class(const void *pointer, int preferred) {
+    uintptr_t address = (uintptr_t)pointer;
+    for (int pass = -1; pass < POOL_NUM_CLASSES; ++pass) {
+        int cls = pass < 0 ? preferred : pass;
+        if (cls < 0 || cls >= POOL_NUM_CLASSES ||
+            (pass >= 0 && cls == preferred)) continue;
+        for (PoolSlab *slab = pool_slabs[cls]; slab; slab = slab->next) {
+            uintptr_t base = (uintptr_t)slab->base;
+            if (address < base || address - base >= slab->capacity) continue;
+            size_t offset = (size_t)(address - base);
+            size_t slot = (size_t)(cls + 1) * 8;
+            if (offset >= slab->used || offset % slot != 0) {
+                fputs("Seen pool release is not an allocated slot boundary\n", stderr);
+                abort();
+            }
+            return cls;
+        }
+    }
+    return -1;
+}
+
 __attribute__((hot))
 void seen_pool_free(void *ptr, int64_t size) {
+    SEEN_ALLOCATOR_SCOPE();
     if (__builtin_expect(!ptr, 0)) return;
-    if (__builtin_expect(size <= 0 || size > POOL_MAX_SIZE, 0)) {
+    if (seen_allocation_observe(4, (uint64_t)(uintptr_t)ptr, NULL, size, 1)) return;
+    int expected = size > 0 && size <= POOL_MAX_SIZE ?
+        pool_class((size_t)size) : -1;
+    int cls = seen_pool_pointer_class(ptr, expected);
+    if (cls < 0) {
         seen_memory_release_bytes(size > 0 ? size : 1);
         free(ptr); return;
     }
-    int cls = pool_class((size_t)size);
+    if (cls != expected || pool_live_bytes < (int64_t)(cls + 1) * 8) {
+        fputs("Seen pool release size class mismatch\n", stderr);
+        abort();
+    }
     pool_live_bytes -= (int64_t)(cls + 1) * 8;
     *(void **)ptr = pool_freelists[cls];
     pool_freelists[cls] = ptr;
@@ -371,10 +494,10 @@ int32_t seen_reexec_current_process(void) {
 #endif
 }
 
-static int64_t g_seen_error_code = 0;
-static int64_t g_seen_error_subsystem = 0;
-static char g_seen_error_message[256] = {0};
-static int64_t g_seen_error_message_len = 0;
+static _Thread_local int64_t g_seen_error_code = 0;
+static _Thread_local int64_t g_seen_error_subsystem = 0;
+static _Thread_local char g_seen_error_message[256] = {0};
+static _Thread_local int64_t g_seen_error_message_len = 0;
 
 int64_t seen_error_code(void) {
     return g_seen_error_code;
@@ -436,6 +559,7 @@ static int64_t g_seen_memory_peak_bytes = 0;
 static int64_t g_seen_memory_allocation_failures = 0;
 
 static void seen_memory_init_from_env_once(void) {
+    SEEN_ALLOCATOR_SCOPE();
     if (g_seen_memory_initialized) return;
     g_seen_memory_initialized = 1;
 
@@ -453,6 +577,7 @@ static void seen_memory_init_from_env_once(void) {
 }
 
 static bool seen_memory_can_reserve(int64_t old_size, int64_t new_size) {
+    SEEN_ALLOCATOR_SCOPE();
     seen_memory_init_from_env_once();
 
     if (old_size < 0 || new_size < 0) {
@@ -487,6 +612,7 @@ static bool seen_memory_can_reserve(int64_t old_size, int64_t new_size) {
 }
 
 static void seen_memory_commit_reservation(int64_t old_size, int64_t new_size) {
+    SEEN_ALLOCATOR_SCOPE();
     int64_t base = g_seen_memory_used_bytes;
     if (old_size > base) old_size = base;
     g_seen_memory_used_bytes = base - old_size + new_size;
@@ -496,6 +622,7 @@ static void seen_memory_commit_reservation(int64_t old_size, int64_t new_size) {
 }
 
 static void seen_memory_release_reservation(int64_t size) {
+    SEEN_ALLOCATOR_SCOPE();
     if (size <= 0) return;
     if (size > g_seen_memory_used_bytes) {
         g_seen_memory_used_bytes = 0;
@@ -505,37 +632,44 @@ static void seen_memory_release_reservation(int64_t size) {
 }
 
 void seen_memory_set_limit_bytes(int64_t bytes) {
+    SEEN_ALLOCATOR_SCOPE();
     seen_memory_init_from_env_once();
     if (bytes < 0) bytes = 0;
     g_seen_memory_limit_bytes = bytes;
 }
 
 int64_t seen_memory_limit_bytes(void) {
+    SEEN_ALLOCATOR_SCOPE();
     seen_memory_init_from_env_once();
     return g_seen_memory_limit_bytes;
 }
 
 int64_t seen_memory_used_bytes(void) {
+    SEEN_ALLOCATOR_SCOPE();
     seen_memory_init_from_env_once();
     return g_seen_memory_used_bytes - pool_committed_bytes + pool_live_bytes;
 }
 
 int64_t seen_memory_reserved_bytes(void) {
+    SEEN_ALLOCATOR_SCOPE();
     seen_memory_init_from_env_once();
     return pool_committed_bytes - pool_live_bytes;
 }
 
 int64_t seen_memory_peak_bytes(void) {
+    SEEN_ALLOCATOR_SCOPE();
     seen_memory_init_from_env_once();
     return g_seen_memory_peak_bytes;
 }
 
 int64_t seen_memory_allocation_failures(void) {
+    SEEN_ALLOCATOR_SCOPE();
     seen_memory_init_from_env_once();
     return g_seen_memory_allocation_failures;
 }
 
 int64_t seen_memory_remaining_bytes(void) {
+    SEEN_ALLOCATOR_SCOPE();
     seen_memory_init_from_env_once();
     if (g_seen_memory_limit_bytes <= 0) return INT64_MAX;
     if (g_seen_memory_used_bytes >= g_seen_memory_limit_bytes) return 0;
@@ -543,16 +677,19 @@ int64_t seen_memory_remaining_bytes(void) {
 }
 
 int64_t seen_memory_try_reserve_bytes(int64_t size) {
+    SEEN_ALLOCATOR_SCOPE();
     if (!seen_memory_can_reserve(0, size)) return 0;
     seen_memory_commit_reservation(0, size);
     return 1;
 }
 
 void seen_memory_release_bytes(int64_t size) {
+    SEEN_ALLOCATOR_SCOPE();
     seen_memory_release_reservation(size);
 }
 
 SeenMemoryStats seen_memory_stats(void) {
+    SEEN_ALLOCATOR_SCOPE();
     SeenMemoryStats stats = {
         seen_memory_limit_bytes(),
         seen_memory_used_bytes(),
@@ -563,6 +700,7 @@ SeenMemoryStats seen_memory_stats(void) {
 }
 
 SeenMemorySnapshot seen_memory_snapshot(void) {
+    SEEN_ALLOCATOR_SCOPE();
     SeenMemorySnapshot snapshot = {
         seen_memory_limit_bytes(),
         seen_memory_used_bytes(),
@@ -574,6 +712,7 @@ SeenMemorySnapshot seen_memory_snapshot(void) {
 }
 
 void* seen_try_malloc(int64_t size) {
+    SEEN_ALLOCATOR_SCOPE();
     if (size <= 0) size = 1;
     if (!seen_memory_can_reserve(0, size)) return NULL;
     void* ptr = malloc((size_t)size);
@@ -585,10 +724,12 @@ void* seen_try_malloc(int64_t size) {
         return NULL;
     }
     seen_memory_commit_reservation(0, size);
+    seen_allocation_observe(1, 0, ptr, size, 0);
     return ptr;
 }
 
 void* seen_try_calloc(int64_t count, int64_t size) {
+    SEEN_ALLOCATOR_SCOPE();
     if (count <= 0 || size <= 0) {
         count = 1;
         size = 1;
@@ -611,13 +752,16 @@ void* seen_try_calloc(int64_t count, int64_t size) {
         return NULL;
     }
     seen_memory_commit_reservation(0, total);
+    seen_allocation_observe(1, 0, ptr, total, 0);
     return ptr;
 }
 
 void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size) {
+    SEEN_ALLOCATOR_SCOPE();
     if (new_size <= 0) new_size = 1;
     if (old_size < 0) old_size = 0;
     if (!seen_memory_can_reserve(old ? old_size : 0, new_size)) return NULL;
+    uint64_t old_address = (uint64_t)(uintptr_t)old;
     void* ptr = realloc(old, (size_t)new_size);
     if (!ptr) {
         g_seen_memory_allocation_failures++;
@@ -626,11 +770,10 @@ void* seen_try_realloc(void* old, int64_t old_size, int64_t new_size) {
             "realloc failed");
         return NULL;
     }
-    seen_memory_commit_reservation(old ? old_size : 0, new_size);
+    seen_memory_commit_reservation(old_address ? old_size : 0, new_size);
+    seen_allocation_observe(2, old_address, ptr, new_size, 0);
     return ptr;
 }
-
-static void seen_oom_abort(const char* context, int64_t size);
 
 static void seen_allocation_failure_exit(void) {
     fflush(stderr);
@@ -673,8 +816,10 @@ void* seen_checked_realloc(void* old, int64_t old_size, int64_t new_size) {
 
 void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
     int64_t alignment) {
+    SEEN_ALLOCATOR_SCOPE();
     if (alignment <= 0) alignment = 32;
     if (new_size <= 0) new_size = alignment;
+    uint64_t old_address = (uint64_t)(uintptr_t)old;
     int64_t old_accounted = old ? seen_aligned_accounted_size(old_size, alignment) : 0;
     int64_t new_accounted = seen_aligned_accounted_size(new_size, alignment);
     size_t aligned_size = (size_t)new_accounted;
@@ -703,10 +848,13 @@ void* seen_try_aligned_realloc(void* old, int64_t old_size, int64_t new_size,
     if (old) {
         size_t copy_size = (size_t)(old_size < new_size ? old_size : new_size);
         memcpy(p, old, copy_size);
+        seen_allocation_observer_reallocating++;
         free(old);
+        seen_allocation_observer_reallocating--;
     }
 #endif
     seen_memory_commit_reservation(old_accounted, new_accounted);
+    seen_allocation_observe(2, old_address, p, new_accounted, -alignment);
     return p;
 }
 
@@ -750,6 +898,10 @@ void seen_debug_print_counters(void) {}
 #endif
 
 void seen_runtime_init(int argc, char** argv) {
+#if !defined(_WIN32)
+    if (pthread_once(&seen_allocator_fork_once,
+                      seen_allocator_register_fork_handlers) != 0) abort();
+#endif
     g_argc = argc;
     g_argv = argv;
     seen_deterministic_capture_inputs_once(argc, argv);
@@ -4021,6 +4173,7 @@ SeenString seen_cstr_to_str(const char* s) {
 char* seen_str_to_cstr(SeenString s) {
     char* buf = (char*)malloc(s.len + 1);
     if (buf) {
+        seen_allocation_observe(1, 0, buf, s.len + 1, 2);
         memcpy(buf, s.data, s.len);
         buf[s.len] = '\0';
     }
@@ -4172,7 +4325,7 @@ static SeenString seen_char_to_str_with_allocator(int64_t c, bool pool_owned) {
     buf[len] = '\0';
     char* owned = pool_owned
         ? seen_runtime_alloc_pool_chars(len, "seen_char_to_owned_string")
-        : seen_runtime_alloc_chars(7, "seen_char_to_str");
+        : seen_runtime_alloc_chars(len, "seen_char_to_str");
     memcpy(owned, local, (size_t)len + 1);
     SeenString result = { len, owned };
     return result;
@@ -6264,6 +6417,7 @@ static int64_t Vec_checked_bytes(int64_t count, int64_t elem_size,
 
 static bool Vec_try_checked_bytes(int64_t count, int64_t elem_size,
     int64_t* bytes_out) {
+    SEEN_ALLOCATOR_SCOPE();
     if (count <= 0) count = 1;
     if (elem_size <= 0 || count > INT64_MAX / elem_size) {
         g_seen_memory_allocation_failures++;
@@ -6301,6 +6455,7 @@ static void* Vec_realloc_data(void* old, int64_t old_count,
 
 static bool Vec_try_reserve_raw(void** data, int64_t* capacity,
     int64_t required_capacity, int64_t elem_size, int64_t* requested_out) {
+    SEEN_ALLOCATOR_SCOPE();
     if (required_capacity <= *capacity) return true;
     int64_t newCap = *capacity == 0 ? 8 : *capacity;
     while (newCap < required_capacity) {
@@ -8001,7 +8156,7 @@ static void seen_cpu_detect_impl(void) {
     g_cpu_features.detected = 1;
 
     unsigned long hwcap = getauxval(AT_HWCAP);
-    g_cpu_features.neon = 1; // Always available on AArch64
+    g_cpu_features.neon = (hwcap & HWCAP_ASIMD) ? 1 : 0; // OS-advertised register state
     g_cpu_features.sve  = (hwcap & HWCAP_SVE) ? 1 : 0;
 }
 #elif defined(__APPLE__)
@@ -8015,7 +8170,7 @@ static void seen_cpu_detect_impl(void) {
 static void seen_cpu_detect_impl(void) {
     if (g_cpu_features.detected) return;
     g_cpu_features.detected = 1;
-    g_cpu_features.neon = 1;  // Assume NEON on generic AArch64
+    g_cpu_features.neon = 0;  // Unknown OS ABI must not grant vector state
 }
 #endif
 
@@ -9585,6 +9740,19 @@ static void* hashmap_alloc_array(int64_t count, size_t element_size,
     return ptr;
 }
 
+/* Resizing transfers entries, then releases both storage and its reservation. */
+static void hashmap_release_storage(void *keys, void *values, void *states,
+                                    int64_t capacity, size_t key_size,
+                                    size_t value_size) {
+    size_t largest = key_size > value_size ? key_size : value_size;
+    if (capacity < 0 || largest == 0 ||
+        (uint64_t)capacity > (uint64_t)INT64_MAX / largest)
+        seen_oom_abort("HashMap storage geometry", capacity);
+    seen_runtime_free_budgeted(keys, capacity * (int64_t)key_size);
+    seen_runtime_free_budgeted(values, capacity * (int64_t)value_size);
+    seen_runtime_free_budgeted(states, capacity);
+}
+
 static void hashmap_grow(SeenHashMap* map) {
     int64_t old_cap = map->capacity;
     int64_t* old_keys = map->keys;
@@ -9610,9 +9778,8 @@ static void hashmap_grow(SeenHashMap* map) {
             new_states[idx] = 1;
         }
     }
-    free(old_keys);
-    free(old_values);
-    free(old_states);
+    hashmap_release_storage(old_keys, old_values, old_states, old_cap,
+        sizeof(int64_t), sizeof(int64_t));
     map->keys = new_keys;
     map->values = new_values;
     map->states = new_states;
@@ -9868,9 +10035,8 @@ static void hashmap_grow_str(SeenHashMapStr* map) {
             new_states[idx] = 1;
         }
     }
-    free(old_keys);
-    free(old_values);
-    free(old_states);
+    hashmap_release_storage(old_keys, old_values, old_states, old_cap,
+        sizeof(SeenString), sizeof(int64_t));
     map->keys = new_keys;
     map->values = new_values;
     map->states = new_states;
@@ -10106,9 +10272,8 @@ static void hashmap_grow_str_str(SeenHashMapStrStr* map) {
             new_states[idx] = 1;
         }
     }
-    free(old_keys);
-    free(old_values);
-    free(old_states);
+    hashmap_release_storage(old_keys, old_values, old_states, old_cap,
+        sizeof(SeenString), sizeof(SeenString));
     map->keys = new_keys;
     map->values = new_values;
     map->states = new_states;
@@ -10346,9 +10511,8 @@ static void hashmap_grow_int_str(SeenHashMapIntStr* map) {
             new_states[idx] = 1;
         }
     }
-    free(old_keys);
-    free(old_values);
-    free(old_states);
+    hashmap_release_storage(old_keys, old_values, old_states, old_cap,
+        sizeof(int64_t), sizeof(SeenString));
     map->keys = new_keys;
     map->values = new_values;
     map->states = new_states;
@@ -11235,6 +11399,36 @@ typedef struct SeenFsFile {
     uint64_t alignment;
     bool direct_active;
 } SeenFsFile;
+
+// Duplicate one explicitly direct-I/O file descriptor for an independent
+// completion owner. Seen retains all queue, buffer and cancellation policy.
+int64_t seen_uring_duplicate_file(uint64_t source) {
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+    if (!source) return -EBADF;
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)source;
+    if (file->fd < 0) return -EBADF;
+    int result = fcntl(file->fd, F_DUPFD_CLOEXEC, 3);
+    return result < 0 ? -(int64_t)errno : (int64_t)result;
+#else
+    (void)source; return -38;
+#endif
+}
+
+int32_t seen_async_completion_duplicate_file(uint64_t source, int64_t *descriptor) {
+#if defined(__linux__) && defined(__x86_64__)
+    if (!source || !descriptor || *descriptor != -1) return 1;
+    SeenFsFile *file = (SeenFsFile *)(uintptr_t)source;
+    if (!file->direct_active || file->fd < 0) return 4;
+    int flags = fcntl(file->fd, F_GETFL);
+    if (flags < 0) return seen_async_completion_errno(errno);
+    if (!(flags & O_DIRECT)) return 4;
+    int duplicate = fcntl(file->fd, F_DUPFD_CLOEXEC, 3);
+    if (duplicate < 0) return seen_async_completion_errno(errno);
+    *descriptor = duplicate; return 0;
+#else
+    (void)source; (void)descriptor; return 4;
+#endif
+}
 
 typedef struct SeenFsDirectory {
 #ifdef _WIN32
@@ -12285,214 +12479,6 @@ int32_t seen_mapped_file_close(uint64_t *file_handle) {
     seen_runtime_free_budgeted(file, sizeof(*file));
     *file_handle = 0;
     return SEEN_MMAP_OK;
-}
-
-// ============================================================================
-// Work-Stealing Thread Pool
-// ============================================================================
-// Fixed-size pool with per-worker deques and work stealing.
-
-#define SEEN_WS_DEQUE_CAP 4096
-
-typedef struct {
-    int64_t (*fn)(int64_t);
-    int64_t  arg;
-} SeenTask;
-
-typedef struct {
-    SeenTask     tasks[SEEN_WS_DEQUE_CAP];
-    volatile int top;     // owner pushes/pops here
-    volatile int bottom;  // thieves steal from here
-    pthread_mutex_t lock; // protects steal
-} SeenDeque;
-
-typedef struct {
-    SeenDeque   *deques;      // one per worker
-    pthread_t   *threads;
-    int          nworkers;
-    volatile int shutdown;
-    // Global submit queue (for external submissions)
-    SeenTask     submit_queue[SEEN_WS_DEQUE_CAP];
-    volatile int submit_top;
-    volatile int submit_bottom;
-    pthread_mutex_t submit_lock;
-    pthread_cond_t  submit_cond;
-} SeenWSPool;
-
-static void deque_init(SeenDeque *d) {
-    d->top = 0; d->bottom = 0;
-    pthread_mutex_init(&d->lock, NULL);
-}
-
-static int deque_push(SeenDeque *d, SeenTask t) {
-    int top = d->top;
-    if (top - d->bottom >= SEEN_WS_DEQUE_CAP) return 0;
-    d->tasks[top % SEEN_WS_DEQUE_CAP] = t;
-    __atomic_store_n(&d->top, top + 1, __ATOMIC_RELEASE);
-    return 1;
-}
-
-static int deque_pop(SeenDeque *d, SeenTask *out) {
-    int top = __atomic_load_n(&d->top, __ATOMIC_ACQUIRE) - 1;
-    __atomic_store_n(&d->top, top, __ATOMIC_RELEASE);
-    int bottom = __atomic_load_n(&d->bottom, __ATOMIC_ACQUIRE);
-    if (top > bottom) {
-        *out = d->tasks[top % SEEN_WS_DEQUE_CAP];
-        return 1;
-    }
-    if (top == bottom) {
-        // Race with stealer
-        pthread_mutex_lock(&d->lock);
-        if (__atomic_load_n(&d->bottom, __ATOMIC_RELAXED) == bottom) {
-            *out = d->tasks[top % SEEN_WS_DEQUE_CAP];
-            __atomic_store_n(&d->bottom, bottom + 1, __ATOMIC_RELEASE);
-            __atomic_store_n(&d->top, top + 1, __ATOMIC_RELEASE);
-            pthread_mutex_unlock(&d->lock);
-            return 1;
-        }
-        __atomic_store_n(&d->top, top + 1, __ATOMIC_RELEASE);
-        pthread_mutex_unlock(&d->lock);
-    } else {
-        __atomic_store_n(&d->top, top + 1, __ATOMIC_RELEASE);
-    }
-    return 0;
-}
-
-static int deque_steal(SeenDeque *d, SeenTask *out) {
-    pthread_mutex_lock(&d->lock);
-    int bottom = __atomic_load_n(&d->bottom, __ATOMIC_ACQUIRE);
-    int top = __atomic_load_n(&d->top, __ATOMIC_ACQUIRE);
-    if (bottom < top) {
-        *out = d->tasks[bottom % SEEN_WS_DEQUE_CAP];
-        __atomic_store_n(&d->bottom, bottom + 1, __ATOMIC_RELEASE);
-        pthread_mutex_unlock(&d->lock);
-        return 1;
-    }
-    pthread_mutex_unlock(&d->lock);
-    return 0;
-}
-
-static void *ws_worker(void *arg) {
-    // arg encodes pool pointer in high bits, worker id in low byte
-    int64_t packed = (int64_t)(uintptr_t)arg;
-    SeenWSPool *pool = (SeenWSPool *)(uintptr_t)(packed & ~0xFFLL);
-    int id = (int)(packed & 0xFF);
-    SeenDeque *my = &pool->deques[id];
-    SeenTask task;
-
-    while (!pool->shutdown) {
-        // Try own deque first
-        if (deque_pop(my, &task)) {
-            task.fn(task.arg);
-            continue;
-        }
-        // Try stealing from others
-        int stolen = 0;
-        for (int i = 0; i < pool->nworkers && !stolen; i++) {
-            if (i == id) continue;
-            if (deque_steal(&pool->deques[i], &task)) {
-                task.fn(task.arg);
-                stolen = 1;
-            }
-        }
-        if (stolen) continue;
-        // Try global submit queue
-        pthread_mutex_lock(&pool->submit_lock);
-        if (pool->submit_bottom < pool->submit_top) {
-            task = pool->submit_queue[pool->submit_bottom % SEEN_WS_DEQUE_CAP];
-            pool->submit_bottom++;
-            pthread_mutex_unlock(&pool->submit_lock);
-            // Push to local deque and execute
-            deque_push(my, task);
-            if (deque_pop(my, &task)) task.fn(task.arg);
-            continue;
-        }
-        // Wait for work
-#ifdef _WIN32
-        SleepConditionVariableCS(&pool->submit_cond, &pool->submit_lock, 1);
-        LeaveCriticalSection(&pool->submit_lock);
-#else
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_nsec += 1000000; // 1ms timeout
-        if (ts.tv_nsec >= 1000000000) { ts.tv_sec++; ts.tv_nsec -= 1000000000; }
-        pthread_cond_timedwait(&pool->submit_cond, &pool->submit_lock, &ts);
-        pthread_mutex_unlock(&pool->submit_lock);
-#endif
-    }
-    return NULL;
-}
-
-int64_t seen_ws_pool_new(int64_t nworkers) {
-    int n = (int)nworkers;
-    if (n <= 0) n = 4;
-    if (n > 255) n = 255; // packed encoding limit
-    SeenWSPool *pool = (SeenWSPool *)seen_try_calloc(1, sizeof(SeenWSPool));
-    if (!pool) return 0;
-    pool->nworkers = n;
-    pool->shutdown = 0;
-    pool->submit_top = 0;
-    pool->submit_bottom = 0;
-    pthread_mutex_init(&pool->submit_lock, NULL);
-    pthread_cond_init(&pool->submit_cond, NULL);
-    pool->deques = (SeenDeque *)seen_try_calloc(n, sizeof(SeenDeque));
-    pool->threads = (pthread_t *)seen_try_calloc(n, sizeof(pthread_t));
-    if (!pool->deques || !pool->threads) {
-        if (pool->deques) {
-            seen_runtime_free_budgeted(pool->deques,
-                (int64_t)n * (int64_t)sizeof(SeenDeque));
-        }
-        if (pool->threads) {
-            seen_runtime_free_budgeted(pool->threads,
-                (int64_t)n * (int64_t)sizeof(pthread_t));
-        }
-        pthread_mutex_destroy(&pool->submit_lock);
-        pthread_cond_destroy(&pool->submit_cond);
-        seen_runtime_free_budgeted(pool, sizeof(SeenWSPool));
-        return 0;
-    }
-    for (int i = 0; i < n; i++) deque_init(&pool->deques[i]);
-    for (int i = 0; i < n; i++) {
-        int64_t packed = (int64_t)(uintptr_t)pool | (int64_t)i;
-        pthread_create(&pool->threads[i], NULL, ws_worker, (void *)(uintptr_t)packed);
-    }
-    return (int64_t)(uintptr_t)pool;
-}
-
-void seen_ws_pool_submit(int64_t pool_handle, int64_t fn_ptr, int64_t arg) {
-    SeenWSPool *pool = (SeenWSPool *)(uintptr_t)pool_handle;
-    SeenTask task;
-    task.fn  = (int64_t (*)(int64_t))fn_ptr;
-    task.arg = arg;
-    pthread_mutex_lock(&pool->submit_lock);
-    if (pool->submit_top - pool->submit_bottom < SEEN_WS_DEQUE_CAP) {
-        pool->submit_queue[pool->submit_top % SEEN_WS_DEQUE_CAP] = task;
-        pool->submit_top++;
-    }
-    pthread_cond_signal(&pool->submit_cond);
-    pthread_mutex_unlock(&pool->submit_lock);
-}
-
-void seen_ws_pool_shutdown(int64_t pool_handle) {
-    SeenWSPool *pool = (SeenWSPool *)(uintptr_t)pool_handle;
-    pool->shutdown = 1;
-    // Wake all workers
-    pthread_mutex_lock(&pool->submit_lock);
-    pthread_cond_broadcast(&pool->submit_cond);
-    pthread_mutex_unlock(&pool->submit_lock);
-    for (int i = 0; i < pool->nworkers; i++) {
-        pthread_join(pool->threads[i], NULL);
-    }
-    for (int i = 0; i < pool->nworkers; i++) {
-        pthread_mutex_destroy(&pool->deques[i].lock);
-    }
-    pthread_mutex_destroy(&pool->submit_lock);
-    pthread_cond_destroy(&pool->submit_cond);
-    seen_runtime_free_budgeted(pool->deques,
-        (int64_t)pool->nworkers * (int64_t)sizeof(SeenDeque));
-    seen_runtime_free_budgeted(pool->threads,
-        (int64_t)pool->nworkers * (int64_t)sizeof(pthread_t));
-    seen_runtime_free_budgeted(pool, sizeof(SeenWSPool));
 }
 
 // ============================================================================
@@ -14263,4 +14249,11 @@ int main(int argc, char** argv) {
     }
     return seen_main();
 }
+#endif
+
+// Keep allocation notification macros private to this translation unit.
+#undef free
+#ifdef _WIN32
+#undef seen_aligned_free
+#define seen_aligned_free _aligned_free
 #endif

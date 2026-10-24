@@ -26,6 +26,16 @@ class AsyncError {
     var traceId: String
 }
 
+// Shared native status vocabulary for executor, task diagnostics and adapters.
+fun asyncStatusCode(status: Int32) r: String {
+    if status == (2 as Int32) { return "async.limit" }
+    if status == (3 as Int32) or status == (5 as Int32) { return "async.unavailable" }
+    if status == (4 as Int32) { return "async.unsupported_platform" }
+    if status == (7 as Int32) { return "async.timeout" }
+    if status == (9 as Int32) { return "async.cancelled" }
+    return "async.invalid"
+}
+
 fun asyncFailure(code: String, operation: String, message: String,
     retryable: Bool, progress: UInt64, traceId: String) r: AsyncError {
 
@@ -62,13 +72,36 @@ class AsyncOperationContext {
     var limits: AsyncLimits
 }
 
+// Internal allocation-free clock observation shared by validation and workers.
+// Statuses match the synchronization ABI: active=0, unavailable=3, timeout=7.
+fun asyncDeadlineStatus(context: AsyncOperationContext) r: Int32 {
+    let deadline = context.operation.monotonicDeadline
+    if deadline == (9223372036854775807 as Int64) { return 0 as Int32 }
+    let now = seen_time_monotonic_nanos()
+    if now < (0 as Int64) { return 3 as Int32 }
+    if now >= deadline { return 7 as Int32 }
+    return 0 as Int32
+}
+
 fun validateAsyncContext(context: AsyncOperationContext, operation: String,
     progress: UInt64) r: Result<Bool, AsyncError> {
 
     let base = validateOperationContext(context.operation)
     let trace = context.operation.traceId.value
     if base.isErr() {
-        let code = base.unwrapErr().code.value
+        // validateOperationContext creates a fresh literal error with empty
+        // causes. Consume that validation error and its container after
+        // borrowing the literal code; neither is a task-owned payload.
+        let baseError = base.unwrapErr()
+        let code = baseError.code.value
+        baseError.code.free()
+        baseError.subsystem.free()
+        baseError.operation.free()
+        baseError.causes.data.free()
+        baseError.causes.free()
+        baseError.nativeCode.free()
+        baseError.free()
+        base.releaseContainer()
         if code == "err.001a.cancelled" {
             return Err<Bool, AsyncError>(asyncFailure("async.cancelled",
                 operation, "operation is cancelled", false, progress, trace))
@@ -81,6 +114,7 @@ fun validateAsyncContext(context: AsyncOperationContext, operation: String,
         return Err<Bool, AsyncError>(asyncFailure("async.invalid", operation,
             "operation context is invalid", false, progress, trace))
     }
+    base.releaseContainer()
     let limits = context.limits
     if limits.maxTasks <= 0 or limits.maxTasks > ASYNC_MAX_TASKS or
         limits.maxReady <= 0 or limits.maxReady > ASYNC_MAX_QUEUE or
@@ -104,19 +138,14 @@ fun validateAsyncContext(context: AsyncOperationContext, operation: String,
         return Err<Bool, AsyncError>(asyncFailure("async.invalid", operation,
             "fallback policy is invalid", false, progress, trace))
     }
-    let deadline = context.operation.monotonicDeadline
-    if deadline != (9223372036854775807 as Int64) {
-        let now = seen_time_monotonic_nanos()
-        if now < (0 as Int64) {
-            return Err<Bool, AsyncError>(asyncFailure("async.unavailable",
-                operation, "monotonic clock is unavailable", true, progress,
-                trace))
-        }
-        if now >= deadline {
-            return Err<Bool, AsyncError>(asyncFailure("async.timeout",
-                operation, "operation deadline expired", false, progress,
-                trace))
-        }
+    let deadlineStatus = asyncDeadlineStatus(context)
+    if deadlineStatus == (3 as Int32) {
+        return Err<Bool, AsyncError>(asyncFailure("async.unavailable",
+            operation, "monotonic clock is unavailable", true, progress, trace))
+    }
+    if deadlineStatus == (7 as Int32) {
+        return Err<Bool, AsyncError>(asyncFailure("async.timeout",
+            operation, "operation deadline expired", false, progress, trace))
     }
     return Ok<Bool, AsyncError>(true)
 }
@@ -569,19 +598,19 @@ fun boundedFanOut<T>(executor: DeterministicExecutor<T>, values: Array<T>,
         maxFanOut)
 }
 
-class AsyncWaitGroup {
+class DeterministicWaitGroup {
     var remaining: Int
     var limit: Int
 
     static fun create(count: Int, limit: Int)
-        r: Result<AsyncWaitGroup, AsyncError> {
+        r: Result<DeterministicWaitGroup, AsyncError> {
 
         if count < 0 or limit <= 0 or count > limit {
-            return Err<AsyncWaitGroup, AsyncError>(asyncFailure("async.limit",
+            return Err<DeterministicWaitGroup, AsyncError>(asyncFailure("async.limit",
                 "wait_group.create", "wait count exceeds its bound", false,
                 count as UInt64, "wait-group"))
         }
-        return Ok<AsyncWaitGroup, AsyncError>(AsyncWaitGroup{
+        return Ok<DeterministicWaitGroup, AsyncError>(DeterministicWaitGroup{
             remaining: count, limit: limit})
     }
 
@@ -596,18 +625,18 @@ class AsyncWaitGroup {
     }
 }
 
-class AsyncBarrier {
+class DeterministicBarrier {
     var parties: Int
     var arrived: Int
     var generation: Int
 
-    static fun create(parties: Int) r: Result<AsyncBarrier, AsyncError> {
+    static fun create(parties: Int) r: Result<DeterministicBarrier, AsyncError> {
         if parties <= 0 or parties > ASYNC_MAX_FAN_OUT {
-            return Err<AsyncBarrier, AsyncError>(asyncFailure("async.limit",
+            return Err<DeterministicBarrier, AsyncError>(asyncFailure("async.limit",
                 "barrier.create", "barrier parties exceed the bound", false,
                 0 as UInt64, "barrier"))
         }
-        return Ok<AsyncBarrier, AsyncError>(AsyncBarrier{parties: parties,
+        return Ok<DeterministicBarrier, AsyncError>(DeterministicBarrier{parties: parties,
             arrived: 0, generation: 0})
     }
 
@@ -622,6 +651,12 @@ class AsyncBarrier {
     }
 }
 
+fun asyncSumWouldOverflow(sum: Int, value: Int) r: Bool {
+    if value > 0 { return sum > 9223372036854775807 - value }
+    if value < 0 { return sum < (-9223372036854775807 - 1) - value }
+    return false
+}
+
 fun deterministicReduceSum(values: Array<Int>, maxItems: Int)
     r: Result<Int, AsyncError> {
 
@@ -633,6 +668,10 @@ fun deterministicReduceSum(values: Array<Int>, maxItems: Int)
     var sum = 0
     var i = 0
     while i < values.length() {
+        if asyncSumWouldOverflow(sum, values[i]) {
+            return Err<Int, AsyncError>(asyncFailure("async.limit", "reduce",
+                "integer reduction overflow", false, i as UInt64, "reduce"))
+        }
         sum = sum + values[i]
         i = i + 1
     }

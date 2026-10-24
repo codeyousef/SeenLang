@@ -1,0 +1,85 @@
+/// AMDGPU rendering consumes the shared Seen packed-number plan. Native value
+/// identities stay in one entry; the plan and temporary index table are freed.
+import codegen.gpu.scalar_plan.{GpuScalarPlan, GpuScalarValues}
+import codegen.gpu.scalar_ops.{SCALAR_BITCAST, SCALAR_FLOAT_TO_UINT, SCALAR_UINT_TO_FLOAT,
+    SCALAR_ADD, SCALAR_SUBTRACT, SCALAR_MULTIPLY, SCALAR_FLOAT_MULTIPLY,
+    SCALAR_SHIFT_RIGHT, SCALAR_SHIFT_LEFT, SCALAR_BIT_OR, SCALAR_BIT_XOR, SCALAR_BIT_AND,
+    SCALAR_BOOL_OR, SCALAR_BOOL_AND, SCALAR_EQUAL, SCALAR_NOT_EQUAL,
+    SCALAR_UNSIGNED_GREATER, SCALAR_UNSIGNED_GREATER_EQUAL, SCALAR_UNSIGNED_LESS, SCALAR_UNSIGNED_LESS_EQUAL,
+    SCALAR_SIGNED_GREATER_EQUAL, SCALAR_SIGNED_LESS, SCALAR_SIGNED_LESS_EQUAL}
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, amdValue, amdDefinition}
+import codegen.gpu.amdgpu_scalar_bits.{amdScalarExtract, amdScalarInsert}
+import codegen.gpu.amdgpu_casts.{amdFloatIntegerValid, amdConvertFloatInteger}
+
+fun amdScalarArithmetic(operation: Int) r: String {
+    if operation == SCALAR_ADD { return "add" }; if operation == SCALAR_SUBTRACT { return "sub" }
+    if operation == SCALAR_MULTIPLY { return "mul" }; if operation == SCALAR_SHIFT_RIGHT { return "lshr" }
+    if operation == SCALAR_SHIFT_LEFT { return "shl" }
+    if operation == SCALAR_BIT_OR or operation == SCALAR_BOOL_OR { return "or" }
+    if operation == SCALAR_BIT_XOR { return "xor" }
+    if operation == SCALAR_BIT_AND or operation == SCALAR_BOOL_AND { return "and" }; return ""
+}
+fun amdScalarComparison(operation: Int) r: String {
+    if operation == SCALAR_EQUAL { return "eq" }; if operation == SCALAR_NOT_EQUAL { return "ne" }
+    if operation == SCALAR_UNSIGNED_GREATER { return "ugt" }; if operation == SCALAR_UNSIGNED_GREATER_EQUAL { return "uge" }
+    if operation == SCALAR_UNSIGNED_LESS { return "ult" }; if operation == SCALAR_UNSIGNED_LESS_EQUAL { return "ule" }
+    if operation == SCALAR_SIGNED_GREATER_EQUAL { return "sge" }; if operation == SCALAR_SIGNED_LESS { return "slt" }
+    if operation == SCALAR_SIGNED_LESS_EQUAL { return "sle" }; return ""
+}
+fun amdScalarBinary(function: GpuAmdFunction, operation: Int, left: Int, right: Int) r: Int {
+    let result = function.allocate(1)
+    if operation == SCALAR_FLOAT_MULTIPLY { function.floatBinary("fmul", result, left, right); return result }
+    let arithmetic = amdScalarArithmetic(operation)
+    if arithmetic != "" {
+        var operand = right
+        if operation == SCALAR_SHIFT_RIGHT or operation == SCALAR_SHIFT_LEFT {
+            operand = function.allocate(1); function.binary("and", operand, right, function.word(31))
+        }
+        function.binary(arithmetic, result, left, operand); return result
+    }
+    let comparison = amdScalarComparison(operation)
+    if comparison == "" { function.error("E_GPU_AMDGPU_PRECISION", "AMDGPU scalar operation is unsupported"); return 0 }
+    function.boolean(result, function.compare(comparison, left, right, false)); return result
+}
+fun amdScalarUnary(function: GpuAmdFunction, operation: Int, value: Int) r: Int {
+    if operation == SCALAR_BITCAST { return value }
+    let result = function.allocate(1)
+    if operation == SCALAR_FLOAT_TO_UINT {
+        // Internal speculative conversions use a safe zero outside the domain;
+        // the shared plan owns the source operation's final validity/fault rule.
+        amdConvertFloatInteger(function, result, value, 3, amdFloatIntegerValid(function, value, 3))
+    } else if operation == SCALAR_UINT_TO_FLOAT {
+        let source = function.read(value); let native = function.value(); amdDefinition(function.body, native)
+        function.body.literal("uitofp i32 "); amdValue(function.body, source); function.body.literal(" to float\n"); function.writeFloat(result, native)
+    } else { function.error("E_GPU_AMDGPU_PRECISION", "AMDGPU scalar conversion is unsupported") }
+    return result
+}
+fun emitAmdScalarPlan(function: GpuAmdFunction, plan: GpuScalarPlan) r: GpuScalarValues {
+    let output = GpuScalarValues{value: 0, laneValid: 0, scaleValid: 0}
+    if not plan.validate() { function.error("E_GPU_AMDGPU_PRECISION", plan.message); plan.release(); return output }
+    let values = Array<Int>.withLength(plan.codes.length() + 1); var index = 0
+    while index < plan.codes.length() and function.validation.valid {
+        let code = plan.codes[index]; let first = plan.first[index]; var value = 0
+        if code == 0 { value = first }
+        else if code == 1 { value = function.word(first) }
+        else if code == 2 {
+            value = function.allocate(1); let condition = function.compare("ne", values[first], function.word(0), false)
+            function.select(value, values[plan.second[index]], values[plan.third[index]], condition)
+        } else if code == 3 {
+            value = function.allocate(1); let source = function.asFloat(values[first]); let native = function.value(); amdDefinition(function.body, native)
+            function.body.literal("call float @llvm.roundeven.f32(float "); amdValue(function.body, source); function.body.literal(")\n"); function.writeFloat(value, native)
+        } else if code == 4 or code == 5 {
+            value = amdScalarExtract(function, values[first], values[plan.second[index]], values[plan.third[index]], code == 5)
+        } else if code == 6 {
+            value = amdScalarInsert(function, values[first], values[plan.second[index]], values[plan.third[index]], values[plan.fourth[index]])
+        } else if code >= 100 and code < 200 { value = amdScalarUnary(function, code - 100, values[first]) }
+        else { value = amdScalarBinary(function, code - 200, values[first], values[plan.second[index]]) }
+        values[index + 1] = value; index = index + 1
+    }
+    if function.validation.valid {
+        output.value = values[plan.result]
+        if plan.laneValid > 0 { output.laneValid = values[plan.laneValid] }
+        if plan.scaleValid > 0 { output.scaleValid = values[plan.scaleValid] }
+    }
+    values.free(); plan.release(); return output
+}

@@ -239,17 +239,17 @@ fun testMoveOnlyOwnedBindings() r: Void {
 
     let completionRegistry = SemanticDeclarationRegistry.new()
     let completionCanonical =
-        "seen_std.src.reactor.reactor::BlockingCompletion"
+        "seen_std.src.io.direct::GatherCompletion"
     semanticExpect(completionRegistry.registerDeclaration(
-        "seen_std.src.reactor.reactor", "BlockingCompletion", "Class",
-        completionCanonical, "seen_std/src/reactor/reactor.seen", 557, 1),
-        "register canonical blocking completion")
+        "seen_std.src.io.direct", "GatherCompletion", "Class",
+        completionCanonical, "seen_std/src/io/direct.seen", 1, 1),
+        "register canonical gather completion")
     completionRegistry.registerResolvedImportModule("completion_owner",
-        "reactor.reactor", "seen_std.src.reactor.reactor")
+        "io.direct", "seen_std.src.io.direct")
     let completion = semanticFunctionProgram("consumeCompletion",
         "CompletionSnapshot", "Int")
-    completion.items.push(semanticImport("reactor.reactor",
-        "BlockingCompletion", "CompletionSnapshot"))
+    completion.items.push(semanticImport("io.direct",
+        "GatherCompletion", "CompletionSnapshot"))
     completion.items[0].function.body.statements.push(
         semanticConsumeStatement("value"))
     completion.items[0].function.body.statements.push(
@@ -1055,14 +1055,14 @@ fun testLifecyclePropertyFoundation() r: Void {
             "Share") == -1,
         "unqualified and application-owned names cannot spoof Arc")
     semanticExpect(semanticFoundationThreadProperty(
-            "seen_std.src.reactor.reactor::BlockingCompletion", "Send") == 1
+            "seen_std.src.reactor.reactor::BlockingCompletion", "Send") == -1
         and semanticFoundationThreadProperty(
-            "seen_std.src.reactor.reactor::BlockingCompletion", "Share") == 0
+            "seen_std.src.reactor.reactor::BlockingCompletion", "Share") == -1
         and semanticFoundationThreadProperty(
             "seen_std.src.io.direct::GatherCompletion", "Send") == 1 and
         semanticFoundationThreadProperty(
             "seen_std.src.io.direct::GatherCompletion", "Share") == 0,
-        "canonical completion records are Send but not Share")
+        "current completion proves Send only; removed completion identity stays unproved")
 
     let registry = SemanticDeclarationRegistry.new()
     let program = ProgramNode.new()
@@ -1384,6 +1384,67 @@ fun testRetainedSendShareGenericBounds() r: Void {
         "a concrete argument that lacks Share fails the retained bound")
 }
 
+fun semanticFactoryProgram(receiver: String, nested: Bool,
+    functionBound: String) r: ProgramNode {
+    let program = semanticClassProgram("Factory", "value", "T", "")
+    let parameter = AnnotationNode.new("generic_parameter")
+    parameter.arguments.push("T"); parameter.arguments.push("bound:Share")
+    program.items[0].classNode.decorators.push(parameter)
+    let factory = FunctionNode.new(); factory.name = "create"; factory.isStatic = true
+    factory.returnType = semanticType("Factory<T>")
+    program.items[0].classNode.methods.push(factory)
+    let consumer = semanticFunctionProgram("consume", "Int", "Int")
+    let function = consumer.items[0].function
+    if receiver == "Factory<T>" {
+        let generic = AnnotationNode.new("generic_parameter")
+        generic.arguments.push("T"); generic.arguments.push(functionBound)
+        function.decorators.push(generic)
+    }
+    let call = ParserExpressionNode.new(); call.kind = "MethodCall"
+    call.literalValue = receiver; call.callee = "create"
+    let statement = StatementNode.new(); statement.kind = "Let"
+    statement.variableName = "created"; statement.initializer = call
+    if nested {
+        let wrapper = ParserExpressionNode.new(); wrapper.kind = "Call"
+        wrapper.callee = "inspect"; wrapper.arguments.push(call)
+        statement.initializer = wrapper
+        let inspector = semanticFunctionProgram("inspect", "Factory<Int>", "Int")
+        program.items.push(inspector.items[0])
+    }
+    function.body.statements.push(statement)
+    program.items.push(consumer.items[0]); return program
+}
+
+fun testStaticFactoryGenericBounds() r: Void {
+    let accepted = runLexicalSemanticPass(
+        semanticFactoryProgram("Factory<Int>", false, ""), "factory_bounds",
+        "factory-bounds.seen", SemanticDeclarationRegistry.new())
+    semanticExpect(accepted.success, "valid inferred static factory receiver is accepted")
+    let nestedAccepted = runLexicalSemanticPass(
+        semanticFactoryProgram("Factory<Int>", true, ""), "factory_nested",
+        "factory-nested.seen", SemanticDeclarationRegistry.new())
+    semanticExpect(nestedAccepted.success, "valid nested static factory receiver is accepted")
+    let symbolic = runLexicalSemanticPass(
+        semanticFactoryProgram("Factory<T>", true, "bound:Share"), "factory_symbolic",
+        "factory-symbolic.seen", SemanticDeclarationRegistry.new())
+    semanticExpect(symbolic.success, "factory checking retains the enclosing generic bound")
+    let unproven = runLexicalSemanticPass(
+        semanticFactoryProgram("Factory<T>", false, ""), "factory_unproven",
+        "factory-unproven.seen", SemanticDeclarationRegistry.new())
+    semanticExpect(not unproven.success and unproven.diagnostics[0].code == "E_TYPE_BOUND",
+        "unbounded symbolic factory argument cannot satisfy Share")
+    let rejected = runLexicalSemanticPass(
+        semanticFactoryProgram("Factory<*Void>", false, ""), "factory_rejected",
+        "factory-rejected.seen", SemanticDeclarationRegistry.new())
+    semanticExpect(not rejected.success and rejected.diagnostics.length() == 1 and
+        rejected.diagnostics[0].code == "E_TYPE_BOUND", "inferred raw-pointer factory fails its bound")
+    let nestedRejected = runLexicalSemanticPass(
+        semanticFactoryProgram("Factory<*Void>", true, ""), "factory_nested_rejected",
+        "factory-nested-rejected.seen", SemanticDeclarationRegistry.new())
+    semanticExpect(not nestedRejected.success and nestedRejected.diagnostics.length() == 1 and
+        nestedRejected.diagnostics[0].code == "E_TYPE_BOUND", "nested factory cannot bypass its bound")
+}
+
 fun testTypedImmutableParallelCaptures() r: Void {
     let immutableRegistry = SemanticDeclarationRegistry.new()
     let immutable = semanticFunctionProgram("immutable", "Int", "Int")
@@ -1545,6 +1606,7 @@ fun main() r: Int {
     testCrossModuleLifecycleProperties()
     testLifecyclePropertyCyclesAndIndirection()
     testRetainedSendShareGenericBounds()
+    testStaticFactoryGenericBounds()
     testTypedImmutableParallelCaptures()
     testAmbientParallelCaptures()
     return 0

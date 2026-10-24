@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include "reactor_abi.h"
 #include "sync_abi.h"
+#include "src/executor_abi.h"
 #include <inttypes.h>
 
 // ============================================================================
@@ -38,6 +39,13 @@ typedef struct {
     int64_t element_size;
     void* data;
 } SeenArray;
+
+/* Internal compiler ownership observer. Events: 1 allocate, 2 reallocate,
+ * 3 native free notification, 4 pool free (nonzero callback consumes it).
+ * Kinds: 0 budgeted malloc, 1 pool, 2 unbudgeted C string; a negative kind
+ * carries the alignment of a budgeted aligned allocation. */
+int64_t seen_allocation_observer_install(void *context, uint64_t entry);
+int64_t seen_allocation_observer_remove(void *context);
 
 typedef struct {
     bool success;
@@ -1086,13 +1094,6 @@ int32_t seen_deterministic_runtime_status(void);
 // is a stable unsupported/failure status and callers must fail closed.
 int32_t seen_reexec_current_process(void);
 int32_t seen_deterministic_path_beneath(SeenString root, SeenString path);
-
-// ============================================================================
-// Work-Stealing Thread Pool
-// ============================================================================
-int64_t seen_ws_pool_new(int64_t nworkers);
-void    seen_ws_pool_submit(int64_t pool_handle, int64_t fn_ptr, int64_t arg);
-void    seen_ws_pool_shutdown(int64_t pool_handle);
 
 // ============================================================================
 // Parallel For

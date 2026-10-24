@@ -1,0 +1,115 @@
+/// Backend-neutral completion ownership. These types never submit native I/O.
+import core.result.{Result, Ok, Err}
+import core.option.{Option, None}
+import async.structured.{AsyncError, AsyncOperationContext, asyncStatusCode, asyncFailure}
+import async.executor_core.{executorReleaseSnapshot}
+import async.completion_io.{CompletedFileIo}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{OwnedHandle}
+
+let IO_DEVICE_REMOVED_STATUS: Int32 = 10 as Int32
+
+enum IoOperation { Read, Write }
+class IoQueueLimits {
+    var depth: Int
+    var maxTransferBytes: UInt64
+    var maxOwnedBytes: UInt64
+    var maxMetadataBytes: UInt64
+    fun valid() r: Bool {
+        return this.depth > 0 and this.depth <= 65536 and
+            this.maxTransferBytes > (0 as UInt64) and this.maxTransferBytes <= (16777216 as UInt64) and
+            this.maxOwnedBytes >= this.maxTransferBytes and this.maxOwnedBytes <= (536870912 as UInt64) and
+            this.maxMetadataBytes > (0 as UInt64) and this.maxMetadataBytes <= (67108864 as UInt64)
+    }
+}
+class IoRegistration { var token: UInt64 }
+
+@move
+class IoRequest {
+    var resources: CompletedFileIo
+    var operation: IoOperation
+    var fileOffset: Int64
+    var bytes: UInt64
+    var context: AsyncOperationContext
+    var contextOwned: Bool
+    var nativeEvent: Option<Int64>
+    // Own descriptor/buffer immediately; context remains borrowed until the
+    // queue validates it and creates its own bounded snapshot on admission.
+    static fun create(descriptor: OwnedHandle, buffer: OwnedBuffer<UInt8>,
+        operation: IoOperation, fileOffset: Int64, bytes: UInt64,
+        context: AsyncOperationContext) r: IoRequest {
+        return IoRequest{resources: CompletedFileIo{descriptor: descriptor, buffer: buffer,
+            progress: 0 as UInt64, status: 0 as Int32, nativeResult: 0 as Int64},
+            operation: operation, fileOffset: fileOffset, bytes: bytes,
+            context: context, contextOwned: false, nativeEvent: None<Int64>()}
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let released = this.resources.release()
+        if released.isErr() { return released }
+        released.releaseContainer()
+        if this.contextOwned { executorReleaseSnapshot(this.context) }
+        this.nativeEvent.free(); this.free(); return Ok<Bool, AsyncError>(true)
+    }
+}
+
+@move
+class IoRejectedSubmission {
+    var request: IoRequest
+    var error: AsyncError
+    fun release() r: Result<Bool, AsyncError> {
+        let released = this.request.release()
+        if released.isErr() { return released }
+        released.releaseContainer(); this.error.free(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}
+
+@move
+class IoCompletion {
+    var request: IoRequest
+    var token: UInt64
+    fun partial() r: Bool { return this.request.resources.progress != this.request.bytes }
+    fun outcome() r: Result<UInt64, AsyncError> {
+        let resources = this.request.resources
+        if resources.status == (0 as Int32) { return Ok<UInt64, AsyncError>(resources.progress) }
+        let error = ioQueueFailure(resources.status, "io.queue.outcome", resources.progress)
+        // Native error numbers are backend-specific evidence. The coordinator
+        // never guesses retry policy from another platform's errno vocabulary.
+        error.retryable = false; return Err<UInt64, AsyncError>(error)
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let released = this.request.release()
+        if released.isErr() { return released }
+        released.releaseContainer(); this.free(); return Ok<Bool, AsyncError>(true)
+    }
+}
+
+/// Borrowed view for one adapter submission attempt. The queue retains every
+/// owner until rejection or acknowledged terminal completion is delivered.
+class IoSubmissionView {
+    var token: UInt64
+    var descriptor: Int64
+    var buffer: *UInt8
+    var bytes: UInt64
+    var fileOffset: Int64
+    var operation: IoOperation
+    var deadline: Int64
+}
+fun ioQueueFailure(status: Int32, operation: String, progress: UInt64) r: AsyncError {
+    if status == IO_DEVICE_REMOVED_STATUS {
+        return asyncFailure("io.device_removed", operation, "completion device or backend was removed",
+            false, progress, "completion-io")
+    }
+    return asyncFailure(asyncStatusCode(status), operation, "bounded completion I/O operation rejected",
+        false, progress, "completion-io")
+}
+// Dependency validation/join errors can borrow a context's trace string.
+// Completion errors may outlive that context, so retain a bounded static tag.
+fun ioQueueStableError(error: AsyncError) r: AsyncError {
+    error.traceId = "completion-io"; return error
+}
+fun ioCompletionStatusValid(status: Int32) r: Bool {
+    return status == (0 as Int32) or status == (1 as Int32) or status == (2 as Int32) or
+        status == (3 as Int32) or status == (4 as Int32) or status == (5 as Int32) or
+        status == (7 as Int32) or status == (9 as Int32) or status == IO_DEVICE_REMOVED_STATUS
+}

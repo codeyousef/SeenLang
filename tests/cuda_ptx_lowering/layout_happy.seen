@@ -1,0 +1,30 @@
+@device fun scale(value: Int32) r: Int32 {
+    if value < 0 { return -value }
+    var index = 0
+    while index < 4 {
+        if index == value { return index + 7 }
+        index = index + 1
+    }
+    return value + 11
+}
+@compute(64) fun integers(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>, count: Uniform<UInt32>) {
+    let index = globalInvocationId.x
+    if index < count { output[index] = scale(input[index]) }
+}
+@compute(1) fun vectors(input: ReadBuffer<f32x3>, output: WriteBuffer<f32x3>, factor: Uniform<f32x3>, enabled: Uniform<Bool>) {
+    if enabled { output[0] = input[0] + factor }
+}
+@compute(8) fun shared_loop(output: WriteBuffer<Int32>) {
+    let scratch: SharedBuffer<Int32> = sharedBuffer(9)
+    var total = 0
+    for index in 0..8 {
+        if index == 2 { continue }
+        if index == 7 { break }
+        scratch[index] = index
+        total = total + scratch[index]
+    }
+    output[0] = total
+    output[1] = total / 0
+    output[2] = total << 32
+}
+fun main() r: Int { return 0 }

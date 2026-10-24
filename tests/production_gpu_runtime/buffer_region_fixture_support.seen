@@ -1,0 +1,13 @@
+import compute.buffer_region.{GpuBufferRegion}
+import compute.error.{GpuError}
+import core.result.{Result}
+
+fun region(result: Result<GpuBufferRegion, GpuError>) r: GpuBufferRegion {
+    if result.isErr() { abort("valid GPU byte region rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun rejectedRegion(result: Result<GpuBufferRegion, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid GPU byte region admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.retryable { abort("GPU byte region diagnostic changed") }; error.release()
+}

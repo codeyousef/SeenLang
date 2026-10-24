@@ -1,0 +1,42 @@
+/// User arguments match the reflected explicit launch plan. Uniforms always
+/// occupy one 16-byte value; storage uses a global address and UInt32 count.
+import codegen.gpu.text_buffer.{GpuTextBuffer}
+import codegen.gpu_ir_model.{GpuIrFunction}
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, GpuAmdResource, amdValue, amdSlot, amdDefinition}
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeLanes, gpuTypeScalar}
+
+fun amdParameterName(text: GpuTextBuffer, index: Int, suffix: String) r: Void {
+    text.literal("%arg"); text.number(index); text.literal(suffix)
+}
+fun amdEntryParameters(text: GpuTextBuffer, borrow source: GpuIrFunction, fault: Bool) r: Void {
+    var i = 0
+    while i < source.parameterTypes.length() {
+        if i > 0 { text.literal(", ") }
+        if gpuTypeResource(source.parameterTypes[i]) == 4 { text.literal("<4 x i32> "); amdParameterName(text, i, "_value") }
+        else {
+            text.literal("ptr addrspace(1) "); amdParameterName(text, i, "_address"); text.literal(", i32 "); amdParameterName(text, i, "_length")
+        }; i = i + 1
+    }
+    if fault { if i > 0 { text.literal(", ") }; text.literal("ptr addrspace(1) %seen_fault") }
+}
+fun amdLoadEntryResource(function: GpuAmdFunction, typeCode: Int, index: Int) r: Int {
+    let text = function.initializers; var address = 0; var length = 0; var uniform = 0
+    if gpuTypeResource(typeCode) == 4 {
+        uniform = function.allocate(gpuTypeLanes(typeCode)); var lane = 0
+        while lane < gpuTypeLanes(typeCode) {
+            var value = function.value(); amdDefinition(text, value); text.literal("extractelement <4 x i32> ")
+            amdParameterName(text, index, "_value"); text.literal(", i32 "); text.number(lane); text.literal("\n")
+            if gpuTypeScalar(typeCode) == 1 {
+                let predicate = function.value(); amdDefinition(text, predicate); text.literal("icmp ne i32 "); amdValue(text, value); text.literal(", 0\n")
+                value = function.value(); amdDefinition(text, value); text.literal("zext i1 "); amdValue(text, predicate); text.literal(" to i32\n")
+            }
+            text.literal("  store i32 "); amdValue(text, value); text.literal(", ptr addrspace(5) "); amdSlot(text, uniform + lane); text.literal(", align 4\n")
+            lane = lane + 1
+        }
+    } else {
+        address = function.value(); amdDefinition(text, address); text.literal("getelementptr i8, ptr addrspace(1) ")
+        amdParameterName(text, index, "_address"); text.literal(", i64 0\n"); length = function.allocate(1)
+        text.literal("  store i32 "); amdParameterName(text, index, "_length"); text.literal(", ptr addrspace(5) "); amdSlot(text, length); text.literal(", align 4\n")
+    }
+    return function.addResource(GpuAmdResource{typeCode: typeCode, address: address, length: length, uniformBase: uniform, shared: false})
+}

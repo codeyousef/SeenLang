@@ -76,7 +76,11 @@ castTarget: target Seen type (e.g. "Float", "Bool", "Int32")
 Returns the result register (may be innerReg for no-op casts).
 ============================================================
 ///
-fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String, innerType: String, castTarget: String) r: String {
+fun emitCastExprImpl(output: StringBuilder, regBox: Array<Int>, innerReg: String, sourceType: String, targetType: String) r: String {
+    // Float and Float64 share the double ABI and the same conversion rules.
+    var innerType = sourceType; var castTarget = targetType
+    if innerType == "Float64" { innerType = "Float" }
+    if castTarget == "Float64" { castTarget = "Float" }
     let cReg = getNextRegFn(regBox)
     // Use flag-based pattern (no early returns from nested ifs — stage1 safe)
     var castDone = 0

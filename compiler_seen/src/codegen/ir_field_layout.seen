@@ -406,19 +406,37 @@ fun generateFieldAccessImpl(output: StringBuilder, regBox: Array<Int>,
     bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
     r: String {
 
+    // Generic/qualified spellings share the registered repr(C) LLVM identity.
+    // Do not reinterpret the first pointer field as a heap-class handle.
+    var actualType = structType
+    let baseType = getBaseTypeNameImpl(structType)
+    if not structType.endsWith("?") and not structType.startsWith("*") and
+        reprCClassNames != "" and reprCClassNames.contains(baseType + "|") {
+        actualType = baseType
+    }
     let chainedResult = tryEmitChainedFieldAccessImpl(output, regBox, ptrReg,
-        structType, fieldName, structNames, structLayouts, structFieldNames,
+        actualType, fieldName, structNames, structLayouts, structFieldNames,
         structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
         typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
         bitfieldKeys, bitfieldWidths)
     if chainedResult != "" {
         return chainedResult
     }
-    return emitDirectFieldAccessLoadImpl(output, regBox, ptrReg, structType,
-        fieldName, llvmFieldType, structNames, structLayouts,
+    var actualFieldType = llvmFieldType
+    // A raw pointer's Seen expression type is a word, but extractvalue must
+    // first use the aggregate's actual pointer storage, then convert to i64.
+    // Do not classify it as an Array/List native-pointer expression: heap
+    // fields use that distinction to preserve their existing word ABI.
+    if reprCClassNames != "" and reprCClassNames.contains(actualType + "|") {
+        let declaredFieldType = getSeenFieldTypeImpl(structType, fieldName,
+            structNames, structFieldNames, structFieldTypes)
+        if declaredFieldType.startsWith("*") { actualFieldType = "ptr" }
+    }
+    return emitDirectFieldAccessLoadImpl(output, regBox, ptrReg, actualType,
+        fieldName, actualFieldType, structNames, structLayouts,
         structFieldNames, reprCClassNames, unionTypes, bitfieldCount,
         bitfieldKeys, bitfieldWidths,
-        isNativePointerFieldValueImpl(structType, fieldName, structNames,
+        isNativePointerFieldValueImpl(actualType, fieldName, structNames,
             structFieldNames, structFieldTypes))
 }
 

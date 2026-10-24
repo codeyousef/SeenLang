@@ -1,93 +1,82 @@
-#!/bin/bash
-# Test PGO generate → merge → use cycle
-# Verifies the full PGO workflow produces valid binaries
-# Historical direct-entry fixture; fixed profile paths are intentionally kept
-# only as documentation until this test is migrated to project-local artifacts.
-echo "RESOURCE STOP: legacy PGO fixture is disabled until capped migration" >&2
-exit 126
+#!/usr/bin/env bash
+# Execute the full PGO cycle; missing profiles or tools are failures, not skips.
+set -euo pipefail
 
-set -e
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-if [ ! -f "$COMPILER" ]; then
-    echo -e "${RED}Compiler not found${NC}"
-    exit 1
+ROOT="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
+COMPILER="${COMPILER:-$ROOT/compiler_seen/target/seen}"
+CAPPED="$ROOT/scripts/run_capped_regression.sh"
+SCOPE=pgo-cli
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ] ||
+    [ "${SEEN_CAPPED_REGRESSION_SCOPE:-}" != "$SCOPE" ]; then
+    exec bash "$CAPPED" "$SCOPE" --compiler "$COMPILER" -- bash "$0"
 fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED" --verify-active "$SCOPE" --compiler "$COMPILER"
+export SEEN_COMPILER_SOURCE_ROOT="$ROOT"
+BASE_WORK="$(mktemp -d "$SEEN_ARTIFACT_ROOT/pgo-cli.XXXXXX")"
 
-# Create test program
-TEST_FILE="/tmp/test_pgo_prog.seen"
-cat > "$TEST_FILE" << 'EOF'
-fun compute(n: Int) r: Int {
-    var sum = 0
-    var i = 0
-    while i < n {
-        sum = sum + i
-        i = i + 1
+compile() {
+    local mode=$1
+    shift
+    timeout --foreground --kill-after=5s 600s \
+        bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile \
+        "$SOURCE" "$WORK/$mode" --release "--lto=$lto" --target-cpu=x86-64 \
+        --no-cache --no-fork "$@" >"$WORK/$mode.compile.log" 2>&1
+    if [ "$lto" = full ] && [ "$layout" = cross ]; then
+        grep -Fq 'Release mode: cross-module LTO merge (2 modules)' \
+            "$WORK/$mode.compile.log"
+    fi
+}
+for layout in single cross; do
+if [ "$layout" = single ]; then
+    SOURCE="$ROOT/tests/fixtures/test-002a/pgo-single/main.seen"
+else
+    SOURCE="$ROOT/tests/fixtures/test-002a/pgo-cross/main.seen"
+fi
+for lto in thin full; do
+WORK="$BASE_WORK/$layout-$lto"
+mkdir -p -- "$WORK/profiles"
+cd -- "$WORK"
+if [ "$lto" = full ]; then
+    compile unprofiled
+    timeout --foreground --kill-after=5s 30s "$WORK/unprofiled" \
+        >"$WORK/unprofiled.run.log" 2>&1
+    grep -Fxq '499500' "$WORK/unprofiled.run.log"
+fi
+compile generate --pgo-generate
+timeout --foreground --kill-after=5s 30s \
+    env LLVM_PROFILE_FILE="$WORK/profiles/%m-%p.profraw" \
+    "$WORK/generate" >"$WORK/generate.run.log" 2>&1
+grep -Fxq '499500' "$WORK/generate.run.log"
+shopt -s nullglob
+profiles=("$WORK"/profiles/*.profraw)
+[ "${#profiles[@]}" -gt 0 ] || {
+    echo 'FAIL: PGO execution produced no raw profile' >&2
+    exit 1
+}
+for profile in "${profiles[@]}"; do test -s "$profile"; done
+timeout --foreground --kill-after=5s 60s llvm-profdata merge --num-threads=1 \
+    -o "$WORK/merged.profdata" "${profiles[@]}" >"$WORK/merge.log" 2>&1
+test -s "$WORK/merged.profdata"
+timeout --foreground --kill-after=5s 60s llvm-profdata show \
+    --all-functions --counts "$WORK/merged.profdata" >"$WORK/profile.log" 2>&1
+grep -Eq 'Total functions: [1-9][0-9]*' "$WORK/profile.log"
+grep -Eq '^  main:$' "$WORK/profile.log"
+grep -Eq '^  compute:$' "$WORK/profile.log"
+awk '
+    /^  (main|compute):$/ { selected = 1 }
+    selected && /Block counts:/ {
+        if ($0 !~ /[1-9]/) exit 1
+        measured++
+        selected = 0
     }
-    return sum
-}
-
-fun main() r: Int {
-    let result = compute(1000)
-    println("PGO test: " + result.toString())
-    return 0
-}
-EOF
-
-cd "$ROOT_DIR"
-
-echo "=== Step 1: PGO Generate ==="
-if "$COMPILER" compile "$TEST_FILE" /tmp/test_pgo_out --pgo-generate 2>&1 | tail -1 | grep -q "Build succeeded"; then
-    echo -e "${GREEN}PGO instrumented build succeeded${NC}"
-else
-    echo -e "${RED}PGO instrumented build failed${NC}"
-    exit 1
-fi
-
-echo "=== Step 2: Run instrumented binary ==="
-cd /tmp
-if ./test_pgo_out 2>&1 | grep -q "PGO test: 499500"; then
-    echo -e "${GREEN}Instrumented execution correct${NC}"
-else
-    echo -e "${RED}Instrumented execution failed${NC}"
-    exit 1
-fi
-
-echo "=== Step 3: Merge profile data ==="
-if ls /tmp/default_*.profraw 1>/dev/null 2>&1; then
-    if llvm-profdata merge -o /tmp/test_pgo.profdata /tmp/default_*.profraw 2>&1; then
-        echo -e "${GREEN}Profile merge succeeded${NC}"
-    else
-        echo -e "${RED}Profile merge failed (llvm-profdata not found?)${NC}"
-        # Clean up and exit gracefully - llvm-profdata might not be installed
-        rm -f /tmp/test_pgo_out /tmp/test_pgo_prog.seen /tmp/default_*.profraw
-        echo "Skipping PGO use step (llvm-profdata not available)"
-        exit 0
-    fi
-else
-    echo "No profraw files generated (expected with -fprofile-generate)"
-    rm -f /tmp/test_pgo_out /tmp/test_pgo_prog.seen
-    echo "PGO generate test passed (profile data collection not verified)"
-    exit 0
-fi
-
-echo "=== Step 4: PGO Use ==="
-cd "$ROOT_DIR"
-if "$COMPILER" compile "$TEST_FILE" /tmp/test_pgo_optimized --pgo-use=/tmp/test_pgo.profdata 2>&1 | tail -1 | grep -q "Build succeeded"; then
-    echo -e "${GREEN}PGO optimized build succeeded${NC}"
-    if /tmp/test_pgo_optimized 2>&1 | grep -q "PGO test: 499500"; then
-        echo -e "${GREEN}PGO optimized execution correct${NC}"
-    fi
-else
-    echo -e "${RED}PGO optimized build failed${NC}"
-fi
-
-rm -f /tmp/test_pgo_out /tmp/test_pgo_optimized /tmp/test_pgo_prog.seen /tmp/test_pgo.profdata /tmp/default_*.profraw
-echo -e "${GREEN}PGO test complete${NC}"
+    END { if (measured != 2) exit 1 }
+' "$WORK/profile.log"
+compile optimized --pgo-use=merged.profdata
+timeout --foreground --kill-after=5s 30s "$WORK/optimized" \
+    >"$WORK/optimized.run.log" 2>&1
+grep -Fxq '499500' "$WORK/optimized.run.log"
+cmp -- "$WORK/generate.run.log" "$WORK/optimized.run.log"
+echo "PASS: PGO $layout $lto Seen counters, serial profile merge and profile-use execution"
+done
+done

@@ -1,0 +1,80 @@
+import codegen.ir_codegen_target_state.{foreignScalarExtensionImpl, foreignScalarAliasImpl, registerForeignScalarAbiImpl, resetForeignScalarAbiImpl, foreignScalarReturnPrefixImpl, foreignScalarParameterSuffixImpl}
+import codegen.ir_codegen_target_state.{overrideTargetTripleImpl}
+import memory.allocation.{memoryStats}
+import json.builder.{seen_string_release_owned}
+import bootstrap.owned_frontend.{runOwnedFrontendCompat}
+import codegen.ir_decl_registration_driver.{preRegisterProgramAbiDecoratorsState}
+import codegen.ir_codegen_feature_state.{resetFeatureBootstrapStateImpl, getFeatureTypeAliasCountImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl}
+
+fun main() r: Int {
+    resetFeatureBootstrapStateImpl()
+    let aliases = runOwnedFrontendCompat("type ScalarAlias = Int8\ntype OtherAlias = ScalarAlias\n",
+        "foreign-aliases.seen", "en")
+    if not aliases.result.success { return 24 }
+    preRegisterProgramAbiDecoratorsState(aliases.result.program)
+    preRegisterProgramAbiDecoratorsState(aliases.result.program)
+    if getFeatureTypeAliasCountImpl() != 2 { return 25 }
+    aliases.release()
+    // Owned ABI metadata must survive the streamed frontend owner's release.
+    let retained = foreignScalarAliasImpl("OtherAlias", getFeatureTypeAliasNamesImpl(),
+        getFeatureTypeAliasTargetsImpl(), getFeatureTypeAliasCountImpl())
+    if retained != "Int8" { return 26 }
+    seen_string_release_owned(retained)
+    let linux = "x86_64-unknown-linux-gnu"
+    if foreignScalarExtensionImpl("Int8", "i8", linux) != "signext" { return 1 }
+    if foreignScalarExtensionImpl("UInt8", "i8", linux) != "zeroext" { return 2 }
+    if foreignScalarExtensionImpl("Int16", "i16", linux) != "signext" { return 3 }
+    if foreignScalarExtensionImpl("UInt16", "i16", linux) != "zeroext" { return 4 }
+    if foreignScalarExtensionImpl("Bool", "i1", linux) != "zeroext" { return 5 }
+    if foreignScalarExtensionImpl("Int32", "i32", linux) != "" { return 6 }
+    if foreignScalarExtensionImpl("*Int8", "ptr", linux) != "" { return 7 }
+    if foreignScalarExtensionImpl("Int8", "i8", "x86_64-pc-windows-msvc") != "" { return 8 }
+    if foreignScalarExtensionImpl("Int8", "i8", "aarch64-unknown-linux-gnu") != "" { return 9 }
+    if foreignScalarExtensionImpl("Int8", "i8", "arm64-apple-macosx14.0") != "signext" { return 10 }
+    if foreignScalarExtensionImpl("UInt8", "i8", "arm64-apple-macosx14.0") != "zeroext" { return 11 }
+    if foreignScalarExtensionImpl("UInt32", "i32", "riscv64-unknown-linux-gnu") != "signext" { return 12 }
+    if foreignScalarExtensionImpl("UInt8", "i8", "riscv64-unknown-linux-gnu") != "zeroext" { return 13 }
+    let resolvedAlias = foreignScalarAliasImpl("Alias", "Alias|Inner|", "Inner|Int8|", 2)
+    if resolvedAlias != "Int8" { return 14 }
+    seen_string_release_owned(resolvedAlias)
+    overrideTargetTripleImpl(linux, "")
+    resetForeignScalarAbiImpl()
+    let parameters = ["Alias", "UInt16", "Int32"]
+    let llvmParameters = ["i8", "i16", "i32"]
+    registerForeignScalarAbiImpl("c_probe", true, "UInt8", "i8",
+        parameters, llvmParameters, "Alias|", "Int8|", 1)
+    if foreignScalarReturnPrefixImpl("c_probe") != "zeroext " { return 15 }
+    if foreignScalarParameterSuffixImpl("c_probe", 0) != " signext" { return 16 }
+    if foreignScalarParameterSuffixImpl("c_probe", 1) != " zeroext" { return 17 }
+    if foreignScalarParameterSuffixImpl("c_probe", 2) != "" { return 18 }
+    if foreignScalarParameterSuffixImpl("c_probe", 3) != "" { return 19 }
+    if foreignScalarReturnPrefixImpl("unregistered") != "" { return 20 }
+    // Seen implementations must not inherit a previous foreign signature.
+    registerForeignScalarAbiImpl("c_probe", false, "UInt8", "i8",
+        parameters, llvmParameters, "Alias|", "Int8|", 1)
+    if foreignScalarReturnPrefixImpl("c_probe") != "" or
+        foreignScalarParameterSuffixImpl("c_probe", 0) != "" { return 21 }
+    resetForeignScalarAbiImpl()
+    if foreignScalarReturnPrefixImpl("c_probe") != "" { return 22 }
+    registerForeignScalarAbiImpl("c_probe", true, "UInt8", "i8",
+        parameters, llvmParameters, "Alias|", "Int8|", 1)
+    resetForeignScalarAbiImpl()
+    let baseline = memoryStats().usedBytes
+    var iteration = 0
+    while iteration < 100 {
+        registerForeignScalarAbiImpl("c_probe", true, "UInt8", "i8",
+            parameters, llvmParameters, "Alias|", "Int8|", 1)
+        resetForeignScalarAbiImpl()
+        iteration = iteration + 1
+    }
+    let after = memoryStats().usedBytes
+    if baseline != after {
+        println("foreign scalar metadata live baseline/after=" + baseline.toString() + "/" + after.toString())
+        return 23
+    }
+    parameters.free(); llvmParameters.free()
+    println("PASS: target-specific foreign scalar ABI metadata and reset")
+    return 0
+}
+
+main()

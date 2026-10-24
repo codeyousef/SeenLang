@@ -1,0 +1,56 @@
+/// Offline artifact command. Existing bounded input, manifest and CLI policy
+/// are shared with reflection; this module owns publication of completed artifacts.
+import tools.cli_args.{CliArguments}
+import tools.gpu_command.{gpuLoadOptions, gpuApplyCliOptions, gpuReadBoundedText, gpuPrintError, gpuPrintValidation}
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu_artifact.{buildGpuArtifact}
+import codegen.gpu_artifact_manifest.{gpuArtifactManifest}
+import codegen.gpu.spirv_binary.{encodeGpuSpirvBinary}
+import core.result.{Result}
+import codegen.gpu_ir_model.{GpuIrDiagnostic}
+import json.builder.{releaseJsonText}
+import io.file.{writeTextAtomically}
+
+// Compatibility entry point; binary policy belongs to the shared serializer.
+fun gpuSpirvBinary(words: Array<Int>) r: Result<String, GpuIrDiagnostic> { return encodeGpuSpirvBinary(words) }
+fun gpuEmitCommand(parsed: CliArguments, defaultManifest: String) r: Int {
+    if parsed.help {
+        println("Usage: seen gpu emit <source.seen> --gpu-backend spirv|cuda|hip|metal --output <module.spv|module.ptx|module.ll|module.metal> [--reflection <module.json>] [--gpu-target <backend-target>] [--gpu-entry <name>] [--artifact-info]"); return 0
+    }
+    if not parsed.ok { println("Error: [E_GPU_CLI] " + parsed.error); return 1 }
+    let outputPath = parsed.valueOr("--output", ""); let reflectionPath = parsed.valueOr("--reflection", "")
+    if parsed.positionals.length() != 1 or not parsed.positionals[0].endsWith(".seen") or (not outputPath.endsWith(".spv") and not outputPath.endsWith(".ptx") and not outputPath.endsWith(".ll") and not outputPath.endsWith(".metal")) or
+        (parsed.hasOption("--reflection") and not reflectionPath.endsWith(".json")) {
+        println("Error: [E_GPU_CLI] emission requires one .seen source, a .spv, .ptx, .ll or .metal output and an optional .json reflection output"); return 1
+    }
+    let loaded = gpuLoadOptions(parsed, defaultManifest)
+    if loaded.isErr() { let error = loaded.unwrapErr(); loaded.releaseContainer(); gpuPrintError(error); error.free(); return 1 }
+    let options = loaded.unwrap(); loaded.releaseContainer(); let policy = gpuApplyCliOptions(options, parsed)
+    if policy.code != "" { gpuPrintError(policy); policy.free(); options.release(); return 1 }; policy.free()
+    if (options.backend == "spirv" and not outputPath.endsWith(".spv")) or
+        (options.backend == "cuda" and not outputPath.endsWith(".ptx")) or (options.backend == "hip" and not outputPath.endsWith(".ll")) or
+        (options.backend == "metal" and not outputPath.endsWith(".metal")) {
+        options.release(); println("Error: [E_GPU_CLI] output extension does not match the selected backend"); return 1
+    }
+    let read = gpuReadBoundedText(parsed.positionals[0], 1048576)
+    if read.isErr() { let error = read.unwrapErr(); read.releaseContainer(); gpuPrintError(error); error.free(); options.release(); return 1 }
+    let text = read.unwrap(); read.releaseContainer(); let identity = parsed.valueOr("--module-id", "module")
+    let lowered = lowerGpuSource(text, identity); releaseJsonText(text)
+    if lowered.isErr() { let error = lowered.unwrapErr(); lowered.releaseContainer(); gpuPrintValidation(error); error.release(); options.release(); return 1 }
+    let module = lowered.unwrap(); lowered.releaseContainer(); let built = buildGpuArtifact(module, options); module.release(); options.release()
+    if built.isErr() {
+        let error = built.unwrapErr(); built.releaseContainer(); gpuPrintValidation(error); error.release(); return 1
+    }
+    let artifact = built.unwrap(); built.releaseContainer(); let wantsInfo = parsed.hasOption("--artifact-info"); var manifest = ""
+    if wantsInfo {
+        let info = gpuArtifactManifest(artifact)
+        if info.isErr() { let error = info.unwrapErr(); info.releaseContainer(); gpuPrintError(error); error.free(); artifact.release(); return 1 }
+        manifest = info.unwrap(); info.releaseContainer()
+    }
+    if not writeTextAtomically(outputPath, artifact.binary) { if wantsInfo { releaseJsonText(manifest) }; artifact.release(); println("Error: [E_GPU_OUTPUT] GPU artifact atomic write failed"); return 1 }
+    if reflectionPath != "" and not writeTextAtomically(reflectionPath, artifact.reflection) {
+        if wantsInfo { releaseJsonText(manifest) }; artifact.release(); println("Error: [E_GPU_OUTPUT] reflection atomic write failed after GPU artifact publication"); return 1
+    }
+    if wantsInfo { println(manifest); releaseJsonText(manifest) }
+    artifact.release(); println("[OK] GPU artifact written (device execution unverified)"); return 0
+}

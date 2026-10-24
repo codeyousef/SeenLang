@@ -1,0 +1,108 @@
+import core.result.{Result}
+import memory.allocation.{memoryStats, memoryReservedBytes}
+import seen_tokenizers.json.{TokenizerSpec, tokenizerEmptySpec}
+import seen_tokenizers.errors.{TokenizerError}
+import seen_tokenizers.bpe.{byteBpeEncode, byteBpeEncodePiece, byteBpeDecode,
+    SPECIAL_TOKENS_DISALLOW, SPECIAL_TOKENS_ALLOW_LISTED,
+    SPECIAL_TOKENS_AS_ORDINARY}
+
+extern "C" fun seen_string_clone_owned(text: String) r: String
+extern "C" fun seen_string_release_owned(text: String) r: Void
+
+fun requireBpe(condition: Bool) r: Void {
+    if not condition { panic("BPE ownership contract") }
+}
+
+fun releaseBpeError(result: Result<Array<Int>, TokenizerError>, code: String,
+    position: Int) r: Void {
+    requireBpe(result.isErr())
+    let error = result.unwrapErr()
+    requireBpe(error.code == code and error.position == position)
+    result.releaseContainer()
+    error.free()
+}
+
+fun exerciseBpeLifecycle() r: Void {
+    let spec = tokenizerEmptySpec()
+    spec.tokens.push(seen_string_clone_owned("h"))
+    spec.tokens.push(seen_string_clone_owned("hi"))
+    spec.tokens.push(seen_string_clone_owned("i"))
+    spec.tokenIds.push(0); spec.tokenIds.push(2); spec.tokenIds.push(1)
+    spec.ids.push(0); spec.ids.push(1); spec.ids.push(2)
+    spec.idTokens.push(spec.tokens[0]); spec.idTokens.push(spec.tokens[2])
+    spec.idTokens.push(spec.tokens[1])
+    spec.mergeLeft.push(seen_string_clone_owned("h"))
+    spec.mergeRight.push(seen_string_clone_owned("i")); spec.mergeRanks.push(0)
+    spec.specialTexts.push(seen_string_clone_owned("<|end|>"))
+    spec.specialIds.push(100)
+
+    releaseBpeError(byteBpeEncode(spec, "hi<|end|>",
+        SPECIAL_TOKENS_DISALLOW, 8), "tokenizer.disallowed_special", 2)
+    releaseBpeError(byteBpeEncode(spec, "hi<|end|>",
+        SPECIAL_TOKENS_ALLOW_LISTED, 1), "tokenizer.output_limit", 2)
+    releaseBpeError(byteBpeEncodePiece(spec, "hi", -1),
+        "tokenizer.output_limit", 0)
+    releaseBpeError(byteBpeEncodePiece(spec, "hi", 0),
+        "tokenizer.output_limit", 0)
+    releaseBpeError(byteBpeEncodePiece(spec, "?", 8),
+        "tokenizer.unknown_symbol", 0)
+    releaseBpeError(byteBpeEncode(spec, "hi", 99, 8),
+        "tokenizer.special_policy", 0)
+
+    var policy = SPECIAL_TOKENS_ALLOW_LISTED
+    while policy <= SPECIAL_TOKENS_AS_ORDINARY {
+        let encoded = byteBpeEncode(spec, "hi", policy, 8)
+        requireBpe(not encoded.isErr())
+        let ids = encoded.unwrap(); encoded.releaseContainer()
+        requireBpe(ids.length() == 1 and ids[0] == 2)
+        let decoded = byteBpeDecode(spec, ids, 8)
+        requireBpe(not decoded.isErr())
+        let text = decoded.unwrap(); decoded.releaseContainer()
+        requireBpe(text == "hi"); seen_string_release_owned(text)
+        let limited = byteBpeDecode(spec, ids, 1)
+        requireBpe(limited.isErr())
+        let error = limited.unwrapErr(); limited.releaseContainer()
+        requireBpe(error.code == "tokenizer.decode_limit"); error.free()
+        ids.free()
+        policy = policy + 1
+    }
+    let special = byteBpeEncode(spec, "hi<|end|>",
+        SPECIAL_TOKENS_ALLOW_LISTED, 8)
+    let specialIds = special.unwrap(); special.releaseContainer()
+    let restored = byteBpeDecode(spec, specialIds, 64)
+    requireBpe(not restored.isErr())
+    let restoredText = restored.unwrap(); restored.releaseContainer()
+    requireBpe(restoredText == "hi<|end|>")
+    seen_string_release_owned(restoredText); specialIds.free()
+    let emptyIds = Array<Int>()
+    let empty = byteBpeDecode(spec, emptyIds, 0)
+    requireBpe(not empty.isErr())
+    let emptyText = empty.unwrap(); empty.releaseContainer()
+    requireBpe(emptyText.length() == 0)
+    seen_string_release_owned(emptyText); emptyIds.free()
+    spec.close(); spec.free()
+}
+
+fun main() r: Int {
+    let initial = memoryStats().usedBytes
+    let failures = memoryStats().allocationFailures
+    exerciseBpeLifecycle()
+    let warmReserve = memoryReservedBytes()
+    var cycle = 0
+    while cycle < 100 {
+        exerciseBpeLifecycle()
+        let live = memoryStats().usedBytes
+        if live != initial {
+            println("BPE lifecycle baseline/after=" + initial.toString() +
+                "/" + live.toString())
+            return 1
+        }
+        requireBpe(memoryStats().allocationFailures == failures)
+        requireBpe(memoryReservedBytes() == warmReserve)
+        cycle = cycle + 1
+    }
+    println("PASS: BPE cold/warm ownership, error positions, and recyclable reserve")
+    return 0
+}
+
+main()

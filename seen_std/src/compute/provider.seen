@@ -1,0 +1,21 @@
+/// A provider owns its backend instance. It returns opaque native identities,
+/// never allocates Seen ownership records, chooses policy or retries a call.
+/// Implementations are explicitly selected; test providers remain test-only.
+import compute.backend.{GpuBackend}
+import compute.error.{GpuError}
+import compute.resource_provider.{GpuResourceProviderHandle}
+import core.result.{Result}
+import memory.allocation.{releaseTraitDispatchBox}
+
+trait GpuDeviceProvider {
+    fun backend(this: GpuDeviceProvider) r: GpuBackend
+    fun identity(this: GpuDeviceProvider) r: UInt64
+    fun createContext(this: GpuDeviceProvider, ordinal: Int) r: Result<UInt64, GpuError>
+    fun destroyContext(this: GpuDeviceProvider, native: UInt64) r: Result<Bool, GpuError>
+    fun resources(this: GpuDeviceProvider, native: UInt64, ordinal: Int) r: Result<GpuResourceProviderHandle, GpuError>
+    fun release(this: GpuDeviceProvider) r: Void
+}
+
+fun gpuReleaseProvider(provider: dyn GpuDeviceProvider) r: Void {
+    provider.release(); releaseTraitDispatchBox(provider as UInt64)
+}

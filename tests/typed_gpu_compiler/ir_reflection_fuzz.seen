@@ -1,0 +1,34 @@
+import ir_fuzz_support.{GPU_IR_FUZZ_MAX_ITERATIONS, irFuzzDeadline, irFuzzRequireComplete}
+import ir_fixture_support.{irRequire, irCopyFixture}
+import codegen.gpu_manifest.{parseGpuManifest}
+import codegen.gpu_options.{GpuOptions}
+import codegen.gpu_reflection.{reflectGpuModule}
+import json.builder.{releaseJsonText}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let invalid = ["[gpu]\nbackend = \"invalid\"", "[gpu]\nentries = [\"duplicate\", \"duplicate\"]",
+        "[gpu]\nunknown = true", "[gpu]\nbackend = \"cuda\"\ntarget = \"gfx942\"", "[gpu]\n[gpu]", "[gpu.nested]\nvalue = 1"]
+    let module = irCopyFixture(); let options = GpuOptions.create(); let capabilities = module.requiredCapabilities
+    let start = seen_time_monotonic_nanos()
+    let deadline = irFuzzDeadline(start); var now = start; var iterations = 0; var seed = 1086
+    let baseline = seen_memory_used_bytes()
+    while now < deadline and iterations < GPU_IR_FUZZ_MAX_ITERATIONS {
+        seed = (seed * 48271) % 2147483647
+        let parsed = parseGpuManifest(invalid[seed % invalid.length()]); irRequire(parsed.isErr())
+        let error = parsed.unwrapErr(); error.free(); parsed.releaseContainer()
+        if seed % 8 == 0 {
+            module.requiredCapabilities = 67108864 as UInt64; let rejected = reflectGpuModule(module, options); irRequire(rejected.isErr())
+            let diagnostic = rejected.unwrapErr(); diagnostic.release(); rejected.releaseContainer(); module.requiredCapabilities = capabilities
+        } else if seed % 8 == 1 {
+            let reflected = reflectGpuModule(module, options); irRequire(reflected.isOkay())
+            let text = reflected.unwrap(); releaseJsonText(text); reflected.releaseContainer()
+        }
+        irRequire(seen_memory_used_bytes() == baseline); iterations = iterations + 1
+        if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); irRequire(next >= now); now = next }
+    }
+    irFuzzRequireComplete(now, deadline, iterations); invalid.free(); module.release(); options.release()
+    println("PASS: GPU-001D reflection metadata fuzz 60s seed=1086 checked malformed policy IR and ownership")
+    return 0
+}

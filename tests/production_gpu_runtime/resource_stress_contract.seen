@@ -1,0 +1,38 @@
+import compute.buffer.{GpuBuffer}
+import resource_fixture_support.{resourceWorld}
+import resource_assertions.{allocated, rejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let initial = seen_memory_used_bytes(); let world = resourceWorld(512 as UInt64, 32, 2)
+    let warm = allocated(GpuBuffer<UInt32>.allocate(world.allocator, 4 as UInt64, 4 as UInt64, 16 as UInt64, world.operation))
+    completed(warm.release(), true); let baseline = seen_memory_used_bytes(); var index = 0
+    while index < 10000 {
+        if index % 7 == 0 {
+            world.operation.cancellation = true
+            rejected(GpuBuffer<UInt32>.allocate(world.allocator, 4 as UInt64, 4 as UInt64, 16 as UInt64, world.operation), "gpu.cancelled", 0)
+            world.operation.cancellation = false
+        }
+        let buffer = allocated(GpuBuffer<UInt32>.allocate(world.allocator, 4 as UInt64, 4 as UInt64, 16 as UInt64, world.operation))
+        if index % 11 == 0 {
+            buffer.generation = buffer.generation + (1 as UInt64)
+            let stale = buffer.close()
+            if stale.isOkay() { abort("GPU stress stale buffer generation was accepted") }
+            stale.unwrapErr().release(); stale.releaseContainer(); buffer.generation = buffer.generation - (1 as UInt64)
+        }
+        completed(buffer.release(), true)
+        if world.counts.creates != 1 or world.counts.attempts != 1 or world.counts.destroys != 0 or
+            world.allocator.core.liveBuffers != 0 or world.allocator.core.allocatedBytes != (0 as UInt64) or
+            world.device.core.resourceCommittedBytes != (80 as UInt64) or seen_memory_used_bytes() != baseline {
+            abort("GPU warmed suballocation rebuilt native storage or leaked an owned range")
+        }
+        index = index + 1
+    }
+    completed(world.allocator.trim(), true)
+    if world.counts.destroys != 1 or world.counts.live != 0 { abort("GPU warmed native pool did not drain exactly once") }
+    world.release()
+    if seen_memory_used_bytes() != initial { abort("GPU warmed suballocation stress leaked metadata") }
+    println("PASS: GPU-006B 10000 warmed buffer lifecycles preserve one native allocation and exact metadata baselines")
+    return 0
+}

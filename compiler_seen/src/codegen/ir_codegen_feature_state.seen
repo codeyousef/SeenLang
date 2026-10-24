@@ -22,6 +22,8 @@ import codegen.ir_struct_layout_build.{StructLayoutRegistrationSnapshot, prepare
 import codegen.ir_comptime_eval.{registerComptimeVarStateImpl, updateComptimeVarStateImpl, registerComptimeStrVarStateImpl, lookupComptimeVarImpl, evaluateConstExprStrImpl, evaluateConstExprImpl}
 import codegen.ir_module_emit.{emitTraitVtableConstantsImpl, emitGeneratedClosuresImpl, emitGlobalConstructorsImpl, emitTBAAMetadataImpl}
 import codegen.ir_bitfield_access.{findBitfieldWidthImpl}
+import codegen.ir_optimization.{pipeGet}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
 
 var g_panicOnOverflow: Bool = false
 
@@ -263,6 +265,11 @@ var g_packetCount: Int = 0
 var g_typeAliasNames: String = ""
 var g_typeAliasTargets: String = ""
 var g_typeAliasCount: Int = 0
+// Immutable alias snapshots can be retained by codegen state bridges. Keep
+// their storage in one bounded, process-lifetime owner instead of borrowing
+// streamed ASTs or freeing a buffer while an older snapshot still uses it.
+var g_typeAliasAbiStorage: Array<String> = Array<String>()
+var g_typeAliasAbiStorageBytes: Int = 0
 
 var g_enumVariantNames: String = ""
 var g_enumVariantTags: String = ""
@@ -414,16 +421,44 @@ fun appendDynTraitNameWithFeatureStateImpl(className: String) r: Void {
     g_dynTraitNames = dynTraitNamesBox[0]
 }
 
+fun appendOwnedTypeAliasAbiSnapshotImpl(previous: String, value: String) r: String {
+    var bytes = value.length() + 1
+    if previous != "" { bytes = bytes + previous.length() + 1 }
+    if value.length() > 4096 or g_typeAliasAbiStorageBytes + bytes > 8388608 {
+        abort("Error: [E_TYPE_LIMIT] owned type alias ABI metadata ceiling exceeded")
+    }
+    var text = ""
+    if previous == "" { text = seen_string_clone_owned(value) }
+    else {
+        let builder = StringBuilder.new()
+        builder.append(previous); builder.append("|"); builder.append(value)
+        text = builder.toString()
+        builder.parts.free(); builder.free()
+    }
+    g_typeAliasAbiStorage.push(text)
+    g_typeAliasAbiStorageBytes = g_typeAliasAbiStorageBytes + bytes
+    return text
+}
+
 fun registerTopLevelTypeAliasWithFeatureStateImpl(className: String,
     aliasTarget: String) r: Void {
 
-    if g_typeAliasCount > 0 {
-        g_typeAliasNames = g_typeAliasNames + "|" + className
-        g_typeAliasTargets = g_typeAliasTargets + "|" + aliasTarget
-    } else {
-        g_typeAliasNames = className
-        g_typeAliasTargets = aliasTarget
+    var aliasIdx = 0
+    while aliasIdx < g_typeAliasCount {
+        let registeredName = pipeGet(g_typeAliasNames, aliasIdx)
+        let matches = registeredName == className
+        if registeredName.length() > 0 { seen_string_release_owned(registeredName) }
+        if matches {
+            let registeredTarget = pipeGet(g_typeAliasTargets, aliasIdx)
+            let identical = registeredTarget == aliasTarget
+            if registeredTarget.length() > 0 { seen_string_release_owned(registeredTarget) }
+            if not identical { abort("Error: [E_TYPE_AMBIGUOUS] conflicting type alias ABI metadata") }
+            return
+        }
+        aliasIdx = aliasIdx + 1
     }
+    g_typeAliasNames = appendOwnedTypeAliasAbiSnapshotImpl(g_typeAliasNames, className)
+    g_typeAliasTargets = appendOwnedTypeAliasAbiSnapshotImpl(g_typeAliasTargets, aliasTarget)
     g_typeAliasCount = g_typeAliasCount + 1
 }
 

@@ -1,0 +1,13 @@
+import async.executor_core.{ExecutorLimits, ExecutorTaskContext}
+import async.multithread.{MultithreadExecutor}
+@send
+class EscapingContext {
+    var retained: ExecutorTaskContext
+    fun run(context: ExecutorTaskContext) r: Bool { return true }
+    fun release() r: Bool { this.free(); return true }
+}
+fun checkCapture(limits: ExecutorLimits) r: Int {
+    let executor = MultithreadExecutor<EscapingContext>.create(limits)
+    return 0
+}
+fun main() r: Int { return 0 }

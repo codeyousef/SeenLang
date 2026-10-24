@@ -1,0 +1,13 @@
+/// Wall time defines fuzz coverage. Fuel only bounds broken-clock behavior;
+/// a faster compiler must not turn useful throughput into a premature failure.
+let GPU_IR_FUZZ_MAX_ITERATIONS: Int = 1000000000
+let GPU_IR_FUZZ_NANOS: Int64 = 60000000000 as Int64
+fun irFuzzDeadline(start: Int64) r: Int64 {
+    if start < (0 as Int64) or start > (9223372036854775807 as Int64) - GPU_IR_FUZZ_NANOS {
+        abort("GPU IR fuzz monotonic clock is outside its checked domain")
+    }; return start + GPU_IR_FUZZ_NANOS
+}
+fun irFuzzRequireComplete(now: Int64, deadline: Int64, iterations: Int) r: Void {
+    if now < deadline { abort("GPU IR fuzz exhausted its iteration ceiling before the required deadline") }
+    if iterations < 32 { abort("GPU IR fuzz did not make the required progress") }
+}

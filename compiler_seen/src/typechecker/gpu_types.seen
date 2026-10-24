@@ -1,0 +1,149 @@
+/// Closed GPU frontend type vocabulary. Codes retain resource address/access
+/// separately from scalar/vector values; zero always means unsupported.
+/// Value code = scalar + 16*(lanes-1): bool=1, i32=2, u32=3, f32=4.
+/// Resources add 1000=storage/read, 2000=storage/write,
+/// 3000=storage/readwrite, 4000=uniform/read. No target-width aliases.
+fun gpuSpace(byte: Int) r: Bool { return byte == 32 or byte == 9 or byte == 10 or byte == 13 }
+fun gpuTrimStart(text: String, start: Int, end: Int) r: Int {
+    var result = start; while result < end and gpuSpace(text.byteAt(result)) { result = result + 1 }; return result
+}
+fun gpuTrimEnd(text: String, start: Int, end: Int) r: Int {
+    var result = end; while result > start and gpuSpace(text.byteAt(result - 1)) { result = result - 1 }; return result
+}
+fun gpuRangeEquals(text: String, start: Int, end: Int, expected: String) r: Bool {
+    if start < 0 or end < start or end > text.length() or end - start != expected.length() { return false }
+    var i = 0
+    while i < expected.length() { if text.byteAt(start + i) != expected.byteAt(i) { return false }; i = i + 1 }
+    return true
+}
+fun gpuRangePrefix(text: String, start: Int, end: Int, expected: String) r: Bool {
+    return start >= 0 and end >= start and end <= text.length() and expected.length() <= end - start and
+        gpuRangeEquals(text, start, start + expected.length(), expected)
+}
+fun gpuScalarTypeRange(text: String, start: Int, end: Int) r: Int {
+    if gpuRangeEquals(text, start, end, "Bool") or gpuRangeEquals(text, start, end, "bool") { return 1 }
+    if gpuRangeEquals(text, start, end, "Int32") or gpuRangeEquals(text, start, end, "i32") { return 2 }
+    if gpuRangeEquals(text, start, end, "UInt32") or gpuRangeEquals(text, start, end, "u32") { return 3 }
+    if gpuRangeEquals(text, start, end, "Float32") or gpuRangeEquals(text, start, end, "f32") { return 4 }
+    return 0
+}
+fun gpuValueTypeRange(text: String, start: Int, end: Int) r: Int {
+    if start < 0 or end > text.length() or end <= start or end - start > 64 { return 0 }
+    let scalar = gpuScalarTypeRange(text, start, end)
+    if scalar != 0 { return scalar }
+    if end - start == 5 and text.byteAt(start + 3) == 120 {
+        let base = gpuScalarTypeRange(text, start, start + 3)
+        let lanes = text.byteAt(start + 4) - 48
+        if base >= 2 and lanes >= 2 and lanes <= 4 { return base + (lanes - 1) * 16 }
+    }
+    return 0
+}
+fun gpuValueType(text: String) r: Int { return gpuValueTypeRange(text, 0, text.length()) }
+fun gpuTypeValue(typeCode: Int) r: Int { return typeCode % 1000 }
+fun gpuTypeResource(typeCode: Int) r: Int { return typeCode / 1000 }
+fun gpuTypeScalar(typeCode: Int) r: Int { return gpuTypeValue(typeCode) % 16 }
+fun gpuTypeLanes(typeCode: Int) r: Int { return gpuTypeValue(typeCode) / 16 + 1 }
+fun gpuTypeReadable(typeCode: Int) r: Bool {
+    let resource = gpuTypeResource(typeCode)
+    return resource == 1 or resource == 3 or resource == 4
+}
+fun gpuTypeWritable(typeCode: Int) r: Bool {
+    let resource = gpuTypeResource(typeCode)
+    return resource == 2 or resource == 3
+}
+fun gpuTypeStorage(typeCode: Int) r: Bool {
+    let resource = gpuTypeResource(typeCode); return resource >= 1 and resource <= 3
+}
+fun gpuTypeBytes(typeCode: Int) r: Int {
+    if gpuTypeValue(typeCode) == 0 { return 0 }
+    return gpuTypeLanes(typeCode) * 4
+}
+fun gpuTypeAddressSpace(typeCode: Int) r: String {
+    if gpuTypeStorage(typeCode) { return "storage" }
+    if gpuTypeResource(typeCode) == 4 { return "uniform" }
+    return "function"
+}
+fun gpuParseTypeRange(raw: String, first: Int, last: Int) r: Int {
+    if raw.length() == 0 or raw.length() > 256 or first < 0 or last > raw.length() or first >= last { return 0 }
+    let start = gpuTrimStart(raw, first, last); let end = gpuTrimEnd(raw, start, last)
+    let value = gpuValueTypeRange(raw, start, end)
+    if value != 0 { return value }
+    var resource = 0; var prefix = 0
+    if gpuRangePrefix(raw, start, end, "ReadBuffer<") { resource = 1; prefix = 11 }
+    else if gpuRangePrefix(raw, start, end, "WriteBuffer<") { resource = 2; prefix = 12 }
+    else if gpuRangePrefix(raw, start, end, "Buffer<") { resource = 3; prefix = 7 }
+    else if gpuRangePrefix(raw, start, end, "Uniform<") { resource = 4; prefix = 8 }
+    if resource == 0 or end - start <= prefix + 1 or raw.byteAt(end - 1) != 62 { return 0 }
+    let innerStart = gpuTrimStart(raw, start + prefix, end - 1)
+    let innerEnd = gpuTrimEnd(raw, innerStart, end - 1)
+    let element = gpuValueTypeRange(raw, innerStart, innerEnd)
+    if element == 0 or (resource != 4 and element == 1) { return 0 }
+    return resource * 1000 + element
+}
+fun gpuParseType(raw: String) r: Int { return gpuParseTypeRange(raw, 0, raw.length()) }
+fun gpuParseParameterType(raw: String) r: Int {
+    if raw.startsWith("borrow:") { return gpuParseTypeRange(raw, 7, raw.length()) }
+    return gpuParseType(raw)
+}
+fun gpuBoundedDecimalRange(text: String, start: Int, end: Int, maximum: Int) r: Int {
+    if start < 0 or end > text.length() or end <= start or end - start > 10 or maximum < 1 { return -1 }
+    var result = 0; var i = start
+    while i < end {
+        let digit = text.byteAt(i) - 48
+        if digit < 0 or digit > 9 or result > (maximum - digit) / 10 { return -1 }
+        result = result * 10 + digit
+        if result > maximum { return -1 }
+        i = i + 1
+    }
+    return result
+}
+fun gpuBoundedDecimal(text: String, maximum: Int) r: Int { return gpuBoundedDecimalRange(text, 0, text.length(), maximum) }
+fun gpuWorkgroupValid(x: Int, y: Int, z: Int) r: Bool {
+    return x >= 1 and x <= 1024 and y >= 1 and y <= 1024 and z >= 1 and z <= 64 and
+        x <= 1024 / y and x * y <= 1024 / z
+}
+
+/// Parse a lexer-produced decimal float without host-width integer overflow.
+/// The bounded mantissa/exponent fit Float64; the final GPU value must be finite.
+/// Use the bootstrap compiler's native double spelling for these internal
+/// temporaries; the device's declared type remains explicitly Float32.
+/// One bounded decimal parser supplies validation and emitter values.
+/// The caller owns the returned record and frees it on every path.
+class GpuFloatLiteralParse { var valid: Bool; var value: Float }
+fun gpuFloatLiteralValid(text: String) r: Bool {
+    let parsed = gpuParseFloatLiteral(text, 0); let valid = parsed.valid; parsed.free(); return valid
+}
+fun gpuParseFloatLiteral(text: String, start: Int) r: GpuFloatLiteralParse {
+    if start < 0 or start >= text.length() or text.length() > 128 { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
+    var value = 0.0 as Float; var divisor = 1.0 as Float
+    var decimal = false; var digits = 0; var i = start
+    while i < text.length() and text.byteAt(i) != 101 and text.byteAt(i) != 69 {
+        let byte = text.byteAt(i)
+        if byte == 46 { if decimal { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }; decimal = true }
+        else if byte >= 48 and byte <= 57 {
+            digits = digits + 1
+            if decimal { divisor = divisor * (10.0 as Float); value = value + ((byte - 48) as Float) / divisor }
+            else { value = value * (10.0 as Float) + ((byte - 48) as Float) }
+        } else { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
+        i = i + 1
+    }
+    if digits == 0 { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
+    if i < text.length() {
+        i = i + 1; var negative = false
+        if i < text.length() and (text.byteAt(i) == 43 or text.byteAt(i) == 45) {
+            negative = text.byteAt(i) == 45; i = i + 1
+        }
+        let exponent = gpuBoundedDecimalRange(text, i, text.length(), 256)
+        if exponent < 0 { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
+        var step = 0
+        while step < exponent {
+            if negative { value = value / (10.0 as Float) }
+            else {
+                if value > (3.4028234663852886e37 as Float) { return GpuFloatLiteralParse{valid: false, value: 0.0 as Float} }
+                value = value * (10.0 as Float)
+            }
+            step = step + 1
+        }
+    }
+    return GpuFloatLiteralParse{valid: value == value and value <= (3.4028234663852886e38 as Float), value: value}
+}

@@ -1,0 +1,37 @@
+/// Checked typed-buffer geometry shared by allocator admission and bindings.
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GPU_MAX_MEMORY_BYTES}
+import core.result.{Result, Ok, Err}
+
+let GPU_MAX_RESOURCE_ALIGNMENT: UInt64 = 1048576 as UInt64
+
+fun gpuResourceAlignmentValid(alignment: UInt64) r: Bool {
+    return alignment > (0 as UInt64) and alignment <= GPU_MAX_RESOURCE_ALIGNMENT and
+        (alignment & (alignment - (1 as UInt64))) == (0 as UInt64)
+}
+
+@move
+class GpuBufferGeometry {
+    var elementCount: UInt64
+    var elementBytes: UInt64
+    var byteLength: UInt64
+    var allocatedBytes: UInt64
+    var alignment: UInt64
+
+    static fun checked(count: UInt64, elementBytes: UInt64, alignment: UInt64)
+        r: Result<GpuBufferGeometry, GpuError> {
+        if count == (0 as UInt64) or elementBytes == (0 as UInt64) or not gpuResourceAlignmentValid(alignment) {
+            return Err<GpuBufferGeometry, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.geometry", "GPU buffer requires nonzero elements and a bounded power-of-two alignment"))
+        }
+        if elementBytes > GPU_MAX_MEMORY_BYTES or count > GPU_MAX_MEMORY_BYTES / elementBytes {
+            return Err<GpuBufferGeometry, GpuError>(gpuFailure("gpu.limit", "gpu.buffer.geometry", "GPU element geometry exceeds its byte ceiling"))
+        }
+        let bytes = count * elementBytes; let mask = alignment - (1 as UInt64)
+        // The byte ceiling is a power of two divisible by every supported
+        // alignment. Rounding a value within it cannot exceed the ceiling.
+        let allocated = (bytes + mask) & ~mask
+        return Ok<GpuBufferGeometry, GpuError>(GpuBufferGeometry{elementCount: count,
+            elementBytes: elementBytes, byteLength: bytes, allocatedBytes: allocated, alignment: alignment})
+    }
+    fun release() r: Void { this.free() }
+}

@@ -1,0 +1,55 @@
+import bootstrap.owned_frontend.{runOwnedFrontendCompat}
+import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_ir_ops.{GPU_IR_IF_VALUE, GPU_IR_LOAD, GPU_IR_WHILE, GPU_IR_FOR, GPU_IR_CALL,
+    GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_RMW, GPU_IR_BARRIER, GPU_IR_SUBGROUP, GPU_IR_BUILTIN}
+import ir_fixture_support.{irRequire}
+import json.builder.{releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+import ir_lowering_support.{irLowerSource, irLowerReject, irCountOpcode, irSerialized}
+
+fun main() r: Int {
+    let structured = irLowerSource("@device fun increment(value: Int32) r: Int32 { return value + 1 } @compute(64) fun arbitrary(output: WriteBuffer<Int32>) { let scratch: SharedBuffer<Int32> = sharedBuffer(64); for i in 0..4 { let previous = atomicAdd(scratch, i, 1, Relaxed, WorkgroupScope) }; let exchanged = atomicCompareExchange(scratch, 0, 0, 1, AcquireRelease, Acquire, WorkgroupScope); barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory); var j = 0; while j < 4 { output[j] = increment(atomicLoad(scratch, j, Acquire, WorkgroupScope)); j = j + 1 } }")
+    irRequire(structured.functions.length() == 2 and structured.sharedBytes == (256 as UInt64) and structured.requiresFaultBuffer)
+    irRequire(irCountOpcode(structured, GPU_IR_FOR) == 1 and irCountOpcode(structured, GPU_IR_WHILE) == 1)
+    irRequire(irCountOpcode(structured, GPU_IR_CALL) == 1 and irCountOpcode(structured, GPU_IR_ATOMIC_LOAD) == 1 and
+        irCountOpcode(structured, GPU_IR_ATOMIC_RMW) == 1 and irCountOpcode(structured, GPU_IR_BARRIER) == 1)
+    let first = irSerialized(structured); let second = irSerialized(structured)
+    irRequire(first == second and first.contains("\"schema\":\"seen-gpu-ir-v1\"") and first.contains("\"max_loop_iterations\":1000000"))
+    releaseJsonText(first); releaseJsonText(second); structured.release()
+    let logical = irLowerSource("@compute(64) fun actual_body(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>) { let value = false and input[99] > 0; if value { output[0] = 7 } }")
+    irRequire(irCountOpcode(logical, GPU_IR_IF_VALUE) == 1 and irCountOpcode(logical, GPU_IR_LOAD) == 1)
+    var i = 0
+    while i < logical.functions[0].blocks[0].instructions.length() {
+        irRequire(logical.functions[0].blocks[0].instructions[i].opcode != GPU_IR_LOAD); i = i + 1
+    }
+    logical.release()
+    let subgroup = irLowerSource("@compute(64) fun collective() { let selected = subgroupAll(true); let total = subgroupAdd(1); let other = subgroupShuffle(total, 0 as UInt32); let width = workgroupSize.x }")
+    irRequire(irCountOpcode(subgroup, GPU_IR_SUBGROUP) == 3 and irCountOpcode(subgroup, GPU_IR_BUILTIN) == 1)
+    irRequire(subgroup.requiredCapabilities == (480 as UInt64)); subgroup.release()
+    println("PASS: GPU-001B parsed helpers loops lazy values synchronization atomics and subgroup lowering")
+    irLowerReject("@compute(64) fun tensorElementwiseAdd(input: ReadBuffer<Int32>) { input[0] = 1 }", "E_GPU_ACCESS")
+    irLowerReject("@compute(64) fun tensorElementwiseAdd() { println(1) }", "E_GPU_UNSUPPORTED")
+    irLowerReject("@device fun recursive(value: Int32) r: Int32 { return recursive(value) } @compute(64) fun launch(output: WriteBuffer<Int32>) { output[0] = recursive(1) }", "E_GPU_IR_CALL_GRAPH")
+    irLowerReject("@device fun synchronize() { barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory) } @compute(64) fun launch() { if globalInvocationId.x > (0 as UInt32) { synchronize() } }", "E_GPU_IR_CONVERGENCE")
+    irLowerReject("@compute(64) fun launch() { let scratch: SharedBuffer<Int32> = sharedBuffer(4); let x = atomicLoad(scratch, 0, Release, WorkgroupScope) }", "E_GPU_IR_TYPE")
+    irLowerReject("@compute(64) fun launch() { let x = 1; let scratch: SharedBuffer<Int32> = sharedBuffer(4) }", "E_GPU_IR_SHARED")
+    irLowerReject("@compute(64) fun launch() { let scratch: SharedBuffer<i32x4> = sharedBuffer(16384) }", "E_GPU_LIMIT")
+    irLowerReject("@device fun incomplete(value: Int32) r: Int32 { if value > 0 { return value } } @compute(64) fun launch() { let value = incomplete(1) }", "E_GPU_IR_RETURN")
+    irLowerReject("@compute(64) fun launch() { while true { barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory); if globalInvocationId.x > (0 as UInt32) { break } } }", "E_GPU_IR_CONVERGENCE")
+    println("PASS: GPU-001B source effects recursion divergent collectives and shared limits rejected")
+    // The parsed program is retained by this fixture. Repeated lowering/export
+    // borrows it and must return every compiler-owned IR allocation to baseline.
+    let owner = runOwnedFrontendCompat("@compute(64) fun original(output: WriteBuffer<Int32>) { output[0] = -2147483648 }", "reused-ir.seen", "en")
+    let frontend = owner.result
+    irRequire(frontend.success); let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 100 {
+        let result = lowerGpuProgram(frontend.program, "reused-ir.seen"); irRequire(result.isOkay())
+        let module = result.unwrap(); result.releaseContainer(); let text = irSerialized(module)
+        irRequire(text.contains("-2147483648")); releaseJsonText(text); module.release()
+        irRequire(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    owner.release()
+    println("PASS: GPU-001B borrowed AST ownership deterministic export and repeated cleanup")
+    return 0
+}

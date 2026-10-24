@@ -1,0 +1,45 @@
+/// Buffer/memory SDK structures are native aggregate values, borrowed only
+/// during a synchronous vendor call. SDK assertions independently check them.
+@repr(C)
+class VulkanBufferCreateInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var flags: UInt32
+    var size: UInt64
+    var usage: UInt32
+    var sharingMode: UInt32
+    var queueFamilyIndexCount: UInt32
+    var pQueueFamilyIndices: *const UInt32
+}
+@repr(C)
+class VulkanMemoryAllocateInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var allocationSize: UInt64
+    var memoryTypeIndex: UInt32
+}
+fun gpuVkBufferInfo(bytes: UInt64) r: VulkanBufferCreateInfo {
+    return VulkanBufferCreateInfo{sType: 12 as UInt32, pNext: null as *Void,
+        flags: 0 as UInt32, size: bytes, usage: 291 as UInt32, sharingMode: 0 as UInt32,
+        queueFamilyIndexCount: 0 as UInt32, pQueueFamilyIndices: null as *const UInt32}
+}
+fun gpuVkMemoryInfo(bytes: UInt64, memoryType: UInt32) r: VulkanMemoryAllocateInfo {
+    return VulkanMemoryAllocateInfo{sType: 5 as UInt32, pNext: null as *Void,
+        allocationSize: bytes, memoryTypeIndex: memoryType}
+}
+fun gpuVkBufferAbiValid() r: Bool {
+    let buffer = gpuVkBufferInfo(123 as UInt64); let allocation = gpuVkMemoryInfo(456 as UInt64, 7 as UInt32)
+    let bufferWords = (&buffer) as *UInt32; let bufferWide = (&buffer) as *UInt64
+    let allocationWords = (&allocation) as *UInt32; let allocationWide = (&allocation) as *UInt64
+    return bufferWords[0] == (12 as UInt32) and bufferWide[3] == (123 as UInt64) and
+        bufferWords[8] == (291 as UInt32) and bufferWords[10] == (0 as UInt32) and bufferWide[6] == (0 as UInt64) and
+        allocationWords[0] == (5 as UInt32) and allocationWide[2] == (456 as UInt64) and allocationWords[6] == (7 as UInt32)
+}
+extern "C" fun vkCreateBuffer(device: UInt64, info: *const VulkanBufferCreateInfo,
+    allocator: *Void, buffer: *UInt64) r: Int32
+extern "C" fun vkGetBufferMemoryRequirements(device: UInt64, buffer: UInt64, requirements: *UInt8) r: Void
+extern "C" fun vkAllocateMemory(device: UInt64, info: *const VulkanMemoryAllocateInfo,
+    allocator: *Void, memory: *UInt64) r: Int32
+extern "C" fun vkBindBufferMemory(device: UInt64, buffer: UInt64, memory: UInt64, offset: UInt64) r: Int32
+extern "C" fun vkDestroyBuffer(device: UInt64, buffer: UInt64, allocator: *Void) r: Void
+extern "C" fun vkFreeMemory(device: UInt64, memory: UInt64, allocator: *Void) r: Void

@@ -11,6 +11,8 @@ import codegen.ir_call_meta_driver.{tryGenerateNonTransmuteMetaBuiltinCallState}
 import codegen.ir_call_regular_emit.{emitRegularFunctionCallTailState}
 import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl, resolveRegularCallLlvmReturnTypeImpl}
 import codegen.ir_call_runtime.{emitResultRuntimeBuiltinCallImpl}
+import codegen.ir_generic_call_type.{genericCallWordTypeNameImpl}
+import codegen.ir_value_coercion.{reifyErasedWordImpl, coerceValueForLlvmTargetImpl}
 import codegen.ir_call_runtime_driver.{tryGenerateRuntimeBuiltinCallState, tryGenerateMathBuiltinCallState}
 import codegen.ir_codegen_feature_state.{getFeatureAsyncFuncNamesImpl, getFeatureAsyncFuncCountImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, setFeatureBoundsCheckLabelCountImpl, getFeatureComptimeParamFuncNamesImpl, getFeatureComptimeParamCountImpl, getFeatureCurrentClassParentNameImpl, getFeatureEnumVariantCountImpl, getFeatureEnumVariantFieldCountsImpl, getFeatureEnumVariantNamesImpl, getFeatureInsideUnsafeImpl, getDefaultFillArgRegsImpl, getDefaultFillArgTypeStrsImpl, getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getFunctionReturnTypeWithGlobalStateImpl}
@@ -181,13 +183,33 @@ fun generateCallState(ctx: CodegenLoweringContext,
     }
 
     let returnType = inferLoweredExpressionType(ctx, expr)
-    let llvmReturnType = resolveRegularCallLlvmReturnTypeImpl(
-        mapTypeState(returnType), isAsyncFunctionStateImpl(funcName,
-        asyncFuncNames, asyncFuncCount))
+    let asyncCall = isAsyncFunctionStateImpl(funcName, asyncFuncNames, asyncFuncCount)
+    var llvmReturnType = resolveRegularCallLlvmReturnTypeImpl(mapTypeState(returnType), asyncCall)
+    let erasedReturn = not asyncCall and genericCallWordTypeNameImpl(funcName, -1) != ""
+    if erasedReturn { llvmReturnType = mapTypeState(getFunctionReturnTypeWithGlobalStateImpl(funcName)) }
+    var genericArgument = 0
+    while genericArgument < argRegs.length() and genericArgument < argTypeStrs.length() {
+        let wordType = genericCallWordTypeNameImpl(funcName, genericArgument)
+        if wordType != "" and not argTypeStrs[genericArgument].startsWith("%") {
+            let boxed = emitResultRuntimeBuiltinCallImpl(output, getFeatureRegBoxImpl(), "Ok", argRegs[genericArgument], argTypeStrs[genericArgument])
+            if boxed != "" {
+                let physical = mapTypeState(wordType)
+                argRegs[genericArgument] = coerceValueForLlvmTargetImpl(output, getFeatureRegBoxImpl(), physical, "Int", "i64", boxed)
+                argTypeStrs[genericArgument] = physical
+            }
+        }
+        genericArgument = genericArgument + 1
+    }
 
+    var tailPosition = takeTailCallPositionImpl(getSharedCodegenState().functionOptions)
+    if erasedReturn and llvmReturnType != mapTypeState(returnType) { tailPosition = false }
     let resultReg = emitRegularFunctionCallTailState(output, funcName,
-        llvmReturnType, argRegs, argTypeStrs,
-        takeTailCallPositionImpl(getSharedCodegenState().functionOptions))
-    return CallDriverResult.new(resultReg,
+        llvmReturnType, argRegs, argTypeStrs, tailPosition)
+    var concreteResult = resultReg
+    if erasedReturn {
+        let word = coerceValueForLlvmTargetImpl(output, getFeatureRegBoxImpl(), "i64", "Int", llvmReturnType, resultReg)
+        concreteResult = reifyErasedWordImpl(output, getFeatureRegBoxImpl(), mapTypeState(returnType), word)
+    }
+    return CallDriverResult.new(concreteResult,
         lowLevelBuiltinResult.boundsCheckLabelCount)
 }

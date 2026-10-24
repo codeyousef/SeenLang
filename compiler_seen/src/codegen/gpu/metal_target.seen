@@ -1,0 +1,17 @@
+/// Closed deployment targets. MSL 3.2 requires Apple silicon; selecting an OS
+/// version never establishes device support or successful SDK compilation.
+import codegen.gpu_ir_ops.{GPU_CAP_STORAGE, GPU_CAP_UNIFORM, GPU_CAP_WORKGROUP, GPU_CAP_FLOAT32, GPU_CAP_ATOMIC32, GPU_CAP_DEVICE_SCOPE, GPU_CAP_SUBGROUP}
+import codegen.gpu_precision_formats.{GPU_CAP_PACKED16, GPU_CAP_PACKED8, GPU_CAP_PACKED4, GPU_CAP_PACKED2,
+    GPU_CAP_FP8, GPU_CAP_MXFP4, GPU_CAP_SPECIALIZATION}
+fun metalTargetValid(target: String) r: Bool {
+    return target == "" or target == "macos13" or target == "macos14" or target == "macos15"
+}
+fun metalLanguageVersion(target: String) r: String {
+    if target == "macos14" { return "metal3.1" }
+    if target == "macos15" { return "metal3.2" }; return "metal3.0"
+}
+fun metalEffectiveTarget(target: String) r: String { if target == "" { return "macos13" }; return target }
+fun metalSupportedCapabilities() r: UInt64 {
+    return GPU_CAP_STORAGE | GPU_CAP_UNIFORM | GPU_CAP_WORKGROUP | GPU_CAP_FLOAT32 | GPU_CAP_ATOMIC32 | GPU_CAP_DEVICE_SCOPE | GPU_CAP_SUBGROUP |
+        GPU_CAP_PACKED16 | GPU_CAP_PACKED8 | GPU_CAP_PACKED4 | GPU_CAP_PACKED2 | GPU_CAP_FP8 | GPU_CAP_MXFP4 | GPU_CAP_SPECIALIZATION
+}

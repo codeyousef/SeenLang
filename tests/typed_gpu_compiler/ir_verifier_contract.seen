@@ -1,0 +1,63 @@
+import ir_fixture_support.{irRequire, irExpect, irCopyFixture, irValueFixture, irBarrierFixture, irConstant, irCallChainFixture}
+import codegen.gpu_ir_ops.{GPU_IR_INT, GPU_IR_RETURN, GPU_IR_BREAK, GPU_IR_ATOMIC_LOAD}
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_value_rules.{gpuIrIntegerLiteralValid, gpuIrFloatLiteralValid, gpuIrBinaryType}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    irRequire(gpuIrIntegerLiteralValid("-2147483648", 2) and gpuIrIntegerLiteralValid("4294967295", 3))
+    irRequire(not gpuIrIntegerLiteralValid("2147483648", 2) and not gpuIrIntegerLiteralValid("4294967296", 3))
+    irRequire(not gpuIrIntegerLiteralValid("-1", 3) and not gpuIrIntegerLiteralValid("1suffix", 2))
+    irRequire(gpuIrFloatLiteralValid("1.25e-8") and not gpuIrFloatLiteralValid(".5") and not gpuIrFloatLiteralValid("4e38"))
+    irRequire(gpuIrBinaryType(13, 3, 3) == 1 and gpuIrBinaryType(13, 35, 35) == 0)
+    let copy = irCopyFixture(); irExpect(copy, ""); copy.release()
+    let value = irValueFixture(); irExpect(value, ""); value.release()
+    let group = irBarrierFixture(false); irExpect(group, ""); group.release()
+    let varying = irBarrierFixture(true); irExpect(varying, "E_GPU_IR_CONVERGENCE"); varying.release()
+    let permittedChain = irCallChainFixture(15); irExpect(permittedChain, ""); permittedChain.release()
+    let deepChain = irCallChainFixture(16); irExpect(deepChain, "E_GPU_IR_CALL_GRAPH"); deepChain.release()
+    println("PASS: GPU-001B typed values owned regions and collective convergence")
+    var mutation = 0
+    while mutation < 19 {
+        let module = irCopyFixture(); let function = module.functions[0]; let root = function.blocks[0]
+        let load = function.blocks[1].instructions[0]; let store = function.blocks[1].instructions[1]
+        var code = "E_GPU_IR_TYPE"
+        if mutation == 0 { load.opcode = 999; code = "E_GPU_IR_OPCODE" }
+        if mutation == 1 { load.operands[0] = 999999; code = "E_GPU_IR_USE" }
+        if mutation == 2 { load.result = 7; code = "E_GPU_IR_DEFINITION" }
+        if mutation == 3 { root.instructions[6].operands[0] = 8; code = "E_GPU_IR_DOMINANCE" }
+        if mutation == 4 { function.blocks[1].parent = 1; code = "E_GPU_IR_REGION" }
+        if mutation == 5 { root.instructions[7].rightBlock = 1; code = "E_GPU_IR_REGION" }
+        if mutation == 6 { store.operands[0] = 1 }
+        if mutation == 7 { load.operands[0] = 2 }
+        if mutation == 8 { root.instructions[0].typeCode = 1003; code = "E_GPU_IR_PARAMETER" }
+        if mutation == 9 { root.instructions[6].immediate = 999 }
+        if mutation == 10 { module.requiredCapabilities = 0 as UInt64; code = "E_GPU_IR_REQUIREMENTS" }
+        if mutation == 11 { module.requiresFaultBuffer = false; code = "E_GPU_IR_REQUIREMENTS" }
+        if mutation == 12 { function.registerCount = 9223372036854775807; code = "E_GPU_IR_LIMIT" }
+        if mutation == 13 { load.operands.push(1); code = "E_GPU_IR_ARITY" }
+        if mutation == 14 { load.memoryScope = 3; code = "E_GPU_IR_MEMORY" }
+        if mutation == 15 { irRequire(load.setText("payload")); code = "E_GPU_IR_PAYLOAD" }
+        if mutation == 16 { root.instructions[7].opcode = GPU_IR_BREAK; root.instructions[7].operands.pop();
+            root.instructions[7].leftBlock = -1; root.instructions[7].rightBlock = -1; code = "E_GPU_IR_REGION" }
+        if mutation == 17 { load.opcode = GPU_IR_ATOMIC_LOAD; load.memoryScope = 4; load.memoryOrder = 3; load.memorySpaces = 1 }
+        if mutation == 18 { function.workgroupX = 1025; code = "E_GPU_IR_ENTRY" }
+        irExpect(module, code); module.release(); mutation = mutation + 1
+    }
+    let badYield = irValueFixture(); badYield.functions[0].blocks[1].instructions[1].operands[0] = 3
+    irExpect(badYield, "E_GPU_IR_DOMINANCE"); badYield.release()
+    let afterReturn = irValueFixture(); let returnOp = GpuIrInstruction.create(GPU_IR_RETURN, 0, 0)
+    afterReturn.functions[0].blocks[0].instructions.push(returnOp)
+    afterReturn.functions[0].blocks[0].instructions.push(irConstant(GPU_IR_INT, 5, 2, "1"))
+    afterReturn.functions[0].registerCount = 5; irExpect(afterReturn, "E_GPU_IR_TERMINATOR"); afterReturn.release()
+    println("PASS: GPU-001B malformed identities access exits memory semantics and requirements rejected")
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 1000 {
+        let good = irCopyFixture(); irExpect(good, ""); good.release()
+        let bad = irBarrierFixture(true); irExpect(bad, "E_GPU_IR_CONVERGENCE"); bad.release()
+        irRequire(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    println("PASS: GPU-001B verifier success and rejection release all owned allocations")
+    println("{\"schema\":\"seen-gpu-ir-v1\",\"classification\":\"verified\",\"scope\":\"ir-verifier\",\"kernel_execution_verified\":false}")
+    return 0
+}

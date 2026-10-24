@@ -1,3 +1,4 @@
+import simd.operation_types.{simdOperationResult}
 ///
 ir_infer_type.seen — Type inference helpers for inferExpressionType
 Extracted from llvm_ir_gen.seen to follow SRP
@@ -8,7 +9,7 @@ Each impl function returns a Seen type string, or "" for fallthrough
 inferBinaryTypeImpl — infer result type from binary operator and operand types
 Returns "" if neither operand type constrains the result (fallthrough to "Int")
 ///
-import simd.ir_types.{simdX86DotType}
+import simd.ir_types.{simdX86DotType, simdArmBlockType}
 var g_methodBoolSuffixCacheCallees: Array<String> = Array<String>()
 var g_methodBoolSuffixCacheLens: Array<Int> = Array<Int>()
 var g_methodBoolSuffixCacheTypes: Array<String> = Array<String>()
@@ -171,6 +172,10 @@ fun inferBinaryTypeImpl(operator: String, leftType: String, rightType: String) r
     // Float promotion: if either operand is Float, result is Float
     if leftType == "Float" or rightType == "Float" {
         return "Float"
+    }
+    if (leftType == "Float32" and rightType == "Float64") or
+        (leftType == "Float64" and rightType == "Float32") {
+        return "Float64"
     }
     // Arithmetic on matching fixed-width scalars preserves the declared ABI
     // type.  Lowering may widen integer operands internally, but the public
@@ -548,6 +553,10 @@ Array/SmallVec/HashMap/BTreeMap/LinkedList constructors, Result constructors
 Returns "" for callee names that require runtime lookup (getFunctionReturnType, isClassType, etc.)
 ///
 fun inferCallExprTypeImpl(callee: String) r: String {
+    let portable = simdOperationResult(callee)
+    if portable != "" { return portable }
+    let armType = simdArmBlockType(callee)
+    if armType != "" { return armType }
     let dot = simdX86DotType(callee)
     if dot != "" { return dot }
     // SIMD gather return types

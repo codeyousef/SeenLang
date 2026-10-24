@@ -1,0 +1,80 @@
+/// One PTX entry owns code, initializers, shared declarations and resources.
+/// Constants are initialized at entry, including constants first requested in
+/// a branch. Helpers inline with fresh frames and share only resource borrows.
+import codegen.gpu_ir_model.{GpuIrValidation}
+import codegen.gpu.ptx_text.{GpuPtxText}
+class GpuPtxResource {
+    var typeCode: Int
+    var address: Int
+    var length: Int
+    var uniformBase: Int
+    var shared: Bool
+}
+class GpuPtxFunction {
+    var validation: GpuIrValidation
+    var target: String
+    var body: GpuPtxText
+    var initializers: GpuPtxText
+    var sharedDeclarations: GpuPtxText
+    var resources: Array<GpuPtxResource>
+    var words: Array<Int>
+    var constants: Array<Int>
+    var nextRegister: Int
+    var nextAddress: Int
+    var nextPredicate: Int
+    var nextLabel: Int
+    var faultAddress: Int
+    var sharedBytes: Int
+    var workgroupX: Int
+    var workgroupY: Int
+    var workgroupZ: Int
+    var functionIndex: Int
+    var blockIndex: Int
+    var instructionIndex: Int
+    fun error(code: String, message: String) r: Void {
+        this.validation.reject(code, message, this.functionIndex, this.blockIndex, this.instructionIndex)
+    }
+    fun allocate(kind: Int, count: Int) r: Int {
+        if not this.validation.valid { return 0 }
+        if kind < 0 or kind > 3 { this.error("E_GPU_PTX_LIMIT", "PTX identity kind is invalid"); return 0 }
+        var next = this.nextRegister
+        if kind == 1 { next = this.nextAddress }; if kind == 2 { next = this.nextPredicate }; if kind == 3 { next = this.nextLabel }
+        if count < 1 or count > 1048576 - next { this.error("E_GPU_PTX_LIMIT", "PTX identity ceiling exceeded"); return 0 }
+        if kind == 0 { this.nextRegister = next + count }; if kind == 1 { this.nextAddress = next + count }
+        if kind == 2 { this.nextPredicate = next + count }; if kind == 3 { this.nextLabel = next + count }; return next
+    }
+    fun word(value: Int) r: Int {
+        if not this.validation.valid { return 0 }
+        let bits = value & 4294967295; var i = 0
+        while i < this.words.length() { if this.words[i] == bits { return this.constants[i] }; i = i + 1 }
+        if this.words.length() >= 16384 { this.error("E_GPU_PTX_LIMIT", "PTX constant ceiling exceeded"); return 0 }
+        let identity = this.allocate(0, 1); this.words.push(bits); this.constants.push(identity)
+        this.initializers.literal("mov.b32 "); this.initializers.reg("r", identity); this.initializers.literal(", ")
+        this.initializers.hexWord(bits); this.initializers.literal(";\n"); return identity
+    }
+    fun addResource(resource: GpuPtxResource) r: Int {
+        if not this.validation.valid { resource.free(); return -1 }
+        if this.resources.length() >= 8192 { resource.free(); this.error("E_GPU_PTX_LIMIT", "PTX resource ceiling exceeded"); return -1 }
+        let index = this.resources.length(); this.resources.push(resource); return index
+    }
+    fun fault(kind: Int) r: Void {
+        if this.faultAddress == 0 { this.error("E_GPU_PTX_LAYOUT", "PTX fault operation lacks its reflected binding"); return }
+        let previous = this.allocate(0, 1)
+        this.body.literal("atom.global.or.b32 "); this.body.reg("r", previous); this.body.literal(", [")
+        this.body.reg("a", this.faultAddress); this.body.literal("], "); this.body.hexWord(1 << (kind - 1)); this.body.literal(";\n")
+    }
+    fun faultWhen(predicate: Int, kind: Int) r: Void {
+        let bad = this.allocate(3, 1); let merge = this.allocate(3, 1)
+        this.body.conditional(predicate, bad); this.body.branch(merge); this.body.defineLabel(bad); this.fault(kind); this.body.defineLabel(merge)
+    }
+    fun release() r: Void {
+        var i = 0; while i < this.resources.length() { let resource: GpuPtxResource = this.resources[i]; resource.free(); i = i + 1 }
+        this.resources.free(); this.words.free(); this.constants.free(); this.body.release(); this.initializers.release(); this.sharedDeclarations.release(); this.free()
+    }
+}
+fun createGpuPtxFunction(validation: GpuIrValidation, x: Int, y: Int, z: Int) r: GpuPtxFunction {
+    return GpuPtxFunction{validation: validation, target: "sm_80", body: GpuPtxText.create(validation), initializers: GpuPtxText.create(validation),
+        sharedDeclarations: GpuPtxText.create(validation), resources: Array<GpuPtxResource>(), words: Array<Int>(), constants: Array<Int>(),
+        nextRegister: 1, nextAddress: 1, nextPredicate: 1, nextLabel: 1, faultAddress: 0, sharedBytes: 0,
+        workgroupX: x, workgroupY: y, workgroupZ: z, functionIndex: -1, blockIndex: -1, instructionIndex: -1}
+}

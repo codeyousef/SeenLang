@@ -1,0 +1,63 @@
+import codegen.gpu.ptx_emitter.{emitGpuPtx}
+import codegen.gpu.amdgpu_emitter.{emitGpuAmdgpu}
+import codegen.gpu.metal_emitter.{emitGpuMetal}
+import codegen.gpu.metal_target.{metalEffectiveTarget}
+/// Artifact construction borrows one verified module and options. It returns
+/// owned bytes/reflection/digests together, or one owned validation. Every
+/// partially completed phase is released before a typed error is propagated.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrDiagnostic, GpuIrValidation}
+import codegen.gpu_options.{GpuOptions}
+import codegen.gpu.spirv_emitter.{emitGpuSpirv}
+import codegen.gpu.spirv_binary.{encodeGpuSpirvBinary}
+import codegen.gpu_artifact_model.{GpuArtifact}
+import codegen.gpu_reflection.{reflectGpuModule, gpuReflectionHash}
+import json.builder.{releaseJsonText}
+
+fun gpuArtifactDiagnostic(error: GpuIrDiagnostic) r: GpuIrValidation {
+    let validation = GpuIrValidation.create(); validation.reject(error.code, error.message, -1, -1, -1); error.free(); return validation
+}
+fun buildGpuArtifact(borrow module: GpuIrModule, borrow options: GpuOptions) r: Result<GpuArtifact, GpuIrValidation> {
+    var binary = ""; var target = "vulkan1.2"
+    if options.backend == "spirv" {
+        let emitted = emitGpuSpirv(module, options)
+        if emitted.isErr() { let error = emitted.unwrapErr(); emitted.releaseContainer(); return Err<GpuArtifact, GpuIrValidation>(error) }
+        let words = emitted.unwrap(); emitted.releaseContainer(); let encoded = encodeGpuSpirvBinary(words); words.free()
+        if encoded.isErr() { let error = encoded.unwrapErr(); encoded.releaseContainer(); return Err<GpuArtifact, GpuIrValidation>(gpuArtifactDiagnostic(error)) }
+        binary = encoded.unwrap(); encoded.releaseContainer(); if options.target == "vulkan1.3" { target = "vulkan1.3" }
+    } else if options.backend == "cuda" {
+        let emitted = emitGpuPtx(module, options)
+        if emitted.isErr() { let error = emitted.unwrapErr(); emitted.releaseContainer(); return Err<GpuArtifact, GpuIrValidation>(error) }
+        binary = emitted.unwrap(); emitted.releaseContainer(); target = "sm_80"
+        if options.target != "" { target = options.target }
+    } else if options.backend == "hip" {
+        let emitted = emitGpuAmdgpu(module, options)
+        if emitted.isErr() { let error = emitted.unwrapErr(); emitted.releaseContainer(); return Err<GpuArtifact, GpuIrValidation>(error) }
+        binary = emitted.unwrap(); emitted.releaseContainer(); target = "gfx90a"
+        if options.target != "" { target = options.target }
+    } else if options.backend == "metal" {
+        let emitted = emitGpuMetal(module, options)
+        if emitted.isErr() { let error = emitted.unwrapErr(); emitted.releaseContainer(); return Err<GpuArtifact, GpuIrValidation>(error) }
+        binary = emitted.unwrap(); emitted.releaseContainer(); target = metalEffectiveTarget(options.target)
+    } else {
+        let validation = GpuIrValidation.create(); validation.reject("E_GPU_BACKEND_UNAVAILABLE", "selected backend has no offline emitter", -1, -1, -1)
+        return Err<GpuArtifact, GpuIrValidation>(validation)
+    }
+    let reflected = reflectGpuModule(module, options)
+    if reflected.isErr() {
+        let error = reflected.unwrapErr(); reflected.releaseContainer(); releaseJsonText(binary); return Err<GpuArtifact, GpuIrValidation>(error)
+    }
+    let reflection = reflected.unwrap(); reflected.releaseContainer(); let hashed = gpuReflectionHash(binary)
+    if hashed.isErr() {
+        let error = hashed.unwrapErr(); hashed.releaseContainer(); releaseJsonText(binary); releaseJsonText(reflection)
+        return Err<GpuArtifact, GpuIrValidation>(gpuArtifactDiagnostic(error))
+    }
+    let binaryHash = hashed.unwrap(); hashed.releaseContainer(); let reflectedHash = gpuReflectionHash(reflection)
+    if reflectedHash.isErr() {
+        let error = reflectedHash.unwrapErr(); reflectedHash.releaseContainer(); releaseJsonText(binary); releaseJsonText(reflection); releaseJsonText(binaryHash)
+        return Err<GpuArtifact, GpuIrValidation>(gpuArtifactDiagnostic(error))
+    }
+    let reflectionHash = reflectedHash.unwrap(); reflectedHash.releaseContainer()
+    return Ok<GpuArtifact, GpuIrValidation>(GpuArtifact{binary: binary, reflection: reflection,
+        binaryHash: binaryHash, reflectionHash: reflectionHash, target: target, backend: options.backend})
+}

@@ -1,0 +1,55 @@
+/// Translate portable scalar word operations to SPIR-V. Conversion policy is
+/// owned by scalar plans; this adapter only maps target opcodes and identities.
+import codegen.gpu.scalar_plan.{GpuScalarPlan, GpuScalarValues}
+import codegen.gpu.scalar_ops.{SCALAR_BITCAST, SCALAR_FLOAT_TO_UINT, SCALAR_UINT_TO_FLOAT, SCALAR_ADD, SCALAR_SUBTRACT, SCALAR_MULTIPLY, SCALAR_FLOAT_MULTIPLY, SCALAR_SHIFT_RIGHT, SCALAR_SHIFT_LEFT, SCALAR_BIT_OR, SCALAR_BIT_XOR, SCALAR_BIT_AND, SCALAR_BOOL_OR, SCALAR_BOOL_AND, SCALAR_EQUAL, SCALAR_NOT_EQUAL, SCALAR_UNSIGNED_GREATER, SCALAR_UNSIGNED_GREATER_EQUAL, SCALAR_UNSIGNED_LESS, SCALAR_UNSIGNED_LESS_EQUAL, SCALAR_SIGNED_GREATER_EQUAL, SCALAR_SIGNED_LESS, SCALAR_SIGNED_LESS_EQUAL}
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_math.{spirvUnaryValue, spirvBinaryValue, spirvSelectValue}
+import codegen.gpu.spirv_extended.{spirvGlslValue}
+
+fun scalarSpirvOpcode(operation: Int) r: Int {
+    if operation == SCALAR_BITCAST { return 124 }; if operation == SCALAR_FLOAT_TO_UINT { return 109 }; if operation == SCALAR_UINT_TO_FLOAT { return 112 }
+    if operation == SCALAR_ADD { return 128 }; if operation == SCALAR_SUBTRACT { return 130 }; if operation == SCALAR_MULTIPLY { return 132 }
+    if operation == SCALAR_FLOAT_MULTIPLY { return 133 }; if operation == SCALAR_SHIFT_RIGHT { return 194 }; if operation == SCALAR_SHIFT_LEFT { return 196 }
+    if operation == SCALAR_BIT_OR { return 197 }; if operation == SCALAR_BIT_XOR { return 198 }; if operation == SCALAR_BIT_AND { return 199 }
+    if operation == SCALAR_BOOL_OR { return 166 }; if operation == SCALAR_BOOL_AND { return 167 }; if operation == SCALAR_EQUAL { return 170 }
+    if operation == SCALAR_NOT_EQUAL { return 171 }; if operation == SCALAR_UNSIGNED_GREATER { return 172 }; if operation == SCALAR_UNSIGNED_GREATER_EQUAL { return 174 }
+    if operation == SCALAR_UNSIGNED_LESS { return 176 }; if operation == SCALAR_UNSIGNED_LESS_EQUAL { return 178 }; if operation == SCALAR_SIGNED_GREATER_EQUAL { return 175 }
+    if operation == SCALAR_SIGNED_LESS { return 177 }; if operation == SCALAR_SIGNED_LESS_EQUAL { return 179 }; return 0
+}
+fun emitSpirvScalarPlan(function: GpuSpirvFunction, plan: GpuScalarPlan) r: GpuScalarValues {
+    let output = GpuScalarValues{value: 0, laneValid: 0, scaleValid: 0}; let context = function.context
+    if not plan.validate() {
+        context.error("E_GPU_SPIRV_PRECISION", plan.message); plan.release(); return output
+    }
+    let values = Array<Int>.withLength(plan.codes.length() + 1); var index = 0
+    while index < plan.codes.length() and context.validation.valid {
+        let code = plan.codes[index]; let typeCode = plan.types[index]; let first = plan.first[index]; var value = 0
+        if code == 0 { value = first }
+        else if code == 1 { value = context.constant(typeCode, first) }
+        else if code == 2 { value = spirvSelectValue(function, typeCode, values[first], values[plan.second[index]], values[plan.third[index]]) }
+        else if code == 3 { value = spirvGlslValue(function, 2, 4, [values[first]]) }
+        else if code >= 4 and code <= 6 {
+            value = context.id(); var opcode = 203; if code == 5 { opcode = 202 }; if code == 6 { opcode = 201 }
+            let operands = [context.valueType(typeCode), value, values[first], values[plan.second[index]], values[plan.third[index]]]
+            if code == 6 { operands.push(values[plan.fourth[index]]) }; function.emit(opcode, operands)
+        } else if code >= 100 and code < 200 {
+            let opcode = scalarSpirvOpcode(code - 100)
+            if opcode == 0 { context.error("E_GPU_SPIRV_PRECISION", "SPIR-V scalar conversion is unsupported"); break }
+            value = spirvUnaryValue(function, opcode, typeCode, values[first])
+        } else {
+            let opcode = scalarSpirvOpcode(code - 200)
+            if opcode == 0 { context.error("E_GPU_SPIRV_PRECISION", "SPIR-V scalar operation is unsupported"); break }
+            value = spirvBinaryValue(function, opcode, typeCode, values[first], values[plan.second[index]])
+        }
+        values[index + 1] = value; index = index + 1
+    }
+    if context.validation.valid {
+        output.value = values[plan.result]
+        if plan.laneValid > 0 { output.laneValid = values[plan.laneValid] }
+        if plan.scaleValid > 0 { output.scaleValid = values[plan.scaleValid] }
+    }
+    values.free(); plan.release(); return output
+}
+fun spirvScalarPlanValue(function: GpuSpirvFunction, plan: GpuScalarPlan) r: Int {
+    let output = emitSpirvScalarPlan(function, plan); let result = output.value; output.free(); return result
+}

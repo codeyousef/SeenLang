@@ -1,9 +1,10 @@
+import codegen.ir_bounds_proof_state.{consumeBoundsProof}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 // ir_index_access_driver.seen - prepared index access lowering leaves.
 
 import str.string.{StringBuilder}
 import parser.real_parser.{ParserExpressionNode}
-import codegen.ir_assignment_gen.{emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl}
+import codegen.ir_assignment_gen.{emitPreparedIndexAssignmentStoreImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getFunctionReturnTypeWithGlobalStateImpl, getGlobalStructNamesImpl}
 import codegen.ir_codegen_metrics_state.{cseClear}
@@ -63,7 +64,9 @@ fun emitIndexBoundsCheckState(output: StringBuilder, arrayReg: String,
     emitPreparedIndexBoundsCheckImpl(output, getFeatureRegBoxImpl(), arrayReg,
         indexReg, boundsCountBox)
     cseClear()
-    return boundsCountBox[0]
+    let nextBoundsCount = boundsCountBox[0]
+    boundsCountBox.free()
+    return nextBoundsCount
 }
 
 fun emitTypedIndexAccessState(output: StringBuilder, arrayType: String,
@@ -109,15 +112,8 @@ fun emitPreparedIndexAssignmentState(output: StringBuilder, arrayReg: String,
         output.append("  store " + elementLlvm + " " + stored + ", ptr " + address + ", align 1 ; typed ptr[i] assignment\n")
         return boundsCheckCount
     }
-    var nextBoundsCount = boundsCheckCount
-    if boundsCheckEnabled == 1 {
-        let labelSuffix = nextBoundsCount.toString()
-        nextBoundsCount = nextBoundsCount + 1
-        emitPreparedIndexAssignmentBoundsCheckImpl(output, getFeatureRegBoxImpl(),
-            arrayReg, indexReg, "bounds_fail_" + labelSuffix,
-            "bounds_ok_" + labelSuffix)
-        cseClear()
-    }
+    let nextBoundsCount = emitIndexBoundsCheckState(output, arrayReg,
+        indexReg, boundsCheckEnabled, boundsCheckCount)
 
     var elementType: String = "ptr"
     if arrayType.startsWith("Array<") {
@@ -167,8 +163,13 @@ fun generateIndexAccessState(ctx: CodegenLoweringContext,
     let indexReg = lowerExpression(ctx, expr.operands[1])
     arrayReg = applyBlockStatementsIndexAccessFallbackState(output,
         arrayReg, expr.operands[0].variableName, varRegs, varTypes)
+    var checked = boundsCheckEnabled
+    if checked == 1 and consumeBoundsProof(expr.operands[0], expr.operands[1]) {
+        output.append("  ; bounds-proof: canonical zero-to-stable-length read\n")
+        checked = 0
+    }
     let nextBoundsCount = emitIndexBoundsCheckState(output, arrayReg,
-        indexReg, boundsCheckEnabled, boundsCheckLabelCount)
+        indexReg, checked, boundsCheckLabelCount)
     let arrayType = inferLoweredExpressionType(ctx, expr.operands[0])
     return IndexAccessResult.new(emitTypedIndexAccessState(output,
         arrayType, arrayReg, indexReg), nextBoundsCount)

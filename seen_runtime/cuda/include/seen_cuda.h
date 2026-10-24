@@ -148,6 +148,10 @@ SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_create(int32_t device,
     SeenCudaHandle *stream);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_destroy(SeenCudaHandle *stream);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_synchronize(SeenCudaHandle stream);
+/* Nonblocking private-stream drain observation, including when event recording
+ * failed. *ready starts at zero; pending is OK/0 and complete is OK/1. */
+SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_query(SeenCudaHandle stream,
+    int32_t *ready);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_stream_borrow_launch_token(
     SeenCudaHandle stream, int32_t expected_device,
     SeenCudaStreamLaunchToken *token);
@@ -156,6 +160,11 @@ SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_create(int32_t device,
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_record(SeenCudaHandle event,
     SeenCudaHandle stream);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_synchronize(SeenCudaHandle event);
+/* Nonblocking observation only. Initializes *ready to zero, returns OK/0 for
+ * cudaErrorNotReady and OK/1 only for observed completion. Failure never grants
+ * completion. The caller retains event and submitted resources while pending. */
+SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_query(SeenCudaHandle event,
+    int32_t *ready);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_elapsed_ms(SeenCudaHandle start,
     SeenCudaHandle end, float *milliseconds);
 SEEN_CUDA_EXPORT SeenCudaStatus seen_cuda_event_destroy(SeenCudaHandle *event);

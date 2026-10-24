@@ -1,0 +1,30 @@
+@compute(64)
+fun mfmaHalf(a: ReadBuffer<UInt32>, b: ReadBuffer<UInt32>, output: WriteBuffer<Float32>, aOffset: Uniform<UInt32>, bOffset: Uniform<UInt32>, aStride: Uniform<UInt32>, bStride: Uniform<UInt32>, outputOffset: Uniform<UInt32>, outputStride: Uniform<UInt32>) {
+    let left = coopLoadA(a, aOffset, aStride, FP16, Tile16x16x16, RowMajor)
+    let right = coopLoadB(b, bOffset, bStride, FP16, Tile16x16x16, ColumnMajor)
+    let result = coopMma(left, right, coopFillFp32(0.0, Tile16x16x16))
+    coopStore(result, output, outputOffset, outputStride, RowMajor)
+}
+
+@compute(64)
+fun mfmaBfloat(a: ReadBuffer<UInt32>, b: ReadBuffer<UInt32>, output: WriteBuffer<Float32>, aOffset: Uniform<UInt32>, bOffset: Uniform<UInt32>, aStride: Uniform<UInt32>, bStride: Uniform<UInt32>, outputOffset: Uniform<UInt32>, outputStride: Uniform<UInt32>) {
+    let left = coopLoadA(a, aOffset, aStride, BF16, Tile16x16x16, RowMajor)
+    let right = coopLoadB(b, bOffset, bStride, BF16, Tile16x16x16, ColumnMajor)
+    let result = coopMma(left, right, coopFillFp32(0.0, Tile16x16x16))
+    coopStore(result, output, outputOffset, outputStride, ColumnMajor)
+}
+
+@compute(64)
+fun mfmaShared(output: WriteBuffer<Float32>) {
+    let scratch: SharedBuffer<UInt32> = sharedBuffer(128)
+    let left = coopLoadA(scratch, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, RowMajor)
+    let right = coopLoadB(scratch, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, ColumnMajor)
+    let result = coopMma(left, right, coopFillFp32(1.0, Tile16x16x16))
+    coopStore(result, output, 0 as UInt32, 16 as UInt32, RowMajor)
+}
+
+@compute(64)
+fun fillMatrix(output: WriteBuffer<Float32>, value: Uniform<Float32>, offset: Uniform<UInt32>, stride: Uniform<UInt32>) {
+    let matrix = coopFillFp32(value, Tile16x16x16)
+    coopStore(matrix, output, offset, stride, RowMajor)
+}

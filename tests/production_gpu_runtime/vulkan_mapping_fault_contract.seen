@@ -1,0 +1,69 @@
+import compute.vulkan_mapping.{gpuVkMapBuffer, GpuVulkanMappedRegion}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.error.{GpuError}
+import core.result.{Result}
+import env.env.{args, releaseArgs}
+import device_fixture_support.{gpuFixtureRejected}
+import provider_fixture_support.{completed}
+import vulkan_mapping_fixture_support.{mappingWorld}
+import buffer_region_fixture_support.{region, rejectedRegion}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun mapped(result: Result<GpuVulkanMappedRegion, GpuError>) r: GpuVulkanMappedRegion {
+    if result.isErr() { abort("expected Vulkan mapping was rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun rejected(result: Result<GpuVulkanMappedRegion, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("injected Vulkan mapping fault was ignored") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("Vulkan mapping fault diagnostic changed") }
+    error.release()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    if arguments.length() != 3 { abort("mapping fault requires mode and expected code") }
+    var kind = GpuMemoryKind.HostVisible
+    if arguments[1] == "map-not-visible" { kind = GpuMemoryKind.DeviceLocal }
+    let world = mappingWorld(kind); let allocator = world.allocator; let op = world.operation
+    let created = GpuBuffer<UInt8>.allocate(allocator, 32 as UInt64, 1 as UInt64, 256 as UInt64, op)
+    if created.isErr() { abort("mapping fault failed before allocation") }
+    let buffer = created.unwrap(); created.releaseContainer()
+    if arguments[1] == "map-flush-once" or arguments[1] == "map-noncoherent" {
+        let other = GpuBuffer<UInt8>.allocate(allocator, 32 as UInt64, 1 as UInt64, 256 as UInt64, op)
+        if other.isErr() { abort("noncoherent peer buffer unavailable") }
+        let second = other.unwrap(); other.releaseContainer()
+        let pending = region(second.region(0 as UInt64, 1 as UInt64, false, op))
+        rejected(gpuVkMapBuffer(buffer, 0 as UInt64, 32 as UInt64, true, op), "gpu.busy")
+        completed(pending.release(), true)
+        let writer = mapped(gpuVkMapBuffer(buffer, 0 as UInt64, 32 as UInt64, true, op))
+        completed(writer.writeByte(0 as UInt64, 255 as UInt8), true)
+        rejectedRegion(second.region(0 as UInt64, 1 as UInt64, false, op), "gpu.busy")
+        rejected(gpuVkMapBuffer(second, 0 as UInt64, 1 as UInt64, false, op), "gpu.busy")
+        if arguments[1] == "map-flush-once" {
+            gpuFixtureRejected(writer.close(), arguments[2])
+            if not writer.valid() { abort("failed flush discarded mapping ownership") }
+            gpuFixtureRejected(buffer.close(), "gpu.busy")
+        }
+        completed(writer.close(), true); completed(writer.close(), false); completed(writer.release(), true)
+        let reader = mapped(gpuVkMapBuffer(buffer, 0 as UInt64, 32 as UInt64, false, op))
+        let byte = reader.readByte(0 as UInt64)
+        if byte.isErr() or byte.unwrap() != (255 as UInt8) { abort("noncoherent map lost flushed bytes") }
+        byte.releaseContainer(); completed(reader.release(), true); completed(second.release(), true)
+    } else {
+        var offset = 0 as UInt64; var bytes = 1 as UInt64
+        if arguments[1] == "map-address-overflow" { offset = 8 as UInt64 }
+        if arguments[1] == "map-span-overflow" { bytes = 32 as UInt64 }
+        rejected(gpuVkMapBuffer(buffer, offset, bytes, false, op), arguments[2])
+    }
+    if allocator.core.blocks[0].mappedBorrowers != 0 or allocator.core.blocks[0].mappedAddress != (0 as UInt64) {
+        abort("Vulkan mapping failure retained native map metadata")
+    }
+    completed(buffer.release(), true); world.release(); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics {
+        abort("Vulkan mapping failure retained Seen ownership")
+    }
+    println("PASS: GPU-006C native mapping faults preserve ownership cleanup and retry")
+    return 0
+}

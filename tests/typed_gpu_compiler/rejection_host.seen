@@ -1,0 +1,2 @@
+@compute(1) fun tensorElementwiseAdd() { println(1) }
+fun main() r: Int { return 0 }

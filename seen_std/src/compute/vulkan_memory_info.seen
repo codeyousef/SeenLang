@@ -1,0 +1,62 @@
+/// Decode Vulkan memory types once for reporting and native allocation. SDK
+/// byte storage is borrowed; the result owns independent typed memory records.
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GPU_MAX_MEMORY_BYTES}
+import compute.vulkan_abi.{gpuVkU32, gpuVkU64, GPU_VK_MEMORY_BYTES}
+import memory.aligned_buffer.{OwnedBuffer}
+import core.result.{Result, Ok, Err}
+
+class GpuVulkanMemoryType { var flags: UInt32; var heapBytes: UInt64 }
+@move
+class GpuVulkanMemoryInfo {
+    var types: Array<GpuVulkanMemoryType>
+    var totalLocalBytes: UInt64
+    var hostVisible: Bool
+
+    fun release() r: Void {
+        var index = 0
+        while index < this.types.length() { this.types[index].free(); index = index + 1 }
+        this.types.free(); this.free()
+    }
+}
+
+fun gpuVkDecodeMemory(borrow memory: OwnedBuffer<UInt8>) r: Result<GpuVulkanMemoryInfo, GpuError> {
+    if memory.byteLength != GPU_VK_MEMORY_BYTES {
+        return Err<GpuVulkanMemoryInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory property storage has an invalid size"))
+    }
+    let typeCount = gpuVkU32(memory, 0 as UInt64) as Int; let heapCount = gpuVkU32(memory, 260 as UInt64) as Int
+    if typeCount == 0 or typeCount > 32 or heapCount == 0 or heapCount > 16 {
+        return Err<GpuVulkanMemoryInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "invalid Vulkan memory property counts"))
+    }
+    var total = 0 as UInt64; var index = 0
+    while index < heapCount {
+        let offset = (264 as UInt64) + (index as UInt64) * (16 as UInt64); let size = gpuVkU64(memory, offset)
+        if size == (0 as UInt64) or size > GPU_MAX_MEMORY_BYTES {
+            return Err<GpuVulkanMemoryInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory heap size is invalid"))
+        }
+        if (gpuVkU32(memory, offset + (8 as UInt64)) & (1 as UInt32)) != (0 as UInt32) {
+            if size > GPU_MAX_MEMORY_BYTES - total {
+                return Err<GpuVulkanMemoryInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory heap total exceeds its bound"))
+            }
+            total = total + size
+        }
+        index = index + 1
+    }
+    let info = GpuVulkanMemoryInfo{types: Array<GpuVulkanMemoryType>(), totalLocalBytes: total, hostVisible: false}
+    index = 0
+    while index < typeCount {
+        let offset = (4 as UInt64) + (index as UInt64) * (8 as UInt64)
+        let flags = gpuVkU32(memory, offset); let heap = gpuVkU32(memory, offset + (4 as UInt64)) as Int
+        if heap >= heapCount {
+            info.release(); return Err<GpuVulkanMemoryInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory type refers to an absent heap"))
+        }
+        let heapOffset = (264 as UInt64) + (heap as UInt64) * (16 as UInt64)
+        if (flags & (1 as UInt32)) != (gpuVkU32(memory, heapOffset + (8 as UInt64)) & (1 as UInt32)) {
+            info.release(); return Err<GpuVulkanMemoryInfo, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.properties", "Vulkan memory type and heap locality disagree"))
+        }
+        if (flags & (2 as UInt32)) != (0 as UInt32) { info.hostVisible = true }
+        info.types.push(GpuVulkanMemoryType{flags: flags, heapBytes: gpuVkU64(memory, heapOffset)})
+        index = index + 1
+    }
+    return Ok<GpuVulkanMemoryInfo, GpuError>(info)
+}

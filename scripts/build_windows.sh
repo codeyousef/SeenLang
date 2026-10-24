@@ -103,6 +103,25 @@ compile_runtime() {
         "$PROJECT_DIR/releases/compatibility-manifest.json" \
         "$RUNTIME_DIR/seen_runtime.c" \
         "$RUNTIME_DIR/seen_runtime.h" \
+        "$RUNTIME_DIR/src/executor_abi.c" \
+        "$RUNTIME_DIR/src/executor_abi.h" \
+        "$RUNTIME_DIR/src/executor_socket_abi.c" \
+        "$RUNTIME_DIR/src/executor_socket_abi.h" \
+        "$RUNTIME_DIR/src/executor_completion_abi.c" \
+        "$RUNTIME_DIR/src/executor_completion_abi.h" \
+        "$RUNTIME_DIR/src/allocation_observer_abi.c" \
+        "$RUNTIME_DIR/src/io_uring_abi.c" \
+        "$RUNTIME_DIR/src/io_uring_abi.h" \
+        "$RUNTIME_DIR/src/iocp_abi.c" \
+        "$RUNTIME_DIR/src/iocp_abi.h" \
+        "$RUNTIME_DIR/src/macos_io_abi.c" \
+        "$RUNTIME_DIR/src/macos_io_abi.h" \
+        "$RUNTIME_DIR/src/executor_readiness_abi.c" \
+        "$RUNTIME_DIR/src/executor_readiness_abi.h" \
+        "$RUNTIME_DIR/src/executor_process_abi.c" \
+        "$RUNTIME_DIR/src/executor_process_abi.h" \
+        "$RUNTIME_DIR/src/executor_stream_abi.c" \
+        "$RUNTIME_DIR/src/executor_stream_abi.h" \
         "$RUNTIME_DIR/seen_region.c" \
         "$RUNTIME_DIR/seen_region.h" \
         "$RUNTIME_DIR/seen_tee_common.c" \

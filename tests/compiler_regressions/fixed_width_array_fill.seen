@@ -1,0 +1,57 @@
+extern "C" fun seen_memory_used_bytes() r: Int64
+import env.env.{args, releaseArgs}
+fun filledArrays(count: Int) r: Void {
+    let bytes = Array<UInt8>.withLength(count)
+    let shorts = Array<Int16>.withLength(count)
+    let words = Array<UInt32>.withLength(count)
+    let wide = Array<UInt64>.withLength(count)
+    let floats = Array<Float32>.withLength(count)
+    var index = 0
+    while index < count {
+        if bytes[index] != (0 as UInt8) or shorts[index] != (0 as Int16) or
+            words[index] != (0 as UInt32) or wide[index] != (0 as UInt64) or
+            floats[index] != (0 as Float32) { abort("fixed-width array was not zero-filled") }
+        bytes[index] = ((index * 17 + 128) & 255)
+        shorts[index] = ((index % 256) - 128)
+        words[index] = (2147483648 as UInt64) + ((index * 65537) as UInt64)
+        wide[index] = ((1 as UInt64) << 63) | (index as UInt64)
+        floats[index] = index as Float
+        index = index + 1
+    }
+    let byteData: *UInt8 = bytes.data(); let shortData: *Int16 = shorts.data()
+    let wordData: *UInt32 = words.data(); let wideData: *UInt64 = wide.data(); let floatData: *Float32 = floats.data()
+    index = 0
+    while index < count {
+        if byteData[index] != (((index * 17 + 128) & 255) as UInt8) or
+            shortData[index] != (((index % 256) - 128) as Int16) or
+            wordData[index] != ((2147483648 + index * 65537) as UInt32) or
+            wideData[index] != (((1 as UInt64) << 63) | (index as UInt64)) or
+            floatData[index] != (index as Float32) {
+            abort("filled array header and typed pointer strides disagree")
+        }
+        index = index + 1
+    }
+    bytes.free(); shorts.free(); words.free(); wide.free(); floats.free()
+}
+fun main() r: Int {
+    let argv = args()
+    if argv.length() > 1 {
+        if argv[1] == "negative" {
+            let invalid = Array<UInt8>.withLength(-1); invalid.free()
+        } else if argv[1] == "overflow" {
+            let invalid = Array<UInt32>.withLength(4611686018427387904); invalid.free()
+        }
+        releaseArgs(argv); return 0
+    }
+    releaseArgs(argv)
+    let baseline = seen_memory_used_bytes(); var round = 0
+    while round < 20 {
+        var count = 0
+        while count <= 17 { filledArrays(count); count = count + 1 }
+        filledArrays(257)
+        if seen_memory_used_bytes() != baseline { abort("fixed-width filled array cleanup leaked") }
+        round = round + 1
+    }
+    println("PASS: fixed-width filled arrays preserve zeroing strides and ownership")
+    return 0
+}

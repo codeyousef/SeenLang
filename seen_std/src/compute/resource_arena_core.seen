@@ -1,0 +1,290 @@
+/// Creator-confined buffer pool state. Range partitioning and vendor calls
+/// are delegated; this owner enforces quotas, generations and cleanup order.
+import compute.context_lease.{GpuContextLease}
+import compute.resource_provider.{GpuResourceProviderHandle, GpuNativeBlock}
+import compute.resource_ranges.{GpuRangeSet, GpuRangeReservation}
+import compute.resource_geometry.{GpuBufferGeometry, gpuResourceAlignmentValid}
+import compute.resource_stats.{GpuStats}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.error.{GpuError, gpuFailure}
+import compute.operation.{gpuCheckOperation}
+import core.operation_context.{OperationContext}
+import core.option.{None}
+import core.result.{Result, Ok, Err}
+import memory.allocation.{allocationBudgetAvailable}
+
+let GPU_RESOURCE_MAX_GENERATION: UInt64 = 9223372036854775807 as UInt64
+
+fun gpuReleaseResourceLease(lease: GpuContextLease) r: Void {
+    let closed = lease.release()
+    if closed.isErr() { abort("resource context lease changed during confined cleanup") }
+    closed.releaseContainer()
+}
+fun gpuReleaseRangeSet(ranges: GpuRangeSet) r: Void {
+    let closed = ranges.release()
+    if closed.isErr() { abort("resource free ranges changed during confined cleanup") }
+    closed.releaseContainer()
+}
+
+class GpuArenaBlock {
+    var native: GpuNativeBlock
+    var lease: GpuContextLease
+    var ranges: GpuRangeSet
+    var chargedBytes: UInt64
+    var usableBytes: UInt64
+    var liveBuffers: Int
+    var active: Bool
+    var quarantined: Bool
+    var mappedAddress: UInt64
+    var mappedBorrowers: Int
+    var regionBorrowers: Int
+}
+class GpuBufferSlot {
+    var block: Int
+    var range: GpuRangeReservation
+    var lease: GpuContextLease
+    var requestedBytes: UInt64
+    var generation: UInt64
+    var readers: Int
+    var writers: Int
+    var active: Bool
+}
+@move
+class GpuBufferSlotRef { var index: Int; var generation: UInt64 }
+
+class GpuArenaCore {
+    var lease: GpuContextLease
+    var provider: GpuResourceProviderHandle
+    var kind: GpuMemoryKind
+    var blockBytes: UInt64
+    var maxBlocks: Int
+    var blocks: Array<GpuArenaBlock>
+    var slots: Array<GpuBufferSlot>
+    var requestedBytes: UInt64
+    var allocatedBytes: UInt64
+    var usableBytes: UInt64
+    var committedBytes: UInt64
+    var peakReservedBytes: UInt64
+    var liveBuffers: Int
+    var liveBlocks: Int
+    var quarantined: Int
+    var closed: Bool
+
+    fun validSlot(index: Int, generation: UInt64) r: Bool {
+        if this.closed or index < 0 or index >= this.slots.length() { return false }
+        let slot = this.slots[index]
+        return slot.active and slot.generation == generation and slot.lease.valid()
+    }
+    fun availableSlot() r: Int {
+        var index = 0
+        while index < this.slots.length() {
+            let slot = this.slots[index]
+            if not slot.active and slot.generation < GPU_RESOURCE_MAX_GENERATION { return index }
+            index = index + 1
+        }
+        if index >= this.lease.core.limits.maxResources { return -1 }
+        return index
+    }
+    fun blockSlot() r: Int {
+        var index = 0
+        while index < this.blocks.length() {
+            if not this.blocks[index].active { return index }
+            index = index + 1
+        }
+        if index >= this.maxBlocks { return -1 }
+        return index
+    }
+    fun findBlock(bytes: UInt64, alignment: UInt64) r: Int {
+        var index = 0
+        while index < this.blocks.length() {
+            let block = this.blocks[index]
+            if block.active and not block.quarantined and block.ranges.fits(bytes, alignment) { return index }
+            index = index + 1
+        }
+        return -1
+    }
+    fun destroyBlock(index: Int) r: Result<Bool, GpuError> {
+        if this.closed or index < 0 or index >= this.blocks.length() {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.block.close", "GPU native block index is invalid"))
+        }
+        let block = this.blocks[index]
+        if not block.active { return Ok<Bool, GpuError>(false) }
+        if block.liveBuffers != 0 or block.regionBorrowers != 0 or block.mappedBorrowers != 0 or block.mappedAddress != (0 as UInt64) or block.ranges.freeBytes != block.ranges.capacity {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.allocator.block.close", "GPU block still owns live buffer ranges"))
+        }
+        if not block.lease.valid() or block.chargedBytes > this.lease.core.resourceCommittedBytes {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.block.close", "GPU block context or accounting identity is stale"))
+        }
+        let destroyed = this.provider.value.destroyBlock(block.native)
+        if destroyed.isErr() { return destroyed }
+        let consumed = destroyed.unwrap(); destroyed.releaseContainer()
+        if not consumed { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.block.close", "provider retained its native GPU block")) }
+        this.lease.core.resourceCommittedBytes = this.lease.core.resourceCommittedBytes - block.chargedBytes
+        this.committedBytes = this.committedBytes - block.chargedBytes
+        this.usableBytes = this.usableBytes - block.usableBytes; this.liveBlocks = this.liveBlocks - 1
+        if block.quarantined { this.quarantined = this.quarantined - 1 }
+        block.native.free(); gpuReleaseRangeSet(block.ranges); gpuReleaseResourceLease(block.lease)
+        block.active = false
+        return Ok<Bool, GpuError>(true)
+    }
+
+    fun createBlock(bytes: UInt64, operation: OperationContext) r: Result<Int, GpuError> {
+        let index = this.blockSlot()
+        if index < 0 { return Err<Int, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.block", "GPU native block ceiling reached")) }
+        var budget = this.lease.core.limits.maxBytes
+        if this.lease.core.info.capabilities.totalBytes < budget { budget = this.lease.core.info.capabilities.totalBytes }
+        if this.lease.core.resourceCommittedBytes >= budget {
+            return Err<Int, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.block", "GPU device commitment budget exhausted"))
+        }
+        let remaining = budget - this.lease.core.resourceCommittedBytes
+        var capacity = this.blockBytes
+        if bytes > capacity { capacity = bytes }
+        if capacity > remaining { return Err<Int, GpuError>(gpuFailure("gpu.limit", "gpu.allocator.block", "GPU block exceeds the remaining device budget")) }
+        let borrowed = this.lease.borrow(operation)
+        if borrowed.isErr() { let error = borrowed.unwrapErr(); borrowed.releaseContainer(); return Err<Int, GpuError>(error) }
+        let lease = borrowed.unwrap(); borrowed.releaseContainer()
+        let prepared = GpuRangeSet.create(capacity, 2 * this.lease.core.limits.maxResources + 1)
+        if prepared.isErr() { let error = prepared.unwrapErr(); prepared.releaseContainer(); gpuReleaseResourceLease(lease); return Err<Int, GpuError>(error) }
+        let ranges = prepared.unwrap(); prepared.releaseContainer()
+        let reservedMetadata = ranges.prepare(2)
+        if reservedMetadata.isErr() {
+            let error = reservedMetadata.unwrapErr(); reservedMetadata.releaseContainer()
+            gpuReleaseRangeSet(ranges); gpuReleaseResourceLease(lease); return Err<Int, GpuError>(error)
+        }
+        reservedMetadata.releaseContainer()
+        let created = this.provider.value.createBlock(capacity, remaining, this.kind)
+        if created.isErr() {
+            let error = created.unwrapErr(); created.releaseContainer(); gpuReleaseRangeSet(ranges); gpuReleaseResourceLease(lease)
+            return Err<Int, GpuError>(error)
+        }
+        let native = created.unwrap(); created.releaseContainer()
+        let valid = native.buffer != (0 as UInt64) and native.memory != (0 as UInt64) and
+            native.capacity == capacity and native.committedBytes >= capacity and native.committedBytes <= remaining and
+            native.kind == this.kind and gpuResourceAlignmentValid(native.bindingAlignment) and
+            native.bindingAlignment == this.provider.value.bindingAlignment()
+        var charged = remaining; var usable = 0 as UInt64
+        if valid { charged = native.committedBytes; usable = capacity }
+        // A provider contract violation is quarantined. Reserve its complete
+        // allowed commitment and reject further allocations until cleanup;
+        // stats must not invent an exact commitment for this state.
+        let record = GpuArenaBlock{native: native, lease: lease, ranges: ranges,
+            chargedBytes: charged, usableBytes: usable, liveBuffers: 0, active: true, quarantined: not valid,
+            mappedAddress: 0 as UInt64, mappedBorrowers: 0, regionBorrowers: 0}
+        if index == this.blocks.length() { this.blocks.push(record) } else { this.blocks[index].free(); this.blocks[index] = record }
+        this.lease.core.resourceCommittedBytes = this.lease.core.resourceCommittedBytes + charged
+        this.committedBytes = this.committedBytes + charged; this.usableBytes = this.usableBytes + usable
+        this.liveBlocks = this.liveBlocks + 1
+        if this.committedBytes > this.peakReservedBytes { this.peakReservedBytes = this.committedBytes }
+        if not valid {
+            this.quarantined = this.quarantined + 1
+            let error = gpuFailure("gpu.invalid", "gpu.allocator.block", "provider returned inconsistent native GPU block metadata")
+            let cleanup = this.destroyBlock(index)
+            if cleanup.isErr() { error.causes.push(cleanup.unwrapErr()) }
+            cleanup.releaseContainer(); return Err<Int, GpuError>(error)
+        }
+        let observed = gpuCheckOperation(operation, "gpu.allocator.block")
+        if observed.isErr() {
+            let error = observed.unwrapErr(); observed.releaseContainer(); let cleanup = this.destroyBlock(index)
+            if cleanup.isErr() { error.causes.push(cleanup.unwrapErr()) }
+            cleanup.releaseContainer(); return Err<Int, GpuError>(error)
+        }
+        observed.releaseContainer(); return Ok<Int, GpuError>(index)
+    }
+
+    fun allocate(borrow geometry: GpuBufferGeometry, operation: OperationContext) r: Result<GpuBufferSlotRef, GpuError> {
+        let checked = gpuCheckOperation(operation, "gpu.buffer.allocate")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<GpuBufferSlotRef, GpuError>(error) }
+        checked.releaseContainer()
+        if this.closed or not this.lease.valid() or this.quarantined != 0 {
+            return Err<GpuBufferSlotRef, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.allocate", "GPU allocator is closed, stale or awaiting quarantined cleanup"))
+        }
+        let slotIndex = this.availableSlot()
+        let metadata = 8192 + 32 * (this.slots.length() + this.blocks.length() + 2)
+        if slotIndex < 0 or not allocationBudgetAvailable(metadata) {
+            return Err<GpuBufferSlotRef, GpuError>(gpuFailure("gpu.limit", "gpu.buffer.allocate", "GPU buffer slots or metadata budget exhausted"))
+        }
+        let borrowed = this.lease.borrow(operation)
+        if borrowed.isErr() { let error = borrowed.unwrapErr(); borrowed.releaseContainer(); return Err<GpuBufferSlotRef, GpuError>(error) }
+        let lease = borrowed.unwrap(); borrowed.releaseContainer()
+        var blockIndex = this.findBlock(geometry.allocatedBytes, geometry.alignment)
+        if blockIndex < 0 {
+            let created = this.createBlock(geometry.allocatedBytes, operation)
+            if created.isErr() { let error = created.unwrapErr(); created.releaseContainer(); gpuReleaseResourceLease(lease); return Err<GpuBufferSlotRef, GpuError>(error) }
+            blockIndex = created.unwrap(); created.releaseContainer()
+        }
+        let block = this.blocks[blockIndex]
+        let preparedRanges = block.ranges.prepare(block.liveBuffers + 2)
+        if preparedRanges.isErr() {
+            let error = preparedRanges.unwrapErr(); preparedRanges.releaseContainer()
+            gpuReleaseResourceLease(lease); return Err<GpuBufferSlotRef, GpuError>(error)
+        }
+        preparedRanges.releaseContainer()
+        let reserved = block.ranges.reserve(geometry.allocatedBytes, geometry.alignment)
+        if reserved.isErr() { let error = reserved.unwrapErr(); reserved.releaseContainer(); gpuReleaseResourceLease(lease); return Err<GpuBufferSlotRef, GpuError>(error) }
+        let range = reserved.unwrap(); reserved.releaseContainer(); var generation = 1 as UInt64
+        if slotIndex < this.slots.length() { generation = this.slots[slotIndex].generation }
+        let slot = GpuBufferSlot{block: blockIndex, range: range, lease: lease,
+            requestedBytes: geometry.byteLength, generation: generation, readers: 0, writers: 0, active: true}
+        if slotIndex == this.slots.length() { this.slots.push(slot) } else { this.slots[slotIndex].free(); this.slots[slotIndex] = slot }
+        block.liveBuffers = block.liveBuffers + 1; this.liveBuffers = this.liveBuffers + 1
+        this.requestedBytes = this.requestedBytes + geometry.byteLength
+        this.allocatedBytes = this.allocatedBytes + geometry.allocatedBytes
+        return Ok<GpuBufferSlotRef, GpuError>(GpuBufferSlotRef{index: slotIndex, generation: generation})
+    }
+    fun releaseSlot(index: Int, generation: UInt64) r: Result<Bool, GpuError> {
+        if not this.validSlot(index, generation) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.close", "GPU buffer generation or allocator owner is stale"))
+        }
+        let slot = this.slots[index]
+        if slot.readers != 0 or slot.writers != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.buffer.close", "GPU buffer still owns transfer or mapping borrows"))
+        }
+        let block = this.blocks[slot.block]
+        let recycled = block.ranges.recycle(slot.range.offset, slot.range.bytes)
+        if recycled.isErr() { return recycled }
+        recycled.releaseContainer()
+        this.requestedBytes = this.requestedBytes - slot.requestedBytes
+        this.allocatedBytes = this.allocatedBytes - slot.range.bytes
+        slot.range.free(); gpuReleaseResourceLease(slot.lease); slot.active = false
+        if slot.generation < GPU_RESOURCE_MAX_GENERATION { slot.generation = slot.generation + (1 as UInt64) }
+        block.liveBuffers = block.liveBuffers - 1; this.liveBuffers = this.liveBuffers - 1
+        return Ok<Bool, GpuError>(true)
+    }
+    fun stats() r: Result<GpuStats, GpuError> {
+        if this.closed or this.quarantined != 0 {
+            return Err<GpuStats, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.stats", "GPU allocator is closed or exact commitment is unavailable"))
+        }
+        return Ok<GpuStats, GpuError>(GpuStats{requestedBytes: this.requestedBytes,
+            allocatedBytes: this.allocatedBytes, usableBytes: this.usableBytes, committedBytes: this.committedBytes,
+            freeBytes: this.usableBytes - this.allocatedBytes, peakReservedBytes: this.peakReservedBytes,
+            residentBytes: None<UInt64>(), liveBuffers: this.liveBuffers, blocks: this.liveBlocks})
+    }
+    fun trim() r: Result<Bool, GpuError> {
+        if this.closed { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.trim", "GPU allocator is closed")) }
+        var index = 0; var progress = 0 as UInt64
+        while index < this.blocks.length() {
+            let block = this.blocks[index]
+            if block.active and block.liveBuffers == 0 {
+                let bytes = block.chargedBytes; let destroyed = this.destroyBlock(index)
+                if destroyed.isErr() { let error = destroyed.unwrapErr(); destroyed.releaseContainer(); error.progress = progress; return Err<Bool, GpuError>(error) }
+                destroyed.releaseContainer(); progress = progress + bytes
+            }
+            index = index + 1
+        }
+        return Ok<Bool, GpuError>(progress > (0 as UInt64))
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.liveBuffers != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.allocator.close", "GPU allocator still has buffer owners")) }
+        let trimmed = this.trim()
+        if trimmed.isErr() { return trimmed }
+        trimmed.releaseContainer()
+        this.provider.release(); gpuReleaseResourceLease(this.lease)
+        var index = 0
+        while index < this.slots.length() { this.slots[index].free(); index = index + 1 }
+        this.slots.free(); index = 0
+        while index < this.blocks.length() { this.blocks[index].free(); index = index + 1 }
+        this.blocks.free(); this.closed = true
+        return Ok<Bool, GpuError>(true)
+    }
+}

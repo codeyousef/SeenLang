@@ -18,7 +18,7 @@ class are not compatibility surfaces.
 | `DeterministicExecutor<T>` | Typed wake-driven task state and deterministic scheduling |
 | `Scope<T>` | Move-only owner that spawns, joins, cancels, and closes child work |
 | `JoinHandle<T>` | Move-only typed task identity with exactly-once join state |
-| `AsyncWaitGroup`, `AsyncBarrier` | Bounded coordination helpers |
+| `DeterministicWaitGroup`, `DeterministicBarrier` | Single-thread coordination models |
 
 Fallible operations return `Result<T, AsyncError>`. Stable error codes are
 `async.invalid`, `async.limit`, `async.cancelled`, `async.timeout`,
@@ -42,3 +42,500 @@ The scheduling, validation, cancellation, and cleanup state machines are Seen.
 Only the already-ledgered monotonic-clock ABI is used to normalize OS time.
 
 See [the compiling structured-async example](../../seen_std/examples/structured_async.seen).
+
+## Fixed-worker execution
+
+Module: `async.multithread`. Contract: `seen-multithread-executor-v1`,
+runtime compatibility: `runtime-v14`.
+
+`MultithreadExecutor<T: Send + ExecutorJob>` starts exactly the explicitly
+configured worker count and reuses those threads until shutdown. `T` is the
+concrete task object, including its typed input and output fields. Implement
+`ExecutorJob.run(context): Bool` and `ExecutorJob.release(): Bool` for that
+object. A successful join returns the completed `T`; there is no integer
+function-pointer submission API or erased user result.
+
+`ExecutorLimits` bounds workers (1–16), outstanding tasks, queued tasks,
+helping depth (1–64), and each worker's stack (at most 8 MiB). Stack size
+must provide at least 64 KiB plus 16 KiB per configured helping level.
+
+Before submission, bind the concrete job and its trait view with
+`ExecutorOwnedJob<Job>.bind(job, job)`. The second argument captures dispatch
+while the concrete type is available; the factory rejects views of different
+objects with `async.invalid` and releases only that trait box. On success the
+returned owner exclusively owns the job and box. Pass this owner to `spawnOwned`
+or `spawnExecutorTask`. Alternatively, `spawn(job, job, context)` captures the
+concrete witness and retains the concrete job if admission fails. Failed admission retains the owner for retry or
+`release()`. Successful join returns the concrete job and consumes its wrapper
+and dispatch box; failed/cancelled/unjoined work releases them through the same
+owner. Generic scheduling code never calls unresolved methods on `T`.
+For a move-only concrete job, capture its dispatch first:
+`let witness = executorCaptureWitness(job)`, then
+`ExecutorOwnedJob<Job>.bind(job, witness)` or `pool.submit(job, witness, context)`.
+Capture borrows the concrete job and allocates only its trait box. Bind the box
+or pass it to `executorDropWitness` while that job is still alive; dropping a
+witness leaves concrete-job ownership intact. If the argument is already a
+boxed witness, ownership of that box transfers to the returned value.
+
+
+Saturation returns `async.limit` before admission and retains the caller's
+concrete task. Completed results count against the task bound until joined.
+Admission copies context and limit metadata so the caller can reuse its
+original context after submission.
+
+Jobs borrow `ExecutorTaskContext` only for the duration of `run`. Use
+`context.isCancelled()` at bounded work checkpoints. Nested jobs use
+`spawnExecutorTaskWitness<T>(context, task, task)`. When a worker joins a task on its own
+pool, it executes queued work while waiting, allowing a single-worker parent
+to spawn and join a child. Helping has an explicit depth bound; it does not
+create extra threads. Joining oneself is invalid. Jobs must not construct
+cyclic dependencies, retain the borrowed task context, or panic.
+
+Ownership follows these rules:
+
+- Before successful spawn, the caller owns the task. After admission, the
+  executor owns it until join or shutdown cleanup. The caller must not access
+  or mutate an admitted task through an alias.
+- Successful `join(context)` consumes the join operation and transfers the
+  concrete task back to the caller. The caller then releases it once.
+- Worker cancellation observation includes the immutable task deadline. A late
+  successful return after expiry becomes `async.timeout` and releases the job
+  exactly once; running jobs must cooperate by checking `isCancelled()`.
+- A terminal job failure or task cancellation consumes the join operation
+  and calls the task's `release` once. A cancelled/timed-out wait retains
+  running work and its join handle for retry.
+- `shutdown(false)` stops admission, drains work, and joins workers while
+  preserving unjoined results. `shutdown(true)` requests cooperative task
+  cancellation before joining. Neither detaches a running job.
+- `close()` cancels/drains, joins, releases all unjoined tasks, and destroys
+  synchronization and queue storage. It is idempotent. `release()` additionally
+  consumes the executor object; no method may be called after it.
+- The owner must exclude external spawn/join/close calls during shutdown or
+  destruction. Jobs run outside the scheduler mutex. User destructors may
+  allocate but must not reenter a closing executor.
+
+Caller-owned join-handle wrappers and `Result` containers must also be freed
+after use. Task destructors release their own fields and concrete object;
+the executor releases only its task metadata and dispatch box.
+
+Linux x86-64 is the implemented OS thread target. Other targets return
+`async.unsupported_platform`; no scalar fallback is selected. Pool scheduling,
+validation, lifetime and cancellation are Seen. The adapter owns only OS
+thread lifetime and thread-local callback identity. The shared runtime
+allocator protects allocation/budget transactions and reinstates its guard
+around process fork.
+
+The executable task examples and named lifecycle cases are in
+[`async-002a.seen`](../../seen_std/tests/async/async-002a.seen). Certification
+entrypoints are `tests/misc_root_tests/seen_multithread_executor_contract.sh`
+and `tests/misc_root_tests/seen_executor_native_abi.sh`. Set
+`SEEN_EXECUTOR_TSAN=1` on a host with the required TSan address-space policy
+to include its allocator race run; an omitted TSan run is not certification.
+
+## Worker synchronization (`seen-async-sync-v1`)
+
+`async.task_group.TaskGroup<T: Send + ExecutorJob>` is an exclusive coordinator
+owner for a bounded set of child jobs. `create(core, limit, context)` reserves
+its handle table. `spawn` transfers a job only on success. `barrier(context)`
+seals admission, joins in submission order, and transfers `Array<T>` exactly
+once. On the first error it cancels remaining children, drains owned work with
+an uncancelled cleanup context, and releases successful partial results.
+The error records completed group results as progress. `close` cancels and
+drains; `release` consumes the group and its context/table owners.
+Creating a coordinator group inside a worker is rejected; workers use typed
+nested spawn/join and the synchronization primitives below.
+
+`AsyncWaitGroup.create(core, count, limit)` supplies checked `done`, `wait(ctx)`,
+`cancel`, `close` and `release`. A wait timeout leaves its owner intact for a
+later observation. Counts cannot underflow. Progress counts completed items,
+not unused capacity.
+
+`AsyncBarrier.create(core, parties)` creates a **single-use** phase barrier.
+`arrive(ctx)` waits for every participant and returns phase 0. A failed wait
+breaks the phase for all participants; another arrival after completion is
+invalid. Create a fresh barrier for another phase. This explicit lifecycle
+avoids a later phase blocking a participant whose outer helping frame has
+not yet resumed.
+
+`AsyncQueue<T: Send>.create(core, capacity)` preallocates its bounded FIFO.
+`put(value, ctx)` transfers ownership on success and backpressures when full;
+`take(ctx)` transfers one value. Closing rejects producers, wakes waiters and
+allows existing values to be drained. Release rejects nonempty storage or
+active waiters: payloads are never silently discarded. Drain and dispose of
+owned values before final release.
+
+`AsyncIntReduction.create(core, capacity)` reserves scalar result slots.
+`submit(index, value, ctx)` fills each index once. `finish(ctx)` waits for all
+slots and folds in index order with checked signed addition. Duplicates,
+invalid indices and overflow fail with stable `async.invalid`/`async.limit`
+diagnostics. The fold allocates no per-item state and observes stop requests
+at bounded intervals. `close` wakes observers; release requires no waiters.
+
+All primitives borrow the executor core, use its mutex/condition, and notify
+state changes under that mutex. Workers help ready work outside the lock;
+there is no dormant-task polling scan or thread creation per wait. Helping
+uses the current TLS slot/depth and enforces stack/tree limits. A nested
+helping frame with no ready work fails with `async.limit` rather than blocking
+an outer producer or participant needed for progress. Callers should keep
+producer steps bounded and size capacity/workers for their dependency graph.
+Task cancellation, deadlines, closed state and saturation remain explicit.
+Errors are typed `AsyncError` values; retries remain caller policy.
+
+At most `core.limits.tasks` synchronization owners and native parked waiters
+are admitted. The core refuses final close while synchronization borrowers
+exist. Close/wake primitives, join every caller, drain payloads, release
+primitives/groups, then release the executor. The owner excludes concurrent
+calls during final destruction. Shared method calls are protected; copying a
+borrowed handle does not extend its lifetime or authorize another destructor.
+The compiler recognizes these exact canonical foundation types as synchronized
+Send/Share boundaries; similarly named user classes receive no exemption.
+
+The previous counter-only coordination models are now explicitly named
+`DeterministicWaitGroup` and `DeterministicBarrier`. They remain single-thread
+models for the deterministic executor and are not worker synchronization APIs.
+Integer deterministic reductions now reject overflow as well.
+
+Linux x86-64 uses the existing executor and synchronization OS adapters. No new
+foreign symbol or foreign scheduling/queue/reduction algorithm is introduced.
+Other platforms retain the executor's explicit unsupported classification;
+no platform or hardware certification is implied. Run software regressions:
+
+```sh
+bash tests/misc_root_tests/seen_async_synchronization_contract.sh
+```
+
+## CPU and blocking pools (`seen-typed-worker-pools-v1`)
+
+`TypedWorkerPool<T: Send + ExecutorJob>` uses the existing persistent executor
+for either the `cpu` or `blocking` kind. `ExecutionPools<T>.create` creates an
+independent pool of each kind and checks their combined worker budget before
+side effects. Each pool permits at most 16 workers; the combined explicit
+budget is at most 32. Task/queue/stack/help-depth limits are the executor's
+limits. Submission does not create an OS thread.
+
+`PoolPlacement.inherited()` requests inherited CPU and memory policy. An
+explicit placement contains either an empty CPU list or one entry per worker
+budget, plus NUMA node -1 (inherit) or 0..63. CPU IDs are 0..1023. Creation
+copies the list, checks process cpuset/node permission through the OS ABI, and
+rejects unavailable placement. No automatic placement or fallback is implied.
+Accepted submissions cycle through the configured CPU slots in submission
+order. Placement is applied to an owned worker before its job runs; default
+inherited placement adds no placement syscall. Explicit placement may migrate
+a worker between configured slots across tasks. The slots are a task-placement
+policy, not a promise of one immutable OS-thread-to-core pairing.
+
+NUMA binding controls subsequent allocations by that worker. It does not move
+caller-owned buffers or the process-wide allocator's existing storage. Use
+separately checked mapped/buffer placement when physical residency matters.
+If an OS call fails, user code does not run and the task returns the exact
+bounded failure class through `ExecutorTaskContext.fail`. This includes
+unsupported-platform and unavailable/permission errors. A partial placement
+failure can affect the owned worker's OS policy; later explicitly placed jobs
+apply their policy again. Workers belong to one pool for their entire lifetime.
+
+`submit(task, task, ctx)` moves the task only on success and returns
+`PoolJoinHandle<T>`. A successful join transfers the original typed task and
+consumes its placement wrapper. Failed/cancelled tasks are released once by
+the executor. A timed-out join retains ownership for retry. `cancel` propagates
+to the task. Final handle release rejects an active task until the executor
+has closed; close the pool while retaining its core, dispose of join handles,
+then release the pool. Pool release consumes its placement snapshot and worker
+owner. Combined release preserves both owners for retry until both executor
+close operations succeed.
+
+Pool submission and destruction are exclusive owner operations; the worker
+jobs run concurrently. Keep the pool alive through every handle and do not
+bypass it with raw internal-core submission when relying on placement policy.
+Use separate CPU and blocking budgets so waiting system calls cannot occupy
+all CPU workers. Cancellation remains cooperative; the pool does not detach
+or forcibly terminate a blocking OS operation.
+
+The native boundary only validates/normalizes Linux x86-64 affinity and NUMA
+calls. All placement selection, budgets, wrappers, cancellation and cleanup
+are Seen. Other platforms explicitly reject non-inherited placement; executor
+platform support still determines whether an inherited pool can be created.
+Mocked native tests exercise permission, malformed and unsupported branches;
+they do not certify real CPU/NUMA hardware placement. Run software fixtures:
+
+```sh
+bash tests/misc_root_tests/seen_cpu_blocking_pools_contract.sh
+```
+
+### Bounded reactor integration (ASYNC-002D)
+
+`async.event_loop.AsyncEventLoop<T: Send + AsyncIoJob>` borrows a
+`MultithreadExecutor<ReadyIoJob<T>>`. The coordinator exclusively owns the loop
+and registration operations. Workers receive only transferred callback jobs;
+registration never creates threads. The executor refuses destruction while a
+loop borrows it. Close the loop before releasing the executor and reap every
+returned executor join handle.
+
+`register(task, task, descriptor, interest, timerDeadline, ctx)` transfers ownership
+only on success. Use `timerDeadline = -1` for descriptor readiness, or an invalid
+unowned `OwnedHandle` and a nonnegative monotonic deadline for a timer. All
+registrations share the explicit capacity (1..1,048,576). A fixed indexed heap
+orders timers and operation deadlines; an intrusive FIFO holds ready work.
+Normal poll, cancellation and dispatch do not scan dormant registrations.
+Generation checks reject stale handles; exhausted 32-bit generations retire
+slots instead of wrapping.
+
+`pollOnce(maxEvents, ctx)` waits for OS readiness, a timer or a bounded native
+wakeup, then queues one-shot callbacks. `dispatchNext()` admits one ready callback
+to the borrowed executor and returns its typed join handle. Backpressure retains
+the callback and descriptor for retry. Reap the join and call `ReadyIoJob.release`
+to release callback storage before closing its descriptor. `cancel(registration)`
+deregisters and releases pending work; cancellation after dispatch uses the
+executor join handle. `close()` releases pending registrations and is idempotent.
+Already dispatched work belongs to the executor, not the loop. Immutable context
+snapshots own their string storage. A timed-out pending registration is cleaned
+before `pollOnce` returns `async.timeout`.
+
+Linux x86-64 uses direct epoll calls with a Seen-owned event buffer and no native
+registration lookup table. It supports sockets, device notification descriptors and
+completion-queue notification descriptors. A readiness notification transfers
+no device or kernel request buffer ownership: the callback must retain request
+storage until its completion protocol finishes. Native overlapped/IOCP request
+submission is not exposed by this readiness API. Direct-file completion requests
+use `AsyncFileCompletionQueue`, described below. Other platforms return
+`async.unsupported_platform`; `Interest.Completion` is rejected rather than
+misrepresented as readiness. `wakeHandle()` creates a bounded move-only producer
+lease. Move each handle to its producer, call `wakeup()` there, then release it
+after its final wake. The loop refuses to close while any producer lease remains.
+The loop object itself stays on the coordinator.
+
+`async.sockets.AsyncTcpSocket` owns a nonblocking, close-on-exec TCP descriptor.
+`SocketAddress.fromBytes` validates packed IPv4/IPv6 bytes and a port; it performs
+no name resolution. `bind`, `accept`, `beginConnect`, `read` and `write` accept a
+context. `beginConnect` returns `Pending` for an in-progress connection; wait for
+writability before `finishConnect`. Each transfer performs one nonblocking OS
+call, bounded by the buffer and explicit maximum (1..16 MiB). Success reports
+actual partial bytes and read EOF; would-block returns retryable
+`async.unavailable` with zero progress. Use readiness before retrying. Transfer
+socket ownership with `intoHandle()` when registering it. Retain buffer ownership
+until the callback completes. Linux x86-64 is implemented; other platforms return
+`async.unsupported_platform`.
+
+
+`async.completion_io.AsyncFileCompletionQueue` owns a fixed-capacity Linux kernel
+AIO context and a semaphore eventfd. `submit` accepts an explicit direct-I/O file
+descriptor, an owned aligned buffer, byte/offset bounds, operation and context.
+Success transfers descriptor and buffer ownership and allocates one 64-byte
+kernel request from Seen storage. Rejection retains both caller owners. Byte
+counts and addresses require at least 512-byte alignment; filesystems can require
+stricter alignment, so use their reported direct-I/O requirement (4096-byte
+`OwnedBuffer` alignment is supported). Buffered descriptors are explicitly
+unsupported because Linux AIO submission can otherwise perform buffered work
+synchronously.
+
+Use `notificationLease()` to borrow the completion eventfd. Register an unowned
+handle for that fd with the readiness loop and retain the lease in the callback
+job until the registration is removed. Completion reaping belongs to the queue's
+exclusive coordinator. Each `reap()` is nonblocking and returns `None` or a
+`CompletedFileIo` owner. Its `outcome()` returns actual partial byte progress or
+a typed error; the owner retains the buffer even on an error. Release completed
+owners after consuming their buffers. The semaphore notification preserves
+readiness when a caller reaps only part of a completion batch.
+
+`cancel(registration)` marks the operation cancelled and requests kernel
+cancellation. `None` means the kernel still borrows the request and buffer;
+continue waiting and reaping. A returned completion owner confirms those borrows
+have ended. Never release in-flight storage merely because a deadline expired.
+Deadline/cancellation outcomes preserve completed byte progress. Queue close
+returns `async.unavailable` while requests or notification leases remain, and
+preserves the owner for retry. Drain owned requests, release leases, then close.
+Generation tokens never wrap. Other platforms return
+`async.unsupported_platform`. Native software probes cover OS struct marshalling,
+partial results, deferred cancellation, notification retention and failed-close
+retry; these probes do not certify a physical storage device.
+
+
+Linux descriptor close errors consume ownership even when delayed I/O errors are
+reported. The shared `OwnedHandle` marks such descriptors invalid before returning
+the error, so a retry cannot close a descriptor number reused by another owner.
+The typed owner remains available to finish metadata cleanup.
+
+### Streams, processes and DNS (ASYNC-002E)
+
+`async.streams.AsyncByteSpan.take(buffer, offset, length)` validates a 64-bit
+range and transfers its aligned buffer on success. Rejection retains the caller's
+buffer. Move the owning span into a callback when suspending; a raw pointer to a
+caller's temporary buffer is never retained. `AsyncFdStream.take(descriptor,
+maxTransferBytes)` accepts a nonblocking pipe or socket. Each `read`/`write`
+performs one bounded OS call and reports actual bytes, read EOF, or a typed error.
+Would-block is retryable `async.unavailable`; a closed peer is unavailable and
+permanent. Context failures include cumulative 64-bit progress. Transfer limits
+are 1..16 MiB, and cumulative progress has an explicit signed-64-bit ceiling.
+Zero-length spans return zero without reporting EOF. OS SIGPIPE normalization
+preserves the calling thread's mask and any signal pending before the write.
+
+`async.processes.AsyncProcessSpawner.create(blockingPool, maxChildren,
+maxTransferBytes)` borrows a typed blocking pool and owns a live-child quota
+(1..1024). Its `spawn(absoluteProgram, arguments, environment, ctx)` snapshots
+at most 256 argument strings including argv[0], and at most 256 environment
+strings. Each vector has a 64 KiB packed-byte ceiling. NULs, relative/traversal
+program paths and malformed environment keys are rejected before spawning.
+The supplied environment is complete; callers choose every entry. The OS uses
+that program directly. Child stdin/stdout/stderr have independent pipes; parent
+endpoints are nonblocking and close-on-exec. Spawn work runs on the existing
+blocking pool. Child close-from actions prevent inheritance of unrelated file
+descriptors. SIGCHLD auto-reaping is unsupported because it would break exclusive
+child ownership.
+
+Join the returned `PoolJoinHandle<ProcessSpawnJob>`, call `takeProcess()`, then
+release the job and join handle. `takeStream(0|1|2)` moves stdin/stdout/stderr to
+an `AsyncFdStream`. Move spans with the corresponding readiness callback when
+waiting for pipe I/O. `notificationLease()` borrows a pidfd for a readable
+registration; retain the lease in its callback. After notification, `pollExit()`
+reaps that exact child and returns its exit code or signal. `cancel()` sends
+SIGKILL through the pidfd; keep ownership until the exit is reaped. Release
+notification leases and remaining pipe endpoints before releasing the process.
+The live-child quota remains held through this cleanup. Spawner destruction is
+rejected while jobs or child owners remain. Unclaimed failed, cancelled or
+unjoined spawn jobs terminate and reap their children during cleanup. They never
+detach them. Applications exclusively own child reaping and process signal policy.
+
+`async.dns.AsyncDnsResolver.create(serverAddress, maxQueries, maxAnswers,
+maxResponseBytes)` clones an explicit server address and owns a fixed live-query
+quota (1..1024). Answer limits are 1..128 and packet limits 512..4096 bytes.
+`start(hostname, kind, ctx)` supports A (1) and AAAA (28), ASCII hostnames and
+explicit punycode labels. Query IDs use OS entropy; connected UDP pins the peer.
+`AsyncDnsQuery.step()` performs one send and one receive at most. Would-block
+retains the query owner. Use a notification lease and readiness registration to
+wait, keeping query mutation on its coordinator. Remove borrowed registrations,
+release their leases, and release the query before destroying the resolver.
+Cancellation/deadline results retain cleanup owners until these borrows end.
+
+`async.dns_wire` validates transaction identity, echoed question, response flags,
+record lengths, compression targets and bounded expansion in Seen. Packets have
+at most 128 records; compression traversal has 128 steps and 255 expanded wire
+bytes; CNAME traversal has at most eight hops and rejects cycles. Answers match
+the validated canonical chain and requested address family. TTLs are bounded by
+the alias chain. A canonical name with no included address is returned for caller
+policy to follow explicitly. Truncated UDP responses return
+`async.unsupported_platform`; TCP DNS transport is not exposed. NXDOMAIN and
+permanent response failures are non-retryable unavailable errors; server failure
+is retryable. DNS names or packet contents are omitted from diagnostics.
+
+These OS integrations implement Linux x86-64. Other platforms fail explicitly
+with `async.unsupported_platform`. Software fixtures exercise real loopback
+sockets, partial pipe progress, child exit/cancellation, malformed source input,
+DNS compression attacks and a 60-second seed-1101 parser fuzz run. Hardware
+certification is separate from these API contracts.
+
+### Task context, failure and panic policy (ASYNC-002F)
+
+The `seen-task-context-policy-v1` API ships with standard-library identity 0.7.0.
+A callback borrows `ExecutorTaskContext` only until its `run`/`onEvent` returns.
+The compiler rejects retaining that context inside a Send job. Task helpers
+verify worker, slot and nested-help depth before mutating state. Use `capture()`
+for an owned `TaskCapture`: it clones resource/trace strings and copies deadline,
+fallback policy and depth. A capture can outlive the callback and executor ticket;
+it carries metadata rather than live cancellation authority. Release it explicitly.
+Submission separately owns a full context snapshot, so a caller may release its
+source context after successful admission. Shared caller metadata is never used
+as a worker's mutable context.
+
+`checkpoint()` returns typed cancellation/deadline errors with current progress.
+`advanceProgress(amount)` checks addition against a signed-64-bit ceiling before
+updating the task's monotonic item/byte count. `fail(status)` retains the first
+stable failure. `failWith(TaskDiagnostic)` snapshots a validated, borrowed
+report; the caller retains and releases its original. A task diagnostic has at
+most eight causes and 4 KiB of combined message/cause text. Its retry class is
+transient only for unavailable failures. Sensitive details are redacted before
+storage. Public details are an explicit `RedactionClass.Public` choice and must
+pass bounded text validation. Diagnostic status selects the stable ASCII code;
+message text cannot change that code.
+
+`context.panic(message)` records a redacted, permanent cooperative failure and
+returns a `Result`; it performs no stack unwinding. The executor rejects the task
+result even if the callback subsequently returns true. The first failure wins,
+and failed work uses normal exactly-once destructor/reap paths. Cancellation and
+expired deadlines take precedence over a late result while retaining diagnostic
+context. `context.panicPolicy()` reports `CooperativeFailure` for this API.
+`runtimeTaskPanicPolicy()` reports `AbortProcess`: a global `panic(...)`, abort,
+invalid memory access or foreign fatal failure remains process-fatal. Such a
+failure does not run Seen task destructors. Use typed cooperative failure when
+owned work must drain gracefully; no native exception catcher or unsafe unwind
+crosses the OS callback boundary.
+
+`recordFallback(backend, reason)` must precede fallback execution. It records one
+bounded redacted diagnostic only when the submitted context explicitly permits
+fallback. Forbidden fallback also marks the task failed as
+`async.unsupported_platform`, even if the callback ignores the returned error.
+A second fallback report returns `async.limit`; recording never grows an
+unbounded list. Backend identity is a typed `TaskBackend` enum.
+
+`ExecutorJoinHandle.joinDetailed(ctx)` and `PoolJoinHandle.joinDetailed(ctx)`
+return `ExecutorJoinReport<T>` after terminal reaping. A report owns its successful
+result, optional error, copied diagnostic/fallback records and progress.
+`takeTask()` transfers a successful result; `takeError()` transfers an error.
+`release()` consumes every owner still retained by the report, including an
+unclaimed successful job. Ordinary `join(ctx)` preserves typed error codes,
+progress and retry classification while consuming detailed records. Errors keep
+the existing borrowed await-context trace lifetime; the awaiting context must
+outlive an error that uses its trace. Detailed diagnostic text and captures own
+their storage independently of the executor ticket. Waiting-context cancellation
+or timeout retains the running join owner for a later cleanup wait.
+
+
+`async.owned_strings.OwnedCStringVector` is the shared packing implementation for
+process argv/envp and diagnostic causes. It owns packed bytes and the pointer
+table, capped at 256 values and 64 KiB. `get(index)` returns an owned string copy,
+so neither a task capture nor a caller can retain a view after vector release.
+This replaces the process-specific packing class in the 0.7.0 alpha API.
+`async.completion_io.completionFileHandle(file)` borrows an open
+`fs.file.File` with required direct I/O and returns an independently owned,
+close-on-exec duplicate descriptor. Close the source File normally after this
+call; the completion owner remains valid. Buffered files return
+`async.unsupported_platform`. The filesystem's opaque wrapper is never treated
+as a raw descriptor number.
+
+### Software stress evidence (ASYNC-002G)
+
+`seen_std/tests/async/async-002g.seen` submits 4,320 bounded jobs across
+five warmups, thirty measured batches and a hundred additional batches. Every
+job has an exactly-once counter and destructor count; workers remain fixed and
+live allocations return to the warmed baseline after every batch. The fixture
+also exercises nested worker helping, partial failures, queued cancellation,
+rejected admission and complete thread/synchronization cleanup. Sample timing is
+reported as observation; it does not substitute for a designated performance
+control or certify a five-percent regression threshold.
+
+`seen_std/tests/async/io_completion_stress_fixture.seen <new-file-path>` exercises a
+thousand pipe readiness/cancellation pairs, stale generations, real Linux direct
+file completions, notification leases and cancellation while the kernel borrows
+buffers. The source filesystem File closes before the independently owned
+completion descriptor is submitted. Rejected or pending cancellation never
+permits buffer/descriptor cleanup until completion returns those owners.
+
+Run both through `tests/misc_root_tests/seen_async_stress_contract.sh` inside
+the repository's capped regression scope. The harness runs fast, release with
+ThinLTO, UBSan, ASan and TSan, halting on sanitizer errors with no suppressions.
+ASan/TSan may reserve finite shadow virtual address space only after matching
+instrumentation is verified; the enclosing physical-memory, swap, process and
+worker caps remain in force. The JSON result explicitly sets `certified:false`:
+designated performance comparison, 7950X3D scaling and GPU completion remain
+separate deferred verification. The stress fixtures add no native exports;
+the current identities are stdlib 0.17.0 and runtime-v14, recorded in the
+release compatibility manifest.
+
+The repeated concrete argument at witness boundaries must refer to the same
+object. Validation compares the trait-box payload address with the typed job;
+a mismatch returns `async.invalid` without consuming either concrete object.
+The box is immutable metadata for that already-proved `T: Send` value. Its
+opaque address is stored inside the owner, restored only for virtual calls,
+and freed exactly once on take or release. It does not make an arbitrary
+callback Send. Users must create owners through `bind` and must not construct
+or alter their internal address fields. A rejected bind consumes its trait
+box; rejected admission retains the typed job (or the explicit owner for
+`spawnOwned`). Pools, task groups, and readiness registrations use the same
+ownership rule. Worker completion submission consumes an explicit owner on
+both success and rejection, as documented by that queue.
+
+`ExecutorJoinReport.task` holds an optional owned job wrapper. Use `takeTask()`
+to obtain the concrete result; `release()` destroys any untaken successful
+job through its captured dispatch. Task-group barriers retain these owners
+until every sibling has joined, then either release all results on failure or
+transfer the concrete values on success. A readiness job's callback is in
+`ReadyIoJob.task.value`; its `release()` consumes the callback owner before the
+descriptor and event. No generic cleanup path dispatches directly on `T`.

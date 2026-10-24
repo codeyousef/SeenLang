@@ -255,6 +255,14 @@ helpers that return `String`, classes, arrays, or other aggregate values,
 because the consumer must see the real signature even though the implementation
 came from the artifact.
 
+An outer prebuild retains transitive dependency objects and copies their
+validated interface modules verbatim under `src/__prebuilt/<alias>/...`, with
+those modules included in its declaration index and digest. Existing interface
+paths and symlink redirection are rejected rather than overwritten. The source
+column in `objects.tsv` is a canonical relative provenance label, not an
+interface-source fallback: it is never rebased against the caller's working
+directory and need not identify a copied interface file.
+
 ## Hosted Registry Environments
 
 Development is deployed at `https://seen.dev.yousef.codes/packages`, serving

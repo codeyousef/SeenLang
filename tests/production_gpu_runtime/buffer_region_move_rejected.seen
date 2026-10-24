@@ -1,0 +1,7 @@
+import compute.buffer_region.{GpuBufferRegion}
+fun consume(value: GpuBufferRegion) r: Void {}
+fun invalid(value: GpuBufferRegion) r: Void {
+    consume(value)
+    value.close()
+}
+fun main() r: Int { return 0 }

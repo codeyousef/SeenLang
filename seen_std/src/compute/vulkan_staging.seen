@@ -1,0 +1,235 @@
+/// Creator-confined Vulkan staging: fixed owned backing and a private copy
+/// timeline. Host spans are borrowed synchronously and never retained for DMA.
+import compute.device.{GpuContext}
+import compute.allocator.{GpuAllocator}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.staging_ring.{GpuStagingRing, GpuStagingSlice, GPU_STAGING_RESERVED}
+import compute.vulkan_transfer.{GpuVulkanCopyQueue, gpuVkCopy, GPU_VULKAN_COPY_MAX_SLOTS}
+import compute.vulkan_mapping.{gpuVkMapBuffer}
+import compute.error.{GpuError, gpuFailure}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+import inference.span.{Span, MutableSpan}
+import memory.allocation.{allocationBudgetAvailable}
+
+class GpuVulkanStagingCore {
+    var allocator: GpuAllocator
+    var metadata: GpuStagingRing
+    var queue: GpuVulkanCopyQueue
+    var buffers: Array<GpuBuffer<UInt8>>
+    var stride: UInt64
+    var closed: Bool
+
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.metadata.core.borrowers != 0 or this.queue.inFlight != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.staging.close", "staging consumers or native work still own backing"))
+        }
+        // Keep wrappers until every fallible close succeeds. A retry may revisit
+        // inactive buffers but never dereference an already-freed wrapper.
+        var index = 0
+        while index < this.buffers.length() {
+            let closed = this.buffers[index].close()
+            if closed.isErr() { return closed }
+            closed.releaseContainer(); index = index + 1
+        }
+        let queue = this.queue.close()
+        if queue.isErr() { return queue }
+        queue.releaseContainer(); let allocator = this.allocator.close()
+        if allocator.isErr() { return allocator }
+        allocator.releaseContainer(); let metadata = this.metadata.close()
+        if metadata.isErr() { return metadata }
+        metadata.releaseContainer(); index = 0
+        while index < this.buffers.length() { this.buffers[index].free(); index = index + 1 }
+        this.buffers.free(); this.closed = true
+        return Ok<Bool, GpuError>(true)
+    }
+}
+
+@move
+class GpuVulkanStagingRing {
+    var core: GpuVulkanStagingCore
+
+    static fun open(borrow context: GpuContext, blockBytes: UInt64, slotBytes: UInt64,
+        count: Int, operation: OperationContext) r: Result<GpuVulkanStagingRing, GpuError> {
+        if not context.valid() {
+            return Err<GpuVulkanStagingRing, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.staging.open", "staging requires a live explicit context"))
+        }
+        if count <= 0 or count > GPU_VULKAN_COPY_MAX_SLOTS or slotBytes == (0 as UInt64) or
+            slotBytes > context.core.limits.maxBytes / (count as UInt64) or
+            not allocationBudgetAvailable(32768 + count * 2048) {
+            return Err<GpuVulkanStagingRing, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.staging.open", "staging byte or metadata ceiling exceeded"))
+        }
+        let allocated = GpuAllocator.create(context, GpuMemoryKind.HostCoherent, blockBytes, count, operation)
+        if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); return Err<GpuVulkanStagingRing, GpuError>(error) }
+        let allocator = allocated.unwrap(); allocated.releaseContainer()
+        let partitioned = GpuStagingRing.create(slotBytes * (count as UInt64), count)
+        if partitioned.isErr() {
+            let error = partitioned.unwrapErr(); partitioned.releaseContainer()
+            let dropped = allocator.release(); dropped.releaseContainer(); return Err<GpuVulkanStagingRing, GpuError>(error)
+        }
+        let metadata = partitioned.unwrap(); partitioned.releaseContainer()
+        let opened = GpuVulkanCopyQueue.open(allocator, count, operation)
+        if opened.isErr() {
+            let error = opened.unwrapErr(); opened.releaseContainer()
+            let a = metadata.release(); a.releaseContainer(); let b = allocator.release(); b.releaseContainer()
+            return Err<GpuVulkanStagingRing, GpuError>(error)
+        }
+        let queue = opened.unwrap(); opened.releaseContainer()
+        let owner = GpuVulkanStagingRing{core: GpuVulkanStagingCore{allocator: allocator, metadata: metadata,
+            queue: queue, buffers: Array<GpuBuffer<UInt8>>(), stride: slotBytes, closed: false}}
+        var index = 0
+        while index < count {
+            let buffer = GpuBuffer<UInt8>.allocate(owner.core.allocator, slotBytes, 1 as UInt64, 1 as UInt64, operation)
+            if buffer.isErr() {
+                let error = buffer.unwrapErr(); buffer.releaseContainer()
+                let dropped = owner.release()
+                if dropped.isErr() { abort("private Vulkan staging construction lost cleanup ownership") }
+                dropped.releaseContainer(); return Err<GpuVulkanStagingRing, GpuError>(error)
+            }
+            let backing = buffer.unwrap(); buffer.releaseContainer(); owner.core.buffers.push(backing); index = index + 1
+        }
+        return Ok<GpuVulkanStagingRing, GpuError>(owner)
+    }
+    fun reserve(bytes: UInt64, operation: OperationContext) r: Result<GpuVulkanStagingTicket, GpuError> {
+        if this.core.closed or bytes == (0 as UInt64) or bytes > this.core.stride {
+            return Err<GpuVulkanStagingTicket, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.staging.reserve", "staging ticket escapes its active fixed backing"))
+        }
+        if this.core.queue.poisoned {
+            return Err<GpuVulkanStagingTicket, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.staging.reserve", "staging queue requires drain and shutdown"))
+        }
+        let reserved = this.core.metadata.reserve(this.core.stride, 1 as UInt64, operation)
+        if reserved.isErr() { let error = reserved.unwrapErr(); reserved.releaseContainer(); return Err<GpuVulkanStagingTicket, GpuError>(error) }
+        let slice = reserved.unwrap(); reserved.releaseContainer()
+        return Ok<GpuVulkanStagingTicket, GpuError>(GpuVulkanStagingTicket{core: this.core,
+            slice: slice, buffer: (slice.offset / this.core.stride) as Int, bytes: bytes,
+            initialized: 0 as UInt64, direction: 0, active: true})
+    }
+    fun close() r: Result<Bool, GpuError> { return this.core.close() }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer()
+        let a = this.core.queue.release(); a.releaseContainer()
+        let b = this.core.metadata.release(); b.releaseContainer()
+        let c = this.core.allocator.release(); c.releaseContainer()
+        this.core.free(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}
+
+fun gpuVkStagingSpanValid(data: *const UInt8, bytes: UInt64) r: Bool {
+    return data != (null as *const UInt8) and bytes > (0 as UInt64) and
+        bytes <= (9223372036854775807 as UInt64) and
+        (data as UInt64) <= (18446744073709551615 as UInt64) - bytes
+}
+
+@move
+class GpuVulkanStagingTicket {
+    var core: GpuVulkanStagingCore
+    var slice: GpuStagingSlice
+    var buffer: Int
+    var bytes: UInt64
+    var initialized: UInt64
+    var direction: Int
+    var active: Bool
+
+    fun valid() r: Bool {
+        if not this.active { return false }
+        return not this.core.closed and this.slice.active and
+            this.slice.core.validSlot(this.slice.slot, this.slice.generation)
+    }
+    fun reserved() r: Bool {
+        if not this.valid() { return false }
+        return this.slice.core.slots[this.slice.slot].state == GPU_STAGING_RESERVED
+    }
+    /// The caller owns the source span for this synchronous bounded copy.
+    /// Only a contiguous initialized prefix can later be submitted for upload.
+    fun write(source: Span<UInt8>, offset: UInt64, operation: OperationContext) r: Result<Bool, GpuError> {
+        if not this.reserved() or offset > this.initialized or offset > this.bytes or
+            source.length > this.bytes - offset or not gpuVkStagingSpanValid(source.data, source.length) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.staging.write", "host write escapes reserved initialized staging bytes"))
+        }
+        let mapped = gpuVkMapBuffer(this.core.buffers[this.buffer], offset, source.length, true, operation)
+        if mapped.isErr() { let error = mapped.unwrapErr(); mapped.releaseContainer(); return Err<Bool, GpuError>(error) }
+        let view = mapped.unwrap(); mapped.releaseContainer(); let target = view.address as *UInt8
+        var index = 0 as UInt64
+        while index < source.length { target[index] = source.data[index]; index = index + (1 as UInt64) }
+        let closed = view.release()
+        if closed.isErr() { abort("confined coherent staging mapping lost cleanup ownership") }
+        closed.releaseContainer()
+        if offset + source.length > this.initialized { this.initialized = offset + source.length }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun poll() r: Result<Bool, GpuError> {
+        if not this.valid() or this.direction == 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.staging.poll", "staging ticket has no submitted native work"))
+        }
+        let signal = this.slice.core.slots[this.slice.slot].sequence
+        let observed = this.core.queue.poll(signal)
+        // Device loss retires native use but never licenses reading output.
+        if this.core.queue.lastCompleted > this.core.metadata.core.lastCompleted {
+            let recorded = this.core.metadata.complete(this.core.queue.lastCompleted)
+            if recorded.isErr() { abort("private staging completion timeline diverged") }
+            recorded.releaseContainer()
+        }
+        return observed
+    }
+    /// The caller exclusively owns the destination span for this synchronous
+    /// copy; no native pointer or mapping escapes the method.
+    fun read(destination: MutableSpan<UInt8>, offset: UInt64, operation: OperationContext) r: Result<Bool, GpuError> {
+        if not this.valid() or this.direction != 2 or not this.slice.isComplete() or this.core.queue.lost or
+            offset > this.bytes or destination.length > this.bytes - offset or
+            not gpuVkStagingSpanValid(destination.data as *const UInt8, destination.length) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.staging.read", "host read requires completed, valid download bytes"))
+        }
+        let mapped = gpuVkMapBuffer(this.core.buffers[this.buffer], offset, destination.length, false, operation)
+        if mapped.isErr() { let error = mapped.unwrapErr(); mapped.releaseContainer(); return Err<Bool, GpuError>(error) }
+        let view = mapped.unwrap(); mapped.releaseContainer(); let source = view.address as *const UInt8
+        var index = 0 as UInt64
+        while index < destination.length { destination.data[index] = source[index]; index = index + (1 as UInt64) }
+        let closed = view.release()
+        if closed.isErr() { abort("confined coherent staging read mapping lost cleanup ownership") }
+        closed.releaseContainer(); return Ok<Bool, GpuError>(true)
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if not this.active { return Ok<Bool, GpuError>(false) }
+        let dropped = this.slice.release()
+        if dropped.isErr() { return dropped }
+        dropped.releaseContainer(); this.active = false; return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}
+
+fun gpuVkStagingRecord(borrow ticket: GpuVulkanStagingTicket, result: Result<UInt64, GpuError>, direction: Int)
+    r: Result<Bool, GpuError> {
+    let signal = ticket.core.queue.lastSubmitted
+    if signal > ticket.core.metadata.core.lastSubmitted {
+        let recorded = ticket.slice.submitted(signal)
+        if recorded.isErr() { abort("private staging acceptance timeline diverged") }
+        recorded.releaseContainer(); ticket.direction = direction
+    }
+    if result.isErr() { let error = result.unwrapErr(); result.releaseContainer(); return Err<Bool, GpuError>(error) }
+    result.releaseContainer(); return Ok<Bool, GpuError>(true)
+}
+fun gpuVkStagingUpload<T>(borrow ticket: GpuVulkanStagingTicket, borrow destination: GpuBuffer<T>,
+    offset: UInt64, operation: OperationContext) r: Result<Bool, GpuError> {
+    if not ticket.reserved() or ticket.initialized != ticket.bytes or
+        ticket.core.queue.lastSubmitted != ticket.core.metadata.core.lastSubmitted {
+        return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.staging.upload", "upload requires initialized, unsubmitted staging bytes"))
+    }
+    return gpuVkStagingRecord(ticket, gpuVkCopy(ticket.core.queue, ticket.core.buffers[ticket.buffer],
+        0 as UInt64, destination, offset, ticket.bytes, operation), 1)
+}
+fun gpuVkStagingDownload<T>(borrow ticket: GpuVulkanStagingTicket, borrow source: GpuBuffer<T>,
+    offset: UInt64, operation: OperationContext) r: Result<Bool, GpuError> {
+    if not ticket.reserved() or ticket.core.queue.lastSubmitted != ticket.core.metadata.core.lastSubmitted {
+        return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.staging.download", "download requires an unsubmitted staging ticket"))
+    }
+    return gpuVkStagingRecord(ticket, gpuVkCopy(ticket.core.queue, source, offset,
+        ticket.core.buffers[ticket.buffer], 0 as UInt64, ticket.bytes, operation), 2)
+}

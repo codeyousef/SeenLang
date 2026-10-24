@@ -1,0 +1,71 @@
+import io.completion_types.{IoQueueLimits, IoRegistration}
+import io.worker_queue.{WorkerCompletionQueue}
+import io.worker_completion.{WorkerIoSubmission}
+import async.executor_core.{executorReleaseContext, executorCopyContext, executorReleaseSnapshot}
+import sync.atomic.{seen_sync_atomic_destroy}
+import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioFixtureRequest}
+import worker_fixture_support.{WorkerMockJob, workerCounter, workerWait, workerAdd, workerFixture, workerFixtureSubmit, workerDrain, workerTake}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun workerRound(cancel: Bool) r: Void {
+    let context = ioContext(); let queue = workerFixture(context); var started = workerCounter(); var released = workerCounter()
+    let first = workerFixtureSubmit(queue, context, started, released, 7 as UInt64, 0 as Int32)
+    let second = workerFixtureSubmit(queue, context, started, released, 7 as UInt64, 0 as Int32)
+    workerWait(started, 2 as Int64)
+    ioRequire(queue.core.nativeActive == 2 and queue.core.ownedBytes == (128 as UInt64))
+    if cancel { ioMust(queue.cancel(second.token)); ioRequire(ioMust(queue.publishCancellation())) }
+    workerAdd(released); workerDrain(queue, false); var delivered = 0; var firstSeen = false; var secondSeen = false
+    while delivered < 2 {
+        let completion = workerTake(queue)
+        if completion.token == first.token { ioRequire(not firstSeen); firstSeen = true }
+        else { ioRequire(completion.token == second.token and not secondSeen); secondSeen = true }
+        let outcome = completion.outcome()
+        if cancel and completion.token == second.token {
+            ioRequire(outcome.isErr() and outcome.unwrapErr().code == "async.cancelled" and outcome.unwrapErr().progress == (7 as UInt64))
+            outcome.unwrapErr().free()
+        } else { ioRequire(outcome.isOkay() and outcome.unwrap() == (7 as UInt64)) }
+        outcome.releaseContainer(); ioRequire(completion.request.resources.buffer.data[0] == (73 as UInt8))
+        ioMust(completion.release()); delivered = delivered + 1
+    }
+    ioRequire(firstSeen and secondSeen); first.free(); second.free(); ioMust(queue.close()); ioMust(queue.close()); ioMust(queue.release())
+    ioRequire(seen_sync_atomic_destroy(&started) == (0 as Int32) and seen_sync_atomic_destroy(&released) == (0 as Int32))
+    executorReleaseContext(context)
+}
+fun main() r: Int {
+    workerRound(false); workerRound(true)
+    let original = ioContext(); let expiredOwner = executorCopyContext(original); executorReleaseContext(original)
+    expiredOwner.operation.cancellation = true
+    let limits = IoQueueLimits{depth: 2, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 128 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let rejected = WorkerCompletionQueue<WorkerMockJob>.create(limits, 2, 262144 as UInt64, expiredOwner)
+    executorReleaseSnapshot(expiredOwner); limits.free(); ioRequire(rejected.isErr())
+    ioRequire(rejected.unwrapErr().code == "async.cancelled" and rejected.unwrapErr().traceId == "completion-io")
+    rejected.unwrapErr().free(); rejected.releaseContainer()
+    println("PASS: IO-002D two-worker overlap cancellation acknowledgement and exact partial progress")
+    let context = ioContext(); let queue = workerFixture(context)
+    let registration: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    let view: WorkerIoSubmission = ioMust(queue.prepare(registration.token))
+    ioMust(queue.cancel(registration.token)); ioRequire(ioErrorIs(queue.publishCancellation(), "async.limit"))
+    ioRequire(ioErrorIs(queue.close(), "async.limit") and queue.core.ownedBytes == (64 as UInt64))
+    view.release(); ioMust(queue.rejectPrepared(registration.token, 9 as Int32, 0 as Int64))
+    let cancelled = workerTake(queue); ioRequire(ioErrorIs(cancelled.outcome(), "async.cancelled")); ioMust(cancelled.release()); registration.free()
+    ioMust(queue.release()); executorReleaseContext(context)
+    println("PASS: IO-002D preparing borrow survives shutdown until explicit rejection")
+    let timedContext = ioContext(); let timedQueue = workerFixture(timedContext)
+    let timed: IoRegistration = ioMust(timedQueue.reserve(ioFixtureRequest(timedContext)))
+    timedQueue.core.entries[timedQueue.core.slot(timed.token)].unwrap().context.operation.monotonicDeadline = 0 as Int64
+    ioRequire(ioErrorIs(timedQueue.prepare(timed.token), "async.timeout"))
+    let expired = workerTake(timedQueue); ioRequire(ioErrorIs(expired.outcome(), "async.timeout")); ioMust(expired.release()); timed.free()
+    ioMust(timedQueue.release()); executorReleaseContext(timedContext)
+    println("PASS: IO-002D queued expiration completes without a worker borrow")
+    let invalidContext = ioContext(); let invalidQueue = workerFixture(invalidContext)
+    var started = workerCounter(); var released = workerCounter(); workerAdd(released)
+    let invalid = workerFixtureSubmit(invalidQueue, invalidContext, started, released, 17 as UInt64, 0 as Int32)
+    workerDrain(invalidQueue, true); let failed = workerTake(invalidQueue)
+    ioRequire(ioErrorIs(failed.outcome(), "async.unavailable")); ioMust(failed.release()); invalid.free(); ioMust(invalidQueue.release())
+    ioRequire(seen_sync_atomic_destroy(&started) == (0 as Int32) and seen_sync_atomic_destroy(&released) == (0 as Int32))
+    executorReleaseContext(invalidContext)
+    println("PASS: IO-002D invalid joined worker evidence fails without detaching owners")
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 100 { workerRound(i % 2 == 1); ioRequire(seen_memory_used_bytes() == baseline); i = i + 1 }
+    println("PASS: IO-002D worker lifecycle allocation baseline")
+    return 0
+}

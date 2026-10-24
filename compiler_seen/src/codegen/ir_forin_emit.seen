@@ -133,7 +133,7 @@ fun emitForInIncrementImpl(output: StringBuilder, regBox: Array<Int>,
     output.append("  " + curIdx + " = load i64, ptr " + idxReg +
         ", align 8\n")
     let nextIdx = getNextRegFn(regBox)
-    output.append("  " + nextIdx + " = add nuw nsw i64 " + curIdx +
+    output.append("  " + nextIdx + " = add i64 " + curIdx +
         ", 1\n")
     output.append("  store i64 " + nextIdx + ", ptr " + idxReg +
         ", align 8\n")

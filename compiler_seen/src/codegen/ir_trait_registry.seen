@@ -65,7 +65,8 @@ fun autoRegisterTraitImplsImpl(methodName: String, receiverType: String, implFun
 fun registerClassTraitImplsImpl(receiverType: String, dynTraitNames: String,
     structNames: Array<String>, structMethodNames: Array<String>,
     structMethodRetTypes: Array<String>, traitImplRegistryBox: Array<String>,
-    traitImplCountBox: Array<Int>) r: Void {
+    traitImplCountBox: Array<Int>, funcNames: Array<String>,
+    funcRetTypes: Array<String>) r: Void {
     var scan = 0
     while scan < dynTraitNames.length() {
         var end = dynTraitNames.indexOf("|", scan)
@@ -83,7 +84,17 @@ fun registerClassTraitImplsImpl(receiverType: String, dynTraitNames: String,
                 while seen < planned.length() { if planned[seen] == method { duplicate = true }; seen = seen + 1 }
                 if not duplicate {
                     let expected = getMethodReturnTypeImpl(traitName, method, structNames, structMethodNames, structMethodRetTypes)
-                    let actual = getMethodReturnTypeImpl(receiverType, method, structNames, structMethodNames, structMethodRetTypes)
+                    var actual = getMethodReturnTypeImpl(receiverType, method, structNames, structMethodNames, structMethodRetTypes)
+                    // Receiver functions from impl blocks have declarations
+                    // before their bodies, just like inline class methods.
+                    if actual == "" {
+                        var functionIndex = 0
+                        let implementationName = receiverType + "_" + method
+                        while functionIndex < funcNames.length() and functionIndex < funcRetTypes.length() {
+                            if funcNames[functionIndex] == implementationName { actual = funcRetTypes[functionIndex]; break }
+                            functionIndex = functionIndex + 1
+                        }
+                    }
                     if expected == "" or actual != expected { complete = false }
                     else { planned.push(method) }
                 }

@@ -1,0 +1,55 @@
+import compute.resource_geometry.{GpuBufferGeometry}
+import compute.limits.{GPU_MAX_MEMORY_BYTES}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let started = seen_time_monotonic_nanos()
+    if started < (0 as Int64) { abort("GPU geometry fuzz clock unavailable") }
+    var random = 1101 as UInt64; var cases = 0; var finished = false
+    while not finished {
+        random = random ^ (random << 13); random = random ^ (random >> 7); random = random ^ (random << 17)
+        let mode = cases % 10; var expected = ""
+        var count = (random % (1000000 as UInt64)) + (1 as UInt64)
+        var size = ((random >> 20) % (4096 as UInt64)) + (1 as UInt64)
+        let shift = ((random >> 40) % (21 as UInt64)) as Int
+        var alignment = (1 as UInt64) << shift
+        if mode == 1 { count = 0 as UInt64; expected = "gpu.invalid" }
+        if mode == 2 { size = 0 as UInt64; expected = "gpu.invalid" }
+        if mode == 3 { alignment = 3 as UInt64; expected = "gpu.invalid" }
+        if mode == 4 { alignment = (1 as UInt64) << 63; expected = "gpu.invalid" }
+        if mode == 5 { count = random | ((1 as UInt64) << 63); expected = "gpu.limit" }
+        if mode == 6 { size = random | ((1 as UInt64) << 63); expected = "gpu.limit" }
+        if mode == 7 { count = GPU_MAX_MEMORY_BYTES / (4 as UInt64) + (1 as UInt64); size = 4 as UInt64; expected = "gpu.limit" }
+        if mode == 8 { count = GPU_MAX_MEMORY_BYTES / alignment; size = alignment }
+        if mode == 9 { count = GPU_MAX_MEMORY_BYTES - (1 as UInt64); size = 1 as UInt64; alignment = 16 as UInt64 }
+        let checked = GpuBufferGeometry.checked(count, size, alignment)
+        if expected == "" {
+            if checked.isErr() { abort("GPU fuzz rejected valid element geometry") }
+            let value = checked.unwrap(); let bytes = count * size
+            // Division/remainder is independent of the implementation's mask.
+            var units = bytes / alignment
+            if bytes % alignment != (0 as UInt64) { units = units + (1 as UInt64) }
+            if value.byteLength != bytes or value.allocatedBytes != units * alignment {
+                abort("GPU byte geometry diverged from arithmetic oracle")
+            }
+            value.release()
+        } else {
+            if checked.isOkay() { abort("GPU fuzz admitted invalid unsigned element geometry") }
+            let error = checked.unwrapErr()
+            if error.code != expected or error.retryable { abort("GPU geometry fuzz diagnostic changed") }
+            error.release()
+        }
+        checked.releaseContainer(); cases = cases + 1
+        if cases % 256 == 0 {
+            if seen_memory_used_bytes() != baseline { abort("GPU geometry fuzz leaked an owned result") }
+            let now = seen_time_monotonic_nanos()
+            if now < started { abort("GPU geometry fuzz clock moved backwards") }
+            finished = now - started >= (60000000000 as Int64)
+        }
+        if cases >= 1000000000 and not finished { abort("GPU geometry fuzz exhausted finite fuel") }
+    }
+    println("PASS: GPU-006B geometry fuzz 60s seed=1101 validates unsigned overflow alignment and owned cleanup")
+    println(cases)
+    return 0
+}

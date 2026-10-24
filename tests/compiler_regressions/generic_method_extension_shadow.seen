@@ -1,0 +1,14 @@
+import str.string.{StringBuilder}
+class GenericJoin<T> {
+    var reserved: Int
+    fun join(value: T) r: T { return value }
+}
+fun joinValue(owner: GenericJoin<Int>) r: Int { return owner.join(7) }
+fun main() r: Int {
+    let owner = GenericJoin<Int>{reserved: 0}
+    if joinValue(owner) != 7 { return 1 }
+    owner.free()
+    let builder = StringBuilder.new(); builder.parts.free(); builder.free()
+    println("PASS: a declared generic method takes precedence over unrelated extensions")
+    return 0
+}

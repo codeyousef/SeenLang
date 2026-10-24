@@ -1,0 +1,49 @@
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu_artifact.{buildGpuArtifact}
+import codegen.gpu_options.{GpuOptions, gpuSetOption}
+import tools.gpu_command.{gpuPrintValidation}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun requireCapability(value: Bool) r: Void {
+    if not value { abort("PTX capability admission or ownership contract failed") }
+}
+fun rejectPtxCapability(source: String, target: String) r: Void {
+    let lowered = lowerGpuSource(source, "ptx-rejected-capability.seen")
+    if lowered.isErr() { gpuPrintValidation(lowered.unwrapErr()) }
+    requireCapability(lowered.isOkay()); let module = lowered.unwrap(); lowered.releaseContainer()
+    let options = GpuOptions.create(); options.backend = "cuda"; options.target = target; options.fallback = "cpu"
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 30 {
+        let result = buildGpuArtifact(module, options); requireCapability(result.isErr())
+        let error = result.unwrapErr(); result.releaseContainer()
+        requireCapability(error.diagnostics.length() > 0 and error.diagnostics[0].code == "E_GPU_PTX_CAPABILITY")
+        requireCapability(error.diagnostics[0].functionIndex >= 0); error.release()
+        requireCapability(seen_memory_used_bytes() == baseline); i = i + 1
+    }; options.release(); module.release()
+}
+fun checkPtxSelectedEntry() r: Void {
+    let lowered = lowerGpuSource("@compute(32) fun unavailable(a: ReadBuffer<UInt32>) { let matrix = coopLoadA(a, 0 as UInt32, 1 as UInt32, INT2, Tile8x8x8, RowMajor) } @compute(1) fun plain(output: WriteBuffer<UInt32>) { output[0] = 7 as UInt32 }", "ptx-selection.seen")
+    requireCapability(lowered.isOkay()); let module = lowered.unwrap(); lowered.releaseContainer()
+    let options = GpuOptions.create(); options.backend = "cuda"; options.target = "sm_70"
+    let selected = gpuSetOption(options, "entry", "plain", 0); requireCapability(selected.code == ""); selected.free()
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 30 {
+        let result = buildGpuArtifact(module, options)
+        if result.isErr() { gpuPrintValidation(result.unwrapErr()) }
+        requireCapability(result.isOkay()); let artifact = result.unwrap(); result.releaseContainer()
+        requireCapability(artifact.binary.contains(".entry plain(") and not artifact.binary.contains(".entry unavailable("))
+        artifact.release(); requireCapability(seen_memory_used_bytes() == baseline); i = i + 1
+    }; options.release(); module.release()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    rejectPtxCapability("@compute(32) fun unsupported(a: ReadBuffer<UInt32>) { let matrix = coopLoadA(a, 0 as UInt32, 1 as UInt32, INT2, Tile8x8x8, RowMajor) }", "sm_80")
+    rejectPtxCapability("@compute(32) fun unsupported(a: ReadBuffer<UInt32>) { let matrix = coopLoadA(a, 0 as UInt32, 16 as UInt32, FP32, Tile16x16x16, RowMajor) }", "sm_80")
+    rejectPtxCapability("@compute(32) fun unsupported(a: ReadBuffer<UInt32>) { let matrix = coopLoadA(a, 0 as UInt32, 8 as UInt32, BF16, Tile16x16x16, RowMajor) }", "sm_70")
+    rejectPtxCapability("@compute(32) fun unsupported(a: ReadBuffer<UInt32>) { let matrix = coopLoadA(a, 0 as UInt32, 8 as UInt32, BF16, Tile16x16x16, RowMajor) }", "sm_75")
+    rejectPtxCapability("@compute(48) fun unsupported(a: ReadBuffer<UInt32>) { let matrix = coopLoadA(a, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, RowMajor) }", "sm_80")
+    rejectPtxCapability("@compute(32) fun unsupported(a: ReadBuffer<UInt32>) { let matrix = coopLoadA(a, 0 as UInt32, 8 as UInt32, FP16, Tile16x16x16, ColumnMajor) }", "sm_80")
+    rejectPtxCapability("@compute(32) fun unsupported(a: ReadBuffer<UInt32>) { let matrix = coopLoadA(a, 0 as UInt32, 8 as UInt32, FP16, Tile16x8x16, RowMajor) }", "sm_80")
+    checkPtxSelectedEntry(); requireCapability(seen_memory_used_bytes() == baseline)
+    println("PASS: PTX native target shape layout and full-warp rejection preserve selected-entry isolation")
+    return 0
+}

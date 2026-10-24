@@ -1,0 +1,3 @@
+@fragment
+fun unsupportedFragment() { }
+fun main() r: Int { return 0 }

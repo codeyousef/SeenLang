@@ -1,0 +1,77 @@
+/// LLVM 20 source coverage wire encoding. No native coverage implementation.
+import crypto.md5.{MD5}
+import str.string.{StringBuilder}
+
+fun coverageAppendUleb(bytes: Array<Int>, value: Int) r: Void {
+    var remaining = value
+    while remaining >= 128 {
+        bytes.push((remaining & 127) | 128)
+        remaining = remaining >> 7
+    }
+    bytes.push(remaining)
+}
+
+fun coverageAppendText(bytes: Array<Int>, text: String) r: Void {
+    coverageAppendUleb(bytes, text.length())
+    var index = 0
+    while index < text.length() {
+        bytes.push(text.byteAt(index))
+        index = index + 1
+    }
+}
+
+/// LLVM uses the little-endian low 64 bits of MD5 for profile identities.
+fun coverageHash(bytes: Array<Int>) r: Int {
+    let digest = MD5.new()
+    var index = 0
+    while index < bytes.length() {
+        digest.updateByte(bytes[index])
+        index = index + 1
+    }
+    digest.finishState()
+    let result = digest.a | (digest.b << 32)
+    digest.buffer.free()
+    digest.free()
+    return result
+}
+
+fun coverageRawText(text: String) r: Array<Int> {
+    let bytes = Array<Int>()
+    var index = 0
+    while index < text.length() {
+        bytes.push(text.byteAt(index))
+        index = index + 1
+    }
+    return bytes
+}
+
+fun coverageLlvmBytes(bytes: Array<Int>) r: String {
+    let digits = "0123456789ABCDEF"
+    let result = StringBuilder.new()
+    var index = 0
+    while index < bytes.length() {
+        let byte = bytes[index]
+        result.append("\\")
+        result.append(digits.substring(byte >> 4, (byte >> 4) + 1))
+        result.append(digits.substring(byte & 15, (byte & 15) + 1))
+        index = index + 1
+    }
+    return result.toString()
+}
+
+/// Uncompressed filename tables avoid a compression dependency in the compiler.
+fun coverageFilenames(path: String) r: Array<Int> {
+    let payload = Array<Int>()
+    coverageAppendText(payload, ".")
+    coverageAppendText(payload, path)
+    let result = Array<Int>()
+    coverageAppendUleb(result, 2)
+    coverageAppendUleb(result, payload.length())
+    coverageAppendUleb(result, 0)
+    var index = 0
+    while index < payload.length() {
+        result.push(payload[index])
+        index = index + 1
+    }
+    return result
+}

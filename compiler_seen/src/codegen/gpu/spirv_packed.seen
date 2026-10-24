@@ -1,0 +1,27 @@
+/// SPIR-V rendering and fault publication for the shared packed-word policy.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_PACK}
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.spirv_math.{spirvUnaryValue}
+import codegen.gpu.scalar_packed.{scalarPayloadPlan, scalarPackedPlan}
+import codegen.gpu.spirv_scalar_plan.{emitSpirvScalarPlan, spirvScalarPlanValue}
+import codegen.gpu_precision_formats.{GPU_FORMAT_MXFP4}
+
+fun spirvPackedPayload(function: GpuSpirvFunction, format: Int, value: Int, scale: Int, insert: Bool) r: Int {
+    return spirvScalarPlanValue(function, scalarPayloadPlan(format, value, scale, insert))
+}
+fun spirvPacked(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let insert = op.opcode == GPU_IR_PACK; var value = 0; var scale = 0
+    if insert { value = frame.registers[op.operands[2]] }
+    if op.immediate == GPU_FORMAT_MXFP4 {
+        var index = 2; if insert { index = 3 }; scale = frame.registers[op.operands[index]]
+    }
+    let plan = scalarPackedPlan(op.immediate, insert, frame.registers[op.operands[0]], frame.registers[op.operands[1]], value, scale)
+    let output = emitSpirvScalarPlan(function, plan); let result = output.value
+    if function.context.validation.valid {
+        function.faultWhen(spirvUnaryValue(function, 168, 1, output.laneValid), 1)
+        if op.immediate == GPU_FORMAT_MXFP4 { function.faultWhen(spirvUnaryValue(function, 168, 1, output.scaleValid), 4) }
+    }
+    output.free(); return result
+}

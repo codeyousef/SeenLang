@@ -1,0 +1,45 @@
+import str.string.{StringBuilder}
+import codegen.ir_type_dispatch.{emitStringHashMapMethodImpl}
+import codegen.ir_decl_scan.{shouldSkipStringHashMapMetadataDeclImpl}
+
+fun expectMetadata(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun checkMetadata(stringValues: Bool) r: Void {
+    let capacityOutput = StringBuilder.new()
+    let registers = Array<Int>()
+    registers.push(0)
+    let capacity = emitStringHashMapMethodImpl(capacityOutput, registers,
+        "capacity", "%map", "0", "0", stringValues)
+    expectMetadata(capacity != "", "capacity must have native lowering")
+    let capacityIr = capacityOutput.toString()
+    expectMetadata(capacityIr.contains("getelementptr inbounds { ptr, ptr, ptr, i64, i64, i64 }, ptr %map, i32 0, i32 3"),
+        "capacity must use the shared native header, not source Vec fields")
+    expectMetadata(capacityIr.contains("load i64"), "capacity must load an integer")
+    expectMetadata(not capacityIr.contains("@StringHashMap_"), "capacity must not call an undefined source method")
+
+    let factorOutput = StringBuilder.new()
+    let factor = emitStringHashMapMethodImpl(factorOutput, registers,
+        "loadFactorPercent", "%map", "0", "0", stringValues)
+    expectMetadata(factor != "", "load factor must have native lowering")
+    let factorIr = factorOutput.toString()
+    expectMetadata(factorIr.contains("ptr %map, i32 0, i32 4"), "load factor must read native length")
+    expectMetadata(factorIr.contains("icmp eq i64"), "load factor must guard zero capacity")
+    expectMetadata(factorIr.contains("select i1"), "division must use a nonzero denominator")
+    expectMetadata(factorIr.contains("sdiv i64"), "load factor must use integer percent semantics")
+    expectMetadata(not factorIr.contains("@StringHashMap_"), "load factor must not call an undefined source method")
+}
+
+fun main() r: Int {
+    expectMetadata(shouldSkipStringHashMapMetadataDeclImpl("StringHashMap", "capacity"), "inlined capacity must not get a foreign declaration")
+    expectMetadata(shouldSkipStringHashMapMetadataDeclImpl("StringHashMap", "loadFactorPercent"), "inlined load factor must not get a foreign declaration")
+    expectMetadata(not shouldSkipStringHashMapMetadataDeclImpl("OtherMap", "capacity"), "other classes retain declarations")
+    expectMetadata(not shouldSkipStringHashMapMetadataDeclImpl("StringHashMap", "resize"), "source map helpers retain declarations")
+    checkMetadata(false)
+    checkMetadata(true)
+    println("PASS: StringHashMap native metadata lowering")
+    return 0
+}
+
+main()

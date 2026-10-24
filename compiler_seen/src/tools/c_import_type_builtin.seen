@@ -55,44 +55,9 @@ fun cImportIsBuiltinScalarTypedefName(gen: CImportGenerator, name: String) r: Bo
 }
 
 fun cImportMapBuiltinCTypeToSeenType(gen: CImportGenerator, normalized: String) r: String {
-    if normalized == "int" { return "Int" }
-    if normalized == "int32_t" { return "Int" }
-    if normalized == "signed int" { return "Int" }
-    if normalized == "long int" { return "Int" }
-    if normalized == "long" { return "Int" }
-    if normalized == "int64_t" { return "Int" }
-    if normalized == "long long" { return "Int" }
-    if normalized == "signed long" { return "Int" }
-    if normalized == "signed long long" { return "Int" }
-    if normalized == "short" { return "Int" }
-    if normalized == "int16_t" { return "Int" }
-    if normalized == "signed short" { return "Int" }
-    if normalized == "unsigned int" { return "Int" }
-    if normalized == "uint32_t" { return "Int" }
-    if normalized == "unsigned long int" { return "Int" }
-    if normalized == "unsigned long" { return "Int" }
-    if normalized == "uint64_t" { return "Int" }
-    if normalized == "size_t" { return "Int" }
-    if normalized == "unsigned long long" { return "Int" }
-    if normalized == "unsigned short" { return "Int" }
-    if normalized == "uint16_t" { return "Int" }
-    if normalized == "unsigned char" { return "Int" }
-    if normalized == "uint8_t" { return "Int" }
-    if normalized == "signed char" { return "Int" }
-    if normalized == "int8_t" { return "Int" }
-    if normalized == "char" { return "Char" }
-    if normalized.contains("char *") or normalized.contains("char*") {
-        return "String"
-    }
-    if normalized == "bool" { return "Bool" }
-    if normalized == "_Bool" { return "Bool" }
-    if normalized == "float" { return "Float" }
-    if normalized == "double" { return "Float" }
-    if normalized == "void" { return "Void" }
-    if normalized.contains("(*") { return "Ptr" }
-    if normalized.endsWith("*") { return "*Void" }
-    if normalized.contains("*") { return "*Void" }
-    return "Int"
+    // Function values and callback/record values cross the same C ABI. Do not
+    // widen C int/short/float into Seen Int/double or turn char* into SeenString.
+    return cImportMapBuiltinCFieldTypeToSeenType(gen, normalized)
 }
 
 fun cImportMapBuiltinCFieldTypeToSeenType(gen: CImportGenerator, normalized: String) r: String {

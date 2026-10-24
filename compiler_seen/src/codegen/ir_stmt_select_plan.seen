@@ -76,6 +76,15 @@ fun isSelectCompareOperatorImpl(operator: String) r: Bool {
         operator == "<="
 }
 
+/// A cost estimate cannot establish speculation safety. Member/index loads
+/// can fault outside their guard, and arithmetic can hide calls or traps.
+/// Let LLVM consider richer expressions after preserving source control flow.
+fun isSelectSpeculationSafeImpl(expr: ParserExpressionNode) r: Bool {
+    return expr.kind == "Variable" or expr.kind == "VarExpr" or expr.kind == "Literal" or
+        expr.kind == "IntLiteral" or expr.kind == "FloatLiteral" or
+        expr.kind == "BoolLiteral" or expr.kind == "CharLiteral" or expr.kind == "NullLiteral"
+}
+
 fun planPairedAssignmentSelectIfImpl(stmt: StatementNode)
     r: PairedAssignmentSelectPlan {
 
@@ -98,7 +107,8 @@ fun planPairedAssignmentSelectIfImpl(stmt: StatementNode)
 
     let thenRhs = selectAssignmentRhsImpl(thenStmt)
     let elseRhs = selectAssignmentRhsImpl(elseStmt)
-    if exprCost(thenRhs) >= 8 or exprCost(elseRhs) >= 8 {
+    if not isSelectSpeculationSafeImpl(thenRhs) or not isSelectSpeculationSafeImpl(elseRhs) or
+        exprCost(thenRhs) >= 8 or exprCost(elseRhs) >= 8 {
         return invalidPairedAssignmentSelectPlanImpl()
     }
 
@@ -124,7 +134,7 @@ fun planSingleArmSelectIfImpl(stmt: StatementNode) r: SingleArmSelectPlan {
     }
 
     let rhsExpr = selectAssignmentRhsImpl(thenStmt)
-    if exprCost(rhsExpr) >= 5 {
+    if not isSelectSpeculationSafeImpl(rhsExpr) or exprCost(rhsExpr) >= 5 {
         return invalidSingleArmSelectPlanImpl()
     }
     return SingleArmSelectPlan.new(true, assignName, rhsExpr)

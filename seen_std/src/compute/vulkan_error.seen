@@ -1,0 +1,18 @@
+/// Seen owns status classification; vendor diagnostics are never echoed.
+import core.option.{Some}
+import compute.error.{GpuError, gpuFailure}
+
+fun gpuVkFailure(native: Int32, operation: String) r: GpuError {
+    var code = "gpu.unavailable"; var message = "Vulkan operation failed"
+    if native == (-1 as Int32) or native == (-2 as Int32) {
+        code = "gpu.out_of_memory"; message = "Vulkan memory allocation failed"
+    }
+    if native == (-4 as Int32) { code = "gpu.device_lost"; message = "Vulkan device was lost" }
+    if native == (-6 as Int32) or native == (-7 as Int32) or native == (-8 as Int32) {
+        code = "gpu.unsupported_capability"; message = "required Vulkan capability is unavailable"
+    }
+    if native >= (0 as Int32) { code = "gpu.invalid"; message = "Vulkan returned an unexpected status" }
+    let error = gpuFailure(code, operation, message)
+    error.nativeCode.free(); error.nativeCode = Some<Int64>(native as Int64)
+    return error
+}

@@ -1,0 +1,30 @@
+/// Construct positive Float32 bits from a bounded biased exponent (-2..256)
+/// and mantissa. Callers provide exact binary fractions; no device denormal
+/// arithmetic or floating rounding mode participates in this representation.
+import codegen.gpu.scalar_plan.{GpuScalarPlan}
+import codegen.gpu.scalar_ops.{SCALAR_ADD, SCALAR_BITCAST, SCALAR_BIT_AND, SCALAR_BIT_OR, SCALAR_SHIFT_LEFT, SCALAR_SHIFT_RIGHT, SCALAR_SIGNED_GREATER_EQUAL, SCALAR_SIGNED_LESS_EQUAL, SCALAR_SUBTRACT}
+
+fun scalarRoundRightEven(plan: GpuScalarPlan, bits: Int, shift: Int) r: Int {
+    let context = plan
+    if shift < 1 or shift > 31 { context.reject("scalar rounding shift is outside its bit domain"); return 0 }
+    let high = plan.binary(SCALAR_SHIFT_RIGHT, 3, bits, context.constant(3, shift))
+    let even = plan.binary(SCALAR_BIT_AND, 3, high, context.constant(3, 1))
+    let bias = plan.binary(SCALAR_ADD, 3, context.constant(3, (1 << (shift - 1)) - 1), even)
+    let rounded = plan.binary(SCALAR_ADD, 3, bits, bias)
+    return plan.binary(SCALAR_SHIFT_RIGHT, 3, rounded, context.constant(3, shift))
+}
+
+fun scalarPositiveFloatBits(plan: GpuScalarPlan, exponent: Int, mantissa: Int) r: Int {
+    let context = plan
+    let denormal = plan.binary(SCALAR_SIGNED_LESS_EQUAL, 1, exponent, context.constant(2, 0))
+    let shift = plan.binary(SCALAR_SUBTRACT, 2, context.constant(2, 1), exponent)
+    let safeShift = plan.select(2, denormal, shift, context.constant(2, 1))
+    let significand = plan.binary(SCALAR_BIT_OR, 3, context.constant(3, 8388608), mantissa)
+    let smallBits = plan.binary(SCALAR_SHIFT_RIGHT, 3, significand, safeShift)
+    let unsignedExponent = plan.unary(SCALAR_BITCAST, 3, exponent)
+    let high = plan.binary(SCALAR_SHIFT_LEFT, 3, unsignedExponent, context.constant(3, 23))
+    let normalBits = plan.binary(SCALAR_BIT_OR, 3, high, mantissa)
+    let bits = plan.select(3, denormal, smallBits, normalBits)
+    let overflow = plan.binary(SCALAR_SIGNED_GREATER_EQUAL, 1, exponent, context.constant(2, 255))
+    return plan.select(3, overflow, context.constant(3, 2139095040), bits)
+}

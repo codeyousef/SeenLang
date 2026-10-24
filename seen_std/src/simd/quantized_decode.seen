@@ -1,0 +1,145 @@
+/// Checked synchronous block decoding. Source and output owners are borrowed;
+/// scalar lane mathematics and vector stores share one wire-format decoder.
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import memory.aligned_buffer.{OwnedBuffer}
+import inference.quantized_formats.{QuantizedFormat, quantizedBlockElements, quantizedBlockBytes,
+    quantizedLittleEndian16, quantizedFiniteHalf, quantizedHalf, quantizedPowerOfTwo, quantizedLane}
+import simd.ir_types.{SimdIrError}
+import simd.memory_operations.{SimdMemoryProgress, simdByteRangeValid, simdRangesDisjoint,
+    simdMemoryFailure, simdMemoryStatusFailure, simdMemoryStatus,
+    beginSimdMemoryOperation, completeSimdMemoryOperation}
+
+fun quantizedTailLane(data: *const UInt8, format: QuantizedFormat, lane: Int,
+    count: Int, scale: Float32, minimum: Float32) r: Float32 {
+    if lane >= count { return 0.0 as Float32 }
+    return quantizedLane(data, format, lane, scale, minimum)
+}
+
+fun decodeQuantizedBlock(borrow source: OwnedBuffer<UInt8>, sourceOffset: UInt64,
+    borrow destination: OwnedBuffer<UInt8>, destinationOffset: UInt64,
+    format: QuantizedFormat, count: Int, vectorBits: Int,
+    context: OperationContext, borrow progress: SimdMemoryProgress) r: Result<Bool, SimdIrError> {
+    let elements = quantizedBlockElements(format); let bytes = quantizedBlockBytes(format)
+    if elements == 0 or count < 0 or count > elements {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_quantization", "block-geometry"))
+    }
+    if vectorBits != 0 and vectorBits != 128 and vectorBits != 256 and vectorBits != 512 {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_policy", "decode-vector-width"))
+    }
+    let outputBytes = (count as UInt64) * (4 as UInt64)
+    if not simdByteRangeValid(source, sourceOffset, bytes as UInt64) or
+        not simdByteRangeValid(destination, destinationOffset, outputBytes) {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_shape", "quantized-range"))
+    }
+    if not simdRangesDisjoint(source, sourceOffset, bytes as UInt64, destination, destinationOffset, outputBytes) {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_alias", "quantized-overlap"))
+    }
+    let input = ((source.data as UInt64) + sourceOffset) as *const UInt8
+    let output = ((destination.data as UInt64) + destinationOffset) as *Float32
+    var status = beginSimdMemoryOperation(context, progress)
+    if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
+    var scale = 1.0 as Float32; var minimum = 0.0 as Float32
+    if format == QuantizedFormat.Q8_0 or format == QuantizedFormat.Q4_0 or
+        format == QuantizedFormat.Q4_K or format == QuantizedFormat.IQ3_XXS {
+        let bits = quantizedLittleEndian16(input, 0)
+        if not quantizedFiniteHalf(bits) { return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_quantization", "nonfinite-scale")) }
+        scale = quantizedHalf(bits)
+    }
+    if format == QuantizedFormat.Q4_K or format == QuantizedFormat.Q2_K {
+        var position = 2
+        if format == QuantizedFormat.Q2_K { position = 82 }
+        let bits = quantizedLittleEndian16(input, position)
+        if not quantizedFiniteHalf(bits) { return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_quantization", "nonfinite-minimum")) }
+        minimum = quantizedHalf(bits)
+    }
+    if format == QuantizedFormat.Q2_K {
+        let bits = quantizedLittleEndian16(input, 80)
+        if not quantizedFiniteHalf(bits) { return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_quantization", "nonfinite-scale")) }
+        scale = quantizedHalf(bits)
+    }
+    if format == QuantizedFormat.MXFP4 {
+        if input[0] == (255 as UInt8) { return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_quantization", "nonfinite-scale")) }
+        scale = quantizedPowerOfTwo((input[0] as Int) - 127)
+    }
+    if format == QuantizedFormat.FP8E4M3FN and ((input[0] as Int) & 127) == 127 {
+        return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_quantization", "nonfinite-value"))
+    }
+    // Validate the complete requested prefix before the first output write.
+    // Finite MX scales can still overflow Float32 when multiplied by E2M1.
+    var lane = 0
+    if format == QuantizedFormat.MXFP4 and input[0] >= (253 as UInt8) {
+        while lane < count {
+            let byte = input[1 + lane % 16] as Int
+            var magnitude = byte & 7
+            if lane >= 16 { magnitude = (byte >> 4) & 7 }
+            if (input[0] == (253 as UInt8) and magnitude >= 6) or
+                (input[0] == (254 as UInt8) and magnitude >= 4) {
+                return Err<Bool, SimdIrError>(simdMemoryFailure("simd.invalid_quantization", "decoded-overflow"))
+            }
+            lane = lane + 1
+        }
+    }
+    lane = 0
+    while lane < count {
+        status = simdMemoryStatus(context, progress)
+        if status != 0 { return Err<Bool, SimdIrError>(simdMemoryStatusFailure(status)) }
+        var step = 1
+        if vectorBits == 0 { output[lane] = quantizedLane(input, format, lane, scale, minimum) }
+        // Vector stores are selected explicitly and carry exact tail masks.
+        // The compiler owns ISA lowering; this API claims no CPU capability.
+        if vectorBits == 128 { step = 4; storeQuantized128(input, output, format, lane, count, scale, minimum) }
+        if vectorBits == 256 { step = 8; storeQuantized256(input, output, format, lane, count, scale, minimum) }
+        if vectorBits == 512 { step = 16; storeQuantized512(input, output, format, lane, count, scale, minimum) }
+        lane = lane + step
+        if lane > count { lane = count }
+        progress.completed = lane as UInt64
+    }
+    return completeSimdMemoryOperation(context, progress, count as UInt64)
+}
+
+fun storeQuantized128(input: *const UInt8, output: *Float32, format: QuantizedFormat,
+    lane: Int, count: Int, scale: Float32, minimum: Float32) r: Void {
+    let value: f32x4 = f32x4(
+        quantizedTailLane(input, format, lane + 0, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 1, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 2, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 3, count, scale, minimum))
+    simd_unsafe_masked_store_f32x4(value, ((output as UInt64) + (lane as UInt64) * (4 as UInt64)) as Int, mask4(lane + 0 < count, lane + 1 < count, lane + 2 < count, lane + 3 < count))
+}
+
+fun storeQuantized256(input: *const UInt8, output: *Float32, format: QuantizedFormat,
+    lane: Int, count: Int, scale: Float32, minimum: Float32) r: Void {
+    let value: f32x8 = f32x8(
+        quantizedTailLane(input, format, lane + 0, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 1, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 2, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 3, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 4, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 5, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 6, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 7, count, scale, minimum))
+    simd_unsafe_masked_store_f32x8(value, ((output as UInt64) + (lane as UInt64) * (4 as UInt64)) as Int, mask8(lane + 0 < count, lane + 1 < count, lane + 2 < count, lane + 3 < count, lane + 4 < count, lane + 5 < count, lane + 6 < count, lane + 7 < count))
+}
+
+fun storeQuantized512(input: *const UInt8, output: *Float32, format: QuantizedFormat,
+    lane: Int, count: Int, scale: Float32, minimum: Float32) r: Void {
+    let value: f32x16 = f32x16(
+        quantizedTailLane(input, format, lane + 0, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 1, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 2, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 3, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 4, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 5, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 6, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 7, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 8, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 9, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 10, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 11, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 12, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 13, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 14, count, scale, minimum),
+        quantizedTailLane(input, format, lane + 15, count, scale, minimum))
+    simd_unsafe_masked_store_f32x16(value, ((output as UInt64) + (lane as UInt64) * (4 as UInt64)) as Int, mask16(lane + 0 < count, lane + 1 < count, lane + 2 < count, lane + 3 < count, lane + 4 < count, lane + 5 < count, lane + 6 < count, lane + 7 < count, lane + 8 < count, lane + 9 < count, lane + 10 < count, lane + 11 < count, lane + 12 < count, lane + 13 < count, lane + 14 < count, lane + 15 < count))
+}

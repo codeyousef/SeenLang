@@ -1,0 +1,78 @@
+/// Owned, bounded scalar conversion plan. Input records borrow native value
+/// handles; every other record describes portable word semantics. Renderers
+/// consume the plan and return handles owned by their containing function.
+class GpuScalarValues {
+    var value: Int
+    var laneValid: Int
+    var scaleValid: Int
+}
+class GpuScalarPlan {
+    var codes: Array<Int>
+    var types: Array<Int>
+    var first: Array<Int>
+    var second: Array<Int>
+    var third: Array<Int>
+    var fourth: Array<Int>
+    var result: Int
+    var laneValid: Int
+    var scaleValid: Int
+    var valid: Bool
+    var message: String
+    static fun create() r: GpuScalarPlan {
+        return GpuScalarPlan{codes: Array<Int>(), types: Array<Int>(), first: Array<Int>(), second: Array<Int>(),
+            third: Array<Int>(), fourth: Array<Int>(), result: 0, laneValid: 0, scaleValid: 0, valid: true, message: ""}
+    }
+    fun reject(message: String) r: Void {
+        if this.valid { this.message = message }; this.valid = false
+    }
+    fun append(code: Int, typeCode: Int, first: Int, second: Int, third: Int, fourth: Int) r: Int {
+        if not this.valid { return 0 }
+        if this.codes.length() >= 4096 { this.reject("scalar conversion exceeds its 4096-operation limit"); return 0 }
+        if typeCode < 1 or typeCode > 4 { this.reject("scalar conversion has an invalid value type"); return 0 }
+        this.codes.push(code); this.types.push(typeCode); this.first.push(first); this.second.push(second)
+        this.third.push(third); this.fourth.push(fourth); return this.codes.length()
+    }
+    fun input(typeCode: Int, native: Int) r: Int { return this.append(0, typeCode, native, 0, 0, 0) }
+    fun constant(typeCode: Int, bits: Int) r: Int { return this.append(1, typeCode, bits & 4294967295, 0, 0, 0) }
+    fun select(typeCode: Int, condition: Int, yes: Int, no: Int) r: Int { return this.append(2, typeCode, condition, yes, no, 0) }
+    fun roundEven(value: Int) r: Int { return this.append(3, 4, value, 0, 0, 0) }
+    fun extract(typeCode: Int, word: Int, offset: Int, bits: Int) r: Int {
+        var code = 4; if typeCode == 2 { code = 5 }; return this.append(code, typeCode, word, offset, bits, 0)
+    }
+    fun insert(word: Int, payload: Int, offset: Int, bits: Int) r: Int { return this.append(6, 3, word, payload, offset, bits) }
+    fun unary(operation: Int, typeCode: Int, value: Int) r: Int { return this.append(100 + operation, typeCode, value, 0, 0, 0) }
+    fun binary(operation: Int, typeCode: Int, left: Int, right: Int) r: Int { return this.append(200 + operation, typeCode, left, right, 0, 0) }
+    fun validate() r: Bool {
+        if not this.valid { return false }
+        let count = this.codes.length()
+        if count < 1 or count > 4096 or this.types.length() != count or this.first.length() != count or
+            this.second.length() != count or this.third.length() != count or this.fourth.length() != count or
+            this.result < 1 or this.result > count or this.laneValid < 0 or this.laneValid > count or
+            this.scaleValid < 0 or this.scaleValid > count {
+            this.reject("scalar conversion plan shape or output is invalid"); return false
+        }
+        var index = 0
+        while index < count {
+            let code = this.codes[index]; let typeCode = this.types[index]; var operands = -1
+            if code == 0 or code == 1 { operands = 0 }
+            if code == 2 or code == 4 or code == 5 { operands = 3 }
+            if code == 3 or (code >= 101 and code <= 103) { operands = 1 }
+            if code == 6 { operands = 4 }
+            if code >= 204 and code <= 223 { operands = 2 }
+            if operands < 0 or typeCode < 1 or typeCode > 4 or (code == 0 and this.first[index] < 1) {
+                this.reject("scalar conversion operation or input is invalid"); return false
+            }
+            if (operands >= 1 and (this.first[index] < 1 or this.first[index] > index)) or
+                (operands >= 2 and (this.second[index] < 1 or this.second[index] > index)) or
+                (operands >= 3 and (this.third[index] < 1 or this.third[index] > index)) or
+                (operands >= 4 and (this.fourth[index] < 1 or this.fourth[index] > index)) {
+                this.reject("scalar conversion operand does not name an earlier operation"); return false
+            }
+            index = index + 1
+        }
+        return true
+    }
+    fun release() r: Void {
+        this.codes.free(); this.types.free(); this.first.free(); this.second.free(); this.third.free(); this.fourth.free(); this.free()
+    }
+}

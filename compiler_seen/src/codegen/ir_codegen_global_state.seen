@@ -3,6 +3,8 @@
 // bootstrap compilers do not need to lower self-hosted field stores for them.
 
 import parser.real_parser.{ProgramNode, ClassNode, FunctionNode, StatementNode}
+import codegen.ir_generic_call_type.{resetGenericCallTypesImpl}
+import codegen.ir_codegen_target_state.{resetForeignScalarAbiImpl}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_state.{CodegenState, FunctionLoweringOptions}
 import codegen.ir_codegen_state_bridge.{CodegenStateBridgeSnapshot, syncCodegenStateBridgeImpl}
@@ -435,7 +437,7 @@ fun registerClassTraitSetWithGlobalStateImpl(className: String, traits: String) 
     let registry = Array<String>(); registry.push(getTraitImplRegistryStateImpl())
     let count = Array<Int>(); count.push(getTraitImplCountStateImpl())
     registerClassTraitImplsImpl(className, traits,
-        structNames, structMethodNames, structMethodRetTypes, registry, count)
+        structNames, structMethodNames, structMethodRetTypes, registry, count, funcNames, funcRetTypes)
     applyTraitImplStateImpl(registry[0], count[0]); registry.free(); count.free()
 }
 
@@ -449,7 +451,7 @@ fun registerClassTraitImplsWithGlobalStateImpl(className: String) r: Void {
 fun registerBoxedTraitImplWithGlobalStateImpl(className: String, traitName: String) r: Void {
     registerClassTraitSetWithGlobalStateImpl(className, traitName + "|")
     if not ("|" + getTraitImplRegistryStateImpl()).contains("|" + traitName + ":" + className + ":") {
-        abort("Error: [E_DYN_IMPLEMENTATION] boxed trait has no complete declared implementation")
+        abort("Error: [E_DYN_IMPLEMENTATION] boxed trait has no complete declared implementation: " + className + " as " + traitName)
     }
     appendDynTraitNameWithFeatureStateImpl(traitName)
 }
@@ -753,6 +755,8 @@ fun createDeclarationItemContextWithGlobalStateImpl(
 }
 
 fun initGlobalBootstrapStateImpl() r: Void {
+    resetGenericCallTypesImpl()
+    resetForeignScalarAbiImpl()
     preAllocatedRegs = Array<String>()
     preAllocatedVars = Array<String>()
     preAllocatedTypes = Array<String>()

@@ -1,0 +1,28 @@
+/// HSA launch geometry is uniform across a workgroup. Reject invalid implicit
+/// counts, partial groups, offsets and shapes before any source operation or
+/// barrier. Bit 16 belongs to this launch ABI; source fault bits remain 1–8.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction}
+import codegen.gpu.amdgpu_builtins.{amdBuiltin, amdImplicitWord}
+fun amdValidateLaunch(function: GpuAmdFunction, exit: Int) r: Void {
+    let counts = amdBuiltin(function, 4); let zero = function.word(0)
+    var invalid = function.compare("eq", counts, zero, false); var axis = 0
+    while axis < 3 {
+        var size = function.workgroupX; if axis == 1 { size = function.workgroupY }; if axis == 2 { size = function.workgroupZ }
+        if axis > 0 { let empty = function.compare("eq", counts + axis, zero, false); invalid = function.predicateBinary("or", invalid, empty) }
+        let overflow = function.compare("ugt", counts + axis, function.word(4294967295 / size), false)
+        invalid = function.predicateBinary("or", invalid, overflow)
+        let shape = amdImplicitWord(function, 12 + axis * 2, true)
+        let mismatch = function.compare("ne", shape, function.word(size), false); invalid = function.predicateBinary("or", invalid, mismatch)
+        let remainder = amdImplicitWord(function, 18 + axis * 2, true)
+        let partial = function.compare("ne", remainder, zero, false); invalid = function.predicateBinary("or", invalid, partial)
+        let low = amdImplicitWord(function, 40 + axis * 8, false); let high = amdImplicitWord(function, 44 + axis * 8, false)
+        let lowOffset = function.compare("ne", low, zero, false); let highOffset = function.compare("ne", high, zero, false)
+        let offset = function.predicateBinary("or", lowOffset, highOffset); invalid = function.predicateBinary("or", invalid, offset)
+        axis = axis + 1
+    }
+    let dimensions = amdImplicitWord(function, 64, true)
+    let emptyDimensions = function.compare("eq", dimensions, zero, false); let excessiveDimensions = function.compare("ugt", dimensions, function.word(3), false)
+    let badDimensions = function.predicateBinary("or", emptyDimensions, excessiveDimensions); invalid = function.predicateBinary("or", invalid, badDimensions)
+    let bad = function.label(); let good = function.label(); function.conditional(invalid, bad, good)
+    function.defineLabel(bad); function.fault(5); function.branch(exit); function.defineLabel(good)
+}

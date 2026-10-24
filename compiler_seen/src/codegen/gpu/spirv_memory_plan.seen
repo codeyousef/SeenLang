@@ -1,0 +1,19 @@
+/// Closed memory-model translation. Negative plans are rejected before any
+/// target instruction is emitted; unsupported orderings are never weakened.
+fun spirvMemoryScope(scope: Int) r: Int {
+    if scope >= 1 and scope <= 4 { return 5 - scope }; return -1
+}
+fun spirvMemorySemantics(order: Int, spaces: Int) r: Int {
+    // Vulkan forbids SequentiallyConsistent shader memory semantics.
+    if order < 1 or order > 4 or spaces < 1 or spaces > 3 { return -1 }
+    var result = 0
+    if order == 2 { result = 2 }; if order == 3 { result = 4 }; if order == 4 { result = 8 }
+    if (spaces & 1) != 0 { result = result | 64 }; if (spaces & 2) != 0 { result = result | 256 }
+    return result
+}
+fun spirvAtomicRmwOpcode(operation: Int, signed: Bool) r: Int {
+    if operation == 1 { return 229 }; if operation == 2 { return 234 }; if operation == 3 { return 235 }
+    if operation == 4 { if signed { return 236 }; return 237 }
+    if operation == 5 { if signed { return 238 }; return 239 }
+    if operation >= 6 and operation <= 8 { return 234 + operation }; return 0
+}

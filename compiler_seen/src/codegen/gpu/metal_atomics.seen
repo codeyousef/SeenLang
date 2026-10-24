@@ -1,0 +1,72 @@
+/// Typed native atomics operate only after the original index is checked.
+/// A bounded weak-CAS retry preserves strong compare/exchange semantics;
+/// exhausting its retry budget records the same explicit loop fault as IR loops.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_COMPARE,
+    GPU_ORDER_ACQUIRE, GPU_ORDER_RELEASE, GPU_IR_MAX_LOOP_ITERATIONS}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.metal_context.{GpuMetalFunction, GpuMetalResource, metalWord, metalTypedWord, metalAssignment}
+import codegen.gpu.metal_memory.{metalMemoryLane}
+import codegen.gpu.metal_sync_plan.{metalAtomicOrderAdmitted, metalAtomicReleases, metalAtomicAcquires}
+import codegen.gpu.metal_sync.{metalMemoryFence}
+import typechecker.gpu_types.{gpuTypeValue}
+
+fun metalAtomicName(opcode: Int, operation: Int) r: String {
+    if opcode == GPU_IR_ATOMIC_LOAD { return "atomic_load_explicit" }
+    if opcode == GPU_IR_ATOMIC_STORE { return "atomic_store_explicit" }
+    if operation == 1 { return "atomic_exchange_explicit" }; if operation == 2 { return "atomic_fetch_add_explicit" }
+    if operation == 3 { return "atomic_fetch_sub_explicit" }; if operation == 4 { return "atomic_fetch_min_explicit" }
+    if operation == 5 { return "atomic_fetch_max_explicit" }; if operation == 6 { return "atomic_fetch_and_explicit" }
+    if operation == 7 { return "atomic_fetch_or_explicit" }; if operation == 8 { return "atomic_fetch_xor_explicit" }; return ""
+}
+fun metalAtomicAddress(function: GpuMetalFunction, resource: GpuMetalResource, index: Int, readOnly: Bool) r: Void {
+    let text = function.body; text.literal("reinterpret_cast<")
+    if readOnly { text.literal("const ") }
+    if resource.shared { text.literal("threadgroup ") } else { text.literal("device ") }
+    if gpuTypeValue(resource.typeCode) == 2 { text.literal("atomic_int*>( &") } else { text.literal("atomic_uint*>( &") }
+    metalMemoryLane(function, resource, index, 0); text.literal(")")
+}
+fun metalCompareExchange(function: GpuMetalFunction, frame: GpuEmissionFrame, resource: GpuMetalResource,
+    borrow op: GpuIrInstruction, result: Int, position: Int) r: Void {
+    let text = function.body; let scalar = gpuTypeValue(resource.typeCode)
+    if scalar == 2 { text.literal("int") } else { text.literal("uint") }
+    text.literal(" seen_atomic_expected = "); metalTypedWord(text, frame.registers[op.operands[2]], scalar)
+    text.literal(";\nbool seen_atomic_success = false;\nuint seen_atomic_attempts = 0u;\nwhile (true) {\n")
+    text.literal("if (seen_atomic_attempts >= "); text.number(GPU_IR_MAX_LOOP_ITERATIONS); text.literal("u) {\n")
+    function.fault(3); text.literal("seen_atomic_expected = 0; break; }\nseen_atomic_attempts += 1u;\n")
+    text.literal("seen_atomic_success = atomic_compare_exchange_weak_explicit(")
+    metalAtomicAddress(function, resource, position, false); text.literal(", &seen_atomic_expected, ")
+    metalTypedWord(text, frame.registers[op.operands[3]], scalar)
+    text.literal(", memory_order_relaxed, memory_order_relaxed);\nif (seen_atomic_success || seen_atomic_expected != ")
+    metalTypedWord(text, frame.registers[op.operands[2]], scalar); text.literal(") break;\n}\n")
+    metalAssignment(text, result); text.literal("uint(seen_atomic_expected);\n")
+    if metalAtomicAcquires(op.memoryOrder) {
+        text.literal("if (seen_atomic_success) {\n"); metalMemoryFence(function, op.memoryScope, GPU_ORDER_ACQUIRE, op.memorySpaces); text.literal("}\n")
+    }
+    if op.immediate == GPU_ORDER_ACQUIRE {
+        text.literal("if (!seen_atomic_success) {\n"); metalMemoryFence(function, op.memoryScope, GPU_ORDER_ACQUIRE, op.memorySpaces); text.literal("}\n")
+    }
+}
+fun metalAtomic(function: GpuMetalFunction, frame: GpuEmissionFrame, resourceIndex: Int, borrow op: GpuIrInstruction) r: Int {
+    if not metalAtomicOrderAdmitted(function.target, op) {
+        function.error("E_GPU_METAL_CAPABILITY", "Metal atomic ordering is unsupported by the selected MSL target"); return 0
+    }
+    let resource = function.resources[resourceIndex]; let index = op.operands[1]; let position = frame.registers[index]
+    var result = 0
+    if op.opcode != GPU_IR_ATOMIC_STORE { result = function.allocate(1); function.set(result, 0) }
+    let text = function.body; text.literal("if ("); metalWord(text, position); text.literal(" < "); metalWord(text, resource.length)
+    if frame.registerTypes[index] == 2 { text.literal(" && "); metalTypedWord(text, position, 2); text.literal(" >= 0") }
+    text.literal(") {\n")
+    if metalAtomicReleases(op.memoryOrder) { metalMemoryFence(function, op.memoryScope, GPU_ORDER_RELEASE, op.memorySpaces) }
+    if op.opcode == GPU_IR_ATOMIC_COMPARE { metalCompareExchange(function, frame, resource, op, result, position) }
+    else {
+        if result != 0 { metalAssignment(text, result); text.literal("uint(") }
+        let name = metalAtomicName(op.opcode, op.immediate)
+        if name == "" { function.error("E_GPU_METAL_CAPABILITY", "Metal atomic operation is unsupported"); return 0 }
+        text.literal(name); text.literal("("); metalAtomicAddress(function, resource, position, op.opcode == GPU_IR_ATOMIC_LOAD)
+        if op.opcode != GPU_IR_ATOMIC_LOAD { text.literal(", "); metalTypedWord(text, frame.registers[op.operands[2]], gpuTypeValue(resource.typeCode)) }
+        text.literal(", memory_order_relaxed)"); if result != 0 { text.literal(")") }; text.literal(";\n")
+        if metalAtomicAcquires(op.memoryOrder) { metalMemoryFence(function, op.memoryScope, GPU_ORDER_ACQUIRE, op.memorySpaces) }
+    }
+    text.literal("} else {\n"); function.fault(1); text.literal("}\n"); return result
+}

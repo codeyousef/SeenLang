@@ -1,0 +1,23 @@
+@compute(1)
+fun wrappingAtomics(data: Buffer<Int32>, output: WriteBuffer<Int32>) {
+    atomicStore(data, 0, 2147483647, Relaxed, DeviceScope)
+    output[0] = atomicAdd(data, 0, 1, Relaxed, DeviceScope)
+    output[1] = atomicLoad(data, 0, Relaxed, DeviceScope)
+    output[2] = atomicSub(data, 0, 1, Relaxed, DeviceScope)
+    output[3] = atomicLoad(data, 0, Relaxed, DeviceScope)
+}
+@compute(1)
+fun compareOnly(data: Buffer<Int32>, output: WriteBuffer<Int32>) {
+    output[0] = atomicCompareExchange(data, 0, 13, 42, Relaxed, Relaxed, DeviceScope)
+    output[1] = atomicLoad(data, 0, Relaxed, DeviceScope)
+}
+@compute(1)
+fun negativeOnly(data: Buffer<Int32>, output: WriteBuffer<Int32>) {
+    output[0] = atomicAdd(data, -1, 1, Relaxed, DeviceScope)
+    output[1] = atomicLoad(data, 0, Relaxed, DeviceScope)
+}
+@compute(1)
+fun readonlyAtomic(data: ReadBuffer<Int32>, output: WriteBuffer<Int32>) {
+    output[0] = atomicLoad(data, 0, Relaxed, DeviceScope)
+    output[1] = atomicLoad(data, -1, Relaxed, DeviceScope)
+}

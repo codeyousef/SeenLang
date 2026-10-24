@@ -1,0 +1,11 @@
+/// The single-function frontend uses the same parsed lowering and verifier as
+/// module compilation. Diagnostics own their records and borrow the file label.
+import parser.real_parser.{FunctionNode}
+import typechecker.semantic_registry.{SemanticDiagnostic}
+import typechecker.gpu_module_frontend.{gpuConsumeLoweringDiagnostics}
+import codegen.gpu_lower_program.{lowerGpuFunctions}
+
+fun gpuCheckFunction(function: FunctionNode, file: String) r: Array<SemanticDiagnostic> {
+    let sources = [function]; let result = lowerGpuFunctions(sources, file); sources.free()
+    return gpuConsumeLoweringDiagnostics(result, file)
+}

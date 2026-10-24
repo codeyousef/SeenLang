@@ -1,0 +1,112 @@
+import compute.backend.{GpuBackend}
+import compute.device.{GpuContext, GpuDevice}
+import compute.limits.{GpuLimits}
+import device_fixture_support.{report, operation, releaseOperation}
+import provider_fixture_support.{ProviderCounts, newProviderCounts, provider, opened, created, completed}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.resource_provider.{GpuNativeBlock, GpuResourceProviderHandle}
+import compute.error.{GpuError, gpuFailure}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+
+class ResourceCounts {
+    var attempts: Int
+    var creates: Int
+    var destroys: Int
+    var live: Int
+    var releases: Int
+    var next: UInt64
+    var failCreate: Bool
+    var failDestroy: Int
+    var destroyAttempts: Int
+    var failOnDestroyAttempt: Int
+    var refuseDestroy: Bool
+    var late: Bool
+    var badMetadata: Bool
+    var padding: UInt64
+    var providerId: UInt64
+    var contextId: UInt64
+    var alignment: UInt64
+}
+@move
+class ResourceFixtureProvider {
+    var counts: ResourceCounts
+    var operation: OperationContext
+    var ownedBlocks: Int
+    fun backend() r: GpuBackend { return GpuBackend.Vulkan }
+    fun identity() r: UInt64 { return this.counts.providerId }
+    fun contextIdentity() r: UInt64 { return this.counts.contextId }
+    fun bindingAlignment() r: UInt64 { return this.counts.alignment }
+    fun createBlock(capacity: UInt64, limit: UInt64, kind: GpuMemoryKind) r: Result<GpuNativeBlock, GpuError> {
+        this.counts.attempts = this.counts.attempts + 1
+        if this.counts.failCreate or this.counts.padding > limit or capacity > limit - this.counts.padding {
+            return Err<GpuNativeBlock, GpuError>(gpuFailure("gpu.out_of_memory", "gpu.resource.fixture", "test native allocation rejected"))
+        }
+        this.counts.creates = this.counts.creates + 1; this.counts.live = this.counts.live + 1
+        this.ownedBlocks = this.ownedBlocks + 1; this.counts.next = this.counts.next + (1 as UInt64)
+        var committed = capacity + this.counts.padding
+        if this.counts.badMetadata { committed = 0 as UInt64 }
+        if this.counts.late { this.operation.monotonicDeadline = 1 as Int64 }
+        return Ok<GpuNativeBlock, GpuError>(GpuNativeBlock{buffer: this.counts.next,
+            memory: this.counts.next + (1000000 as UInt64), capacity: capacity,
+            committedBytes: committed, bindingAlignment: this.counts.alignment, kind: kind,
+            hostVisible: false, hostCoherent: false})
+    }
+    fun destroyBlock(borrow block: GpuNativeBlock) r: Result<Bool, GpuError> {
+        if block.buffer == (0 as UInt64) or this.ownedBlocks <= 0 { abort("resource fixture destroyed an unowned native block") }
+        this.counts.destroyAttempts = this.counts.destroyAttempts + 1
+        if this.counts.failOnDestroyAttempt == this.counts.destroyAttempts {
+            return Err<Bool, GpuError>(gpuFailure("gpu.unavailable", "gpu.resource.fixture.close", "selected native destruction failed"))
+        }
+        if this.counts.failDestroy > 0 {
+            this.counts.failDestroy = this.counts.failDestroy - 1
+            return Err<Bool, GpuError>(gpuFailure("gpu.unavailable", "gpu.resource.fixture.close", "test native destruction failed"))
+        }
+        if this.counts.refuseDestroy { return Ok<Bool, GpuError>(false) }
+        this.counts.destroys = this.counts.destroys + 1; this.counts.live = this.counts.live - 1
+        this.ownedBlocks = this.ownedBlocks - 1
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Void {
+        if this.ownedBlocks != 0 { abort("resource provider released before native block cleanup") }
+        this.counts.releases = this.counts.releases + 1; this.free()
+    }
+}
+fun newResourceCounts(borrow context: GpuContext) r: ResourceCounts {
+    return ResourceCounts{attempts: 0, creates: 0, destroys: 0, live: 0, releases: 0, next: 0 as UInt64,
+        failCreate: false, failDestroy: 0, destroyAttempts: 0, failOnDestroyAttempt: 0, refuseDestroy: false, late: false, badMetadata: false,
+        padding: 16 as UInt64, providerId: context.core.info.identity.providerId,
+        contextId: context.core.slots[context.slot].native, alignment: 16 as UInt64}
+}
+fun resourceProvider(counts: ResourceCounts, operation: OperationContext) r: GpuResourceProviderHandle {
+    return GpuResourceProviderHandle.create(ResourceFixtureProvider{counts: counts, operation: operation, ownedBlocks: 0})
+}
+fun resourceOpened(result: Result<GpuAllocator, GpuError>) r: GpuAllocator {
+    if result.isErr() { abort("valid explicit resource allocator rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+
+@move
+class ResourceWorld {
+    var allocator: GpuAllocator
+    var context: GpuContext
+    var device: GpuDevice
+    var operation: OperationContext
+    var counts: ResourceCounts
+    var deviceCounts: ProviderCounts
+    var limits: GpuLimits
+    fun release() r: Void {
+        completed(this.allocator.release(), true); completed(this.context.release(), true); completed(this.device.release(), true)
+        this.counts.free(); this.deviceCounts.free(); this.limits.release(); releaseOperation(this.operation); this.free()
+    }
+}
+fun resourceWorld(bytes: UInt64, resources: Int, blocks: Int) r: ResourceWorld {
+    let op = operation(); let deviceCounts = newProviderCounts(); let limits = GpuLimits.bounded(2, 2, resources, bytes)
+    let device = opened(GpuDevice.open(provider(deviceCounts, op), report(), limits))
+    let context = created(device.createContext(op)); let counts = newResourceCounts(context)
+    let allocator = resourceOpened(GpuAllocator.open(context, resourceProvider(counts, op),
+        GpuMemoryKind.DeviceLocal, 64 as UInt64, blocks, op))
+    return ResourceWorld{allocator: allocator, context: context, device: device, operation: op,
+        counts: counts, deviceCounts: deviceCounts, limits: limits}
+}

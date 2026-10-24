@@ -1,0 +1,28 @@
+import tools.gpu_command.{gpuReadBoundedText}
+import env.env.{args, releaseArgs}
+import json.builder.{releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun require(value: Bool) r: Void {
+    if not value { abort("GPU bounded file ownership contract failed") }
+}
+
+fun main() r: Int {
+    let arguments = args(); require(arguments.length() == 2)
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 100 {
+        let loaded = gpuReadBoundedText(arguments[1], 1048576)
+        require(loaded.isOkay()); let text = loaded.unwrap(); loaded.releaseContainer()
+        require(text.length() > 1); releaseJsonText(text)
+        let limited = gpuReadBoundedText(arguments[1], 1)
+        require(limited.isErr()); let limitError = limited.unwrapErr(); limited.releaseContainer()
+        require(limitError.code == "E_GPU_INPUT_LIMIT"); limitError.free()
+        let missing = gpuReadBoundedText(".seen/gpu-file-contract-missing/input.seen", 1048576)
+        require(missing.isErr()); let missingError = missing.unwrapErr(); missing.releaseContainer()
+        require(missingError.code == "E_GPU_INPUT"); missingError.free()
+        require(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    releaseArgs(arguments)
+    println("PASS: GPU bounded file success rejection and ownership")
+    return 0
+}

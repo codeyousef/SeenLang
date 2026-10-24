@@ -1,213 +1,116 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
-HARD_SCOPE="$ROOT_DIR/scripts/run_in_hard_memory_scope.sh"
-
-if [ "${SEEN_MEMORY_GUARD_IN_SCOPE:-0}" != 1 ]; then
-    echo "RESOURCE STOP: installed release payload test requires a hard-memory scope" >&2
-    exit 126
-fi
-"$HARD_SCOPE" --label "Installed release payload read-back" --verify-only -- >/dev/null
-[ "${SEEN_LOW_MEMORY:-0}" = 1 ] && [ "${SEEN_JOBS:-0}" = 1 ] &&
-    [ "${SEEN_OPT_JOBS:-0}" = 1 ] || {
-    echo "RESOURCE STOP: installed release payload test requires serial settings" >&2
-    exit 126
-}
-
-PAYLOAD_VMEM_KB=8388608
-if [ "${SEEN_MAIN_VMEM_KB:?}" -lt "$PAYLOAD_VMEM_KB" ]; then
-    PAYLOAD_VMEM_KB="$SEEN_MAIN_VMEM_KB"
-fi
-ulimit -S -v "$PAYLOAD_VMEM_KB" || {
-    echo "RESOURCE STOP: could not apply installed-payload VMEM cap" >&2
-    exit 126
-}
-export SEEN_MAIN_VMEM_KB="$PAYLOAD_VMEM_KB"
-export SEEN_MEMORY_LIMIT_BYTES=$((PAYLOAD_VMEM_KB * 1024))
-
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-release-install-payload
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
-PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT_BIN:-$ROOT_DIR/tools/seen-pkg/bin/seen-pkg}"
-WORK_DIR="$(mktemp -d /tmp/release-install-payload.XXXXXX)"
-case "$WORK_DIR" in
-    /tmp/release-install-payload.*) ;;
-    *) echo "ERROR: unsafe installed-payload work path: $WORK_DIR" >&2; exit 1 ;;
-esac
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+fi
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT_DIR/target/seen-build/package-client/seen-pkg}"
+[ -f "$PACKAGE_CLIENT" ] && [ -x "$PACKAGE_CLIENT" ] && [ ! -L "$PACKAGE_CLIENT" ] || {
+    echo 'FAIL: selected package client is unavailable or unsafe' >&2; exit 1
+}
+WORK_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/release-install-payload.XXXXXX")"
 cleanup() {
-    chmod -R u+w "$WORK_DIR/prefix" 2>/dev/null || true
-    rm -rf -- "$WORK_DIR"
+    local status=$?
+    if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
+        case "$WORK_DIR" in
+            "$SEEN_ARTIFACT_ROOT"/release-install-payload.*)
+                [ -d "$WORK_DIR" ] && [ ! -L "$WORK_DIR" ] &&
+                    [ "$(realpath -e -- "$WORK_DIR")" = "$WORK_DIR" ] || return 1
+                chmod -R u+w -- "$WORK_DIR"
+                rm -rf -- "$WORK_DIR"
+                ;;
+            *) return 1 ;;
+        esac
+    else
+        echo "Preserved installed-payload evidence: $WORK_DIR (status $status)" >&2
+    fi
+    return "$status"
 }
 trap cleanup EXIT
-
-mkdir -p "$WORK_DIR/prefix/bin" "$WORK_DIR/prefix/lib/seen/std" \
-    "$WORK_DIR/prefix/lib/seen/runtime" "$WORK_DIR/source"
-cp "$COMPILER" "$WORK_DIR/prefix/bin/seen"
-cp "$PACKAGE_CLIENT" "$WORK_DIR/prefix/bin/seen-pkg"
-cp "$ROOT_DIR/releases/compatibility-manifest.json" \
-    "$WORK_DIR/prefix/bin/compatibility-manifest.json"
-cp -r "$ROOT_DIR/seen_std/src/"* "$WORK_DIR/prefix/lib/seen/std/"
+prefix="$WORK_DIR/prefix"
+mkdir -p "$prefix/bin" "$prefix/lib/seen/std" "$prefix/lib/seen/runtime" "$WORK_DIR/empty"
+cp -- "$COMPILER" "$prefix/bin/seen"
+cp -- "$PACKAGE_CLIENT" "$prefix/bin/seen-pkg"
+cp -- "$ROOT_DIR/releases/compatibility-manifest.json" "$prefix/bin/compatibility-manifest.json"
+cp -r -- "$ROOT_DIR/seen_std/src/." "$prefix/lib/seen/std/"
 while IFS= read -r -d '' runtime_file; do
-    case "$runtime_file" in
-        *.o|*.sig|*.a) continue ;;
-    esac
-    runtime_relative=${runtime_file#seen_runtime/}
-    mkdir -p "$WORK_DIR/prefix/lib/seen/runtime/$(dirname "$runtime_relative")"
-    cp "$ROOT_DIR/$runtime_file" \
-        "$WORK_DIR/prefix/lib/seen/runtime/$runtime_relative"
+    case "$runtime_file" in *.o|*.sig|*.a) continue ;; esac
+    [ -f "$ROOT_DIR/$runtime_file" ] && [ ! -L "$ROOT_DIR/$runtime_file" ] || exit 1
+    relative=${runtime_file#seen_runtime/}
+    mkdir -p -- "$prefix/lib/seen/runtime/$(dirname -- "$relative")"
+    cp -- "$ROOT_DIR/$runtime_file" "$prefix/lib/seen/runtime/$relative"
 done < <(git -C "$ROOT_DIR" ls-files -z -- seen_runtime)
-
-# Simulate an upgrade from a legacy payload. These files are immutable stale
-# inputs and must never be selected by the installed compiler.
-printf 'stale installed object\n' > \
-    "$WORK_DIR/prefix/lib/seen/runtime/seen_runtime.o"
-printf 'stale-signature\n' > \
-    "$WORK_DIR/prefix/lib/seen/runtime/seen_runtime.o.sig"
-printf 'stale installed region object\n' > \
-    "$WORK_DIR/prefix/lib/seen/runtime/seen_region.o"
-
+cmp -- "$COMPILER" "$prefix/bin/seen"
+cmp -- "$PACKAGE_CLIENT" "$prefix/bin/seen-pkg"
+cmp -- "$ROOT_DIR/releases/compatibility-manifest.json" "$prefix/bin/compatibility-manifest.json"
+test -f "$prefix/lib/seen/std/json/strict.seen"
+test -f "$prefix/lib/seen/std/crypto/sha256.seen"
+if find "$prefix/lib/seen/runtime" -type f \( -name '*.o' -o -name '*.sig' -o -name '*.a' \) -print -quit | grep -q .; then
+    echo 'FAIL: source-only staged runtime contains generated objects' >&2; exit 1
+fi
+# Explicit legacy upgrade debris must remain immutable and must never be linked.
+printf 'stale installed object\n' > "$prefix/lib/seen/runtime/seen_runtime.o"
+printf 'stale-signature\n' > "$prefix/lib/seen/runtime/seen_runtime.o.sig"
+printf 'stale installed region object\n' > "$prefix/lib/seen/runtime/seen_region.o"
+chmod -R a-w -- "$prefix"
 prefix_digest() {
-    find "$WORK_DIR/prefix" -type f -print0 | sort -z | \
-        xargs -0 sha256sum | sha256sum | awk '{print $1}'
+    find "$1" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1
 }
-chmod -R a-w "$WORK_DIR/prefix"
-PREFIX_DIGEST_BEFORE=$(prefix_digest)
-
-cmp -s "$WORK_DIR/prefix/bin/compatibility-manifest.json" \
-    "$ROOT_DIR/releases/compatibility-manifest.json"
-test -f "$WORK_DIR/prefix/lib/seen/std/json/strict.seen"
-test -f "$WORK_DIR/prefix/lib/seen/std/crypto/sha256.seen"
-"$WORK_DIR/prefix/bin/seen-pkg" --expect-version 0.22.9 version >/dev/null
-cp "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" \
-    "$WORK_DIR/source/main.seen"
-mkdir -p "$WORK_DIR/source/.seen/agent-tools"
-
-(cd "$WORK_DIR/source" && env -u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT \
-    SEEN_PROJECT_ROOT="$WORK_DIR/source" \
-    SEEN_ARTIFACT_ROOT="$WORK_DIR/source/.seen/agent-tools" \
-    "$WORK_DIR/prefix/bin/seen" check main.seen)
-for mode in fast release; do
-    for temperature in cold warm; do
-        output="$WORK_DIR/source/payload-$mode-$temperature"
-        compile_flags=(--no-fork --jobs 1 --opt-jobs 1 --target-cpu x86-64)
-        if [ "$mode" = fast ]; then
-            compile_flags+=(--fast)
-        else
-            compile_flags+=(--release --lto thin)
-        fi
-        (cd "$WORK_DIR/source" && \
-            env -u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT \
-            SEEN_PROJECT_ROOT="$WORK_DIR/source" \
-            SEEN_ARTIFACT_ROOT="$WORK_DIR/source/.seen/agent-tools" \
-            "$WORK_DIR/prefix/bin/seen" compile main.seen "$output" \
-            "${compile_flags[@]}")
-        "$output"
-    done
-done
-
-# The frozen scalar readText ABI retains its historical unwrap identity at the
-# installed boundary. Prove the packaged compiler preserves %SeenString rather
-# than manufacturing an undefined ptr_length call.
-cp "$ROOT_DIR/tests/fixtures/result-string-unwrap/packaged_readtext.seen" \
-    "$WORK_DIR/source/readtext.seen"
-printf '{}' > "$WORK_DIR/source/input.json"
-(cd "$WORK_DIR/source" && env -u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT \
-    SEEN_PROJECT_ROOT="$WORK_DIR/source" \
-    SEEN_ARTIFACT_ROOT="$WORK_DIR/source/.seen/agent-tools" \
-    "$WORK_DIR/prefix/bin/seen" check readtext.seen)
-for mode in fast release; do
-    output="$WORK_DIR/source/readtext-$mode"
-    ir_dir="$WORK_DIR/source/readtext-$mode-ir"
-    compile_flags=(--no-fork --jobs 1 --opt-jobs 1 --target-cpu x86-64 \
-        --emit-module-ir-dir "$ir_dir")
-    if [ "$mode" = fast ]; then
-        compile_flags+=(--fast)
-    else
-        compile_flags+=(--release --lto thin)
-    fi
-    (cd "$WORK_DIR/source" && \
-        env -u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT \
-        SEEN_PROJECT_ROOT="$WORK_DIR/source" \
-        SEEN_ARTIFACT_ROOT="$WORK_DIR/source/.seen/agent-tools" \
-        "$WORK_DIR/prefix/bin/seen" compile readtext.seen "$output" \
-        "${compile_flags[@]}")
-    (cd "$WORK_DIR/source" && "$output")
-    if rg --no-ignore -q '@ptr_length' "$ir_dir"; then
-        echo "FAIL: installed readText $mode emitted ptr_length" >&2
-        exit 1
-    fi
-    rg --no-ignore -q 'call i64 @seen_length\(%SeenString ' "$ir_dir" || {
-        echo "FAIL: installed readText $mode omitted typed String.length" >&2
-        exit 1
-    }
-done
-
-# Hardware execution is optional on generic CI hosts, but when the explicit
-# CUDA compiler and a device are available the installed-layout compiler must
-# prove the packaged resource owners in both fast and release/ThinLTO modes.
+before=$(prefix_digest "$prefix")
+stage_project() {
+    local project=$1
+    mkdir -p -- "$project"
+    cp -- "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" "$project/main.seen"
+    cp -- "$ROOT_DIR/tests/fixtures/result-string-unwrap/packaged_readtext.seen" "$project/readtext.seen"
+    printf '{}' > "$project/input.json"
+    printf 'manifest-version = 1\n[project]\nname = "installed_payload_fixture"\nversion = "0.0.0"\nlanguage = "en"\n[dependencies]\n' > "$project/Seen.toml"
+}
+run_worker() {
+    local selected_prefix=$1 project=$2 mode=$3
+    local worker_scope="seen-release-install-payload-$mode"
+    if [ "$mode" = positive ]; then worker_scope=seen-release-install-payload-installed; fi
+    # Prove the copied compiler binding; hide checkout libraries/runtime so a
+    # successful compile cannot silently consume source-tree inputs instead.
+    bwrap --die-with-parent --bind / / --dev-bind /dev /dev --proc /proc --ro-bind /sys /sys \
+        --ro-bind "$WORK_DIR/empty" "$ROOT_DIR/seen_std/src" \
+        --ro-bind "$WORK_DIR/empty" "$ROOT_DIR/seen_runtime" -- \
+        bash "$CAPPED_ENTRY" "$worker_scope" --compiler "$selected_prefix/bin/seen" -- \
+        bash "$ROOT_DIR/scripts/installed_payload_fixture_worker.sh" "$selected_prefix" "$project" "$mode"
+}
+source_project="$WORK_DIR/source space-π"
+stage_project "$source_project"
+run_worker "$prefix" "$source_project" positive
+[ "$before" = "$(prefix_digest "$prefix")" ] || {
+    echo 'FAIL: read-only installed source payload changed during compilation' >&2; exit 1
+}
+# A real compiler error in a separate private source-only prefix. Never shadow
+# clang, forge success, or hide a missing cache object with installed objects.
+bad_prefix="$WORK_DIR/runtime-failure-prefix"
+cp -a -- "$prefix" "$bad_prefix"
+chmod u+w -- "$bad_prefix/lib/seen/runtime/seen_runtime.c"
+printf '\n#error FEL748_INVALID_RUNTIME_SOURCE\n' >> "$bad_prefix/lib/seen/runtime/seen_runtime.c"
+chmod a-w -- "$bad_prefix/lib/seen/runtime/seen_runtime.c"
+bad_before=$(prefix_digest "$bad_prefix")
+stage_project "$WORK_DIR/compiler-failure"
+run_worker "$bad_prefix" "$WORK_DIR/compiler-failure" runtime-failure
+[ "$bad_before" = "$(prefix_digest "$bad_prefix")" ] || exit 1
+stage_project "$WORK_DIR/cache-failure"
+printf 'blocked artifact directory\n' > "$WORK_DIR/cache-failure/.seen"
+run_worker "$prefix" "$WORK_DIR/cache-failure" cache-failure
 if command -v nvcc >/dev/null 2>&1 && command -v nvidia-smi >/dev/null 2>&1 &&
-   nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null |
-       grep -Fxq '8.9'; then
-    SEEN_BIN="$WORK_DIR/prefix/bin/seen" \
-        "$ROOT_DIR/tests/misc_root_tests/seen_bundled_cuda_link.sh"
+    timeout --kill-after=5s 30s nvidia-smi --query-gpu=compute_cap --format=csv,noheader | grep -Fxq '8.9'; then
+    env -u SEEN_CAPPED_REGRESSION_ACTIVE -u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT \
+        COMPILER="$prefix/bin/seen" SEEN_BIN="$prefix/bin/seen" \
+        bash "$ROOT_DIR/tests/misc_root_tests/seen_bundled_cuda_link.sh"
 else
-    echo "SKIP: installed bundled CUDA execution requires nvcc and an sm_89 GPU"
+    echo 'SKIP: installed bundled CUDA execution requires nvcc and an sm_89 GPU'
 fi
-
-find "$WORK_DIR/source/.seen/agent-tools" -type f \
-    -path '*/runtime-objects/*/*.o' \
-    -print -quit | grep -q . || {
-    echo "FAIL: installed compiler did not create project-local runtime objects" >&2
-    exit 1
+[ "$before" = "$(prefix_digest "$prefix")" ] || {
+    echo 'FAIL: installed source payload changed during negative or hardware checks' >&2; exit 1
 }
-
-FAIL_BIN="$WORK_DIR/fail-bin"
-mkdir -p "$FAIL_BIN"
-printf '#!/usr/bin/env bash\nexit 42\n' > "$FAIL_BIN/clang"
-chmod +x "$FAIL_BIN/clang"
-mkdir -p "$WORK_DIR/compiler-failure"
-cp "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" \
-    "$WORK_DIR/compiler-failure/main.seen"
-set +e
-compiler_failure_output=$(cd "$WORK_DIR/compiler-failure" && \
-    env -u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT \
-    SEEN_PROJECT_ROOT="$WORK_DIR/compiler-failure" \
-    SEEN_ARTIFACT_ROOT="$WORK_DIR/compiler-failure/.seen/agent-tools" \
-    PATH="$FAIL_BIN:$PATH" "$WORK_DIR/prefix/bin/seen" compile main.seen \
-    failed-output --fast --no-cache --no-fork --jobs 1 --opt-jobs 1 2>&1)
-compiler_failure_status=$?
-set -e
-if [ "$compiler_failure_status" -eq 0 ] || \
-    [ -e "$WORK_DIR/compiler-failure/failed-output" ] || \
-    grep -Fq 'Build succeeded' <<<"$compiler_failure_output"; then
-    echo "FAIL: runtime compiler failure did not fail closed" >&2
-    printf '%s\n' "$compiler_failure_output" >&2
-    exit 1
-fi
-
-mkdir -p "$WORK_DIR/cache-failure"
-cp "$ROOT_DIR/tests/misc_root_tests/seen_release_payload_api.seen" \
-    "$WORK_DIR/cache-failure/main.seen"
-printf 'blocked artifact root\n' > "$WORK_DIR/cache-failure/.seen"
-set +e
-cache_failure_output=$(cd "$WORK_DIR/cache-failure" && \
-    env -u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT \
-    SEEN_PROJECT_ROOT="$WORK_DIR/cache-failure" \
-    SEEN_ARTIFACT_ROOT="$WORK_DIR/cache-failure/.seen/agent-tools" \
-    "$WORK_DIR/prefix/bin/seen" compile main.seen failed-output \
-    --fast --no-cache --no-fork --jobs 1 --opt-jobs 1 2>&1)
-cache_failure_status=$?
-set -e
-if [ "$cache_failure_status" -eq 0 ] || \
-    [ -e "$WORK_DIR/cache-failure/failed-output" ] || \
-    grep -Fq 'Build succeeded' <<<"$cache_failure_output"; then
-    echo "FAIL: runtime cache failure did not fail closed" >&2
-    printf '%s\n' "$cache_failure_output" >&2
-    exit 1
-fi
-
-PREFIX_DIGEST_AFTER=$(prefix_digest)
-[ "$PREFIX_DIGEST_BEFORE" = "$PREFIX_DIGEST_AFTER" ] || {
-    echo "FAIL: installed source payload changed during compilation" >&2
-    exit 1
-}
-echo "PASS: installed layout provides a self-contained Seen 0.22.9 payload"
+echo 'PASS: attested read-only source-only installed payload, local caches and real failure controls'

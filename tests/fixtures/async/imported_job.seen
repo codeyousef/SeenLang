@@ -1,0 +1,15 @@
+import async.executor_core.{ExecutorJob, ExecutorTaskContext}
+
+@send
+class ImportedExecutorJob {
+    var value: Int
+    var result: Int
+}
+
+impl ExecutorJob for ImportedExecutorJob {
+    fun run(this: ImportedExecutorJob, context: ExecutorTaskContext) r: Bool {
+        this.result = this.value + 1
+        return true
+    }
+    fun release(this: ImportedExecutorJob) r: Bool { this.free(); return true }
+}

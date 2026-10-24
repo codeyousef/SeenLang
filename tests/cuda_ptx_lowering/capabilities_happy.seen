@@ -1,0 +1,46 @@
+@compute(64)
+fun atomic_memory(data: Buffer<Int32>, output: WriteBuffer<Int32>) {
+    let scratch: SharedBuffer<Int32> = sharedBuffer(64)
+    let index = localInvocationIndex
+    atomicStore(scratch, index, 1, Release, WorkgroupScope)
+    barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory)
+    let a = atomicLoad(scratch, index, Acquire, WorkgroupScope)
+    let b = atomicExchange(scratch, index, a, Relaxed, WorkgroupScope)
+    let c = atomicAdd(scratch, index, b, AcquireRelease, WorkgroupScope)
+    let d = atomicSub(scratch, index, c, Relaxed, WorkgroupScope)
+    let e = atomicMin(scratch, index, d, Relaxed, WorkgroupScope)
+    let f = atomicMax(scratch, index, e, Relaxed, WorkgroupScope)
+    let g = atomicAnd(scratch, index, f, Relaxed, WorkgroupScope)
+    let h = atomicOr(scratch, index, g, Relaxed, WorkgroupScope)
+    let i = atomicXor(scratch, index, h, Relaxed, WorkgroupScope)
+    let previous = atomicCompareExchange(data, index, i, 7, AcquireRelease, Acquire, DeviceScope)
+    memoryBarrier(DeviceScope, AcquireRelease, StorageMemory)
+    output[index] = previous
+}
+@compute(64)
+fun groups(output: WriteBuffer<UInt32>) {
+    let first = subgroupElect()
+    let all = subgroupAll(first)
+    let any = subgroupAny(first)
+    let other = subgroupShuffle(subgroupLocalInvocationId, 0 as UInt32)
+    let same = subgroupBroadcast(other, 0 as UInt32)
+    let total = subgroupAdd(same)
+    barrier(SubgroupScope, AcquireRelease, StorageMemory)
+    if all or any { output[localInvocationIndex] = total + subgroupSize + subgroupId }
+}
+@compute(48)
+fun float_groups(input: ReadBuffer<f32x3>, output: WriteBuffer<f32x3>) {
+    let index = localInvocationIndex
+    output[index] = subgroupAdd(input[index])
+}
+@compute(1)
+fun sequential(data: Buffer<UInt32>, output: WriteBuffer<UInt32>) {
+    atomicStore(data, 0, 1 as UInt32, SequentiallyConsistent, DeviceScope)
+    let value = atomicLoad(data, 0, SequentiallyConsistent, DeviceScope)
+    output[0] = atomicCompareExchange(data, 0, value, 2 as UInt32, SequentiallyConsistent, SequentiallyConsistent, DeviceScope)
+    memoryBarrier(DeviceScope, SequentiallyConsistent, StorageMemory)
+    let invocation = atomicLoad(data, 0, Acquire, InvocationScope)
+    let subgroup = atomicLoad(data, 0, Relaxed, SubgroupScope)
+    atomicStore(data, 0, invocation + subgroup, Release, WorkgroupScope)
+}
+fun main() r: Int { return 0 }

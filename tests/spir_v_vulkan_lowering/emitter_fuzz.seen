@@ -1,0 +1,40 @@
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu.spirv_emitter.{emitGpuSpirv}
+import codegen.gpu_options.{GpuOptions}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun require(value: Bool, detail: String) r: Void { if not value { abort("SPIR-V emission fuzz failed: " + detail) } }
+fun main() r: Int {
+    let lowered = lowerGpuSource("@compute(1) fun arbitrary(output: WriteBuffer<Int32>) { output[0] = 7 }", "spirv-fuzz.seen"); require(lowered.isOkay(), "seed module lowering")
+    let module = lowered.unwrap(); lowered.releaseContainer(); let function = module.functions[0]
+    let block = function.blocks[0]; let store = block.instructions[block.instructions.length() - 1]
+    let options = GpuOptions.create(); options.backend = "spirv"; options.target = "vulkan1.2"
+    let baseline = seen_memory_used_bytes(); let start = seen_time_monotonic_nanos()
+    require(start >= (0 as Int64) and start <= (9223371976854775807 as Int64), "monotonic clock range")
+    let deadline = start + (60000000000 as Int64); var now = start; var iterations = 0; var seed = 1088
+    let originalOpcode = store.opcode; let originalType = store.typeCode; let originalOperand = store.operands[0]
+    let originalCapabilities = module.requiredCapabilities
+    // The wall-clock deadline controls the fuzz duration. A fixed iteration
+    // ceiling can finish early on faster hosts; the harness also caps 120s.
+    while now < deadline {
+        seed = (seed * 48271) % 2147483647; let mode = seed % 6
+        if mode == 0 { store.opcode = 48 + seed % 10000 }
+        if mode == 1 { store.typeCode = 999 }
+        if mode == 2 { store.operands[0] = function.registerCount + 1 + seed % 1000 }
+        if mode == 3 { options.backend = "cuda"; options.target = "sm_80" }
+        if mode == 4 { module.requiredCapabilities = (67108864 as UInt64) }
+        let result = emitGpuSpirv(module, options)
+        if mode == 5 { require(result.isOkay(), "valid module rejected"); let words = result.unwrap(); words.free() }
+        else {
+            require(result.isErr(), "malformed module accepted"); let validation = result.unwrapErr()
+            require(not validation.valid and validation.diagnostics.length() > 0 and validation.diagnostics.length() <= 64, "invalid diagnostic bounds")
+            if mode == 3 { require(validation.diagnostics[0].code == "E_GPU_SPIRV_TARGET", "target error code") }; validation.release()
+        }
+        result.releaseContainer(); store.opcode = originalOpcode; store.typeCode = originalType; store.operands[0] = originalOperand
+        module.requiredCapabilities = originalCapabilities; options.backend = "spirv"; options.target = "vulkan1.2"
+        require(seen_memory_used_bytes() == baseline, "allocation baseline"); iterations = iterations + 1
+        if iterations % 32 == 0 { let next = seen_time_monotonic_nanos(); require(next >= now, "monotonic clock moved backwards"); now = next }
+    }
+    require(now >= deadline and iterations >= 32, "duration/iteration budget"); options.release(); module.release()
+    println("PASS: GPU-002A emission fuzz 60s seed=1088 typed rejection and allocation baseline"); return 0
+}

@@ -1,0 +1,80 @@
+import env.env.{args, releaseArgs}
+import tools.gpu_command.{gpuReadBoundedText, gpuPrintValidation}
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu_ir_model.{GpuIrModule}
+import codegen.gpu_options.{GpuOptions}
+import codegen.gpu_artifact.{buildGpuArtifact}
+import codegen.gpu_artifact_manifest.{gpuArtifactManifest}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun textRequire(value: Bool) r: Void {
+    if not value { abort("GPU text layout and artifact ownership contract failed") }
+}
+
+fun checkTextArtifact(borrow module: GpuIrModule, borrow options: GpuOptions, emit: Bool) r: Void {
+    let built = buildGpuArtifact(module, options)
+    if built.isErr() { gpuPrintValidation(built.unwrapErr()) }
+    textRequire(built.isOkay()); let artifact = built.unwrap(); built.releaseContainer()
+    let repeated = buildGpuArtifact(module, options); textRequire(repeated.isOkay())
+    let again = repeated.unwrap(); repeated.releaseContainer()
+    textRequire(artifact.binary == again.binary and artifact.reflection == again.reflection)
+    textRequire(artifact.binaryHash == again.binaryHash and artifact.reflectionHash == again.reflectionHash)
+    again.release()
+    let info = gpuArtifactManifest(artifact); textRequire(info.isOkay())
+    let manifest = info.unwrap(); info.releaseContainer()
+    textRequire(artifact.backend == options.backend and artifact.target == options.target)
+    var abi = "seen-ptx-kernel-v1"; if options.backend == "hip" { abi = "seen-amdgpu-kernel-v1" }
+    if options.backend == "metal" { abi = "seen-metal-kernel-v1" }
+    textRequire(manifest.contains(abi) and manifest.contains("compile-only"))
+    if emit {
+        let builder = JsonBuilder_new(); builder.startObject()
+        var schema = "seen-ptx-artifact-v1"; if options.backend == "hip" { schema = "seen-amdgpu-artifact-v1" }
+        if options.backend == "metal" { schema = "seen-metal-artifact-v1" }
+        builder.stringProp("schema", schema)
+        builder.stringProp("target", options.target); builder.stringProp("text", artifact.binary)
+        builder.endObject(); let record = builder.build(); destroyJsonBuilder(builder)
+        println(record); releaseJsonText(record); println(artifact.reflection); println(manifest)
+    }
+    releaseJsonText(manifest); artifact.release()
+}
+
+fun main() r: Int {
+    let initial = seen_memory_used_bytes(); let arguments = args(); textRequire(arguments.length() == 3 or arguments.length() == 4)
+    textRequire(arguments[1] == "cuda" or arguments[1] == "hip" or arguments[1] == "metal"); let cuda = arguments[1] == "cuda"
+    let loaded = gpuReadBoundedText(arguments[2], 1048576); textRequire(loaded.isOkay())
+    let source = loaded.unwrap(); loaded.releaseContainer()
+    var identity = "ptx-layout-contract.seen"; if not cuda { identity = "amdgpu-layout-contract.seen" }
+    if arguments[1] == "metal" { identity = "metal-layout-contract.seen" }
+    let lowered = lowerGpuSource(source, identity); releaseJsonText(source)
+    if lowered.isErr() { gpuPrintValidation(lowered.unwrapErr()) }
+    textRequire(lowered.isOkay()); let module = lowered.unwrap(); lowered.releaseContainer()
+    let options = GpuOptions.create(); options.backend = arguments[1]
+    let targets = Array<String>()
+    if cuda {
+        targets.push("sm_70"); targets.push("sm_75"); targets.push("sm_80"); targets.push("sm_86")
+        targets.push("sm_89"); targets.push("sm_90"); targets.push("sm_100")
+    } else if arguments[1] == "metal" { targets.push("macos13"); targets.push("macos14"); targets.push("macos15") }
+    else { targets.push("gfx90a"); targets.push("gfx942"); targets.push("gfx1100"); targets.push("gfx1101"); targets.push("gfx1200") }
+    let baseline = seen_memory_used_bytes(); var target = 0; var targetLimit = targets.length()
+    if arguments.length() == 4 {
+        if cuda { textRequire(arguments[3] == "sm_80+"); target = 2 }
+        else if arguments[1] == "metal" { textRequire(arguments[3] == "metal3.2"); target = 2 }
+        else { textRequire(arguments[1] == "hip" and arguments[3] == "cdna"); targetLimit = 2 }
+    }
+    while target < targetLimit {
+        options.target = targets[target]; var iteration = 0
+        while iteration < 10 {
+            checkTextArtifact(module, options, iteration == 0)
+            textRequire(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+        }
+        target = target + 1
+    }
+    let metal = arguments[1] == "metal"
+    targets.free(); options.release(); module.release(); releaseArgs(arguments)
+    textRequire(seen_memory_used_bytes() == initial)
+    if cuda { println("PASS: PTX target coverage deterministic artifacts reflection and repeated cleanup") }
+    else if metal { println("PASS: Metal target coverage deterministic artifacts reflection and repeated cleanup") }
+    else { println("PASS: AMDGPU target coverage deterministic artifacts reflection and repeated cleanup") }
+    return 0
+}

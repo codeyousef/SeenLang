@@ -51,11 +51,13 @@ fun emitPreparedOperatorIndexAccessCallImpl(output: StringBuilder,
 fun emitIndexBoundsCheckImpl(output: StringBuilder, regBox: Array<Int>,
     arrayReg: String, indexReg: String, boundsCountBox: Array<Int>) r: Void {
 
-    let bcFailLabel = "bounds_fail_" + boundsCountBox[0].toString()
-    let bcOkLabel = "bounds_ok_" + boundsCountBox[0].toString()
     boundsCountBox[0] = boundsCountBox[0] + 1
     let lenReg = emitSeenArrayLengthLoadImpl(output, regBox, arrayReg, "")
     let oobReg = getNextRegFn(regBox)
+    // SSA registers remain unique across nested lowering and state snapshots.
+    let suffix = oobReg.substring(1, oobReg.length())
+    let bcFailLabel = "bounds_fail_" + suffix
+    let bcOkLabel = "bounds_ok_" + suffix
     output.append("  " + oobReg + " = icmp uge i64 " + indexReg + ", " +
         lenReg + "\n")
     output.append("  br i1 " + oobReg + ", label %" + bcFailLabel +

@@ -1,0 +1,4 @@
+fun main() r: Int {
+    let invalid = simd_unsafe_arm_sve_f32(0, 0)
+    return 0
+}

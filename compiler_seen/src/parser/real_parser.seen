@@ -296,6 +296,41 @@ var g_uiSlotBlocks: Array<BlockNode> = Array<BlockNode>()
 var g_uiTrailingBlockSuppressionDepth: Int = 0
 var g_parserRecoveryErrorCount: Int = 0
 
+/// An exclusive session swaps the parser's UI scratch registries. The caller
+/// restores the previous views after lowering, before releasing its AST owner.
+class ParserFrontendSession {
+    var argIds: Array<String>
+    var argIndexes: Array<Int>
+    var argNames: Array<String>
+    var slotIds: Array<String>
+    var slotNames: Array<String>
+    var slotBlocks: Array<BlockNode>
+    var nextArg: Int
+    var nextSlot: Int
+    var suppressionDepth: Int
+    var recoveryErrors: Int
+    static fun begin() r: ParserFrontendSession {
+        let session = ParserFrontendSession{argIds: g_uiArgListIds, argIndexes: g_uiArgIndexes,
+            argNames: g_uiArgNames, slotIds: g_uiSlotListIds, slotNames: g_uiSlotNames,
+            slotBlocks: g_uiSlotBlocks, nextArg: g_uiNextArgListId, nextSlot: g_uiNextSlotListId,
+            suppressionDepth: g_uiTrailingBlockSuppressionDepth, recoveryErrors: g_parserRecoveryErrorCount}
+        g_uiArgListIds = Array<String>(); g_uiArgIndexes = Array<Int>(); g_uiArgNames = Array<String>()
+        g_uiSlotListIds = Array<String>(); g_uiSlotNames = Array<String>(); g_uiSlotBlocks = Array<BlockNode>()
+        g_uiNextArgListId = 1; g_uiNextSlotListId = 1; g_uiTrailingBlockSuppressionDepth = 0
+        g_parserRecoveryErrorCount = 0
+        return session
+    }
+    fun release() r: Void {
+        g_uiArgListIds.free(); g_uiArgIndexes.free(); g_uiArgNames.free()
+        g_uiSlotListIds.free(); g_uiSlotNames.free(); g_uiSlotBlocks.free()
+        g_uiArgListIds = this.argIds; g_uiArgIndexes = this.argIndexes; g_uiArgNames = this.argNames
+        g_uiSlotListIds = this.slotIds; g_uiSlotNames = this.slotNames; g_uiSlotBlocks = this.slotBlocks
+        g_uiNextArgListId = this.nextArg; g_uiNextSlotListId = this.nextSlot
+        g_uiTrailingBlockSuppressionDepth = this.suppressionDepth; g_parserRecoveryErrorCount = this.recoveryErrors
+        this.free()
+    }
+}
+
 fun resetParserRecoveryErrors() r: Void {
     g_parserRecoveryErrorCount = 0
 }
@@ -986,7 +1021,8 @@ class RealParser {
             // 'type' keyword — type alias: type Foo = Bar<Baz>
             if matchTokenStr(SeenTokenType.KeywordType) {
                 if checkToken(SeenTokenType.Identifier) {
-                    let typeAliasName = advance().getValue()
+                    let typeAliasToken = advance()
+                    let typeAliasName = typeAliasToken.getValue()
                     consume(SeenTokenType.Equal, "Expected '=' in type alias")
                     let typeAliasTarget = parseTypeNode()
                     // Emit as a class with no fields and a @type_alias decorator
@@ -998,6 +1034,8 @@ class RealParser {
                     let typeAliasItem = ItemNode.new()
                     typeAliasItem.itemType = "Class"
                     typeAliasItem.name = typeAliasName
+                    typeAliasItem.line = typeAliasToken.getLine()
+                    typeAliasItem.column = typeAliasToken.getColumn()
                     typeAliasItem.classNode = typeAliasClass
                     typeAliasItem.visibility = inferVisibility(typeAliasName)
                     this.currentProgram.items.push(typeAliasItem)
@@ -1601,40 +1639,58 @@ class RealParser {
     list such as name<T>(...) must remain for parseGenericParametersInto so its
     parameter metadata is preserved.
     ///
-    fun receiverTypeArgumentsFollowedByDot() r: Bool {
-        if not checkToken(SeenTokenType.LessThan) { return false }
+    // Shared bounded lookahead for type arguments in receiver and expression
+    // positions. Shift operators remain operators unless a complete argument
+    // list is followed by the caller's required punctuation.
+    fun genericArgumentsEndOffset() r: Int {
+        if not checkToken(SeenTokenType.LessThan) { return -1 }
         var depth = 0
         var offset = 0
         while offset < 256 {
-            let token = peekAt(offset)
-            if token.getType().toString() ==
-                SeenTokenType.LessThan.toString() {
-
+            let kind = peekAt(offset).getType().toString()
+            if kind == SeenTokenType.LessThan.toString() {
                 depth = depth + 1
-            } else if token.getType().toString() ==
-                SeenTokenType.GreaterThan.toString() {
-
+                if depth > 64 { return -1 }
+            } else if kind == SeenTokenType.GreaterThan.toString() {
                 depth = depth - 1
-                if depth == 0 {
-                    return peekAt(offset + 1).getType().toString() ==
-                        SeenTokenType.Dot.toString()
-                }
+            } else if kind == SeenTokenType.RightShift.toString() {
+                depth = depth - 2
+            } else {
+                var valid = kind == SeenTokenType.Identifier.toString()
+                if kind == SeenTokenType.IntegerLiteral.toString() { valid = true }
+                if kind == SeenTokenType.Comma.toString() { valid = true }
+                if kind == SeenTokenType.Dot.toString() { valid = true }
+                if kind == SeenTokenType.Multiply.toString() { valid = true }
+                if kind == SeenTokenType.KeywordConst.toString() { valid = true }
+                if not valid { return -1 }
             }
-            if token.getType().toString() ==
-                SeenTokenType.EndOfFile.toString() {
-
-                return false
-            }
+            if depth < 0 { return -1 }
+            if depth == 0 { return offset }
             offset = offset + 1
         }
-        return false
+        return -1
+    }
+
+    fun receiverTypeArgumentsFollowedByDot() r: Bool {
+        let end = genericArgumentsEndOffset()
+        if end < 0 { return false }
+        return peekAt(end + 1).getType().toString() == SeenTokenType.Dot.toString()
+    }
+
+    fun expressionTypeArgumentsFollowedByConstructor() r: Bool {
+        let end = genericArgumentsEndOffset()
+        if end < 0 { return false }
+        let kind = peekAt(end + 1).getType().toString()
+        if kind == SeenTokenType.LeftParen.toString() { return true }
+        if kind == SeenTokenType.LeftBrace.toString() { return true }
+        return kind == SeenTokenType.Dot.toString()
     }
 
     fun skipReceiverTypeArgumentsIfPresent() r: Void {
         if receiverTypeArgumentsFollowedByDot() {
-            advance()
-            skipBalancedDelimited(SeenTokenType.LessThan,
-                SeenTokenType.GreaterThan)
+            let end = genericArgumentsEndOffset()
+            var offset = 0
+            while offset <= end { advance(); offset = offset + 1 }
         }
     }
 
@@ -1696,7 +1752,8 @@ class RealParser {
 
     fun parseTypeAliasDeclarationOnly(isDistinct: Bool) r: Void {
         if checkToken(SeenTokenType.Identifier) {
-            let aliasName = advance().getValue()
+            let aliasToken = advance()
+            let aliasName = aliasToken.getValue()
             consume(SeenTokenType.Equal, "Expected '=' in type alias")
             let aliasTarget = parseTypeNode()
             let aliasClass = ClassNode.new()
@@ -1712,6 +1769,8 @@ class RealParser {
             let aliasItem = ItemNode.new()
             aliasItem.itemType = "Class"
             aliasItem.name = aliasName
+            aliasItem.line = aliasToken.getLine()
+            aliasItem.column = aliasToken.getColumn()
             aliasItem.classNode = aliasClass
             aliasItem.visibility = inferVisibility(aliasName)
             this.currentProgram.items.push(aliasItem)
@@ -2270,6 +2329,31 @@ class RealParser {
         }
     }
 
+    // Preserve GPU workgroup syntax instead of dropping punctuation or keys.
+    // The typed GPU checker owns interpretation; this parser only groups tokens.
+    fun parseGpuComputeDecoratorArguments(annotation: AnnotationNode) r: Void {
+        var argument = ""; var brackets = 0; var tokens = 0
+        while not checkToken(SeenTokenType.RightParen) and not isAtEnd() and tokens < 128 {
+            if checkToken(SeenTokenType.Comma) and brackets == 0 {
+                advance()
+                if argument == "" { recordParserRecoveryError() }
+                annotation.addArgument(argument); argument = ""
+            } else {
+                if checkToken(SeenTokenType.LeftBracket) { brackets = brackets + 1 }
+                if checkToken(SeenTokenType.RightBracket) { brackets = brackets - 1 }
+                if brackets < 0 or brackets > 1 { recordParserRecoveryError() }
+                if checkToken(SeenTokenType.StringLiteral) { recordParserRecoveryError() }
+                let token = advance()
+                if argument.length() + token.getValue().length() > 256 { recordParserRecoveryError() }
+                else { argument = argument + token.getValue() }
+            }
+            tokens = tokens + 1
+        }
+        if tokens >= 128 or brackets != 0 { recordParserRecoveryError() }
+        if argument != "" { annotation.addArgument(argument) }
+        consume(SeenTokenType.RightParen, "Expected ')' after compute workgroup arguments")
+    }
+
     // Parse a decorator and add to pending decorators
     fun parseDecoratorInto() r: Void {
         // Expect identifier or keyword-as-decorator after @
@@ -2285,44 +2369,48 @@ class RealParser {
 
         // Optional: parse arguments in parentheses
         if matchTokenStr(SeenTokenType.LeftParen) {
-            while not checkToken(SeenTokenType.RightParen) and not isAtEnd() {
-                // Parse argument: value OR key=value
-                if checkToken(SeenTokenType.Identifier) {
-                    let argToken = advance()
-                    // Check if this is key=value syntax
-                    if checkToken(SeenTokenType.Equal) {
-                        // Skip the '=' and read the actual value
-                        advance()
-                        if checkToken(SeenTokenType.IntegerLiteral) {
-                            let valToken = advance()
-                            annotation.addArgument(valToken.getValue())
-                        } else if checkToken(SeenTokenType.StringLiteral) {
-                            let valToken = advance()
-                            annotation.addArgument(valToken.getValue())
-                        } else if checkToken(SeenTokenType.Identifier) {
-                            let valToken = advance()
-                            annotation.addArgument(valToken.getValue())
+            if decoratorName == "compute" {
+                parseGpuComputeDecoratorArguments(annotation)
+            } else {
+                while not checkToken(SeenTokenType.RightParen) and not isAtEnd() {
+                    // Parse argument: value OR key=value
+                    if checkToken(SeenTokenType.Identifier) {
+                        let argToken = advance()
+                        // Check if this is key=value syntax
+                        if checkToken(SeenTokenType.Equal) {
+                            // Skip the '=' and read the actual value
+                            advance()
+                            if checkToken(SeenTokenType.IntegerLiteral) {
+                                let valToken = advance()
+                                annotation.addArgument(valToken.getValue())
+                            } else if checkToken(SeenTokenType.StringLiteral) {
+                                let valToken = advance()
+                                annotation.addArgument(valToken.getValue())
+                            } else if checkToken(SeenTokenType.Identifier) {
+                                let valToken = advance()
+                                annotation.addArgument(valToken.getValue())
+                            }
+                        } else {
+                            annotation.addArgument(argToken.getValue())
                         }
-                    } else {
+                    } else if checkToken(SeenTokenType.StringLiteral) {
+                        let argToken = advance()
                         annotation.addArgument(argToken.getValue())
+                    } else if checkToken(SeenTokenType.IntegerLiteral) {
+                        let argToken = advance()
+                        annotation.addArgument(argToken.getValue())
+                    } else {
+                        // Skip unknown token to avoid infinite loop
+                        advance()
                     }
-                } else if checkToken(SeenTokenType.StringLiteral) {
-                    let argToken = advance()
-                    annotation.addArgument(argToken.getValue())
-                } else if checkToken(SeenTokenType.IntegerLiteral) {
-                    let argToken = advance()
-                    annotation.addArgument(argToken.getValue())
-                } else {
-                    // Skip unknown token to avoid infinite loop
-                    advance()
-                }
 
-                // Skip comma between arguments
-                if not matchTokenStr(SeenTokenType.Comma) {
-                    break
+                    // Skip comma between arguments
+                    if not matchTokenStr(SeenTokenType.Comma) {
+                        break
+                    }
                 }
+                consume(SeenTokenType.RightParen, "Expected ')' after decorator arguments")
             }
-            consume(SeenTokenType.RightParen, "Expected ')' after decorator arguments")
         }
 
         this.pendingDecorators.push(annotation)
@@ -4139,6 +4227,55 @@ class RealParser {
         this.lastFunction.returnType = parsedScratchTypeNode()
     }
 
+    // Keep callback signatures structural rather than treating `fn` as an
+    // opaque type name. The canonical spelling is shared with TypeRef.
+    fun parseFunctionTypeIntoScratch() r: Void {
+        var malformed = not checkToken(SeenTokenType.LeftParen)
+        consume(SeenTokenType.LeftParen, "Expected '(' in function type")
+        var signature = "("
+        var parameterCount = 0
+        while not isAtEnd() and not checkToken(SeenTokenType.RightParen) {
+            let parameterStart = this.current
+            parseTypeNodeIntoScratch()
+            if this.lastParsedTypeName == "Unknown" or this.current == parameterStart {
+                malformed = true
+                recordParserRecoveryError()
+                break
+            }
+            if parameterCount > 0 { signature = signature + "," }
+            signature = signature + this.lastParsedTypeName
+            parameterCount = parameterCount + 1
+            if not matchTokenStr(SeenTokenType.Comma) { break }
+            if checkToken(SeenTokenType.RightParen) {
+                malformed = true
+                recordParserRecoveryError()
+            }
+        }
+        if not checkToken(SeenTokenType.RightParen) { malformed = true }
+        consume(SeenTokenType.RightParen, "Expected ')' in function type")
+        if not matchTokenStr(SeenTokenType.Arrow) {
+            recordParserRecoveryError()
+            this.lastParsedTypeName = "fn" + signature + ")"
+            this.lastParsedTypeNullable = false
+            return
+        }
+        parseTypeNodeIntoScratch()
+        let returnType = this.lastParsedTypeName
+        if returnType == "Unknown" {
+            malformed = true
+            recordParserRecoveryError()
+        }
+        this.lastParsedTypeName = signature + ") -> " + returnType
+        if malformed {
+            // A recovery count alone is not consulted by every frontend.
+            // Retain an invalid structural spelling for E_TYPE_SYNTAX instead
+            // of normalizing a malformed callback into a usable signature.
+            this.lastParsedTypeName = "fn("
+        }
+        // A nullable return is inside its spelling, not a nullable callback.
+        this.lastParsedTypeNullable = false
+    }
+
     // Parse a type annotation into scratch fields.
     fun parseTypeNodeIntoScratch() r: Void {
         this.lastParsedTypeName = "Unknown"
@@ -4148,8 +4285,14 @@ class RealParser {
 
         var typeIdentFound = false
 
+        if checkToken(SeenTokenType.LeftParen) {
+            parseFunctionTypeIntoScratch()
+            typeName = this.lastParsedTypeName
+            typeIdentFound = true
+        }
+
         // : Raw pointer type: *T or *const T
-        if checkToken(SeenTokenType.Multiply) {
+        if not typeIdentFound and checkToken(SeenTokenType.Multiply) {
             advance()
             var ptrPrefix = "*"
             if checkToken(SeenTokenType.KeywordConst) {
@@ -4164,6 +4307,12 @@ class RealParser {
         if not typeIdentFound and checkToken(SeenTokenType.Identifier) {
             let token = advance()
             var name = token.getValue()
+
+            if name == "fn" {
+                parseFunctionTypeIntoScratch()
+                typeName = this.lastParsedTypeName
+                typeIdentFound = true
+            }
 
             // : dyn Trait — dynamic dispatch
             if name == "dyn" and checkToken(SeenTokenType.Identifier) {
@@ -4217,6 +4366,16 @@ class RealParser {
                         if not genericTokenHandled and checkToken(SeenTokenType.Identifier) {
                             // : const generic — recognize integer literals inside generic params
                             name = name + advance().getValue()
+                            genericTokenHandled = true
+                        }
+                        if not genericTokenHandled and checkToken(SeenTokenType.Multiply) {
+                            name = name + "*"
+                            advance()
+                            genericTokenHandled = true
+                        }
+                        if not genericTokenHandled and checkToken(SeenTokenType.Dot) {
+                            name = name + "."
+                            advance()
                             genericTokenHandled = true
                         }
                         if not genericTokenHandled and checkToken(SeenTokenType.Comma) {
@@ -4348,6 +4507,9 @@ class RealParser {
         this.currentBlock = BlockNode.new()
         var loopCount = 0
         while not checkToken(SeenTokenType.RightBrace) and not isAtEnd() {
+            // Compound statements may be followed by optional separators.
+            // Consume them before expression parsing can create recovery nodes.
+            if matchTokenStr(SeenTokenType.Semicolon) { continue }
             loopCount = loopCount + 1
             if loopCount > 1000 {
                 println("[ERROR] parseBlock: too many iterations (>1000), breaking")
@@ -6478,15 +6640,7 @@ class RealParser {
         ///
         if checkToken(SeenTokenType.StringLiteral) {
             let token = advance()
-            let rawValue = token.getValue()
-            // Strip quotes from the token value if present
-            var strValue = rawValue
-            if rawValue.length() >= 2 {
-                if rawValue.startsWith("\"") and rawValue.endsWith("\"") {
-                    strValue = rawValue.substring(1, rawValue.length() - 1)
-                }
-            }
-            return makeLiteral(strValue, "String")
+            return makeLiteral(token.getValue(), "String")
         }
 
         // CharLiteral this.tokens also carry the raw character payload.
@@ -6696,118 +6850,16 @@ class RealParser {
 
         // Identifier (variable or function name or struct literal)
         if checkNameLikeToken() {
+            let nameStart = this.current
             var name = peek().getValue()
             advance()
             // Remap 'self' to 'this' (alias for this-pointer)
             if name == "self" { name = "this" }
 
-            ///
-            Check for generic type syntax: Array<Type>() or Map<K,V>{}
-            This needs to be handled before struct literal check
-            ///
-            if checkToken(SeenTokenType.LessThan) {
-                ///
-                Look ahead to see if this is a generic type or a comparison
-                Generic type pattern: Identifier<Type>() or Identifier<Type>{}
-                We save position, try to parse generic, then decide
-                ///
-                let savedPos = this.current
-                advance() // consume <
-                var genericParsed = false
-
-                // Try to parse a type name
-                if checkToken(SeenTokenType.Identifier) {
-                    let typeParam = advance().getValue()
-
-                    // Handle nested generics like BTreeNode<K, V> or Array<Array<Int>>
-                    var fullTypeParam = typeParam
-                    var nestedClosedOuter = false
-                    if checkToken(SeenTokenType.LessThan) {
-                        advance() // consume inner <
-                        if checkToken(SeenTokenType.Identifier) {
-                            var innerParams = advance().getValue()
-                            // Handle multiple inner type params like <K, V>
-                            while matchTokenStr(SeenTokenType.Comma) {
-                                if checkToken(SeenTokenType.Identifier) {
-                                    innerParams = innerParams + ", " + advance().getValue()
-                                }
-                            }
-                            if checkToken(SeenTokenType.GreaterThan) {
-                                advance() // consume inner >
-                                fullTypeParam = fullTypeParam + "<" + innerParams + ">"
-                            } else if checkToken(SeenTokenType.RightShift) {
-                                // `Array<Array<Int>>()` has one lexer token for
-                                // the inner and outer closers. Record that both
-                                // were consumed so the generic/call lookahead
-                                // can still confirm the constructor shape.
-                                advance()
-                                fullTypeParam = fullTypeParam + "<" + innerParams + ">"
-                                nestedClosedOuter = true
-                            }
-                        }
-                    }
-
-                    // Handle multiple type parameters like Map<K, V> or FixedArray<Int, 4>
-                    while matchTokenStr(SeenTokenType.Comma) {
-                        if checkToken(SeenTokenType.Identifier) {
-                            fullTypeParam = fullTypeParam + ", " + advance().getValue()
-                        } else {
-                            if checkToken(SeenTokenType.IntegerLiteral) {
-                                fullTypeParam = fullTypeParam + ", " + advance().getValue()
-                            }
-                        }
-                    }
-
-                    // Check for closing >
-                    var foundClosingGt = false
-                    if nestedClosedOuter {
-                        foundClosingGt = true
-                    } else if checkToken(SeenTokenType.GreaterThan) {
-                        advance() // consume >
-                        foundClosingGt = true
-                    }
-
-                    if foundClosingGt {
-                        ///
-                        Now check if followed by (), {}, or . to confirm generic type
-                        NOTE: Use nested ifs instead of 'or' to ensure short-circuit (Stage1 bug workaround)
-                        ///
-                        var isGenericType = false
-                        if checkToken(SeenTokenType.LeftParen) {
-                            isGenericType = true
-                        }
-                        if not isGenericType {
-                            if checkToken(SeenTokenType.LeftBrace) {
-                                isGenericType = true
-                            }
-                        }
-                        if not isGenericType {
-                            if checkToken(SeenTokenType.Dot) {
-                                isGenericType = true
-                            }
-                        }
-                        if isGenericType {
-                            // This IS a generic type - update name to include type param
-                            name = name + "<" + fullTypeParam + ">"
-                            // Continue to normal call/struct literal handling below
-                            genericParsed = true
-                        }
-                        if not isGenericType {
-                            // Not followed by (), {}, or . - backtrack, treat as comparison
-                            this.current = savedPos
-                            genericParsed = true
-                        }
-                    }
-                    if not foundClosingGt {
-                        // No closing > - backtrack, treat as comparison
-                        this.current = savedPos
-                        genericParsed = true
-                    }
-                }
-                if not genericParsed {
-                    // Not an identifier after < - backtrack, treat as comparison
-                    this.current = savedPos
-                }
+            if expressionTypeArgumentsFollowedByConstructor() {
+                this.current = nameStart
+                parseTypeNodeIntoScratch()
+                name = this.lastParsedTypeName
             }
 
             ///

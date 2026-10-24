@@ -1,0 +1,28 @@
+/// Commitment is distinct from physical residency. A provider that cannot
+/// measure residency reports None, never an invented resident-byte count.
+import core.option.{Option}
+import compute.limits.{GPU_MAX_MEMORY_BYTES, GPU_MAX_RESOURCES}
+
+@move
+class GpuStats {
+    var requestedBytes: UInt64
+    var allocatedBytes: UInt64
+    var usableBytes: UInt64
+    var committedBytes: UInt64
+    var freeBytes: UInt64
+    var peakReservedBytes: UInt64
+    var residentBytes: Option<UInt64>
+    var liveBuffers: Int
+    var blocks: Int
+
+    fun valid() r: Bool {
+        if this.requestedBytes > this.allocatedBytes or this.allocatedBytes > this.usableBytes or
+            this.usableBytes > this.committedBytes or this.committedBytes > this.peakReservedBytes or
+            this.peakReservedBytes > GPU_MAX_MEMORY_BYTES or
+            this.freeBytes != this.usableBytes - this.allocatedBytes or
+            this.liveBuffers < 0 or this.liveBuffers > GPU_MAX_RESOURCES or
+            this.blocks < 0 or this.blocks > GPU_MAX_RESOURCES { return false }
+        return this.residentBytes.isNone() or this.residentBytes.unwrap() <= this.committedBytes
+    }
+    fun release() r: Void { this.residentBytes.free(); this.free() }
+}

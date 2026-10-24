@@ -1,0 +1,95 @@
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu_ir_model.{GpuIrModule}
+import codegen.gpu_ir_serialize.{serializeGpuIr}
+import codegen.gpu_ir_ops.{GPU_IR_INT}
+import codegen.gpu_specialization.{collectGpuSpecializations, releaseGpuSpecializations, materializeGpuSpecializations}
+import env.env.{args, releaseArgs}
+import codegen.gpu_artifact.{buildGpuArtifact}
+import codegen.gpu_precision_formats.{GPU_CAP_SPECIALIZATION}
+import codegen.gpu_options.{GpuOptions}
+import tools.gpu_command.{gpuPrintValidation}
+import json.builder.{releaseJsonText, seen_string_clone_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun requireSpecialization(value: Bool) r: Void {
+    if not value { abort("GPU specialization ownership or override contract failed") }
+}
+fun specializationIr(borrow module: GpuIrModule) r: String {
+    let result = serializeGpuIr(module); requireSpecialization(result.isOkay())
+    let text = result.unwrap(); result.releaseContainer(); return text
+}
+fun specializationBytes(borrow module: GpuIrModule, borrow options: GpuOptions) r: String {
+    let result = buildGpuArtifact(module, options)
+    if result.isErr() { gpuPrintValidation(result.unwrapErr()) }
+    requireSpecialization(result.isOkay()); let artifact = result.unwrap(); result.releaseContainer()
+    let text = seen_string_clone_owned(artifact.binary); artifact.release(); return text
+}
+fun rejectSpecialization(borrow module: GpuIrModule, ids: Array<Int>, values: Array<Int>) r: Void {
+    let baseline = seen_memory_used_bytes(); let result = materializeGpuSpecializations(module, ids, values)
+    requireSpecialization(result.isErr()); let error = result.unwrapErr(); result.releaseContainer()
+    requireSpecialization(error.diagnostics.length() > 0)
+    requireSpecialization(error.diagnostics[0].code == "E_GPU_SPECIALIZATION_OVERRIDE")
+    error.release(); requireSpecialization(seen_memory_used_bytes() == baseline)
+    ids.free(); values.free()
+}
+fun checkSpecialization(backend: String) r: Void {
+    let parsed = lowerGpuSource("@device fun configured() r: Int32 { return specializeInt32(7, 4, 1, 8) } @compute(1) fun chosen(output: WriteBuffer<Int32>) { output[0] = configured() } @compute(1) fun unsigned_choice(output: WriteBuffer<UInt32>) { output[0] = specializeUInt32(9, 5 as UInt32, 0 as UInt32, 4294967295 as UInt32) } @compute(1) fun signed_limits(output: WriteBuffer<Int32>) { output[0] = specializeInt32(11, 0, -2147483648, 2147483647) }", "ptx-specialization.seen")
+    if parsed.isErr() { gpuPrintValidation(parsed.unwrapErr()) }
+    requireSpecialization(parsed.isOkay()); let source = parsed.unwrap(); parsed.releaseContainer()
+    let before = specializationIr(source); let options = GpuOptions.create(); options.backend = backend; options.target = "sm_80"
+    if backend == "hip" { options.target = "gfx90a" }
+    if backend == "metal" { options.target = "macos13" }
+    let defaultPtx = specializationBytes(source, options)
+    rejectSpecialization(source, [7], [])
+    rejectSpecialization(source, [99], [4])
+    rejectSpecialization(source, [7, 7], [4, 5])
+    rejectSpecialization(source, [7], [0])
+    rejectSpecialization(source, [7], [9])
+    rejectSpecialization(source, [9], [-1])
+    rejectSpecialization(source, [9], [4294967296])
+    rejectSpecialization(source, [11], [-2147483649])
+    rejectSpecialization(source, [11], [2147483648])
+    let tooManyIds = Array<Int>(); let tooManyValues = Array<Int>(); var count = 0
+    while count < 65 { tooManyIds.push(7); tooManyValues.push(4); count = count + 1 }
+    rejectSpecialization(source, tooManyIds, tooManyValues)
+    let ids = [7, 9, 11]; let values = [8, 4294967295, -2147483648]; let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 20 {
+        let frozenResult = materializeGpuSpecializations(source, ids, values)
+        if frozenResult.isErr() { gpuPrintValidation(frozenResult.unwrapErr()) }
+        requireSpecialization(frozenResult.isOkay()); let frozen = frozenResult.unwrap(); frozenResult.releaseContainer()
+        let recordsResult = collectGpuSpecializations(source); requireSpecialization(recordsResult.isOkay())
+        let records = recordsResult.unwrap(); recordsResult.releaseContainer(); requireSpecialization(records.length() == 3)
+        var index = 0
+        while index < records.length() {
+            let record = records[index]; let op = frozen.functions[record.functionIndex].blocks[record.blockIndex].instructions[record.instructionIndex]
+            requireSpecialization(op.opcode == GPU_IR_INT and op.operands.length() == 0)
+            if record.id == 7 { requireSpecialization(op.text == "8") }
+            if record.id == 9 { requireSpecialization(op.text == "4294967295") }
+            if record.id == 11 { requireSpecialization(op.text == "-2147483648") }
+            requireSpecialization(op.typeCode == record.typeCode); index = index + 1
+        }
+        releaseGpuSpecializations(records)
+        requireSpecialization((frozen.requiredCapabilities & GPU_CAP_SPECIALIZATION) == (0 as UInt64))
+        let changed = specializationBytes(frozen, options); requireSpecialization(changed != defaultPtx); releaseJsonText(changed)
+        let after = specializationIr(source); requireSpecialization(after == before); releaseJsonText(after)
+        frozen.release(); requireSpecialization(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    let empty = Array<Int>(); let unchanged = materializeGpuSpecializations(source, empty, empty)
+    requireSpecialization(unchanged.isOkay()); let independent = unchanged.unwrap(); unchanged.releaseContainer(); empty.free()
+    source.release()
+    let independentPtx = specializationBytes(independent, options)
+    requireSpecialization(independentPtx == defaultPtx)
+    releaseJsonText(independentPtx); independent.release(); releaseJsonText(defaultPtx); releaseJsonText(before)
+    options.release(); ids.free(); values.free()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let arguments = args()
+    requireSpecialization(arguments.length() == 2 and (arguments[1] == "cuda" or arguments[1] == "hip" or arguments[1] == "metal"))
+    let cuda = arguments[1] == "cuda"; let metal = arguments[1] == "metal"
+    checkSpecialization(arguments[1]); releaseArgs(arguments)
+    requireSpecialization(seen_memory_used_bytes() == baseline)
+    if cuda { println("PASS: PTX bounded specialization overrides preserve source and independent clone ownership") }
+    else if metal { println("PASS: Metal bounded specialization overrides preserve source and independent clone ownership") }
+    else { println("PASS: AMDGPU bounded specialization overrides preserve source and independent clone ownership") }
+    return 0
+}

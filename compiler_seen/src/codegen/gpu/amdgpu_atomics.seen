@@ -1,0 +1,62 @@
+/// Native LLVM atomics retain source scope/order and return the old word.
+/// Invalid indices fault before pointer formation and execute no data atomic.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_COMPARE}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, GpuAmdResource, amdValue, amdDefinition}
+import codegen.gpu.amdgpu_memory.{amdResourceIndex, amdInvalidMemoryIndex, amdMemoryAddress}
+import codegen.gpu.amdgpu_sync.{amdMemoryScope, amdMemoryOrder}
+import typechecker.gpu_types.{gpuTypeValue}
+
+fun amdAtomicOperation(operation: Int, typeCode: Int) r: String {
+    if operation == 1 { return "xchg" }; if operation == 2 { return "add" }; if operation == 3 { return "sub" }
+    if operation == 4 { if typeCode == 2 { return "min" }; return "umin" }
+    if operation == 5 { if typeCode == 2 { return "max" }; return "umax" }
+    if operation == 6 { return "and" }; if operation == 7 { return "or" }; if operation == 8 { return "xor" }; return ""
+}
+fun amdAtomicPointer(function: GpuAmdFunction, resource: GpuAmdResource, address: Int) r: Void {
+    function.body.literal("ptr addrspace("); if resource.shared { function.body.number(3) } else { function.body.number(1) }
+    function.body.literal(") "); amdValue(function.body, address)
+}
+fun amdAtomicOrdering(function: GpuAmdFunction, scope: String, order: String) r: Void {
+    function.body.literal(" syncscope(\""); function.body.literal(scope); function.body.literal("\") "); function.body.literal(order)
+}
+fun amdAtomic(function: GpuAmdFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let resourceIndex = amdResourceIndex(function, frame, op.operands[0]); if resourceIndex < 0 { return 0 }
+    let resource = function.resources[resourceIndex]; let scope = amdMemoryScope(op.memoryScope); let order = amdMemoryOrder(op.memoryOrder)
+    if scope == "" or order == "" { function.error("E_GPU_AMDGPU_MEMORY", "AMDGPU atomic scope or order is unsupported"); return 0 }
+    var result = 0
+    if op.opcode != GPU_IR_ATOMIC_STORE { result = function.allocate(1); function.copy(result, function.word(0), 1) }
+    let index = op.operands[1]; let invalid = amdInvalidMemoryIndex(function, resource, frame.registers[index], frame.registerTypes[index])
+    let bad = function.label(); let good = function.label(); let merge = function.label()
+    function.conditional(invalid, bad, good); function.defineLabel(good)
+    let address = amdMemoryAddress(function, resource, frame.registers[index]); var value = 0
+    if op.opcode != GPU_IR_ATOMIC_LOAD { value = function.read(frame.registers[op.operands[2]]) }
+    var replacement = 0
+    if op.opcode == GPU_IR_ATOMIC_COMPARE { replacement = function.read(frame.registers[op.operands[3]]) }
+    var native = 0
+    if op.opcode == GPU_IR_ATOMIC_STORE {
+        function.body.literal("  store atomic i32 "); amdValue(function.body, value); function.body.literal(", "); amdAtomicPointer(function, resource, address)
+    } else {
+        native = function.value(); amdDefinition(function.body, native)
+        if op.opcode == GPU_IR_ATOMIC_LOAD { function.body.literal("load atomic i32, "); amdAtomicPointer(function, resource, address) }
+        else if op.opcode == GPU_IR_ATOMIC_COMPARE {
+            function.body.literal("cmpxchg "); amdAtomicPointer(function, resource, address)
+            function.body.literal(", i32 "); amdValue(function.body, value); function.body.literal(", i32 "); amdValue(function.body, replacement)
+        } else {
+            let operation = amdAtomicOperation(op.immediate, gpuTypeValue(resource.typeCode))
+            if operation == "" { function.error("E_GPU_AMDGPU_MEMORY", "AMDGPU atomic operation is unsupported"); return 0 }
+            function.body.literal("atomicrmw "); function.body.literal(operation); function.body.literal(" "); amdAtomicPointer(function, resource, address)
+            function.body.literal(", i32 "); amdValue(function.body, value)
+        }
+    }
+    amdAtomicOrdering(function, scope, order)
+    if op.opcode == GPU_IR_ATOMIC_COMPARE { function.body.literal(" "); function.body.literal(amdMemoryOrder(op.immediate)) }
+    function.body.literal(", align 4\n")
+    if op.opcode == GPU_IR_ATOMIC_COMPARE {
+        let previous = function.value(); amdDefinition(function.body, previous); function.body.literal("extractvalue { i32, i1 } ")
+        amdValue(function.body, native); function.body.literal(", 0\n"); native = previous
+    }
+    if result != 0 { function.write(result, native) }
+    function.branch(merge); function.defineLabel(bad); function.fault(1); function.branch(merge); function.defineLabel(merge); return result
+}

@@ -6,6 +6,8 @@ import seen_tokenizers.mod.{parseTokenizerJson, TokenizerLimits,
     byteBpeEncodePiece, byteBpeEncode, byteBpeDecode,
     SPECIAL_TOKENS_DISALLOW, SPECIAL_TOKENS_ALLOW_LISTED}
 
+extern "C" fun seen_string_release_owned(text: String) r: Void
+
 fun require(condition: Bool, message: String) r: Void {
     if not condition { panic(message) }
 }
@@ -23,8 +25,12 @@ fun main() r: Void {
         "codepoint access must decode U+2581")
     require(tokenizerByteIndex(literal, 1) == 3,
         "codepoint-to-byte conversion must cross U+2581")
-    require(tokenizerSubstringByCodepoints(literal, 0, 1) == marker,
+    let sliced = tokenizerSubstringByCodepoints(literal, 0, 1)
+    require(sliced == marker,
         "codepoint slicing must not truncate UTF-8")
+    seen_string_release_owned(sliced)
+    seen_string_release_owned(constructed)
+    seen_string_release_owned(marker)
 
     let input = readText("tests/fixtures/tokenizers/qwen_utf8_tokenizer.json")
     let parsed = parseTokenizerJson(input, TokenizerLimits.qwen())
@@ -63,15 +69,25 @@ fun main() r: Void {
     require(ids.length() == 1 and ids[0] == 8,
         "merge ranks must produce the deterministic token")
     let decoded = byteBpeDecode(spec, ids, 64)
-    require(not decoded.isErr() and decoded.unwrap() == "▁hi",
+    require(not decoded.isErr(), "byte BPE decoding must succeed")
+    let decodedText = decoded.unwrap()
+    require(decodedText == "▁hi",
         "byte BPE must round trip UTF-8")
+    seen_string_release_owned(decodedText)
     ids.free()
 
     let rejected = byteBpeEncode(spec, "<|end|>",
         SPECIAL_TOKENS_DISALLOW, 4)
     require(rejected.isErr() and
-        rejected.unwrapErr().code == "tokenizer.disallowed_special",
+        rejected.unwrapErr().code == "tokenizer.disallowed_special" and
+        rejected.unwrapErr().position == 0,
         "special tokens must fail closed by policy")
+    let limited = byteBpeEncode(spec, "hi<|end|>",
+        SPECIAL_TOKENS_ALLOW_LISTED, 1)
+    require(limited.isErr() and
+        limited.unwrapErr().code == "tokenizer.output_limit" and
+        limited.unwrapErr().position == 2,
+        "special-token limit errors must retain the position before cleanup")
     let allowed = byteBpeEncode(spec, "<|end|>",
         SPECIAL_TOKENS_ALLOW_LISTED, 4)
     require(not allowed.isErr(), "listed special token must be allowed explicitly")
@@ -85,13 +101,15 @@ fun main() r: Void {
         TokenizerLimits.qwen())
     require(duplicate.isErr() and duplicate.unwrapErr().code == "tokenizer.json",
         "duplicate JSON keys must be rejected")
-    let duplicateId = parseTokenizerJson(readText(
-        "tests/fixtures/tokenizers/duplicate-id.json"), TokenizerLimits.qwen())
+    let duplicateIdText = readText("tests/fixtures/tokenizers/duplicate-id.json")
+    let duplicateId = parseTokenizerJson(duplicateIdText, TokenizerLimits.qwen())
+    seen_string_release_owned(duplicateIdText)
     require(duplicateId.isErr() and
         duplicateId.unwrapErr().code == "tokenizer.duplicate_id",
         "duplicate vocabulary identifiers must be rejected")
-    let badMerge = parseTokenizerJson(readText(
-        "tests/fixtures/tokenizers/invalid-merge.json"), TokenizerLimits.qwen())
+    let badMergeText = readText("tests/fixtures/tokenizers/invalid-merge.json")
+    let badMerge = parseTokenizerJson(badMergeText, TokenizerLimits.qwen())
+    seen_string_release_owned(badMergeText)
     require(badMerge.isErr() and badMerge.unwrapErr().code == "tokenizer.merge",
         "malformed merge entries must be rejected")
     let tinyLimits = TokenizerLimits{ maxInputBytes: 8, maxDepth: 2,
@@ -110,5 +128,6 @@ fun main() r: Void {
         tokenizerUnicodeDataSha256().length() == 64,
         "Unicode tables must expose their exact reproducibility lock")
     spec.close()
+    seen_string_release_owned(input)
     println("PASS: FEL-589/FEL-1125/FEL-1126 UTF-8, Unicode, JSON, and byte BPE")
 }

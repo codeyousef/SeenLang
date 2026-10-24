@@ -55,10 +55,32 @@ done
 RESULT_IR="$WORK_DIR/result-literal.ll"
 find "$WORK_DIR/ir-release" -maxdepth 1 -type f -name '*.ll' -print0 |
     sort -z | xargs -0 cat >"$RESULT_IR"
-grep -Eq 'load %BFloat16, ptr .*repr\(C\) literal call argument' "$RESULT_IR"
-grep -Eq 'store %BFloat16 %[^,]+, ptr %' "$RESULT_IR"
-grep -Eq '= ptrtoint ptr %[^ ]+ to i64' "$RESULT_IR"
-grep -Eq '= (tail )?call i64 @Ok\(i64 %' "$RESULT_IR"
+# Inspect the actual payload dataflow, not an explanatory compiler comment.
+# Both producer modules must copy the concrete aggregate into owned erased
+# storage before passing its address word through Result's existing ABI.
+python3 - "$RESULT_IR" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+ir = Path(sys.argv[1]).read_text()
+for name in ('sameModuleBits', 'crossModuleBits'):
+    functions = re.findall(r'^define[^\n]*@' + name + r'\([^\n]*\{\n(.*?)^}', ir, re.M | re.S)
+    assert len(functions) == 1, 'missing or duplicate aggregate producer: ' + name
+    body = functions[0]
+    load = re.search(r'(%[\w.]+) = load %BFloat16, ptr (%[\w.]+)', body)
+    assert load, 'literal payload was not loaded as concrete BFloat16: ' + name
+    store = re.search(r'store %BFloat16 ' + re.escape(load[1]) + r', ptr (%[\w.]+)', body)
+    assert store, 'concrete payload was not stored in erased owned storage: ' + name
+    allocation = re.search(re.escape(store[1]) + r' = call ptr @seen_checked_malloc\(i64 2\)', body)
+    assert allocation, 'erased payload allocation has the wrong concrete size: ' + name
+    address = re.search(r'(%[\w.]+) = ptrtoint ptr ' + re.escape(store[1]) + r' to i64', body)
+    assert address, 'Result payload is not the owned aggregate address: ' + name
+    call = re.search(r'(?:tail )?call i64 @Ok\(i64 ' + re.escape(address[1]) + r'\)', body)
+    assert call, 'Result constructor does not consume the erased payload address: ' + name
+    assert allocation.start() < store.start() < address.start() < call.start(), 'incorrect aggregate payload order: ' + name
+print('PASS: same/cross-module concrete aggregate loads, owned storage and erased Result call dataflow')
+PY
 if grep -Eq '@Ok\(%BFloat16 ' "$RESULT_IR"; then
     echo "FAIL: Result constructor call bypassed the erased payload ABI" >&2
     exit 1

@@ -1,0 +1,30 @@
+/// LLVM scope/order names are backend details. Execution rendezvous stays
+/// within its declared wave or workgroup; it never strengthens to another group.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction}
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_BARRIER}
+fun amdMemoryScope(scope: Int) r: String {
+    if scope == 1 { return "singlethread" }; if scope == 2 { return "wavefront" }
+    if scope == 3 { return "workgroup" }; if scope == 4 { return "agent" }; return ""
+}
+fun amdMemoryOrder(order: Int) r: String {
+    if order == 1 { return "monotonic" }; if order == 2 { return "acquire" }; if order == 3 { return "release" }
+    if order == 4 { return "acq_rel" }; if order == 5 { return "seq_cst" }; return ""
+}
+fun amdMemoryFence(function: GpuAmdFunction, scope: Int, order: Int) r: Void {
+    let scopeName = amdMemoryScope(scope); let ordering = amdMemoryOrder(order)
+    if scopeName == "" or ordering == "" or order == 1 { function.error("E_GPU_AMDGPU_MEMORY", "AMDGPU fence scope or ordering is unsupported"); return }
+    function.body.literal("  fence syncscope(\""); function.body.literal(scopeName); function.body.literal("\") ")
+    function.body.literal(ordering); function.body.literal("\n")
+}
+fun amdSynchronization(function: GpuAmdFunction, borrow op: GpuIrInstruction) r: Void {
+    if op.opcode == GPU_IR_BARRIER and op.memoryScope != 2 and op.memoryScope != 3 {
+        function.error("E_GPU_AMDGPU_CAPABILITY", "AMDGPU execution barriers require subgroup or workgroup scope"); return
+    }
+    amdMemoryFence(function, op.memoryScope, op.memoryOrder)
+    if op.opcode == GPU_IR_BARRIER {
+        if op.memoryScope == 2 { function.body.literal("  call void @llvm.amdgcn.wave.barrier()\n") }
+        else { function.body.literal("  call void @llvm.amdgcn.s.barrier()\n") }
+        amdMemoryFence(function, op.memoryScope, op.memoryOrder)
+    }
+}

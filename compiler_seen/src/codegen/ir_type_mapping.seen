@@ -29,13 +29,16 @@ fun normalizeSeenTypeNameImpl(seenType: String) r: String {
     return normalized
 }
 
-fun isFixedWidthScalarTypeImpl(seenType: String) r: Bool {
-    let baseType = getBaseTypeNameImpl(seenType)
+fun isFixedWidthScalarNameImpl(baseType: String) r: Bool {
     return baseType == "Int8" or baseType == "UInt8" or
         baseType == "Int16" or baseType == "UInt16" or
         baseType == "Int32" or baseType == "UInt32" or
         baseType == "Int64" or baseType == "UInt64" or
         baseType == "Float32" or baseType == "Float64"
+}
+
+fun isFixedWidthScalarTypeImpl(seenType: String) r: Bool {
+    return isFixedWidthScalarNameImpl(getBaseTypeNameImpl(seenType))
 }
 
 fun getFixedWidthScalarSizeImpl(seenType: String) r: Int {
@@ -349,6 +352,12 @@ fun mapTypeImpl(seenType: String, structNames: Array<String>,
     if trimmed.startsWith("*") {
         return "ptr"
     }
+    // These are checked structural function signatures / opaque pointer
+    // spellings, not class handles or an unknown-name fallback.
+    if trimmed.startsWith("(") or trimmed.startsWith("fn(") {
+        return "ptr"
+    }
+    if baseType == "Ptr" or baseType == "ptr" { return "ptr" }
     if trimmed.startsWith("ErrorUnion<") {
         return "i64"
     }

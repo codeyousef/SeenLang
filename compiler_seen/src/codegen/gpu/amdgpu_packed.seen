@@ -1,0 +1,21 @@
+/// The shared scalar plan owns packed-number algorithms and source validity.
+/// This adapter only consumes its native identities and publishes checked faults.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_PACK}
+import codegen.gpu_precision_formats.{GPU_FORMAT_MXFP4}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.amdgpu_context.{GpuAmdFunction}
+import codegen.gpu.scalar_packed.{scalarPackedPlan}
+import codegen.gpu.amdgpu_scalar_plan.{emitAmdScalarPlan}
+fun amdPacked(function: GpuAmdFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let insert = op.opcode == GPU_IR_PACK; var value = 0; var scale = 0
+    if insert { value = frame.registers[op.operands[2]] }
+    if op.immediate == GPU_FORMAT_MXFP4 { var index = 2; if insert { index = 3 }; scale = frame.registers[op.operands[index]] }
+    let plan = scalarPackedPlan(op.immediate, insert, frame.registers[op.operands[0]], frame.registers[op.operands[1]], value, scale)
+    let output = emitAmdScalarPlan(function, plan); let result = output.value
+    if function.validation.valid {
+        function.faultWhen(function.compare("eq", output.laneValid, function.word(0), false), 1)
+        if op.immediate == GPU_FORMAT_MXFP4 { function.faultWhen(function.compare("eq", output.scaleValid, function.word(0), false), 4) }
+    }
+    output.free(); return result
+}

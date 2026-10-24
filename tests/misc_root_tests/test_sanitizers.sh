@@ -1,63 +1,49 @@
-#!/bin/bash
-# Test sanitizer CLI flags
-# Verifies --sanitize=address compilation and basic execution
-# Historical direct-entry fixture; it may not run outside the attested compiler
-# and project-artifact wrappers.
-echo "RESOURCE STOP: legacy sanitizer fixture is disabled until capped migration" >&2
-exit 126
+#!/usr/bin/env bash
+# Sanitizer CLI regression through the verified native-test path.
+set -euo pipefail
 
-set -e
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-COMPILER="$ROOT_DIR/compiler_seen/target/seen"
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-if [ ! -f "$COMPILER" ]; then
-    echo -e "${RED}Compiler not found${NC}"
-    exit 1
+ROOT="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
+COMPILER="${COMPILER:-$ROOT/compiler_seen/target/seen}"
+CAPPED="$ROOT/scripts/run_capped_regression.sh"
+SCOPE=sanitizer-cli
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ] ||
+    [ "${SEEN_CAPPED_REGRESSION_SCOPE:-}" != "$SCOPE" ]; then
+    exec bash "$CAPPED" "$SCOPE" --compiler "$COMPILER" -- bash "$0"
 fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED" --verify-active "$SCOPE" --compiler "$COMPILER"
+export SEEN_COMPILER_SOURCE_ROOT="$ROOT"
+WORK="$(mktemp -d "$SEEN_ARTIFACT_ROOT/sanitizer-cli.XXXXXX")"
+SOURCE="$ROOT/tests/fixtures/test-002a/sanitizer_cli.seen"
 
-# Create test program
-TEST_FILE="/tmp/test_sanitizer_basic.seen"
-cat > "$TEST_FILE" << 'EOF'
-fun main() r: Int {
-    let x = 42
-    let y = x + 1
-    println("Sanitizer test: " + y.toString())
-    return 0
-}
-EOF
-
-echo "=== Test: --sanitize=address ==="
-cd "$ROOT_DIR"
-# Note: ASan may report leaks (expected for Seen programs without explicit .free())
-# We suppress leak detection to focus on actual memory errors
-export ASAN_OPTIONS=detect_leaks=0
-if "$COMPILER" compile "$TEST_FILE" /tmp/test_sanitizer_out --sanitize=address 2>&1 | tail -1 | grep -q "Build succeeded"; then
-    echo -e "${GREEN}Compilation with ASan succeeded${NC}"
-    if /tmp/test_sanitizer_out 2>&1 | grep -q "Sanitizer test: 43"; then
-        echo -e "${GREEN}Execution with ASan passed${NC}"
-    else
-        echo -e "${RED}Execution with ASan failed${NC}"
+for sanitizer in address undefined; do
+    binary="$WORK/$sanitizer"
+    compile_log="$WORK/$sanitizer.compile.log"
+    run_log="$WORK/$sanitizer.run.log"
+    if ! timeout --foreground --kill-after=5s 600s \
+        bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile \
+        "$SOURCE" "$binary" --fast --no-cache --no-fork \
+        "--sanitize=$sanitizer" >"$compile_log" 2>&1; then
+        tail -c 32768 "$compile_log" >&2
         exit 1
     fi
-else
-    echo -e "${RED}Compilation with ASan failed${NC}"
-    exit 1
-fi
-
-echo "=== Test: --sanitize=undefined ==="
-if "$COMPILER" compile "$TEST_FILE" /tmp/test_sanitizer_out --sanitize=undefined --no-cache 2>&1 | tail -1 | grep -q "Build succeeded"; then
-    echo -e "${GREEN}Compilation with UBSan succeeded${NC}"
-    /tmp/test_sanitizer_out 2>&1 | grep -q "Sanitizer test: 43" && echo -e "${GREEN}Execution with UBSan passed${NC}"
-else
-    echo -e "${RED}Compilation with UBSan failed${NC}"
-    exit 1
-fi
-
-rm -f /tmp/test_sanitizer_out /tmp/test_sanitizer_basic.seen /tmp/seen_runtime_sanitized.o
-echo -e "${GREEN}All sanitizer tests passed${NC}"
+    grep -Fq "  Sanitizer: $sanitizer" "$compile_log"
+    status=0
+    if [ "$sanitizer" = address ]; then
+        timeout --foreground --kill-after=5s 120s \
+            bash "$ROOT/scripts/run_asan_in_hard_memory_scope.sh" \
+            --target-root "$WORK" --compile-log "$compile_log" -- "$binary" \
+            >"$run_log" 2>&1 || status=$?
+    else
+        timeout --foreground --kill-after=5s 120s \
+            env UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1 \
+            "$binary" >"$run_log" 2>&1 || status=$?
+    fi
+    if [ "$status" -ne 0 ]; then
+        tail -c 32768 "$run_log" >&2
+        exit "$status"
+    fi
+    grep -Fxq 'Sanitizer test: 43' "$run_log"
+    echo "PASS: sanitizer CLI $sanitizer compilation and execution"
+done
+echo 'PASS: sanitizer CLI flags with leak detection and verified containment'

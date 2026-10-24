@@ -91,9 +91,11 @@ class Path {
     static fun fromString(value: String) r: Result<Path, FsError> {
         let checked = OsString.fromString(value)
         if checked.isErr() {
-            return Err<Path, FsError>(checked.unwrapErr())
+            let error = checked.unwrapErr(); checked.releaseContainer()
+            return Err<Path, FsError>(error)
         }
-        return Ok<Path, FsError>(Path{ raw: checked.unwrap() })
+        let raw = checked.unwrap(); checked.releaseContainer()
+        return Ok<Path, FsError>(Path{ raw: raw })
     }
 
     fun asString() r: String { return this.raw.asString() }

@@ -11,6 +11,14 @@ fun expectTypeRef(actual: String, expected: String, label: String) r: Bool {
 }
 
 fun main() r: Int {
+    let qualified = "pkg.worker-pool::Wrapper<tests.async-002e::Notice>"
+    let qualifiedType = parseTypeRef(qualified, 0, 0)
+    if not qualifiedType.valid or qualifiedType.canonical() != qualified { return 90 }
+    if parseTypeRef("Plain-Type", 0, 0).valid { return 91 }
+    if parseTypeRef("pkg::Type-Name", 0, 0).valid { return 92 }
+    let arrow = parseTypeRef("(Int)->Int", 0, 0)
+    if not arrow.valid or arrow.kind != "function" { return 93 }
+
     let nested = parseTypeRef("Result<Option<Int>,Error>", 0, 0)
     if not nested.valid or
         not expectTypeRef(nested.canonical(), "Result<Option<Int>,Error>",
@@ -153,6 +161,24 @@ fun main() r: Int {
     if not unitType.valid or not expectTypeRef(unitType.canonical(), "()",
         "unit type remains distinct from a function") { return 30 }
 
+    let importedCallback = parseTypeRef("fn(UInt32, *Void) -> Int32", 7, 9,
+        "callback.seen")
+    if not importedCallback.valid or importedCallback.kind != "function" or
+        importedCallback.arguments.length() != 3 or importedCallback.canonical() !=
+        "(UInt32,*Void) -> Int32" { return 94 }
+    if importedCallback.file != "callback.seen" or importedCallback.line != 7 or
+        importedCallback.column != 9 { return 95 }
+    let emptyCallback = parseTypeRef("fn() -> Void")
+    if not emptyCallback.valid or emptyCallback.canonical() != "() -> Void" { return 96 }
+    if parseTypeRef("fn()").valid or parseTypeRef("fn(Int32,) -> Void").valid or
+        parseTypeRef("fn Int32").valid { return 97 }
+    let namedFnPrefix = parseTypeRef("fnord")
+    if not namedFnPrefix.valid or namedFnPrefix.base != "fnord" { return 98 }
+    let nestedCallback = parseTypeRef("fn(fn(Int32) -> Int32, Ptr) -> Void")
+    if not nestedCallback.valid or nestedCallback.canonical() !=
+        "((Int32) -> Int32,Ptr) -> Void" { return 99 }
+
+    println("PASS: structured type references preserve qualified module identities and source delimiters")
     return 0
 }
 

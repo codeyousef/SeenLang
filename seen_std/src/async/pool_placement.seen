@@ -1,0 +1,43 @@
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError}
+import async.executor_core.{ExecutorLimits, executorFailure}
+import async.executor_native.{seen_executor_validate_placement}
+
+@move
+class PoolPlacement {
+    var cpus: Array<Int>
+    var numaNode: Int
+
+    static fun inherited() r: PoolPlacement {
+        return PoolPlacement{cpus: Array<Int>(), numaNode: -1}
+    }
+
+    fun snapshot(limits: ExecutorLimits) r: Result<PoolPlacement, AsyncError> {
+        if this.cpus.length() != 0 and this.cpus.length() != limits.workers {
+            return Err<PoolPlacement, AsyncError>(executorFailure(2 as Int32,
+                "pool.placement", 0 as UInt64))
+        }
+        if this.numaNode < -1 or this.numaNode > 63 {
+            return Err<PoolPlacement, AsyncError>(executorFailure(1 as Int32,
+                "pool.placement", 0 as UInt64))
+        }
+        let cpus = Array<Int>()
+        var i = 0
+        var status = seen_executor_validate_placement(-1 as Int32, this.numaNode as Int32)
+        while i < this.cpus.length() and status == (0 as Int32) {
+            let cpu = this.cpus[i]
+            if cpu < 0 or cpu > 1023 { status = 1 as Int32 }
+            else { status = seen_executor_validate_placement(cpu as Int32, this.numaNode as Int32) }
+            if status == (0 as Int32) { cpus.push(cpu) }
+            i = i + 1
+        }
+        if status != (0 as Int32) {
+            cpus.free()
+            return Err<PoolPlacement, AsyncError>(executorFailure(status,
+                "pool.placement", i as UInt64))
+        }
+        return Ok<PoolPlacement, AsyncError>(PoolPlacement{cpus: cpus, numaNode: this.numaNode})
+    }
+
+    fun release() r: Void { this.cpus.free(); this.free() }
+}

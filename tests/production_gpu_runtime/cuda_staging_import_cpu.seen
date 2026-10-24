@@ -1,0 +1,5 @@
+import compute.cuda_staging.{GpuCudaStagingRing}
+fun main() r: Int {
+    println("PASS: unused CUDA staging import leaves CPU-only builds SDK-free")
+    return 0
+}

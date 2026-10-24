@@ -535,6 +535,15 @@ typed `core.rel.003.*` errors and never switch modes implicitly.
 canonical relative `.profdata` path, rejects raw profiles, and keys compiler,
 runtime, and merged-LTO caches by the profile bytes. PGO flags cover Seen
 modules, retained runtime objects, and compiled ABI shims.
+Seen IR generation runs `pgo-instr-gen,instrprof` before optimization; profile
+use runs `pgo-instr-use` at the matching pipeline point. This applies to both
+per-module and full-LTO merged IR. Runtime/link driver flags alone do not
+establish Seen function coverage. Release
+acceptance checks actual Seen entry/helper counters in the collected profile.
+PGO ThinLTO bitcode uses LLVM's pre-link pipeline so post-link call-graph
+profile metadata is produced once, by the LTO backend.
+Full-LTO merged IR, and the single-module full-LTO case, emit native objects
+instead of handing already optimized post-link profile metadata to ThinLTO.
 
 ## Incremental and Parallel Compilation
 
@@ -610,7 +619,7 @@ short-lived view of `cudaStream_t`. The token transfers no ownership and is
 invalidated by stream close. Borrowing has no allocation, CUDA synchronization,
 fallback, or scheduling policy. Capture is supported explicitly and reported in
 the token flags. The optional CUDA ABI remains outside CPU-only discovery and is
-bound by the release manifest's `runtime-v4` compatibility identity.
+bound by the release manifest's `runtime-v8` compatibility identity.
 
 ## Key Source Areas
 

@@ -1,0 +1,111 @@
+import compute.vulkan_staging.{GpuVulkanStagingRing, GpuVulkanStagingTicket, gpuVkStagingDownload}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import inference.span.{Span, MutableSpan}
+import memory.aligned_buffer.{OwnedBuffer}
+import vulkan_mapping_fixture_support.{mappingWorld}
+import core.result.{Result}
+import compute.error.{GpuError}
+import env.env.{args, releaseArgs}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+fun stagingFaultReject(result: Result<Bool, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("injected staging fault was ignored") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("staging fault diagnostic differs") }
+    error.release()
+}
+fun stagingFaultFinish(borrow ticket: GpuVulkanStagingTicket, lost: Bool) r: Void {
+    var fuel = 0
+    while fuel < 100000 {
+        let ready = ticket.poll()
+        if ready.isErr() {
+            let error = ready.unwrapErr(); ready.releaseContainer()
+            if not lost or error.code != "gpu.device_lost" { abort("unexpected staging completion error") }
+            error.release(); return
+        }
+        let done = ready.unwrap(); ready.releaseContainer()
+        if done { if lost { abort("lost staging copy reported valid output") }; return }
+        fuel = fuel + 1
+    }
+    abort("staging fault completion fuel exhausted")
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let arguments = args()
+    if arguments.length() != 3 { abort("staging fault requires mode and diagnostic") }
+    let mode = arguments[1]; let code = arguments[2]
+    let world = mappingWorld(GpuMemoryKind.DeviceLocal); let op = world.operation
+    // Force distinct native blocks only for the second-prefix failure; normal
+    // small tickets deliberately share a block in the pooled allocator.
+    var blockBytes = 1024 as UInt64; var slotBytes = 64 as UInt64
+    if mode == "staging-buffer-second" { blockBytes = 256 as UInt64; slotBytes = 256 as UInt64 }
+    let opened = GpuVulkanStagingRing.open(world.context, blockBytes, slotBytes, 2, op)
+    if mode.startsWith("copy-pool") or mode.startsWith("copy-semaphore") or mode.startsWith("copy-command") or
+        mode == "timeline-none" or mode.startsWith("buffer-") or mode.startsWith("memory-") or
+        mode == "bind-status" or mode == "staging-buffer-second" {
+        if opened.isOkay() { abort("partial staging construction fault was ignored") }
+        let error = opened.unwrapErr(); opened.releaseContainer()
+        if error.code != code { println(error.code); abort("staging construction fault differs") }
+        error.release()
+    } else {
+        if opened.isErr() { abort("staging fault failed before ring creation") }
+        let ring = opened.unwrap(); opened.releaseContainer()
+        let reserved = ring.reserve(32 as UInt64, op)
+        if reserved.isErr() { abort("staging fault ticket unavailable") }
+        let ticket = reserved.unwrap(); reserved.releaseContainer()
+        let hostResult = OwnedBuffer<UInt8>.allocate(32 as UInt64, 1 as UInt64, 64 as UInt64)
+        if hostResult.isErr() { abort("staging fault host storage unavailable") }
+        let host = hostResult.unwrap(); hostResult.releaseContainer()
+        var index = 0 as UInt64
+        while index < (32 as UInt64) { host.data[index] = index as UInt8; index = index + (1 as UInt64) }
+        if mode.startsWith("map-") {
+            stagingFaultReject(ticket.write(Span<UInt8>{data: host.data as *const UInt8, length: 32 as UInt64}, 0 as UInt64, op), code)
+            if ticket.initialized != (0 as UInt64) or not ticket.reserved() { abort("failed staging mapping consumed its reservation") }
+        } else {
+            let allocated = GpuBuffer<UInt8>.allocate(world.allocator, 32 as UInt64, 1 as UInt64, 256 as UInt64, op)
+            if allocated.isErr() { abort("staging fault device bytes unavailable") }
+            let device = allocated.unwrap(); allocated.releaseContainer()
+            if mode == "copy-late-timeout" or mode == "copy-post-submit-timeout" {
+                op.monotonicDeadline = seen_time_monotonic_nanos() + (1000000000 as Int64)
+            }
+            let submitted = gpuVkStagingDownload(ticket, device, 0 as UInt64, op)
+            if mode == "copy-reset-status" or mode == "copy-begin-status" or mode == "copy-end-status" or mode == "copy-late-timeout" {
+                stagingFaultReject(submitted, code)
+                if not ticket.reserved() or ring.core.queue.inFlight != 0 { abort("rejected staging record retained native work") }
+            } else {
+                let lost = mode == "copy-submit-lost" or mode == "copy-poll-lost"
+                if mode == "copy-submit-oom" {
+                    stagingFaultReject(submitted, code)
+                    if not ticket.reserved() { abort("guaranteed rejected staging submission consumed its ticket") }
+                    completed(gpuVkStagingDownload(ticket, device, 0 as UInt64, op), true)
+                } else if mode == "copy-submit-lost" or mode == "copy-submit-unknown" {
+                    stagingFaultReject(submitted, code)
+                    if ticket.reserved() or not ring.core.queue.poisoned { abort("uncertain staging submission lost its owner") }
+                } else { completed(submitted, true) }
+                stagingFaultReject(ticket.close(), "gpu.busy")
+                stagingFaultReject(ring.close(), "gpu.busy")
+                stagingFaultReject(device.close(), "gpu.busy")
+                if mode == "copy-poll-oom" { stagingFaultReject(ticket.poll(), code) }
+                if mode == "copy-poll-timeout" { completed(ticket.poll(), false) }
+                op.cancellation = true
+                stagingFaultFinish(ticket, lost)
+                op.cancellation = false; op.monotonicDeadline = 9223372036854775807 as Int64
+                if not ticket.slice.isComplete() { abort("staging native retirement did not reach metadata") }
+                if lost {
+                    stagingFaultReject(ticket.read(MutableSpan<UInt8>{data: host.data, length: 32 as UInt64}, 0 as UInt64, op), "gpu.invalid")
+                }
+            }
+            completed(device.release(), true)
+        }
+        completed(ticket.release(), true); completed(ring.release(), true)
+        host.close(); host.free()
+    }
+    world.release(); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("staging fault leaked owner or live bytes") }
+    println("PASS: owned staging partial construction mapping submit completion retirement and cold cleanup")
+    return 0
+}

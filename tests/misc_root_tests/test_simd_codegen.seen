@@ -1,7 +1,7 @@
 ///
 SIMD Codegen Verification Test Program
 A math-heavy program with loops that should be vectorizable
-Used by test_simd_integration.sh to verify vectorization
+Used by test_simd_integration_linux_x86_64.sh to verify scalar/SIMD parity
 ///
 
 fun dotProduct(n: Int) r: Float {
@@ -21,6 +21,8 @@ fun dotProduct(n: Int) r: Float {
         sum = sum + a[i] * b[i]
         i = i + 1
     }
+    a.free()
+    b.free()
     return sum
 }
 
@@ -39,6 +41,7 @@ fun arraySum(n: Int) r: Float {
         total = total + arr[i]
         i = i + 1
     }
+    arr.free()
     return total
 }
 
@@ -47,27 +50,25 @@ fun main() r: Int {
     let dot = dotProduct(n)
     let sum = arraySum(n)
 
-    ///
-    Print integer approximation to verify scalar equivalence
-    (avoid Float.toString() which has stage1 codegen issues)
-    ///
+    // These binary-exact inputs have exact representable Float64 totals.
     let dotInt: Int = dot.toInt()
     let sumInt: Int = sum.toInt()
     println("dot_product(1000) ~ " + dotInt.toString())
     println("array_sum(1000) ~ " + sumInt.toString())
 
-    // Basic sanity check
-    if dotInt > 0 {
-        println("PASS: dot product positive")
+    if dotInt == 249625125 {
+        println("PASS: dot product exact")
     } else {
-        println("FAIL: dot product should be positive")
+        println("FAIL: dot product differs from exact total")
         return 1
     }
-    if sumInt > 0 {
-        println("PASS: array sum positive")
+    if sumInt == 1000000 {
+        println("PASS: array sum exact")
     } else {
-        println("FAIL: array sum should be positive")
+        println("FAIL: array sum differs from exact total")
         return 1
     }
     return 0
 }
+
+main()

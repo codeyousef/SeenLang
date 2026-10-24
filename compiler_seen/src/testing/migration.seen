@@ -91,6 +91,11 @@ fun testMigrationWorkingRoot(path: String) r: String {
 }
 
 fun testMigrationExpectedCategory(path: String) r: String {
+    // Helpers are imported; fixture programs need their owning harness's
+    // arguments. Neither is a standalone exit-zero unit test.
+    if path.endsWith("_support.seen") or path.endsWith("_fixture.seen") {
+        return ""
+    }
     if path.startsWith("compiler_seen/tests/") or
         path.startsWith("seen_std/tests/") {
 

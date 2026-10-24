@@ -3322,7 +3322,22 @@
       "name": "seen_aligned_buffer_free",
       "abi": "C",
       "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen",
         "seen_std/src/memory/aligned_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_allocation_observer_install",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen"
+      ]
+    },
+    {
+      "name": "seen_allocation_observer_remove",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen"
       ]
     },
     {
@@ -3382,6 +3397,13 @@
       ]
     },
     {
+      "name": "seen_arm_sve_vector_bytes",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/simd/arm_dispatch.seen"
+      ]
+    },
+    {
       "name": "seen_arr_free",
       "abi": "C",
       "sources": [
@@ -3407,6 +3429,272 @@
       "abi": "C",
       "sources": [
         "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_cancel",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_drain_notification",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_duplicate_file",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_reap",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_completion_submit",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/completion_io.seen"
+      ]
+    },
+    {
+      "name": "seen_async_datagram_nonce",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/dns.seen"
+      ]
+    },
+    {
+      "name": "seen_async_datagram_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/dns.seen"
+      ]
+    },
+    {
+      "name": "seen_async_datagram_receive",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/dns.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_kill_unreaped",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_live_children",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_pidfd",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_pipe",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_signal",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_spawn",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_process_wait",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/process_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_close",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_consume_wake",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_deregister",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_event",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_live_handles",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_poll",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_register",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_readiness_wakeup",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/readiness_native.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_accept",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_bind",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_bound_port",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_connect",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_connect_status",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_listen",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_read",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_socket_write",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/sockets.seen"
+      ]
+    },
+    {
+      "name": "seen_async_stream_read",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/streams.seen"
+      ]
+    },
+    {
+      "name": "seen_async_stream_validate",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/streams.seen"
+      ]
+    },
+    {
+      "name": "seen_async_stream_write",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/streams.seen"
       ]
     },
     {
@@ -3463,41 +3751,6 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/platform/darwin/coreaudio.seen"
-      ]
-    },
-    {
-      "name": "seen_blocking_pool_cancel",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
-      ]
-    },
-    {
-      "name": "seen_blocking_pool_close",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
-      ]
-    },
-    {
-      "name": "seen_blocking_pool_completion",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
-      ]
-    },
-    {
-      "name": "seen_blocking_pool_create",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
-      ]
-    },
-    {
-      "name": "seen_blocking_pool_submit",
-      "abi": "C",
-      "sources": [
-        "seen_std/src/reactor/reactor.seen"
       ]
     },
     {
@@ -3791,7 +4044,17 @@
       "name": "seen_cpu_has_feature",
       "abi": "C",
       "sources": [
+        "seen_std/src/simd/arm_dispatch.seen",
         "seen_std/src/simd/x86_dispatch.seen"
+      ]
+    },
+    {
+      "name": "seen_cstr_free",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen",
+        "seen_std/src/env/env.seen",
+        "seen_std/src/fs/file.seen"
       ]
     },
     {
@@ -3880,6 +4143,13 @@
     },
     {
       "name": "seen_cuda_event_elapsed_ms",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
+      "name": "seen_cuda_event_query",
       "abi": "C",
       "sources": [
         "seen_std/src/accelerator/cuda/mod.seen"
@@ -4033,6 +4303,13 @@
       ]
     },
     {
+      "name": "seen_cuda_stream_query",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/accelerator/cuda/mod.seen"
+      ]
+    },
+    {
       "name": "seen_cuda_stream_synchronize",
       "abi": "C",
       "sources": [
@@ -4121,6 +4398,62 @@
       "abi": "C",
       "sources": [
         "seen_std/src/platform/linux/evdev.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_apply_placement",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_current_owner",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_current_task",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_live_threads",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_swap_task",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_thread_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_thread_join",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
+      ]
+    },
+    {
+      "name": "seen_executor_validate_placement",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/async/executor_native.seen"
       ]
     },
     {
@@ -4833,6 +5166,55 @@
       ]
     },
     {
+      "name": "seen_iocp_associate",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_cancel",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_dequeue",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_transfer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
+      "name": "seen_iocp_utf16",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/iocp_native.seen"
+      ]
+    },
+    {
       "name": "seen_lua_close",
       "abi": "Seen",
       "sources": [
@@ -5061,6 +5443,41 @@
       "abi": "Seen",
       "sources": [
         "seen_std/src/scripting/lua.seen"
+      ]
+    },
+    {
+      "name": "seen_macos_io_abi",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/macos_native.seen"
+      ]
+    },
+    {
+      "name": "seen_macos_io_cache",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/macos_native.seen"
+      ]
+    },
+    {
+      "name": "seen_macos_io_mode",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/macos_native.seen"
+      ]
+    },
+    {
+      "name": "seen_macos_io_open",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/macos_native.seen"
+      ]
+    },
+    {
+      "name": "seen_macos_io_transfer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/macos_native.seen"
       ]
     },
     {
@@ -5442,6 +5859,14 @@
       ]
     },
     {
+      "name": "seen_memory_release_bytes",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen",
+        "seen_std/src/env/env.seen"
+      ]
+    },
+    {
       "name": "seen_memory_remaining_bytes",
       "abi": "Seen",
       "sources": [
@@ -5627,6 +6052,9 @@
       "name": "seen_pool_free",
       "abi": "C",
       "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen",
+        "seen_std/src/async/executor_native.seen",
+        "seen_std/src/memory/allocation.seen",
         "seen_std/src/simd/dot_clock.seen"
       ]
     },
@@ -5900,6 +6328,7 @@
       "name": "seen_string_builder_flatten_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/crypto/sha256.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/parser.seen"
       ]
@@ -5908,7 +6337,9 @@
       "name": "seen_string_clone_owned",
       "abi": "C",
       "sources": [
-        "seen_std/src/crypto/sha256.seen",
+        "seen_std/src/async/dns_wire.seen",
+        "seen_std/src/async/executor_native.seen",
+        "seen_std/src/async/owned_strings.seen",
         "seen_std/src/formats/safetensors.seen",
         "seen_std/src/json/builder.seen",
         "seen_std/src/json/value.seen"
@@ -5946,6 +6377,8 @@
       "name": "seen_string_release_owned",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/dns_wire.seen",
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/formats/safetensors.seen",
         "seen_std/src/io/file.seen",
@@ -5966,7 +6399,10 @@
       "name": "seen_string_view_bytes",
       "abi": "C",
       "sources": [
-        "seen_std/src/crypto/sha256.seen",
+        "compiler_seen/src/codegen/gpu_bytes.seen",
+        "seen_std/src/async/dns_wire.seen",
+        "seen_std/src/async/owned_strings.seen",
+        "seen_std/src/compute/vulkan_properties.seen",
         "seen_std/src/formats/safetensors.seen"
       ]
     },
@@ -6030,6 +6466,7 @@
       "name": "seen_sync_condition_create",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/channel.seen"
       ]
     },
@@ -6037,6 +6474,7 @@
       "name": "seen_sync_condition_destroy",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/channel.seen"
       ]
     },
@@ -6044,6 +6482,7 @@
       "name": "seen_sync_condition_notify_all",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/channel.seen"
       ]
     },
@@ -6058,6 +6497,7 @@
       "name": "seen_sync_condition_wait_until",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/channel.seen"
       ]
     },
@@ -6093,6 +6533,7 @@
       "name": "seen_sync_mutex_create",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/atomic.seen",
         "seen_std/src/sync/channel.seen",
         "seen_std/src/sync/mutex.seen"
@@ -6102,6 +6543,7 @@
       "name": "seen_sync_mutex_destroy",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/atomic.seen",
         "seen_std/src/sync/channel.seen",
         "seen_std/src/sync/mutex.seen"
@@ -6111,6 +6553,7 @@
       "name": "seen_sync_mutex_lock_until",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/atomic.seen",
         "seen_std/src/sync/channel.seen",
         "seen_std/src/sync/mutex.seen"
@@ -6127,6 +6570,7 @@
       "name": "seen_sync_mutex_unlock",
       "abi": "C",
       "sources": [
+        "seen_std/src/async/executor_native.seen",
         "seen_std/src/sync/atomic.seen",
         "seen_std/src/sync/channel.seen",
         "seen_std/src/sync/mutex.seen"
@@ -6188,6 +6632,7 @@
         "seen_std/src/async/structured.seen",
         "seen_std/src/determinism/policy.seen",
         "seen_std/src/simd/dot_clock.seen",
+        "seen_std/src/simd/memory_operations.seen",
         "seen_std/src/sync/contracts.seen"
       ]
     },
@@ -6217,6 +6662,83 @@
       "abi": "C",
       "sources": [
         "seen_std/src/memory/aligned_buffer.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_duplicate_file",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_enter",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_eventfd_create",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_eventfd_drain",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_load_acquire",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_map",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_page_size",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_register",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_setup",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_store_release",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
+      ]
+    },
+    {
+      "name": "seen_uring_unmap",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/io/uring_native.seen"
       ]
     },
     {
@@ -7067,27 +7589,6 @@
       ]
     },
     {
-      "name": "seen_ws_pool_new",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/thread/pool.seen"
-      ]
-    },
-    {
-      "name": "seen_ws_pool_shutdown",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/thread/pool.seen"
-      ]
-    },
-    {
-      "name": "seen_ws_pool_submit",
-      "abi": "Seen",
-      "sources": [
-        "seen_std/src/thread/pool.seen"
-      ]
-    },
-    {
       "name": "seen_xcb_connect",
       "abi": "Seen",
       "sources": [
@@ -7543,6 +8044,244 @@
       ]
     },
     {
+      "name": "vkAllocateCommandBuffers",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkAllocateMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkBeginCommandBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkBindBufferMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCmdCopyBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCmdPipelineBarrier",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreateBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreateCommandPool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreateDevice",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkCreateInstance",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkCreateSemaphore",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyCommandPool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyDevice",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyInstance",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkDestroySemaphore",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkEndCommandBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkEnumerateInstanceVersion",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkEnumeratePhysicalDevices",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkFlushMappedMemoryRanges",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_mapping.seen"
+      ]
+    },
+    {
+      "name": "vkFreeMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkGetBufferMemoryRequirements",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_buffer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkGetDeviceQueue",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkGetPhysicalDeviceFeatures",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkGetPhysicalDeviceFeatures2",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_timeline.seen"
+      ]
+    },
+    {
+      "name": "vkGetPhysicalDeviceMemoryProperties",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkGetPhysicalDeviceProperties2",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkGetPhysicalDeviceQueueFamilyProperties",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_native.seen"
+      ]
+    },
+    {
+      "name": "vkInvalidateMappedMemoryRanges",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_mapping.seen"
+      ]
+    },
+    {
+      "name": "vkMapMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_mapping.seen"
+      ]
+    },
+    {
+      "name": "vkQueueSubmit",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkResetCommandBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkUnmapMemory",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_mapping.seen"
+      ]
+    },
+    {
+      "name": "vkWaitSemaphores",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
       "name": "writeBackLoweringState",
       "abi": "Seen",
       "sources": [
@@ -7551,6 +8290,13 @@
     }
   ],
   "backends": [
+    {
+      "name": "armdot",
+      "status": "source-only",
+      "sources": [
+        "seen_std/src/simd/arm_kernels.seen"
+      ]
+    },
     {
       "name": "c",
       "status": "source-only",
@@ -7581,6 +8327,13 @@
       "sources": [
         "compiler_seen/src/codegen/generator.seen",
         "compiler_seen/src/codegen/interfaces.seen"
+      ]
+    },
+    {
+      "name": "x86dot",
+      "status": "source-only",
+      "sources": [
+        "seen_std/src/simd/x86_kernels.seen"
       ]
     }
   ]

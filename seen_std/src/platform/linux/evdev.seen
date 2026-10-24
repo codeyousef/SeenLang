@@ -302,14 +302,17 @@ class EvdevDevice {
         // Open the device file
         let fdVal = seen_evdev_open_device(path.toCString())
         if fdVal < 0 {
-            return evdevFailure<EvdevDevice>("open", "failed to open input device", fd)
+            return evdevFailure<EvdevDevice>("open", "failed to open input device", fdVal as Int)
         }
 
         // Create libevdev devHandle
         let devPtr = seen_evdev_new()
         if devPtr == null {
             seen_evdev_close_device(fdVal as Int32)
-            return evdevFailure<EvdevDevice>("create", "failed to create input device", result)
+            // libevdev_new returns only a nullable pointer, not a status code.
+            return seenFailure<EvdevDevice>(SeenErrorKind.Resource, "create",
+                "failed to create input device", None<Int64>(),
+                RetryClass.Transient, RedactionClass.Sensitive)
         }
 
         // Set the file descriptor
@@ -317,7 +320,7 @@ class EvdevDevice {
         if result < 0 {
             seen_evdev_free(devPtr)
             seen_evdev_close_device(fdVal as Int32)
-            return evdevFailure<EvdevDevice>("initialize", "failed to initialize input device", result)
+            return evdevFailure<EvdevDevice>("initialize", "failed to initialize input device", result as Int)
         }
 
         // Get device info
@@ -351,7 +354,7 @@ class EvdevDevice {
 
         return Ok(EvdevDevice {
             devHandle: devPtr,
-            fd: fdVal,
+            fd: fdVal as Int,
             name: nameStr,
             path: path,
             vendorId: vendorVal as Int,
@@ -396,7 +399,7 @@ class EvdevDevice {
         let result = seen_evdev_next_event(this.devHandle, LIBEVDEV_READ_FLAG_NORMAL as Int32, &eventType, &code, &value)
 
         if result < 0 {
-            return evdevFailure<InputEvent>("poll", "no input event available", result)
+            return evdevFailure<InputEvent>("poll", "no input event available", result as Int)
         }
 
         return Ok(InputEvent.new(eventType as Int, code as Int, value as Int, 0, 0))

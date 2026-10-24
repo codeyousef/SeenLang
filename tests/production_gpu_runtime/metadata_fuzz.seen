@@ -1,0 +1,62 @@
+import compute.backend.{GpuBackend, gpuBackendFromName}
+import compute.device_info.{gpuDeviceTextValid}
+import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    let allocated = OwnedBuffer<UInt8>.allocate(257 as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { abort("GPU metadata fuzz allocation failed") }
+    let storage = allocated.unwrap(); allocated.releaseContainer()
+    let names = ["none", "vulkan", "cuda", "hip", "metal"]
+    let backends = [GpuBackend.CpuOnly, GpuBackend.Vulkan, GpuBackend.Cuda, GpuBackend.Hip, GpuBackend.Metal]
+    let baseline = seen_memory_used_bytes(); let started = seen_time_monotonic_nanos()
+    if started < (0 as Int64) { abort("GPU fuzz clock unavailable") }
+    var random = 1100 as UInt64; var cases = 0; var finished = false
+    while not finished {
+        random = random ^ (random << 13); random = random ^ (random >> 7); random = random ^ (random << 17)
+        let mode = cases % 8; var length = ((random % (257 as UInt64)) as Int)
+        let maximum = ((random >> 16) % (257 as UInt64)) as Int
+        var textValid = length > 0 and length <= maximum
+        var index = 0
+        while index < length { storage.data[index] = (32 + index % 95) as UInt8; index = index + 1 }
+        if mode == 0 { length = 0; textValid = false }
+        if mode == 1 and length > 0 { storage.data[length / 2] = (random % (32 as UInt64)) as UInt8; textValid = false }
+        if mode == 2 and length > 0 { storage.data[length / 2] = (127 + (random % (129 as UInt64)) as Int) as UInt8; textValid = false }
+        var value = seen_string_view_bytes(storage.data as *const UInt8, length as Int64)
+        if mode >= 3 {
+            let selected = (random % (5 as UInt64)) as Int
+            value = names[selected]; length = value.length(); textValid = length <= maximum
+        }
+        if gpuDeviceTextValid(value, maximum) != textValid { abort("GPU metadata byte bounds diverged from generated corpus") }
+        var expected = -1; index = 0
+        while index < names.length() {
+            if value == names[index] { expected = index }
+            index = index + 1
+        }
+        let parsed = gpuBackendFromName(value)
+        if expected < 0 {
+            if parsed.isOkay() { abort("GPU backend accepted arbitrary driver bytes") }
+            let error = parsed.unwrapErr()
+            if error.code != "gpu.invalid" or error.retryable { abort("GPU malformed backend diagnostic changed") }
+            error.release()
+        } else {
+            if parsed.isErr() or parsed.unwrap() != backends[expected] { abort("GPU backend diverged from fixed identity corpus") }
+        }
+        parsed.releaseContainer(); cases = cases + 1
+        if cases % 64 == 0 {
+            if seen_memory_used_bytes() != baseline { abort("GPU metadata fuzz leaked an owned result") }
+            let now = seen_time_monotonic_nanos()
+            if now < started { abort("GPU fuzz clock moved backwards") }
+            finished = now - started >= (60000000000 as Int64)
+        }
+        if cases >= 1000000000 and not finished { abort("GPU metadata fuzz exhausted its finite iteration budget") }
+    }
+    names.free(); backends.free(); storage.close(); storage.free()
+    if seen_memory_used_bytes() != memory { abort("GPU metadata fuzz cleanup leaked") }
+    println("PASS: GPU-006A metadata fuzz 60s seed=1100 preserves typed diagnostics bounds and ownership")
+    println(cases)
+    return 0
+}

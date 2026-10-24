@@ -4,8 +4,10 @@ Extracted from ir_type_ops.seen
 ///
 
 import str.string.{StringBuilder}
-import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_type_mapping.{mapTypeImpl}
+import codegen.ir_codegen_type_state.{mapTypeState, isDataTypeState}
+import codegen.ir_value_coercion.{reifyErasedWordImpl}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, simdScalarTypeImpl, simdLlvmSuffixImpl}
 
 ///
@@ -307,7 +309,7 @@ Option method dispatch: isSome, isNone, unwrapOr
 receiverReg is the i64 pointer-as-int, defaultReg is pre-generated default for unwrapOr
 ///
 fun emitOptionMethodImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBox: Array<Int>,
-    methodName: String, receiverReg: String, defaultReg: String) r: String {
+    methodName: String, receiverReg: String, receiverType: String, defaultReg: String) r: String {
     let optPtrReg = getNextRegFn(regBox)
     output.append("  " + optPtrReg + " = inttoptr i64 " + receiverReg + " to ptr\n")
 
@@ -330,16 +332,51 @@ fun emitOptionMethodImpl(output: StringBuilder, regBox: Array<Int>, blockLabelBo
     }
 
     if methodName == "unwrapOr" or methodName == "UnwrapOr" {
+        var innerType = ""
+        if receiverType.endsWith("?") {
+            innerType = receiverType.substring(0, receiverType.length() - 1)
+        } else {
+            let open = receiverType.indexOf("<")
+            if open >= 0 and receiverType.endsWith(">") {
+                innerType = receiverType.substring(open + 1, receiverType.length() - 1).trim()
+            }
+        }
+        if innerType == "" or innerType == "Unknown" {
+            abort("Error: [E_OPTION_LAYOUT] unwrapOr requires a concrete Option payload type")
+        }
+        let payloadType = mapTypeState(innerType)
+        var storageType = "i64"
+        if innerType == "String" { storageType = "%SeenString" }
+        if innerType == "Bool" { storageType = "i1" }
+        if innerType == "Float" { storageType = "double" }
         let hasValuePtrReg = getNextRegFn(regBox)
         output.append("  " + hasValuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 0\n")
         let hasValueReg = getNextRegFn(regBox)
         output.append("  " + hasValueReg + " = load i1, ptr " + hasValuePtrReg + "\n")
+        let someLabel = getNextBlockFn(blockLabelBox)
+        let noneLabel = getNextBlockFn(blockLabelBox)
+        let mergeLabel = getNextBlockFn(blockLabelBox)
+        // None deliberately leaves its payload uninitialized. Never load it
+        // speculatively, including for a String or separately boxed aggregate.
+        output.append("  br i1 " + hasValueReg + ", label %" + someLabel + ", label %" + noneLabel + "\n" + someLabel + ":\n")
         let valuePtrReg = getNextRegFn(regBox)
-        output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, i64 }, ptr " + optPtrReg + ", i32 0, i32 1\n")
-        let someValReg = getNextRegFn(regBox)
-        output.append("  " + someValReg + " = load i64, ptr " + valuePtrReg + "\n")
+        output.append("  " + valuePtrReg + " = getelementptr inbounds { i1, " + storageType + " }, ptr " + optPtrReg + ", i32 0, i32 1\n")
+        let storedValue = getNextRegFn(regBox)
+        output.append("  " + storedValue + " = load " + storageType + ", ptr " + valuePtrReg + "\n")
+        var someValue = storedValue
+        if isDataTypeState(innerType) {
+            let box = getNextRegFn(regBox)
+            output.append("  " + box + " = inttoptr i64 " + storedValue + " to ptr\n")
+            someValue = getNextRegFn(regBox)
+            output.append("  " + someValue + " = load " + payloadType + ", ptr " + box + "\n")
+        } else {
+            if storageType == "i64" {
+                someValue = reifyErasedWordImpl(output, regBox, payloadType, storedValue)
+            }
+        }
+        output.append("  br label %" + mergeLabel + "\n" + noneLabel + ":\n  br label %" + mergeLabel + "\n" + mergeLabel + ":\n")
         let resultReg = getNextRegFn(regBox)
-        output.append("  " + resultReg + " = select i1 " + hasValueReg + ", i64 " + someValReg + ", i64 " + defaultReg + "\n")
+        output.append("  " + resultReg + " = phi " + payloadType + " [ " + someValue + ", %" + someLabel + " ], [ " + defaultReg + ", %" + noneLabel + " ]\n")
         return resultReg
     }
 

@@ -1,0 +1,39 @@
+import ir_fixture_support.{irRequire}
+import codegen.gpu_manifest.{parseGpuManifest}
+import codegen.gpu_options.{gpuSetOption, validateGpuOptions}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun gpuManifestReject(source: String, line: Int) r: Void {
+    let result = parseGpuManifest(source); irRequire(result.isErr()); let error = result.unwrapErr(); result.releaseContainer()
+    irRequire(error.code == "E_GPU_OPTIONS" and error.line == line); error.free()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 100 {
+        let cpu = parseGpuManifest("\n# CPU-only project\n  \n[project]\nname = \"cpu\"\n\n")
+        irRequire(cpu.isOkay()); let cpuOptions = cpu.unwrap(); cpu.releaseContainer()
+        irRequire(cpuOptions.backend == "none" and not cpuOptions.specified); cpuOptions.release()
+        let result = parseGpuManifest("[package]\nname = \"project\"\n[gpu]\nbackend = \"cuda\" # explicit backend\ntarget = \"sm_80\"\nfallback = \"error\"\nentries = [\"first\", \"second\"]\n[build]\nprofile = \"release\"\n")
+        irRequire(result.isOkay()); let options = result.unwrap(); result.releaseContainer()
+        irRequire(options.backend == "cuda" and options.target == "sm_80" and options.entries.length() == 2 and options.entries[1] == "second")
+        let error = gpuSetOption(options, "target", "sm_90", 0); irRequire(error.code == ""); error.free()
+        let valid = validateGpuOptions(options); irRequire(valid.code == ""); valid.free(); options.release()
+        gpuManifestReject("[gpu]\nbackend = \"unknown\"", 2)
+        gpuManifestReject("[gpu]\nbackend = \"\"", 2)
+        gpuManifestReject("[gpu]\nentries = [\"\"]", 2)
+        gpuManifestReject("[gpu]\nbackend = \"cuda\"\nbackend = \"hip\"", 3)
+        gpuManifestReject("[gpu]\nentries = [\"first\", \"first\"]", 2)
+        gpuManifestReject("[gpu]\nentries = [\"first\",]", 2)
+        gpuManifestReject("[gpu]\nentries = [\"first#name\"]", 2)
+        gpuManifestReject("[gpu]\nunknown = true", 2)
+        gpuManifestReject("[gpu.device]\nbackend = \"cuda\"", 1)
+        gpuManifestReject("[\"gpu\"]\nbackend = \"cuda\"", 1)
+        gpuManifestReject("[gpu", 1)
+        gpuManifestReject("[ gpu . device ]\nbackend = \"cuda\"", 1)
+        gpuManifestReject("[gpu]\n[gpu]", 2)
+        gpuManifestReject("[gpu]\nbackend = \"cuda\"\ntarget = \"gfx942\"", 0)
+        irRequire(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    println("PASS: GPU-001D strict manifest vocabulary duplicate keys targets entries and cleanup")
+    return 0
+}

@@ -1,5 +1,48 @@
 # Testing
 
+## Seen source coverage
+
+On Linux x86-64 with LLVM 20, `seen test . --filter <case> --profile coverage
+--jobs 1` emits counters and source mappings for Seen function entries and
+executable statements, alongside linked native runtime coverage. Structured
+conditionals, match patterns and guards, loop tests and short-circuit decisions record both outcomes.
+Counters use atomic updates so concurrent executor work contributes without
+lost increments. Anonymous callbacks inherit their containing statement's
+source location. Coverage maps refer to source locations, not GPU device
+execution; running a compiler or GPU source emitter does not execute a kernel.
+
+The compiler owns LLVM profile identities and mappings in Seen. It uses bounded
+function, region, counter and filename budgets and rejects malformed filenames
+or exhausted budgets. Native LLVM tools merge profiles and render reports.
+The module cache includes the selected compiler and coverage mode.
+Use matching LLVM profile producers and consumers: an incompatible raw-profile
+format is an infrastructure failure, not a coverage result. The shared fixture
+export helper merges and exports serially, with the optimizer VMEM ceiling and
+a hard command timeout in addition to the calling harness's aggregate scope.
+
+`run_test_instrumentation_acceptance.sh` retains text and JSON coverage exports.
+The instrumented host exercises the typed SPIR-V CLI, and the native GPU probe
+executes the Seen frontend and emitter directly. The probe checks cleanup and
+retains a SPIR-V artifact with its reflection; no GPU execution is claimed.
+The evidence checker requires executed Seen compiler-host and GPU-emitter source
+rows, an executed Seen test row, and executed native runtime rows. A C-only
+report or a `TOTAL` marker cannot satisfy Seen coverage acceptance. Percentage
+gates must select the issue's applicable source files explicitly; the aggregate
+of every linked library module is not a measure of a single leaf's tests.
+
+The executor, pool, reactor, streams/process/DNS, task-policy and synchronization contracts enforce aggregate 90%
+line and 80% branch coverage over their declared implementation files. Their
+adverse tests assert exact error codes, partial progress, retained ownership
+on failed admission, and allocation and native-handle cleanup.
+The reactor also checks loopback byte transfer and EOF, context snapshot isolation,
+stale registrations, bounded wake leases, and indexed deadline ordering against
+an independent reference model over 20,000 insertion/removal operations.
+The streams/process/DNS contract separately requires 90% branch coverage for
+the DNS wire parser and process argument validators. A structured CNAME/IPv6 corpus supplements the seed-1101
+60-second mutation fuzzer. The DNS integration test exchanges real loopback UDP
+datagrams using the existing socket ABI; query/answer policy stays in Seen.
+Process tests own, terminate and reap every child, including unclaimed spawn jobs.
+
 ## Leak and soak resource providers
 
 TEST-002D defines `seen-test-leak-soak-v1`. A canonical snapshot registers
@@ -82,14 +125,83 @@ and keep reports and raw coverage profiles below
 `.seen_cache/test/run`. Coverage mode also merges every raw profile with
 `llvm-profdata` and emits a text report with `llvm-cov`; missing post-processing
 tools are an infrastructure failure, never an implicit downgrade.
+Coverage export/report and profile merge explicitly use one worker, including
+the compiler/GPU execution acceptance, so post-processing stays within the same
+aggregate task ceiling as compilation and execution.
 On LLD targets, no-fork mode also pins the linker and ThinLTO backend to one
 worker so the compilation remains valid inside the aggregate task cap.
+Shell regressions receive the selected compiler, source root and package
+client. Their stale caller-specific active-scope markers are cleared so each
+self-wrapping harness re-enters and verifies its own binding. Kernel limits,
+serial worker settings, project namespace and serializer proof remain inherited;
+the shell test cannot substitute a different binding or skip verification.
 
-The compiler still accepts AddressSanitizer and MemorySanitizer build flags as
-compile-only capabilities. They are deliberately not runnable `seen test`
-profiles under the mandatory finite VMEM ceiling because their multi-terabyte
-shadow-address reservations cannot coexist with that containment. The runner
-rejects those profile names instead of weakening limits or claiming execution.
+Installed-layout regression workers first establish a fresh capped binding for
+the copied compiler. The attested runner's `--consumer-context <project>` mode
+verifies the original namespace, numeric limits and serializer before passing a
+canonical nested project/cache directory to that compiler. It admits only
+`check` and `compile`, requires contained canonical source/output paths, rejects
+symlinks and control characters, and clears checkout source/client/data overrides.
+It does not relocate attestation records or relax memory, task or timeout limits.
+The payload gate hides checkout library/runtime sources, verifies a read-only
+prefix, exercises cold/warm fast and ThinLTO execution with CPU-baseline auditing,
+and tests real runtime-source compilation and blocked-cache failures. Compiler
+stand-ins and stale installed-object fallbacks cannot satisfy those controls.
+
+The incremental CLI regression uses a disposable project below the verified
+artifact root. It exercises cold, warm and `--no-cache` compilation/execution,
+requires actual warm source-cache hits and checks that uncached compilation
+does not alter the warm cache. It never clears the checkout's shared cache.
+
+The PGO CLI regression collects and merges profiles serially in its own artifact
+directory. ThinLTO and full-LTO cycles must contain counters for the Seen entry
+and imported helper functions, then execute the profile-use binary with identical
+results. C-runtime-only profiles, missing profiles and unavailable merge tools
+are failures, not successful skips.
+
+The SIMD CLI tests declare `linux-x86_64` in discovery through their filename
+markers. They verify native x86-64-v3 CPU/OS support before running AVX2/v3
+executables, check scalar/deterministic executable baselines, and compare exact
+Float64 math results across scalar, AVX2 and auto modes. Structured frontend and
+LLVM reports must parse and must not claim hardware certification. The
+deterministic success input is pure; a separate printing input must fail with
+the typed nondeterministic-effect error. Unsupported backends must return an
+error without producing an executable or claiming build success.
+The separate Linux x86-64 toolchain-driver-alias regression executes the bounded
+ELF linker alias and compiles/links/runs a C++ allocation witness. It protects
+multicall-driver identity after resolving symlinks, not just version output.
+
+The Linux LLVM failure-probe regression exercises real optimizer and object
+emission failures in fast and ThinLTO compilation. The explicit attested-runner
+option `--llvm-failure-probe opt|object` admits only the fixed two-module fixture,
+uncached serial compilation, a fresh private output and the verified reserved
+scope. Bounded tool wrappers retain their real executable identities and limits;
+the probe can only return a failure at the selected phase, never create or repair
+IR, objects or executables. Ordinary invocations clear ambient probe settings.
+The regression requires successful native baseline execution and rejection of
+wrong scopes, sources, output paths, stages and arguments.
+
+The historical fix-regression suite retains its import, manifest, ABI, semantic,
+package and recovery cases under the same attested execution contract. It uses
+unique project-private workspaces and explicit per-output LLVM exports instead
+of deleting shared caches or inspecting global temporary files. LLVM phase
+failure cases delegate to the fixed failure-probe regression. Its separate C12
+late-declaration negative requires LLVM verification followed by the expected
+missing-symbol linker failure; that result is not successful native execution.
+
+Allocator expected-abort source inputs live in `tests/compiler_regressions/`,
+not the automatically executed `compiler_seen/tests/` root. The discovered
+`seen_allocator_oom_exit.sh` harness compiles all three, requires exit134 and
+their specific checked-allocation diagnostics, and also executes the positive
+small-budget case. They are tested negative inputs, not ignored unit tests.
+
+The compiler accepts AddressSanitizer and MemorySanitizer build flags, but they
+are not general runnable `seen test` profiles under the normal finite VMEM
+ceiling. The runner rejects those profile names instead of silently relaxing
+limits. Reviewed ASan contracts, including `test_sanitizers.sh`, use the separate
+generated-executable runner: its finite shadow allowance is read back while
+kernel RAM, zero-swap, task and timeout containment remain enforced. That narrow
+ASan admission does not qualify MemorySanitizer or ThreadSanitizer execution.
 
 Acceptance evidence names compiler host code, GPU emitters, Seen modules, the
 native runtime, and ledgered ABI shims separately. Each must be compiled and
@@ -99,6 +211,13 @@ produces hardware evidence. Compile-only evidence cannot close TEST-002A.
 The capped execution acceptance therefore builds and runs an instrumented
 compiler, exercises the software GPU emitter, then runs the instrumented Seen
 fixture before deriving the five-component evidence document.
+Its measured lifecycle soak checks 10,000 iterations of accepted and rejected
+plans, cancellation and unsupported targets. Result containers, owned errors,
+components and contexts are explicitly released; live usage must return to the
+initial baseline, allocation-failure counts must stay unchanged, and recyclable
+reserve must remain stable after the first iteration. The soak runs in fast,
+release/ThinLTO, UBSan, ASan/LSan and source-coverage modes. Sanitizer shadow
+admission retains the enclosing kernel memory, zero-swap and task ceilings.
 
 ## Deterministic test discovery
 
@@ -116,6 +235,16 @@ The maintained roots and primary categories are:
 | `seen_std/tests/` | `.seen` | `unit` |
 | `tests/fixtures/external_package/tests/` | `.seen` | `integration` |
 | `tests/misc_root_tests/` | `.sh`, `_unit.py`, `_test.seen` | `integration` |
+
+Within the three package test roots, `*_support.seen` files are imported helper
+modules and `*_fixture.seen` files are programs requiring their runnable
+harness's launch context, such as arguments or captured startup environment.
+Neither is a standalone test or an ignored test. The native
+runner and host migration/discovery oracles exclude these exact suffixes and
+reject injected test descriptors for them. Names such as
+`example_support_test.seen` remain runnable. Harness inputs retain their owning
+tests, arguments and assertions; moving an input into this role does not waive
+its execution requirement.
 
 Names may add orthogonal `ignored`, `slow`, or `privileged` markers using a
 matching directory or underscore-delimited filename segment. Platform markers

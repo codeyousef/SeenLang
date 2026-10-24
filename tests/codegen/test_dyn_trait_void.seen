@@ -1,0 +1,36 @@
+import memory.allocation.{releaseTraitDispatchBox}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+trait Lifecycle {
+    fun add(this: Lifecycle, amount: Int) r: Void
+    fun count(this: Lifecycle) r: Int
+    fun ready(this: Lifecycle) r: Bool
+    fun release(this: Lifecycle) r: Void
+}
+class State { var count: Int; var releases: Int }
+class Counter {
+    var state: State
+    fun add(amount: Int) r: Void { this.state.count = this.state.count + amount }
+    fun count() r: Int { return this.state.count }
+    fun ready() r: Bool { return this.state.count == 7 }
+    fun release() r: Void { this.state.releases = this.state.releases + 1; this.free() }
+}
+fun visit(borrow value: dyn Lifecycle) r: Void { value.add(3); value.add(4) }
+fun capture(borrow value: dyn Lifecycle) r: dyn Lifecycle { return value }
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let state = State{count: 0, releases: 0}
+    var index = 0
+    while index < 1000 {
+        state.count = 0
+        let value = capture(Counter{state: state})
+        visit(value)
+        if value.count() != 7 or not value.ready() { abort("dynamic Void call lost its receiver or argument") }
+        value.release(); releaseTraitDispatchBox(value as UInt64)
+        index = index + 1
+    }
+    if state.releases != 1000 { abort("dynamic Void destructor did not execute exactly once") }
+    state.free()
+    if seen_memory_used_bytes() != memory { abort("dynamic dispatch leaked payloads or boxes") }
+    println("PASS: dynamic Void dispatch preserves arguments nonvoid returns and exactly-once cleanup")
+    return 0
+}

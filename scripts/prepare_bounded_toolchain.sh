@@ -12,6 +12,7 @@ artifact_root=$1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 ARTIFACT_HELPER="$SCRIPT_DIR/artifact_root.sh"
+LLVM_FAILURE_PROBE="$SCRIPT_DIR/llvm_failure_probe.sh"
 
 fail() {
     echo "bounded toolchain: $*" >&2
@@ -24,6 +25,8 @@ fail() {
     [ "${SEEN_REBUILD_AGGREGATE_SCOPE_ACTIVE:-0}" = "1" ] ||
     fail "verified aggregate-scope marker is required"
 [ -f "$ARTIFACT_HELPER" ] || fail "artifact-root helper is missing"
+[ -f "$LLVM_FAILURE_PROBE" ] && [ ! -L "$LLVM_FAILURE_PROBE" ] ||
+    fail "failure-probe helper is missing or unsafe"
 # shellcheck source=scripts/artifact_root.sh
 source "$ARTIFACT_HELPER"
 
@@ -73,11 +76,18 @@ write_wrapper() {
     local tmp
     local quoted_real
     local quoted_name
+    local quoted_argv0
+    local quoted_probe quoted_root
 
     [ ! -L "$output" ] || fail "wrapper target is a symlink: $output"
     tmp=$(mktemp "$toolchain_dir/.${name}.XXXXXX") || fail "could not create wrapper"
     printf -v quoted_real '%q' "$real_tool"
     printf -v quoted_name '%q' "$name"
+    # Preserve both the alias flavor and the real installation directory used
+    # by relocatable drivers to locate their resource files and subprocesses.
+    printf -v quoted_argv0 '%q' "${real_tool%/*}/$name"
+    printf -v quoted_probe '%q' "$LLVM_FAILURE_PROBE"
+    printf -v quoted_root '%q' "$canonical_root"
     {
         printf '%s\n' '#!/usr/bin/env bash'
         printf '%s\n' 'set -euo pipefail'
@@ -93,11 +103,17 @@ write_wrapper() {
         printf '%s\n' 'esac'
         printf '%s\n' "if [ \"\$active_kb\" -gt \"\$limit_kb\" ]; then echo 'RESOURCE STOP: optimizer/helper cap read-back exceeds request' >&2; exit 126; fi"
         printf 'tool_name=%s\n' "$quoted_name"
+        printf 'driver_argv0=%s\n' "$quoted_argv0"
+        printf 'probe_helper=%s\n' "$quoted_probe"
+        printf 'probe_root=%s\n' "$quoted_root"
+        printf '%s\n' 'if [ -n "${SEEN_LLVM_FAILURE_PROBE_STAGE:-}" ]; then'
+        printf '%s\n' '    bash "$probe_helper" "$tool_name" "$probe_root" "$@"'
+        printf '%s\n' 'fi'
         printf '%s\n' 'case "$tool_name" in'
         printf '%s\n' '    ld.lld|wasm-ld)'
         printf '%s\n' "        [ \"\${SEEN_LLD_THREADS:-}\" = 1 ] || { echo 'RESOURCE STOP: LLD thread cap is missing' >&2; exit 126; }"
         printf '%s\n' "        [ \"\${SEEN_THINLTO_JOBS:-}\" = 1 ] || { echo 'RESOURCE STOP: ThinLTO job cap is missing' >&2; exit 126; }"
-        printf '        exec %s --threads=1 --thinlto-jobs=1 "$@"\n' "$quoted_real"
+        printf '        exec -a "$driver_argv0" %s --threads=1 --thinlto-jobs=1 "$@"\n' "$quoted_real"
         printf '%s\n' '        ;;'
         printf '%s\n' '    clang|clang++|cc|c++)'
         printf '%s\n' '        link_step=1'
@@ -119,10 +135,10 @@ write_wrapper() {
         printf '%s\n' "            [ \"\${SEEN_THINLTO_JOBS:-}\" = 1 ] || { echo 'RESOURCE STOP: ThinLTO job cap is missing' >&2; exit 126; }"
         printf '%s\n' '            set -- "$@" -Wl,--threads=1 -Wl,--thinlto-jobs=1'
         printf '%s\n' '        fi'
-        printf '        exec %s "$@"\n' "$quoted_real"
+        printf '        exec -a "$driver_argv0" %s "$@"\n' "$quoted_real"
         printf '%s\n' '        ;;'
         printf '%s\n' '    *)'
-        printf '        exec %s "$@"\n' "$quoted_real"
+        printf '        exec -a "$driver_argv0" %s "$@"\n' "$quoted_real"
         printf '%s\n' '        ;;'
         printf '%s\n' 'esac'
     } > "$tmp"

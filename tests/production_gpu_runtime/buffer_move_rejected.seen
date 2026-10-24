@@ -1,0 +1,7 @@
+import compute.buffer.{GpuBuffer}
+fun consume(value: GpuBuffer<UInt32>) r: Void {}
+fun invalid(value: GpuBuffer<UInt32>) r: Void {
+    consume(value)
+    value.close()
+}
+fun main() r: Int { return 0 }

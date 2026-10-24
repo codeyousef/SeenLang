@@ -1,0 +1,53 @@
+import core.result.{Result, Ok}
+extern "C" fun seen_memory_used_bytes() r: Int64
+class InferredValue { var number: Int }
+class InferenceError { var code: Int }
+fun unwrapInferred<T, E>(result: Result<T, E>) r: T {
+    if result.isErr() { abort("generic inference fixture received error") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun identityInferred<Payload>(value: Payload) r: Payload { return value }
+fun wrapInferred<T>(value: T) r: Result<T, InferenceError> {
+    return Ok<T, InferenceError>(value)
+}
+fun forwardInferred<T>(value: T) r: T {
+    let result = wrapInferred<T>(value)
+    if result.isErr() { abort("generic passthrough lost Result type") }
+    let returned = result.unwrap(); result.releaseContainer(); return returned
+}
+fun checkGenericInference() r: Void {
+    if forwardInferred<Int>(47) != 47 { abort("in-scope generic Result call lost its signature") }
+    let passed = Array<Int>(); passed.push(53)
+    let forwarded = forwardInferred<Array<Int>>(passed)
+    if forwarded[0] != 53 { abort("generic Result passthrough lost array pointer") }
+    forwarded.free()
+    let object = unwrapInferred(Ok<InferredValue, InferenceError>(InferredValue{number: 37}))
+    if object.number != 37 { abort("generic object return lost its type") }; object.free()
+    let values = Array<Int>(); values.push(41)
+    let array = unwrapInferred(Ok<Array<Int>, InferenceError>(values))
+    if array[0] != 41 { abort("generic array return lost pointer ABI") }; array.free()
+    let flag = unwrapInferred(Ok<Bool, InferenceError>(true))
+    if not flag { abort("generic Bool return lost scalar ABI") }
+    let narrow = unwrapInferred(Ok<UInt8, InferenceError>(249 as UInt8))
+    if narrow != (249 as UInt8) { abort("generic narrow integer return lost bits") }
+    let single = unwrapInferred(Ok<Float32, InferenceError>(-1.25 as Float32))
+    if single != (-1.25 as Float32) { abort("generic Float32 return lost bits") }
+    let wide = unwrapInferred(Ok<Float64, InferenceError>(-1.125 as Float64))
+    if wide != (-1.125 as Float64) { abort("generic Float64 return lost bits") }
+    let integer = identityInferred(4294967291 as UInt32)
+    if integer != (4294967291 as UInt32) { abort("named generic integer parameter lost bits") }
+    let float = identityInferred(-2.5 as Float32)
+    if float != (-2.5 as Float32) { abort("named generic float parameter lost bits") }
+    let explicit = unwrapInferred<Int, InferenceError>(Ok<Int, InferenceError>(43))
+    if explicit != 43 { abort("explicit generic arguments lost binding") }
+}
+fun main() r: Int {
+    checkGenericInference(); let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 1000 {
+        checkGenericInference()
+        if seen_memory_used_bytes() != baseline { abort("generic scalar return leaked runtime owners") }
+        i = i + 1
+    }
+    println("PASS: inferred generic class array and scalar return ABIs")
+    return 0
+}

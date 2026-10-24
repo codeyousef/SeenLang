@@ -1,0 +1,99 @@
+import env.env.{args, releaseArgs}
+import core.result.{Result}
+import async.structured.{AsyncError, AsyncOperationContext}
+import async.executor_core.{executorReleaseContext}
+import io.completion_types.{IoQueueLimits, IoRequest, IoRegistration, IoOperation}
+import io.linux_uring.{LinuxUringQueue, UringCreateFailure}
+import io.uring_file.{uringFileHandle}
+import fs.file.{File}
+import fs.types.{Path, OpenOptions, DirectIoPolicy}
+import memory.aligned_buffer.{OwnedBuffer}
+import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioTake}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun uringAwait(borrow queue: LinuxUringQueue) r: Void {
+    let start = seen_time_monotonic_nanos()
+    ioRequire(start >= (0 as Int64) and start <= (9223372031854775807 as Int64))
+    let deadline = start + (5000000000 as Int64); var now = start
+    while queue.core.nativeActive != 0 or queue.cancellationOutstanding != 0 or queue.pendingSubmissions() != (0 as UInt64) {
+        let cancellation = queue.publishCancellation()
+        if cancellation.isErr() { ioRequire(cancellation.unwrapErr().code == "async.limit"); cancellation.unwrapErr().free() }
+        cancellation.releaseContainer()
+        let flushed = queue.flush()
+        if flushed.isErr() { ioRequire(queue.lastNativeResult == (-4 as Int64)); flushed.unwrapErr().free() }
+        flushed.releaseContainer(); ioMust(queue.reap(queue.core.capacity * 2))
+        let next = seen_time_monotonic_nanos(); ioRequire(next >= now and next < deadline); now = next
+    }
+}
+fun uringNativeRequest(borrow file: File, context: AsyncOperationContext, block: Int, write: Bool) r: IoRequest {
+    let descriptor = ioMust(uringFileHandle(file))
+    let buffer: OwnedBuffer<UInt8> = ioMust(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 4096 as UInt64))
+    var i = 0
+    while i < 4096 { buffer.data[i] = 0 as UInt8; if write { buffer.data[i] = ((i + block * 17) % 256) as UInt8 }; i = i + 1 }
+    var operation = IoOperation.Read; if write { operation = IoOperation.Write }
+    return IoRequest.create(descriptor, buffer, operation, (block * 4096) as Int64, 4096 as UInt64, context)
+}
+fun uringNativeRound(borrow queue: LinuxUringQueue, borrow file: File, context: AsyncOperationContext, write: Bool, cancel: Bool) r: Void {
+    let first: IoRegistration = ioMust(queue.reserve(uringNativeRequest(file, context, 0, write)))
+    let second: IoRegistration = ioMust(queue.reserve(uringNativeRequest(file, context, 1, write)))
+    ioMust(queue.submit(first.token)); ioMust(queue.submit(second.token))
+    ioRequire(queue.core.nativeActive == 2 and queue.pendingSubmissions() == (2 as UInt64))
+    if cancel { ioMust(queue.cancel(first.token)); ioMust(queue.cancel(second.token)) }
+    uringAwait(queue); var delivered = 0
+    while delivered < 2 {
+        let completion = ioTake(queue.core)
+        ioRequire(completion.token == first.token or completion.token == second.token)
+        let outcome = completion.outcome()
+        if cancel {
+            ioRequire(outcome.isErr() and outcome.unwrapErr().code == "async.cancelled")
+            ioRequire(outcome.unwrapErr().progress <= (4096 as UInt64)); outcome.unwrapErr().free()
+        } else {
+            ioRequire(outcome.isOkay() and outcome.unwrap() == (4096 as UInt64) and not completion.partial())
+            if not write {
+                let block = (completion.request.fileOffset / (4096 as Int64)) as Int; var i = 0
+                while i < 4096 { ioRequire(completion.request.resources.buffer.data[i] == (((i + block * 17) % 256) as UInt8)); i = i + 1 }
+            }
+        }
+        outcome.releaseContainer(); ioMust(completion.release()); delivered = delivered + 1
+    }
+    first.free(); second.free(); ioRequire(queue.core.active == 0 and queue.core.ownedBytes == (0 as UInt64))
+}
+fun main() r: Int {
+    let arguments = args(); if arguments.length() != 2 { releaseArgs(arguments); return 2 }
+    let limits = IoQueueLimits{depth: 4, maxTransferBytes: 4096 as UInt64, maxOwnedBytes: 16384 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let baseline = seen_memory_used_bytes()
+    let created = LinuxUringQueue.create(limits, 1048576 as UInt64, 2)
+    if created.isErr() {
+        let failure: UringCreateFailure = created.unwrapErr(); created.releaseContainer()
+        ioRequire(failure.error.code == "async.unsupported_platform")
+        let operation = failure.error.operation
+        ioMust(failure.release()); ioRequire(seen_memory_used_bytes() == baseline)
+        println("IO-002B unavailable at " + operation)
+        println("{\"schema\":\"seen-io-uring-v1\",\"backend\":\"io_uring\",\"classification\":\"unsupported\",\"native_overlap_verified\":false,\"fallback_count\":0}")
+        limits.free(); releaseArgs(arguments); return 0
+    }
+    let queue: LinuxUringQueue = created.unwrap(); created.releaseContainer(); limits.free()
+    let context = ioContext(); let path: Path = ioMust(Path.fromString(arguments[1])); let options = OpenOptions.createNew()
+    let file: File = ioMust(File.open(context.operation, path, options, DirectIoPolicy.Off)); options.free()
+    uringNativeRound(queue, file, context, true, false); uringNativeRound(queue, file, context, false, false)
+    uringNativeRound(queue, file, context, false, true)
+    let live = seen_memory_used_bytes(); var i = 0
+    while i < 100 {
+        uringNativeRound(queue, file, context, false, i % 2 == 1)
+        ioRequire(seen_memory_used_bytes() == live); i = i + 1
+    }
+    let independent: IoRegistration = ioMust(queue.reserve(uringNativeRequest(file, context, 0, false)))
+    ioMust(file.close()); ioRequire(ioErrorIs(uringFileHandle(file), "async.invalid"))
+    ioMust(queue.submit(independent.token)); uringAwait(queue)
+    let independentResult = ioTake(queue.core)
+    ioRequire(ioMust(independentResult.outcome()) == (4096 as UInt64)); ioMust(independentResult.release()); independent.free()
+    let notification = ioMust(queue.notificationLease()); ioMust(queue.drainNotification())
+    ioRequire(ioErrorIs(queue.close(), "async.limit")); ioRequire(notification.release())
+    ioMust(queue.close()); ioMust(queue.close()); ioMust(queue.release())
+    file.directIo.free(); file.path.raw.free(); file.path.free(); file.free()
+    executorReleaseContext(context); releaseArgs(arguments)
+    println("PASS: IO-002B native positional writes reads cancellation notification and repeated cleanup")
+    println("{\"schema\":\"seen-io-uring-v1\",\"backend\":\"io_uring\",\"classification\":\"verified\",\"scope\":\"linux-file-contract\",\"submission_overlap\":2,\"native_overlap_verified\":false,\"fallback_count\":0}")
+    return 0
+}

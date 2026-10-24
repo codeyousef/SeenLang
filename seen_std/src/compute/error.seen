@@ -1,0 +1,48 @@
+/// Owned runtime diagnostics. Native adapters return statuses; Seen owns their
+/// classification, message bounds, redaction and cause lifetime.
+import core.error.{errorIdentityValid}
+import core.option.{Option, None}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+
+let GPU_ERROR_MAX_MESSAGE_BYTES: Int = 4096
+let GPU_ERROR_MAX_CAUSES: Int = 8
+
+@move
+class GpuError {
+    var code: String
+    var subsystem: String
+    var operation: String
+    var message: String
+    var nativeCode: Option<Int64>
+    var retryable: Bool
+    var redacted: Bool
+    var progress: UInt64
+    var causes: Array<GpuError>
+
+    fun release() r: Void {
+        var index = 0
+        while index < this.causes.length() { this.causes[index].release(); index = index + 1 }
+        this.causes.free(); this.nativeCode.free()
+        seen_string_release_owned(this.code); seen_string_release_owned(this.subsystem)
+        seen_string_release_owned(this.operation); seen_string_release_owned(this.message)
+        this.free()
+    }
+}
+
+fun gpuErrorIdentityValid(value: String) r: Bool {
+    if not errorIdentityValid(value) { return false }
+    return value.byteAt(0) != 46 and value.byteAt(value.length() - 1) != 46 and not value.contains("..")
+}
+
+fun gpuFailure(code: String, operation: String, message: String) r: GpuError {
+    var acceptedCode = code; var acceptedOperation = operation; var acceptedMessage = message
+    if not gpuErrorIdentityValid(code) or not code.startsWith("gpu.") or
+        not gpuErrorIdentityValid(operation) or message.length() > GPU_ERROR_MAX_MESSAGE_BYTES {
+        acceptedCode = "gpu.invalid"; acceptedOperation = "gpu.error"
+        acceptedMessage = "invalid GPU error metadata"
+    }
+    return GpuError{code: seen_string_clone_owned(acceptedCode),
+        subsystem: seen_string_clone_owned("gpu"), operation: seen_string_clone_owned(acceptedOperation),
+        message: seen_string_clone_owned(acceptedMessage), nativeCode: None<Int64>(),
+        retryable: false, redacted: true, progress: 0 as UInt64, causes: Array<GpuError>()}
+}

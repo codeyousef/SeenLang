@@ -7,6 +7,7 @@ from constructor/static dispatch and final call emission.
 import codegen.ir_optimization.{getNextRegFn, parseIntManual}
 import codegen.ir_type_mapping.{isDataTypeImpl,
     getFixedWidthScalarLlvmTypeImpl}
+import codegen.ir_value_coercion.{loadOwnedLiteralValueImpl}
 import codegen.ir_char_codes.{charToCodeStrImpl}
 import str.string.{StringBuilder}
 
@@ -195,7 +196,7 @@ output argRegs/argTypeStrs arrays.
 ///
 fun appendPreparedCallArgImpl(output: StringBuilder, regBox: Array<Int>,
     funcName: String, argReg: String, argType: String, argLlvmType: String,
-    argKind: String, argIsReprCData: Bool, argIdx: Int,
+    argKind: String, argIsReprCData: Bool, literalBytes: Int, argIdx: Int,
     argRegs: Array<String>, argTypeStrs: Array<String>, dynParamFuncs: String,
     enableDynBoxing: Bool, enableFloatPromotion: Bool,
     floatParamFuncNames: Array<String>, floatParamParamIdxs: Array<Int>) r: Void {
@@ -205,9 +206,8 @@ fun appendPreparedCallArgImpl(output: StringBuilder, regBox: Array<Int>,
     // aggregate ABI and must receive the value held in that storage. Other
     // repr(C) expressions (locals, calls, and Result payloads) are already values.
     if argIsReprCData and argKind == "StructLiteral" {
-        let loadedReg = getNextRegFn(regBox)
-        output.append("  " + loadedReg + " = load " + argLlvmType +
-            ", ptr " + argReg + " ; repr(C) literal call argument\n")
+        let loadedReg = loadOwnedLiteralValueImpl(output, regBox,
+            argLlvmType, argReg, literalBytes)
         argRegs.push(loadedReg)
         argTypeStrs.push(argLlvmType)
         return

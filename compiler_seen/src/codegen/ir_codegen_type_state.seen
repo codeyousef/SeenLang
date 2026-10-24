@@ -8,6 +8,7 @@ import codegen.ir_codegen_feature_state.{getFeatureReprCClassNamesImpl, getFeatu
 import codegen.type_registry_core.{isClassTypeReg, getDataTypeSizeReg}
 
 fun mapTypeState(seenType: String) r: String {
+    if seenType.endsWith("?") { return "i64" }
     if seenType.startsWith("dyn ") {
         return "i64"
     }
@@ -27,6 +28,7 @@ fun mapTypeState(seenType: String) r: String {
 }
 
 fun isReprCDataTypeState(seenType: String) r: Bool {
+    if seenType.endsWith("?") { return false }
     let reprCClassNames = getFeatureReprCClassNamesImpl()
     if reprCClassNames == "" {
         return false
@@ -46,6 +48,7 @@ fun isClassHandleLikeTypeState(seenType: String) r: Bool {
 }
 
 fun isDataTypeState(seenType: String) r: Bool {
+    if seenType.endsWith("?") { return false }
     if isDataTypeImpl(seenType) == 1 { return true }
     if isReprCDataTypeState(seenType) { return true }
     return false
@@ -64,6 +67,11 @@ fun mapTypeForParameterState(seenType: String) r: String {
     if cleanType.contains("~default~") {
         let mtpDefPos = cleanType.indexOf("~default~", 0)
         cleanType = cleanType.substring(0, mtpDefPos)
+    }
+    // repr(C) arguments use aggregate values, matching ordinary function and
+    // call-site lowering. Only legacy inline data types borrow a pointer.
+    if isReprCDataTypeState(cleanType) {
+        return mapTypeState(cleanType)
     }
     if isDataTypeState(cleanType) {
         return "ptr noalias nonnull"

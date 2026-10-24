@@ -64,11 +64,13 @@ done
 IR="$WORK_DIR/aggregate-arguments.ll"
 find "$WORK_DIR/ir-aggregate_arguments-release" -maxdepth 1 -type f \
     -name '*.ll' -print0 | sort -z | xargs -0 cat >"$IR"
-grep -Fq 'repr(C) literal call argument' "$IR"
-grep -Eq 'load %LocalBits, ptr .* ; repr\(C\) literal call argument' "$IR"
-grep -Eq 'load %CrossModuleBits, ptr .* ; repr\(C\) literal call argument' "$IR"
-grep -Eq 'call i64 @readLocalBits\(%LocalBits ' "$IR"
-grep -Eq 'call i64 @readCrossModuleBits\(%CrossModuleBits ' "$IR"
+# Assert the ABI, not a historical temporary-allocation comment. All three
+# literal/local/Result calls must pass concrete aggregate values to a matching
+# definition, regardless of how their literal storage was materialized.
+grep -Eq 'define .*@readLocalBits\(%LocalBits ' "$IR"
+grep -Eq 'define .*@readCrossModuleBits\(%CrossModuleBits ' "$IR"
+[ "$(grep -Ec 'call i64 @readLocalBits\(%LocalBits ' "$IR")" -eq 3 ]
+[ "$(grep -Ec 'call i64 @readCrossModuleBits\(%CrossModuleBits ' "$IR")" -eq 3 ]
 if grep -Eq 'call i64 @read(Local|CrossModule)Bits\(ptr ' "$IR"; then
     echo "FAIL: repr(C) aggregate argument used a pointer ABI" >&2
     exit 1
@@ -77,8 +79,8 @@ fi
 QWEN_IR="$WORK_DIR/qwen.ll"
 find "$WORK_DIR/ir-qwen_bfloat16_argument-release" -maxdepth 1 -type f \
     -name '*.ll' -print0 | sort -z | xargs -0 cat >"$QWEN_IR"
-grep -Eq 'load %BFloat16, ptr .* ; repr\(C\) literal call argument' "$QWEN_IR"
-grep -Eq 'call i64 @readBits\(%BFloat16 ' "$QWEN_IR"
+grep -Eq 'define .*@readBits\(%BFloat16 ' "$QWEN_IR"
+[ "$(grep -Ec 'call i64 @readBits\(%BFloat16 ' "$QWEN_IR")" -eq 1 ]
 if grep -Eq 'call i64 @readBits\(ptr ' "$QWEN_IR"; then
     echo "FAIL: Qwen BFloat16 argument used a pointer ABI" >&2
     exit 1

@@ -1,0 +1,35 @@
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun nextFlag(counter: *Int) r: Bool {
+    counter[0] = counter[0] + 1
+    return counter[0] % 2 == 0
+}
+fun booleanRound() r: Void {
+    let empty: Array<Bool> = []; let flags = [false, true, false, true]
+    var calls = 0
+    let computed = [nextFlag(&calls), nextFlag(&calls), nextFlag(&calls), nextFlag(&calls)]
+    if empty.length() != 0 or calls != 4 or flags.length() != 4 or computed.length() != 4 {
+        abort("Boolean literal length or evaluation order changed")
+    }
+    var index = 0
+    while index < 4 {
+        if flags[index] != (index % 2 == 1) or computed[index] != flags[index] {
+            abort("Boolean array literal lost its value")
+        }
+        flags[index] = not flags[index]
+        if flags[index] == computed[index] { abort("Boolean array assignment disagrees with literal storage") }
+        index = index + 1
+    }
+    flags.push(false); flags.push(true)
+    if flags[4] or not flags[5] { abort("Boolean push disagrees with literal storage") }
+    empty.free(); flags.free(); computed.free()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); var round = 0
+    while round < 100 {
+        booleanRound()
+        if seen_memory_used_bytes() != baseline { abort("Boolean array literal cleanup leaked") }
+        round = round + 1
+    }
+    println("PASS: Boolean array literals preserve values evaluation and ownership")
+    return 0
+}

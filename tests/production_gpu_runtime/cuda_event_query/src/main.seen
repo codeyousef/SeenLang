@@ -1,0 +1,54 @@
+import accelerator.cuda.mod.{CudaStream, CudaEvent, CudaAllocation, PinnedHostAllocation, seen_cuda_memcpy_async, seen_cuda_event_record, CUDA_COPY_HOST_TO_DEVICE, CUDA_COPY_DEVICE_TO_HOST}
+import accelerator.cuda.error.{cudaSucceeded}
+import env.env.{args, releaseArgs}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let arguments = args()
+    if arguments.length() != 2 { abort("CUDA query consumer requires an explicit fault mode") }
+    let expectError = arguments[1] == "error"
+    var errorSeen = false
+    let a = PinnedHostAllocation.allocate(66 as UInt64)
+    let b = CudaAllocation.allocate(0 as Int32, 33 as UInt64)
+    let c = CudaStream.create(0 as Int32)
+    let d = CudaEvent.create(0 as Int32)
+    if a.isErr() or b.isErr() or c.isErr() or d.isErr() { abort("CUDA query fixture requires real pinned allocation stream and event") }
+    let host = a.unwrap(); a.releaseContainer(); let device = b.unwrap(); b.releaseContainer()
+    let stream = c.unwrap(); c.releaseContainer(); let event = d.unwrap(); d.releaseContainer()
+    let data = host.data as *UInt8
+    var cycle = 0
+    while cycle < 64 {
+        var index = 0
+        while index < 33 { data[index] = (255 - index - cycle) as UInt8; data[33 + index] = 0 as UInt8; index = index + 1 }
+        if not cudaSucceeded(seen_cuda_memcpy_async(device.data, host.data as *const Void, 33 as UInt64, CUDA_COPY_HOST_TO_DEVICE, stream.handle)) { abort("CUDA query upload failed") }
+        let destination = (host.data as UInt64 + (33 as UInt64)) as *Void
+        if not cudaSucceeded(seen_cuda_memcpy_async(destination, device.data as *const Void, 33 as UInt64, CUDA_COPY_DEVICE_TO_HOST, stream.handle)) { abort("CUDA query download failed") }
+        if not cudaSucceeded(seen_cuda_event_record(event.handle, stream.handle)) { abort("CUDA query event record failed") }
+        var ready = false; var fuel = 0
+        while not ready and fuel < 1000000 {
+            let observed = event.poll()
+            if observed.isErr() {
+                let error = observed.unwrapErr(); observed.releaseContainer()
+                if not expectError or errorSeen or error.code != (5 as Int32) or error.nativeCode != (999 as Int32) {
+                    abort("CUDA query returned an unexpected native error")
+                }
+                error.free(); errorSeen = true
+            } else { ready = observed.unwrap(); observed.releaseContainer() }
+            fuel = fuel + 1
+        }
+        if not ready { abort("CUDA query completion exceeded finite fuel") }
+        index = 0
+        while index < 33 { if data[index] != data[33 + index] { abort("CUDA query pinned bytes changed") }; index = index + 1 }
+        cycle = cycle + 1
+    }
+    let e = event.close(); let s = stream.close(); let v = device.close(); let h = host.close()
+    if e.isErr() or s.isErr() or v.isErr() or h.isErr() { abort("CUDA query owner cleanup failed") }
+    e.releaseContainer(); s.releaseContainer(); v.releaseContainer(); h.releaseContainer()
+    event.free(); stream.free(); device.free(); host.free()
+    if expectError != errorSeen { abort("CUDA query did not exercise the requested error path") }
+    releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline { abort("CUDA query Seen wrapper leaked live ownership") }
+    println("PASS: Seen CUDA event poll pinned high-bit byte parity reuse and exact cold cleanup")
+    return 0
+}

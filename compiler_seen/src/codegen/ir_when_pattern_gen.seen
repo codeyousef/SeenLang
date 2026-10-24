@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{coverSourceBranch}
 ///
 ir_when_pattern_gen.seen -- Shared when-pattern branch emission helpers
 Extracted from llvm_ir_gen.seen to keep pattern dispatch thin.
@@ -41,6 +42,7 @@ fun emitWhenLiteralPatternBranchImpl(output: StringBuilder, regBox: Array<Int>,
         output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " +
             literalValue + "\n")
     }
+    coverSourceBranch(output, cmpReg)
     output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel +
         ", label %" + nextCheckLabel + "\n")
 }
@@ -53,6 +55,7 @@ fun emitWhenIsPatternBranchImpl(output: StringBuilder, regBox: Array<Int>,
         let cmpReg = getNextRegFn(regBox)
         output.append("  " + cmpReg + " = icmp eq i64 " + subjectReg + ", " +
             variantTagIdx.toString() + "\n")
+        coverSourceBranch(output, cmpReg)
         output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel +
             ", label %" + nextCheckLabel + "\n")
         return
@@ -62,6 +65,7 @@ fun emitWhenIsPatternBranchImpl(output: StringBuilder, regBox: Array<Int>,
     let cmpReg = getNextRegFn(regBox)
     output.append("  " + cmpReg + " = icmp eq i64 " + tagLoadReg + ", " +
         variantTagIdx.toString() + "\n")
+    coverSourceBranch(output, cmpReg)
     output.append("  br i1 " + cmpReg + ", label %" + armBodyLabel +
         ", label %" + nextCheckLabel + "\n")
 }

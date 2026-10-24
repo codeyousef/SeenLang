@@ -80,25 +80,41 @@ fun packedView(data: *const UInt8, elementCount: UInt64, byteCount: UInt64,
         byteCount: byteCount, bitsPerElement: bitsPerElement }
 }
 
+fun packedIndexGeometryValid(data: *const UInt8, elementCount: UInt64,
+    index: UInt64, bitsPerElement: UInt8) r: Bool {
+    if data == (null as *const UInt8) or index >= elementCount or
+        bitsPerElement < (2 as UInt8) or bitsPerElement > (8 as UInt8) { return false }
+    return index <= (0x7FFFFFFFFFFFFFFF as UInt64) / (bitsPerElement as UInt64)
+}
+
 fun packedGet(view: PackedView, index: UInt64) r: UInt8? {
-    if index >= view.elementCount or view.bitsPerElement < (2 as UInt8) or
-        view.bitsPerElement > (8 as UInt8) { return null }
+    if not packedIndexGeometryValid(view.data, view.elementCount, index, view.bitsPerElement) { return null }
     let bitOffset = index * (view.bitsPerElement as UInt64)
     let byteIndex = bitOffset / (8 as UInt64)
     let shift = (bitOffset % (8 as UInt64)) as UInt8
     if byteIndex >= view.byteCount { return null }
-    var word = *(view.data + (byteIndex as Int)) as UInt16
+    if shift + view.bitsPerElement > (8 as UInt8) and
+        byteIndex + (1 as UInt64) >= view.byteCount { return null }
+    return unsafePackedGet(view, index)
+}
+
+/// Allocation-free low-level read. The caller must prove a non-null data owner,
+/// bits in 2..8, a non-overflowing in-range index, and coverage of both bytes.
+/// Prefer packedGet for untrusted metadata; validated bulk kernels may use this.
+fun unsafePackedGet(view: PackedView, index: UInt64) r: UInt8 {
+    let bitOffset = index * (view.bitsPerElement as UInt64)
+    let byteIndex = bitOffset / (8 as UInt64)
+    let shift = (bitOffset % (8 as UInt64)) as UInt8
+    var word = view.data[byteIndex] as UInt16
     if shift + view.bitsPerElement > (8 as UInt8) {
-        if byteIndex + (1 as UInt64) >= view.byteCount { return null }
-        word = word | ((*(view.data + (byteIndex as Int) + 1) as UInt16) << 8)
+        word = word | ((view.data[byteIndex + (1 as UInt64)] as UInt16) << 8)
     }
     let mask = ((1 as UInt16) << (view.bitsPerElement as UInt16)) - (1 as UInt16)
     return ((word >> (shift as UInt16)) & mask) as UInt8
 }
 
 fun packedSet(view: MutablePackedView, index: UInt64, value: UInt8) r: Bool {
-    if index >= view.elementCount or view.bitsPerElement < (2 as UInt8) or
-        view.bitsPerElement > (8 as UInt8) or
+    if not packedIndexGeometryValid(view.data as *const UInt8, view.elementCount, index, view.bitsPerElement) or
         (view.bitsPerElement < (8 as UInt8) and
          (value as UInt16) >= ((1 as UInt16) <<
           (view.bitsPerElement as UInt16))) { return false }
@@ -106,17 +122,17 @@ fun packedSet(view: MutablePackedView, index: UInt64, value: UInt8) r: Bool {
     let byteIndex = bitOffset / (8 as UInt64)
     let shift = (bitOffset % (8 as UInt64)) as UInt8
     if byteIndex >= view.byteCount { return false }
-    var word = *(view.data + (byteIndex as Int)) as UInt16
+    var word = view.data[byteIndex] as UInt16
     if shift + view.bitsPerElement > (8 as UInt8) {
         if byteIndex + (1 as UInt64) >= view.byteCount { return false }
-        word = word | ((*(view.data + (byteIndex as Int) + 1) as UInt16) << 8)
+        word = word | ((view.data[byteIndex + (1 as UInt64)] as UInt16) << 8)
     }
     let mask = (((1 as UInt16) << (view.bitsPerElement as UInt16)) -
         (1 as UInt16)) << (shift as UInt16)
     word = (word & (~mask)) | ((value as UInt16) << (shift as UInt16))
-    *(view.data + (byteIndex as Int)) = (word & (255 as UInt16)) as UInt8
+    view.data[byteIndex] = (word & (255 as UInt16)) as UInt8
     if shift + view.bitsPerElement > (8 as UInt8) {
-        *(view.data + (byteIndex as Int) + 1) = (word >> 8) as UInt8
+        view.data[byteIndex + (1 as UInt64)] = (word >> 8) as UInt8
     }
     return true
 }

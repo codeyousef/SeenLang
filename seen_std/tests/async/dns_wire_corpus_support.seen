@@ -1,0 +1,48 @@
+import stress_fixture_support.{must}
+import async.dns_wire.{DnsWire, DnsQuestion}
+import dns_fixture_support.{dnsFixtureResponse}
+
+// Test encoder for RFC record layouts. Assertions use independent expected
+// addresses, names, TTLs and errors rather than round-tripping parser output.
+class DnsCorpus {
+    var wire: DnsWire
+    static fun create(question: DnsQuestion) r: DnsCorpus {
+        return DnsCorpus{wire: dnsFixtureResponse(question, 4096)}
+    }
+    fun byte(value: Int) r: Void {
+        let at = this.wire.length
+        if at >= 4096 { abort("DNS corpus capacity exhausted") }
+        this.wire.length = at + 1; this.wire.put(at, value)
+    }
+    fun word(value: Int) r: Void { this.byte(value / 256); this.byte(value % 256) }
+    fun name(value: String) r: Void {
+        let question = must(DnsQuestion.create(value, 1, 0)); var at = 12
+        while at < question.wire.length - 4 { this.byte(question.wire.byte(at)); at = at + 1 }
+        question.release()
+    }
+    fun header(owner: String, kind: Int, classNumber: Int, ttl: Int) r: Int {
+        this.name(owner); this.word(kind); this.word(classNumber)
+        this.word(ttl / 65536); this.word(ttl % 65536)
+        let lengthAt = this.wire.length; this.word(0); return lengthAt
+    }
+    fun finish(lengthAt: Int) r: Void {
+        let length = this.wire.length - lengthAt - 2
+        this.wire.put(lengthAt, length / 256); this.wire.put(lengthAt + 1, length % 256)
+    }
+    fun alias(owner: String, target: String, ttl: Int) r: Void {
+        let at = this.header(owner, 5, 1, ttl); this.name(target); this.finish(at)
+    }
+    fun address(owner: String, ipv6: Bool, classNumber: Int, ttl: Int) r: Void {
+        var kind = 1; var bytes = 4
+        if ipv6 { kind = 28; bytes = 16 }
+        let at = this.header(owner, kind, classNumber, ttl); var i = 0
+        while i < bytes {
+            var value = 0
+            if i == bytes - 1 { value = 1 }
+            if not ipv6 and i == 0 { value = 127 }
+            this.byte(value); i = i + 1
+        }
+        this.finish(at)
+    }
+    fun release() r: Void { this.wire.release(); this.free() }
+}

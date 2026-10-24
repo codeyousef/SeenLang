@@ -1,0 +1,26 @@
+/// Own all frontend temporaries, including replaced recovery nodes. The result
+/// and its AST are borrowed until release; lowered GPU IR must clone its data.
+/// Sessions are exclusive because the parser's scratch registries are global.
+import bootstrap.frontend.{FrontendResult, runFrontendCompat}
+import bootstrap.allocation_owner.{FrontendAllocationOwner}
+import parser.real_parser.{ParserFrontendSession, getParserRecoveryErrorCount}
+
+class OwnedFrontend {
+    var result: FrontendResult
+    var allocations: FrontendAllocationOwner
+    var parserState: ParserFrontendSession
+    fun release() r: Void {
+        this.parserState.release(); this.allocations.release(); this.free()
+    }
+}
+
+fun runOwnedFrontendCompat(source: String, identity: String, language: String) r: OwnedFrontend {
+    let parserState = ParserFrontendSession.begin()
+    let allocations = FrontendAllocationOwner.create(); allocations.attach()
+    let result = runFrontendCompat(source, identity, language)
+    // Recovery can produce a partial AST without a facade diagnostic. Such a
+    // tree cannot authorize artifact emission, even if the legacy flag is true.
+    if getParserRecoveryErrorCount() > 0 { result.success = false }
+    allocations.pause()
+    return OwnedFrontend{result: result, allocations: allocations, parserState: parserState}
+}

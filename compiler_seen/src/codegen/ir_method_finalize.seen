@@ -6,6 +6,9 @@ receiver discovery and dispatch rather than ABI normalization details.
 
 import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_value_coercion.{reifyErasedWordImpl}
+import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
+import codegen.ir_option_aggregate.{emitOptionAggregateUnwrapImpl}
 import codegen.ir_call_dispatch.{emitOptionUnwrapSpecializedImpl, emitUserMethodCallImpl}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
 import codegen.ir_codegen_type_state.{mapTypeState, isClassTypeState, isDataTypeState, isClassHandleLikeTypeState, getDataTypeSizeState}
@@ -42,6 +45,10 @@ normalizeInstanceMethodTypeNameImpl — clean receiver type for user-method disp
 tracedUnwrapType is only used for ptr.toJson() on unwrap() results.
 ///
 fun normalizeInstanceMethodTypeNameImpl(receiverType: String, methodName: String, tracedUnwrapType: String) r: String {
+    if methodName == "unwrap" and receiverType.endsWith("?") {
+        let inner = receiverType.substring(0, receiverType.length() - 1)
+        if isDataTypeState(inner) { return "Option" }
+    }
     var instanceTypeName = receiverType
     if instanceTypeName == "ptr" and methodName == "toJson" and tracedUnwrapType != "" {
         instanceTypeName = tracedUnwrapType
@@ -436,73 +443,17 @@ fun tryGenerateSpecializedInstanceMethodCallImpl(output: StringBuilder,
                 slotPtrReg + "\n")
             return resultReg
         }
-        if payloadType == "Bool" {
-            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
-                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
-            let resultReg = getNextRegFn(regBox)
-            output.append("  " + resultReg + " = trunc i64 " +
-                boxedPayloadReg + " to i1\n")
-            return resultReg
-        }
-        // FEL-1550: generic scalar payloads must be reified from the erased
-        // i64 handle into their concrete LLVM type. Without this, Float and
-        // fixed-width payloads left an i64 SSA value flowing into typed
-        // consumer slots (invalid IR) or were silently dropped.
-        if payloadType == "Float" or payloadType == "Float64" {
-            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
-                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
-            let resultReg = getNextRegFn(regBox)
-            output.append("  " + resultReg + " = bitcast i64 " +
-                boxedPayloadReg + " to double\n")
-            return resultReg
-        }
-        if payloadType == "Float32" {
-            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
-                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
-            let bitsReg = getNextRegFn(regBox)
-            output.append("  " + bitsReg + " = trunc i64 " +
-                boxedPayloadReg + " to i32\n")
-            let resultReg = getNextRegFn(regBox)
-            output.append("  " + resultReg + " = bitcast i32 " +
-                bitsReg + " to float\n")
-            return resultReg
-        }
-        if payloadType == "UInt32" or payloadType == "Int32" {
-            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
-                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
-            let resultReg = getNextRegFn(regBox)
-            output.append("  " + resultReg + " = trunc i64 " +
-                boxedPayloadReg + " to i32\n")
-            return resultReg
-        }
-        if payloadType == "UInt16" or payloadType == "Int16" {
-            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
-                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
-            let resultReg = getNextRegFn(regBox)
-            output.append("  " + resultReg + " = trunc i64 " +
-                boxedPayloadReg + " to i16\n")
-            return resultReg
-        }
-        if payloadType == "UInt8" or payloadType == "Int8" {
-            let boxedPayloadReg = emitResultPayloadHandleCallImpl(output,
-                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
-            let resultReg = getNextRegFn(regBox)
-            output.append("  " + resultReg + " = trunc i64 " +
-                boxedPayloadReg + " to i8\n")
-            return resultReg
-        }
-        if mapTypeState(payloadType) == "ptr" {
-            let payloadHandleReg = emitResultPayloadHandleCallImpl(output,
-                regBox, methodName, receiverLlvmType, receiverReg, argRegs)
-            let resultReg = getNextRegFn(regBox)
-            output.append("  " + resultReg + " = inttoptr i64 " +
-                payloadHandleReg + " to ptr\n")
-            return resultReg
-        }
+        let payloadWord = emitResultPayloadHandleCallImpl(output, regBox,
+            methodName, receiverLlvmType, receiverReg, argRegs)
+        return reifyErasedWordImpl(output, regBox, payloadLlvmType, payloadWord)
     }
 
     if methodName == "unwrap" and instanceTypeName == "Option" {
         let innerType = extractOptionInnerTypeImpl(receiverType, returnTypeStr)
+        if isDataTypeState(innerType) {
+            return emitOptionAggregateUnwrapImpl(output, regBox, receiverReg,
+                mapTypeState(innerType))
+        }
         var isClassInner = 0
         let baseInnerType = getBaseTypeNameImpl(innerType)
         if isClassTypeState(baseInnerType) or
@@ -614,9 +565,19 @@ fun emitPreparedFinalMethodDispatchState(output: StringBuilder,
     }
 
     if shouldEmitUserMethod {
-        return emitUserMethodCallImpl(output, regBox,
+        let result = emitUserMethodCallImpl(output, regBox,
             quoteIdentIfNeededImpl(funcName), llvmReturnType,
             receiverLlvmType, normalizedReceiverReg, argRegs, argTypeStrs, 0)
+        // Generic method bodies keep their declared word ABI. Restore the
+        // instantiated value representation before expression consumers use it.
+        if llvmReturnType == "i64" and receiverType.contains("<") {
+            let semanticType = getMethodReturnTypeState(receiverType, methodName)
+            if semanticType != "" {
+                return reifyErasedWordImpl(output, regBox,
+                    mapTypeState(semanticType), result)
+            }
+        }
+        return result
     }
     return ""
 }

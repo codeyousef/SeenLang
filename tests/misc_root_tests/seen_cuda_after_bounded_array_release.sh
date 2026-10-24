@@ -2,15 +2,16 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
-if [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" != 1 ] ||
-   [ "${SEEN_LOW_MEMORY:-0}" != 1 ] ||
-   [ "${SEEN_JOBS:-0}" != 1 ] || [ "${SEEN_OPT_JOBS:-0}" != 1 ]; then
-    echo "FAIL: FEL-1581 regression requires verified serial hard scope" >&2
-    exit 126
+SEEN_BIN=${COMPILER:-${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}}
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-cuda-after-bounded-array-release
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$SEEN_BIN" -- bash "$0" "$@"
 fi
-"$ROOT_DIR/scripts/run_in_hard_memory_scope.sh" --verify-only
-
-SEEN_BIN=${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}
+SEEN_BIN="${SEEN_CAPPED_REGRESSION_COMPILER:-$SEEN_BIN}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$SEEN_BIN"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+run_compiler() { bash "$ATTESTED_SEEN" "$SEEN_BIN" "$@"; }
 TEST_ROOT="${SEEN_ARTIFACT_ROOT:?}/fel-1581"
 mkdir -p "$TEST_ROOT"
 cp -R "$ROOT_DIR/tests/fixtures/fel-1581" "$TEST_ROOT/cuda-project"
@@ -22,9 +23,10 @@ check_ir_case() {
     shift
     (
         cd "$TEST_ROOT/cuda-project"
-        PATH="$ROOT_DIR/tests/fixtures/fel-1581/no-cuda-tools:$PATH" \
-        "$SEEN_BIN" compile src/main.seen "$TEST_ROOT/ir-only-$mode" "$@" \
-            --target-cpu=x86-64 --no-cache --jobs 1 --opt-jobs 1 --no-fork \
+        PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$ROOT_DIR/tests/fixtures/fel-1581/no-cuda-tools:$PATH" \
+        SEEN_ATTESTED_SEEN_PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$ROOT_DIR/tests/fixtures/fel-1581/no-cuda-tools:$PATH" \
+        run_compiler compile src/main.seen "$TEST_ROOT/ir-only-$mode" "$@" \
+            --target-cpu=x86-64 --no-cache --no-fork \
             --emit-module-ir-dir "$ir_dir" --stop-after-ir
     )
 
@@ -46,8 +48,8 @@ check_hosted_executable() {
     shift
     (
         cd "$TEST_ROOT/hosted-project"
-        "$SEEN_BIN" compile src/main.seen "$output" "$@" \
-            --target-cpu=x86-64 --no-cache --jobs 1 --opt-jobs 1 --no-fork
+        run_compiler compile src/main.seen "$output" "$@" \
+            --target-cpu=x86-64 --no-cache --no-fork
     )
 
     # Non-exported Seen functions must not satisfy same-named native ABI
@@ -58,7 +60,7 @@ check_hosted_executable() {
         echo "FAIL: non-exported Seen remove function escaped into the dynamic ABI" >&2
         exit 1
     fi
-    "$output"
+    timeout --kill-after=5s 120s "$output"
 }
 
 run_cuda_case() {
@@ -67,15 +69,15 @@ run_cuda_case() {
     shift
     (
         cd "$TEST_ROOT/cuda-project"
-        "$SEEN_BIN" compile src/main.seen "$output" "$@" \
-            --target-cpu=x86-64 --no-cache --jobs 1 --opt-jobs 1 --no-fork
+        run_compiler compile src/main.seen "$output" "$@" \
+            --target-cpu=x86-64 --no-cache --no-fork
     )
     if readelf --dyn-syms --wide "$output" |
         awk '$7 != "UND" && $8 == "remove" { found = 1 } END { exit !found }'; then
         echo "FAIL: CUDA executable exported Seen env.remove" >&2
         exit 1
     fi
-    "$output"
+    timeout --kill-after=5s 120s "$output"
 }
 
 check_ir_case fast

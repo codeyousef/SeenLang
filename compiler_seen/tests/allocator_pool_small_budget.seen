@@ -1,0 +1,36 @@
+import memory.allocation.{allocationBudgetAvailable, ensureAllocationBudget}
+extern "C" fun write(fd: Int32, data: *const UInt8, bytes: UInt64) r: Int64
+extern "C" fun seen_memory_set_limit_bytes(bytes: Int64) r: Void
+extern "C" fun seen_memory_limit_bytes() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+
+class FreshPoolObject { var a: Int; var b: Int; var c: Int; var d: Int; var e: Int; var f: Int }
+@noinline
+fun keep(value: FreshPoolObject) r: FreshPoolObject { return value }
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let previous = seen_memory_limit_bytes()
+    let committed = baseline + seen_memory_reserved_bytes()
+    seen_memory_set_limit_bytes(committed + (16384 as Int64))
+    if allocationBudgetAvailable(65536) { abort("low allocation budget admitted oversized work") }
+    // No pooled object or error of these sizes has been created in this run.
+    let rejected = ensureAllocationBudget(65536)
+    if rejected.isOkay() { abort("exhausted allocation budget returned success") }
+    let error = rejected.unwrapErr(); rejected.releaseContainer()
+    if error.requestedBytes != 65536 { abort("allocation budget lost its requested size") }
+    error.free()
+    let value = keep(FreshPoolObject{a: 1, b: 2, c: 3, d: 4, e: 5, f: 6})
+    // The opaque ABI use makes this an actual heap allocation in every profile.
+    write(-1 as Int32, value as *const UInt8, 48 as UInt64)
+    if value.f != 6 or seen_memory_used_bytes() != baseline + (48 as Int64) {
+        abort("small pooled object was not allocated and initialized")
+    }
+    value.free()
+    if seen_memory_used_bytes() != baseline or
+        seen_memory_used_bytes() + seen_memory_reserved_bytes() > committed + (16384 as Int64) {
+        abort("small-slab allocation escaped its budget or leaked live slots")
+    }
+    seen_memory_set_limit_bytes(previous)
+    println("PASS: first pooled errors and objects fit a small budget without a megabyte reservation")
+    return 0
+}

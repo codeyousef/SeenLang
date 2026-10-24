@@ -1,0 +1,132 @@
+/// Portable operation lowering. Raw address operations are explicitly unsafe;
+/// the standard library owns admission, aliases and lifetime validation.
+import str.string.{StringBuilder}
+import simd.operation_types.{simdOperationVector, simdOperationArity,
+    simdOperationArgumentValid, simdPrefetchLocality}
+import simd.ir_types.{simdBuiltinLanes, simdBuiltinLlvmType, simdBuiltinLane, simdLaneLlvmType}
+import codegen.ir_optimization.{getNextRegFn}
+
+fun emitPortableSimdOperationImpl(output: StringBuilder, regs: Array<Int>, name: String,
+    args: Array<String>, types: Array<String>) r: String {
+    let arity = simdOperationArity(name)
+    if arity == 0 { return "" }
+    if args.length() != arity { abort("Error: [E_SIMD_ARITY] portable SIMD operation has incorrect arity") }
+    let vector = simdOperationVector(name)
+    let lanes = simdBuiltinLanes(vector)
+    let laneText = lanes.toString()
+    var i = 0
+    while i < arity {
+        if not simdOperationArgumentValid(name, i, types[i]) {
+            abort("Error: [E_SIMD_LANE] portable SIMD operation has incompatible argument shape")
+        }
+        i = i + 1
+    }
+    let locality = simdPrefetchLocality(name)
+    if locality >= 0 {
+        let pointer = getNextRegFn(regs)
+        output.append("  " + pointer + " = inttoptr i64 " + args[0] + " to ptr\n")
+        output.append("  call void @llvm.prefetch.p0(ptr " + pointer + ", i32 0, i32 " + locality.toString() + ", i32 1)\n")
+        return "0"
+    }
+    let llvm = simdBuiltinLlvmType(vector)
+    let scalar = simdLaneLlvmType(simdBuiltinLane(vector))
+    let mask = "<" + laneText + " x i1>"
+    let suffix = "v" + laneText + vector.substring(0, 3)
+    if name.startsWith("simd_fma_") {
+        let result = getNextRegFn(regs)
+        output.append("  " + result + " = call " + llvm + " @llvm.fma." + suffix + "(" +
+            llvm + " " + args[0] + ", " + llvm + " " + args[1] + ", " + llvm + " " + args[2] + ")\n")
+        return result
+    }
+    if name.startsWith("simd_permute_") {
+        return emitPortableSimdPermuteImpl(output, regs, args, llvm, scalar, lanes)
+    }
+    var address = args[0]
+    if name.startsWith("simd_unsafe_masked_store_") or name.startsWith("simd_unsafe_narrow_") { address = args[1] }
+    let pointer = getNextRegFn(regs)
+    output.append("  " + pointer + " = inttoptr i64 " + address + " to ptr\n")
+    if name.startsWith("simd_unsafe_widen_") {
+        let bytesType = "<" + laneText + " x i8>"
+        let loaded = getNextRegFn(regs)
+        output.append("  " + loaded + " = load " + bytesType + ", ptr " + pointer + ", align 1\n")
+        let result = getNextRegFn(regs)
+        var extension = "zext"
+        if name.startsWith("simd_unsafe_widen_s8_") { extension = "sext" }
+        output.append("  " + result + " = " + extension + " " + bytesType + " " + loaded + " to " + llvm + "\n")
+        return result
+    }
+    if name.startsWith("simd_unsafe_narrow_") {
+        let narrowed = emitPortableSimdNarrowImpl(output, regs, args[0], llvm, lanes,
+            name.startsWith("simd_unsafe_narrow_s8_"))
+        let bytesType = "<" + laneText + " x i8>"
+        output.append("  call void @llvm.masked.store.v" + laneText + "i8.p0(" + bytesType + " " + narrowed +
+            ", ptr " + pointer + ", i32 1, " + mask + " " + args[2] + ")\n")
+        return "0"
+    }
+    if name.startsWith("simd_unsafe_masked_load_") {
+        let result = getNextRegFn(regs)
+        output.append("  " + result + " = call " + llvm + " @llvm.masked.load." + suffix + ".p0(ptr " +
+            pointer + ", i32 1, " + mask + " " + args[1] + ", " + llvm + " " + args[2] + ")\n")
+        return result
+    }
+    output.append("  call void @llvm.masked.store." + suffix + ".p0(" + llvm + " " + args[0] +
+        ", ptr " + pointer + ", i32 1, " + mask + " " + args[2] + ")\n")
+    return "0"
+}
+
+fun simdIntegerSplatImpl(lanes: Int, value: Int) r: String {
+    var text = "<"; var i = 0
+    while i < lanes {
+        if i > 0 { text = text + ", " }
+        text = text + "i32 " + value.toString(); i = i + 1
+    }
+    return text + ">"
+}
+fun emitPortableSimdNarrowImpl(output: StringBuilder, regs: Array<Int>, value: String,
+    llvm: String, lanes: Int, signed: Bool) r: String {
+    var minimum = 0; var maximum = 255
+    if signed { minimum = -128; maximum = 127 }
+    let lower = simdIntegerSplatImpl(lanes, minimum)
+    let upper = simdIntegerSplatImpl(lanes, maximum)
+    let mask = "<" + lanes.toString() + " x i1>"
+    let low = getNextRegFn(regs)
+    output.append("  " + low + " = icmp slt " + llvm + " " + value + ", " + lower + "\n")
+    let clampedLow = getNextRegFn(regs)
+    output.append("  " + clampedLow + " = select " + mask + " " + low + ", " + llvm + " " + lower + ", " + llvm + " " + value + "\n")
+    let high = getNextRegFn(regs)
+    output.append("  " + high + " = icmp sgt " + llvm + " " + clampedLow + ", " + upper + "\n")
+    let clamped = getNextRegFn(regs)
+    output.append("  " + clamped + " = select " + mask + " " + high + ", " + llvm + " " + upper + ", " + llvm + " " + clampedLow + "\n")
+    let result = getNextRegFn(regs)
+    output.append("  " + result + " = trunc " + llvm + " " + clamped + " to <" + lanes.toString() + " x i8>\n")
+    return result
+}
+fun emitPortableSimdPermuteImpl(output: StringBuilder, regs: Array<Int>, args: Array<String>,
+    llvm: String, scalar: String, lanes: Int) r: String {
+    let indices = "<" + lanes.toString() + " x i32>"
+    var result = "zeroinitializer"; var i = 0
+    var zero = "0"
+    if scalar == "float" or scalar == "double" { zero = "0.0" }
+    while i < lanes {
+        let index = getNextRegFn(regs)
+        output.append("  " + index + " = extractelement " + indices + " " + args[2] + ", i32 " + i.toString() + "\n")
+        let safe = getNextRegFn(regs)
+        output.append("  " + safe + " = and i32 " + index + ", " + (lanes - 1).toString() + "\n")
+        let left = getNextRegFn(regs)
+        output.append("  " + left + " = extractelement " + llvm + " " + args[0] + ", i32 " + safe + "\n")
+        let right = getNextRegFn(regs)
+        output.append("  " + right + " = extractelement " + llvm + " " + args[1] + ", i32 " + safe + "\n")
+        let chooseLeft = getNextRegFn(regs)
+        output.append("  " + chooseLeft + " = icmp ult i32 " + index + ", " + lanes.toString() + "\n")
+        let selected = getNextRegFn(regs)
+        output.append("  " + selected + " = select i1 " + chooseLeft + ", " + scalar + " " + left + ", " + scalar + " " + right + "\n")
+        let valid = getNextRegFn(regs)
+        output.append("  " + valid + " = icmp ult i32 " + index + ", " + (lanes * 2).toString() + "\n")
+        let bounded = getNextRegFn(regs)
+        output.append("  " + bounded + " = select i1 " + valid + ", " + scalar + " " + selected + ", " + scalar + " " + zero + "\n")
+        let next = getNextRegFn(regs)
+        output.append("  " + next + " = insertelement " + llvm + " " + result + ", " + scalar + " " + bounded + ", i32 " + i.toString() + "\n")
+        result = next; i = i + 1
+    }
+    return result
+}

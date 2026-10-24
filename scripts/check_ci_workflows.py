@@ -18,7 +18,7 @@ EXPECTED_WORKFLOW = """name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/0.23.0]
   workflow_dispatch:
 
 permissions:
@@ -26,13 +26,13 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[replace-ci]') }}
 
 jobs:
   required:
     name: required
     runs-on: ubuntu-24.04
-    timeout-minutes: 210
+    timeout-minutes: 360
     env:
       GOTOOLCHAIN: local
       SEEN_RELEASE_CPU_BASELINE: x86-64
@@ -48,6 +48,18 @@ jobs:
         run: scripts/provision_ci_host.sh
       - name: Run required contained gates
         run: scripts/run_ci_required.sh
+      - name: Collect bounded verification logs
+        if: ${{ !cancelled() }}
+        run: python3 scripts/collect_verification_logs.py
+      - name: Retain bounded verification logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: seen-verification-logs-${{ github.sha }}
+          path: target/seen-build/verification-logs/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 6
       - name: Prepare verified release toolchain
         run: scripts/prepare_release_toolchain_artifact.sh
       - name: Retain exact-commit release toolchain
@@ -58,6 +70,16 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+      - name: Retain I/O overlap resource evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: seen-io-overlap-${{ github.sha }}
+          path: .seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 6
       - name: Retain failed-gate frontend diagnostics
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -67,9 +89,34 @@ jobs:
             .seen/agent-tools/safe-rebuild/run.*/stage2_safe_rebuild
             .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild
             .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild_recovery
+            .seen/agent-tools/safe-rebuild/run.*/seen_compile_*/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/multithread-executor.*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/multithread-executor.*/*-ir/*.ll
             .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/*.log
             .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/pointer-index-*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/completion-io-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/completion-io-*/*.json
+            .seen/agent-tools/safe-rebuild/run.*/completion-io-*/*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/stage2-failure.*/*
             .seen/agent-tools/safe-rebuild/run.*/inf-simd-b.*/contract-*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*.json
+            .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*.spv
+            .seen/agent-tools/safe-rebuild/run.*/gpu-spirv-*/*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*.json
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*.ptx
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ptx-*/*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.json
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.o
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.hsaco
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*.native.s
+            .seen/agent-tools/safe-rebuild/run.*/gpu-amdgpu-*/*-ir/*.ll
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.log
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*.jsonl
+            .seen/agent-tools/safe-rebuild/run.*/gpu-ir-*/*-ir/*.ll
             releases/compatibility-manifest.json
           include-hidden-files: true
           if-no-files-found: ignore
@@ -293,13 +340,17 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "host_tools": [
             "bubblewrap",
             "clang-20",
+            "libc6-dev-arm64-cross",
             "libclang-rt-20-dev",
             "libvulkan-dev",
+            "mesa-vulkan-drivers",
             "lld-20",
             "llvm-20",
+            "nvidia-cuda-nvcc-cu12==12.8.93 (pinned ptxas only)",
             "ripgrep",
+            "spirv-tools",
         ],
-        "host_tools_provisioning": "ubuntu-packages-scoped-apparmor",
+        "host_tools_provisioning": "ubuntu-packages-pinned-assembler-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
         "job_count": 1,
         "platforms": {
@@ -318,10 +369,10 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_toolchain_artifact": "exact-main-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
-        "timeout_minutes": 210,
-        "trigger": "push-main-or-explicit-manual",
+        "timeout_minutes": 360,
+        "trigger": "push-main-or-release-0.23.0-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 9,
+        "version": 11,
     }
 
 

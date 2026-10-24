@@ -2,6 +2,9 @@
 
 import process.process.{runCommand, CommandResult, commandWasSuccessful}
 import str.string.{StringBuilder}
+import codegen.ir_optimization.{pipeGet}
+import codegen.ir_type_mapping.{normalizeSeenTypeNameImpl}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
 
 var g_hostTargetTriple: String = ""
 var g_hostDataLayout: String = ""
@@ -98,4 +101,165 @@ fun emitTargetModuleHeaderImpl(output: StringBuilder) r: Void {
 fun overrideTargetTripleImpl(triple: String, layout: String) r: Void {
     g_hostTargetTriple = triple
     g_hostDataLayout = layout
+}
+
+fun getCodegenTargetTripleImpl() r: String {
+    detectHostPlatform()
+    return g_hostTargetTriple
+}
+// C scalar extension attributes belong to the target ABI, not Seen's internal
+// calling convention. Snapshot only declaration metadata: streamed ASTs expire.
+var g_foreignScalarNames: Array<String> = Array<String>()
+var g_foreignScalarParams: Array<String> = Array<String>()
+var g_foreignScalarReturns: Array<String> = Array<String>()
+var g_foreignScalarBytes: Int = 0
+
+fun foreignScalarExtensionImpl(seenType: String, llvmType: String,
+    triple: String) r: String {
+    let narrow = llvmType == "i1" or llvmType == "i8" or llvmType == "i16"
+    let riscv = triple.startsWith("riscv64-")
+    // Win64 and standard AAPCS64 do not use these attributes. Darwin ARM64
+    // differs from AAPCS64; RV64 extends even unsigned 32-bit scalars signed.
+    let sysv = triple.startsWith("x86_64-") and
+        not triple.contains("windows") and not triple.contains("mingw")
+    let darwinArm = (triple.startsWith("arm64-") or
+        triple.startsWith("aarch64-")) and triple.contains("apple")
+    if riscv and llvmType == "i32" { return "signext" }
+    if not narrow or not (sysv or darwinArm or riscv) { return "" }
+    let name = normalizeSeenTypeNameImpl(seenType)
+    if name == "Bool" or name == "Boolean" or name == "UInt8" or
+        name == "UInt16" { return "zeroext" }
+    if name == "Int8" or name == "Int16" { return "signext" }
+    return ""
+}
+
+fun foreignScalarAliasImpl(spelling: String, names: String,
+    targets: String, count: Int) r: String {
+    var name = seen_string_clone_owned(spelling)
+    var depth = 0
+    while depth < 32 {
+        var found = false; var i = 0
+        while i < count and not found {
+            let key = pipeGet(names, i)
+            let matches = key == name
+            if key.length() > 0 { seen_string_release_owned(key) }
+            if matches {
+                let target = pipeGet(targets, i)
+                seen_string_release_owned(name)
+                name = target
+                found = true
+            }
+            i = i + 1
+        }
+        if not found { return name }
+        depth = depth + 1
+    }
+    abort("Error: [E_TYPE_LIMIT] foreign scalar alias depth exceeded")
+    return ""
+}
+
+fun resetForeignScalarAbiImpl() r: Void {
+    var i = 0
+    while i < g_foreignScalarNames.length() {
+        seen_string_release_owned(g_foreignScalarNames[i])
+        if g_foreignScalarParams[i] != "" {
+            seen_string_release_owned(g_foreignScalarParams[i])
+        }
+        i = i + 1
+    }
+    g_foreignScalarNames.free(); g_foreignScalarParams.free()
+    g_foreignScalarReturns.free()
+    g_foreignScalarNames = Array<String>()
+    g_foreignScalarParams = Array<String>()
+    g_foreignScalarReturns = Array<String>()
+    g_foreignScalarBytes = 0
+}
+
+fun findForeignScalarAbiImpl(name: String) r: Int {
+    var i = g_foreignScalarNames.length() - 1
+    while i >= 0 {
+        if g_foreignScalarNames[i] == name { return i }
+        i = i - 1
+    }
+    return -1
+}
+
+fun registerForeignScalarAbiImpl(name: String, isExtern: Bool,
+    returned: String, llvmReturned: String, parameters: Array<String>,
+    llvmParameters: Array<String>, aliases: String, targets: String,
+    aliasCount: Int) r: Void {
+    let index = findForeignScalarAbiImpl(name)
+    var encoded = ""; var returnedAttr = ""; var hasAttributes = false
+    if isExtern {
+        let triple = getCodegenTargetTripleImpl()
+        let concreteReturn = foreignScalarAliasImpl(returned, aliases, targets, aliasCount)
+        returnedAttr = foreignScalarExtensionImpl(concreteReturn, llvmReturned, triple)
+        seen_string_release_owned(concreteReturn)
+        hasAttributes = returnedAttr != ""
+        if parameters.length() > 1024 or parameters.length() != llvmParameters.length() {
+            abort("Error: [E_TYPE_LIMIT] foreign scalar parameter metadata limit")
+        }
+        var i = 0
+        let builder = StringBuilder.new()
+        while i < parameters.length() {
+            let concrete = foreignScalarAliasImpl(parameters[i], aliases, targets, aliasCount)
+            let attr = foreignScalarExtensionImpl(concrete, llvmParameters[i], triple)
+            seen_string_release_owned(concrete)
+            if attr != "" { hasAttributes = true }
+            builder.append(attr); builder.append("|")
+            i = i + 1
+        }
+        if builder.parts.length() > 0 {
+            let flat = builder.toString()
+            encoded = seen_string_clone_owned(flat)
+            if builder.parts.length() > 1 { seen_string_release_owned(flat) }
+        }
+        builder.parts.free(); builder.free()
+    }
+    if not hasAttributes {
+        if encoded != "" { seen_string_release_owned(encoded); encoded = "" }
+        if index < 0 { return }
+    }
+    if index >= 0 {
+        let updatedBytes = g_foreignScalarBytes -
+            g_foreignScalarParams[index].length() + encoded.length()
+        if updatedBytes > 8388608 {
+            abort("Error: [E_TYPE_LIMIT] foreign scalar metadata byte ceiling")
+        }
+        g_foreignScalarBytes = updatedBytes
+        if g_foreignScalarParams[index] != "" {
+            seen_string_release_owned(g_foreignScalarParams[index])
+        }
+        g_foreignScalarParams[index] = encoded
+        g_foreignScalarReturns[index] = returnedAttr
+    } else {
+        if name.length() > 4096 or g_foreignScalarNames.length() >= 65536 {
+            abort("Error: [E_TYPE_LIMIT] foreign scalar signature metadata limit")
+        }
+        if g_foreignScalarBytes + name.length() + encoded.length() > 8388608 {
+            abort("Error: [E_TYPE_LIMIT] foreign scalar metadata byte ceiling")
+        }
+        g_foreignScalarBytes = g_foreignScalarBytes + name.length() + encoded.length()
+        g_foreignScalarNames.push(seen_string_clone_owned(name))
+        g_foreignScalarParams.push(encoded)
+        g_foreignScalarReturns.push(returnedAttr)
+    }
+}
+
+fun foreignScalarReturnPrefixImpl(name: String) r: String {
+    let index = findForeignScalarAbiImpl(name)
+    if index < 0 or g_foreignScalarReturns[index] == "" { return "" }
+    if g_foreignScalarReturns[index] == "signext" { return "signext " }
+    return "zeroext "
+}
+
+fun foreignScalarParameterSuffixImpl(name: String, parameter: Int) r: String {
+    let index = findForeignScalarAbiImpl(name)
+    if index < 0 or parameter < 0 { return "" }
+    let attr = pipeGet(g_foreignScalarParams[index], parameter)
+    if attr == "" { return "" }
+    let signed = attr == "signext"
+    seen_string_release_owned(attr)
+    if signed { return " signext" }
+    return " zeroext"
 }

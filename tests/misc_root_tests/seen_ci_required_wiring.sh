@@ -67,8 +67,8 @@ case "$outside_error" in
 esac
 
 grep -Fxq 'name: CI' "$WORKFLOW" || fail "workflow name is not CI"
-grep -Fxq '    branches: [main]' "$WORKFLOW" ||
-    fail "required CI is not scoped to main pushes"
+grep -Fxq '    branches: [main, release/0.23.0]' "$WORKFLOW" ||
+    fail "required CI must cover main and the 0.23.0 release branch"
 grep -Fxq '  workflow_dispatch:' "$WORKFLOW" ||
     fail "required CI has no explicit manual fallback when push dispatch is lost"
 if grep -Fq 'pull_request:' "$WORKFLOW"; then
@@ -357,8 +357,21 @@ fi
     fail "CI host provisioner has an unexpected privileged-command count"
 grep -Fxq 'sudo -n apt-get update' "$PROVISION" ||
     fail "CI host provisioner omits package-index setup"
-grep -Fq 'bubblewrap ripgrep libvulkan-dev llvm-20 clang-20 lld-20' \
-    "$PROVISION" || fail "CI host provisioner omits pinned LLVM 20 packages"
+grep -Fq 'bubblewrap ripgrep libvulkan-dev' "$PROVISION" || fail "CI host provisioner omits containment packages"
+grep -Fq 'libc6-dev-arm64-cross' "$PROVISION" || fail "CI host provisioner omits the real ARM64 libc sysroot"
+grep -Fq -- '--sysroot=/usr/aarch64-linux-gnu' "$PROVISION" || fail "CI host provisioner omits the ARM64 target-object probe"
+for package in llvm-20 clang-20 lld-20 libllvm20 libclang-rt-20-dev; do
+    grep -Fq "\"$package=\$llvm_package_version\"" "$PROVISION" || fail "CI host provisioner omits exact LLVM package pin: $package"
+done
+for harness in seen_gpu_amdgpu_a.sh seen_gpu_amdgpu_b.sh seen_gpu_amdgpu_c.sh seen_gpu_metal_a.sh; do
+    grep -Fq "$harness" "$REQUIRED" || fail "required gate omits $harness"
+    grep -Fq "$harness" "$STAGE1" || fail "fresh-compiler acceptance omits $harness"
+done
+for checker in capabilities numerics subgroups cooperative native; do
+    grep -Fq "scripts/check_gpu_amdgpu_$checker.py" "$REQUIRED" || fail "required syntax checks omit AMDGPU $checker"
+done
+grep -Fq 'docs/architecture/amdgpu-toolchain.json' "$PROVISION" || fail "CI host provisioner omits the LLVM version policy"
+grep -Fq 'scripts/check_gpu_amdgpu_toolchain.py' "$PROVISION" || fail "CI host provisioner omits LLVM executable/library verification"
 grep -Fq 'libclang-rt-20-dev' "$PROVISION" ||
     fail "CI host provisioner omits pinned LLVM 20 instrumentation runtimes"
 grep -Fq 'versioned_tool="/usr/bin/${llvm_tool}-20"' "$PROVISION" ||

@@ -1,0 +1,37 @@
+import core.result.{Result}
+import core.option.{Some}
+import core.operation_context.{OperationContext, OperationLimits}
+import core.error.{AsciiString}
+import compute.error.{GpuError}
+import compute.backend.{GpuBackend}
+import compute.capabilities.{GpuCapabilities, GPU_FEATURE_COMPUTE, GPU_FEATURE_ASYNC_TRANSFER}
+import compute.device_info.{GpuDeviceIdentity, GpuDeviceInfo, GpuDeviceKind}
+import json.builder.{seen_string_clone_owned}
+
+fun report() r: GpuDeviceInfo {
+    return GpuDeviceInfo{identity: GpuDeviceIdentity{backend: GpuBackend.Vulkan, ordinal: 0,
+        providerId: 1 as UInt64, uuid: seen_string_clone_owned("fixture-device-0")},
+        kind: GpuDeviceKind.Discrete, name: seen_string_clone_owned("Fixture Device"), driverVersion: seen_string_clone_owned("test-1.0"),
+        capabilities: GpuCapabilities{features: GPU_FEATURE_COMPUTE | GPU_FEATURE_ASYNC_TRANSFER,
+            totalBytes: 1024 as UInt64, maxWorkgroupX: 1024 as UInt64,
+            maxWorkgroupY: 1024 as UInt64, maxWorkgroupZ: 64 as UInt64,
+            maxThreads: 1024 as UInt64, maxSharedBytes: 32768 as UInt64, subgroupWidth: 32}, freeBytes: Some<UInt64>(512 as UInt64)}
+}
+fun gpuFixtureRejected(value: Result<Bool, GpuError>, code: String) r: Void {
+    if value.isOkay() { abort("invalid GPU metadata accepted") }
+    let error = value.unwrapErr(); value.releaseContainer()
+    if error.code != code or error.retryable { abort("GPU metadata diagnostic changed") }
+    error.release()
+}
+
+fun operation() r: OperationContext {
+    return OperationContext{cancellation: false,
+        monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096, maxPathBytes: 4095,
+            maxGraphModules: 8, maxGraphEdges: 16, maxGraphDepth: 4},
+        traceId: AsciiString{value: "gpu-fixture"}}
+}
+fun releaseOperation(value: OperationContext) r: Void {
+    value.traceId.free(); value.limits.free(); value.free()
+}

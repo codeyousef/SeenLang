@@ -22,8 +22,60 @@ CAPABILITY_CALLERS=(
     "$ROOT_DIR/scripts/safe_rebuild.sh"
 )
 TARGETS=(
+    "$ROOT_DIR/tests/misc_root_tests/seen_multithread_executor_contract.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_synchronization_contract.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_cpu_blocking_pools_contract.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_reactor_contract.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_streams_process_dns_contract.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_task_context_policy_contract.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_stress_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_io_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_io_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_io_c.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_io_d.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_io_e.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_async_io_f.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_c.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_d.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_e.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_inf_simd_f.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_c.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_d.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_d_input_ownership.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_compiled_fixture_metadata_linux_x86_64.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_ir_only_phase_linux_x86_64.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ir_e.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_spirv_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_spirv_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_spirv_c.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ptx_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ptx_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ptx_b_numeric.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ptx_c.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_amdgpu_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_amdgpu_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_amdgpu_c.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_metal_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_metal_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_metal_b_numeric.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_a.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_a_vulkan.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_runtime_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_staging_foundations.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_vulkan_mapping.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_vulkan_transfer.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_vulkan_staging.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_cuda_event_query.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_cuda_staging.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_generic_reprc_abi.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_prebuilt_generic_reprc_abi.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_compiled_fixture_status.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_select_guard_safety.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_dyn_trait_void_contract.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_allocator_oom_exit.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_build_modules_struct_arg.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_checked_allocation_codegen.sh"
@@ -67,17 +119,18 @@ STANDALONE_COMPILER_TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_parallel_for_codegen_regression.sh"
 )
 PLATFORM_TARGETS=(
+    "$ROOT_DIR/tests/misc_root_tests/seen_toolchain_driver_aliases_linux_x86_64.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_asan_address_layout.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_executor_native_abi.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_vk_readback_shim.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_macos_package_client_packaging.sh"
 )
-LEGACY_DISABLED=(
+MIGRATED_CLI_TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/test_incremental.sh"
     "$ROOT_DIR/tests/misc_root_tests/test_pgo.sh"
     "$ROOT_DIR/tests/misc_root_tests/test_sanitizers.sh"
-    "$ROOT_DIR/tests/misc_root_tests/test_simd_flags.sh"
-    "$ROOT_DIR/tests/misc_root_tests/test_simd_integration.sh"
-)
-BLOCKED_DISABLED=(
+    "$ROOT_DIR/tests/misc_root_tests/test_simd_flags_linux_x86_64.sh"
+    "$ROOT_DIR/tests/misc_root_tests/test_simd_integration_linux_x86_64.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_fix_regressions.sh"
 )
 RELEASE_STABILIZATION_TARGETS=(
@@ -113,7 +166,7 @@ fi
 command -v rg >/dev/null 2>&1 || fail "rg is required"
 bash -n "$ENTRY" "$RUNNER" "$ASAN_RUNNER" "$STAGE1_ACCEPTANCE" "${TARGETS[@]}" \
     "${STANDALONE_COMPILER_TARGETS[@]}" "${PLATFORM_TARGETS[@]}" \
-    "${LEGACY_DISABLED[@]}" "${BLOCKED_DISABLED[@]}" \
+    "${MIGRATED_CLI_TARGETS[@]}" \
     "${CAPABILITY_CALLERS[@]}" ||
     fail "shell syntax"
 
@@ -123,23 +176,30 @@ for required in \
     '[ "$current_soft_vmem_kb" -le "$SEEN_MAIN_VMEM_KB" ]' \
     '"$HARD_SCOPE_WRAPPER"' '--verify-only' \
     '"$CAPPED_ENTRY" --verify-active "$SEEN_CAPPED_REGRESSION_SCOPE"' \
-    'grep -Fq '\''  Sanitizer: address'\''' \
+    'compile_evidence="  Sanitizer: $SANITIZER"' \
     '! grep -Eq' 'clang([[:space:]]|$)' \
-    '-fsanitize=address' \
+    '-fsanitize=$SANITIZER' 'runtime_symbol=__asan_init' 'runtime_symbol=__tsan_init' \
     'readelf -Ws -- "$canonical_binary"' \
     'hard_vmem_kb=$(ulimit -H -v' \
-    'ulimit -H -v "$ASAN_VMEM_LIMIT_KB"' \
-    '[ "$active_hard_vmem_kb" = "$ASAN_VMEM_LIMIT_KB" ]' \
-    'ulimit -S -v "$ASAN_VMEM_LIMIT_KB"' \
-    '[ "$active_soft_vmem_kb" = "$ASAN_VMEM_LIMIT_KB" ]' \
+    'ulimit -H -v "$SANITIZER_VMEM_LIMIT_KB"' \
+    '[ "$active_hard_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ]' \
+    'ulimit -S -v "$SANITIZER_VMEM_LIMIT_KB"' \
+    '[ "$active_soft_vmem_kb" = "$SANITIZER_VMEM_LIMIT_KB" ]' \
     '"$SEEN_ARTIFACT_ROOT"/*' \
     '-u LD_PRELOAD' '-u SEEN_FORK_SERIALIZER_TARGET' \
     '-u SEEN_FORK_SERIALIZER_ROOT_PID' \
     '-u LSAN_OPTIONS' '-u ASAN_SYMBOLIZER_PATH' \
+    '--fixture-preload-sha256' 'fixture library SHA-256 mismatch' \
+    'fixture library changed after admission' 'fixture library must be an ELF shared object' \
+    '"${fixture_preload_env[@]}"' \
     'detect_leaks=1' 'LSAN_OPTIONS=exitcode=23'; do
 
     grep -Fq -- "$required" "$ASAN_RUNNER" ||
         fail "bounded ASan runner omitted $required"
+done
+for required in 'ADDRESS_LAYOUT=default' 'protect_shadow_gap=1' 'protect_shadow_gap=0' \
+    'CUDA address layout requires AddressSanitizer' 'sanitizer-address-layout='; do
+    grep -Fq -- "$required" "$ASAN_RUNNER" || fail "ASan address-layout policy omitted $required"
 done
 if rg -n 'ulimit[[:space:]]+-S[[:space:]]+-v[[:space:]]+(unlimited|0)' \
     "$ASAN_RUNNER"; then
@@ -186,31 +246,31 @@ trap cleanup_asan_probe EXIT
 mkdir -p -- "$asan_probe_root/target" "$asan_probe_root/logs"
 cp -- /bin/true "$asan_probe_root/target/not-asan"
 chmod 0755 "$asan_probe_root/target/not-asan"
-printf '%s\n' '  Sanitizer: address' > "$asan_probe_root/logs/address.compile.log"
-if env \
-    SEEN_CAPPED_REGRESSION_ACTIVE=1 \
-    SEEN_CAPPED_REGRESSION_SCOPE=forged-asan-probe \
-    SEEN_CAPPED_REGRESSION_COMPILER=/bin/true \
-    SEEN_CAPPED_REGRESSION_TOOLCHAIN="$asan_probe_root/target" \
-    SEEN_ATTESTED_COMPILER_RUNNER=/bin/true \
-    SEEN_MEMORY_GUARD_IN_SCOPE=1 \
-    SEEN_HARD_MEMORY_SCOPE_ACTIVE=1 \
-    SEEN_MEMORY_GUARD_SCOPE_UNIT=forged.scope \
-    SEEN_MAIN_VMEM_KB=1048576 \
-    bash "$ASAN_RUNNER" \
-        --target-root "$asan_probe_root/target" \
-        --compile-log "$asan_probe_root/logs/address.compile.log" -- \
-        "$asan_probe_root/target/not-asan" \
-        >"$asan_probe_root/probe.out" 2>"$asan_probe_root/probe.err"; then
-
-    fail "bounded ASan runner accepted a non-ASan artifact-root executable"
-else
-    non_asan_status=$?
-    [ "$non_asan_status" -eq 126 ] ||
-        fail "non-ASan artifact probe returned $non_asan_status instead of 126"
-fi
-grep -Fq 'no address-sanitizer runtime symbol' "$asan_probe_root/probe.err" ||
-    fail "non-ASan artifact rejection diagnostic is missing"
+for sanitizer in address thread; do
+    printf '%s\n' "  Sanitizer: $sanitizer" > "$asan_probe_root/logs/$sanitizer.compile.log"
+    if env \
+        SEEN_CAPPED_REGRESSION_ACTIVE=1 \
+        SEEN_CAPPED_REGRESSION_SCOPE=forged-sanitizer-probe \
+        SEEN_CAPPED_REGRESSION_COMPILER=/bin/true \
+        SEEN_CAPPED_REGRESSION_TOOLCHAIN="$asan_probe_root/target" \
+        SEEN_ATTESTED_COMPILER_RUNNER=/bin/true \
+        SEEN_MEMORY_GUARD_IN_SCOPE=1 \
+        SEEN_HARD_MEMORY_SCOPE_ACTIVE=1 \
+        SEEN_MEMORY_GUARD_SCOPE_UNIT=forged.scope \
+        SEEN_MAIN_VMEM_KB=1048576 \
+        bash "$ASAN_RUNNER" --sanitizer "$sanitizer" \
+            --target-root "$asan_probe_root/target" \
+            --compile-log "$asan_probe_root/logs/$sanitizer.compile.log" -- \
+            "$asan_probe_root/target/not-asan" \
+            >"$asan_probe_root/probe.out" 2>"$asan_probe_root/probe.err"; then
+        fail "bounded sanitizer runner accepted a non-instrumented executable"
+    else
+        non_sanitizer_status=$?
+        [ "$non_sanitizer_status" -eq 126 ] || fail "non-instrumented probe omitted resource-stop status"
+    fi
+    grep -Fq "no $sanitizer-sanitizer runtime symbol" "$asan_probe_root/probe.err" ||
+        fail "non-instrumented artifact rejection diagnostic is missing"
+done
 for target in "${ASAN_REGRESSION_TARGETS[@]}"; do
     grep -Fq 'bash "$ASAN_RUNNER" --target-root' "$target" ||
         fail "$(basename "$target") bypasses the bounded ASan runner"
@@ -280,6 +340,17 @@ grep -Fq -- '--deterministic-environment' "$RUNNER" ||
     fail "runner omitted bounded deterministic-environment mode"
 grep -Fq 'exec env -i' "$RUNNER" ||
     fail "runner does not isolate deterministic compiler inputs"
+for serial_variable in RIPGREP_CONFIG_PATH RAYON_NUM_THREADS OMP_NUM_THREADS \
+    OPENBLAS_NUM_THREADS MKL_NUM_THREADS NUMEXPR_NUM_THREADS \
+    VECLIB_MAXIMUM_THREADS BLIS_NUM_THREADS GOMAXPROCS RUST_TEST_THREADS \
+    CARGO_BUILD_JOBS RPM_BUILD_NCPUS SEEN_LLD_THREADS SEEN_THINLTO_JOBS; do
+    grep -Fq "$serial_variable" "$RUNNER" ||
+        fail "deterministic isolation drops serial auxiliary setting $serial_variable"
+done
+grep -Fq 'exec -a "$driver_argv0"' "$ROOT_DIR/scripts/prepare_bounded_toolchain.sh" ||
+    fail "bounded toolchain loses multicall driver identity"
+grep -Fq '"${real_tool%/*}/$name"' "$ROOT_DIR/scripts/prepare_bounded_toolchain.sh" ||
+    fail "bounded toolchain loses the real driver installation directory"
 grep -Fq 'XDG_CACHE_HOME="$DETERMINISTIC_CACHE"' "$RUNNER" ||
     fail "runner omits its validated project-local package cache"
 grep -Fq 'ARTIFACT_ROOT/deterministic-cache' "$RUNNER" ||
@@ -577,35 +648,127 @@ grep -Fq 'PATH="$SEEN_BOUNDED_TOOLCHAIN_DIR:$FAKE_BIN:$PATH"' \
     "$ROOT_DIR/tests/misc_root_tests/seen_macos_package_client_packaging.sh" ||
     fail "macOS fixture can displace the bounded toolchain"
 
-for legacy in "${LEGACY_DISABLED[@]}"; do
-    stop_line=$(grep -n -m1 'RESOURCE STOP: legacy' "$legacy" | cut -d: -f1)
-    exit_line=$(grep -n -m1 '^exit 126$' "$legacy" | cut -d: -f1)
-    first_tmp_line=$(grep -n -m1 '/tmp' "$legacy" | cut -d: -f1 || true)
-    case "$stop_line:$exit_line" in
-        *[!0-9:]*) fail "legacy guard is malformed in $(basename "$legacy")" ;;
+for required in 'reserved scope' 'fixed source fixture' \
+    'uncached serialized arguments' 'output already exists' \
+    'output escapes its private work root'; do
+    grep -Fq "$required" "$RUNNER" || fail "failure-probe admission omitted $required"
+done
+grep -Fq 'unset SEEN_LLVM_FAILURE_PROBE_STAGE' "$ENTRY" ||
+    fail 'ordinary capped entry inherits failure-probe control'
+grep -Fq 'unset SEEN_LLVM_FAILURE_PROBE_STAGE' "$RUNNER" ||
+    fail 'ordinary compiler invocation inherits failure-probe control'
+grep -Fq 'exit 86' "$ROOT_DIR/scripts/llvm_failure_probe.sh" ||
+    fail 'failure probe omitted its explicit failure status'
+grep -Fq 'bash "$probe_helper" "$tool_name" "$probe_root" "$@"' \
+    "$ROOT_DIR/scripts/prepare_bounded_toolchain.sh" ||
+    fail 'bounded wrappers omitted the fail-only provider'
+
+FIX_SUITE="$ROOT_DIR/tests/misc_root_tests/seen_fix_regressions.sh"
+for required in 'seen_llvm_failure_probes_linux_x86_64.sh' \
+    '--emit-llvm' 'recovery-input' 'recovery_opt.sh' \
+    'run_result_pointer_payload_regression_case' \
+    'run_prebuilt_artifact_interface_index_case' 'run_cyclic_import_diagnostic_case'; do
+    grep -Fq -- "$required" "$FIX_SUITE" || fail "fix suite lost $required"
+done
+if rg -n 'setup_fake_llvm_dir|PATH=.*path_prefix|rm -[rf]|--jobs|--opt-jobs' "$FIX_SUITE"; then
+    fail 'fix suite retains tool shadowing, shared deletion or worker overrides'
+fi
+
+for target in "${MIGRATED_CLI_TARGETS[@]}"; do
+    grep -Fq 'run_capped_regression.sh' "$target" ||
+        fail "migrated CLI omitted capped entry: $(basename "$target")"
+    grep -Fq 'SEEN_ATTESTED_COMPILER_RUNNER' "$target" ||
+        fail "migrated CLI omitted attested invocation: $(basename "$target")"
+    grep -Fq 'mktemp -d "$SEEN_ARTIFACT_ROOT/' "$target" ||
+        fail "migrated CLI output is not project-local: $(basename "$target")"
+    grep -Fq 'timeout --foreground --kill-after=' "$target" ||
+        fail "migrated CLI omitted command deadline: $(basename "$target")"
+    verify_line=$(grep -n -m1 -- '--verify-active' "$target" | cut -d: -f1)
+    work_line=$(grep -En -m1 '(WORK|BASE_WORK)=.*mktemp' "$target" | cut -d: -f1)
+    case "$verify_line:$work_line" in
+        *[!0-9:]*) fail "migrated CLI scope ordering is malformed: $(basename "$target")" ;;
     esac
-    [ "$stop_line" -lt "$exit_line" ] ||
-        fail "legacy guard ordering is invalid in $(basename "$legacy")"
-    if [ -n "$first_tmp_line" ]; then
-        [ "$exit_line" -lt "$first_tmp_line" ] ||
-            fail "legacy fixture can reach a host temporary path: $(basename "$legacy")"
+    [ "$verify_line" -lt "$work_line" ] ||
+        fail "migrated CLI writes before scope verification: $(basename "$target")"
+    if rg -n 'RESOURCE STOP: legacy|/tmp|detect_leaks=0|rm -rf[[:space:]]+\.seen_cache|SEEN_TEST_NO_ULIMIT|ulimit' "$target"; then
+        fail "migrated CLI retains an unsafe or disabled route: $(basename "$target")"
     fi
+    # Explicit no-fork only reduces concurrency; worker arguments still belong
+    # to the attested runner, which checks the selected compiler's schema.
+    if rg -n -- '--jobs(?:=|[[:space:]])|--opt-jobs(?:=|[[:space:]])' "$target"; then
+        fail "migrated CLI overrides attested worker selection: $(basename "$target")"
+    fi
+    while IFS=: read -r _ line text; do
+        [ -n "$line" ] || continue
+        start=$((line > 2 ? line - 2 : 1))
+        context=$(sed -n "${start},${line}p" "$target")
+        case "$context" in
+            *SEEN_ATTESTED_COMPILER_RUNNER*) ;;
+            *) fail "migrated CLI invokes compiler directly: $(basename "$target"):$line" ;;
+        esac
+    done < <(rg -n --with-filename '\$\{?COMPILER\}?"?[[:space:]]+(compile|run|pkg|check|test)' "$target" || true)
 done
 
-for blocked in "${BLOCKED_DISABLED[@]}"; do
-    stop_line=$(grep -n -m1 'RESOURCE STOP: fix regressions require an attested bounded fault-injection toolchain' \
-        "$blocked" | cut -d: -f1)
-    exit_line=$(grep -n -m1 '^exit 126$' "$blocked" | cut -d: -f1)
-    first_tmp_line=$(grep -n -m1 '/tmp' "$blocked" | cut -d: -f1 || true)
-    case "$stop_line:$exit_line" in
-        *[!0-9:]*) fail "blocked regression guard is malformed in $(basename "$blocked")" ;;
-    esac
-    [ "$stop_line" -lt "$exit_line" ] ||
-        fail "blocked regression guard ordering is invalid in $(basename "$blocked")"
-    if [ -n "$first_tmp_line" ]; then
-        [ "$exit_line" -lt "$first_tmp_line" ] ||
-            fail "blocked regression can reach a host temporary path: $(basename "$blocked")"
-    fi
-done
+# Every standalone SIMD/GPU acceptance harness must use the freshly rebuilt
+# compiler. A fallback target binary can carry a different runtime/stdlib ABI.
+python3 - "$STAGE1_ACCEPTANCE" <<'PYTHON'
+import re, sys
+from pathlib import Path
+lines = Path(sys.argv[1]).read_text().splitlines()
+for index, line in enumerate(lines):
+    if re.fullmatch(r'\s+"\$REPO_ROOT/tests/misc_root_tests/seen_(?:inf_simd|gpu_ir)_[a-z]\.sh"', line):
+        assert index > 0 and lines[index - 1] == 'COMPILER="$REAL_COMPILER" \\', 'fresh compiler missing before ' + line
+PYTHON
+
+python3 - "$ROOT_DIR" <<'PYTHON'
+import sys
+from pathlib import Path
+root = Path(sys.argv[1]) / 'tests/misc_root_tests'
+for name in ('seen_bundled_cuda_link.sh', 'seen_cuda_after_bounded_array_release.sh',
+             'seen_cuda_stream_launch_token_contract.sh',
+             'seen_checked_allocation_codegen.sh', 'seen_cli_surface.sh',
+             'seen_lines_linear_contract.sh', 'seen_unimported_extension_contract.sh',
+             'seen_qwen_native_dependency.sh', 'seen_qwen_seen_contracts.sh',
+             'seen_package_run_preparation.sh'):
+    source = (root / name).read_text()
+    assert '${COMPILER:-${SEEN_BIN:-' in source, 'runner-selected compiler ignored: ' + name
+    assert 'SEEN_HARD_MEMORY_SCOPE_ACTIVE' not in source, 'obsolete scope marker blocks attested entry: ' + name
+    assert 'bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler ' in source, 'missing real scope readback: ' + name
+    assert 'SEEN_CAPPED_REGRESSION_COMPILER' in source, 'missing bound compiler identity: ' + name
+    assert 'SEEN_ATTESTED_COMPILER_RUNNER' in source, 'missing compiler attestation: ' + name
+cpu = (root / 'seen_qwen_cpu_isolation.sh').read_text()
+assert '${COMPILER:-${SEEN_BIN:-' in cpu and 'for binary in "$COMPILER"' in cpu, 'CPU isolation omits the selected compiler'
+assert 'SEEN_HARD_MEMORY_SCOPE_ACTIVE' not in cpu, 'CPU isolation uses obsolete scope marker'
+assert 'bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"' in cpu, 'CPU isolation lacks numerical scope readback'
+assert 'SEEN_CAPPED_REGRESSION_COMPILER' in cpu, 'CPU isolation lacks bound compiler identity'
+PYTHON
+
+python3 - "$ROOT_DIR" <<'PYTHON'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+parent = (root / 'tests/misc_root_tests/seen_release_install_payload.sh').read_text()
+worker = (root / 'scripts/installed_payload_fixture_worker.sh').read_text()
+runner = (root / 'scripts/run_attested_seen.sh').read_text()
+assert 'bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"' in parent
+assert '--compiler "$selected_prefix/bin/seen"' in parent, 'copied compiler has no fresh binding'
+assert '--ro-bind "$WORK_DIR/empty" "$ROOT_DIR/seen_std/src"' in parent
+assert '--ro-bind "$WORK_DIR/empty" "$ROOT_DIR/seen_runtime"' in parent
+assert 'SEEN_PACKAGE_CLIENT_BIN' not in parent and '${SEEN_PACKAGE_CLIENT:-' in parent
+assert 'FEL748_INVALID_RUNTIME_SOURCE' in parent and 'FEL748_INVALID_RUNTIME_SOURCE' in worker
+assert 'FAIL_BIN' not in parent and 'SEEN_ATTESTED_SEEN_PATH' not in parent, 'installed negative substitutes a compiler'
+assert '--verify-active "$SCOPE" --compiler "$COMPILER"' in worker
+assert 'bash "$ATTESTED_SEEN" --consumer-context "$project" "$COMPILER"' in worker
+assert 'for temperature in cold warm; do' in worker and 'for profile in fast release; do' in worker
+assert 'check_x86_executable_baseline.sh' in worker and '120s "$binary"' in worker
+assert 'failed-output' in worker and 'Build succeeded' in worker
+assert runner.index('CAPABILITY=$(bash "$CAPPED_ENTRY" --classify-active') < runner.index('CONSUMER_ENV=()'), 'consumer context is applied before binding verification'
+for diagnostic in ('consumer project must stay inside the attested artifact root',
+                   'consumer source escapes its project', 'consumer output escapes its project',
+                   'consumer project must be an existing canonical directory'):
+    assert diagnostic in runner and diagnostic in worker
+assert 'SEEN_ARTIFACT_ROOT=$CONSUMER_CONTEXT/.seen/agent-tools' in runner
+assert 'CONSUMER_UNSET_ENV=(-u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT -u SEEN_DATA_PATH)' in runner
+PYTHON
 
 echo "PASS: compiler-capable regressions require project-local hard containment"

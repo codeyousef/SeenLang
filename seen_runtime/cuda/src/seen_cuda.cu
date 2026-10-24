@@ -499,6 +499,21 @@ SeenCudaStatus seen_cuda_stream_synchronize(SeenCudaHandle stream) {
                                 : cuda_failure("stream-synchronize", error, object->device);
 }
 
+SeenCudaStatus seen_cuda_stream_query(SeenCudaHandle stream, int32_t *ready) {
+    if (!ready) return invalid("stream-query", "missing completion output");
+    *ready = 0;
+    StreamLookup lookup = StreamLookup::kInvalid;
+    Stream *object = checked_stream(stream, &lookup);
+    if (!object) return stream_lookup_failure(lookup, "stream-query");
+    SeenCudaStatus selected = select_device(object->device, "stream-query");
+    if (selected.code != SEEN_CUDA_OK) return selected;
+    const cudaError_t error = cudaStreamQuery(object->value);
+    if (error == cudaErrorNotReady) return ok("stream-query", object->device);
+    if (error != cudaSuccess) return cuda_failure("stream-query", error, object->device);
+    *ready = 1;
+    return ok("stream-query", object->device);
+}
+
 SeenCudaStatus seen_cuda_stream_borrow_launch_token(SeenCudaHandle stream,
     int32_t expected_device, SeenCudaStreamLaunchToken *token) {
     if (!token) return invalid("stream-borrow-launch-token", "missing token output");
@@ -581,6 +596,20 @@ SeenCudaStatus seen_cuda_event_synchronize(SeenCudaHandle event) {
     cudaError_t error = cudaEventSynchronize(object->value);
     return error == cudaSuccess ? ok("event-synchronize", object->device)
                                 : cuda_failure("event-synchronize", error, object->device);
+}
+
+SeenCudaStatus seen_cuda_event_query(SeenCudaHandle event, int32_t *ready) {
+    if (!ready) return invalid("event-query", "missing completion output");
+    *ready = 0;
+    Event *object = checked<Event>(event, kEventMagic);
+    if (!object) return invalid("event-query", "invalid event");
+    SeenCudaStatus selected = select_device(object->device, "event-query");
+    if (selected.code != SEEN_CUDA_OK) return selected;
+    const cudaError_t error = cudaEventQuery(object->value);
+    if (error == cudaErrorNotReady) return ok("event-query", object->device);
+    if (error != cudaSuccess) return cuda_failure("event-query", error, object->device);
+    *ready = 1;
+    return ok("event-query", object->device);
 }
 
 SeenCudaStatus seen_cuda_event_elapsed_ms(SeenCudaHandle start,

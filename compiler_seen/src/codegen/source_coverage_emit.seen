@@ -1,0 +1,127 @@
+/// Emit ELF LLVM 20 profile and source-mapping records from Seen-owned plans.
+import str.string.{StringBuilder}
+import codegen.source_coverage_model.{SourceCoverageRegion, SourceCoverageFunction}
+import codegen.source_coverage_encoding.{coverageAppendUleb, coverageHash,
+    coverageRawText, coverageLlvmBytes, coverageFilenames}
+
+fun coverageRegionBefore(a: SourceCoverageRegion, b: SourceCoverageRegion) r: Bool {
+    if a.line != b.line { return a.line < b.line }
+    if a.column != b.column { return a.column < b.column }
+    return not a.branch and b.branch
+}
+
+fun coverageFunctionMapping(function: SourceCoverageFunction) r: Array<Int> {
+    // Iterative merge sort keeps adversarial source ordering O(n log n).
+    let regions = function.regions
+    let scratch = Array<SourceCoverageRegion>()
+    var index = 0
+    while index < regions.length() { scratch.push(regions[index]); index = index + 1 }
+    var width = 1
+    while width < regions.length() {
+        var start = 0
+        while start < regions.length() {
+            var middle = start + width
+            if middle > regions.length() { middle = regions.length() }
+            var end = start + width * 2
+            if end > regions.length() { end = regions.length() }
+            var left = start
+            var right = middle
+            index = start
+            while index < end {
+                if right >= end or (left < middle and
+                    not coverageRegionBefore(regions[right], regions[left])) {
+                    scratch[index] = regions[left]
+                    left = left + 1
+                } else {
+                    scratch[index] = regions[right]
+                    right = right + 1
+                }
+                index = index + 1
+            }
+            start = end
+        }
+        index = 0
+        while index < regions.length() { regions[index] = scratch[index]; index = index + 1 }
+        width = width * 2
+    }
+    let bytes = Array<Int>()
+    coverageAppendUleb(bytes, 1) // one virtual file
+    coverageAppendUleb(bytes, 1) // filename index (index zero is working directory)
+    coverageAppendUleb(bytes, 0) // no counter expressions
+    coverageAppendUleb(bytes, regions.length())
+    var previousLine = 0
+    index = 0
+    while index < regions.length() {
+        let region = regions[index]
+        if region.branch {
+            coverageAppendUleb(bytes, 32) // LLVM branch region
+            coverageAppendUleb(bytes, region.counter * 4 + 1)
+            coverageAppendUleb(bytes, region.otherCounter * 4 + 1)
+        } else { coverageAppendUleb(bytes, region.counter * 4 + 1) }
+        coverageAppendUleb(bytes, region.line - previousLine)
+        coverageAppendUleb(bytes, region.column)
+        coverageAppendUleb(bytes, 0)
+        coverageAppendUleb(bytes, region.column + 1)
+        previousLine = region.line
+        index = index + 1
+    }
+    return bytes
+}
+
+fun emitSourceCoverageRecords(output: StringBuilder, path: String,
+    functions: Array<SourceCoverageFunction>) r: Void {
+    let files = coverageFilenames(path)
+    let filesLength = files.length().toString()
+    let filesHash = coverageHash(files).toString()
+    output.append("\n@__seen_covmap = private constant { { i32, i32, i32, i32 }, [" +
+        filesLength + " x i8] } { { i32, i32, i32, i32 } { i32 0, i32 " +
+        filesLength + ", i32 0, i32 6 }, [" + filesLength + " x i8] c\"" +
+        coverageLlvmBytes(files) + "\" }, section \"__llvm_covmap\", align 8\n")
+    var used = "ptr @__seen_covmap"
+    var compilerUsed = ""
+    var index = 0
+    while index < functions.length() {
+        let function = functions[index]
+        let suffix = index.toString()
+        let count = function.counterCount.toString()
+        let nameBytes = coverageRawText(function.name)
+        let nameHash = coverageHash(nameBytes).toString()
+        let mapping = coverageFunctionMapping(function)
+        let length = mapping.length().toString()
+        let functionHash = coverageHash(mapping).toString()
+        let names = Array<Int>()
+        coverageAppendUleb(names, nameBytes.length())
+        coverageAppendUleb(names, 0)
+        var byteIndex = 0
+        while byteIndex < nameBytes.length() {
+            names.push(nameBytes[byteIndex]); byteIndex = byteIndex + 1
+        }
+        let namesLength = names.length().toString()
+        output.append("$__seen_cov_group_" + suffix + " = comdat nodeduplicate\n")
+        output.append("@__seen_cov_counts_" + suffix + " = private global [" + count +
+            " x i64] zeroinitializer, section \"__llvm_prf_cnts\", comdat($__seen_cov_group_" + suffix + "), align 8\n")
+        output.append("@__seen_cov_data_" + suffix +
+            " = private global { i64, i64, i64, i64, ptr, ptr, i32, [3 x i16], i32 } { i64 " +
+            nameHash + ", i64 " + functionHash + ", i64 sub (i64 ptrtoint (ptr @__seen_cov_counts_" + suffix +
+            " to i64), i64 ptrtoint (ptr @__seen_cov_data_" + suffix +
+            " to i64)), i64 0, ptr null, ptr null, i32 " + count +
+            ", [3 x i16] zeroinitializer, i32 0 }, section \"__llvm_prf_data\", comdat($__seen_cov_group_" + suffix + "), align 8\n")
+        output.append("@__seen_cov_names_" + suffix + " = private constant [" + namesLength +
+            " x i8] c\"" + coverageLlvmBytes(names) +
+            "\", section \"__llvm_prf_names\", align 1\n")
+        output.append("@__seen_cov_record_" + suffix +
+            " = private constant <{ i64, i32, i64, i64, [" + length +
+            " x i8] }> <{ i64 " + nameHash + ", i32 " + length +
+            ", i64 " + functionHash + ", i64 " + filesHash + ", [" + length + " x i8] c\"" +
+            coverageLlvmBytes(mapping) + "\" }>, section \"__llvm_covfun\", align 8\n")
+        used = used + ", ptr @__seen_cov_names_" + suffix +
+            ", ptr @__seen_cov_record_" + suffix
+        if compilerUsed != "" { compilerUsed = compilerUsed + ", " }
+        compilerUsed = compilerUsed + "ptr @__seen_cov_data_" + suffix
+        index = index + 1
+    }
+    output.append("@llvm.used = appending global [" + (functions.length() * 2 + 1).toString() +
+        " x ptr] [" + used + "], section \"llvm.metadata\"\n")
+    output.append("@llvm.compiler.used = appending global [" + functions.length().toString() +
+        " x ptr] [" + compilerUsed + "], section \"llvm.metadata\"\n")
+}

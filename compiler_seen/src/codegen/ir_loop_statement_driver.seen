@@ -1,8 +1,10 @@
+import codegen.source_coverage_state.{coverSourceBranch, sourceCoverageActive}
+import codegen.simd_report.{appendBoundsLoopRecord}
 // ir_loop_statement_driver.seen - while and for-in statement lowering.
 
 import parser.real_parser.{StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl, getFeatureBoundsCheckEnabledImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getCurrentLoopCondLabelWithGlobalStateImpl, setCurrentLoopCondLabelWithGlobalStateImpl, getCurrentLoopEndLabelWithGlobalStateImpl, setCurrentLoopEndLabelWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
 import codegen.ir_codegen_metrics_state.{cseClear, g_inductionVarName}
 import codegen.ir_codegen_module_state.{findModuleConstantWithModuleStateImpl, isModuleConstMutableWithModuleStateImpl}
@@ -299,6 +301,10 @@ fun tryEmitMemcpyOptimizedWhileLoopState(
     varNames: Array<String>, varRegs: Array<String>,
     varTypes: Array<String>, loopsOptimized: Int) r: MemcpyWhileDriverResult {
 
+    // This legacy bulk transform has no source/destination extent proof.
+    // Checked compilation must preserve the ordinary guarded loop instead.
+    if getFeatureBoundsCheckEnabledImpl() == 1 { return MemcpyWhileDriverResult.new(false, loopsOptimized) }
+    if sourceCoverageActive() { return MemcpyWhileDriverResult.new(false, loopsOptimized) }
     let memcpyPlan = planMemcpyOptimizedWhileLoopImpl(stmt)
     if not memcpyPlan.isValid {
         return MemcpyWhileDriverResult.new(false, loopsOptimized)
@@ -386,6 +392,8 @@ fun generateWhileStatementState(ctx: CodegenLoweringContext,
         loopContext.savedEndLabel, varNames, varRegs, varTypes,
         loopsOptimized)
     if memcpyResult.didEmit {
+        appendBoundsLoopRecord(output, loopContext.loopMetaId, stmt.line, stmt.column,
+            "unchecked-legacy-bulk-lowering", 0, getFeatureBoundsCheckEnabledImpl())
         return LoopStatementDriverResult.new(memcpyResult.loopsOptimized,
             reductionChainsDetected, inductionVarName)
     }
@@ -435,6 +443,7 @@ fun generateWhileStatementState(ctx: CodegenLoweringContext,
         condReg = lowerExpressionInto(ctx, output, stmt.loopCondition,
             varNames, varRegs, varTypes, stringConstants)
     }
+    coverSourceBranch(output, condReg)
     emitWhileConditionBranchState(output, condReg, breakFlagVar,
         loopContext.bodyLabel, loopContext.endLabel, varNames, varRegs)
 
@@ -442,6 +451,8 @@ fun generateWhileStatementState(ctx: CodegenLoweringContext,
     cseClear()
     setBlockTerminatedWithGlobalStateImpl(false)
     lowerBlock(ctx, stmt.loopBody)
+    appendBoundsLoopRecord(output, loopContext.loopMetaId, stmt.line, stmt.column,
+        "unsupported-loop-form", 0, getFeatureBoundsCheckEnabledImpl())
     let bodyTerminated =
         getBlockTerminatedWithGlobalStateImpl()
     if not bodyTerminated {

@@ -1,0 +1,4 @@
+// Loading these free functions must not hide declared dynamic trait methods.
+fun run() r: Int { return 0 }
+fun release() r: Void {}
+fun anchor() r: Int { return 41 }
