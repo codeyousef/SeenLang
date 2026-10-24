@@ -12,6 +12,9 @@ Foundations**.
 
 ### Added
 
+- Run line/extension, local native-dependency and package-prerequisite regressions
+  through the selected attested compiler. Audit CPU isolation against that actual
+  binary, with bounded dependency reads even when legacy output paths are absent.
 - Bind bundled CUDA, stream-token, checked-allocation and CLI regression gates
   to the runner-selected attested compiler; replace obsolete role-marker checks
   with numerical scope readback while retaining native and rejection controls.

@@ -721,13 +721,21 @@ from pathlib import Path
 root = Path(sys.argv[1]) / 'tests/misc_root_tests'
 for name in ('seen_bundled_cuda_link.sh', 'seen_cuda_after_bounded_array_release.sh',
              'seen_cuda_stream_launch_token_contract.sh',
-             'seen_checked_allocation_codegen.sh', 'seen_cli_surface.sh'):
+             'seen_checked_allocation_codegen.sh', 'seen_cli_surface.sh',
+             'seen_lines_linear_contract.sh', 'seen_unimported_extension_contract.sh',
+             'seen_qwen_native_dependency.sh', 'seen_qwen_seen_contracts.sh',
+             'seen_package_run_preparation.sh'):
     source = (root / name).read_text()
     assert '${COMPILER:-${SEEN_BIN:-' in source, 'runner-selected compiler ignored: ' + name
     assert 'SEEN_HARD_MEMORY_SCOPE_ACTIVE' not in source, 'obsolete scope marker blocks attested entry: ' + name
     assert 'bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler ' in source, 'missing real scope readback: ' + name
     assert 'SEEN_CAPPED_REGRESSION_COMPILER' in source, 'missing bound compiler identity: ' + name
     assert 'SEEN_ATTESTED_COMPILER_RUNNER' in source, 'missing compiler attestation: ' + name
+cpu = (root / 'seen_qwen_cpu_isolation.sh').read_text()
+assert '${COMPILER:-${SEEN_BIN:-' in cpu and 'for binary in "$COMPILER"' in cpu, 'CPU isolation omits the selected compiler'
+assert 'SEEN_HARD_MEMORY_SCOPE_ACTIVE' not in cpu, 'CPU isolation uses obsolete scope marker'
+assert 'bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"' in cpu, 'CPU isolation lacks numerical scope readback'
+assert 'SEEN_CAPPED_REGRESSION_COMPILER' in cpu, 'CPU isolation lacks bound compiler identity'
 PYTHON
 
 echo "PASS: compiler-capable regressions require project-local hard containment"
