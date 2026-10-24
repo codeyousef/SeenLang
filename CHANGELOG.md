@@ -75,6 +75,9 @@ Foundations**.
 - Split GPU IR input ownership from reflection/CLI acceptance so both mandatory
   gates retain cold fast, ThinLTO, undefined- and address-sanitized execution
   within bounded test deadlines, without dropping reflection hashes or fuzzing.
+- Separate Metal numeric/specialization parity from synchronization/artifact
+  acceptance, retaining four compiler profiles and both seeded fuzz gates
+  within the same bounded test deadlines.
 - Add raw-IR phase regressions for cold/warm caches, SDK-independent cross-
   target emission, no object/link outputs and retained native-policy rejection.
 - Export raw module IR before optimization and native object emission, including

@@ -74,6 +74,8 @@ bash -n \
     tests/misc_root_tests/seen_gpu_amdgpu_b_numeric.sh \
     tests/misc_root_tests/seen_gpu_amdgpu_c.sh \
     tests/misc_root_tests/seen_gpu_metal_a.sh \
+    tests/misc_root_tests/seen_gpu_metal_b.sh \
+    tests/misc_root_tests/seen_gpu_metal_b_numeric.sh \
     tests/misc_root_tests/seen_gpu_runtime_a.sh \
     tests/misc_root_tests/seen_gpu_runtime_b.sh \
     tests/misc_root_tests/seen_gpu_staging_foundations.sh \
