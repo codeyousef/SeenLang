@@ -12,6 +12,12 @@ Foundations**.
 
 ### Added
 
+- Verify read-only installed payloads through freshly bound copied compilers,
+  isolated project-local caches, portable native execution and genuine runtime
+  compiler/cache failure controls without source-tree or stale-object fallbacks.
+- Separate AMDGPU numeric/specialization parity from capability/artifact checks,
+  retaining all four profiles, native instruction validation and seeded fuzzing
+  as mandatory gates within unchanged bounded test deadlines.
 - Test copied compiler-fixture metadata with real native success and failure
   controls; reject missing logs, malformed or failed statuses and stale binaries
   before execution instead of trusting an executable filename alone.

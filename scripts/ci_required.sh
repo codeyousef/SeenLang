@@ -37,6 +37,8 @@ fi
 # deferred to Stage-1 acceptance, where the verified fresh compiler is explicit.
 bash -n \
     scripts/compiled_fixture_support.sh \
+    scripts/run_attested_seen.sh \
+    scripts/installed_payload_fixture_worker.sh \
     tests/misc_root_tests/seen_core_004e_deterministic_context.sh \
     tests/misc_root_tests/seen_program_artifacts_contract.sh \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh \

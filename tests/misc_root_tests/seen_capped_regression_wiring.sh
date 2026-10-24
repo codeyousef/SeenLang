@@ -739,4 +739,32 @@ assert 'bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"' in
 assert 'SEEN_CAPPED_REGRESSION_COMPILER' in cpu, 'CPU isolation lacks bound compiler identity'
 PYTHON
 
+python3 - "$ROOT_DIR" <<'PYTHON'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+parent = (root / 'tests/misc_root_tests/seen_release_install_payload.sh').read_text()
+worker = (root / 'scripts/installed_payload_fixture_worker.sh').read_text()
+runner = (root / 'scripts/run_attested_seen.sh').read_text()
+assert 'bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"' in parent
+assert '--compiler "$selected_prefix/bin/seen"' in parent, 'copied compiler has no fresh binding'
+assert '--ro-bind "$WORK_DIR/empty" "$ROOT_DIR/seen_std/src"' in parent
+assert '--ro-bind "$WORK_DIR/empty" "$ROOT_DIR/seen_runtime"' in parent
+assert 'SEEN_PACKAGE_CLIENT_BIN' not in parent and '${SEEN_PACKAGE_CLIENT:-' in parent
+assert 'FEL748_INVALID_RUNTIME_SOURCE' in parent and 'FEL748_INVALID_RUNTIME_SOURCE' in worker
+assert 'FAIL_BIN' not in parent and 'SEEN_ATTESTED_SEEN_PATH' not in parent, 'installed negative substitutes a compiler'
+assert '--verify-active "$SCOPE" --compiler "$COMPILER"' in worker
+assert 'bash "$ATTESTED_SEEN" --consumer-context "$project" "$COMPILER"' in worker
+assert 'for temperature in cold warm; do' in worker and 'for profile in fast release; do' in worker
+assert 'check_x86_executable_baseline.sh' in worker and '120s "$binary"' in worker
+assert 'failed-output' in worker and 'Build succeeded' in worker
+assert runner.index('CAPABILITY=$(bash "$CAPPED_ENTRY" --classify-active') < runner.index('CONSUMER_ENV=()'), 'consumer context is applied before binding verification'
+for diagnostic in ('consumer project must stay inside the attested artifact root',
+                   'consumer source escapes its project', 'consumer output escapes its project',
+                   'consumer project must be an existing canonical directory'):
+    assert diagnostic in runner and diagnostic in worker
+assert 'SEEN_ARTIFACT_ROOT=$CONSUMER_CONTEXT/.seen/agent-tools' in runner
+assert 'CONSUMER_UNSET_ENV=(-u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT -u SEEN_DATA_PATH)' in runner
+PYTHON
+
 echo "PASS: compiler-capable regressions require project-local hard containment"

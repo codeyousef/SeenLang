@@ -28,8 +28,14 @@ if [ "${1:-}" = "--usage-only-invalid-worker" ]; then
     USAGE_ONLY_INVALID_WORKER=1
     shift
 fi
+CONSUMER_CONTEXT=""
+if [ "${1:-}" = "--consumer-context" ]; then
+    [ "$#" -ge 3 ] && [ -n "$2" ] || fail 'consumer context requires a project and compiler'
+    CONSUMER_CONTEXT=$2
+    shift 2
+fi
 [ "$#" -ge 1 ] ||
-    fail "usage: run_attested_seen.sh [--deterministic-environment] [--usage-only-invalid-worker] [--llvm-failure-probe opt|object] <compiler> [args...]"
+    fail "usage: run_attested_seen.sh [--consumer-context project] [--deterministic-environment] [--usage-only-invalid-worker] [--llvm-failure-probe opt|object] <compiler> [args...]"
 COMPILER=$1
 shift
 ARGS=("$@")
@@ -62,6 +68,43 @@ SERIALIZER=${SEEN_FORK_SERIALIZER_SO:-}
     fail "attested serializer is unavailable"
 
 PROBE_ENV=()
+CONSUMER_ENV=()
+CONSUMER_UNSET_ENV=()
+if [ -n "$CONSUMER_CONTEXT" ]; then
+    [ "$DETERMINISTIC_ENVIRONMENT" = 0 ] && [ "$USAGE_ONLY_INVALID_WORKER" = 0 ] &&
+        [ -z "$LLVM_FAILURE_PROBE_STAGE" ] || fail 'consumer context cannot combine invocation modes'
+    # First verify the original namespace, cgroup and exact compiler binding
+    # above. Only the executed compiler receives these narrower cache inputs;
+    # do not fabricate or relocate serializer/namespace evidence.
+    case "$CONSUMER_CONTEXT" in
+        "${SEEN_ARTIFACT_ROOT:?}"/*) ;;
+        *) fail 'consumer project must stay inside the attested artifact root' ;;
+    esac
+    case "$CONSUMER_CONTEXT" in *$'\n'*|*$'\r'*) fail 'consumer project contains control characters' ;; esac
+    [ -d "$CONSUMER_CONTEXT" ] && [ ! -L "$CONSUMER_CONTEXT" ] &&
+        [ "$(realpath -e -- "$CONSUMER_CONTEXT")" = "$CONSUMER_CONTEXT" ] ||
+        fail 'consumer project must be an existing canonical directory'
+    case "${ARGS[0]:-}" in check|compile) ;; *) fail 'consumer context supports only check and compile' ;; esac
+    source=${ARGS[1]:-}
+    case "$source" in "$CONSUMER_CONTEXT"/*) ;; *) fail 'consumer source escapes its project' ;; esac
+    case "$source" in *$'\n'*|*$'\r'*) fail 'consumer source contains control characters' ;; esac
+    [ -f "$source" ] && [ ! -L "$source" ] &&
+        [ "$(realpath -e -- "$source")" = "$source" ] || fail 'consumer source must be a canonical regular file'
+    if [ "${ARGS[0]}" = compile ]; then
+        output=${ARGS[2]:-}
+        case "$output" in "$CONSUMER_CONTEXT"/*) ;; *) fail 'consumer output escapes its project' ;; esac
+        case "$output" in *$'\n'*|*$'\r'*) fail 'consumer output contains control characters' ;; esac
+        output_parent=${output%/*}
+        [ -d "$output_parent" ] && [ ! -L "$output_parent" ] &&
+            [ "$(realpath -e -- "$output_parent")" = "$output_parent" ] ||
+            fail 'consumer output parent must be a canonical directory'
+        case "${output##*/}" in ''|.|..) fail 'consumer output has an unsafe basename' ;; esac
+        [ ! -L "$output" ] || fail 'consumer output must not be a symlink'
+    fi
+    CONSUMER_UNSET_ENV=(-u SEEN_COMPILER_SOURCE_ROOT -u SEEN_PACKAGE_CLIENT -u SEEN_DATA_PATH)
+    CONSUMER_ENV=("SEEN_PROJECT_ROOT=$CONSUMER_CONTEXT"
+        "SEEN_ARTIFACT_ROOT=$CONSUMER_CONTEXT/.seen/agent-tools")
+fi
 if [ -n "$LLVM_FAILURE_PROBE_STAGE" ]; then
     [ "$DETERMINISTIC_ENVIRONMENT" = 0 ] && [ "$USAGE_ONLY_INVALID_WORKER" = 0 ] ||
         fail 'LLVM failure probes cannot combine invocation modes'
@@ -268,6 +311,7 @@ if [ "$DETERMINISTIC_ENVIRONMENT" = "1" ]; then
 fi
 
 exec env -u SEEN_FORK_SERIALIZER_ROOT_PID -u SEEN_LLVM_FAILURE_PROBE_STAGE \
+    "${CONSUMER_UNSET_ENV[@]}" \
     LD_PRELOAD="$SERIALIZER" \
     SEEN_FORK_SERIALIZER_TARGET="$COMPILER" \
     SEEN_LOW_MEMORY=1 \
@@ -277,4 +321,4 @@ exec env -u SEEN_FORK_SERIALIZER_ROOT_PID -u SEEN_LLVM_FAILURE_PROBE_STAGE \
     SEEN_OPT_VMEM_KB="$SEEN_OPT_VMEM_KB" \
     SEEN_MEMORY_LIMIT_BYTES="$SEEN_MEMORY_LIMIT_BYTES" \
     PATH="$EXEC_PATH" \
-    "${PROBE_ENV[@]}" "$COMPILER" "${ARGS[@]}"
+    "${PROBE_ENV[@]}" "${CONSUMER_ENV[@]}" "$COMPILER" "${ARGS[@]}"

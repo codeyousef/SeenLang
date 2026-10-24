@@ -136,6 +136,18 @@ self-wrapping harness re-enters and verifies its own binding. Kernel limits,
 serial worker settings, project namespace and serializer proof remain inherited;
 the shell test cannot substitute a different binding or skip verification.
 
+Installed-layout regression workers first establish a fresh capped binding for
+the copied compiler. The attested runner's `--consumer-context <project>` mode
+verifies the original namespace, numeric limits and serializer before passing a
+canonical nested project/cache directory to that compiler. It admits only
+`check` and `compile`, requires contained canonical source/output paths, rejects
+symlinks and control characters, and clears checkout source/client/data overrides.
+It does not relocate attestation records or relax memory, task or timeout limits.
+The payload gate hides checkout library/runtime sources, verifies a read-only
+prefix, exercises cold/warm fast and ThinLTO execution with CPU-baseline auditing,
+and tests real runtime-source compilation and blocked-cache failures. Compiler
+stand-ins and stale installed-object fallbacks cannot satisfy those controls.
+
 The incremental CLI regression uses a disposable project below the verified
 artifact root. It exercises cold, warm and `--no-cache` compilation/execution,
 requires actual warm source-cache hits and checks that uncached compilation
