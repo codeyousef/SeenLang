@@ -107,6 +107,105 @@ state alongside file data or errors.
 | `__DeleteFile(path)` | Delete file |
 | `__CreateDirectory(path)` | Create directory |
 
+## Bounded byte storage
+
+Import `io.bytes` for the move-only `ByteBuffer`, shared `ByteSlice` and
+exclusive `MutableByteSlice`. The checked constructors
+`tryByteBufferWithCapacity(capacity, alignment)` and
+`tryZeroedByteBuffer(length, alignment)` return `Result<ByteBuffer, IoError>`.
+The former starts empty; the latter fills the requested length with zeros.
+Checked capacities and growth are bounded by `BYTE_MAX_CAPACITY`
+(1,073,741,824 logical bytes). Alignment must be a positive power of two, at
+most `BYTE_MAX_ALIGNMENT` (256); `BYTE_DEFAULT_ALIGNMENT` is 32.
+
+These owners currently store byte values in `Array<Int>`. The alignment query
+reports the validated storage policy, not a raw-pointer alignment or DMA
+guarantee. Use the separate aligned-buffer APIs when a native ABI requires an
+aligned address. `fromArray` makes a copy of each input integer's low eight
+bits; `push` and mutable-view `set` reject values outside 0–255.
+
+`length`, `capacity` and `alignment` query an active owner. `reserve`, `push`
+and `append` reject growth or mutation while any view is borrowed. `toArray`
+returns an explicit owned copy, not an alias. `slice(offset, count)` permits
+shared borrows; `mutableSlice` requires exclusive access. Checked ranges use
+nonnegative 64-bit geometry, and view access checks the owner's generation.
+
+Close each view with `close()` when its borrow ends. `ByteBuffer.release()`
+invalidates the owner and outstanding views; subsequent view access fails
+instead of using stale storage. Repeated view close or owner release returns
+`Ok(false)`. Keep the owner alive while its views are in use, and handle the
+returned `Result` and any copied payload according to their ownership rules.
+See the [byte-slice example](../../seen_std/examples/byte_slices.seen).
+
+## Synchronous byte I/O
+
+The `io.bytes` traits use `OperationContext` and checked byte views:
+
+| Trait | Operation and result |
+|-------|----------------------|
+| `Reader` | `read(context, MutableByteSlice)` → `Result<Int, IoError>` |
+| `Writer` | `write(context, ByteSlice)` → `Result<Int, IoError>` |
+| `Seeker` | `seek(context, offset, origin)` → `Result<Int, IoError>` |
+| `BufRead` | `fillBuf(context)` → borrowed slice; `consume(context, count)` → consumed count |
+| `Flush` | `flush(context)` → `Result<Bool, IoError>` |
+
+`ByteReader.fromArray` owns a copy of its input. `tryByteWriterWithLimit`
+constructs a move-only in-memory writer with an explicit maximum byte count.
+Short reads/writes are successful partial progress, not implicit retries.
+A read returns zero at EOF; a bounded writer can accept a short write before
+its next nonempty write reports exhausted capacity. Seek origins are
+`BYTE_SEEK_START`, `BYTE_SEEK_CURRENT` and `BYTE_SEEK_END`; invalid origins,
+overflow and positions outside the reader are rejected.
+
+The memory-stream validator checks cancellation and the negative-deadline
+sentinel before work. It does not implement an OS readiness wait or a clock
+service. Close a `fillBuf` view before consuming its bytes, close acquired
+views before their backing owner, and explicitly close readers/writers.
+A repeated successful close returns `Ok(false)`. The
+[synchronous stream example](../../seen_std/examples/byte_streams.seen)
+demonstrates checked mutable-view acquisition, exact progress and cleanup.
+
+## Bounded byte adapters
+
+`LimitedReader` bounds the bytes delivered from its owned in-memory reader;
+`CountingReader` counts successful reads. `TeeReader` copies accepted progress
+into a bounded sink. `HashingWriter` updates its digest only for bytes its
+bounded writer accepts; that rolling digest is not a cryptographic hash.
+Construct fallible adapters with `tryTeeReader`, `tryHashingWriter` and
+`tryBufferedWriter` and check their limits before use.
+
+`BufferedReader` exposes bounded chunks through `fillBuf`/`consume`.
+`BufferedWriter` has explicit total and chunk limits: flush buffered bytes
+before closing. These are memory adapters, not disk-durability guarantees.
+Their owners have explicit, idempotent close paths.
+
+`copyLimited(context, source, destination, maxBytes, scratchCapacity)` operates
+on the concrete `ByteReader` and `ByteWriter`. On success, its `CopyResult`
+separates `readBytes`, `writtenBytes`, `limitReached` and `complete`; callers
+must not equate bytes read with bytes accepted by the destination. Errors do
+not imply that earlier progress was rolled back. See the
+[bounded-copy example](../../seen_std/examples/byte_adapters.seen).
+
+## UTF-8 and endian codecs
+
+`decodeUtf8Strict(context, source, maxOutputBytes)` rejects malformed leading
+or continuation bytes, truncated sequences, overlong encodings, surrogates
+and out-of-range codepoints. `decodeUtf8Lossy` explicitly substitutes invalid
+input while retaining its output-byte bound. Both return
+`Result<String, IoError>`; neither promises normalization or locale-dependent
+rewriting. `encodeUtf8(context, text, maxBytes)` returns a bounded owned
+`ByteBuffer` containing the string's UTF-8 bytes. Close input views and release
+the backing byte owners when finished; returned strings/buffers remain owned
+results.
+
+`readEndianBits` and `writeEndianBits` check view lifetime, offset and width
+(2, 4 or 8 bytes). Named little-/big-endian helpers cover 16-/32-bit unsigned
+values and 64-bit integer representations. The Float16, BFloat16 and Float64
+`Bits` helpers preserve encoded bits; they do not perform floating-point
+arithmetic or precision conversion. See the
+[codec example](../../seen_std/examples/byte_codecs.seen) for strict decoding
+and a Float16 bit-pattern read.
+
 ## Asynchronous byte I/O
 
 Import `io.bytes` for `AsyncReader`, `AsyncWriter`, `AsyncSeeker`,

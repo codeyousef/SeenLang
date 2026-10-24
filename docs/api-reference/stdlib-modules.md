@@ -201,6 +201,23 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ### `io`
 
+Checked byte storage uses `tryByteBufferWithCapacity` and
+`tryZeroedByteBuffer`, with bounded growth, explicit copies and generation-checked
+views. See [bounded byte storage](io.md#bounded-byte-storage) for capacity,
+alignment metadata and borrow/cleanup rules.
+
+Synchronous byte I/O provides `Reader`, `Writer`, `Seeker`, `BufRead` and
+`Flush`, plus concrete bounded in-memory readers and writers. Read/write counts
+are explicit partial progress; see [synchronous streams](io.md#synchronous-byte-io).
+Bounded adapters include `LimitedReader`, `CountingReader`, `TeeReader`,
+`HashingWriter`, `BufferedReader`, `BufferedWriter` and `copyLimited`; their
+[adapter contracts](io.md#bounded-byte-adapters) distinguish accepted bytes,
+buffered progress and cleanup.
+
+UTF-8 codecs provide strict validation and explicit lossy replacement with
+caller-supplied output bounds. Checked endian helpers preserve integer and
+floating-point bit representations; see [byte codecs](io.md#utf-8-and-endian-codecs).
+
 Asynchronous byte I/O is provided by `io/bytes`: the async stream traits,
 move-only in-memory reader/writer owners, and `await`-compatible entrypoints
 are documented in the [I/O reference](io.md#asynchronous-byte-io). These

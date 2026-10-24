@@ -50,6 +50,8 @@ Foundations**.
   at the reusable helper boundary. Cover native-status width boundaries.
 - Document asynchronous byte-stream ownership, partial progress and explicit
   cleanup, distinguishing direct-ready memory streams from OS completion I/O.
+- Restore byte-storage, synchronous-stream, bounded-adapter and UTF-8/endian
+  API documentation with ownership, limits and links to compiling examples.
 - Isolate standalone artifact-namespace probes from inherited rebuild roles
   without changing their real resource limits or production rejection guards.
 - Add raw-IR phase regressions for cold/warm caches, SDK-independent cross-
