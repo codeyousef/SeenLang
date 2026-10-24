@@ -524,6 +524,8 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_amdgpu_b.sh"
 COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_amdgpu_b_numeric.sh"
+COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_amdgpu_c.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_metal_a.sh"
