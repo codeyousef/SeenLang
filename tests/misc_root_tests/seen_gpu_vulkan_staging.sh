@@ -14,6 +14,7 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-vulkan-staging.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-vulkan-staging
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
 source "$ROOT_DIR/scripts/vulkan_reference_fixture_support.sh"
 seen_prepare_vulkan_reference
 export SEEN_VULKAN_FIXTURE_COPY_TRACE=1 SEEN_VULKAN_FIXTURE_MAP_TRACE=1
@@ -59,9 +60,9 @@ compile_fixture fast coverage-staging-fault "$ROOT_DIR/tests/production_gpu_runt
 for index in "${!faults[@]}"; do
     seen_run_vulkan_fault fast coverage-staging-fault "${faults[index]}" "${codes[index]}"
 done
-llvm-profdata merge -sparse "$TMP_DIR"/fault-coverage-staging-fault-*.profraw -o "$TMP_DIR/fault.profdata"
+seen_source_coverage_tool llvm-profdata merge -sparse --num-threads=1 \
+    "$TMP_DIR"/fault-coverage-staging-fault-*.profraw -o "$TMP_DIR/fault.profdata"
 coverage+=(--fixture "$TMP_DIR/coverage-staging-fault-fast" "$TMP_DIR/fault.profdata")
-source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
 seen_verify_source_coverage "$TMP_DIR/staging" "${coverage[@]}" --source seen_std/src/compute/vulkan_staging.seen
 FIXTURE_COMPILE_FLAGS=(); unset LLVM_PROFILE_FILE
 for purpose in move share; do

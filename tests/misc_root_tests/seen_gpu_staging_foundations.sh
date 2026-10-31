@@ -14,6 +14,7 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-staging-foundations.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-staging-foundations
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
 fixtures=(staging_ring staging_readback staging_adverse buffer_region)
 for profile in fast release undefined address; do
     for name in "${fixtures[@]}"; do
@@ -53,9 +54,9 @@ for name in "${fixtures[@]}" "${native_fixtures[@]}" vulkan_timeline_fuzz; do
 done
 compile_fixture fast coverage-timeline_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
 run_timeline_faults fast coverage-timeline_fault
-llvm-profdata merge -sparse "$TMP_DIR"/fault-coverage-timeline_fault-*.profraw -o "$TMP_DIR/fault.profdata"
+seen_source_coverage_tool llvm-profdata merge -sparse --num-threads=1 \
+    "$TMP_DIR"/fault-coverage-timeline_fault-*.profraw -o "$TMP_DIR/fault.profdata"
 coverage+=(--fixture "$TMP_DIR/coverage-timeline_fault-fast" "$TMP_DIR/fault.profdata")
-source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
 seen_verify_source_coverage "$TMP_DIR/foundations" "${coverage[@]}" \
     --source seen_std/src/compute/staging_ring.seen \
     --source seen_std/src/compute/buffer_region.seen \

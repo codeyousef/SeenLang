@@ -12,6 +12,11 @@ Foundations**.
 
 ### Added
 
+- Validate baseline repository revisions as Git object IDs rather than binary
+  SHA-256 digests, while retaining SHA-256 for compiler and environment bytes.
+- Capture live baseline inputs for no-argument acceptance, bind nested probes
+  to their own attested compiler scopes, and propagate actual probe failures
+  before publishing evidence instead of hashing failed command output.
 - Preserve portable transitive object provenance and hash-pinned dependency
   interface modules in prebuilt packages; check downstream fast/ThinLTO
   execution and reject malformed provenance, collisions and symlink redirection.
