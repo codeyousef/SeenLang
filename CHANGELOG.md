@@ -51,6 +51,10 @@ Foundations**.
 - Correct sanitizer guidance: LLVM 20 ThreadSanitizer requires unlimited virtual
   address space; a finite shadow allowance is not certified TSan execution and
   does not authorize changing the host policy.
+- Bind reactor, stream/process/DNS, task-context and async-stress acceptance to
+  the candidate compiler and invoke their Bash entrypoints independently of
+  checkout executable bits. Keep native assertions, rejection cases, sanitizer
+  runs and coverage gates authoritative instead of matching fixture PASS text.
 - Emit pointer/64-bit integer casts from physical ABI metadata rather than
   treating the language `Ptr` spelling as a no-op and generating malformed IR.
   Keep native `Ptr`/Array/List field projections as pointers while retaining

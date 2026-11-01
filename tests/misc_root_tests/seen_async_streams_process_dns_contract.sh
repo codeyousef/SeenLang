@@ -50,10 +50,6 @@ for profile in fast release; do
     for source in dns_wire_adverse dns_policy_adverse streams_adverse processes_adverse process_validation_corpus; do
         compile_case "$profile" "$source" "$ROOT_DIR/seen_std/tests/async/$source.seen"
     done
-    rg -Fq "PASS: DNS wire fuzz 60s seed 1101" "$TMP_DIR/dns-fuzz-$profile.log"
-    for case_name in happy partial invalid limit cancel cleanup; do
-        rg -Fq "PASS: ASYNC-002E_$case_name" "$TMP_DIR/lifecycle-$profile.log"
-    done
 done
 
 STREAMS_COMPILE_FLAGS=(--coverage)

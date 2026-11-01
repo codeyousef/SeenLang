@@ -58,9 +58,6 @@ for profile in fast release; do
     compile_case "$profile" adverse "$ROOT_DIR/seen_std/tests/async/async-002f-adverse.seen"
     compile_case "$profile" unhandled-panic "$ROOT_DIR/tests/fixtures/async/unhandled_task_panic.seen" 134
     rg -Fq "PANIC:" "$TMP_DIR/unhandled-panic-$profile.log"
-    for case_name in happy partial invalid limit cancel cleanup; do
-        rg -Fq "PASS: ASYNC-002F_$case_name" "$TMP_DIR/lifecycle-$profile.log"
-    done
 done
 
 POLICY_COMPILE_FLAGS=(--coverage)

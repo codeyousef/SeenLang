@@ -49,9 +49,6 @@ for profile in fast release; do
     for name in adverse deadlines sockets; do
         compile_case "$profile" "$name" "$ROOT_DIR/seen_std/tests/async/async-002d-$name.seen"
     done
-    for case_name in happy partial invalid limit cancel cleanup; do
-        rg -Fq "PASS: ASYNC-002D_$case_name" "$TMP_DIR/lifecycle-$profile.log"
-    done
 done
 
 REACTOR_COMPILE_FLAGS=(--coverage)
