@@ -9,7 +9,7 @@ import str.string.{StringBuilder}
 import codegen.ir_function_gen.{shouldSkipFunctionByCfgImpl, emitFunctionDecoratorMetadataCommentsImpl, shouldSkipSpecialFunctionBodyImpl, registerFunctionTraitImplDecoratorsImpl, tryHandleGpuShaderFunctionGenerationImpl, prepareFunctionAttributesImpl, prepareExternFunctionGenerationImpl}
 import codegen.ir_function_intrinsic_emit.{emitIntrinsicWrapperImpl}
 import codegen.ir_type_mapping.{mapTypeImpl, normalizeDeclaredTypeNodeImpl}
-import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, getDeclaredFunctionNameImpl}
 import codegen.ir_decl_items.{mapDeclaredTypeImpl}
 import codegen.ir_function_param_meta.{mapFunctionParameterTypeImpl}
 import codegen.ir_declarations.{emitExternDeclImpl}
@@ -127,10 +127,11 @@ fun tryHandleIntrinsicFunctionGenerationStateImpl(output: StringBuilder,
     let intrinsicRetType = mapTypeImpl(fn.returnType.typeName, structNames,
         typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames)
 
+    let intrinsicFunctionSymbol = getDeclaredFunctionNameImpl(fn, structNames)
     let intrinsicLines = Array<String>()
-    if emitIntrinsicWrapperImpl(intrinsicLines, regBox, fn.name,
+    if emitIntrinsicWrapperImpl(intrinsicLines, regBox, intrinsicFunctionSymbol,
         intrinsicLlvmName, intrinsicParamTypes, intrinsicParamTypes.length(),
-        intrinsicRetType, quoteIdentIfNeededImpl(fn.name)) {
+        intrinsicRetType, quoteIdentIfNeededImpl(intrinsicFunctionSymbol)) {
 
         var lineIdx = 0
         while lineIdx < intrinsicLines.length() {
@@ -143,7 +144,7 @@ fun tryHandleIntrinsicFunctionGenerationStateImpl(output: StringBuilder,
         intrinsicFuncNamesBox[0] = intrinsicFuncNamesBox[0] + "|"
         intrinsicLlvmNamesBox[0] = intrinsicLlvmNamesBox[0] + "|"
     }
-    intrinsicFuncNamesBox[0] = intrinsicFuncNamesBox[0] + fn.name
+    intrinsicFuncNamesBox[0] = intrinsicFuncNamesBox[0] + intrinsicFunctionSymbol
     intrinsicLlvmNamesBox[0] = intrinsicLlvmNamesBox[0] +
         intrinsicLlvmName
     intrinsicCountBox[0] = intrinsicCountBox[0] + 1

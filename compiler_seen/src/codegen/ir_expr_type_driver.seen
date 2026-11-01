@@ -5,7 +5,8 @@ import codegen.ir_generic_type_specialize.{genericTypeArgumentsImpl}
 import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_codegen_feature_state.{getAsyncDeclaredRetTypeWithFeatureStateImpl, getEnumVariantCountWithFeatureStateImpl, isEnumVariantWithFeatureStateImpl, lookupEnumParentWithFeatureStateImpl}
-import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findActiveVariableIndexWithGlobalStateImpl}
+import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findActiveVariableIndexWithGlobalStateImpl, getBoundedActiveVarCountWithGlobalStateImpl}
+import codegen.ir_generic_aggregate.{genericAggregateMetaBuiltinAllowedImpl}
 import codegen.ir_codegen_metrics_state.{inferStringInterpolationExprTypeWithMetricsStateImpl}
 import codegen.ir_codegen_module_state.{findCachedChainedPathTypeRecord, cacheChainedPathType, getCachedChainedPathTypeValue}
 import codegen.ir_expr_infer_plan.{planExprInferenceDispatchImpl, planMethodCallInferenceImpl, planGeneratedCallInferenceImpl, planBuiltinCallInferenceImpl, planResolvedCallInferenceImpl, planMemberAccessInferenceImpl, planSpecialExprInferenceImpl}
@@ -19,6 +20,8 @@ import codegen.ir_path_expr.{buildChainedPathExprImpl, splitFirstPathDotImpl, re
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl}
 import codegen.ir_special_expr_infer.{inferIndexAccessExprTypeImpl, inferKnownArrayLiteralTypeImpl, inferArrayLiteralExprTypeImpl, inferUnaryExprTypeImpl, inferAwaitExprTypeImpl, inferTryPropagateExprTypeImpl, inferNullishSpecialExprTypeImpl, inferBranchingSpecialExprTypeImpl, inferFixedSpecialExprTypeImpl, inferSpecialExprTypeImpl}
 import codegen.ir_type_tables.{inferFieldTypeFallback, inferIndexElementType, resolveTryPropagateTypeImpl}
+import codegen.ir_module_function_identity.{resolveModuleFreeFunctionSymbolImpl}
+import codegen.ir_field_lookup_state.{getMethodReturnTypeState}
 
 var g_genericCallInferenceDepth = 0
 
@@ -171,6 +174,12 @@ fun inferMethodCallExprTypeLocalState(expr: ParserExpressionNode,
 fun tryInferBuiltinCallExprTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
+    if (expr.callee == "sizeof" or expr.callee == "alignof" or
+        expr.callee == "offsetof" or expr.callee == "includeStr" or
+        expr.callee == "includeBytes" or expr.callee.startsWith("transmute<")) and
+        not genericAggregateMetaBuiltinAllowedImpl(expr.callee, varNames, getBoundedActiveVarCountWithGlobalStateImpl(varNames)) {
+        return ""
+    }
     var isVariantCall = false
     let enumVariantCount = getEnumVariantCountWithFeatureStateImpl()
     if enumVariantCount > 0 {
@@ -359,10 +368,12 @@ fun inferAwaitExprTypeLocalState(expr: ParserExpressionNode,
         innerType = inferExpressionTypeState(inner, varNames, varTypes,
             stringConstants)
         if inner.kind == "Call" {
+            let functionSymbol = resolveModuleFreeFunctionSymbolImpl(
+                stripGenericCalleeNameImpl(inner.callee))
             asyncRetType = getAsyncDeclaredRetTypeWithFeatureStateImpl(
-                inner.callee)
+                functionSymbol)
             functionRetType = getFunctionReturnTypeWithGlobalStateImpl(
-                inner.callee)
+                functionSymbol)
         }
     }
     return inferAwaitExprTypeImpl(expr.operands.length(), innerKind,
@@ -476,8 +487,34 @@ fun inferSpecialExprTypeLocalState(expr: ParserExpressionNode,
 fun inferExpressionTypeState(expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
     stringConstants: Array<String>) r: String {
-    if expr.kind == "Call" or (expr.kind == "MethodCall" and expr.literalValue == "" and expr.operands.length() == 0) {
-        let name = stripGenericCalleeNameImpl(expr.callee)
+    if (expr.kind == "Call" or (expr.kind == "MethodCall" and expr.literalValue == "" and expr.operands.length() == 0)) and
+        findActiveVariableIndexWithGlobalStateImpl(varNames, expr.callee) >= 0 {
+        // Lexical function pointers use the low-level i64 indirect-call ABI,
+        // not metadata belonging to a same-spelled module function.
+        return "Int"
+    }
+    if expr.kind == "Call" or (expr.kind == "MethodCall" and
+        expr.literalValue == "" and expr.operands.length() == 0) {
+        let base = stripGenericCalleeNameImpl(expr.callee)
+        if (base == "__default" or base.endsWith(".__default")) and
+            genericAggregateMetaBuiltinAllowedImpl(expr.callee, varNames, getBoundedActiveVarCountWithGlobalStateImpl(varNames)) {
+            let arguments = genericTypeArgumentsImpl(expr.callee)
+            if arguments.length() == 1 {
+                let result = arguments[0]
+                arguments.free()
+                return result
+            }
+            arguments.free()
+        }
+    }
+    if (expr.kind == "Call" or (expr.kind == "MethodCall" and expr.literalValue == "" and expr.operands.length() == 0)) and
+        findActiveVariableIndexWithGlobalStateImpl(varNames,
+            stripGenericCalleeNameImpl(expr.callee)) < 0 and
+        (expr.arguments.length() > 0 or
+            getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
+                stripGenericCalleeNameImpl(expr.callee)) == "") {
+        let name = resolveModuleFreeFunctionSymbolImpl(
+            stripGenericCalleeNameImpl(expr.callee))
         let genericIndex = findGenericCallTypeImpl(name)
         if genericIndex >= 0 and not genericCallDeclarationImpl(genericIndex).isAsync and expr.arguments.length() <= 64 and expr.callee.length() <= 4096 and g_genericCallInferenceDepth < 32 {
             g_genericCallInferenceDepth = g_genericCallInferenceDepth + 1

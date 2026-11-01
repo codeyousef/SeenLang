@@ -1,0 +1,17 @@
+fun forwardLabels<T>(values: Array<T>) r: Array<T> {
+    return values
+}
+
+fun countLabels<T>(values: Array<T>) r: Int {
+    return values.length()
+}
+
+fun main() r: Int {
+    let strings = Array<String>()
+    strings.push("descriptor-only")
+    let forwarded = forwardLabels(strings)
+    if countLabels(forwarded) != 1 { return 1 }
+    if forwarded.get(0) != "descriptor-only" { return 2 }
+    strings.free()
+    return 0
+}

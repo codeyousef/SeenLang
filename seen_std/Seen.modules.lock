@@ -90,7 +90,7 @@ hash = "803f8c1efdba82806e63fbdd0773f0f14536c593eaac075f9dfc325dbe92c0ac"
 
 [[modules]]
 path = "src/collections/hashset.seen"
-hash = "7d2ca8496bd355ae21e0f64c9b57ba94b068a23d4c8f01ec5999b22ae3cde8ec"
+hash = "00133c4e19fbf8c6eb955b0bde7142ff3cc2cf9346286f2a251df77f057402a5"
 
 [[modules]]
 path = "src/collections/std_string.seen"
@@ -98,7 +98,7 @@ hash = "c389b304136b424944a271d61d59fed4286de6c8cf23aaa40228eb86f644fc6a"
 
 [[modules]]
 path = "src/collections/string_hash_map.seen"
-hash = "17de7084aa3484167262d7a0078e50fecbad33e01808d1746c8e67120c770697"
+hash = "79b2fe34232993106b4808c4d9ad46ee95495e0aaca000bc37b1efe2ab25a119"
 
 [[modules]]
 path = "src/collections/string_buffer.seen"
@@ -382,11 +382,11 @@ hash = "043274414612e8d3a2100dcc8e08f7331c9228464c5c8af218f9effdea45e022"
 
 [[modules]]
 path = "src/determinism/policy.seen"
-hash = "db2e47e7818d8111fb746d63afea03ee461ebcc8e08ec8daf76422039ad3427c"
+hash = "d0df1e47c96dd9ecc8663eb244bb6ed7f829236973faff53279c14a628ccfd16"
 
 [[modules]]
 path = "src/determinism/context.seen"
-hash = "3649c7c2458bd0261d0a2b970ee0ab322cbd7e4d657670679fee86b419ab5c99"
+hash = "e4f69695d873090f24e5560a6992b41a10032c02d70c1e12faee34f658a3f794"
 
 [[modules]]
 path = "src/ffi/cinterop.seen"
@@ -458,7 +458,7 @@ hash = "54f81e35f8e4df15d7dc5b55c1378667b991c24e4dc9954d1ed1083ccb86a903"
 
 [[modules]]
 path = "src/accelerator/cuda/mod.seen"
-hash = "f1161d3e3302b0ba82f71b0e92b296956eb046cd9e494fb5d645d0421e97fb24"
+hash = "460b5334b6fdcba3e6403d38ee9eeaf283da519f4b34ed3b19583073ae47b160"
 
 [[modules]]
 path = "src/compute/backend.seen"
@@ -538,7 +538,7 @@ hash = "d3491a0018a15cc4193c4210dbfcdd4e5e7026178ee4cab1e497f27bd6ae785b"
 
 [[modules]]
 path = "src/compute/staging_ring.seen"
-hash = "65e0a04be1d498db4b21c1d80cd9ae57e76d81ae73fcce4014afb86739c2bde1"
+hash = "a273473e304ec45795f86ed5629c9f1ab6538fad1776c2623cd758e2d008e2d6"
 
 [[modules]]
 path = "src/compute/vulkan_abi.seen"
@@ -587,6 +587,14 @@ hash = "dfbee47ca8b3206edf7845f3135eb2bbe4d94460e3cd6155505b7e625ff97cb3"
 [[modules]]
 path = "src/compute/vulkan_transfer.seen"
 hash = "2465b3767c6b7ae4bc3cef37648345a0d6d5cf172fb0b0f0cb03adfb3e841802"
+
+[[modules]]
+path = "src/compute/vulkan_staging.seen"
+hash = "ce8a4a4da6ce68b3c62ed83b9c21de4e6bd11be2a6806795ebed08999a079007"
+
+[[modules]]
+path = "src/compute/cuda_staging.seen"
+hash = "7568bf9f8a1de96bf74cfcca738dd6da2faf9bb6b0a85ee0b2ca070ca5c9208e"
 
 [[modules]]
 path = "src/compute/vulkan_timeline.seen"

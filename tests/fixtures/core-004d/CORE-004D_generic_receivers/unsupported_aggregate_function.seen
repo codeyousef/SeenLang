@@ -1,0 +1,9 @@
+fun identity<T>(value: T) r: T {
+    return value
+}
+
+fun main() r: Int {
+    let value = identity<String>("aggregate")
+    if value.startsWith("agg") { return 0 }
+    return 1
+}

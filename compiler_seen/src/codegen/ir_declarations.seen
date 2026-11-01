@@ -118,14 +118,6 @@ fun emitMathBuiltinImpl(output: StringBuilder, regBox: Array<Int>,
         return resultReg
     }
 
-    // __ExecuteCommand → returns CommandResult struct
-    if funcName == "__ExecuteCommand" {
-        let ptrReg = getNextRegFn(regBox)
-        output.append("  " + ptrReg + " = call ptr @__ExecuteCommand(%SeenString " + arg0 + ")\n")
-        let structReg = getNextRegFn(regBox)
-        output.append("  " + structReg + " = load %CommandResult, ptr " + ptrReg + "\n")
-        return structReg
-    }
 
     // absFloat → llvm.fabs.f64
     if funcName == "absFloat" {

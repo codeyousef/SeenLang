@@ -1,0 +1,17 @@
+import process.process.{runCommand, commandWasSuccessful, commandOutput}
+
+fun main() r: Int {
+    let success = runCommand("printf 'command-success'")
+    if not commandWasSuccessful(success) or commandOutput(success) != "command-success" {
+        abort("native command success/output ABI changed")
+    }
+    let failure = runCommand("printf 'command-failure'; exit 7")
+    if commandWasSuccessful(failure) or commandOutput(failure) != "command-failure" {
+        abort("native command failure/output ABI changed")
+    }
+    let empty = runCommand(":")
+    if not commandWasSuccessful(empty) or commandOutput(empty) != "" {
+        abort("native command empty-output ABI changed")
+    }
+    return 0
+}

@@ -1,0 +1,12 @@
+extern fun seen_gpu_native_flags_value() r: Int
+extern "C" fun __seen_in_enclave() r: Int32
+
+fun main() r: Int {
+    if seen_gpu_native_flags_value() != 748 { return 1 }
+    // A copied runtime must not lose its common TEE shim because its root has
+    // spaces. This only observes the outside-enclave state, not hardware TEE.
+    if __seen_in_enclave() != (0 as Int32) { return 2 }
+    return 0
+}
+
+main()

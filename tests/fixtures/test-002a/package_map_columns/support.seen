@@ -1,0 +1,51 @@
+import imports.package_map.{decodePackageMapColumns}
+
+fun packageMapReferenceValid(line: String) r: Bool {
+    var field = 0
+    var bytes = 0
+    var index = 0
+    while index < line.length() {
+        let byte = line.byteAt(index)
+        if byte == 13 or byte == 10 { return false }
+        if byte == 9 {
+            if field >= 3 or bytes == 0 { return false }
+            field = field + 1
+            bytes = 0
+        } else {
+            bytes = bytes + 1
+        }
+        index = index + 1
+    }
+    return field == 3
+}
+
+fun requirePackageMapRow(line: String, expected: Bool,
+    first: Int, second: Int, third: Int) r: Void {
+
+    let parsed = decodePackageMapColumns(line)
+    if parsed.valid != expected or packageMapReferenceValid(line) != expected {
+        abort("package-map row framing disagrees with expected grammar")
+    }
+    if expected and (parsed.firstTab != first or parsed.secondTab != second or
+        parsed.thirdTab != third) {
+        abort("package-map byte column offsets are incorrect")
+    }
+}
+
+fun checkPackageMapRows() r: Void {
+    requirePackageMapRow("r\ta\td\t", true, 1, 3, 5)
+    requirePackageMapRow("root\talias\tdep\tprefix", true, 4, 10, 14)
+    requirePackageMapRow("r\ta\td\té", true, 1, 3, 5)
+    requirePackageMapRow("", false, 0, 0, 0)
+    requirePackageMapRow("\t", false, 0, 0, 0)
+    requirePackageMapRow("\ta\td\t", false, 0, 0, 0)
+    requirePackageMapRow("r\t\td\t", false, 0, 0, 0)
+    requirePackageMapRow("r\ta\t\t", false, 0, 0, 0)
+    requirePackageMapRow("r\ta\td", false, 0, 0, 0)
+    requirePackageMapRow("r\ta\td\t\t", false, 0, 0, 0)
+    requirePackageMapRow("r\ta\td\tprefix\textra", false, 0, 0, 0)
+    requirePackageMapRow("r\ta\td\tprefix\r", false, 0, 0, 0)
+    requirePackageMapRow("r\ra\ta\td\t", false, 0, 0, 0)
+    requirePackageMapRow("r\ta\nd\td\t", false, 0, 0, 0)
+    requirePackageMapRow("r\ta\td\tprefix\n", false, 0, 0, 0)
+}

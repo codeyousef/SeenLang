@@ -116,6 +116,11 @@ or manually inconsistent lock is rejected. Commit `Seen.lock` with the project.
 Do not confuse it with `seen_std/Seen.modules.lock`, which records standard
 library module/ABI hashes.
 
+Aliases may select the same package identity and version from distinct canonical
+registry origins. Those are distinct lock nodes with independent archive
+digests. Normal, locked, and frozen resolution bind each alias to its exact
+origin-qualified node; a node from another origin is never a substitute.
+
 Resolution modes apply to `seen pkg fetch` and to the automatic fetch performed
 by `seen compile`, `seen check`, and `seen run`:
 
@@ -164,6 +169,14 @@ ambiguous paths, links, device entries, native binaries, lifecycle scripts,
 duplicate entries, manifest mismatches, and archives that change between passes
 are rejected.
 
+Hosted registries accept source packages, not prebuilt artifacts: object files,
+static/shared libraries, bitcode, and recognized binary payloads are forbidden.
+Their signed manifests may depend only on other hosted registry packages.
+Local prebuilt artifact dependencies use the separate v2 artifact/interface
+contract; they retain their advertised native symbols and verified object bytes.
+Do not infer a hosted archive identity for an object produced before that archive
+exists, or treat a local prebuilt artifact as a hosted source package.
+
 The initial archive limits are 25 MiB compressed, 100 MiB expanded, 4,096
 entries, 10 MiB per file, 240 bytes per path, 16 path segments, a 100:1
 expansion ratio, and 30 seconds of validation time. Limit and validation failures
@@ -175,6 +188,49 @@ read-only copies under `.seen/views/` and an authoritative
 hard links into the shared cache. A failed resolution does not expose a partial
 package graph or replace the prior lock. Commit `Seen.lock`, but do not commit
 the generated `.seen/` directory.
+
+### Internal compiler/client map contract
+
+The current source compiler and package client use an internal, version-coupled
+`seen-package-map-v2` format, separate from `Seen.lock` v2. The file begins with
+the exact LF-terminated header `schema\tseen-package-map-v2\n` (the escapes here
+denote literal tab and newline bytes). Each following LF-terminated row has
+exactly four tab-separated fields:
+
+```text
+requester_root<TAB>alias<TAB>dependency_source_root<TAB>module_prefix<LF>
+```
+
+The roots are canonical absolute paths: the requester is either the project
+root or a read-only project view, and the dependency source root is a read-only
+directory below `.seen/views/`. For a hosted dependency, `module_prefix` is
+`hosted/<origin_sha256>/<owner>/<name>/<version>/<archive_sha256>`, where
+`origin_sha256` is the lowercase SHA-256 of the canonical registry-origin URL
+bytes. It binds the source root
+`.seen/views/<owner>/<name>/<version>/<origin_sha256>/<archive_sha256>/source`.
+For a local source dependency the fourth field is explicitly empty, leaving a
+trailing tab before the newline; its source root is
+`.seen/views/local/<source_root_sha256>/<tree_sha256>/source`. Consumer aliases
+do not form part of hosted module provenance.
+
+Hosted source free functions use module-owned native symbols derived from this
+verified provenance and the logical source-module path. Lexical imports and
+function addresses bind to the defining module, including private helper calls;
+an alias does not change native ownership. Explicit foreign declarations and
+native exports keep their declared ABI rather than receiving an inferred alias.
+Module-alias calls and function values preserve that qualification through
+lowering; a parameter or local binding can still shadow the alias. Async return
+metadata, `@init` registration and `@intrinsic` wrapper definitions use the same
+resolved native owner as direct calls and function addresses.
+
+This is a clean cutover, not a backwards-compatible extension of the old
+headerless three-field map. During bootstrap, pair an older compiler that reads
+three fields with its preserved older helper, and pair the current-source
+compiler with a separately built v2 helper. The existing release-version
+handshake alone does not distinguish these in-development map revisions.
+Do not overwrite the older helper or reuse generated maps across the pairs.
+These source-level contracts do not establish successful bootstrap or native
+link validation of a new compiler/helper pair.
 
 ## Package Commands
 

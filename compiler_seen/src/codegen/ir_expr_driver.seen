@@ -7,7 +7,7 @@ import codegen.ir_await_driver.{generateAwaitExpressionState}
 import codegen.ir_binary_driver.{generateBinaryState}
 import codegen.ir_call_driver.{generateCallState}
 import codegen.ir_closure_driver.{generateClosureState, generateUiCallbackState}
-import codegen.ir_codegen_feature_state.{getFeaturePanicOnOverflowImpl, getFeatureAsyncFuncNamesImpl, getFeatureAsyncFuncRetTypesImpl, getFeatureAsyncFuncCountImpl, getFeatureCurrentClassParentNameImpl, getFeatureClosureCountImpl, getFeatureClosureDefsImpl, getFeatureComptimeParamFuncNamesImpl, getFeatureComptimeParamCountImpl, getFeatureInsideUnsafeImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, setFeatureBoundsCheckLabelCountImpl, getFeatureEnumVariantNamesImpl, getFeatureEnumVariantTagsImpl, getFeatureEnumVariantFieldTypesImpl, getFeatureEnumVariantFieldCountsImpl, getFeatureEnumVariantParentImpl, getFeatureEnumVariantCountImpl, setFeatureClosureStateImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_feature_state.{getFeaturePanicOnOverflowImpl, getFeatureAsyncFuncNamesImpl, getFeatureAsyncFuncRetTypesImpl, getFeatureAsyncFuncCountImpl, getFeatureCurrentClassParentNameImpl, getFeatureComptimeParamFuncNamesImpl, getFeatureComptimeParamCountImpl, getFeatureInsideUnsafeImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, setFeatureBoundsCheckLabelCountImpl, getFeatureEnumVariantNamesImpl, getFeatureEnumVariantTagsImpl, getFeatureEnumVariantFieldTypesImpl, getFeatureEnumVariantFieldCountsImpl, getFeatureEnumVariantParentImpl, getFeatureEnumVariantCountImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
 import codegen.ir_codegen_global_state.{getCurrentFunctionReturnTypeWithGlobalStateImpl}
 import codegen.ir_codegen_metrics_state.{g_branchesEliminated, g_constantsFolded, g_stringsDeduped, g_inductionVarName}
 import codegen.ir_codegen_state.{getSharedCodegenState}
@@ -34,8 +34,6 @@ class ExpressionDriverState {
     var constantsFolded: Int
     var branchesEliminated: Int
     var stringsDeduped: Int
-    var closureCount: Int
-    var closureDefs: String
     var comptimeParamCount: Int
     var comptimeParamFuncNames: String
     var insideUnsafe: Int
@@ -59,8 +57,6 @@ class ExpressionDriverState {
             constantsFolded: 0,
             branchesEliminated: 0,
             stringsDeduped: 0,
-            closureCount: 0,
-            closureDefs: "",
             comptimeParamCount: 0,
             comptimeParamFuncNames: "",
             insideUnsafe: 0,
@@ -87,8 +83,6 @@ fun loadExpressionDriverStateFromGlobals() r: ExpressionDriverState {
     state.constantsFolded = g_constantsFolded
     state.branchesEliminated = g_branchesEliminated
     state.stringsDeduped = g_stringsDeduped
-    state.closureCount = getFeatureClosureCountImpl()
-    state.closureDefs = getFeatureClosureDefsImpl()
     state.comptimeParamCount = getFeatureComptimeParamCountImpl()
     state.comptimeParamFuncNames = getFeatureComptimeParamFuncNamesImpl()
     state.insideUnsafe = getFeatureInsideUnsafeImpl()
@@ -112,7 +106,6 @@ fun storeExpressionDriverStateToGlobals(state: ExpressionDriverState)
     g_constantsFolded = state.constantsFolded
     g_branchesEliminated = state.branchesEliminated
     g_stringsDeduped = state.stringsDeduped
-    setFeatureClosureStateImpl(state.closureCount, state.closureDefs)
 }
 
 fun generateExpressionWithGlobalState(ctx: CodegenLoweringContext,
@@ -239,19 +232,10 @@ fun generateSpecialExpressionState(ctx: CodegenLoweringContext,
             state.enumVariantCount)
     }
     if expr.kind == "Closure" {
-        let closureResult = generateClosureState(ctx, output, expr,
-            varNames, varRegs, varTypes, state.closureCount,
-            state.closureDefs)
-        state.closureCount = closureResult.closureCount
-        state.closureDefs = closureResult.closureDefs
-        return closureResult.resultReg
+        return generateClosureState(ctx, output, expr, varNames, varRegs, varTypes)
     }
     if expr.kind == "UiCallback" {
-        let callbackResult = generateUiCallbackState(ctx, output, expr,
-            state.closureCount, state.closureDefs)
-        state.closureCount = callbackResult.closureCount
-        state.closureDefs = callbackResult.closureDefs
-        return callbackResult.resultReg
+        return generateUiCallbackState(ctx, output, expr)
     }
     if expr.kind == "TryPropagate" {
         return emitTryPropagateExpressionState(ctx, output, expr,

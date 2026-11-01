@@ -78,14 +78,16 @@ fun mapTypeForParameterState(seenType: String) r: String {
     }
     let mapped = mapTypeState(cleanType)
     if mapped == "ptr" {
-        return "ptr noalias nonnull"
+        // Pointer-backed source values may carry the null default. Inline
+        // data parameters above still borrow a real, non-null address.
+        return "ptr noalias"
     }
     return mapped
 }
 
 fun mapStorageTypeForParameterState(seenType: String) r: String {
     let mapped = mapTypeForParameterState(seenType)
-    if mapped == "ptr noalias nonnull" {
+    if mapped == "ptr noalias" or mapped == "ptr noalias nonnull" {
         return "ptr"
     }
     return mapped

@@ -1,0 +1,77 @@
+fun execute(callback: Int) r: Int {
+    return callback()
+}
+
+class CallbackOnly<T> {
+    var tag: Int
+    var value: T
+    var sentinel: Int
+
+    fun get() r: T { return this.value }
+}
+
+class CallbackTemplate<T> {
+    var value: T
+
+    fun run() r: Int {
+        // The callback does not capture this or any outer local. Its body is
+        // registered in the parser's slot table rather than expression operands.
+        return execute(callback: {
+            let holder = CallbackOnly<T>{tag: 17, value: __default<T>(),
+                sentinel: 29}
+            let result = holder.tag + holder.sentinel
+            holder.free()
+            return result
+        })
+    }
+
+    fun invoke(T: Int) r: Int {
+        return T()
+    }
+
+    fun local(callback: Int) r: Int {
+        let T = callback
+        return T()
+    }
+
+    fun branch(callback: Int, other: Int) r: Int {
+        let T = callback
+        if true {
+            let T = other
+            if T() != 53 { return 1 }
+        }
+        return T()
+    }
+}
+
+fun main() r: Int {
+    // This specialization occurs nowhere outside a named callback block.
+    let discovered = execute(callback: {
+        let holder = CallbackOnly<Array<Int>>{tag: 5,
+            value: Array<Int>(), sentinel: 7}
+        holder.value.push(31)
+        let fetched = holder.get()
+        let okay = holder.tag == 5 and holder.sentinel == 7 and
+            fetched.length() == 1 and fetched[0] == 31
+        fetched.free()
+        holder.free()
+        if not okay { return 1 }
+        return 37
+    })
+    if discovered != 37 { return 1 }
+
+    let source = CallbackTemplate<String>{value: "specialize-callback"}
+    if source.run() != 46 { return 2 }
+    // T is a callable value here, not the enclosing class's type parameter.
+    if source.invoke(T: { return 43 }) != 43 { return 3 }
+    if source.local(callback: { return 47 }) != 47 { return 4 }
+    if source.branch(callback: { return 47 }, other: { return 53 }) != 47 {
+        return 5
+    }
+    let nested = execute(callback: {
+        return execute(callback: { return 59 }) + execute(callback: { return 61 })
+    })
+    if nested != 120 { return 6 }
+    source.free()
+    return 0
+}

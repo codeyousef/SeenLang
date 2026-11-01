@@ -1,0 +1,17 @@
+trait ValueSource {
+    fun value(this: ValueSource) r: Int
+}
+
+class Concrete {
+    fun value() r: Int {
+        return 7
+    }
+}
+
+fun forwardDynamic(source: dyn ValueSource) r: dyn ValueSource {
+    return source
+}
+
+fun forwardPointer(source: *Concrete) r: *Concrete {
+    return source
+}

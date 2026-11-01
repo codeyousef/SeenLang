@@ -14,6 +14,7 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-cuda-staging.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-cuda-staging
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
 fixture="$ROOT_DIR/tests/production_gpu_runtime/cuda_staging"
 run_compiler check "$fixture/src/main.seen" > "$TMP_DIR/frontend.log" 2>&1
 for purpose in move share; do
@@ -111,8 +112,8 @@ FIXTURE_COMPILE_FLAGS=(--coverage)
 run_staging_modes fast coverage
 profiles=()
 for mode in "${staging_modes[@]}"; do profiles+=("$TMP_DIR/coverage-fast-$mode.profraw"); done
-llvm-profdata merge -sparse "${profiles[@]}" -o "$TMP_DIR/combined.profdata"
-source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
+seen_source_coverage_tool llvm-profdata merge -sparse --num-threads=1 \
+    "${profiles[@]}" -o "$TMP_DIR/combined.profdata"
 seen_verify_source_coverage "$TMP_DIR/staging" --fixture "$TMP_DIR/coverage-fast" "$TMP_DIR/combined.profdata" \
     --source seen_std/src/compute/cuda_staging.seen
 FIXTURE_COMPILE_FLAGS=()

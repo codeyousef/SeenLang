@@ -1,0 +1,634 @@
+/// Concrete aggregate arguments cannot use the word-erased class ABI. This
+/// lowering-only pass gives such source classes ordinary concrete identities;
+/// constructors, fields, methods and cleanup then use the existing class path.
+/// Runtime-owned containers keep their existing, explicitly implemented ABI.
+import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode, AnnotationNode, genericParameterCount, genericParameterNameAt, genericParameterModifierAt}
+import typechecker.semantic_registry.{SemanticDeclarationRegistry, semanticCanonicalDeclaration, semanticBuiltinGenericArity, semanticIsBuiltinType, semanticIsSimdBuiltinType}
+import typechecker.type_ref.{TypeRef, parseTypeRef, typeRefSubstitute}
+import typechecker.lexical_semantic.{registerSemanticImports}
+import codegen.ir_module_function_identity.{moduleFunctionNamespaceImpl, moduleSourceDeclarationOwnerImpl, g_moduleFunctionOwner}
+import process.process.{processExit}
+
+/// Source-facing lowering rejection uses the compiler's ordinary exit status,
+/// not the runtime panic/abort protocol used by compiled program invariants.
+fun rejectGenericAggregateImpl(message: String) r: Void {
+    println(message)
+    processExit(1)
+}
+
+class GenericAggregateDemand {
+    var key: String
+    var name: String
+    var owner: String
+    var file: String
+    var declaration: String
+    var arguments: Array<TypeRef>
+    var item: ItemNode
+}
+
+class GenericAggregateFunctionDefinition {
+    var owner: String
+    var moduleName: String
+    var declaration: FunctionNode
+    var hasBody: Bool
+}
+
+class GenericAggregateFunctionUse {
+    var key: String
+    var definition: Int
+    var arguments: Array<TypeRef>
+    var validated: Bool
+}
+
+var g_genericAggregateFunctions: Array<GenericAggregateFunctionDefinition> = Array<GenericAggregateFunctionDefinition>()
+var g_genericAggregateFunctionUses: Array<GenericAggregateFunctionUse> = Array<GenericAggregateFunctionUse>()
+var g_genericAggregateClassDefinitions: Array<ClassNode> = Array<ClassNode>()
+var g_genericAggregateClassOwners: Array<String> = Array<String>()
+
+var g_genericAggregateRegistry: SemanticDeclarationRegistry = SemanticDeclarationRegistry.new()
+var g_genericAggregateDemands: Array<GenericAggregateDemand> = Array<GenericAggregateDemand>()
+var g_genericAggregateOpenParameters: Array<String> = Array<String>()
+var g_genericAggregateTrustedStdlibRoot: String = ""
+
+fun setGenericAggregateTrustedStdlibRootImpl(root: String) r: Void {
+    g_genericAggregateTrustedStdlibRoot = root
+}
+
+fun resetGenericAggregateSpecializationImpl() r: Void {
+    g_genericAggregateRegistry = SemanticDeclarationRegistry.new()
+    g_genericAggregateDemands = Array<GenericAggregateDemand>()
+    g_genericAggregateOpenParameters = Array<String>()
+    g_genericAggregateFunctions = Array<GenericAggregateFunctionDefinition>()
+    g_genericAggregateFunctionUses = Array<GenericAggregateFunctionUse>()
+    g_genericAggregateClassDefinitions = Array<ClassNode>()
+    g_genericAggregateClassOwners = Array<String>()
+    g_genericAggregateTrustedStdlibRoot = ""
+}
+
+fun genericAggregateRegistryImpl() r: SemanticDeclarationRegistry {
+    return g_genericAggregateRegistry
+}
+
+fun genericAggregateDemandsImpl() r: Array<GenericAggregateDemand> {
+    return g_genericAggregateDemands
+}
+
+fun recordGenericAggregateFunctionBodyImpl(function: FunctionNode,
+    moduleName: String) r: Void {
+    let owner = semanticCanonicalDeclaration(moduleName, function.name)
+    var i = 0
+    while i < g_genericAggregateFunctions.length() {
+        let definition = g_genericAggregateFunctions[i]
+        if definition.owner == owner {
+            definition.declaration = function
+            definition.hasBody = not function.isExtern
+            return
+        }
+        i = i + 1
+    }
+}
+
+fun recordGenericAggregateFunctionUseImpl(reference: TypeRef,
+    moduleName: String) r: Int {
+    var owner = reference.identityBase
+    if owner == "" {
+        let declaration = g_genericAggregateRegistry.lookupIndex(moduleName, reference.base)
+        if declaration < 0 { return -1 }
+        owner = g_genericAggregateRegistry.canonicalNames[declaration]
+    }
+    var definition = -1
+    var i = 0
+    while i < g_genericAggregateFunctions.length() {
+        if g_genericAggregateFunctions[i].owner == owner { definition = i }
+        i = i + 1
+    }
+    if definition < 0 { return -1 }
+    let function = g_genericAggregateFunctions[definition].declaration
+    if genericParameterCount(function.decorators) == 0 { return -1 }
+    if reference.arguments.length() != genericParameterCount(function.decorators) {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] generic function argument arity mismatch: " + owner)
+    }
+    let key = reference.canonicalIdentity()
+    i = 0
+    while i < g_genericAggregateFunctionUses.length() {
+        if g_genericAggregateFunctionUses[i].key == key { return i }
+        i = i + 1
+    }
+    if g_genericAggregateFunctionUses.length() >= 4096 {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] generic function erasure proof limit exceeded")
+    }
+    let arguments = Array<TypeRef>()
+    let emptyNames = Array<String>()
+    let emptyValues = Array<TypeRef>()
+    i = 0
+    while i < reference.arguments.length() {
+        arguments.push(typeRefSubstitute(reference.arguments[i], emptyNames, emptyValues))
+        i = i + 1
+    }
+    emptyNames.free()
+    emptyValues.free()
+    let index = g_genericAggregateFunctionUses.length()
+    g_genericAggregateFunctionUses.push(GenericAggregateFunctionUse{key: key,
+        definition: definition, arguments: arguments, validated: false})
+    return index
+}
+
+fun registerGenericAggregateDeclarationImpl(program: ProgramNode,
+    moduleName: String, file: String) r: Void {
+    registerSemanticImports(g_genericAggregateRegistry, program, moduleName)
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        var name = ""
+        var kind = ""
+        var decorators = Array<AnnotationNode>()
+        if item.itemType == "Class" {
+            name = item.classNode.name
+            kind = "Class"
+            decorators = item.classNode.decorators
+            if item.classNode.hasDecorator("type_alias") and
+                not item.classNode.hasDecorator("distinct") { kind = "Alias" }
+        } else if item.itemType == "Function" {
+            name = item.function.name
+            kind = "Function"
+            decorators = item.function.decorators
+        }
+        if name != "" {
+            let canonical = semanticCanonicalDeclaration(moduleName, name)
+            let registered = g_genericAggregateRegistry.registerDeclaration(
+                moduleName, name, kind, canonical, file, item.line, item.column)
+            if not registered {
+                rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] duplicate generic lowering declaration: " + canonical)
+            }
+            if item.itemType == "Class" {
+                g_genericAggregateClassDefinitions.push(item.classNode)
+                g_genericAggregateClassOwners.push(canonical)
+            } else if kind == "Function" {
+                g_genericAggregateFunctions.push(GenericAggregateFunctionDefinition{
+                    owner: canonical, moduleName: moduleName,
+                    declaration: item.function, hasBody: false})
+            }
+            var d = 0
+            while d < decorators.length() {
+                let decorator = decorators[d]
+                g_genericAggregateRegistry.registerDecorator(canonical,
+                    decorator.name, decorator.arguments)
+                if decorator.name == "type_alias" and decorator.arguments.length() > 0 {
+                    let index = g_genericAggregateRegistry.findCanonical(canonical)
+                    g_genericAggregateRegistry.declarationDetails[index] = decorator.arguments[0]
+                }
+                d = d + 1
+            }
+            var p = 0
+            while p < genericParameterCount(decorators) {
+                g_genericAggregateRegistry.registerGenericParameter(canonical,
+                    genericParameterNameAt(decorators, p),
+                    genericParameterModifierAt(decorators, p))
+                p = p + 1
+            }
+        }
+        i = i + 1
+    }
+}
+
+fun genericAggregateResolveTypeImpl(typeRef: TypeRef, moduleName: String,
+    depth: Int) r: Void {
+    if depth > 128 {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] type nesting exceeds lowering limit")
+    }
+    var index = -1
+    var openParameter = false
+    var p = 0
+    while p < g_genericAggregateOpenParameters.length() {
+        if typeRef.base == g_genericAggregateOpenParameters[p] and
+            typeRef.arguments.length() == 0 and
+            (typeRef.identityBase == "" or typeRef.identityBase.startsWith("generic:")) {
+            openParameter = true
+        }
+        p = p + 1
+    }
+    if openParameter { typeRef.identityBase = "generic:" + typeRef.base }
+    if typeRef.kind == "named" and not openParameter and
+        not semanticIsBuiltinType(typeRef.base) and
+        semanticBuiltinGenericArity(typeRef.base) < 0 {
+        if typeRef.identityBase == "" {
+            index = g_genericAggregateRegistry.lookupIndex(moduleName, typeRef.base)
+        } else {
+            index = g_genericAggregateRegistry.findCanonical(typeRef.identityBase)
+        }
+        if index >= 0 {
+            typeRef.identityBase = g_genericAggregateRegistry.canonicalNames[index]
+            typeRef.base = g_genericAggregateRegistry.names[index]
+        }
+    }
+    var i = 0
+    while i < typeRef.arguments.length() {
+        genericAggregateResolveTypeImpl(typeRef.arguments[i], moduleName,
+            depth + 1)
+        i = i + 1
+    }
+    if index >= 0 and g_genericAggregateRegistry.kinds[index] == "Alias" {
+        let target = parseTypeRef(g_genericAggregateRegistry.declarationDetails[index])
+        let names = Array<String>()
+        i = 0
+        while i < g_genericAggregateRegistry.genericOwners.length() {
+            if g_genericAggregateRegistry.genericOwners[i] == typeRef.identityBase {
+                names.push(g_genericAggregateRegistry.genericNames[i])
+            }
+            i = i + 1
+        }
+        if names.length() != typeRef.arguments.length() {
+            rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] alias generic arity mismatch")
+        }
+        let resolved = typeRefSubstitute(target, names, typeRef.arguments)
+        names.free()
+        // The target is resolved in the alias definition's lexical scope.
+        // Actual open arguments keep their generic identity across that hop.
+        let previousOpenParameters = g_genericAggregateOpenParameters
+        let aliasScope = Array<String>()
+        g_genericAggregateOpenParameters = aliasScope
+        genericAggregateResolveTypeImpl(resolved,
+            g_genericAggregateRegistry.modules[index], depth + 1)
+        g_genericAggregateOpenParameters = previousOpenParameters
+        aliasScope.free()
+        typeRef.kind = resolved.kind
+        typeRef.base = resolved.base
+        typeRef.identityBase = resolved.identityBase
+        typeRef.arguments = resolved.arguments
+        typeRef.nullable = typeRef.nullable or resolved.nullable
+        if typeRef.ownership == "" { typeRef.ownership = resolved.ownership }
+    }
+}
+
+fun genericAggregateValueTypeImpl(typeRef: TypeRef, moduleName: String,
+    depth: Int) r: Bool {
+    if depth > 128 {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] alias representation nesting exceeds lowering limit")
+    }
+    if typeRef.nullable { return false }
+    if typeRef.kind == "fixed_array" { return true }
+    if typeRef.kind != "named" { return false }
+    if typeRef.base == "String" or typeRef.base == "Array" or
+        typeRef.base == "List" or semanticIsSimdBuiltinType(typeRef.base) {
+        return true
+    }
+    var index = -1
+    if typeRef.identityBase != "" {
+        index = g_genericAggregateRegistry.findCanonical(typeRef.identityBase)
+    } else {
+        index = g_genericAggregateRegistry.lookupIndex(moduleName, typeRef.base)
+    }
+    if index < 0 {
+        var demandIndex = 0
+        while demandIndex < g_genericAggregateDemands.length() {
+            let demand = g_genericAggregateDemands[demandIndex]
+            if demand.name == typeRef.base {
+                index = g_genericAggregateRegistry.lookupIndex(demand.owner,
+                    demand.declaration)
+            }
+            demandIndex = demandIndex + 1
+        }
+    }
+    if index < 0 { return false }
+    let owner = g_genericAggregateRegistry.canonicalNames[index]
+    if g_genericAggregateRegistry.hasDecorator(owner, "type_alias") {
+        let target = parseTypeRef(g_genericAggregateRegistry.declarationDetails[index])
+        genericAggregateResolveTypeImpl(target,
+            g_genericAggregateRegistry.modules[index], depth + 1)
+        return genericAggregateValueTypeImpl(target,
+            g_genericAggregateRegistry.modules[index], depth + 1)
+    }
+    return g_genericAggregateRegistry.hasDecorator(owner, "data") or
+        g_genericAggregateRegistry.hasDecorator(owner, "struct") or
+        g_genericAggregateRegistry.hasDecorator(owner, "repr")
+}
+
+/// __default is a compiler intrinsic only for its actual standard-library
+/// declarations. A user declaration with that spelling keeps its source ABI.
+fun genericAggregateTrustedDefaultImpl(reference: TypeRef,
+    moduleName: String) r: Bool {
+    if g_genericAggregateTrustedStdlibRoot == "" {
+        return false
+    }
+    var index = -1
+    if reference.identityBase != "" {
+        index = g_genericAggregateRegistry.findCanonical(reference.identityBase)
+    } else {
+        index = g_genericAggregateRegistry.lookupIndex(moduleName, reference.base)
+    }
+    if index < 0 or g_genericAggregateRegistry.kinds[index] != "Function" { return false }
+    let owner = g_genericAggregateRegistry.canonicalNames[index]
+    let module = g_genericAggregateRegistry.modules[index]
+    let file = g_genericAggregateRegistry.files[index]
+    if not ((module == "seen_std.src.core.option" and
+        file == g_genericAggregateTrustedStdlibRoot + "/core/option.seen") or
+        (module == "seen_std.src.collections.vec" and
+        file == g_genericAggregateTrustedStdlibRoot + "/collections/vec.seen")) {
+        return false
+    }
+    var i = 0
+    while i < g_genericAggregateFunctions.length() {
+        let definition = g_genericAggregateFunctions[i]
+        if definition.owner == owner {
+            let function = definition.declaration
+            return function.name == "__default" and function.isExtern and function.params.length() == 0 and
+                genericParameterCount(function.decorators) == 1 and
+                not function.returnType.isNullable and
+                function.returnType.typeName == genericParameterNameAt(function.decorators, 0)
+        }
+        i = i + 1
+    }
+    return false
+}
+
+/// These declarations already cross the owned, boxed Result payload ABI, not
+/// the ordinary unboxed generic-function ABI. Spelling alone is not authority.
+fun genericAggregateTrustedBoxedResultImpl(definition: GenericAggregateFunctionDefinition) r: Bool {
+    if g_genericAggregateTrustedStdlibRoot == "" { return false }
+    let index = g_genericAggregateRegistry.findCanonical(definition.owner)
+    if index < 0 or g_genericAggregateRegistry.kinds[index] != "Function" or
+        g_genericAggregateRegistry.modules[index] != "seen_std.src.core.result" or
+        g_genericAggregateRegistry.files[index] !=
+            g_genericAggregateTrustedStdlibRoot + "/core/result.seen" {
+        return false
+    }
+    let function = definition.declaration
+    if function.isExtern or function.params.length() != 1 or
+        genericParameterCount(function.decorators) != 2 or function.returnType.isNullable {
+        return false
+    }
+    var payload = 0
+    if function.name == "Err" { payload = 1 }
+    else if function.name != "Ok" { return false }
+    if function.params[0].paramType.isNullable or
+        function.params[0].paramType.typeName != genericParameterNameAt(function.decorators, payload) {
+        return false
+    }
+    let result = parseTypeRef(function.returnType.typeName)
+    let valid = result.valid and result.base == "Result" and result.arguments.length() == 2
+    var matches = valid
+    if valid {
+        matches = result.arguments[0].base == genericParameterNameAt(function.decorators, 0) and
+            result.arguments[1].base == genericParameterNameAt(function.decorators, 1)
+    }
+    result.free()
+    return matches
+}
+
+fun genericAggregateTrustedDefaultDeclarationImpl(function: FunctionNode,
+    moduleName: String) r: Bool {
+    if function.name != "__default" { return false }
+    let reference = TypeRef.new()
+    reference.base = function.name
+    reference.identityBase = semanticCanonicalDeclaration(moduleName, function.name)
+    let trusted = genericAggregateTrustedDefaultImpl(reference, moduleName)
+    reference.free()
+    return trusted
+}
+
+/// Meta operations may be ambient language intrinsics, never replacements for
+/// a real lexical declaration or local callable. The aggregate registry is the
+/// complete source-declaration fallback when semantic validation ran isolated.
+fun genericAggregateMetaBuiltinAllowedImpl(callee: String,
+    varNames: Array<String>, activeVarCount: Int) r: Bool {
+    var name = callee
+    let angle = callee.indexOf("<", 0)
+    if angle >= 0 { name = callee.substring(0, angle) }
+    var i = 0
+    while i < activeVarCount and i < varNames.length() {
+        if varNames[i] == name { return false }
+        i = i + 1
+    }
+    var owner = moduleSourceDeclarationOwnerImpl(name)
+    if owner == "" {
+        let index = g_genericAggregateRegistry.lookupIndex(g_moduleFunctionOwner, name)
+        if index >= 0 { owner = g_genericAggregateRegistry.canonicalNames[index] }
+    }
+    if owner == "" { return true }
+    let reference = TypeRef.new()
+    reference.base = name
+    reference.identityBase = owner
+    let trusted = genericAggregateTrustedDefaultImpl(reference, g_moduleFunctionOwner)
+    reference.free()
+    return trusted
+}
+
+fun genericAggregateRuntimeTypeImpl(name: String) r: Bool {
+    return semanticBuiltinGenericArity(name) >= 0 or name == "StringHashMap" or
+        name == "Ok" or name == "Err" or name == "Some" or name == "None"
+}
+
+fun genericAggregateClosedTypeImpl(typeRef: TypeRef, depth: Int) r: Bool {
+    if depth > 128 or not typeRef.valid { return false }
+    if typeRef.identityBase.startsWith("generic:") { return false }
+    if typeRef.kind == "named" and typeRef.identityBase == "" and
+        not semanticIsBuiltinType(typeRef.base) and
+        semanticBuiltinGenericArity(typeRef.base) < 0 {
+        var generated = false
+        var i = 0
+        while i < g_genericAggregateDemands.length() {
+            if g_genericAggregateDemands[i].name == typeRef.base { generated = true }
+            i = i + 1
+        }
+        var numeric = typeRef.base.length() > 0
+        i = 0
+        while i < typeRef.base.length() {
+            let byte = typeRef.base.byteAt(i)
+            if byte < 48 or byte > 57 { numeric = false }
+            i = i + 1
+        }
+        if not generated and not numeric { return false }
+    }
+    var i = 0
+    while i < typeRef.arguments.length() {
+        if not genericAggregateClosedTypeImpl(typeRef.arguments[i], depth + 1) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fun rewriteGenericAggregateArgumentsImpl(typeRef: TypeRef, moduleName: String,
+    discover: Bool, depth: Int) r: Void {
+    var i = 0
+    while i < typeRef.arguments.length() {
+        rewriteGenericAggregateRefImpl(typeRef.arguments[i], moduleName,
+            discover, depth + 1)
+        i = i + 1
+    }
+}
+
+fun rewriteGenericAggregateRefImpl(typeRef: TypeRef, moduleName: String,
+    discover: Bool, depth: Int) r: Void {
+    if depth > 128 {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] type nesting exceeds lowering limit")
+    }
+    var aggregateArgument = false
+    var i = 0
+    while i < typeRef.arguments.length() {
+        if genericAggregateValueTypeImpl(typeRef.arguments[i], moduleName, 0) {
+            aggregateArgument = true
+        }
+        i = i + 1
+    }
+    // Identity precedes rewriting nested arguments. Alias-equivalent source
+    // spellings must request one specialization, never one per importing file.
+    let nullable = typeRef.nullable
+    let ownership = typeRef.ownership
+    typeRef.nullable = false
+    typeRef.ownership = ""
+    let key = typeRef.canonicalIdentity()
+    typeRef.nullable = nullable
+    typeRef.ownership = ownership
+    let closed = genericAggregateClosedTypeImpl(typeRef, 0)
+    let declarationIndex = g_genericAggregateRegistry.findCanonical(typeRef.identityBase)
+    let trustedDefault = genericAggregateTrustedDefaultImpl(typeRef, moduleName)
+    var functionUse = -1
+    if typeRef.kind == "named" and aggregateArgument and declarationIndex >= 0 and
+        not genericAggregateRuntimeTypeImpl(typeRef.base) and not trustedDefault {
+        if g_genericAggregateRegistry.kinds[declarationIndex] == "Function" {
+            functionUse = recordGenericAggregateFunctionUseImpl(typeRef, moduleName)
+        }
+    }
+    if typeRef.kind != "named" or typeRef.arguments.length() == 0 or
+        not aggregateArgument or
+        genericAggregateRuntimeTypeImpl(typeRef.base) {
+        rewriteGenericAggregateArgumentsImpl(typeRef, moduleName, discover, depth)
+        return
+    }
+    let index = g_genericAggregateRegistry.findCanonical(typeRef.identityBase)
+    if index < 0 {
+        rewriteGenericAggregateArgumentsImpl(typeRef, moduleName, discover, depth)
+        return
+    }
+    let owner = g_genericAggregateRegistry.canonicalNames[index]
+    let parameterCount = g_genericAggregateRegistry.genericParameterCountForOwner(owner)
+    if parameterCount == 0 {
+        rewriteGenericAggregateArgumentsImpl(typeRef, moduleName, discover, depth)
+        return
+    }
+    if g_genericAggregateRegistry.kinds[index] == "Function" {
+        rewriteGenericAggregateArgumentsImpl(typeRef, moduleName, discover, depth)
+        if trustedDefault { return }
+        if functionUse < 0 or
+            (not discover and not g_genericAggregateFunctionUses[functionUse].validated) {
+            rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] generic function erasure proof was not prepared: " + owner)
+        }
+        return
+    }
+    if not closed {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] partially open aggregate instantiation requires unsupported specialization: " + owner)
+    }
+    if g_genericAggregateRegistry.hasDecorator(owner, "trait") {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] aggregate generic trait specialization is not supported: " + owner)
+    }
+    if parameterCount != typeRef.arguments.length() {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] generic argument arity disagrees with declaration: " + owner)
+    }
+    var found = -1
+    i = 0
+    while i < g_genericAggregateDemands.length() {
+        if g_genericAggregateDemands[i].key == key { found = i }
+        i = i + 1
+    }
+    if found < 0 and discover {
+        if g_genericAggregateDemands.length() >= 256 {
+            rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] concrete class specialization limit exceeded")
+        }
+        // Keep resolved source arguments before lowering nested demands.
+        // These identities belong to the caller, not the template's module.
+        let arguments = Array<TypeRef>()
+        let emptyNames = Array<String>()
+        let emptyValues = Array<TypeRef>()
+        i = 0
+        while i < typeRef.arguments.length() {
+            arguments.push(typeRefSubstitute(typeRef.arguments[i],
+                emptyNames, emptyValues))
+            i = i + 1
+        }
+        emptyNames.free()
+        emptyValues.free()
+        found = g_genericAggregateDemands.length()
+        g_genericAggregateDemands.push(GenericAggregateDemand{key: key,
+            name: moduleFunctionNamespaceImpl("hosted/aggregate/" + key),
+            owner: g_genericAggregateRegistry.modules[index],
+            file: g_genericAggregateRegistry.files[index],
+            declaration: g_genericAggregateRegistry.names[index],
+            arguments: arguments, item: ItemNode.new()})
+    }
+    if found < 0 {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] concrete class demand was not prepared: " + key)
+    }
+    rewriteGenericAggregateArgumentsImpl(typeRef, moduleName, discover, depth)
+    typeRef.base = g_genericAggregateDemands[found].name
+    typeRef.identityBase = ""
+    typeRef.arguments = Array<TypeRef>()
+}
+
+fun rewriteGenericAggregateSpellingImpl(spelling: String,
+    moduleName: String, discover: Bool) r: String {
+    if spelling == "" or spelling == "Unknown" or semanticIsBuiltinType(spelling) {
+        return spelling
+    }
+    let defaultIndex = spelling.indexOf("~default~", 0)
+    if defaultIndex >= 0 {
+        return rewriteGenericAggregateSpellingImpl(spelling.substring(0,
+            defaultIndex), moduleName, discover) +
+            spelling.substring(defaultIndex, spelling.length())
+    }
+    if not spelling.contains("<") {
+        let index = g_genericAggregateRegistry.lookupIndex(moduleName, spelling)
+        if index < 0 { return spelling }
+        if g_genericAggregateRegistry.kinds[index] != "Alias" { return spelling }
+    }
+    let typeRef = parseTypeRef(spelling)
+    if not typeRef.valid { return spelling }
+    genericAggregateResolveTypeImpl(typeRef, moduleName, 0)
+    let originalIdentity = typeRef.canonicalIdentity()
+    rewriteGenericAggregateRefImpl(typeRef, moduleName, discover, 0)
+    if discover or typeRef.canonicalIdentity() == originalIdentity { return spelling }
+    return typeRef.canonical()
+}
+
+fun substituteGenericAggregateSpellingImpl(spelling: String,
+    parameters: Array<String>, arguments: Array<TypeRef>, moduleName: String,
+    discover: Bool) r: String {
+    if parameters.length() == 0 or spelling == "" { return spelling }
+    let defaultIndex = spelling.indexOf("~default~", 0)
+    if defaultIndex >= 0 {
+        return substituteGenericAggregateSpellingImpl(spelling.substring(0,
+            defaultIndex), parameters, arguments, moduleName, discover) +
+            spelling.substring(defaultIndex, spelling.length())
+    }
+    var usesParameter = false
+    var parameterIndex = 0
+    while parameterIndex < parameters.length() {
+        if spelling.contains(parameters[parameterIndex]) { usesParameter = true }
+        parameterIndex = parameterIndex + 1
+    }
+    if not usesParameter { return spelling }
+    let typeRef = parseTypeRef(spelling)
+    if not typeRef.valid {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] unsupported type-bearing specialization spelling: " + spelling)
+    }
+    // typeRefSubstitute may share a replacement's children. Clone actuals so
+    // lowering this AST slot cannot mutate the demand's source argument tree.
+    let values = Array<TypeRef>()
+    let emptyNames = Array<String>()
+    let emptyValues = Array<TypeRef>()
+    var i = 0
+    while i < arguments.length() {
+        values.push(typeRefSubstitute(arguments[i], emptyNames, emptyValues))
+        i = i + 1
+    }
+    let result = typeRefSubstitute(typeRef, parameters, values)
+    genericAggregateResolveTypeImpl(result, moduleName, 0)
+    // Repeated parameters (and alias expansion) may share children within
+    // result too. Lower each occurrence independently from its source shape.
+    let lowered = typeRefSubstitute(result, emptyNames, emptyValues)
+    rewriteGenericAggregateRefImpl(lowered, moduleName, discover, 0)
+    values.free()
+    emptyNames.free()
+    emptyValues.free()
+    return lowered.canonical()
+}
+

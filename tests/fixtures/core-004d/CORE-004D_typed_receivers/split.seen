@@ -1,0 +1,10 @@
+fun main() r: Int {
+    let text = "alpha,beta,gamma"
+    let parts = text.split(",")
+    if parts.length() != 3 { return 1 }
+    if not parts.get(0).startsWith("alpha") or
+        not parts.get(1).endsWith("beta") or
+        not parts.get(2).contains("gamma") { return 2 }
+    parts.free()
+    return 0
+}

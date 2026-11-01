@@ -11,8 +11,9 @@ class GenericCallSignature {
     var returned: String
     var isAsync: Bool
     var ownedBytes: Int
-    static fun create(borrow function: FunctionNode, available: Bool) r: GenericCallSignature {
-        let name = seen_string_clone_owned(function.name)
+    static fun create(borrow function: FunctionNode, nativeName: String,
+        available: Bool) r: GenericCallSignature {
+        let name = seen_string_clone_owned(nativeName)
         let names = Array<String>(); let parameters = Array<String>(); var returned = ""
         var bytes = name.length(); var i = 0
         if available {
@@ -56,11 +57,12 @@ fun findGenericCallTypeImpl(name: String) r: Int {
     while i >= 0 { if g_genericCallNames[i] == name { return i }; i = i - 1 }
     return -1
 }
-fun registerGenericCallTypeImpl(borrow function: FunctionNode) r: Void {
-    let index = findGenericCallTypeImpl(function.name)
+fun registerGenericCallTypeImpl(borrow function: FunctionNode,
+    nativeName: String) r: Void {
+    let index = findGenericCallTypeImpl(nativeName)
     let count = genericParameterCount(function.decorators)
     if count == 0 and index < 0 { return }
-    if function.name.length() > 4096 { return }
+    if nativeName.length() > 4096 { return }
     var available = count > 0 and count <= 64 and function.params.length() <= 64 and
         genericCallTypeWithinLimitImpl(function.returnType.typeName)
     var i = 0
@@ -72,7 +74,7 @@ fun registerGenericCallTypeImpl(borrow function: FunctionNode) r: Void {
     while i < function.params.length() and available {
         available = genericCallTypeWithinLimitImpl(function.params[i].paramType.typeName); i = i + 1
     }
-    let signature = GenericCallSignature.create(function, available)
+    let signature = GenericCallSignature.create(function, nativeName, available)
     var oldBytes = 0
     if index >= 0 { oldBytes = g_genericCallDeclarations[index].ownedBytes }
     if g_genericCallMetadataBytes - oldBytes + signature.ownedBytes > 8388608 or

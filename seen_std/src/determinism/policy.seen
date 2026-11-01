@@ -7,6 +7,9 @@ import core.error.{AsciiString, SeenError, RetryClass, RedactionClass,
     errorIdentityValid}
 import core.operation_context.{OperationContext}
 
+// Deadline admission is the narrow host-clock observation boundary; validated
+// epoch and PRNG accessors never use this clock as a deterministic value.
+@nondeterministic
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 
 let CORE_004E_MAX_ARGUMENTS: Int = 256

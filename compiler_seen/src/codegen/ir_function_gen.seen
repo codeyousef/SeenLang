@@ -18,6 +18,7 @@ import codegen.ir_comptime_target.{getComptimeTargetName, comptimeTargetIsX86_64
 import str.string.{StringBuilder}
 import codegen.ir_function_box_utils.{ensureFunctionStringBoxValue, ensureFunctionIntBoxValue}
 import codegen.ir_function_snapshots.{FunctionGenerationIdentitySnapshot}
+import codegen.ir_module_function_identity.{declaredModuleFreeFunctionSymbolImpl}
 
 fun hasFunctionDecoratorGenImpl(fn: FunctionNode, decoratorName: String) r: Bool {
     var i = 0
@@ -343,7 +344,8 @@ fun prepareFunctionAttributesImpl(output: StringBuilder, fn: FunctionNode,
         funcAttrs = funcAttrs + " cold"
     }
     if hasFunctionDecoratorGenImpl(fn, "init") {
-        initFuncNamesBox[0] = initFuncNamesBox[0] + fn.name + "|"
+        initFuncNamesBox[0] = initFuncNamesBox[0] +
+            declaredModuleFreeFunctionSymbolImpl(fn) + "|"
         initFuncCountBox[0] = initFuncCountBox[0] + 1
     }
     if hasFunctionDecoratorGenImpl(fn, "trusted") {

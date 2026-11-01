@@ -241,7 +241,7 @@ fun resetGlobalModuleScratchStateImpl() r: Void {
 }
 
 fun emitModulePrologueWithGlobalStateImpl(output: StringBuilder) r: Void {
-    emitTargetModuleHeaderImpl(output)
+    emitTargetModuleHeaderImpl(output, stringConstantPrefix)
 
     let importedReprCClassNames = Array<String>()
     let headerLoadResult = tryLoadTypeHeaderIntoOutputImpl(output,

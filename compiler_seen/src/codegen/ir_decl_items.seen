@@ -14,6 +14,9 @@ import codegen.ir_decl_registry.{DeclarationPassState, registerFunctionStateImpl
 import codegen.ir_async_registry.{registerAsyncFunctionImpl}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl, getDeclaredFunctionNameImpl}
 import codegen.ir_module_emit.{isRuntimeBackedStringCompatFunctionImpl}
+import codegen.ir_module_function_identity.{registerModuleFreeFunctionDeclarationImpl,
+    registerModuleFreeFunctionNativeSymbolImpl, g_moduleFunctionOwner}
+import codegen.ir_generic_aggregate.{genericAggregateTrustedDefaultDeclarationImpl}
 
 class DeclarationItemContext {
     var structNames: Array<String>
@@ -324,10 +327,24 @@ fun registerClassMethodDeclarationsIntoStateImpl(className: String,
 fun registerTopLevelFunctionDeclarationIntoStateImpl(funcObj: FunctionNode,
     visibility: String, funcRetTypeName: String, ctx: DeclarationItemContext)
     r: Void {
-    registerGenericCallTypeImpl(funcObj)
+    // This verified declaration is a compiler operation, not a native extern
+    // ABI. In particular it must not overwrite a real user's __default entry.
+    if genericAggregateTrustedDefaultDeclarationImpl(funcObj, g_moduleFunctionOwner) {
+        return
+    }
+    registerModuleFreeFunctionDeclarationImpl(funcObj)
     let declaredName = getDeclaredFunctionNameImpl(funcObj, ctx.structNames)
+    registerModuleFreeFunctionNativeSymbolImpl(funcObj.name, declaredName)
+    registerGenericCallTypeImpl(funcObj, declaredName)
     var receiverOffset = 0
-    if declaredName != funcObj.name { receiverOffset = 1 }
+    if funcObj.params.length() > 0 {
+        let first = funcObj.params[0]
+        if first.name == "this" and
+            isClassTypeImpl(first.paramType.typeName, ctx.structNames) == 1 {
+
+            receiverOffset = 1
+        }
+    }
 
     registerDeclaredDynParametersImpl(funcObj, declaredName, receiverOffset)
     let isRuntimeStringCompat = isRuntimeBackedStringCompatFunctionImpl(

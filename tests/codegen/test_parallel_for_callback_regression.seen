@@ -1,0 +1,19 @@
+fun execute(callback: Int) r: Int { return callback() }
+
+fun main() r: Int {
+    let nested = execute(callback: {
+        parallel_for i in 0..2 {
+            if execute(callback: { return 17 }) != 17 {
+                abort("callback inside parallel body returned the wrong value")
+            }
+        }
+        return 23
+    })
+    if nested != 23 { return 1 }
+    parallel_for j in 0..2 {
+        if execute(callback: { return 29 }) != 29 {
+            abort("later parallel body returned the wrong value")
+        }
+    }
+    return 0
+}

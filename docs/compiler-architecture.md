@@ -117,6 +117,11 @@ canonical owning declaration, bounded effect path, facility identity, and remedi
 edge, direct-effect, propagation-round, path-length, and diagnostic limits are
 explicit; exhaustion produces `core.004d.limit` rather than partial approval.
 
+Builtin method effects require resolved receiver identity. For example,
+`Array<T>.get` is a deterministic collection read whose result retains `T`;
+user classes named `Array`, aliases to those classes and unrelated methods do
+not acquire that intrinsic contract.
+
 ### Deterministic execution context
 
 CORE-004E defines `seen-deterministic-context-v1`. Deterministic compile and
@@ -144,6 +149,37 @@ inputs, builder identities, exact artifact bytes, cleanup, cancellation, and
 bounded diagnostics. Required CI validates these contracts before bootstrap;
 release-toolchain preparation revalidates them without starting a second full
 compiler/package build.
+
+The measured native matrix requires a Linux x86-64 host and pins the CPU
+baseline to `x86-64`. It does not request cross-target compilation, which has
+separate full-LTO eligibility rules. One flag authority supplies actual
+invocations, recorded commands and build-input digests, including release/LTO
+mode and frozen-package flags.
+
+Native runtime C compilation retains the caller's working directory, original
+`pkg-config` arguments and include environment. Clang remains the authority for
+forced-header lookup, system/framework paths, sysroots and search precedence;
+the compiler does not parse or rebase those option families.
+
+On native Linux, each Clang command opens the runtime directory as descriptor 3
+and reads `/proc/self/fd/3/<unit>.c`. This command-scoped, zero-copy input identity
+is stable across checkout/install roots while runtime-local quoted headers still
+resolve through the same descriptor. It neither changes the working directory
+nor creates shared source aliases. Failure to open or use that input fails the
+compile rather than falling back to a physical-path-dependent identity.
+Other native hosts use their physical runtime source paths without changing
+the caller directory. Cross-target, JIT, platform-shim and bundled CUDA paths
+retain their separate compilation contracts.
+
+Runtime-object cache schema `runtime-object-v5` excludes earlier path-dependent
+objects. Cache identity also binds the caller directory and the unset/empty/value
+states of `CPATH`, `C_INCLUDE_PATH`, `CPLUS_INCLUDE_PATH` and `OBJC_INCLUDE_PATH`,
+without interpreting or rewriting them.
+Checkout-root discovery and common TEE/SGX/SEV source-availability probes
+shell-quote their paths, including roots with spaces. Native consumer checks
+exercise retained common-shim linkage and outside-enclave state; they do not
+certify physical enclave hardware.
+
 
 ### Two-builder reproducibility
 
@@ -364,6 +400,57 @@ the code-generation declaration state survives into module IR generation.
 Package artifacts participate in code generation through interface indexes and
 object manifests: dependency declarations are scanned, provided modules are
 skipped for codegen, and prebuilt objects are linked into the final binary.
+
+Native runtime ABI bridges are selected by the resolved foreign symbol, not by
+the eligibility of a source declaration for intrinsic optimization.
+`__ExecuteCommand` returns a native pointer to a command-result record; the
+dedicated command bridge loads its `%CommandResult` aggregate before ordinary
+source return lowering. Lexical math-name shadowing cannot bypass that bridge.
+
+### Concrete aggregate generic layouts
+
+Semantic and effect checks consume the original program. Before final native
+declaration registration, `prepareGenericAggregateClasses` closes the demands
+for source generic classes with closed aggregate/array arguments. Demand identity
+includes the lexical declaration owner and resolved type arguments. Each
+instantiation starts from a fresh parsed template, so rewriting one lowering AST
+cannot mutate another shape or the ordinary word-erased template.
+
+The `ir_generic_aggregate`, `_visit` and `_layout` modules reuse the ordinary
+class layout, method ABI and cleanup paths. Inline aggregate and inherited-layout
+dependencies are registered before enclosing layouts. String aggregates and
+Array references retain their native field and call types across getters/setters
+and function boundaries; runtime-owned containers keep their existing ABI.
+
+The function ABI/body checks are separate from class specialization. A type
+argument alone does not prove an ABI change: fixed container signatures may
+remain valid, but dependent value storage or materialization must also be safe.
+Inferred direct calls bind the existing source argument types and enter the same
+proof queue before argument emission. Analysis retains move/borrow qualifiers so
+implicit cleanup cannot select an incompatible runtime family. Compiler-owned
+defaults use the common typed-zero authority. Null-capable Ptr and Array source
+parameters, including methods, do not acquire contradictory `nonnull`
+attributes; null-accepting Array runtime entrypoints retain the same guarantee.
+The standard-library `Ok`/`Err` declarations retain their existing boxed Result
+payload ABI, including an uninferred inactive label. That exception requires
+the canonical source module, trusted file and constructor signature; a
+same-spelled user function does not acquire it.
+Unsupported aggregate-by-value free-function and method-own generic paths are
+rejected rather than repaired with boxes, casts or an LLVM rewrite. This pass
+changes lowering ASTs, not source files or post-emission production IR.
+
+Field storage and expression ABIs are distinct. Opaque `Ptr` and Array/List
+expressions retain LLVM `ptr`; typed `*T` addresses and class handles retain
+their existing `i64` expression ABI even when a field stores a native pointer.
+Field projection and pointer/word casts use `mapTypeState` as the expression
+authority, avoiding both erased native pointers and duplicate conversions.
+
+Generated callback identities and function definitions belong to the module,
+not recursive expression/statement snapshots. Lowering reserves an identity
+before entering a callback or parallel body and appends its definition after
+restoring function-local scratch. Recursive lowering cannot discard inner
+definitions or rewind either module-owned identity counter.
+This does not add capture semantics to named callback blocks.
 
 ### Refactored Codegen Layout
 
@@ -619,7 +706,7 @@ short-lived view of `cudaStream_t`. The token transfers no ownership and is
 invalidated by stream close. Borrowing has no allocation, CUDA synchronization,
 fallback, or scheduling policy. Capture is supported explicitly and reported in
 the token flags. The optional CUDA ABI remains outside CPU-only discovery and is
-bound by the release manifest's `runtime-v8` compatibility identity.
+bound by the release manifest's `runtime-v15` compatibility identity.
 
 ## Key Source Areas
 

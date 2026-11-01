@@ -11,11 +11,13 @@ fun main() r: Int {
     let parser = newRealParserCompat(lexer.tokenize()); let program = parser.parse()
     requireGenericCall(program.items.length() == 3)
     resetGenericCallTypesImpl(); var i = 0
-    while i < program.items.length() { registerGenericCallTypeImpl(program.items[i].function); i = i + 1 }
+    while i < program.items.length() { registerGenericCallTypeImpl(program.items[i].function, program.items[i].function.name); i = i + 1 }
     requireGenericCall(findGenericCallTypeImpl("extract") == 0)
     requireGenericCall(genericCallWordTypeNameImpl("extract", -1) == "T")
     requireGenericCall(genericCallWordTypeNameImpl("extract", 0) == "")
     requireGenericCall(genericCallWordTypeNameImpl("wrap", -1) == "")
+    registerGenericCallTypeImpl(program.items[1].function, "module_owned_pair")
+    requireGenericCall(genericCallWordTypeNameImpl("module_owned_pair", -1) == "T")
     program.items[0].function.name = "changed-after-registration"
     program.items[0].function.params[0].paramType.typeName = "Int"
     requireGenericCall(findGenericCallTypeImpl("extract") == 0)
@@ -34,8 +36,10 @@ fun main() r: Int {
     let replacementLexer = newSeenLexerCompat("fun pair(left: Int, right: Int) r: Int { return left }", 1, "en")
     let replacementParser = newRealParserCompat(replacementLexer.tokenize())
     let replacement = replacementParser.parse()
-    registerGenericCallTypeImpl(replacement.items[0].function)
+    registerGenericCallTypeImpl(replacement.items[0].function,
+        replacement.items[0].function.name)
     requireGenericCall(genericCallWordTypeNameImpl("pair", -1) == "")
+    requireGenericCall(genericCallWordTypeNameImpl("module_owned_pair", -1) == "T")
     resetGenericCallTypesImpl(); requireGenericCall(findGenericCallTypeImpl("extract") == -1)
     println("PASS: structural generic return binding rejects inconsistent arguments")
     return 0

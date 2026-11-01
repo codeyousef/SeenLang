@@ -1,0 +1,164 @@
+import lexer.lexer.{newSeenLexerCompat}
+import parser.real_parser.{ProgramNode, newRealParserCompat}
+import codegen.ir_generic_aggregate.{resetGenericAggregateSpecializationImpl, setGenericAggregateTrustedStdlibRootImpl, registerGenericAggregateDeclarationImpl, genericAggregateRegistryImpl, genericAggregateTrustedDefaultDeclarationImpl, genericAggregateMetaBuiltinAllowedImpl, recordGenericAggregateFunctionBodyImpl, recordGenericAggregateFunctionUseImpl}
+import codegen.ir_module_function_identity.{resetModuleFunctionIdentitiesImpl, prepareModuleFunctionIdentityImpl, installModuleFreeFunctionBindingsImpl}
+import codegen.ir_generic_aggregate_function_body.{validateGenericAggregateFunctionUsesImpl, validateGenericAggregateInferredCallImpl}
+import typechecker.type_ref.{parseTypeRef}
+
+@repr(C)
+class AggregateDefaultValue {
+    var number: Int
+    var pointer: Ptr
+}
+
+fun requireAggregateDefault(value: Bool) r: Void {
+    if not value { abort("generic aggregate default ownership failed") }
+}
+
+fun aggregateDefaultDeclarations(source: String) r: ProgramNode {
+    let lexer = newSeenLexerCompat(source, 1, "en")
+    let parser = newRealParserCompat(lexer.tokenize())
+    return parser.parse()
+}
+
+fun main() r: Int {
+    let emptyText = __default<String>()
+    requireAggregateDefault(emptyText.length() == 0)
+    let emptyArray = __default<Array<Int>>()
+    requireAggregateDefault(emptyArray.length() == 0)
+    emptyArray.free()
+    let emptyPointer = __default<Ptr>()
+    requireAggregateDefault((emptyPointer as Int) == 0)
+    let opaquePointer = 37 as Ptr
+    requireAggregateDefault((opaquePointer as Int) == 37)
+    requireAggregateDefault((opaquePointer as UInt64) == (37 as UInt64))
+    let emptyAggregate = __default<AggregateDefaultValue>()
+    requireAggregateDefault(emptyAggregate.number == 0)
+    requireAggregateDefault((emptyAggregate.pointer as Int) == 0)
+    let pointerFromField = emptyAggregate.pointer
+    requireAggregateDefault((pointerFromField as Int) == 0)
+    let populatedAggregate = AggregateDefaultValue{number: 19, pointer: opaquePointer}
+    requireAggregateDefault(populatedAggregate.number == 19)
+    requireAggregateDefault((populatedAggregate.pointer as Int) == 37)
+    requireAggregateDefault(__default<Float32>() == (0.0 as Float32))
+    requireAggregateDefault(__default<Float>() == 0.0)
+    requireAggregateDefault(not __default<Bool>())
+    requireAggregateDefault(__default<Int>() == 0)
+
+    let trusted = aggregateDefaultDeclarations("extern fun __default<T>() r: T")
+    let user = aggregateDefaultDeclarations("fun __default<T>() r: String { return \"user\" } " +
+        "fun transmute<T>(value: Int) r: Int { return value + 1 } " +
+        "fun stackAlloc<T>(value: Int) r: Int { return value + 2 }")
+    requireAggregateDefault(trusted.items.length() == 1 and user.items.length() == 3)
+    resetGenericAggregateSpecializationImpl()
+    setGenericAggregateTrustedStdlibRootImpl("/trusted")
+    registerGenericAggregateDeclarationImpl(trusted, "seen_std.src.core.option",
+        "/trusted/core/option.seen")
+    registerGenericAggregateDeclarationImpl(user, "user", "/user/main.seen")
+    requireAggregateDefault(genericAggregateTrustedDefaultDeclarationImpl(
+        trusted.items[0].function, "seen_std.src.core.option"))
+    requireAggregateDefault(not genericAggregateTrustedDefaultDeclarationImpl(
+        user.items[0].function, "user"))
+
+    // Native namespace rewriting is disabled for these ordinary modules. That
+    // must not disable lexical binding when deciding whether a call is builtin.
+    resetModuleFunctionIdentitiesImpl()
+    prepareModuleFunctionIdentityImpl("user", "")
+    installModuleFreeFunctionBindingsImpl(genericAggregateRegistryImpl())
+    let locals = Array<String>()
+    requireAggregateDefault(not genericAggregateMetaBuiltinAllowedImpl("__default<String>", locals, 0))
+    requireAggregateDefault(not genericAggregateMetaBuiltinAllowedImpl("transmute<String>", locals, 0))
+    requireAggregateDefault(not genericAggregateMetaBuiltinAllowedImpl("stackAlloc<String>", locals, 0))
+    requireAggregateDefault(genericAggregateMetaBuiltinAllowedImpl("sizeof", locals, 0))
+    locals.push("sizeof")
+    requireAggregateDefault(not genericAggregateMetaBuiltinAllowedImpl("sizeof", locals, 1))
+    prepareModuleFunctionIdentityImpl("seen_std.src.core.option", "")
+    requireAggregateDefault(genericAggregateMetaBuiltinAllowedImpl("__default<String>", locals, 0))
+    locals.free()
+
+    // A module spelling alone cannot authorize a declaration from another file.
+    resetGenericAggregateSpecializationImpl()
+    setGenericAggregateTrustedStdlibRootImpl("/trusted")
+    registerGenericAggregateDeclarationImpl(trusted, "seen_std.src.core.option",
+        "/untrusted/core/option.seen")
+    requireAggregateDefault(not genericAggregateTrustedDefaultDeclarationImpl(
+        trusted.items[0].function, "seen_std.src.core.option"))
+    resetModuleFunctionIdentitiesImpl()
+    // Only the standard Result constructors own the boxed payload ABI. Their
+    // inactive generic label need not be inferred from the live argument.
+    let resultConstructors = aggregateDefaultDeclarations(
+        "fun Ok<T, E>(value: T) r: Result<T, E> {{ let values = Array<T>(); values.push(value); return Result<T, E>{{isOk: true, okStorage: values, errStorage: Array<E>()}} }} " +
+        "fun Err<T, E>(value: E) r: Result<T, E> {{ let values = Array<E>(); values.push(value); return Result<T, E>{{isOk: false, okStorage: Array<T>(), errStorage: values}} }}")
+    requireAggregateDefault(resultConstructors.items.length() == 2)
+    let livePayload = ["String"]
+    var provenance = 0
+    while provenance < 3 {
+        resetGenericAggregateSpecializationImpl()
+        setGenericAggregateTrustedStdlibRootImpl("/trusted")
+        var ownerModule = "seen_std.src.core.result"
+        var ownerFile = "/trusted/core/result.seen"
+        if provenance == 1 { ownerFile = "/untrusted/core/result.seen" }
+        if provenance == 2 { ownerModule = "user" }
+        registerGenericAggregateDeclarationImpl(resultConstructors, ownerModule, ownerFile)
+        var constructor = 0
+        while constructor < resultConstructors.items.length() {
+            let declaration = resultConstructors.items[constructor].function
+            recordGenericAggregateFunctionBodyImpl(declaration, ownerModule)
+            let registry = genericAggregateRegistryImpl()
+            let declarationIndex = registry.lookupIndex(ownerModule, declaration.name)
+            requireAggregateDefault(declarationIndex >= 0)
+            let permitted = validateGenericAggregateInferredCallImpl(
+                registry.canonicalNames[declarationIndex], ownerModule, livePayload)
+            requireAggregateDefault(permitted == (provenance == 0))
+            constructor = constructor + 1
+        }
+        provenance = provenance + 1
+    }
+    livePayload.free()
+
+    // Move-owned cleanup is implicit: no explicit .free() AST call exists for
+    // the body proof to inspect. A borrowed opaque Vec handle can pass through;
+    // moving it cannot select an erased destructor for Vec<String>.
+    let lifetime = aggregateDefaultDeclarations(
+        "fun owned<T>(move values: Vec<T>) r: Void {} " +
+        "fun borrowed<T>(borrow values: Vec<T>) r: Void {}")
+    requireAggregateDefault(lifetime.items.length() == 2)
+    resetGenericAggregateSpecializationImpl()
+    registerGenericAggregateDeclarationImpl(lifetime, "lifetime", "/user/lifetime.seen")
+    recordGenericAggregateFunctionBodyImpl(lifetime.items[0].function, "lifetime")
+    recordGenericAggregateFunctionBodyImpl(lifetime.items[1].function, "lifetime")
+    requireAggregateDefault(recordGenericAggregateFunctionUseImpl(
+        parseTypeRef("borrowed<String>"), "lifetime") >= 0)
+    requireAggregateDefault(validateGenericAggregateFunctionUsesImpl())
+    requireAggregateDefault(recordGenericAggregateFunctionUseImpl(
+        parseTypeRef("owned<String>"), "lifetime") >= 0)
+    requireAggregateDefault(not validateGenericAggregateFunctionUsesImpl())
+
+    let descriptors = aggregateDefaultDeclarations(
+        "fun forward<T>(values: Array<T>) r: Array<T> { return values } " +
+        "fun count<T>(values: Array<T>) r: Int { return values.length() } " +
+        "fun copyFirst<T>(values: Array<T>) r: Array<T> { let out = Array<T>(); out.push(values.get(0)); return out }")
+    requireAggregateDefault(descriptors.items.length() == 3)
+    resetGenericAggregateSpecializationImpl()
+    registerGenericAggregateDeclarationImpl(descriptors, "descriptors", "/user/descriptors.seen")
+    var descriptor = 0
+    while descriptor < descriptors.items.length() {
+        recordGenericAggregateFunctionBodyImpl(descriptors.items[descriptor].function, "descriptors")
+        descriptor = descriptor + 1
+    }
+    let argumentTypes = ["Array<String>"]
+    let descriptorRegistry = genericAggregateRegistryImpl()
+    let forwardIndex = descriptorRegistry.lookupIndex("descriptors", "forward")
+    let countIndex = descriptorRegistry.lookupIndex("descriptors", "count")
+    let copyIndex = descriptorRegistry.lookupIndex("descriptors", "copyFirst")
+    requireAggregateDefault(forwardIndex >= 0 and countIndex >= 0 and copyIndex >= 0)
+    requireAggregateDefault(validateGenericAggregateInferredCallImpl(
+        descriptorRegistry.canonicalNames[forwardIndex], "descriptors", argumentTypes))
+    requireAggregateDefault(validateGenericAggregateInferredCallImpl(
+        descriptorRegistry.canonicalNames[countIndex], "descriptors", argumentTypes))
+    requireAggregateDefault(not validateGenericAggregateInferredCallImpl(
+        descriptorRegistry.canonicalNames[copyIndex], "descriptors", argumentTypes))
+    argumentTypes.free()
+    println("PASS: aggregate default constants and intrinsic source ownership")
+    return 0
+}

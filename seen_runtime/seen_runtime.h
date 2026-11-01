@@ -1089,6 +1089,13 @@ int32_t seen_time_sleep_nanos(int64_t nanoseconds);
 // and -1 when either existing path cannot be canonicalized. Windows returns
 // -2 until native Seen defines deterministic drive and UNC root policy.
 int32_t seen_deterministic_runtime_status(void);
+// Allocation-free views into the immutable launch snapshot. The returned
+// strings remain valid for the process lifetime and must not be modified/freed.
+// out_status is required: 0 = present, 1 = missing, -1 = invalid request or
+// unavailable/disabled snapshot. Argument indexes include argv[0].
+SeenString seen_deterministic_argument_view(int64_t index, int32_t *out_status);
+SeenString seen_deterministic_environment_view(SeenString name,
+                                               int32_t *out_status);
 // Re-exec the current compiler process after deterministic launch variables
 // have been validated and published. Success never returns. A negative result
 // is a stable unsupported/failure status and callers must fail closed.

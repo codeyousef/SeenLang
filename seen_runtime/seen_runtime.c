@@ -479,6 +479,60 @@ int32_t seen_deterministic_runtime_status(void) {
     return g_seen_deterministic_inputs.valid ? 1 : -1;
 }
 
+SeenString seen_deterministic_argument_view(int64_t index,
+                                            int32_t *out_status) {
+    SeenString empty = {0, ""};
+    if (!out_status) return empty;
+    *out_status = -1;
+    if (seen_deterministic_runtime_status() != 1) return empty;
+    if (index < 0 || index >= g_seen_deterministic_inputs.argc) {
+        *out_status = 1;
+        return empty;
+    }
+    size_t length = 0;
+    char *value = g_seen_deterministic_inputs.args[index];
+    if (!seen_deterministic_bounded_length(value,
+            SEEN_DETERMINISTIC_MAX_ARG_BYTES, &length)) return empty;
+    *out_status = 0;
+    SeenString result = {(int64_t)length, value};
+    return result;
+}
+
+SeenString seen_deterministic_environment_view(SeenString name,
+                                               int32_t *out_status) {
+    SeenString empty = {0, ""};
+    if (!out_status) return empty;
+    *out_status = -1;
+    if (seen_deterministic_runtime_status() != 1 || name.len <= 0 ||
+        name.len > SEEN_DETERMINISTIC_MAX_ENV_NAME_BYTES || !name.data ||
+        !seen_deterministic_env_name_valid(name.data, (size_t)name.len)) {
+        return empty;
+    }
+    for (int index = 0; index < g_seen_deterministic_inputs.env_count;
+         index++) {
+        size_t name_length = 0;
+        if (!seen_deterministic_bounded_length(
+                g_seen_deterministic_inputs.env_names[index],
+                SEEN_DETERMINISTIC_MAX_ENV_NAME_BYTES, &name_length)) {
+            return empty;
+        }
+        if (name_length != (size_t)name.len ||
+            memcmp(name.data, g_seen_deterministic_inputs.env_names[index],
+                name_length) != 0) continue;
+        size_t value_length = 0;
+        char *value = g_seen_deterministic_inputs.env_values[index];
+        if (!seen_deterministic_bounded_length(value,
+                SEEN_DETERMINISTIC_MAX_ENV_VALUE_BYTES, &value_length)) {
+            return empty;
+        }
+        *out_status = 0;
+        SeenString result = {(int64_t)value_length, value};
+        return result;
+    }
+    *out_status = 1;
+    return empty;
+}
+
 int32_t seen_reexec_current_process(void) {
     if (g_argc <= 0 || !g_argv || !g_argv[0]) return -1;
 #if defined(__linux__)

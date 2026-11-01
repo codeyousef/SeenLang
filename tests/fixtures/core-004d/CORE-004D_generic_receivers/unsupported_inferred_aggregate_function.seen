@@ -1,0 +1,8 @@
+fun identity<T>(value: T) r: T {
+    return value
+}
+
+fun main() r: Int {
+    let value = identity("aggregate")
+    return 0
+}

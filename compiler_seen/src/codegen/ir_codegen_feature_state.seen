@@ -117,11 +117,23 @@ fun getFeatureBoundsCheckEnabledImpl() r: Int { return g_boundsCheckEnabled }
 fun setFeatureBoundsCheckLabelCountImpl(count: Int) r: Void { g_boundsCheckLabelCount = count }
 fun getFeatureCurrentClassParentNameImpl() r: String { return g_currentClassParentName }
 fun setFeatureCurrentClassParentNameImpl(parentName: String) r: Void { g_currentClassParentName = parentName }
-fun getFeatureClosureCountImpl() r: Int { return g_closureCount }
-fun getFeatureClosureDefsImpl() r: String { return g_closureDefs }
-fun setFeatureClosureStateImpl(count: Int, defs: String) r: Void {
-    g_closureCount = count
-    g_closureDefs = defs
+/// Reserve before recursive lowering; callbacks share one module-owned ID space.
+fun reserveFeatureClosureIdImpl() r: Int {
+    let id = g_closureCount
+    g_closureCount = g_closureCount + 1
+    return id
+}
+
+/// Parallel bodies reserve module-owned IDs before recursively lowering a body.
+fun reserveFeatureParallelBodyIdImpl() r: Int {
+    let id = g_pforCount
+    g_pforCount = g_pforCount + 1
+    return id
+}
+
+/// Nested expressions/statements must never publish stale definition snapshots.
+fun appendFeatureGeneratedDefinitionImpl(definition: String) r: Void {
+    g_closureDefs = g_closureDefs + definition
 }
 fun getFeatureComptimeParamCountImpl() r: Int { return g_comptimeParamCount }
 fun getFeatureComptimeParamFuncNamesImpl() r: String { return g_comptimeParamFuncNames }
@@ -144,20 +156,16 @@ fun getFeatureErrdeferTempAllocaImpl() r: String { return g_errdeferTempAlloca }
 fun getFeatureTryCatchLabelImpl() r: String { return g_tryCatchLabel }
 fun getFeatureTryCatchEndLabelImpl() r: String { return g_tryCatchEndLabel }
 fun getFeatureDistinctTypeNamesImpl() r: String { return g_distinctTypeNames }
-fun getFeaturePforCountImpl() r: Int { return g_pforCount }
 fun getFeatureWarnUnusedResultImpl() r: Int { return g_warnUnusedResult }
 fun applyStatementDriverFeatureStateImpl(boundsCheckLabelCount: Int,
     errdeferTempAlloca: String, tryCatchLabel: String,
-    tryCatchEndLabel: String, insideUnsafe: Int, pforCount: Int,
-    closureDefs: String) r: Void {
+    tryCatchEndLabel: String, insideUnsafe: Int) r: Void {
 
     g_boundsCheckLabelCount = boundsCheckLabelCount
     g_errdeferTempAlloca = errdeferTempAlloca
     g_tryCatchLabel = tryCatchLabel
     g_tryCatchEndLabel = tryCatchEndLabel
     g_insideUnsafe = insideUnsafe
-    g_pforCount = pforCount
-    g_closureDefs = closureDefs
 }
 
 var g_dynTraitNames: String = ""

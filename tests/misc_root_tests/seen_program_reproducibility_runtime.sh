@@ -16,25 +16,32 @@ fail() {
 
 test -x "$COMPILER" || fail "compiler is unavailable: $COMPILER"
 test -f "$PRODUCER" || fail "producer is unavailable"
-test -x "$CAPPED" || fail "capped entry is unavailable"
+test -f "$CAPPED" && test ! -L "$CAPPED" || fail "capped entry is unavailable or unsafe"
+bash -n "$CAPPED" || fail capped-entry-syntax
+[ "${SEEN_LOW_MEMORY:-0}" = 1 ] && [ "${SEEN_JOBS:-0}" = 1 ] &&
+    [ "${SEEN_OPT_JOBS:-0}" = 1 ] || {
+    echo 'RESOURCE STOP: reproducibility evidence requires serial hard-scope settings' >&2
+    exit 126
+}
+bash "$ROOT/scripts/run_in_hard_memory_scope.sh" --verify-only || exit 126
 python3 -m py_compile "$PRODUCER" "$ARTIFACT_CHECKER" \
     "$REPRO_CHECKER" "$CERTIFIER" || fail syntax
 python3 "$PRODUCER" self-test || fail producer-self-test
 
-mkdir -p "$ROOT/.seen"
-SESSION=$(mktemp -d "$ROOT/.seen/core-004fg-runtime.XXXXXX")
+ARTIFACT_ROOT=${SEEN_ARTIFACT_ROOT:?verified project-local artifact root is required}
+SESSION=$(mktemp -d "$ARTIFACT_ROOT/core-004fg-runtime.XXXXXX")
 cleanup() {
     local status=$?
-    if [ "$status" -eq 0 ]; then
+    if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
         case "$SESSION" in
-            "$ROOT"/.seen/core-004fg-runtime.*)
+            "$ARTIFACT_ROOT"/core-004fg-runtime.*)
                 chmod -R u+w "$SESSION/installed-b" 2>/dev/null || true
                 rm -rf -- "$SESSION"
                 ;;
             *) return 1 ;;
         esac
     else
-        echo "Preserved failed CORE-004FG runtime evidence: $SESSION" >&2
+        echo "Preserved CORE-004FG runtime evidence: $SESSION (status $status)" >&2
     fi
     return "$status"
 }
@@ -44,7 +51,7 @@ python3 "$PRODUCER" prepare --repo "$ROOT" --session "$SESSION" \
     --compiler "$COMPILER" || fail prepare
 
 for builder in builder-a builder-b; do
-    builder_compiler=$COMPILER
+    builder_compiler="$SESSION/builder-a/compiler_seen/target/seen"
     if [ "$builder" = builder-b ]; then
         builder_compiler="$SESSION/installed-b/bin/seen"
     fi

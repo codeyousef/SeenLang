@@ -8,6 +8,7 @@ Each impl function emits IR scaffolding (labels, branches, phi nodes)
 import parser.real_parser.{BlockNode, ParserExpressionNode, StatementNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
+import codegen.ir_module_function_identity.{resolveModuleFreeFunctionSymbolImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import str.string.{StringBuilder}
@@ -468,7 +469,8 @@ fun emitUnusedResultCallWarningImpl(output: StringBuilder,
         return
     }
     let unusedCallName = expr.callee
-    let unusedRetType = getFunctionReturnTypeStateImpl(unusedCallName,
+    let unusedRetType = getFunctionReturnTypeStateImpl(
+        resolveModuleFreeFunctionSymbolImpl(unusedCallName),
         funcNames, funcRetTypes)
     if not unusedRetType.startsWith("Result<") and
         not unusedRetType.startsWith("Result ") {

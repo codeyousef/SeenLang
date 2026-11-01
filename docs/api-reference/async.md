@@ -46,7 +46,7 @@ See [the compiling structured-async example](../../seen_std/examples/structured_
 ## Fixed-worker execution
 
 Module: `async.multithread`. Contract: `seen-multithread-executor-v1`,
-runtime compatibility: `runtime-v14`.
+runtime compatibility: `runtime-v15`.
 
 `MultithreadExecutor<T: Send + ExecutorJob>` starts exactly the explicitly
 configured worker count and reuses those threads until shutdown. `T` is the
@@ -516,7 +516,7 @@ instrumentation is verified; the enclosing physical-memory, swap, process and
 worker caps remain in force. The JSON result explicitly sets `certified:false`:
 designated performance comparison, 7950X3D scaling and GPU completion remain
 separate deferred verification. The stress fixtures add no native exports;
-the current identities are stdlib 0.17.0 and runtime-v14, recorded in the
+the current identities are stdlib 0.17.0 and runtime-v15, recorded in the
 release compatibility manifest.
 
 The repeated concrete argument at witness boundaries must refer to the same

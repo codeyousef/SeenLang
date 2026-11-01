@@ -12,6 +12,18 @@ import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
 import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructSizesImpl}
 import codegen.ir_type_layout.{getLlvmTypeSizeImpl}
 
+// The stable C command boundary returns a pointer; Seen expressions consume
+// the CommandResult aggregate. This ABI bridge is not a math optimization.
+fun emitCommandResultRuntimeBridgeImpl(output: StringBuilder,
+    regBox: Array<Int>, argument: String) r: String {
+
+    let pointer = getNextRegFn(regBox)
+    output.append("  " + pointer + " = call ptr @__ExecuteCommand(%SeenString " + argument + ")\n")
+    let result = getNextRegFn(regBox)
+    output.append("  " + result + " = load %CommandResult, ptr " + pointer + "\n")
+    return result
+}
+
 fun normalizeRuntimeDoubleOperandImpl(argReg: String) r: String {
     if argReg.startsWith("%") {
         return argReg

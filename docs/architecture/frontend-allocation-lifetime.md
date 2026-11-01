@@ -13,12 +13,22 @@ growing metadata. Capture is paused during lowering so independent IR does not
 enter the temporary owner. Notifications remain attached while paused to account
 for explicit frees or reallocations of captured storage.
 
-The runtime-v14 callback ABI only reports allocation, reallocation and release
-events. Registration is exclusive and local to the calling thread; callbacks
+The runtime-v15 release retains the runtime-v14 callback ABI, which only reports
+allocation, reallocation and release events. Registration is exclusive and local
+to the calling thread; callbacks
 cannot recursively observe their own storage. Seen decides retention, lookup,
 limits, allocator selection and final cleanup. Metadata is allocated before
 registration and released after removing the observer. Aligned, pool, budgeted
 and unbudgeted allocations retain their original release convention.
+
+Runtime-v15 additionally requires `seen_deterministic_argument_view` and
+`seen_deterministic_environment_view`. These allocation-free reads borrow the
+immutable process-start snapshot for the process lifetime; callers must not
+modify or free the returned strings. They never read later ambient mutations.
+Newly compiled standard-library deterministic contexts require both symbols and
+cannot use runtime-v14. The native boundary adds no context, grant or fallback
+policy; those decisions remain in Seen. Frozen bootstrap manifests retain the
+compatibility identity of their historical artifacts.
 
 `parseOwnedGpuArtifactCli` applies the same owner to GPU option parsing, including
 inline-value copies and error construction. Its `OwnedGpuCli` result borrows argv

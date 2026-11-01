@@ -36,14 +36,19 @@ fun emitNullishCheckComparisonImpl(output: StringBuilder, regBox: Array<Int>,
 }
 
 fun defaultValueForLlvmTypeImpl(llvmType: String) r: String {
-    if llvmType == "%SeenString" {
+    if llvmType.startsWith("%") or llvmType.startsWith("[") or
+        llvmType.startsWith("{") or llvmType.startsWith("<") {
         return "zeroinitializer"
     }
-    if llvmType == "double" {
+    if llvmType == "double" or llvmType == "float" or llvmType == "half" or
+        llvmType == "bfloat" {
         return "0.0"
     }
     if llvmType == "i1" {
         return "false"
+    }
+    if llvmType == "ptr" or llvmType.endsWith("*") {
+        return "null"
     }
     return "0"
 }

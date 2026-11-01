@@ -1,0 +1,74 @@
+import lexer.lexer.{newSeenLexerCompat}
+import parser.real_parser.{newRealParserCompat, ProgramNode}
+import typechecker.semantic_registry.{SemanticDeclarationRegistry, semanticNormalizeModuleIdentity}
+import codegen.ir_module_function_identity.{resetModuleFunctionIdentitiesImpl,
+    prepareModuleFunctionIdentityImpl, registerModuleFreeFunctionDeclarationImpl,
+    installModuleFreeFunctionBindingsImpl, resolveModuleFreeFunctionSymbolImpl,
+    moduleOwnedGeneratedFunctionSymbolImpl}
+import codegen.ir_method_receiver.{getDeclaredFunctionNameImpl}
+
+fun requireModuleIdentity(value: Bool) r: Void {
+    if not value { abort("module-owned native function identity failed") }
+}
+
+fun registerIdentityFixture(program: ProgramNode, owner: String,
+    identity: String, registry: SemanticDeclarationRegistry) r: Void {
+
+    prepareModuleFunctionIdentityImpl(owner, identity)
+    var i = 0
+    while i < program.items.length() {
+        let fn = program.items[i].function
+        registerModuleFreeFunctionDeclarationImpl(fn)
+        requireModuleIdentity(registry.registerDeclaration(owner, fn.name,
+            "Function", owner + "::" + fn.name + "#fn", "fixture.seen", 1, 1))
+        i = i + 1
+    }
+}
+
+fun main() r: Int {
+    let source = "fun answer() r: Int { return hidden() } " +
+        "fun hidden() r: Int { return 42 } " +
+        "@export fun exported() r: Int { return 7 } " +
+        "extern fun foreign() r: Int;"
+    let lexer = newSeenLexerCompat(source, 1, "en")
+    let parser = newRealParserCompat(lexer.tokenize())
+    let program = parser.parse()
+    requireModuleIdentity(program.items.length() == 4)
+    let registry = SemanticDeclarationRegistry.new()
+    let firstIdentity = "hosted/origin-a/owner/package/1.0.0/archive/src/value.seen"
+    let secondIdentity = "hosted/origin-b/owner/package/1.0.0/archive/src/value.seen"
+    let firstOwner = semanticNormalizeModuleIdentity(firstIdentity)
+    let secondOwner = semanticNormalizeModuleIdentity(secondIdentity)
+    let structs = Array<String>()
+    resetModuleFunctionIdentitiesImpl()
+    registerIdentityFixture(program, firstOwner, firstIdentity, registry)
+    let firstAnswer = getDeclaredFunctionNameImpl(program.items[0].function, structs)
+    let firstHidden = getDeclaredFunctionNameImpl(program.items[1].function, structs)
+    let firstClosure = moduleOwnedGeneratedFunctionSymbolImpl("__seen_closure_0")
+    requireModuleIdentity(firstAnswer != "answer" and firstHidden != "hidden")
+    requireModuleIdentity(getDeclaredFunctionNameImpl(program.items[2].function, structs) == "exported")
+    requireModuleIdentity(getDeclaredFunctionNameImpl(program.items[3].function, structs) == "foreign")
+    registerIdentityFixture(program, secondOwner, secondIdentity, registry)
+    let secondAnswer = getDeclaredFunctionNameImpl(program.items[0].function, structs)
+    let secondHidden = getDeclaredFunctionNameImpl(program.items[1].function, structs)
+    requireModuleIdentity(firstAnswer != secondAnswer and firstHidden != secondHidden)
+    requireModuleIdentity(firstClosure != moduleOwnedGeneratedFunctionSymbolImpl("__seen_closure_0"))
+    installModuleFreeFunctionBindingsImpl(registry)
+    requireModuleIdentity(resolveModuleFreeFunctionSymbolImpl("answer") == secondAnswer)
+    requireModuleIdentity(resolveModuleFreeFunctionSymbolImpl("hidden") == secondHidden)
+    registry.registerImport("root", "firstAnswer", firstOwner, "answer")
+    registry.registerImport("root", "second", secondOwner, "*")
+    prepareModuleFunctionIdentityImpl("root", "project/main.seen")
+    installModuleFreeFunctionBindingsImpl(registry)
+    requireModuleIdentity(resolveModuleFreeFunctionSymbolImpl("firstAnswer") == firstAnswer)
+    requireModuleIdentity(resolveModuleFreeFunctionSymbolImpl("second.answer") == secondAnswer)
+    requireModuleIdentity(resolveModuleFreeFunctionSymbolImpl("hidden") == "hidden")
+    requireModuleIdentity(resolveModuleFreeFunctionSymbolImpl("missing") == "missing")
+    requireModuleIdentity(getDeclaredFunctionNameImpl(program.items[0].function, structs) == "answer")
+    requireModuleIdentity(moduleOwnedGeneratedFunctionSymbolImpl("__seen_closure_0") == "__seen_closure_0")
+    requireModuleIdentity(program.items[0].function.name == "answer")
+    resetModuleFunctionIdentitiesImpl()
+    requireModuleIdentity(resolveModuleFreeFunctionSymbolImpl("firstAnswer") == "firstAnswer")
+    println("PASS: hosted native symbols follow lexical module ownership and preserve explicit ABI")
+    return 0
+}

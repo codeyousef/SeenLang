@@ -1,0 +1,6 @@
+import support.{makeDanger}
+
+fun main() r: Int {
+    let inferred = makeDanger()
+    return 0
+}

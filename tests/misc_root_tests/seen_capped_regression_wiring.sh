@@ -58,6 +58,7 @@ TARGETS=(
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_ptx_c.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_amdgpu_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_amdgpu_b.sh"
+    "$ROOT_DIR/tests/misc_root_tests/seen_gpu_amdgpu_b_numeric.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_amdgpu_c.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_metal_a.sh"
     "$ROOT_DIR/tests/misc_root_tests/seen_gpu_metal_b.sh"
@@ -711,13 +712,128 @@ done
 
 # Every standalone SIMD/GPU acceptance harness must use the freshly rebuilt
 # compiler. A fallback target binary can carry a different runtime/stdlib ABI.
-python3 - "$STAGE1_ACCEPTANCE" <<'PYTHON'
+python3 - "$STAGE1_ACCEPTANCE" "$ROOT_DIR/scripts/ci_required.sh" "$ROOT_DIR" <<'PYTHON'
 import re, sys
 from pathlib import Path
 lines = Path(sys.argv[1]).read_text().splitlines()
 for index, line in enumerate(lines):
-    if re.fullmatch(r'\s+"\$REPO_ROOT/tests/misc_root_tests/seen_(?:inf_simd|gpu_ir)_[a-z]\.sh"', line):
+    if re.fullmatch(r'\s+"\$REPO_ROOT/tests/misc_root_tests/seen_(?:inf_simd|gpu_ir)_[a-z](?:_input_ownership)?\.sh"', line):
         assert index > 0 and lines[index - 1] == 'COMPILER="$REAL_COMPILER" \\', 'fresh compiler missing before ' + line
+for gate in ('seen_gpu_ir_d.sh', 'seen_gpu_ir_d_input_ownership.sh',
+             'seen_gpu_ptx_b.sh', 'seen_gpu_ptx_b_numeric.sh',
+             'seen_gpu_amdgpu_b.sh', 'seen_gpu_amdgpu_b_numeric.sh',
+             'seen_gpu_metal_b.sh', 'seen_gpu_metal_b_numeric.sh',
+             'seen_gpu_runtime_a.sh', 'seen_gpu_runtime_a_vulkan.sh',
+             'seen_compiled_fixture_metadata_linux_x86_64.sh',
+             'seen_ir_only_phase_linux_x86_64.sh'):
+    assert sum(line.strip() == f'"$REPO_ROOT/tests/misc_root_tests/{gate}"' for line in lines) == 1, 'missing or duplicate mandatory gate: ' + gate
+    index = lines.index(f'    "$REPO_ROOT/tests/misc_root_tests/{gate}"')
+    assert lines[index - 1] == 'COMPILER="$REAL_COMPILER" \\', 'fresh compiler missing before ' + gate
+    assert Path(sys.argv[2]).read_text().count('tests/misc_root_tests/' + gate) == 1, 'missing required syntax gate: ' + gate
+for target in (Path(sys.argv[3]) / 'tests/misc_root_tests').glob('seen_gpu_*.sh'):
+    source = target.read_text()
+    for line in source.splitlines():
+        if line.lstrip().startswith('#') or 'llvm-profdata merge' not in line:
+            continue
+        assert line.lstrip().startswith('seen_source_coverage_tool llvm-profdata merge'), 'unbounded GPU profile merge: ' + str(target)
+        assert '--num-threads=1' in line, 'GPU profile merge is not serial: ' + str(target)
+        helper = 'source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"'
+        assert helper in source and source.index(helper) < source.index(line), 'coverage helper loaded after merge: ' + str(target)
+gpu_tests = Path(sys.argv[3]) / 'tests/misc_root_tests'
+amd_capabilities = (gpu_tests / 'seen_gpu_amdgpu_b.sh').read_text()
+amd_numeric = (gpu_tests / 'seen_gpu_amdgpu_b_numeric.sh').read_text()
+for source in (amd_capabilities, amd_numeric):
+    assert 'for profile in fast release undefined address; do' in source, 'AMDGPU split dropped a compiler profile'
+for name, fixture, owner in (
+        ('numeric', 'gpu_scalar_words/amdgpu_numeric_contract.seen', amd_numeric),
+        ('specialization', 'gpu_artifacts/specialization_contract.seen', amd_numeric),
+        ('rejection', 'hip_amdgpu_lowering/capabilities_contract.seen', amd_capabilities)):
+    command = f'compile_case "$profile" {name} "$ROOT_DIR/tests/{fixture}"'
+    assert owner.count(command) == 1, 'missing or duplicated AMDGPU contract: ' + name
+    assert (amd_capabilities + amd_numeric).count(command) == 1, 'AMDGPU split duplicates a cold contract: ' + name
+assert 'check_gpu_amdgpu_native.py' in amd_capabilities, 'AMDGPU native instruction validation dropped'
+assert 'check_gpu_amdgpu_numerics.py' in amd_numeric and 'cases_from_log' in amd_numeric, 'AMDGPU numeric parity validation dropped'
+assert (amd_capabilities + amd_numeric).count('compile_case fast fuzz ') == 1, 'AMDGPU packed fuzz must run exactly once'
+assert 'seed=1089' in amd_numeric, 'AMDGPU packed fuzz seed or duration assertion dropped'
+ir_reflection = (gpu_tests / 'seen_gpu_ir_d.sh').read_text()
+ir_inputs = (gpu_tests / 'seen_gpu_ir_d_input_ownership.sh').read_text()
+for source in (ir_reflection, ir_inputs):
+    assert 'for profile in fast release undefined address; do' in source, 'GPU IR split dropped a compiler profile'
+for name, fixture, owner in (
+        ('allocation-owner', 'typed_gpu_compiler/allocation_owner_contract.seen', ir_inputs),
+        ('frontend-owner', 'typed_gpu_compiler/frontend_ownership_contract.seen', ir_inputs),
+        ('quotes', 'compiler_regressions/escaped_literal_quotes.seen', ir_inputs),
+        ('bytes', 'typed_gpu_compiler/ir_bytes_contract.seen', ir_inputs),
+        ('files', 'typed_gpu_compiler/ir_file_contract.seen', ir_reflection),
+        ('options', 'typed_gpu_compiler/ir_options_contract.seen', ir_reflection),
+        ('reflection', 'typed_gpu_compiler/ir_reflection_contract.seen', ir_reflection),
+        ('cli', 'typed_gpu_compiler/ir_cli_contract.seen', ir_reflection)):
+    command = f'compile_case "$profile" {name} "$ROOT_DIR/tests/{fixture}"'
+    assert owner.count(command) == 1, 'missing or duplicated GPU IR contract: ' + name
+    assert (ir_reflection + ir_inputs).count(command) == 1, 'GPU IR split duplicates a cold contract: ' + name
+assert (ir_reflection + ir_inputs).count('compile_case fast fuzz ') == 1
+assert 'seed=1086' in ir_reflection and 'hashlib.sha256' in ir_reflection
+assert 'E_GPU_OPTIONS' in ir_reflection and 'E_GPU_BACKEND_UNAVAILABLE' in ir_reflection
+metal_capabilities = (gpu_tests / 'seen_gpu_metal_b.sh').read_text()
+metal_numeric = (gpu_tests / 'seen_gpu_metal_b_numeric.sh').read_text()
+for source in (metal_capabilities, metal_numeric):
+    assert 'for profile in fast release undefined address; do' in source, 'Metal split dropped a compiler profile'
+for name, fixture, owner in (
+        ('numeric', 'gpu_scalar_words/metal_numeric_contract.seen', metal_numeric),
+        ('specialization', 'gpu_artifacts/specialization_contract.seen', metal_numeric),
+        ('synchronization', 'metal_msl_metallib_lowering/synchronization_contract.seen', metal_capabilities)):
+    command = f'compile_case "$profile" {name} "$ROOT_DIR/tests/{fixture}"'
+    assert owner.count(command) == 1 and (metal_capabilities + metal_numeric).count(command) == 1, 'missing or duplicated Metal contract: ' + name
+assert 'compile_fixture "$profile" text ' in metal_capabilities
+assert 'check_gpu_metal_artifacts.py' in metal_capabilities and 'check_gpu_metal_atomics.py' in metal_capabilities
+assert 'metal_metadata_contract.py' in metal_capabilities
+assert 'check_gpu_metal_numerics.py' in metal_numeric and 'read_numeric_cases' in metal_numeric
+for name, seed in (('fuzz', '1089'), ('atomic-fuzz', '1098')):
+    assert (metal_capabilities + metal_numeric).count(f'compile_case fast {name} ') == 1
+    assert '60s seed=' + seed in metal_capabilities
+ptx_capabilities = (gpu_tests / 'seen_gpu_ptx_b.sh').read_text()
+ptx_numeric = (gpu_tests / 'seen_gpu_ptx_b_numeric.sh').read_text()
+for source in (ptx_capabilities, ptx_numeric):
+    assert 'for profile in fast release undefined address; do' in source, 'PTX split dropped a compiler profile'
+    assert 'check_gpu_ptx_toolchain.py' in source, 'PTX split bypasses pinned assembler identity'
+for name, fixture, owner in (
+        ('numeric', 'gpu_scalar_words/ptx_numeric_contract.seen', ptx_numeric),
+        ('specialization', 'gpu_artifacts/specialization_contract.seen', ptx_numeric),
+        ('rejection', 'cuda_ptx_lowering/capabilities_contract.seen', ptx_capabilities)):
+    command = f'compile_case "$profile" {name} "$ROOT_DIR/tests/{fixture}"'
+    assert owner.count(command) == 1 and (ptx_capabilities + ptx_numeric).count(command) == 1, 'missing or duplicated PTX contract: ' + name
+assert 'compile_fixture "$profile" layout ' in ptx_capabilities
+assert 'check_gpu_ptx_artifacts.py' in ptx_capabilities
+assert 'check_gpu_ptx_hardware.py' in ptx_capabilities and 'SEEN_REQUIRE_PTX_HARDWARE' in ptx_capabilities
+assert '--sm80-minimum bf16' in ptx_capabilities
+assert (ptx_capabilities + ptx_numeric).count('compile_case fast fuzz ') == 1
+assert '60s seed=1089' in ptx_numeric
+runtime_metadata = (gpu_tests / 'seen_gpu_runtime_a.sh').read_text()
+runtime_vulkan = (gpu_tests / 'seen_gpu_runtime_a_vulkan.sh').read_text()
+for source in (runtime_metadata, runtime_vulkan):
+    assert 'for profile in fast release undefined address; do' in source, 'runtime split dropped a compiler profile'
+    assert 'seen_verify_source_coverage' in source, 'runtime split dropped source coverage'
+assert 'fixtures=(backend error limits device_info discovery operation device device_stress context_lease)' in runtime_metadata
+assert 'native_fixtures=(vulkan_abi vulkan_instance vulkan_properties vulkan_provider)' in runtime_vulkan
+assert 'fault_modes=(version-status version-old instance-status instance-empty devices-count-status devices-limit devices-fill-status devices-overflow queue-limit queue-overflow queue-none context-status context-empty)' in runtime_vulkan
+assert 'fault_codes=(gpu.unavailable gpu.unsupported_capability gpu.out_of_memory gpu.invalid gpu.device_lost gpu.limit gpu.invalid gpu.invalid gpu.limit gpu.invalid gpu.unsupported_capability gpu.out_of_memory gpu.invalid)' in runtime_vulkan
+assert '--min-lines 90 --min-branches 90' in runtime_vulkan
+assert 'vulkan_properties_fuzz' in runtime_vulkan and 'run_vendor_faults fast coverage-vulkan_fault' in runtime_vulkan
+assert '60s seed=1100' in runtime_metadata
+assert 'E_OWNERSHIP_USE_AFTER_MOVE' in runtime_metadata and 'E_TYPE_BOUND' in runtime_metadata
+assert 'NEEDED.*(cuda|cudart|vulkan|amdhip|metal)' in runtime_metadata, 'runtime split dropped CPU-only SDK isolation'
+for name in ('seen_bundled_cuda_link.sh', 'seen_cuda_after_bounded_array_release.sh',
+             'seen_cuda_stream_launch_token_contract.sh', 'seen_lines_linear_contract.sh',
+             'seen_unimported_extension_contract.sh', 'seen_qwen_native_dependency.sh',
+             'seen_qwen_seen_contracts.sh'):
+    source = (Path(sys.argv[3]) / 'tests/misc_root_tests' / name).read_text()
+    assert not re.search(r'--(?:opt-)?jobs(?:=|\s)', source), 'legacy attested caller overrides worker schema: ' + name
+    assert 'bash "$ATTESTED_SEEN" "$SEEN_BIN"' in source, 'legacy compiler bypasses attestation: ' + name
+utf8 = (Path(sys.argv[3]) / 'tests/misc_root_tests/seen_utf8_string_indexing.sh').read_text()
+assert not re.search(r'--(?:opt-)?jobs(?:=|\s)', utf8), 'UTF-8 gate overrides attested worker schema'
+assert 'COMPILER_PREFIX=(bash "${SEEN_ATTESTED_COMPILER_RUNNER:?}")' in utf8
+assert 'bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"' in utf8
+assert 'HARD_SCOPE' not in utf8, 'UTF-8 gate bypasses compiler attestation'
 PYTHON
 
 python3 - "$ROOT_DIR" <<'PYTHON'

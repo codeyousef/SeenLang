@@ -2,7 +2,7 @@
 
 import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
-import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitReadFileBytesPathRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl}
+import codegen.ir_call_runtime.{emitPrintLikeCallImpl, emitOptionRuntimeBuiltinCallImpl, emitSuperRuntimeBuiltinCallImpl, emitReadTextRuntimeCallImpl, emitWriteTextRuntimeCallImpl, emitArgsRuntimeCallImpl, emitReadFileBytesPathRuntimeCallImpl, emitPanicRuntimeCallImpl, emitMathBuiltinCallImpl, emitCommandResultRuntimeBridgeImpl}
 import codegen.ir_call_runtime_plan.{isOptionRuntimeCallPlanImpl, shouldReadSomeRuntimeArgImpl, isSuperRuntimeCallPlanImpl, isEmptyRuntimeCalleeImpl, isPrintRuntimeCallPlanImpl, shouldReadPrintRuntimeArgImpl, runtimeIoCallActionImpl, isPanicRuntimeCallPlanImpl, shouldReadPanicRuntimeArgImpl, isMathRuntimeCallPlanImpl, shouldReadMathRuntimeArgImpl, planRuntimeBuiltinDispatchImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState, mapTypeState, getDataTypeSizeState}
@@ -194,6 +194,17 @@ fun tryGenerateRuntimeBuiltinCallState(
             funcName)
     }
     return ""
+}
+
+fun tryGenerateCommandRuntimeBridgeCallState(
+    ctx: CodegenLoweringContext, output: StringBuilder,
+    expr: ParserExpressionNode, functionSymbol: String) r: String {
+
+    if functionSymbol != "__ExecuteCommand" or expr.arguments.length() != 1 {
+        return ""
+    }
+    let argument = lowerExpression(ctx, expr.arguments[0])
+    return emitCommandResultRuntimeBridgeImpl(output, getFeatureRegBoxImpl(), argument)
 }
 
 fun tryGenerateMathBuiltinCallState(

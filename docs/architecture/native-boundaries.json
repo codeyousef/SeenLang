@@ -219,10 +219,10 @@
     {
       "id": "deterministic-process-input-adapter",
       "subsystem": "stdlib.determinism",
-      "purpose": "Bounded process-start snapshots, Linux process replacement after validated deterministic CLI activation, and symlink-aware path containment. Native Seen owns grants, policy, context identity, diagnostics, and observable values. The runtime captures inputs before user code, re-execs without PATH lookup when the flag activates the mode, and canonicalizes existing paths through the OS. Unsupported process replacement and Windows path policy fail closed.",
-      "abi": "OS process and filesystem C",
+      "purpose": "Bounded launch snapshots and allocation-free borrowed argument/environment views, Linux re-exec after validated deterministic activation, and OS path containment. Seen owns grants, policy, identity, diagnostics, and values. Views use immutable process-lifetime storage, never mutable ambient inputs. Re-exec avoids PATH; unsupported replacement and Windows path policy fail closed.",
+      "abi": "OS process and filesystem C / runtime-v15",
       "platforms": ["linux-x86_64", "linux-aarch64", "macos", "windows"],
-      "symbols": ["seen_deterministic_path_beneath", "seen_deterministic_runtime_status", "seen_reexec_current_process"],
+      "symbols": ["seen_deterministic_argument_view", "seen_deterministic_environment_view", "seen_deterministic_path_beneath", "seen_deterministic_runtime_status", "seen_reexec_current_process"],
       "production": true
     },
     {
@@ -238,7 +238,7 @@
       "id": "frontend-allocation-observer",
       "subsystem": "compiler.frontend",
       "purpose": "Thread-local allocation events with recursion protection and exclusive registration. Seen owns bounded address lookup, allocator provenance, heap/count limits, parser scratch restoration and release. No native ownership list or parsing policy. GPU lowering returns independent IR before temporary cleanup. Repeated success/rejection and four growing map shapes check exact accounting under sanitizers. Also owns immutable CLI snapshots. Permanent callback ABI; serial parser sessions only.",
-      "abi": "C callback / runtime-v14",
+      "abi": "C callback / runtime-v15 (retains runtime-v14 callback ABI)",
       "platforms": [
         "linux-x86_64",
         "linux-aarch64",

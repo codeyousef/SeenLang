@@ -17,8 +17,10 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 | `async` | Future and async runtime helpers |
 | `audio` | Audio backend/device wrappers |
 | `collections` | Collection types, buffers, maps, sets, pools |
+| `compute` | Accelerator providers, memory resources, staging and transfers |
 | `core` | Core types, conversion, reflection, binary helpers |
 | `crypto` | Hashing utilities |
+| `determinism` | Bounded execution-context inputs and capability policy |
 | `env` | Environment helpers |
 | `ffi` | C type and interop helpers |
 | `framework` | Component, routing, middleware, store, VDOM, hot reload |
@@ -113,6 +115,45 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `collections/string_hash_map`
 - `collections/vec`
 - `collections/vecdeque`
+
+### `compute`
+
+- `compute/allocator`
+- `compute/backend`
+- `compute/buffer`
+- `compute/buffer_region`
+- `compute/capabilities`
+- `compute/context_lease`
+- `compute/cuda_staging`
+- `compute/device`
+- `compute/device_info`
+- `compute/discovery`
+- `compute/error`
+- `compute/limits`
+- `compute/memory_kind`
+- `compute/operation`
+- `compute/provider`
+- `compute/resource_arena_core`
+- `compute/resource_geometry`
+- `compute/resource_provider`
+- `compute/resource_ranges`
+- `compute/resource_stats`
+- `compute/staging_ring`
+- `compute/vulkan_abi`
+- `compute/vulkan_buffer_abi`
+- `compute/vulkan_error`
+- `compute/vulkan_instance`
+- `compute/vulkan_mapping`
+- `compute/vulkan_memory`
+- `compute/vulkan_memory_info`
+- `compute/vulkan_native`
+- `compute/vulkan_properties`
+- `compute/vulkan_provider`
+- `compute/vulkan_queue`
+- `compute/vulkan_staging`
+- `compute/vulkan_timeline`
+- `compute/vulkan_transfer`
+- `compute/vulkan_transfer_abi`
 
 ### `core`
 

@@ -2,7 +2,8 @@
 // Validates deterministic annotations and nondeterministic usage.
 
 import parser.real_parser.{ProgramNode, FunctionNode, StatementNode, ParserExpressionNode, BlockNode, ClassNode}
-import typechecker.type_ref.{TypeRef, parseTypeRef, typeRefEraseCallArguments}
+import parser.real_parser.{genericParameterCount, genericParameterNameAt}
+import typechecker.type_ref.{TypeRef, parseTypeRef, typeRefEraseCallArguments, typeRefSubstitute}
 
 // Known nondeterministic types from stdlib require annotation in
 // deterministic profile mode.
@@ -287,7 +288,7 @@ fun determinismFreeBuiltinEffect(name: String) r: String {
 fun determinismKnownDeterministicBuiltin(name: String) r: Bool {
     if name == "sizeof" or name == "alignof" or name == "offsetof" or
         name == "includeStr" or name == "includeBytes" or
-        name == "debug_assert" or name == "abort" or
+        name == "debug_assert" or name == "abort" or name == "panic" or
         name == "__default" or name.startsWith("__default<") or
         name == "split" or name == "startsWith" or name == "endsWith" or
         name == "contains" or name == "indexOf" or
@@ -376,6 +377,16 @@ class DeterminismEffectGraph {
     var registryImportTargetNames: Array<String>
     var registryAggregateModules: Array<String>
     var registryAggregateDomains: Array<String>
+    var registryFieldOwners: Array<String>
+    var registryFieldModules: Array<String>
+    var registryFieldNames: Array<String>
+    var registryFieldTypes: Array<String>
+    var registryGenericOwners: Array<String>
+    var registryGenericNames: Array<String>
+    var registryFiles: Array<String>
+    var trustedStdlibRoot: String
+    // Lexical generic binders of the body currently being streamed.
+    var inferenceGenericNames: Array<String>
 
     var declarationIdentities: Array<String>
     var declarationModules: Array<String>
@@ -430,6 +441,15 @@ class DeterminismEffectGraph {
             registryImportTargetNames: Array<String>(),
             registryAggregateModules: Array<String>(),
             registryAggregateDomains: Array<String>(),
+            registryFieldOwners: Array<String>(),
+            registryFieldModules: Array<String>(),
+            registryFieldNames: Array<String>(),
+            registryFieldTypes: Array<String>(),
+            registryGenericOwners: Array<String>(),
+            registryGenericNames: Array<String>(),
+            registryFiles: Array<String>(),
+            trustedStdlibRoot: "",
+            inferenceGenericNames: Array<String>(),
             declarationIdentities: Array<String>(),
             declarationModules: Array<String>(),
             declarationNames: Array<String>(),
@@ -484,6 +504,116 @@ class DeterminismEffectGraph {
         this.registryImportTargetNames = importTargetNames
         this.registryAggregateModules = aggregateModules
         this.registryAggregateDomains = aggregateDomains
+    }
+
+    fun setResolvedTypeMetadata(fieldOwners: Array<String>,
+        fieldModules: Array<String>, fieldNames: Array<String>,
+        fieldTypes: Array<String>, genericOwners: Array<String>,
+        genericNames: Array<String>, declarationFiles: Array<String>,
+        stdlibRoot: String) r: Bool {
+
+        if fieldOwners.length() > determinismGraphMaxEdges() or
+            genericOwners.length() > determinismGraphMaxEdges() {
+            this.reportLimit("<type-metadata>", 0, 0)
+            return false
+        }
+        this.registryFieldOwners = fieldOwners
+        this.registryFieldModules = fieldModules
+        this.registryFieldNames = fieldNames
+        this.registryFieldTypes = fieldTypes
+        this.registryGenericOwners = genericOwners
+        this.registryGenericNames = genericNames
+        this.registryFiles = declarationFiles
+        this.trustedStdlibRoot = stdlibRoot
+        return true
+    }
+
+    fun qualifyTypeRef(moduleName: String, typeRef: TypeRef,
+        genericNames: Array<String>, depth: Int) r: Void {
+
+        if depth > 32 {
+            this.reportLimit(typeRef.file, typeRef.line, typeRef.column)
+            return
+        }
+        var isGeneric = false
+        var genericIndex = 0
+        while genericIndex < genericNames.length() {
+            if genericNames[genericIndex] == typeRef.base { isGeneric = true }
+            genericIndex = genericIndex + 1
+        }
+        if not isGeneric and typeRef.identityBase == "" {
+            var index = this.registryFindCanonical(typeRef.base)
+            if index < 0 { index = this.registryLookupIndex(moduleName, typeRef.base) }
+            if index >= 0 { typeRef.identityBase = this.registryCanonicalNames[index] }
+        }
+        var i = 0
+        while i < typeRef.arguments.length() {
+            this.qualifyTypeRef(moduleName, typeRef.arguments[i], genericNames, depth + 1)
+            i = i + 1
+        }
+    }
+
+    fun instantiatedType(moduleName: String, typeName: String,
+        genericOwner: String, callerModule: String, actualType: String) r: String {
+
+        let parsed = parseTypeRef(typeName, 0, 0, "")
+        var actual = parseTypeRef(actualType, 0, 0, "")
+        if not parsed.valid or not actual.valid { return "" }
+        // A structural receiver's generic arguments belong to its underlying
+        // declaration, not to the pointer/dynamic wrapper.
+        while (actual.kind == "pointer" or actual.kind == "const_pointer" or
+            actual.kind == "dynamic" or actual.kind == "fixed_array") and
+            actual.arguments.length() > 0 {
+            actual = actual.arguments[0]
+        }
+        let names = Array<String>()
+        var i = 0
+        while i < this.registryGenericOwners.length() {
+            if this.registryGenericOwners[i] == genericOwner {
+                names.push(this.registryGenericNames[i])
+            }
+            i = i + 1
+        }
+        // Resolve each side in its own lexical scope before substitution.
+        // Requalifying substituted arguments in the declaration's scope can
+        // silently select an unrelated same-named type.
+        this.qualifyTypeRef(moduleName, parsed, names, 0)
+        this.qualifyTypeRef(callerModule, actual, this.inferenceGenericNames, 0)
+        let instantiated = typeRefSubstitute(parsed, names, actual.arguments)
+        return instantiated.canonicalIdentity()
+    }
+
+    fun fieldType(moduleName: String, receiverType: String,
+        fieldName: String) r: String {
+
+        let owner = this.resolvedTypeIdentity(moduleName, receiverType)
+        var i = 0
+        while i < this.registryFieldOwners.length() {
+            if this.registryFieldOwners[i] == owner and
+                this.registryFieldNames[i] == fieldName {
+                return this.instantiatedType(this.registryFieldModules[i],
+                    this.registryFieldTypes[i], owner, moduleName, receiverType)
+            }
+            i = i + 1
+        }
+        return ""
+    }
+
+    fun compilerDefaultIntrinsic(moduleName: String, func: FunctionNode,
+        file: String) r: Bool {
+
+        // The backend owns this exact zero-value intrinsic, not arbitrary FFI
+        // with the same name or a package claiming the stdlib module name.
+        if this.trustedStdlibRoot == "" or func.name != "__default" or
+            func.params.length() != 0 or
+            genericParameterCount(func.decorators) != 1 or
+            func.returnType.typeName != genericParameterNameAt(func.decorators, 0) {
+            return false
+        }
+        return (moduleName == "seen_std.src.core.option" and
+                file == this.trustedStdlibRoot + "/core/option.seen") or
+            (moduleName == "seen_std.src.collections.vec" and
+                file == this.trustedStdlibRoot + "/collections/vec.seen")
     }
 
     fun registryFindCanonical(canonicalName: String) r: Int {
@@ -705,15 +835,16 @@ class DeterminismEffectGraph {
         let canonicalIndex = this.registryFindCanonical(canonicalBase)
         if canonicalIndex >= 0 { return canonicalIndex }
 
-        let parsed = parseTypeRef(typeName, 0, 0, "")
+        var parsed = parseTypeRef(typeName, 0, 0, "")
         if not parsed.valid { return -1 }
-        var base = parsed.base
-        if (parsed.kind == "pointer" or parsed.kind == "const_pointer" or
+        while (parsed.kind == "pointer" or parsed.kind == "const_pointer" or
             parsed.kind == "dynamic" or parsed.kind == "fixed_array") and
             parsed.arguments.length() > 0 {
-
-            base = parsed.arguments[0].base
+            parsed = parsed.arguments[0]
         }
+        let base = parsed.base
+        let unwrappedIndex = this.registryFindCanonical(base)
+        if unwrappedIndex >= 0 { return unwrappedIndex }
         return this.registryLookupIndex(moduleName, base)
     }
 
@@ -727,18 +858,22 @@ class DeterminismEffectGraph {
             return canonicalBase
         }
 
-        let parsed = parseTypeRef(typeName, 0, 0, "")
+        var parsed = parseTypeRef(typeName, 0, 0, "")
         if not parsed.valid { return "" }
-        var base = parsed.base
-        if (parsed.kind == "pointer" or parsed.kind == "const_pointer" or
+        while (parsed.kind == "pointer" or parsed.kind == "const_pointer" or
             parsed.kind == "dynamic" or parsed.kind == "fixed_array") and
             parsed.arguments.length() > 0 {
-
-            base = parsed.arguments[0].base
+            parsed = parsed.arguments[0]
         }
-        let index = this.registryLookupIndex(moduleName, base)
+        let base = parsed.base
+        var index = this.registryFindCanonical(base)
+        if index < 0 { index = this.registryLookupIndex(moduleName, base) }
         if index >= 0 { return this.registryCanonicalNames[index] }
+        if base.startsWith("builtin::type::") { return base }
         if base == "Int" or base == "UInt" or base == "Bool" or
+            base == "Int8" or base == "Int16" or base == "Int32" or
+            base == "Int64" or base == "UInt8" or base == "UInt16" or
+            base == "UInt32" or base == "UInt64" or
             base == "Char" or base == "String" or base == "Float" or
             base == "Float32" or base == "Float64" or base == "f32" or
             base == "f64" or base == "Array" or base == "Option" or
@@ -841,8 +976,10 @@ class DeterminismEffectGraph {
             return
         }
 
-        let declarationIndex = this.registryLookupIndex(moduleName,
-            typeRef.base)
+        var declarationIndex = this.registryFindCanonical(typeRef.base)
+        if declarationIndex < 0 {
+            declarationIndex = this.registryLookupIndex(moduleName, typeRef.base)
+        }
         if declarationIndex >= 0 {
             if this.registryKinds[declarationIndex] == "TypeAlias" {
                 let target = this.registryTypeIdentities[declarationIndex]
@@ -850,8 +987,8 @@ class DeterminismEffectGraph {
                     target != this.registryCanonicalNames[declarationIndex] {
 
                     let targetRef = parseTypeRef(target, line, column, file)
-                    this.checkTypeRef(owner, moduleName, targetRef, file, line,
-                        column, depth + 1)
+                    this.checkTypeRef(owner, this.registryModules[declarationIndex],
+                        targetRef, file, line, column, depth + 1)
                 }
             } else {
                 let resolvedName = this.registryNames[declarationIndex]
@@ -867,16 +1004,20 @@ class DeterminismEffectGraph {
                 }
             }
         } else {
-            if typeRef.base == "HashMap" or typeRef.base == "HashSet" {
-                this.addDirectEffect(owner, "unordered-collection",
-                    "builtin::type::" + typeRef.base, file, line, column)
+            var builtinBase = typeRef.base
+            if builtinBase.startsWith("builtin::type::") {
+                builtinBase = builtinBase.substring(15, builtinBase.length())
             }
-            if typeRef.base == "Float" or typeRef.base == "Float32" or
-                typeRef.base == "Float64" or typeRef.base == "f32" or
-                typeRef.base == "f64" {
+            if builtinBase == "HashMap" or builtinBase == "HashSet" {
+                this.addDirectEffect(owner, "unordered-collection",
+                    "builtin::type::" + builtinBase, file, line, column)
+            }
+            if builtinBase == "Float" or builtinBase == "Float32" or
+                builtinBase == "Float64" or builtinBase == "f32" or
+                builtinBase == "f64" {
 
                 this.addDirectEffect(owner, "floating-point",
-                    "builtin::type::" + typeRef.base, file, line, column)
+                    "builtin::type::" + builtinBase, file, line, column)
             }
         }
 
@@ -980,20 +1121,25 @@ class DeterminismEffectGraph {
             let callName = determinismStripCallGenericArguments(expr.callee)
             let registryIndex = this.registryLookupIndex(moduleName, callName)
             if registryIndex >= 0 {
-                let declarationIndex = this.findRegistryDeclaration(
-                    registryIndex)
-                if declarationIndex >= 0 {
-                    return this.declarationReturnTypes[declarationIndex]
-                }
                 let kind = this.registryKinds[registryIndex]
                 if kind == "Class" or kind == "Struct" or
                     kind == "TypeAlias" {
-                    return this.registryCanonicalNames[registryIndex]
+                    let constructed = parseTypeRef(expr.callee, 0, 0, "")
+                    this.qualifyTypeRef(moduleName, constructed, this.inferenceGenericNames, 0)
+                    return constructed.canonicalIdentity()
+                }
+                let declarationIndex = this.findRegistryDeclaration(
+                    registryIndex)
+                if declarationIndex >= 0 {
+                    return this.instantiatedType(
+                        this.declarationModules[declarationIndex],
+                        this.declarationReturnTypes[declarationIndex],
+                        this.declarationIdentities[declarationIndex], moduleName, expr.callee)
                 }
             }
             if callName.length() > 0 {
                 let first = callName.substring(0, 1)
-                if first >= "A" and first <= "Z" { return callName }
+                if first >= "A" and first <= "Z" { return expr.callee }
             }
         }
         if expr.kind == "MethodCall" {
@@ -1019,14 +1165,38 @@ class DeterminismEffectGraph {
             if methodIndex >= 0 {
                 let returnType = this.declarationReturnTypes[methodIndex]
                 if returnType != "" and returnType != "Unknown" {
-                    return returnType
+                    return this.instantiatedType(
+                        this.declarationModules[methodIndex], returnType,
+                        this.declarationReceiverTypes[methodIndex], moduleName, receiverType)
                 }
             }
+            let builtinType = this.builtinMethodReturnType(moduleName,
+                receiverType, methodName)
+            if builtinType != "" { return builtinType }
             if methodName == "new" { return receiverType }
         }
-        if expr.kind == "MemberAccess" and expr.operands.length() > 0 {
-            return this.inferExpressionType(moduleName, expr.operands[0],
-                bindingNames, bindingTypes, ownerType)
+        if expr.kind == "MemberAccess" {
+            var receiverType = ""
+            if expr.operands.length() > 0 {
+                receiverType = this.inferExpressionType(moduleName,
+                    expr.operands[0], bindingNames, bindingTypes, ownerType)
+            } else if expr.literalValue == "this" {
+                receiverType = ownerType
+            } else {
+                receiverType = this.lookupBindingType(bindingNames,
+                    bindingTypes, expr.literalValue)
+            }
+            return this.fieldType(moduleName, receiverType, expr.variableName)
+        }
+        if expr.kind == "IndexAccess" and expr.operands.length() > 0 {
+            let receiverType = this.inferExpressionType(moduleName,
+                expr.operands[0], bindingNames, bindingTypes, ownerType)
+            let parsed = parseTypeRef(receiverType, 0, 0, "")
+            if parsed.valid and parsed.arguments.length() == 1 and
+                this.builtinReceiverIdentity(moduleName, receiverType) ==
+                    "builtin::type::Array" {
+                return parsed.arguments[0].canonicalIdentity()
+            }
         }
         return ""
     }
@@ -1162,6 +1332,18 @@ class DeterminismEffectGraph {
         func: FunctionNode, file: String) r: Void {
 
         if owner < 0 { return }
+        while this.inferenceGenericNames.length() > 0 {
+            this.inferenceGenericNames.pop()
+        }
+        var genericIndex = 0
+        while genericIndex < this.registryGenericOwners.length() {
+            if this.registryGenericOwners[genericIndex] ==
+                    this.declarationIdentities[owner] or
+                this.registryGenericOwners[genericIndex] == ownerType {
+                this.inferenceGenericNames.push(this.registryGenericNames[genericIndex])
+            }
+            genericIndex = genericIndex + 1
+        }
         if func.isDeterministic and func.isNondeterministic {
             this.addDetailedError("core.004d.annotation-conflict",
                 "declaration cannot be both @deterministic and @nondeterministic",
@@ -1179,7 +1361,7 @@ class DeterminismEffectGraph {
                 this.declarationIdentities[owner] + " -> annotation-invalid",
                 "Use one argument-free @nondeterministic annotation on the exact boundary declaration.")
         }
-        if func.isExtern {
+        if func.isExtern and not this.compilerDefaultIntrinsic(moduleName, func, file) {
             this.addDirectEffect(owner, "unsafe-ffi",
                 this.declarationIdentities[owner] + "#extern", file,
                 func.line, func.column)
@@ -1222,7 +1404,7 @@ class DeterminismEffectGraph {
         }
     }
 
-    fun collectModule(program: ProgramNode, moduleName: String,
+    fun collectModuleDeclarations(program: ProgramNode, moduleName: String,
         file: String) r: Void {
 
         var itemIndex = 0
@@ -1273,7 +1455,12 @@ class DeterminismEffectGraph {
             itemIndex = itemIndex + 1
         }
 
-        itemIndex = 0
+    }
+
+    fun scanModule(program: ProgramNode, moduleName: String,
+        file: String) r: Void {
+
+        var itemIndex = 0
         while itemIndex < program.items.length() {
             let item = program.items[itemIndex]
             if item.itemType == "Function" {
@@ -1418,8 +1605,79 @@ class DeterminismEffectGraph {
     fun builtinReceiverIdentity(moduleName: String, receiverType: String)
         r: String {
 
-        let resolved = this.resolvedTypeIdentity(moduleName, receiverType)
-        if resolved.startsWith("builtin::type::") { return resolved }
+        var resolved = this.resolvedTypeIdentity(moduleName, receiverType)
+        var aliasDepth = 0
+        while resolved != "" and aliasDepth <= 32 {
+            if resolved.startsWith("builtin::type::") { return resolved }
+            let aliasIndex = this.registryFindCanonical(resolved)
+            if aliasIndex < 0 or
+                this.registryKinds[aliasIndex] != "TypeAlias" { return "" }
+            let target = this.registryTypeIdentities[aliasIndex]
+            if target == "" or target == resolved { return "" }
+            // Follow the resolved declaration's target in its defining scope,
+            // never a receiver's spelling or an unrelated same-named type.
+            resolved = this.resolvedTypeIdentity(
+                this.registryModules[aliasIndex], target)
+            aliasDepth = aliasDepth + 1
+        }
+        return ""
+    }
+
+    fun builtinMethodReturnType(moduleName: String, receiverType: String,
+        methodName: String) r: String {
+
+        // Resolve a receiver before classifying an intrinsic. A user method,
+        // alias or unresolved receiver never acquires purity from its spelling.
+        let identity = this.builtinReceiverIdentity(moduleName, receiverType)
+        if identity == "builtin::type::String" {
+            if methodName == "length" or methodName == "byteAt" or
+                methodName == "indexOf" or methodName == "lastIndexOf" {
+                return "Int"
+            }
+            if methodName == "startsWith" or methodName == "endsWith" or
+                methodName == "contains" { return "Bool" }
+            if methodName == "substring" or methodName == "trim" {
+                return "String"
+            }
+            if methodName == "split" { return "Array<String>" }
+        }
+        if methodName == "toString" and
+            (identity == "builtin::type::Int" or identity == "builtin::type::UInt" or
+            identity == "builtin::type::Int8" or identity == "builtin::type::Int16" or
+            identity == "builtin::type::Int32" or identity == "builtin::type::Int64" or
+            identity == "builtin::type::UInt8" or identity == "builtin::type::UInt16" or
+            identity == "builtin::type::UInt32" or identity == "builtin::type::UInt64" or
+            identity == "builtin::type::Bool") {
+            return "String"
+        }
+        let receiverIndex = this.resolveTypeBaseIndex(moduleName, receiverType)
+        if methodName == "length" and receiverIndex >= 0 and
+            receiverIndex < this.registryFiles.length() and
+            this.registryCanonicalNames[receiverIndex] ==
+                "seen_std.src.collections.vec::Vec" and
+            this.registryFiles[receiverIndex] ==
+                this.trustedStdlibRoot + "/collections/vec.seen" {
+            // Vec.length() is the backend's typed field-read intrinsic.
+            return "Int"
+        }
+        if identity == "builtin::type::Array" {
+            if methodName == "length" { return "Int" }
+            if methodName == "get" {
+                let parsed = parseTypeRef(receiverType)
+                if parsed.valid and parsed.arguments.length() == 1 {
+                    return parsed.arguments[0].canonicalIdentity()
+                }
+            }
+            if methodName == "push" or methodName == "free" {
+                return "Void"
+            }
+        }
+        // Freeing a resolved aggregate is compiler-managed lifecycle lowering;
+        // same-named user methods have already resolved to their real bodies.
+        if methodName == "free" and
+            this.resolveTypeBaseIndex(moduleName, receiverType) >= 0 {
+            return "Void"
+        }
         return ""
     }
 
@@ -1466,7 +1724,8 @@ class DeterminismEffectGraph {
             if resolved >= 0 {
                 this.addEdge(owner, resolved, file, line, column)
                 this.addTraitDispatchEdges(resolved, name)
-            } else if resolved != -3 {
+            } else if resolved != -3 and (resolved == -2 or
+                this.builtinMethodReturnType(moduleName, receiverType, name) == "") {
                 let builtinEffect = determinismFreeBuiltinEffect(name)
                 if builtinEffect != "" {
                     var builtinIdentity = "builtin::" + builtinEffect +
@@ -1480,7 +1739,7 @@ class DeterminismEffectGraph {
                     }
                     this.addDirectEffect(owner, builtinEffect,
                         builtinIdentity, file, line, column)
-                } else if not determinismKnownDeterministicBuiltin(name) {
+                } else if receiverType != "" or not determinismKnownDeterministicBuiltin(name) {
                     this.addDirectEffect(owner, "unresolved-call",
                         "unresolved::" + name, file, line, column)
                 }

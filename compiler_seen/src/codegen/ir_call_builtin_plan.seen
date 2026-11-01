@@ -155,14 +155,14 @@ fun planIndirectCallImpl(funcName: String, varNames: Array<String>,
     activeVarCount: Int) r: IndirectCallPlan {
 
     let plan = IndirectCallPlan.new()
-    var varIdx = 0
-    while varIdx < activeVarCount {
+    var varIdx = activeVarCount - 1
+    while varIdx >= 0 {
         if varNames[varIdx] == funcName {
             plan.isIndirect = true
             plan.varIndex = varIdx
             return plan
         }
-        varIdx = varIdx + 1
+        varIdx = varIdx - 1
     }
     return plan
 }

@@ -1,0 +1,76 @@
+import support.{Holder}
+
+type Message = String
+
+class Envelope<Payload> {
+    var tag: Int
+    var value: Payload
+    var sentinel: Int
+
+    fun get() r: Payload {
+        return this.value
+    }
+
+    fun replace(value: Payload) r: Void {
+        this.value = value
+    }
+}
+
+class Wrapped<T> {
+    var value: T
+
+    fun nested() r: Holder<T> {
+        return Holder<T>{value: this.value}
+    }
+}
+
+fun makeMessage() r: Envelope<Message> {
+    return Envelope<String>{tag: 11, value: "aggregate-payload", sentinel: 29}
+}
+
+fun throughBoundary(value: Envelope<String>) r: Envelope<Message> {
+    return value
+}
+
+fun main() r: Int {
+    let message = throughBoundary(makeMessage())
+    if message.tag != 11 or message.sentinel != 29 {
+        return 1
+    }
+    if not message.value.startsWith("aggregate-") or not message.get().endsWith("payload") {
+        return 2
+    }
+    message.replace("replacement-text")
+    if message.tag != 11 or message.sentinel != 29 or not message.get().endsWith("text") {
+        return 3
+    }
+    // A second aggregate shape must not share a mutated template AST or use a
+    // String-sized erased slot. Array descriptors have four machine words.
+    let numbers = Array<Int>()
+    numbers.push(5)
+    numbers.push(8)
+    let array = Envelope<Array<Int>>{tag: 13, value: numbers, sentinel: 31}
+    let fetched = array.get()
+    if array.tag != 13 or array.sentinel != 31 or fetched.length() != 2 or fetched[1] != 8 {
+        return 4
+    }
+    // Keep the ordinary word-erased instantiation alive beside both clones.
+    let word = Holder<Int>{value: 41}
+    if word.value != 41 or word.get() != 41 {
+        return 5
+    }
+    // Holder<String> is discovered only after substituting Wrapped<String>'s
+    // method body. Its definition belongs to support, not this caller module.
+    let wrapped = Wrapped<String>{value: "nested-payload"}
+    let nested = wrapped.nested()
+    if not nested.value.startsWith("nested-") or not nested.get().endsWith("payload") {
+        return 6
+    }
+    nested.free()
+    wrapped.free()
+    word.free()
+    array.free()
+    numbers.free()
+    message.free()
+    return 0
+}

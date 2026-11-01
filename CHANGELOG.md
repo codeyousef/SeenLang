@@ -12,11 +12,76 @@ Foundations**.
 
 ### Added
 
+- Lower source generic classes with String/Array arguments through concrete field
+  types and method ABIs, retaining String aggregates and native Array references
+  rather than mismatched erased slots. Preserve runtime-owned container ABIs and
+  ordinary word/class instantiations; reject unsupported aggregate-by-value,
+  open, trait and native method specializations. Cover constructor, getter/setter,
+  overwrite, adjacent fields, aliases, nested demands and function boundaries
+  without introducing aggregate boxes.
+- Apply generic ABI/body checks to inferred descriptor calls as well as explicit
+  type arguments, preserving move/borrow cleanup metadata. Honor lexical
+  intrinsic-name shadowing, emit typed zero defaults and retain null-accepting
+  Array runtime and ordinary source function/method parameter contracts instead
+  of asserting invalid nonnull inputs.
+  Preserve the existing boxed Result-constructor ABI only for its verified
+  standard-library declarations, not same-spelled user functions.
+  Reuse local frontend-node construction and explicit driver String types in
+  frozen-bootstrap-sensitive compiler paths.
+  Substitute generic type operands of `is` without rewriting same-named value
+  bindings, and restrict enum-tag checks to known enum variants.
+- Emit pointer/64-bit integer casts from physical ABI metadata rather than
+  treating the language `Ptr` spelling as a no-op and generating malformed IR.
+  Keep native `Ptr`/Array/List field projections as pointers while retaining
+  typed `*T` address and class-handle word ABIs.
+- Keep the native command-result aggregate bridge independent of lexical math
+  intrinsic dispatch. Imported process helpers retain success and captured output
+  for successful, failed and empty-output commands during compiler self-hosting.
+- Preserve the element identities of builtin `Array<T>.get` and `String.split`
+  in deterministic effect analysis without granting intrinsic purity to
+  same-spelled user classes or unresolved methods.
+- Keep generated callback IDs and definitions module-owned across recursive
+  lowering. Reserve identities before nested callbacks and parallel bodies;
+  stop recursive snapshots from discarding definitions or rewinding body IDs.
+- Run the reproducibility producer's default/full/ThinLTO matrix as native
+  Linux x86-64 builds and bind the executed mode/package flags to recorded
+  commands and build-input identities, instead of selecting the cross-target
+  path where full LTO is deliberately ineligible.
+- Give native Linux runtime C units stable directory-descriptor input identities
+  without changing the caller working directory or copying source trees.
+  Runtime-object cache schema v5 separates the new identity and caller search
+  context from old physical-path-dependent objects.
+- Preserve Clang's original include, forced-header, macro-file, environment,
+  sysroot and framework search semantics instead of partially reinterpreting
+  its option families; retain native default/full/ThinLTO raw-artifact checks.
+- Shell-quote checkout discovery and runtime-shim availability paths so
+  installations with spaces retain their common TEE, SGX and SEV source shims
+  instead of silently dropping them from native links.
 - Validate baseline repository revisions as Git object IDs rather than binary
   SHA-256 digests, while retaining SHA-256 for compiler and environment bytes.
 - Capture live baseline inputs for no-argument acceptance, bind nested probes
   to their own attested compiler scopes, and propagate actual probe failures
   before publishing evidence instead of hashing failed command output.
+- Replace required-CI source-string wiring assertions with the actual
+  outside-containment rejection contract; keep parsed workflow checks and
+  native acceptance gates authoritative.
+- Borrow bounded immutable launch inputs when constructing deterministic contexts,
+  releasing temporary capture records on success and failure instead of retaining
+  copies of every process argument. Check native snapshot bounds, disabled mode,
+  empty environment values and ambient-mutation isolation, including UBSan.
+- Preserve exact origin-qualified lock nodes when two aliases select the same
+  package identity from different registries; continue rejecting foreign-origin
+  substitution in normal, locked, and frozen modes.
+- Give hosted-source free functions native identities bound to verified origin,
+  archive and source-module ownership. Preserve lexical imports, private helper
+  calls and function addresses across same-named packages, while keeping explicit
+  foreign/export ABIs and local prebuilt object bytes unchanged.
+  Keep module-alias calls and function values qualified through lexical shadowing;
+  resolve async return metadata, initializer registration and intrinsic wrappers
+  to the same native owner. Correct first/middle/last async-registry lookups.
+- Exercise local registry publication and consumption through authenticated
+  loopback HTTPS, signed metadata, quarantined submissions, and real archive
+  integrity checks instead of the removed filesystem publication protocol.
 - Preserve portable transitive object provenance and hash-pinned dependency
   interface modules in prebuilt packages; check downstream fast/ThinLTO
   execution and reject malformed provenance, collisions and symlink redirection.
@@ -29,15 +94,19 @@ Foundations**.
 - Test copied compiler-fixture metadata with real native success and failure
   controls; reject missing logs, malformed or failed statuses and stale binaries
   before execution instead of trusting an executable filename alone.
+
 - Run line/extension, local native-dependency and package-prerequisite regressions
   through the selected attested compiler. Audit CPU isolation against that actual
   binary, with bounded dependency reads even when legacy output paths are absent.
+
 - Bind bundled CUDA, stream-token, checked-allocation and CLI regression gates
   to the runner-selected attested compiler; replace obsolete role-marker checks
   with numerical scope readback while retaining native and rejection controls.
+
 - Preserve target-specific C scalar extension attributes across extern
   declarations, imported aliases, renamed wrappers and call sites without
   changing the Seen-internal ABI; cover signed narrow callback boundaries.
+
 - Add contained LLVM optimizer/object failure probes with native fast/ThinLTO
   controls, preserving bounded tool identities and rejecting invalid requests.
 - Migrate the historical compiler regression suite to attested serial execution
@@ -77,6 +146,14 @@ Foundations**.
   API documentation with ownership, limits and links to compiling examples.
 - Isolate standalone artifact-namespace probes from inherited rebuild roles
   without changing their real resource limits or production rejection guards.
+- Honor the runner-selected compiler in legacy CLI, allocation, native-dependency
+  and GPU regressions; retain aliases, attested scopes and negative
+  dependency/ABI cases, and bound native fixture execution with hard timeouts.
+  Inspect the selected CPU compiler's dependencies even when default build
+  paths are absent, and keep baseline evidence tied to the same selected binary.
+- Preserve genuine compile logs and statuses when GPU probes are copied into
+  case-specific executables. Reject missing, malformed, failed and stale
+  fixture evidence without bypassing compile-status checks.
 - Split GPU IR input ownership from reflection/CLI acceptance so both mandatory
   gates retain cold fast, ThinLTO, undefined- and address-sanitized execution
   within bounded test deadlines, without dropping reflection hashes or fuzzing.
@@ -218,7 +295,9 @@ Foundations**.
 - Share bounded packed-number conversion plans across PTX, SPIR-V and AMDGPU while
   independently checking emitted instructions against common numeric goldens.
 - Bind the combined executor, completion I/O, SIMD and GPU foundations to
-  runtime-v14 and standard-library 0.17.0 with complete module checksums.
+  runtime-v15 and standard-library 0.17.0 with complete module checksums.
+  Deterministic contexts require the immutable borrowed argument/environment
+  views; retain the allocation-observer callback ABI introduced in runtime-v14.
 - Replace the untyped C work-stealing pool with Seen scheduling and ownership.
   Serialize allocator budget transactions, use thread-local runtime errors,
   and keep native adapters limited to platform operations.

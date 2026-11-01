@@ -2,6 +2,7 @@ import codegen.source_coverage_state.{beginSourceCoverageModule}
 import codegen.source_coverage_model.{SourceCoverageRegion, SourceCoverageFunction}
 import codegen.source_coverage_encoding.{coverageFilenames}
 import codegen.source_coverage_emit.{emitSourceCoverageRecords}
+import imports.package_map.{decodePackageMapColumns}
 import crypto.md5.{MD5}
 import codegen.simd_report.{configureSimdReporting, emitCollectedSimdReports,
     emitSimdObservationUnavailable, emitSimdPolicyRecord}
@@ -40,7 +41,7 @@ import bootstrap.frontend.{FrontendResult, FrontendDiagnostic, runFrontendCompat
 import core.result.{Result as _seedResult}
 import io.file.{readText, readTextChecked, writeText, writeTextAtomically, appendText, exists, deleteFile}
 import process.process.{runCommand, runProgram, runProgramRequest, CommandResult, commandWasSuccessful, processFork, waitPid, processExit, getPid}
-import env.env.{args, getOrDefault, set, removeEnv}
+import env.env.{args, getOrDefault, set, removeEnv, has}
 import codegen.llvm_ir_gen.{LLVMIRGenerator, newLLVMIRGenerator, overrideTargetTriple}
 import parser.real_parser.{ProgramNode, ItemNode, ImportSymbolNode, ClassNode, FunctionNode, ParamNode, TypeNode, AnnotationNode, StatementNode, ParserExpressionNode, BlockNode, EnumNode, getUiSlotCount, getUiSlotBlock}
 import lexer.language_pack.{resolveLanguagesRoot}
@@ -55,6 +56,8 @@ import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismEffectGraph, printDeterminismErrors}
 import typechecker.semantic_registry.{SemanticDeclarationRegistry, semanticNormalizeModuleIdentity}
 import typechecker.lexical_semantic.{LexicalSemanticResult, collectLexicalSemanticModule, checkLexicalSemanticModule}
+import codegen.ir_module_function_identity.{resetModuleFunctionIdentitiesImpl,
+    prepareModuleFunctionIdentityImpl, installModuleFreeFunctionBindingsImpl}
 import typechecker.gpu_frontend.{gpuCheckFunction as _seedGpuCheckFunction}
 import typechecker.gpu_types.{gpuParseType as _seedGpuParseType}
 import typechecker.gpu_scope.{GpuCheckContext as _seedGpuCheckContext}
@@ -258,6 +261,12 @@ import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getMethodReturnTypeState}
 import codegen.ir_generic_type_specialize.{specializeGenericTypeImpl}
 import codegen.ir_generic_call_type.{registerGenericCallTypeImpl, specializeGenericCallReturnImpl}
+import codegen.ir_generic_aggregate.{resetGenericAggregateSpecializationImpl, genericAggregateRegistryImpl, genericAggregateDemandsImpl, registerGenericAggregateDeclarationImpl, setGenericAggregateTrustedStdlibRootImpl}
+import codegen.ir_generic_aggregate_visit.{visitGenericAggregateProgramImpl, instantiateGenericAggregateClassImpl, appendGenericAggregateClassesImpl}
+import codegen.ir_generic_aggregate_layout.{registerGenericAggregateLayoutsImpl}
+// Older bootstrap compilers seed helper declarations from direct CLI imports.
+import codegen.ir_generic_aggregate_function_abi.{genericAggregateFunctionValueAbiImpl}
+import codegen.ir_generic_aggregate_function_body.{validateGenericAggregateFunctionUsesImpl, validateGenericAggregateInferredCallImpl}
 import codegen.ir_enum_lookup.{lookupEnumVariantTagImpl, lookupEnumParentImpl, lookupEnumFieldTypeImpl, lookupEnumFieldCountImpl, isEnumVariantImpl}
 import codegen.ir_decl_registry.{recordLateUserDeclareIntoStateImpl, captureDeclarationPassStateImpl, captureLateUserDeclareStateImpl, captureParentClassRegistryStateImpl, registerCrossModuleConstantsIntoStateImpl, registerParentClassIntoStateImpl, resetLateUserDeclareStateImpl}
 import codegen.ir_decl_items.{registerPreparedDeclarationItemsIntoStateImpl}
@@ -836,7 +845,7 @@ fun runtimeObjectBuildSignature(name: String, sourcePath: String,
     pgoFlags: String, effectiveTarget: String, extraFlags: String,
     runtimeSourcesSignature: String) r: String {
 
-    return hashString("runtime-object-v3|object-cache-abi=" +
+    return hashString("runtime-object-v5|object-cache-abi=" +
         compilerObjectCacheAbiIdentity() + "|" + name + "|src=" +
         hashString(loadFileContent(sourcePath)) + "|clang=" +
         hashString(buildToolVersionForCache("clang")) + "|march=" +
@@ -1470,36 +1479,72 @@ fun stripModuleAliasPrefixes(name: String, aliases: Array<String>) r: String {
     return result
 }
 
+fun recordModuleAliasShadow(name: String, aliases: Array<String>,
+    shadows: Array<String>) r: Void {
+
+    if programHasModuleAliasName(aliases, name) { shadows.push(name) }
+}
+
 fun normalizeExpressionModuleAliases(expr: ParserExpressionNode,
-    aliases: Array<String>) r: Void {
+    aliases: Array<String>, shadows: Array<String>) r: Void {
 
     if expr.kind == "" or expr.kind == "None" {
         return
     }
 
+    let scopeStart = shadows.length()
+    if expr.kind == "Closure" {
+        var paramIdx = 0
+        while paramIdx < expr.arguments.length() {
+            recordModuleAliasShadow(expr.arguments[paramIdx].literalValue,
+                aliases, shadows)
+            paramIdx = paramIdx + 1
+        }
+    }
+    if expr.kind == "PatternArm" and expr.operands.length() > 0 {
+        let pattern = expr.operands[0]
+        if pattern.variableName == "Variable" {
+            recordModuleAliasShadow(pattern.callee, aliases, shadows)
+        }
+        var fieldIdx = 0
+        while fieldIdx < pattern.operands.length() {
+            recordModuleAliasShadow(pattern.operands[fieldIdx].literalValue,
+                aliases, shadows)
+            fieldIdx = fieldIdx + 1
+        }
+    }
+
     var operandIdx = 0
     while operandIdx < expr.operands.length() {
-        normalizeExpressionModuleAliases(expr.operands[operandIdx], aliases)
+        normalizeExpressionModuleAliases(expr.operands[operandIdx], aliases,
+            shadows)
         operandIdx = operandIdx + 1
     }
 
     var argIdx = 0
-    while argIdx < expr.arguments.length() {
-        normalizeExpressionModuleAliases(expr.arguments[argIdx], aliases)
+    while expr.kind != "Closure" and argIdx < expr.arguments.length() {
+        normalizeExpressionModuleAliases(expr.arguments[argIdx], aliases,
+            shadows)
         argIdx = argIdx + 1
     }
 
     var slotIdx = 0
     while slotIdx < getUiSlotCount(expr) {
-        normalizeBlockModuleAliases(getUiSlotBlock(expr, slotIdx), aliases)
+        normalizeBlockModuleAliases(getUiSlotBlock(expr, slotIdx), aliases,
+            shadows)
         slotIdx = slotIdx + 1
     }
+    while shadows.length() > scopeStart { shadows.pop() }
 
     if expr.kind == "MethodCall" {
         if expr.operands.length() == 0 and
-            programHasModuleAliasName(aliases, expr.literalValue) {
+            programHasModuleAliasName(aliases, expr.literalValue) and
+            not programHasModuleAliasName(shadows, expr.literalValue) {
 
             expr.kind = "Call"
+            // Keep the lexical import qualifier until declaration resolution.
+            // A consumer's same-spelled declaration must not capture this call.
+            expr.callee = expr.literalValue + "." + expr.callee
             expr.literalValue = ""
             expr.variableName = ""
             return
@@ -1508,9 +1553,11 @@ fun normalizeExpressionModuleAliases(expr: ParserExpressionNode,
 
     if expr.kind == "MemberAccess" {
         if expr.operands.length() == 0 and
-            programHasModuleAliasName(aliases, expr.literalValue) {
+            programHasModuleAliasName(aliases, expr.literalValue) and
+            not programHasModuleAliasName(shadows, expr.literalValue) {
 
             expr.kind = "VarExpr"
+            expr.variableName = expr.literalValue + "." + expr.variableName
             expr.literalValue = ""
             expr.callee = ""
             return
@@ -1523,49 +1570,75 @@ fun normalizeExpressionModuleAliases(expr: ParserExpressionNode,
     expr.callee = stripModuleAliasPrefixes(expr.callee, aliases)
 }
 
-fun normalizeBlockModuleAliases(block: BlockNode, aliases: Array<String>)
-    r: Void {
+fun normalizeBlockModuleAliases(block: BlockNode, aliases: Array<String>,
+    shadows: Array<String>) r: Void {
 
+    let scopeStart = shadows.length()
     var stmtIdx = 0
     while stmtIdx < block.statements.length() {
-        normalizeStatementModuleAliases(block.statements[stmtIdx], aliases)
+        normalizeStatementModuleAliases(block.statements[stmtIdx], aliases,
+            shadows)
         stmtIdx = stmtIdx + 1
     }
+    while shadows.length() > scopeStart { shadows.pop() }
 }
 
 fun normalizeStatementModuleAliases(stmt: StatementNode,
-    aliases: Array<String>) r: Void {
+    aliases: Array<String>, shadows: Array<String>) r: Void {
 
     stmt.variableType.typeName =
         stripModuleAliasPrefixes(stmt.variableType.typeName, aliases)
-    normalizeExpressionModuleAliases(stmt.initializer, aliases)
-    normalizeExpressionModuleAliases(stmt.returnValue, aliases)
-    normalizeExpressionModuleAliases(stmt.expression, aliases)
-    normalizeExpressionModuleAliases(stmt.condition, aliases)
-    normalizeBlockModuleAliases(stmt.thenBranch, aliases)
-    normalizeBlockModuleAliases(stmt.elseBranch, aliases)
-    normalizeExpressionModuleAliases(stmt.loopCondition, aliases)
-    normalizeBlockModuleAliases(stmt.loopBody, aliases)
+    normalizeExpressionModuleAliases(stmt.initializer, aliases, shadows)
+    normalizeExpressionModuleAliases(stmt.returnValue, aliases, shadows)
+    normalizeExpressionModuleAliases(stmt.expression, aliases, shadows)
+    normalizeExpressionModuleAliases(stmt.condition, aliases, shadows)
+    normalizeExpressionModuleAliases(stmt.loopCondition, aliases, shadows)
+
+    // Initializers see the enclosing binding; following statements see the
+    // newly declared local. Nested branches restore their own shadow stack.
+    if stmt.kind == "Let" or stmt.kind == "Var" or
+        stmt.kind == "UiState" or stmt.kind == "UiComputed" {
+        recordModuleAliasShadow(stmt.variableName, aliases, shadows)
+    }
+    let scopeStart = shadows.length()
+    if stmt.kind == "IfLet" {
+        recordModuleAliasShadow(stmt.variableName, aliases, shadows)
+    }
+    normalizeBlockModuleAliases(stmt.thenBranch, aliases, shadows)
+    while shadows.length() > scopeStart { shadows.pop() }
+    if stmt.kind == "TryCatch" {
+        recordModuleAliasShadow(stmt.variableName, aliases, shadows)
+    }
+    normalizeBlockModuleAliases(stmt.elseBranch, aliases, shadows)
+    while shadows.length() > scopeStart { shadows.pop() }
+    if stmt.kind == "ForIn" or stmt.kind == "ParallelFor" {
+        recordModuleAliasShadow(stmt.variableName, aliases, shadows)
+    }
+    normalizeBlockModuleAliases(stmt.loopBody, aliases, shadows)
+    while shadows.length() > scopeStart { shadows.pop() }
 }
 
 fun normalizeFunctionModuleAliases(func: FunctionNode,
-    aliases: Array<String>) r: Void {
+    aliases: Array<String>, shadows: Array<String>) r: Void {
 
+    let scopeStart = shadows.length()
     var paramIdx = 0
     while paramIdx < func.params.length() {
         let param = func.params[paramIdx]
         param.paramType.typeName =
             stripModuleAliasPrefixes(param.paramType.typeName, aliases)
+        recordModuleAliasShadow(param.name, aliases, shadows)
         paramIdx = paramIdx + 1
     }
 
     func.returnType.typeName =
         stripModuleAliasPrefixes(func.returnType.typeName, aliases)
-    normalizeBlockModuleAliases(func.body, aliases)
+    normalizeBlockModuleAliases(func.body, aliases, shadows)
+    while shadows.length() > scopeStart { shadows.pop() }
 }
 
-fun normalizeClassModuleAliases(cls: ClassNode, aliases: Array<String>)
-    r: Void {
+fun normalizeClassModuleAliases(cls: ClassNode, aliases: Array<String>,
+    shadows: Array<String>) r: Void {
 
     cls.parentName = stripModuleAliasPrefixes(cls.parentName, aliases)
 
@@ -1579,7 +1652,18 @@ fun normalizeClassModuleAliases(cls: ClassNode, aliases: Array<String>)
 
     var methodIdx = 0
     while methodIdx < cls.methods.length() {
-        normalizeFunctionModuleAliases(cls.methods[methodIdx], aliases)
+        let method = cls.methods[methodIdx]
+        let scopeStart = shadows.length()
+        if not method.isStatic {
+            fieldIdx = 0
+            while fieldIdx < cls.fields.length() {
+                recordModuleAliasShadow(cls.fields[fieldIdx].name, aliases,
+                    shadows)
+                fieldIdx = fieldIdx + 1
+            }
+        }
+        normalizeFunctionModuleAliases(method, aliases, shadows)
+        while shadows.length() > scopeStart { shadows.pop() }
         methodIdx = methodIdx + 1
     }
 }
@@ -1590,17 +1674,20 @@ fun normalizeProgramModuleAliases(program: ProgramNode) r: Void {
         return
     }
 
+    let shadows = Array<String>()
     var itemIdx = 0
     while itemIdx < program.items.length() {
         let item = program.items[itemIdx]
         if item.itemType == "Function" {
-            normalizeFunctionModuleAliases(item.function, aliases)
+            normalizeFunctionModuleAliases(item.function, aliases, shadows)
         }
         if item.itemType == "Class" {
-            normalizeClassModuleAliases(item.classNode, aliases)
+            normalizeClassModuleAliases(item.classNode, aliases, shadows)
         }
         itemIdx = itemIdx + 1
     }
+    shadows.free()
+    aliases.free()
 }
 
 // Helper to parse a module and return its program
@@ -1894,7 +1981,7 @@ fun packageCompatibilityExpectedInputs() r: CompatibilityReleaseInputs {
                 packageObjectManifestSchema:
                     prebuiltPackageObjectManifestSchemaIdentity()
             },
-            runtimeAbi: "runtime-v14",
+            runtimeAbi: "runtime-v15",
             standardLibraryVersion: "0.17.0",
             standardLibraryModuleManifestVersion: 1,
             packageClientVersion: packageClientExpectedVersion(),
@@ -4861,7 +4948,7 @@ fun resolvePackageMapDependencyRoot(sourceDir: String,
     if mapPath == "" {
         return ""
     }
-    let content = loadFileContent(mapPath)
+    let content = loadVersionedPackageMapContent(mapPath)
     let canonicalSourceDir = resolveRealInputPath(sourceDir)
     var bestRequesterLength = -1
     var bestDependencyRoot = ""
@@ -4877,31 +4964,29 @@ fun resolvePackageMapDependencyRoot(sourceDir: String,
             atNewline = true
         }
         if atEnd or atNewline {
-            var line = content.substring(lineStart, pos)
-            if line.endsWith("\r") {
-                line = line.substring(0, line.length() - 1)
-            }
-            let firstTab = line.indexOf("\t", 0)
-            if firstTab > 0 {
-                let secondTab = line.indexOf("\t", firstTab + 1)
-                if secondTab > firstTab + 1 and
-                    line.indexOf("\t", secondTab + 1) < 0 {
+            let line = content.substring(lineStart, pos)
+            if line != "" {
+                let columns = decodePackageMapColumns(line)
+                if not columns.valid {
+                    println("Error: invalid seen-package-map-v2 row")
+                    processExit(1)
+                }
+                let firstTab = columns.firstTab
+                let secondTab = columns.secondTab
+                let thirdTab = columns.thirdTab
+                let requesterRoot = line.substring(0, firstTab)
+                let alias = line.substring(firstTab + 1, secondTab)
+                let dependencyRoot = line.substring(secondTab + 1, thirdTab)
+                let requesterComparisonLength =
+                    pathComparisonKey(requesterRoot).length()
+                if alias == dependencyAlias and
+                    requesterComparisonLength > bestRequesterLength and
+                    pathIsInsidePackageRequester(canonicalSourceDir,
+                        requesterRoot) and
+                    loadFileContent(dependencyRoot + "/Seen.toml") != "" {
 
-                    let requesterRoot = line.substring(0, firstTab)
-                    let alias = line.substring(firstTab + 1, secondTab)
-                    let dependencyRoot = line.substring(secondTab + 1,
-                        line.length())
-                    let requesterComparisonLength =
-                        pathComparisonKey(requesterRoot).length()
-                    if alias == dependencyAlias and
-                        requesterComparisonLength > bestRequesterLength and
-                        pathIsInsidePackageRequester(canonicalSourceDir,
-                            requesterRoot) and
-                        loadFileContent(dependencyRoot + "/Seen.toml") != "" {
-
-                        bestRequesterLength = requesterComparisonLength
-                        bestDependencyRoot = dependencyRoot
-                    }
+                    bestRequesterLength = requesterComparisonLength
+                    bestDependencyRoot = dependencyRoot
                 }
             }
             lineStart = pos + 1
@@ -6412,8 +6497,7 @@ fun getCompilerRoot() r: String {
                 let compilerDir = getSourceDir(targetDir)
                 if compilerDir != "" {
                     // Validate: the computed root must contain seen_runtime/
-                    let validateResult: CommandResult = runCommand("test -d " + compilerDir + "/seen_runtime")
-                    if commandWasSuccessful(validateResult) {
+                    if directoryExists(compilerDir + "/seen_runtime") {
                         return compilerDir
                     }
                 }
@@ -6437,8 +6521,7 @@ fun getCompilerRoot() r: String {
     if targetDir2 == "" { return "" }
     let root2 = getSourceDir(targetDir2)
     // Validate the fallback root too
-    let validateResult2: CommandResult = runCommand("test -d " + root2 + "/seen_runtime")
-    if commandWasSuccessful(validateResult2) {
+    if directoryExists(root2 + "/seen_runtime") {
         return root2
     }
     return ""
@@ -7817,6 +7900,10 @@ fun ensureGeneratedTestObjectCacheDir() r: Void {
 }
 
 fun generatedTestStableModuleIdentity(normalizedPath: String) r: String {
+    // Hosted provenance outranks generated-source markers inside package
+    // payloads, including direct generated-test cache consumers.
+    let hostedIdentity = compilerHostedPackageModuleIdentity(normalizedPath)
+    if hostedIdentity != "" { return hostedIdentity }
     let projectRootMarker = "/project_root/"
     let projectRootIdx = normalizedPath.indexOf(projectRootMarker, 0)
     if projectRootIdx >= 0 {
@@ -7989,6 +8076,130 @@ fun collectResolvedLexicalSemanticModule(frontend: FrontendResult,
         modulePath, registry)
 }
 
+// Hosted registry ingress is source-only (archive-policy-v1 rejects native
+// artifacts and the signed manifest binder rejects artifact dependencies).
+// Local v2 prebuilt dependencies use a separate ABI/provenance contract; their
+// interfaces and verified object bytes retain the symbols recorded at build.
+fun prepareCompilerModuleFunctionIdentity(inputFile: String,
+    modulePath: String) r: Void {
+
+    let nativeIdentity = stableModuleCacheIdentity(modulePath)
+    if nativeIdentity.startsWith("hosted/") and
+        isPrebuiltPackageModulePathForInput(inputFile, modulePath) {
+
+        abort("Error: hosted source package cannot provide prebuilt object interfaces")
+    }
+    prepareModuleFunctionIdentityImpl(
+        semanticNormalizeModuleIdentity(nativeIdentity), nativeIdentity)
+}
+
+fun prepareGenericAggregateClasses(inputFile: String,
+    modulePaths: Array<String>, language: String,
+    generator: LLVMIRGenerator) r: Bool {
+    setGenericAggregateTrustedStdlibRootImpl(
+        resolveRealInputPath(compilerStdlibBasePath()))
+    // Semantic validation sees the original source. Only the lowering AST is
+    // specialized, and every native declaration is registered after demands
+    // close so no erased metadata can win by module discovery order.
+    var i = 0
+    while i < modulePaths.length() {
+        let path = modulePaths[i]
+        if not isPrebuiltPackageModulePathForInput(inputFile, path) {
+            let frontend = parseModule(path, language)
+            if not frontend.success { printFrontendDiagnostics(frontend); return false }
+            visitGenericAggregateProgramImpl(frontend.program,
+                lexicalSemanticModuleIdentity(path), true)
+        }
+        i = i + 1
+    }
+    i = 0
+    while i < genericAggregateDemandsImpl().length() {
+        let demand = genericAggregateDemandsImpl()[i]
+        if isPrebuiltPackageModulePathForInput(inputFile, demand.file) {
+            println("Error: [E_GENERIC_AGGREGATE] concrete class specialization requires source definitions, not a prebuilt interface: " + demand.declaration)
+            return false
+        }
+        let frontend = parseModule(demand.file, language)
+        if not frontend.success { printFrontendDiagnostics(frontend); return false }
+        var found = false
+        var itemIndex = 0
+        while itemIndex < frontend.program.items.length() {
+            let item = frontend.program.items[itemIndex]
+            if item.itemType == "Class" and item.classNode.name == demand.declaration {
+                instantiateGenericAggregateClassImpl(item, demand)
+                found = true
+            }
+            itemIndex = itemIndex + 1
+        }
+        if not found {
+            println("Error: [E_GENERIC_AGGREGATE] concrete class definition is unavailable: " + demand.declaration)
+            return false
+        }
+        i = i + 1
+    }
+    if not validateGenericAggregateFunctionUsesImpl() { return false }
+    let demands = genericAggregateDemandsImpl()
+    // All demands, including those reached through instantiated method bodies,
+    // now exist. Register ABI markers before any enclosing concrete layout.
+    i = 0
+    while i < demands.length() {
+        let concrete = mainCompilerEmptyProgramNode()
+        concrete.items.push(demands[i].item)
+        visitGenericAggregateProgramImpl(concrete, demands[i].owner, false)
+        preRegisterProgramAbiDecoratorsState(concrete)
+        i = i + 1
+    }
+    let classes = Array<ClassNode>()
+    i = 0
+    while i < modulePaths.length() {
+        let path = modulePaths[i]
+        let frontend = parseModuleDeclarations(path, language)
+        if not frontend.success { printFrontendDiagnostics(frontend); return false }
+        if demands.length() > 0 {
+            visitGenericAggregateProgramImpl(frontend.program,
+                lexicalSemanticModuleIdentity(path), false)
+            appendGenericAggregateClassesImpl(frontend.program,
+                lexicalSemanticModuleIdentity(path))
+            var itemIndex = 0
+            while itemIndex < frontend.program.items.length() {
+                let item = frontend.program.items[itemIndex]
+                if item.itemType == "Class" and
+                    not item.classNode.hasDecorator("type_alias") and
+                    not item.classNode.hasDecorator("trait") {
+                    classes.push(item.classNode)
+                }
+                itemIndex = itemIndex + 1
+            }
+        }
+        prepareCompilerModuleFunctionIdentity(inputFile, path)
+        generator.registerDeclarations(frontend.program)
+        i = i + 1
+    }
+    if demands.length() > 0 { registerGenericAggregateLayoutsImpl(classes) }
+    classes.free()
+    return true
+}
+
+fun prepareGenericAggregateModuleForLowering(program: ProgramNode,
+    modulePath: String) r: Void {
+    if genericAggregateDemandsImpl().length() == 0 { return }
+    let moduleName = lexicalSemanticModuleIdentity(modulePath)
+    visitGenericAggregateProgramImpl(program, moduleName, false)
+    appendGenericAggregateClassesImpl(program, moduleName)
+}
+
+
+fun moduleIdentitiesHaveHostedNativeFunctions(identities: Array<String>) r: Bool {
+    var i = 0
+    while i < identities.length() {
+        if identities[i].startsWith("hosted/") {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 fun checkResolvedLexicalSemanticModule(frontend: FrontendResult,
     modulePath: String, registry: SemanticDeclarationRegistry)
     r: LexicalSemanticResult {
@@ -8125,6 +8336,14 @@ fun validateDeterministicSemanticGraph(modulePaths: Array<String>,
         registry.importOwners, registry.importAliases,
         registry.importTargetModules, registry.importTargetNames,
         registry.aggregateModules, registry.aggregateDomains)
+    if not graph.setResolvedTypeMetadata(registry.lifecycleFieldOwners,
+        registry.lifecycleFieldModules, registry.lifecycleFieldNames,
+        registry.lifecycleFieldTypeNames, registry.genericOwners,
+        registry.genericNames, registry.files,
+        resolveRealInputPath(compilerStdlibBasePath())) {
+        printDeterminismErrors(graph.result)
+        return 1
+    }
     var moduleIndex = 0
     while moduleIndex < modulePaths.length() {
         let modulePath = modulePaths[moduleIndex]
@@ -8138,7 +8357,22 @@ fun validateDeterministicSemanticGraph(modulePaths: Array<String>,
             println("    Error: Failed to parse " + modulePath)
             return 1
         }
-        graph.collectModule(frontend.program,
+        graph.collectModuleDeclarations(frontend.program,
+            lexicalSemanticModuleIdentity(modulePath), modulePath)
+        moduleIndex = moduleIndex + 1
+    }
+    // Keep AST lifetimes bounded to one module, but finish declaration metadata
+    // before inferring any body. Imported return types must not depend on order.
+    moduleIndex = 0
+    while moduleIndex < modulePaths.length() {
+        let modulePath = modulePaths[moduleIndex]
+        let frontend = parseModule(modulePath, language)
+        if not frontend.success {
+            printFrontendDiagnostics(frontend)
+            println("    Error: Failed to parse " + modulePath)
+            return 1
+        }
+        graph.scanModule(frontend.program,
             lexicalSemanticModuleIdentity(modulePath), modulePath)
         moduleIndex = moduleIndex + 1
     }
@@ -8636,10 +8870,102 @@ fun compilerImportGraphPlatform(normalizedCrossTarget: String) r: String {
     return detectHostTargetName()
 }
 
+// Package-map v2 is emitted only after the authoritative package client has
+// validated TOML, signed metadata, archives, locks, and project source views.
+// Do not reparse user TOML here or infer provenance from consumer aliases.
+fun loadVersionedPackageMapContent(mapPath: String) r: String {
+    let content = loadFileContent(mapPath)
+    let header = "schema\tseen-package-map-v2\n"
+    if not content.startsWith(header) {
+        println("Error: package map requires the version-coupled seen-package-map-v2 client")
+        processExit(1)
+    }
+    return content.substring(header.length(), content.length())
+}
+
+fun compilerHostedPackageModuleIdentity(normalizedPath: String) r: String {
+    let mapPath = findNearestPackageMapFromDir(getSourceDir(normalizedPath))
+    if mapPath == "" { return "" }
+    let viewsRoot = canonicalFilesystemPath(getSourceDir(mapPath) + "/views")
+    if not pathIsInsidePackageRequester(normalizedPath, viewsRoot) {
+        return ""
+    }
+    let content = loadVersionedPackageMapContent(mapPath)
+    var bestRootLength = -1
+    var bestIdentity = ""
+    var foundView = false
+    var lineStart = 0
+    var pos = 0
+    while pos <= content.length() {
+        var atBoundary = pos == content.length()
+        if not atBoundary and content.byteAt(pos) == 10 {
+            atBoundary = true
+        }
+        if atBoundary {
+            let line = content.substring(lineStart, pos)
+            if line != "" {
+                let columns = decodePackageMapColumns(line)
+                if not columns.valid {
+                    println("Error: invalid seen-package-map-v2 row")
+                    processExit(1)
+                }
+                let secondTab = columns.secondTab
+                let thirdTab = columns.thirdTab
+                let dependencyRoot = line.substring(secondTab + 1, thirdTab)
+                if pathIsInsidePackageRequester(normalizedPath, dependencyRoot) and
+                    dependencyRoot.length() > bestRootLength {
+
+                    if not pathIsInsidePackageRequester(dependencyRoot, viewsRoot) {
+                        println("Error: package-map source root escapes project views")
+                        processExit(1)
+                    }
+                    let modulePrefix = line.substring(thirdTab + 1, line.length())
+                    if modulePrefix == "" {
+                        let localRelative = pathRelativeToProjectRoot(
+                            dependencyRoot, viewsRoot + "/local")
+                        if localRelative.length() != 136 {
+                            println("Error: hosted package view has no canonical module provenance")
+                            processExit(1)
+                        }
+                        if localRelative.substring(64, 65) != "/" or
+                            localRelative.substring(129, 136) != "/source" or
+                            not isSha256Digest(localRelative.substring(0, 64)) or
+                            not isSha256Digest(localRelative.substring(65, 129)) {
+
+                            println("Error: invalid local package-view provenance")
+                            processExit(1)
+                        }
+                        bestIdentity = ""
+                    } else {
+                        if not modulePrefix.startsWith("hosted/") {
+                            println("Error: invalid hosted package module provenance")
+                            processExit(1)
+                        }
+                        let relativePath = pathRelativeToProjectRoot(
+                            normalizedPath, dependencyRoot)
+                        bestIdentity = modulePrefix + "/" + relativePath
+                    }
+                    bestRootLength = dependencyRoot.length()
+                    foundView = true
+                }
+            }
+            lineStart = pos + 1
+        }
+        pos = pos + 1
+    }
+    if not foundView {
+        println("Error: package module is not bound to the verified package map")
+        processExit(1)
+    }
+    return bestIdentity
+}
+
 fun compilerManifestModuleIdentity(normalizedPath: String) r: String {
     if normalizedPath == "" {
         return ""
     }
+    let hostedIdentity = compilerHostedPackageModuleIdentity(normalizedPath)
+    if hostedIdentity != "" { return hostedIdentity }
     let manifestPath = findNearestSeenTomlForInput(normalizedPath)
     if manifestPath == "" {
         return ""
@@ -9439,6 +9765,11 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_field_lookup_state")
         modules.push("codegen.ir_generic_type_specialize")
         modules.push("codegen.ir_generic_call_type")
+        modules.push("codegen.ir_generic_aggregate")
+        modules.push("codegen.ir_generic_aggregate_function_abi")
+        modules.push("codegen.ir_generic_aggregate_function_body")
+        modules.push("codegen.ir_generic_aggregate_layout")
+        modules.push("codegen.ir_generic_aggregate_visit")
         modules.push("codegen.ir_bounds_proof")
         modules.push("codegen.ir_bounds_proof_state")
         modules.push("codegen.simd_report")
@@ -10614,6 +10945,14 @@ fun inferExpressionTypeNameInModules(modulePath: String, moduleProgram: ProgramN
             if fieldType != "" {
                 return fieldType
             }
+        }
+        // Free-function addresses use the existing i64 interop ABI, including
+        // lexical aliases and indirect calls. Resolve the source declaration
+        // before codegen assigns any hosted-module native symbol.
+        let referencedFunction = findReferencedFunctionInModules(modulePath,
+            moduleProgram, modulePaths, frontends, varName)
+        if referencedFunction.name != "" {
+            return "Int"
         }
         return ""
     }
@@ -12893,6 +13232,27 @@ fun pkgConfigOutput(flag: String, pkg: String) r: String {
     return ""
 }
 
+// Native Clang inherits the caller's cwd and include environment unchanged.
+// Bind their search context to cache identity without interpreting Clang flags
+// or changing the distinction between an unset and an empty environment value.
+fun nativeRuntimeSearchContextSignature(callerDirectory: String) r: String {
+    let names = ["CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH"]
+    var identity = "cwd=" + hashString(callerDirectory)
+    var index = 0
+    while index < names.length() {
+        let name = names[index]
+        identity = identity + "|" + name + "="
+        if has(name) {
+            identity = identity + "set:" + hashString(getOrDefault(name, ""))
+        } else {
+            identity = identity + "unset"
+        }
+        index = index + 1
+    }
+    names.free()
+    return hashString(identity)
+}
+
 fun sourcesNeedLinuxPlatformVulkanShim(modulePaths: Array<String>) r: Bool {
     var mi = 0
     while mi < modulePaths.length() {
@@ -13982,11 +14342,16 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     println("  [Pass 1] Scanning declarations...")
 
     let pass1Start = getTraceTimeSeconds()
+    resetModuleFunctionIdentitiesImpl()
     let semanticRegistry = SemanticDeclarationRegistry.new()
     registerLexicalSemanticAggregateDomains(resolvedInput, modulePaths,
         semanticRegistry)
+    resetGenericAggregateSpecializationImpl()
+    registerLexicalSemanticAggregateDomains(resolvedInput, modulePaths,
+        genericAggregateRegistryImpl())
     let isolateCompileSemanticGate = modulePaths.length() > 48 and
-        g_noFork == 0 and not isDeterministicProfile
+        g_noFork == 0 and not isDeterministicProfile and
+        not moduleIdentitiesHaveHostedNativeFunctions(importGraphIdentities)
     var passIdx = 0
     // ABI decorators must be known before any enclosing class layout is
     // registered. Module discovery is root-first, so a consumer can otherwise
@@ -14015,7 +14380,10 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
         let frontend = parseModuleDeclarations(path, language)
         if frontend.success {
-            generator.registerDeclarations(frontend.program)
+            registerResolvedSemanticImports(frontend.program, path,
+                lexicalSemanticModuleIdentity(path), genericAggregateRegistryImpl())
+            registerGenericAggregateDeclarationImpl(frontend.program,
+                lexicalSemanticModuleIdentity(path), path)
             if not isolateCompileSemanticGate {
                 let semanticCollected = collectResolvedLexicalSemanticModule(
                     frontend, path, semanticRegistry)
@@ -14085,6 +14453,8 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if gpuBackendStatus != 0 {
         return gpuBackendStatus
     }
+    if not prepareGenericAggregateClasses(resolvedInput, modulePaths, language,
+        generator) { return 1 }
 
     // Optimization pipeline status
     if g_generatedTestMainMode == 0 {
@@ -14128,6 +14498,13 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             let gdeclHash = moduleDeclarationFingerprint(gpath, language)
             registryHashInput = hashString(registryHashInput + "\n" +
                 stableModuleCacheIdentity(gpath) + ":" + gdeclHash)
+            gi = gi + 1
+        }
+        let aggregateDemands = genericAggregateDemandsImpl()
+        gi = 0
+        while gi < aggregateDemands.length() {
+            registryHashInput = hashString(registryHashInput +
+                "\naggregate-class-v1:" + aggregateDemands[gi].key)
             gi = gi + 1
         }
         registryHash = hashString(registryHashInput + "\n" +
@@ -14333,6 +14710,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
             let codegenStartTime = getTraceTimeSeconds()
             beginSourceCoverageModule(path, g_coverageCli == 1)
+            prepareCompilerModuleFunctionIdentity(resolvedInput, path)
+            // Lowering's declaration registry is populated even when the
+            // large-graph semantic gate runs in its isolated coordinator.
+            installModuleFreeFunctionBindingsImpl(genericAggregateRegistryImpl())
+            prepareGenericAggregateModuleForLowering(frontend.program, path)
             let irWritten =
                 generator.generateSingleToFileWithInitializationIndex(
                     frontend.program, moduleIndex,
@@ -14401,6 +14783,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                         writeText(statusFile, "codegen_start\n" + path)
                     }
                     beginSourceCoverageModule(path, g_coverageCli == 1)
+                    prepareCompilerModuleFunctionIdentity(resolvedInput, path)
+                    installModuleFreeFunctionBindingsImpl(genericAggregateRegistryImpl())
+                    prepareGenericAggregateModuleForLowering(frontend.program, path)
                     let irWritten =
                         generator.generateSingleToFileWithInitializationIndex(
                             frontend.program, moduleIndex,
@@ -15331,6 +15716,36 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     When sanitizer is enabled, the runtime must be recompiled with sanitizer flags.
     ///
     let rtPrefix = compilerRuntimeBasePath()
+    var nativeRuntimeCompilePrefix = ""
+    var nativeRuntimeSourcePrefix = rtPrefix + "/"
+    var nativeRuntimeIncludeFlags = " -I " + mainCompilerShellQuote(rtPrefix)
+    let runtimeCallerDirectory = resolveRealInputPath(".")
+    let hostTargetForTee = detectHostTargetName()
+    if normalizedCrossTarget == "" {
+        let nativeClang = runCommand("command -v clang")
+        if not commandWasSuccessful(nativeClang) or
+            nativeClang.output.trim() == "" or runtimeCallerDirectory == "" {
+
+            println("    Error: native runtime Clang driver is unavailable")
+            return 1
+        }
+        var nativeClangPath = nativeClang.output.trim()
+        if not isAbsolutePath(nativeClangPath) {
+            nativeClangPath = runtimeCallerDirectory + "/" + nativeClangPath
+        }
+        nativeRuntimeCompilePrefix = mainCompilerShellQuote(nativeClangPath)
+        if hostTargetForTee.startsWith("linux-") {
+            // A command-scoped directory descriptor gives every C unit a stable
+            // LLVM source_filename while preserving caller-relative flags,
+            // forced-header lookup, sysroots and runtime-local quoted includes.
+            // Failure to open/use this Linux path must fail, not fall back to a
+            // physical source identity that silently breaks reproducibility.
+            nativeRuntimeCompilePrefix = nativeRuntimeCompilePrefix +
+                " 3<" + mainCompilerShellQuote(rtPrefix)
+            nativeRuntimeSourcePrefix = "/proc/self/fd/3/"
+            nativeRuntimeIncludeFlags = " -I /proc/self/fd/3"
+        }
+    }
     var picCompileFlag = ""
     if g_picMode == 1 {
         picCompileFlag = " -fPIC"
@@ -15343,16 +15758,20 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let teeRuntimeSrc = rtPrefix + "/seen_tee_common.c"
     let teeSgxRuntimeSrc = rtPrefix + "/seen_tee_sgx.c"
     let teeSevRuntimeSrc = rtPrefix + "/seen_tee_sev.c"
-    let teeRuntimeExists: CommandResult = runCommand("test -f " + teeRuntimeSrc)
+    let teeRuntimeExists: CommandResult = runCommand("test -f " + mainCompilerShellQuote(teeRuntimeSrc))
     let hasTeeRuntime = commandWasSuccessful(teeRuntimeExists)
-    let teeSgxRuntimeExists: CommandResult = runCommand("test -f " + teeSgxRuntimeSrc)
+    let teeSgxRuntimeExists: CommandResult = runCommand("test -f " + mainCompilerShellQuote(teeSgxRuntimeSrc))
     let hasTeeSgxRuntime = commandWasSuccessful(teeSgxRuntimeExists)
-    let teeSevRuntimeExists: CommandResult = runCommand("test -f " + teeSevRuntimeSrc)
+    let teeSevRuntimeExists: CommandResult = runCommand("test -f " + mainCompilerShellQuote(teeSevRuntimeSrc))
     let hasTeeSevRuntime = commandWasSuccessful(teeSevRuntimeExists)
     // Hash the complete immutable runtime source set once per build. Repeating
     // this for every component retained large temporary strings long enough to
     // exhaust the aggregate build scope on cold caches.
-    let runtimeSourcesSignature = runtimeSourceSignatureForCache()
+    var runtimeSourcesSignature = runtimeSourceSignatureForCache()
+    if normalizedCrossTarget == "" {
+        runtimeSourcesSignature = hashString(runtimeSourcesSignature +
+            "|native-search-context=" + nativeRuntimeSearchContextSignature(runtimeCallerDirectory))
+    }
     var sanitizerClangFlags = buildInstrumentationClangFlags(sanitizePolicy)
     if sanitizePolicy != "" {
         println("  Sanitizer: " + sanitizePolicy)
@@ -15368,7 +15787,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     let needsTeeHardwareRuntime = sourcesNeedTeeHardwareRuntime(modulePaths)
     var teeRuntimeCompileFlags = ""
     var teeRuntimeLinkFlags = ""
-    let hostTargetForTee = detectHostTargetName()
     let teeCanUseHostHardware = needsTeeHardwareRuntime and effectiveTarget == hostTargetForTee and (hostTargetForTee == "linux-x86_64" or hostTargetForTee == "linux-arm64")
     if teeCanUseHostHardware and hasTeeSevRuntime {
         if pkgConfigExists("openssl") {
@@ -15399,11 +15817,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         runtimeObj = runtimeObjForSig
         if not runtimeObjectIsFresh(runtimeObj, runtimeSig) {
             println("  [3a] Pre-compiling runtime...")
-            let runtimeCompileCommand = "clang -O3 -flto=thin " + clangMarch +
+            let runtimeCompileCommand = nativeRuntimeCompilePrefix +
+                " -O3 -flto=thin " + clangMarch +
                 " -ffunction-sections -fdata-sections -pthread" +
                 sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
-                mainCompilerShellQuote(runtimeSrc)
+                " -c" + nativeRuntimeIncludeFlags + " " +
+                mainCompilerShellQuote(nativeRuntimeSourcePrefix + "seen_runtime.c")
             if not compileRuntimeObjectAtomically(runtimeObj, runtimeSig,
                 runtimeCompileCommand) {
 
@@ -15429,11 +15848,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             }
             teeRuntimeObj = teeRuntimeObjForSig
             if not runtimeObjectIsFresh(teeRuntimeObj, teeSig) {
-                let teeCompileCommand = "clang -O3 -flto=thin " + clangMarch +
+                let teeCompileCommand = nativeRuntimeCompilePrefix +
+                    " -O3 -flto=thin " + clangMarch +
                     " -ffunction-sections -fdata-sections -pthread" +
                     sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                    " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
-                    mainCompilerShellQuote(teeRuntimeSrc)
+                    " -c" + nativeRuntimeIncludeFlags + " " +
+                    mainCompilerShellQuote(nativeRuntimeSourcePrefix + "seen_tee_common.c")
                 if not compileRuntimeObjectAtomically(teeRuntimeObj, teeSig,
                     teeCompileCommand) {
 
@@ -15460,11 +15880,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             println("    Error: could not create instrumented runtime object cache")
             return 1
         }
-        let runtimeCompileCommand = "clang -O3 " + clangMarch +
+        let runtimeCompileCommand = nativeRuntimeCompilePrefix +
+            " -O3 " + clangMarch +
             " -ffunction-sections -fdata-sections -pthread" +
             sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-            " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
-            mainCompilerShellQuote(runtimeSrc)
+            " -c" + nativeRuntimeIncludeFlags + " " +
+            mainCompilerShellQuote(nativeRuntimeSourcePrefix + "seen_runtime.c")
         if not runtimeObjectIsFresh(sanitizedRuntimeObj, runtimeSig) and
             not compileRuntimeObjectAtomically(sanitizedRuntimeObj,
                 runtimeSig, runtimeCompileCommand) {
@@ -15485,11 +15906,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 println("    Error: could not create instrumented TEE object cache")
                 return 1
             }
-            let teeCompileCommand = "clang -O3 " + clangMarch +
+            let teeCompileCommand = nativeRuntimeCompilePrefix +
+                " -O3 " + clangMarch +
                 " -ffunction-sections -fdata-sections -pthread" +
                 sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
-                mainCompilerShellQuote(teeRuntimeSrc)
+                " -c" + nativeRuntimeIncludeFlags + " " +
+                mainCompilerShellQuote(nativeRuntimeSourcePrefix + "seen_tee_common.c")
             if not runtimeObjectIsFresh(sanitizedTeeRuntimeObj, teeSig) and
                 not compileRuntimeObjectAtomically(sanitizedTeeRuntimeObj,
                     teeSig, teeCompileCommand) {
@@ -15526,12 +15948,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
         if not runtimeObjectIsFresh(teeSgxRuntimeObj, teeSgxSig) {
-            let teeSgxCompileCommand = "clang -O3 -flto=thin " +
+            let teeSgxCompileCommand = nativeRuntimeCompilePrefix +
+                " -O3 -flto=thin " +
                 clangMarch + " -ffunction-sections -fdata-sections -pthread" +
                 sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                teeRuntimeCompileFlags + " -c -I " +
-                mainCompilerShellQuote(rtPrefix) + " " +
-                mainCompilerShellQuote(teeSgxRuntimeSrc)
+                teeRuntimeCompileFlags + " -c" + nativeRuntimeIncludeFlags + " " +
+                mainCompilerShellQuote(nativeRuntimeSourcePrefix + "seen_tee_sgx.c")
             if not compileRuntimeObjectAtomically(teeSgxRuntimeObj,
                 teeSgxSig, teeSgxCompileCommand) {
 
@@ -15551,12 +15973,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
         if not runtimeObjectIsFresh(teeSevRuntimeObj, teeSevSig) {
-            let teeSevCompileCommand = "clang -O3 -flto=thin " +
+            let teeSevCompileCommand = nativeRuntimeCompilePrefix +
+                " -O3 -flto=thin " +
                 clangMarch + " -ffunction-sections -fdata-sections -pthread" +
                 sanitizerClangFlags + pgoClangFlags + picCompileFlag +
-                teeRuntimeCompileFlags + " -c -I " +
-                mainCompilerShellQuote(rtPrefix) + " " +
-                mainCompilerShellQuote(teeSevRuntimeSrc)
+                teeRuntimeCompileFlags + " -c" + nativeRuntimeIncludeFlags + " " +
+                mainCompilerShellQuote(nativeRuntimeSourcePrefix + "seen_tee_sev.c")
             if not compileRuntimeObjectAtomically(teeSevRuntimeObj,
                 teeSevSig, teeSevCompileCommand) {
 
@@ -15906,11 +16328,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
         if not runtimeObjectIsFresh(regionObj, regionSig) {
-            let hostRegionCommand = "clang -O3 -flto=thin " + clangMarch +
+            let hostRegionCommand = nativeRuntimeCompilePrefix +
+                " -O3 -flto=thin " + clangMarch +
                 " -ffunction-sections -fdata-sections" + picCompileFlag +
-                sanitizerClangFlags + pgoClangFlags + " -c -I " +
-                mainCompilerShellQuote(rtPrefix) + " " +
-                mainCompilerShellQuote(regionSrc)
+                sanitizerClangFlags + pgoClangFlags +
+                " -c" + nativeRuntimeIncludeFlags + " " +
+                mainCompilerShellQuote(nativeRuntimeSourcePrefix + "seen_region.c")
             if not compileRuntimeObjectAtomically(regionObj, regionSig,
                 hostRegionCommand) {
 
@@ -15942,11 +16365,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 return 1
             }
             if not runtimeObjectIsFresh(hostGpuObj, gpuSig) {
-                var hostGpuCommand = "clang -O3 -flto=thin " + clangMarch +
+                var hostGpuCommand = nativeRuntimeCompilePrefix +
+                    " -O3 -flto=thin " + clangMarch +
                     " -ffunction-sections -fdata-sections" +
                     picCompileFlag + sanitizerClangFlags + pgoClangFlags +
-                    " -c -I " + mainCompilerShellQuote(rtPrefix) + " " +
-                    mainCompilerShellQuote(gpuSrc)
+                    " -c" + nativeRuntimeIncludeFlags + " " +
+                    mainCompilerShellQuote(nativeRuntimeSourcePrefix + "seen_gpu.c")
                 if hostVulkanCflags != "" {
                     hostGpuCommand = hostGpuCommand + " " + hostVulkanCflags
                 }
@@ -16065,12 +16489,12 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 return 1
             }
             if not runtimeObjectIsFresh(hotReloadObj, hotReloadSig) {
-                let hotReloadCmd = "clang -O3 -flto=thin " + clangMarch +
+                let hotReloadCmd = nativeRuntimeCompilePrefix +
+                    " -O3 -flto=thin " + clangMarch +
                     " -ffunction-sections -fdata-sections" +
                     picCompileFlag + sanitizerClangFlags + pgoClangFlags +
-                    " -c -I " +
-                    mainCompilerShellQuote(rtPrefix) + " " +
-                    mainCompilerShellQuote(hotReloadSrc)
+                    " -c" + nativeRuntimeIncludeFlags + " " +
+                    mainCompilerShellQuote(nativeRuntimeSourcePrefix + "seen_hotreload.c")
                 if not compileRuntimeObjectAtomically(hotReloadObj,
                     hotReloadSig, hotReloadCmd) {
 
@@ -16712,6 +17136,9 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
     let jitSemanticStatus = validateIsolatedLexicalSemanticGraph(modulePaths,
         jitInput, language, true, 0)
     if jitSemanticStatus != 0 { return jitSemanticStatus }
+    resetGenericAggregateSpecializationImpl()
+    registerLexicalSemanticAggregateDomains(jitInput, modulePaths,
+        genericAggregateRegistryImpl())
 
     var passIdx = 0
     while passIdx < modulePaths.length() {
@@ -16725,17 +17152,24 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
         passIdx = passIdx + 1
     }
     passIdx = 0
+    resetModuleFunctionIdentitiesImpl()
     while passIdx < modulePaths.length() {
         let path = modulePaths[passIdx]
         let frontend = parseModuleDeclarations(path, language)
         if frontend.success {
-            generator.registerDeclarations(frontend.program)
+            prepareCompilerModuleFunctionIdentity(jitInput, path)
+            registerResolvedSemanticImports(frontend.program, path,
+                lexicalSemanticModuleIdentity(path), genericAggregateRegistryImpl())
+            registerGenericAggregateDeclarationImpl(frontend.program,
+                lexicalSemanticModuleIdentity(path), path)
         } else {
             printFrontendDiagnostics(frontend)
             return 1
         }
         passIdx = passIdx + 1
     }
+    if not prepareGenericAggregateClasses(jitInput, modulePaths, language,
+        generator) { return 1 }
     if verbose {
         println("  [Pass 1] Complete")
     }
@@ -16764,6 +17198,9 @@ fun jitRunCommand(inputFile: String, verbose: Bool, language: String,
         let llFile = jitWorkRoot + "/seen_jit_module_" +
             moduleIndex.toString() + ".ll"
         beginSourceCoverageModule(path, false)
+        prepareCompilerModuleFunctionIdentity(jitInput, path)
+        installModuleFreeFunctionBindingsImpl(genericAggregateRegistryImpl())
+        prepareGenericAggregateModuleForLowering(frontend.program, path)
         if not generator.generateSingleToFileWithInitializationIndex(
             frontend.program, moduleIndex,
             jitGlobalInitializationRanks[moduleIndex], llFile) {

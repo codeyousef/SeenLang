@@ -410,6 +410,27 @@ class Stack<T> {
 }
 ```
 
+Closed source generic classes with `String` or `Array<Int>` arguments use concrete
+field types and method signatures. String aggregates and native Array references
+retain their distinct representations; an Array reference is not an inline copy
+of its backing descriptor. Instantiations do not share a mutated template, and
+runtime-owned containers retain their existing representation.
+The [aggregate receiver example](../tests/fixtures/core-004d/CORE-004D_generic_receivers/aggregate_values.seen)
+exercises field access, getters/setters, neighboring fields, aliases, nested
+instantiations and cleanup across module boundaries.
+
+This is not general free-function or method-own generic monomorphization.
+Bare generic parameter or return slots that would require an aggregate ABI are
+rejected rather than truncated, boxed or bitcast. A generic argument appearing
+only inside a fixed-representation container does not by itself require a new
+ABI; the function body must also remain valid under that representation.
+Inferred direct calls undergo the same body checks as explicit type arguments.
+Descriptor-only forwarding can remain erased; element access or construction
+may require rejection. Move/borrow qualifiers also govern the implicit cleanup
+checks rather than being discarded during representation analysis.
+Aggregate specializations with remaining open class arguments, unsupported trait
+specializations and foreign/exported aggregate methods are rejected.
+
 ### Generic constraints
 
 ```seen
@@ -636,6 +657,10 @@ let x: Int = 42
 let f = x as Float
 let s = x as String
 ```
+
+On supported 64-bit targets, `Ptr`↔`Int`/`UInt64` casts preserve the pointer bits
+using the physical pointer/word ABI. Converting an integer to a pointer does not
+validate the address or extend an allocation's lifetime.
 
 ## Modules and Imports
 

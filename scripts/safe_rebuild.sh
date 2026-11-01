@@ -58,6 +58,7 @@ REBUILD_TIER_EXPLICIT=0
 PACKAGE_CLIENT_BUILD_OUTPUT="$REPO_ROOT/target/seen-build/package-client/seen-pkg"
 SOURCE_PACKAGE_CLIENT=""
 SOURCE_PACKAGE_CLIENT_VERSION=""
+BUILDER_PACKAGE_CLIENT=""
 REBUILD_SCOPE_EVIDENCE_FILE=""
 
 if [ -f "$BUILD_TRACE_COMMON" ]; then
@@ -76,6 +77,9 @@ safe_rebuild_usage() {
     echo ""
     echo "Artifacts default to <repository>/.seen/agent-tools. Set SEEN_ARTIFACT_ROOT"
     echo "to another Git-ignored path inside the repository to override that location."
+    echo "SEEN_PACKAGE_CLIENT selects the current-source helper for newly built compilers."
+    echo "SEEN_STAGE_BUILDER_PACKAGE_CLIENT optionally pairs an existing stage builder"
+    echo "with its own same-release helper during a package-map format transition."
 }
 
 while [ "$#" -gt 0 ]; do
@@ -2521,6 +2525,7 @@ smoke_test_compiler() {
     local check_log="/tmp/safe_rebuild_${stage_slug}_hello_check.log"
     local compile_log="/tmp/safe_rebuild_${stage_slug}_hello_compile.log"
     local run_log="/tmp/safe_rebuild_${stage_slug}_hello_run.log"
+    local package_client="${4:-$SOURCE_PACKAGE_CLIENT}"
     local compiler_env=(-u SEEN_PACKAGE_CLIENT
         "SEEN_COMPILER_SOURCE_ROOT=$REPO_ROOT")
     local check_cmd=("$compiler_path" check "$smoke_source")
@@ -2541,10 +2546,10 @@ smoke_test_compiler() {
     compiler_env+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
     compiler_env+=("SEEN_FORK_SERIALIZER_TARGET=$compiler_path")
     compiler_env+=("SEEN_FORK_SERIALIZER_ROOT_PID=")
-    # The fresh source helper is valid only for a compiler that reports the
-    # exact checkout version. Legacy/frozen builders inherit no package helper.
+    # Package-map formats are coupled to the executing compiler, not merely its
+    # release number. Existing builders may require an explicitly paired helper.
     if compiler_reports_checkout_version "$compiler_path"; then
-        compiler_env+=("SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT")
+        compiler_env+=("SEEN_PACKAGE_CLIENT=$package_client")
     fi
     if [ "$LOW_MEMORY_MODE" = "1" ]; then
         compiler_env+=("SEEN_LOW_MEMORY=${SEEN_LOW_MEMORY:-1}")
@@ -2746,7 +2751,7 @@ select_tier_builder() {
     local selection_args=(
         --repo-root "$REPO_ROOT"
         --checkout-version "$SOURCE_PACKAGE_CLIENT_VERSION"
-        --source-sidecar "$SOURCE_PACKAGE_CLIENT"
+        --source-sidecar "$BUILDER_PACKAGE_CLIENT"
     )
     if [ -n "${SEEN_STAGE_BUILDER:-}" ]; then
         selection_args+=(--explicit-builder "$SEEN_STAGE_BUILDER")
@@ -2867,7 +2872,7 @@ run_tier_targeted_checks() {
 }
 
 prepare_package_client() {
-    local expected_version helper handshake expected_handshake
+    local expected_version helper handshake expected_handshake builder_helper
     expected_version=$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Seen.toml")
     if [ -z "$expected_version" ]; then
         echo -e "${RED}ERROR: could not read the Seen version for package-client coupling.${NC}" >&2
@@ -2906,6 +2911,26 @@ prepare_package_client() {
     # frozen helper. Quick/verify and fresh full-tier candidates use this one.
     SOURCE_PACKAGE_CLIENT_VERSION="$expected_version"
     SOURCE_PACKAGE_CLIENT="$helper"
+    BUILDER_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT"
+    if [ -n "${SEEN_STAGE_BUILDER_PACKAGE_CLIENT:-}" ]; then
+        builder_helper="$SEEN_STAGE_BUILDER_PACKAGE_CLIENT"
+        [ -n "${SEEN_STAGE_BUILDER:-}" ] || {
+            echo -e "${RED}ERROR: a builder package client requires an explicit SEEN_STAGE_BUILDER.${NC}" >&2
+            return 1
+        }
+        [ -f "$builder_helper" ] && [ -x "$builder_helper" ] && [ ! -L "$builder_helper" ] || {
+            echo -e "${RED}ERROR: builder package client is not a regular executable: $builder_helper${NC}" >&2
+            return 1
+        }
+        builder_helper="$(cd "$(dirname "$builder_helper")" && pwd -P)/$(basename "$builder_helper")"
+        if ! handshake=$(timeout 10 "$builder_helper" --expect-version "$expected_version" version --machine 2>&1) ||
+            [ "$handshake" != "$expected_handshake" ]; then
+
+            echo -e "${RED}ERROR: builder package-client handshake failed for Seen $expected_version.${NC}" >&2
+            return 1
+        fi
+        BUILDER_PACKAGE_CLIENT="$builder_helper"
+    fi
     PACKAGE_CLIENT_BUILD_OUTPUT="$SOURCE_PACKAGE_CLIENT"
     unset SEEN_PACKAGE_CLIENT
     echo "Source package client: $SOURCE_PACKAGE_CLIENT"
@@ -2999,7 +3024,7 @@ run_tiered_rebuild() {
     run_guarded_command_to_log_with_failure_watch "$label compile" "$TIER_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$source_root" \
         env \
-            SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_PACKAGE_CLIENT="$BUILDER_PACKAGE_CLIENT" \
             SEEN_COMPILER_SOURCE_ROOT="$source_root" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
@@ -3062,7 +3087,7 @@ recover_with_preserved_production_compiler() {
 
     echo ""
     echo "Recovery: trying preserved production compiler..."
-    if ! smoke_test_compiler "$PRESERVED_PROD_BUILDER" "Preserved production compiler" "preserved_prod"; then
+    if ! smoke_test_compiler "$PRESERVED_PROD_BUILDER" "Preserved production compiler" "preserved_prod" "$BUILDER_PACKAGE_CLIENT"; then
         echo -e "${YELLOW}Preserved production compiler failed smoke; skipping recovery rebuild.${NC}"
         return 1
     fi
@@ -3117,7 +3142,7 @@ recover_with_preserved_production_compiler() {
         echo -e "${YELLOW}Preserved production compiler advertises no worker controls; direct-child serialization and the hard cgroup remain mandatory.${NC}"
     fi
     if compiler_reports_checkout_version "$recovery_builder_path"; then
-        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT")
+        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$BUILDER_PACKAGE_CLIENT")
     fi
     recovery_marker=$(mktemp -d /tmp/seen_preserved_recovery_marker.XXXXXX 2>/dev/null || true)
     run_guarded_command_to_log "preserved compiler recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3_recovery.log \
@@ -3318,7 +3343,7 @@ recover_with_existing_stage_builder() {
 
     echo ""
     echo "Recovery: trying existing stage builder $builder_path..."
-    if ! smoke_test_compiler "$builder_path" "Existing stage builder $builder_name" "existing_${builder_slug}"; then
+    if ! smoke_test_compiler "$builder_path" "Existing stage builder $builder_name" "existing_${builder_slug}" "$BUILDER_PACKAGE_CLIENT"; then
         echo -e "${YELLOW}Existing stage builder $builder_name failed smoke; trying next recovery builder.${NC}"
         return 1
     fi
@@ -3363,7 +3388,7 @@ recover_with_existing_stage_builder() {
         return 1
     fi
     if compiler_reports_checkout_version "$recovery_builder_path"; then
-        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT")
+        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$BUILDER_PACKAGE_CLIENT")
     fi
     run_guarded_command_to_log "existing stage builder $builder_name recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$builder_log" \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$recovery_source_root" \
@@ -3441,7 +3466,7 @@ if [ -n "$REGRESSION_SCRIPT" ]; then
     }
     echo "Running focused regressions with $regression_builder; no bootstrap certification or compiler installation."
     run_guarded_command "focused regression" "$TIER_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" \
-        env COMPILER="$regression_builder" SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+        env COMPILER="$regression_builder" SEEN_PACKAGE_CLIENT="$BUILDER_PACKAGE_CLIENT" \
             bash "$REGRESSION_SCRIPT"
     exit $?
 fi

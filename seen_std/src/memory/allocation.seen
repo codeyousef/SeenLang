@@ -12,17 +12,32 @@ restores the live baseline without pretending its slab has returned to the OS.
 import core.result.{Result, Ok, Err}
 import core.unit.{Unit}
 
+// Allocation budgets and allocator telemetry observe mutable runtime state.
+@nondeterministic
 extern fun seen_memory_set_limit_bytes(bytes: Int) r: Void
+@nondeterministic
 extern fun seen_memory_limit_bytes() r: Int
+@nondeterministic
 extern fun seen_memory_used_bytes() r: Int
+@nondeterministic
 extern fun seen_memory_reserved_bytes() r: Int
+@nondeterministic
 extern fun seen_memory_peak_bytes() r: Int
+@nondeterministic
 extern fun seen_memory_remaining_bytes() r: Int
+@nondeterministic
 extern fun seen_memory_allocation_failures() r: Int
+@nondeterministic
 extern "C" fun seen_memory_snapshot() r: MemoryStats
+// These exact FFI boundaries release owned storage; callers remain responsible
+// for ownership and lifetime, independently of the deterministic effect graph.
+@nondeterministic
 extern "C" fun seen_arr_release_i64(values: Array<Int>) r: Void
+@nondeterministic
 extern "C" fun seen_arr_release_f64(values: Array<Float>) r: Void
+@nondeterministic
 extern "C" fun seen_arr_release_str(values: Array<String>) r: Void
+@nondeterministic
 extern "C" fun seen_pool_free(data: *Void, bytes: Int64) r: Void
 
 /// An owning trait dispatch box stores two pointer-sized words. This releases
@@ -94,6 +109,9 @@ fun releaseIntArrayStorage(values: Array<Int>) r: Void {
     seen_arr_release_i64(values)
 }
 
+// Floating-point storage is an explicit non-profile facility even when unused
+// by an integer-only client importing the allocation module.
+@nondeterministic
 fun releaseFloatArrayStorage(values: Array<Float>) r: Void {
     seen_arr_release_f64(values)
 }

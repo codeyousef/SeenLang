@@ -4317,7 +4317,28 @@
       ]
     },
     {
+      "name": "seen_deterministic_argument_view",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/determinism/context.seen"
+      ]
+    },
+    {
+      "name": "seen_deterministic_environment_view",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/determinism/context.seen"
+      ]
+    },
+    {
       "name": "seen_deterministic_path_beneath",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/determinism/context.seen"
+      ]
+    },
+    {
+      "name": "seen_deterministic_runtime_status",
       "abi": "C",
       "sources": [
         "seen_std/src/determinism/context.seen"
