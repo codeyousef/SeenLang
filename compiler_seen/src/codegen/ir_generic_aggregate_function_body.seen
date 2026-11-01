@@ -42,7 +42,7 @@ fun validateGenericAggregateInferredCallImpl(owner: String,
     while p < actualTypes.length() and p < definition.declaration.params.length() and matched {
         let formal = genericAggregateFunctionBeforeTypeImpl(definition,
             definition.declaration.params[p].paramType.typeName)
-        let actual = parseTypeRef(actualTypes[p])
+        let actual = parseTypeRef(actualTypes[p], 0, 0, "")
         genericAggregateResolveTypeImpl(actual, moduleName, 0)
         matched = bindGenericCallTypeImpl(formal, actual, names, values, 0, visited)
         p = p + 1
@@ -696,7 +696,7 @@ fun genericAggregateBodyExpressionImpl(proof: GenericAggregateBodyProof,
         }
         var member = expression.variableName
         if kind == "MethodCall" { member = expression.callee }
-        let memberRef = parseTypeRef(member)
+        let memberRef = parseTypeRef(member, 0, 0, "")
         if memberRef.valid { member = memberRef.base }
         let runtime = receiver.before.base == "Array" or receiver.before.base == "List" or
             receiver.before.base == "Option" or receiver.before.base == "Optional" or receiver.before.base == "Result"

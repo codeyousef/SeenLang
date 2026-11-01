@@ -228,7 +228,7 @@ fun genericAggregateResolveTypeImpl(typeRef: TypeRef, moduleName: String,
         i = i + 1
     }
     if index >= 0 and g_genericAggregateRegistry.kinds[index] == "Alias" {
-        let target = parseTypeRef(g_genericAggregateRegistry.declarationDetails[index])
+        let target = parseTypeRef(g_genericAggregateRegistry.declarationDetails[index], 0, 0, "")
         let names = Array<String>()
         i = 0
         while i < g_genericAggregateRegistry.genericOwners.length() {
@@ -292,7 +292,7 @@ fun genericAggregateValueTypeImpl(typeRef: TypeRef, moduleName: String,
     if index < 0 { return false }
     let owner = g_genericAggregateRegistry.canonicalNames[index]
     if g_genericAggregateRegistry.hasDecorator(owner, "type_alias") {
-        let target = parseTypeRef(g_genericAggregateRegistry.declarationDetails[index])
+        let target = parseTypeRef(g_genericAggregateRegistry.declarationDetails[index], 0, 0, "")
         genericAggregateResolveTypeImpl(target,
             g_genericAggregateRegistry.modules[index], depth + 1)
         return genericAggregateValueTypeImpl(target,
@@ -366,7 +366,7 @@ fun genericAggregateTrustedBoxedResultImpl(definition: GenericAggregateFunctionD
         function.params[0].paramType.typeName != genericParameterNameAt(function.decorators, payload) {
         return false
     }
-    let result = parseTypeRef(function.returnType.typeName)
+    let result = parseTypeRef(function.returnType.typeName, 0, 0, "")
     let valid = result.valid and result.base == "Result" and result.arguments.length() == 2
     var matches = valid
     if valid {
@@ -582,7 +582,7 @@ fun rewriteGenericAggregateSpellingImpl(spelling: String,
         if index < 0 { return spelling }
         if g_genericAggregateRegistry.kinds[index] != "Alias" { return spelling }
     }
-    let typeRef = parseTypeRef(spelling)
+    let typeRef = parseTypeRef(spelling, 0, 0, "")
     if not typeRef.valid { return spelling }
     genericAggregateResolveTypeImpl(typeRef, moduleName, 0)
     let originalIdentity = typeRef.canonicalIdentity()
@@ -608,7 +608,7 @@ fun substituteGenericAggregateSpellingImpl(spelling: String,
         parameterIndex = parameterIndex + 1
     }
     if not usesParameter { return spelling }
-    let typeRef = parseTypeRef(spelling)
+    let typeRef = parseTypeRef(spelling, 0, 0, "")
     if not typeRef.valid {
         rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] unsupported type-bearing specialization spelling: " + spelling)
     }

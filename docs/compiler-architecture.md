@@ -86,6 +86,10 @@ row, retains no input, and performs no per-row state allocation. Both driver
 consumers release the record after scanning. This avoids the immutable seed's
 unsupported cross-module aggregate-return ABI without rewriting source or IR.
 
+Bootstrap-sensitive `parseTypeRef` calls supply text, line, column and file
+explicitly; the immutable seed must not be relied on to fill an empty String
+default across that call boundary.
+
 ### Deterministic CLI policy
 
 CORE-004C resolves deterministic command-line options once in the shipped

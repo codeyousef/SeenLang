@@ -11,7 +11,7 @@ fun genericAggregateFunctionBeforeTypeImpl(
     r: TypeRef {
 
     // Ownership is semantic proof metadata, not merely an LLVM type modifier.
-    let reference = parseTypeRef(spelling)
+    let reference = parseTypeRef(spelling, 0, 0, "")
     if not reference.valid {
         rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] cannot prove generic function type ABI: " + definition.owner + " (" + spelling + ")")
     }
@@ -38,7 +38,7 @@ fun genericAggregateFunctionAfterTypeImpl(
 
     // Substitute source generic names before expanding aliases. An alias may
     // resolve to an unrelated class whose short name equals a type parameter.
-    let declared = parseTypeRef(spelling)
+    let declared = parseTypeRef(spelling, 0, 0, "")
     if not declared.valid {
         rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] cannot prove generic function type ABI: " + definition.owner + " (" + spelling + ")")
     }
@@ -139,7 +139,7 @@ fun genericAggregateFunctionValueAbiImpl(reference: TypeRef,
                 }
                 parameterIndex = parameterIndex + 1
             }
-            let target = parseTypeRef(registry.declarationDetails[index])
+            let target = parseTypeRef(registry.declarationDetails[index], 0, 0, "")
             if not target.valid or parameters.length() != resolved.arguments.length() {
                 rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] malformed distinct alias representation metadata")
             }

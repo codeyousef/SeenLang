@@ -1663,7 +1663,7 @@ class DeterminismEffectGraph {
         if identity == "builtin::type::Array" {
             if methodName == "length" { return "Int" }
             if methodName == "get" {
-                let parsed = parseTypeRef(receiverType)
+                let parsed = parseTypeRef(receiverType, 0, 0, "")
                 if parsed.valid and parsed.arguments.length() == 1 {
                     return parsed.arguments[0].canonicalIdentity()
                 }

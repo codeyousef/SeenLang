@@ -30,7 +30,7 @@ fun visitGenericAggregateValueCalleeImpl(callee: String, moduleName: String,
     parameters: Array<String>, arguments: Array<TypeRef>, discover: Bool,
     substitute: Bool) r: String {
     if not callee.contains("<") { return callee }
-    let reference = parseTypeRef(callee)
+    let reference = parseTypeRef(callee, 0, 0, "")
     if not reference.valid { return callee }
     var i = 0
     while i < reference.arguments.length() {
@@ -40,7 +40,7 @@ fun visitGenericAggregateValueCalleeImpl(callee: String, moduleName: String,
                 parameters, arguments, moduleName, discover)
         }
         reference.arguments[i] = parseTypeRef(rewriteGenericAggregateSpellingImpl(
-            spelling, moduleName, discover))
+            spelling, moduleName, discover), 0, 0, "")
         i = i + 1
     }
     return reference.canonical()
@@ -58,7 +58,7 @@ fun visitGenericAggregateExpressionImpl(expression: ParserExpressionNode,
         if substitute {
             spelling = substituteGenericAggregateSpellingImpl(spelling, parameters, arguments, moduleName, discover)
         }
-        let methodType = parseTypeRef(spelling)
+        let methodType = parseTypeRef(spelling, 0, 0, "")
         if methodType.valid {
             genericAggregateResolveTypeImpl(methodType, moduleName, 0)
             var argumentIndex = 0

@@ -40,6 +40,9 @@ Foundations**.
   scan, resetting every field on valid and invalid input and releasing the owner
   after use. Keep the frozen bootstrap boundary on its reference ABI instead of
   returning an unsupported cross-module aggregate or allocating state per row.
+- Pass every type-parser argument explicitly in bootstrap-sensitive builtin
+  return-type and generic aggregate analysis, avoiding omitted default String
+  slots in the frozen seed's calls.
 - Correct sanitizer guidance: LLVM 20 ThreadSanitizer requires unlimited virtual
   address space; a finite shadow allowance is not certified TSan execution and
   does not authorize changing the host policy.
