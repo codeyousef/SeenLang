@@ -428,6 +428,10 @@ Inferred direct calls undergo the same body checks as explicit type arguments.
 Descriptor-only forwarding can remain erased; element access or construction
 may require rejection. Move/borrow qualifiers also govern the implicit cleanup
 checks rather than being discarded during representation analysis.
+Use a concrete extractor when a result payload is an Array: for example,
+`Result<Array<Job>, AsyncError>` returning `Array<Job>`, not an erased helper
+returning bare `T`. Releasing the Result container does not release the returned
+Array or its jobs; the assertion or application caller retains those owners.
 Aggregate specializations with remaining open class arguments, unsupported trait
 specializations and foreign/exported aggregate methods are rejected.
 

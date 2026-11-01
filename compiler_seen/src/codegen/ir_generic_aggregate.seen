@@ -323,7 +323,9 @@ fun genericAggregateTrustedDefaultImpl(reference: TypeRef,
     if not ((module == "seen_std.src.core.option" and
         file == g_genericAggregateTrustedStdlibRoot + "/core/option.seen") or
         (module == "seen_std.src.collections.vec" and
-        file == g_genericAggregateTrustedStdlibRoot + "/collections/vec.seen")) {
+        file == g_genericAggregateTrustedStdlibRoot + "/collections/vec.seen") or
+        (module == "seen_std.src.collections.hash_map" and
+        file == g_genericAggregateTrustedStdlibRoot + "/collections/hash_map.seen")) {
         return false
     }
     var i = 0

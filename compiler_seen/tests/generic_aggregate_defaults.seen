@@ -54,9 +54,13 @@ fun main() r: Int {
     setGenericAggregateTrustedStdlibRootImpl("/trusted")
     registerGenericAggregateDeclarationImpl(trusted, "seen_std.src.core.option",
         "/trusted/core/option.seen")
+    registerGenericAggregateDeclarationImpl(trusted, "seen_std.src.collections.hash_map",
+        "/trusted/collections/hash_map.seen")
     registerGenericAggregateDeclarationImpl(user, "user", "/user/main.seen")
     requireAggregateDefault(genericAggregateTrustedDefaultDeclarationImpl(
         trusted.items[0].function, "seen_std.src.core.option"))
+    requireAggregateDefault(genericAggregateTrustedDefaultDeclarationImpl(
+        trusted.items[0].function, "seen_std.src.collections.hash_map"))
     requireAggregateDefault(not genericAggregateTrustedDefaultDeclarationImpl(
         user.items[0].function, "user"))
 
@@ -74,6 +78,8 @@ fun main() r: Int {
     requireAggregateDefault(not genericAggregateMetaBuiltinAllowedImpl("sizeof", locals, 1))
     prepareModuleFunctionIdentityImpl("seen_std.src.core.option", "")
     requireAggregateDefault(genericAggregateMetaBuiltinAllowedImpl("__default<String>", locals, 0))
+    prepareModuleFunctionIdentityImpl("seen_std.src.collections.hash_map", "")
+    requireAggregateDefault(genericAggregateMetaBuiltinAllowedImpl("__default<String>", locals, 0))
     locals.free()
 
     // A module spelling alone cannot authorize a declaration from another file.
@@ -83,6 +89,29 @@ fun main() r: Int {
         "/untrusted/core/option.seen")
     requireAggregateDefault(not genericAggregateTrustedDefaultDeclarationImpl(
         trusted.items[0].function, "seen_std.src.core.option"))
+
+    // The hash-map declaration has the same authority only at its own source
+    // identity, and its extern/generic/result shape must still be exact.
+    resetGenericAggregateSpecializationImpl()
+    setGenericAggregateTrustedStdlibRootImpl("/trusted")
+    registerGenericAggregateDeclarationImpl(trusted, "seen_std.src.collections.hash_map",
+        "/untrusted/collections/hash_map.seen")
+    requireAggregateDefault(not genericAggregateTrustedDefaultDeclarationImpl(
+        trusted.items[0].function, "seen_std.src.collections.hash_map"))
+    resetGenericAggregateSpecializationImpl()
+    setGenericAggregateTrustedStdlibRootImpl("/trusted")
+    registerGenericAggregateDeclarationImpl(trusted, "user",
+        "/trusted/collections/hash_map.seen")
+    requireAggregateDefault(not genericAggregateTrustedDefaultDeclarationImpl(
+        trusted.items[0].function, "user"))
+    let mismatchedDefault = aggregateDefaultDeclarations("extern fun __default<T>() r: String")
+    requireAggregateDefault(mismatchedDefault.items.length() == 1)
+    resetGenericAggregateSpecializationImpl()
+    setGenericAggregateTrustedStdlibRootImpl("/trusted")
+    registerGenericAggregateDeclarationImpl(mismatchedDefault, "seen_std.src.collections.hash_map",
+        "/trusted/collections/hash_map.seen")
+    requireAggregateDefault(not genericAggregateTrustedDefaultDeclarationImpl(
+        mismatchedDefault.items[0].function, "seen_std.src.collections.hash_map"))
     resetModuleFunctionIdentitiesImpl()
     // Only the standard Result constructors own the boxed payload ABI. Their
     // inactive generic label need not be inferred from the live argument.

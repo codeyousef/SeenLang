@@ -24,6 +24,16 @@ fun must<T, E>(result: Result<T, E>) r: T {
     return value
 }
 
+// Preserve the concrete Array return ABI instead of erasing it through must<T, E>.
+fun mustJobs(result: Result<Array<SyncProbe>, AsyncError>) r: Array<SyncProbe> {
+    if result.isErr() {
+        let error = result.unwrapErr(); result.releaseContainer(); error.free()
+        abort("async synchronization fixture failed")
+    }
+    let values = result.unwrap(); result.releaseContainer()
+    return values
+}
+
 fun errorIs<T>(result: Result<T, AsyncError>, code: String) r: Bool {
     if result.isOkay() { result.releaseContainer(); return false }
     let error = result.unwrapErr(); result.releaseContainer()
@@ -160,7 +170,7 @@ fun main() r: Int {
         let tasks = must(TaskGroup<SyncProbe>.create(happy.pool.core, 2, ctx))
         must(spawnSyncProbe(tasks,happy.job(2, 0), ctx))
         must(spawnSyncProbe(tasks,happy.job(1, 42), ctx))
-        let values = must(tasks.barrier(ctx))
+        let values = mustJobs(tasks.barrier(ctx))
         if values.length() != 2 or values[0].result != 42 { return 1 }
         releaseJobs(values); must(tasks.release())
         round = round + 1
@@ -168,7 +178,7 @@ fun main() r: Int {
     let phaseTasks = must(TaskGroup<SyncProbe>.create(happy.pool.core, 2, ctx))
     must(spawnSyncProbe(phaseTasks,happy.job(3, 0), ctx))
     must(spawnSyncProbe(phaseTasks,happy.job(3, 1), ctx))
-    releaseJobs(must(phaseTasks.barrier(ctx))); must(phaseTasks.release())
+    releaseJobs(mustJobs(phaseTasks.barrier(ctx))); must(phaseTasks.release())
     must(happy.group.wait(ctx))
     if must(happy.reduction.finish(ctx)) != 11 { return 2 }
     if not errorIs(happy.reduction.submit(0, 9, ctx), "async.invalid") { return 3 }

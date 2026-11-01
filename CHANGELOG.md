@@ -30,6 +30,12 @@ Foundations**.
   frozen-bootstrap-sensitive compiler paths.
   Substitute generic type operands of `is` without rewriting same-named value
   bindings, and restrict enum-tag checks to known enum variants.
+- Recognize the verified standard hash-map `__default` declaration through the
+  existing canonical-module, real-source-path and signature checks, retaining
+  typed zeros without granting user or hosted lookalikes intrinsic behavior.
+- Extract async task-group barrier arrays through concrete return signatures
+  instead of unsupported bare generic return slots; preserve job, array, result
+  container and error ownership without weakening the generic ABI guards.
 - Emit pointer/64-bit integer casts from physical ABI metadata rather than
   treating the language `Ptr` spelling as a no-op and generating malformed IR.
   Keep native `Ptr`/Array/List field projections as pointers while retaining

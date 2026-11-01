@@ -30,6 +30,15 @@ fun expectError<T>(result: Result<T, AsyncError>, code: String, progress: UInt64
     } else { println("FAIL: expected " + code + " but operation succeeded") }
     if not errorHasProgress<T>(result, code, progress) { abort("synchronization error code/progress mismatch") }
 }
+// The returned Array and its jobs remain owned by the assertion caller.
+fun mustJobs(result: Result<Array<AdverseSyncJob>, AsyncError>) r: Array<AdverseSyncJob> {
+    if result.isErr() {
+        let error = result.unwrapErr(); result.releaseContainer(); error.free()
+        abort("async stress fixture failed")
+    }
+    let values = result.unwrap(); result.releaseContainer()
+    return values
+}
 fun submit(group: TaskGroup<AdverseSyncJob>, job: AdverseSyncJob,
     ctx: AsyncOperationContext) r: Result<Bool, AsyncError> {
     return group.spawn(job, job, ctx)
@@ -131,7 +140,7 @@ fun taskGroupFailures(core: ExecutorCore, ctx: AsyncOperationContext,
     let excess = AdverseSyncJob{number: 4}
     expectError(submit(full, excess, ctx), "async.limit", 1 as UInt64)
     excess.release()
-    let values = must(full.barrier(ctx))
+    let values = mustJobs(full.barrier(ctx))
     if values.length() != 1 or values[0].number != 3 { abort("task group ownership changed") }
     values[0].release(); values.free()
     expectError(full.barrier(ctx), "async.invalid", 0 as UInt64)
