@@ -36,6 +36,12 @@ Foundations**.
 - Extract async task-group barrier arrays through concrete return signatures
   instead of unsupported bare generic return slots; preserve job, array, result
   container and error ownership without weakening the generic ABI guards.
+- Import the package-map aggregate result type and annotate both compiler-driver
+  locals explicitly, retaining concrete layout visibility for frozen bootstrap
+  callers without adding an IR-repair rule or changing the transport.
+- Correct sanitizer guidance: LLVM 20 ThreadSanitizer requires unlimited virtual
+  address space; a finite shadow allowance is not certified TSan execution and
+  does not authorize changing the host policy.
 - Emit pointer/64-bit integer casts from physical ABI metadata rather than
   treating the language `Ptr` spelling as a no-op and generating malformed IR.
   Keep native `Ptr`/Array/List field projections as pointers while retaining

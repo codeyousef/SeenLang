@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Run one generated Linux x86-64 ASan/TSan executable with enough finite virtual
-# address space for the sanitizer shadow. Physical memory, swap, task, worker,
-# and timeout containment remain owned by the enclosing read-back-verified
-# capped-regression scope.
+# Request finite shadow virtual address space for a generated Linux x86-64
+# sanitizer executable. ASan supports this reviewed admission; LLVM 20 TSan
+# requires unlimited RLIMIT_AS and cannot be certified by a finite allowance.
+# Physical memory, swap, task, worker and timeout containment remain enforced.
 
 set -euo pipefail
 

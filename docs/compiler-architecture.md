@@ -80,6 +80,9 @@ New bootstrap helper modules must be reachable from `main_compiler.seen`
 imports as well as from the embedded compiler-module list. That keeps older
 bootstrap compilers from treating new helper calls as external declarations with
 the wrong ABI during self-hosted rebuilds.
+Import an aggregate helper's result type alongside the function and explicitly
+type driver locals that receive it. The frozen caller needs the concrete layout;
+an opaque named return must not be treated as an erased word-sized slot.
 
 ### Deterministic CLI policy
 

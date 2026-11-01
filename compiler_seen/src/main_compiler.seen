@@ -2,7 +2,7 @@ import codegen.source_coverage_state.{beginSourceCoverageModule}
 import codegen.source_coverage_model.{SourceCoverageRegion, SourceCoverageFunction}
 import codegen.source_coverage_encoding.{coverageFilenames}
 import codegen.source_coverage_emit.{emitSourceCoverageRecords}
-import imports.package_map.{decodePackageMapColumns}
+import imports.package_map.{PackageMapColumns, decodePackageMapColumns}
 import crypto.md5.{MD5}
 import codegen.simd_report.{configureSimdReporting, emitCollectedSimdReports,
     emitSimdObservationUnavailable, emitSimdPolicyRecord}
@@ -4966,7 +4966,7 @@ fun resolvePackageMapDependencyRoot(sourceDir: String,
         if atEnd or atNewline {
             let line = content.substring(lineStart, pos)
             if line != "" {
-                let columns = decodePackageMapColumns(line)
+                let columns: PackageMapColumns = decodePackageMapColumns(line)
                 if not columns.valid {
                     println("Error: invalid seen-package-map-v2 row")
                     processExit(1)
@@ -8904,7 +8904,7 @@ fun compilerHostedPackageModuleIdentity(normalizedPath: String) r: String {
         if atBoundary {
             let line = content.substring(lineStart, pos)
             if line != "" {
-                let columns = decodePackageMapColumns(line)
+                let columns: PackageMapColumns = decodePackageMapColumns(line)
                 if not columns.valid {
                     println("Error: invalid seen-package-map-v2 row")
                     processExit(1)

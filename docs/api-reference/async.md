@@ -511,9 +511,12 @@ permits buffer/descriptor cleanup until completion returns those owners.
 Run both through `tests/misc_root_tests/seen_async_stress_contract.sh` inside
 the repository's capped regression scope. The harness runs fast, release with
 ThinLTO, UBSan, ASan and TSan, halting on sanitizer errors with no suppressions.
-ASan/TSan may reserve finite shadow virtual address space only after matching
-instrumentation is verified; the enclosing physical-memory, swap, process and
-worker caps remain in force. The JSON result explicitly sets `certified:false`:
+ASan's reviewed finite shadow allowance retains the enclosing physical-memory,
+swap, process and worker caps. LLVM 20 TSan instead requires unlimited
+`RLIMIT_AS`; increasing a finite ceiling does not admit it. The finite TSan
+launcher is not a certified execution path: a compatible, explicitly approved
+test-host policy is still required, and failed startup is not race coverage.
+The JSON result explicitly sets `certified:false`:
 designated performance comparison, 7950X3D scaling and GPU completion remain
 separate deferred verification. The stress fixtures add no native exports;
 the current identities are stdlib 0.17.0 and runtime-v15, recorded in the
