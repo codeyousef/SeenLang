@@ -294,6 +294,12 @@ acquisition, and `release` is idempotent. The token is native Seen and adds no
 foreign ABI boundary. Closure capture and cross-task transfer require their
 later dedicated ownership analyses and are not implied by this contract.
 
+The host trace verifier, `scripts/check_owned_resources.py`, accepts owner,
+resource and nonempty move-target identities of 1–128 ASCII lowercase letters,
+digits, `-`, `.`, or `_`. Empty targets are reserved for non-move operations.
+Its compiled character scan preserves that grammar and duplicate-JSON-field
+rejection; it does not relax the pinned five-warmup, 30-sample, hard-5% benchmark.
+
 ## Related
 
 - [Concurrency](concurrency.md) -- thread safety with `@send`/`@sync`

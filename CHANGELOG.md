@@ -71,6 +71,10 @@ Foundations**.
 - Check instrumentation execution counts through validated JSON reports instead
   of CLI wording, and remove build/test instrumentation source-string pins while
   retaining validation, fuzz, benchmark, coverage and native execution gates.
+- Validate ownership-trace ASCII identities with a compiled character scan
+  instead of per-character Python generators, preserving length bounds,
+  duplicate-field rejection and typed errors. Keep the pinned hard 5% benchmark
+  threshold unchanged.
 - Borrow bounded immutable launch inputs when constructing deterministic contexts,
   releasing temporary capture records on success and failure instead of retaining
   copies of every process argument. Check native snapshot bounds, disabled mode,
