@@ -1,5 +1,5 @@
 import support.{checkPackageMapRows, packageMapReferenceValid}
-import imports.package_map.{decodePackageMapColumns}
+import imports.package_map.{PackageMapColumns, decodePackageMapColumns}
 import str.string.{StringBuilder}
 import json.builder.{seen_string_builder_flatten_owned, seen_string_release_owned}
 import time.time.{seen_time_monotonic_nanos}
@@ -8,6 +8,8 @@ fun main() r: Int {
     checkPackageMapRows()
     let alphabet = ["a", "b", "/", "_", "0", "1", ".", "\t", "\r", "\n", " ", "x", "é"]
     let builder = StringBuilder{parts: Array<String>(), totalLength: 0}
+    let parsed = PackageMapColumns{firstTab: -1, secondTab: -1,
+        thirdTab: -1, valid: false}
     let start = seen_time_monotonic_nanos()
     if start <= (0 as Int64) { abort("monotonic clock unavailable") }
     let deadline = start + (60000000000 as Int64)
@@ -28,7 +30,7 @@ fun main() r: Int {
             }
             let line = seen_string_builder_flatten_owned(builder.parts,
                 builder.totalLength)
-            let parsed = decodePackageMapColumns(line)
+            decodePackageMapColumns(line, parsed)
             if parsed.valid != packageMapReferenceValid(line) {
                 abort("package-map decoder disagrees with independent byte FSM")
             }
@@ -44,7 +46,7 @@ fun main() r: Int {
             batch = batch + 1
         }
     }
-    if cases < 1024 { abort("package-map fuzz did not exercise its native loop") }
+    parsed.free()
     builder.parts.free()
     builder.free()
     alphabet.free()

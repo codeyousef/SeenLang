@@ -4954,6 +4954,8 @@ fun resolvePackageMapDependencyRoot(sourceDir: String,
     var bestDependencyRoot = ""
     var lineStart = 0
     var pos = 0
+    let columns = PackageMapColumns{firstTab: -1, secondTab: -1,
+        thirdTab: -1, valid: false}
     while pos <= content.length() {
         var atEnd = false
         if pos == content.length() {
@@ -4966,9 +4968,10 @@ fun resolvePackageMapDependencyRoot(sourceDir: String,
         if atEnd or atNewline {
             let line = content.substring(lineStart, pos)
             if line != "" {
-                let columns: PackageMapColumns = decodePackageMapColumns(line)
+                decodePackageMapColumns(line, columns)
                 if not columns.valid {
                     println("Error: invalid seen-package-map-v2 row")
+                    columns.free()
                     processExit(1)
                 }
                 let firstTab = columns.firstTab
@@ -4993,6 +4996,7 @@ fun resolvePackageMapDependencyRoot(sourceDir: String,
         }
         pos = pos + 1
     }
+    columns.free()
     return bestDependencyRoot
 }
 
@@ -8896,6 +8900,8 @@ fun compilerHostedPackageModuleIdentity(normalizedPath: String) r: String {
     var foundView = false
     var lineStart = 0
     var pos = 0
+    let columns = PackageMapColumns{firstTab: -1, secondTab: -1,
+        thirdTab: -1, valid: false}
     while pos <= content.length() {
         var atBoundary = pos == content.length()
         if not atBoundary and content.byteAt(pos) == 10 {
@@ -8904,9 +8910,10 @@ fun compilerHostedPackageModuleIdentity(normalizedPath: String) r: String {
         if atBoundary {
             let line = content.substring(lineStart, pos)
             if line != "" {
-                let columns: PackageMapColumns = decodePackageMapColumns(line)
+                decodePackageMapColumns(line, columns)
                 if not columns.valid {
                     println("Error: invalid seen-package-map-v2 row")
+                    columns.free()
                     processExit(1)
                 }
                 let secondTab = columns.secondTab
@@ -8917,6 +8924,7 @@ fun compilerHostedPackageModuleIdentity(normalizedPath: String) r: String {
 
                     if not pathIsInsidePackageRequester(dependencyRoot, viewsRoot) {
                         println("Error: package-map source root escapes project views")
+                        columns.free()
                         processExit(1)
                     }
                     let modulePrefix = line.substring(thirdTab + 1, line.length())
@@ -8925,6 +8933,7 @@ fun compilerHostedPackageModuleIdentity(normalizedPath: String) r: String {
                             dependencyRoot, viewsRoot + "/local")
                         if localRelative.length() != 136 {
                             println("Error: hosted package view has no canonical module provenance")
+                            columns.free()
                             processExit(1)
                         }
                         if localRelative.substring(64, 65) != "/" or
@@ -8933,12 +8942,14 @@ fun compilerHostedPackageModuleIdentity(normalizedPath: String) r: String {
                             not isSha256Digest(localRelative.substring(65, 129)) {
 
                             println("Error: invalid local package-view provenance")
+                            columns.free()
                             processExit(1)
                         }
                         bestIdentity = ""
                     } else {
                         if not modulePrefix.startsWith("hosted/") {
                             println("Error: invalid hosted package module provenance")
+                            columns.free()
                             processExit(1)
                         }
                         let relativePath = pathRelativeToProjectRoot(
@@ -8953,6 +8964,7 @@ fun compilerHostedPackageModuleIdentity(normalizedPath: String) r: String {
         }
         pos = pos + 1
     }
+    columns.free()
     if not foundView {
         println("Error: package module is not bound to the verified package map")
         processExit(1)

@@ -1,6 +1,7 @@
 /// Byte framing for the version-coupled package-map v2 transport.
 /// Filesystem/provenance validation remains with the import-graph owner.
-@repr(C)
+/// Caller-owned reusable state; decoding borrows it exclusively and retains no
+/// input. The reference ABI avoids aggregate returns across the frozen seed.
 class PackageMapColumns {
     var firstTab: Int
     var secondTab: Int
@@ -8,7 +9,8 @@ class PackageMapColumns {
     var valid: Bool
 }
 
-fun decodePackageMapColumns(line: String) r: PackageMapColumns {
+/// Overwrite every field, including after an invalid row; allocate no row state.
+fun decodePackageMapColumns(line: String, columns: PackageMapColumns) r: Void {
     let first = line.indexOf("\t", 0)
     var second = -1
     var third = -1
@@ -21,6 +23,8 @@ fun decodePackageMapColumns(line: String) r: PackageMapColumns {
     let valid = first > 0 and second > first + 1 and third > second + 1 and
         line.indexOf("\t", third + 1) < 0 and
         line.indexOf("\r", 0) < 0 and line.indexOf("\n", 0) < 0
-    return PackageMapColumns{firstTab: first, secondTab: second,
-        thirdTab: third, valid: valid}
+    columns.firstTab = first
+    columns.secondTab = second
+    columns.thirdTab = third
+    columns.valid = valid
 }

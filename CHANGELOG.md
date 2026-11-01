@@ -36,9 +36,10 @@ Foundations**.
 - Extract async task-group barrier arrays through concrete return signatures
   instead of unsupported bare generic return slots; preserve job, array, result
   container and error ownership without weakening the generic ABI guards.
-- Import the package-map aggregate result type and annotate both compiler-driver
-  locals explicitly, retaining concrete layout visibility for frozen bootstrap
-  callers without adding an IR-repair rule or changing the transport.
+- Decode package-map rows into one caller-owned record reused for the complete
+  scan, resetting every field on valid and invalid input and releasing the owner
+  after use. Keep the frozen bootstrap boundary on its reference ABI instead of
+  returning an unsupported cross-module aggregate or allocating state per row.
 - Correct sanitizer guidance: LLVM 20 ThreadSanitizer requires unlimited virtual
   address space; a finite shadow allowance is not certified TSan execution and
   does not authorize changing the host policy.
