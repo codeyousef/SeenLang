@@ -211,6 +211,14 @@ produces hardware evidence. Compile-only evidence cannot close TEST-002A.
 The capped execution acceptance therefore builds and runs an instrumented
 compiler, exercises the software GPU emitter, then runs the instrumented Seen
 fixture before deriving the five-component evidence document.
+The native validators borrow their input plans and contexts. A successful
+`Result` borrows the original plan too: release the result container separately
+from caller-owned component arrays, components, plans and contexts. Validation
+errors own their marker/container storage and must be released by the caller.
+The ownership example is `compiler_seen/examples/test_instrumentation.seen`;
+it validates supplied records without claiming actual hardware execution.
+The named native cases also require exact return to their initial live-allocation
+baseline rather than merely printing a cleanup marker.
 Its measured lifecycle soak checks 10,000 iterations of accepted and rejected
 plans, cancellation and unsupported targets. Result containers, owned errors,
 components and contexts are explicitly released; live usage must return to the

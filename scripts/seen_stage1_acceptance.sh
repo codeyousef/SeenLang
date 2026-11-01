@@ -682,6 +682,8 @@ run_fixture test-runner-example \
     "$REPO_ROOT/compiler_seen/examples/test_runner.seen"
 run_fixture test-instrumentation \
     "$REPO_ROOT/compiler_seen/tests/test_002a_instrumentation.seen"
+run_fixture test-instrumentation-example \
+    "$REPO_ROOT/compiler_seen/examples/test_instrumentation.seen"
 if [ "$TIER" = "verify" ]; then
     "$REPO_ROOT/scripts/run_test_instrumentation_acceptance.sh" "$REAL_COMPILER"
 fi

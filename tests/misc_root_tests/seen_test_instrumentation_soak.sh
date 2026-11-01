@@ -49,7 +49,6 @@ for profile in fast release undefined address coverage; do
         tail -c 32768 "$run_log" >&2
         exit "$status"
     fi
-    grep -Fxq 'PASS: TEST-002A_soak' "$run_log"
     if [ "$profile" = coverage ]; then
         llvm-profdata merge -sparse --num-threads=1 "$WORK/coverage.profraw" \
             -o "$WORK/coverage.profdata"

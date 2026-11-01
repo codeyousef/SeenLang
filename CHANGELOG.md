@@ -65,6 +65,12 @@ Foundations**.
 - Replace required-CI source-string wiring assertions with the actual
   outside-containment rejection contract; keep parsed workflow checks and
   native acceptance gates authoritative.
+- Make instrumentation fixtures release temporary name arrays, borrowed-success
+  result containers, owned errors, plans and contexts. Require exact live-memory
+  cleanup and retain ASan/LSan checks; add a complete ownership example.
+- Check instrumentation execution counts through validated JSON reports instead
+  of CLI wording, and remove build/test instrumentation source-string pins while
+  retaining validation, fuzz, benchmark, coverage and native execution gates.
 - Borrow bounded immutable launch inputs when constructing deterministic contexts,
   releasing temporary capture records on success and failure instead of retaining
   copies of every process argument. Check native snapshot bounds, disabled mode,

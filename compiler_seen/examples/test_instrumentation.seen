@@ -1,0 +1,55 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+import testing.instrumentation.{TestInstrumentationComponent,
+    TestInstrumentationPlan, validateTestInstrumentation}
+
+// Validate supplied software-execution records. This example is not itself
+// evidence that a compiler host, GPU emitter or hardware device was exercised.
+fun main() r: Int {
+    let context = OperationContext{cancellation: false, monotonicDeadline: 1,
+        limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
+            maxVersionBytes: 128, maxManifestBytes: 4096,
+            maxPathBytes: 4096, maxGraphModules: 5,
+            maxGraphEdges: 64, maxGraphDepth: 16},
+        traceId: AsciiString{value: "instrumentation-example"}}
+    let components = Array<TestInstrumentationComponent>()
+    let names = ["compiler-host", "gpu-emitters", "seen-modules",
+        "native-runtime", "abi-shims"]
+    for name in names {
+        components.push(TestInstrumentationComponent{name: name,
+            compiled: true, softwareExecuted: true, hardwareExecuted: false})
+    }
+    names.free()
+    let plan = TestInstrumentationPlan{profile: "coverage", coverage: true,
+        sanitizer: "", target: "linux-x86_64", components: components}
+    let checked = validateTestInstrumentation(plan, context)
+    let accepted = not checked.isErr()
+    if checked.isErr() {
+        let error = checked.unwrapErr()
+        println(error.code.value)
+        // These validators create errors with empty causes and no native code.
+        error.code.free()
+        error.subsystem.free()
+        error.operation.free()
+        error.causes.free()
+        error.nativeCode.free()
+        error.free()
+    }
+    // Success borrows plan: release Result's container, not its payload.
+    checked.releaseContainer()
+    var index = 0
+    while index < components.length() {
+        components[index].free()
+        index = index + 1
+    }
+    components.free()
+    plan.free()
+    context.traceId.free()
+    context.limits.free()
+    context.free()
+    if not accepted { return 1 }
+    println("Software instrumentation records accepted; hardware execution unclaimed")
+    return 0
+}
+
+main()

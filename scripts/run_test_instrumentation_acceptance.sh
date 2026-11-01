@@ -117,12 +117,11 @@ for profile in ci coverage sanitizer-undefined sanitizer-thread; do
         tail -c 32768 "$cli_log" >&2
         fail "test CLI profile $profile failed"
     fi
-    grep -Fq 'test result: 1 passed; 0 failed;' "$cli_log" ||
-        fail "test CLI profile $profile did not execute the selected fixture"
     python3 "$ROOT/scripts/check_test_reporters.py" --format json \
         --validate "$RUN/cli-$profile.json" >/dev/null
     python3 "$ROOT/scripts/check_test_reporters.py" --format junit \
         --validate "$RUN/cli-$profile.xml" >/dev/null
+    python3 -c 'import json, sys; report = json.load(open(sys.argv[1])); assert report["passed"] == 1 and report["failed"] == 0, report' "$RUN/cli-$profile.json"
 done
 scope_log="$RUN/cli-shell-scope.log"
 if ! SEEN_COMPILER_SOURCE_ROOT="$ROOT" SEEN_PACKAGE_CLIENT="$PACKAGE_CLIENT" \
@@ -133,12 +132,11 @@ if ! SEEN_COMPILER_SOURCE_ROOT="$ROOT" SEEN_PACKAGE_CLIENT="$PACKAGE_CLIENT" \
     tail -c 32768 "$scope_log" >&2
     fail "self-wrapping shell test failed scope re-entry"
 fi
-grep -Fq 'test result: 1 passed; 0 failed;' "$scope_log" ||
-    fail "shell scope regression did not execute its fixture"
 python3 "$ROOT/scripts/check_test_reporters.py" --format json \
     --validate "$RUN/cli-shell-scope.json" >/dev/null
 python3 "$ROOT/scripts/check_test_reporters.py" --format junit \
     --validate "$RUN/cli-shell-scope.xml" >/dev/null
+python3 -c 'import json, sys; report = json.load(open(sys.argv[1])); assert report["passed"] == 1 and report["failed"] == 0, report' "$RUN/cli-shell-scope.json"
 "$ROOT/scripts/run_capped_regression.sh" test-instrumentation-soak \
     --compiler "$COMPILER" -- bash "$ROOT/tests/misc_root_tests/seen_test_instrumentation_soak.sh"
 echo "PASS: TEST-002A instrumented compiler, GPU emitter, runtime, and ABI execution"
