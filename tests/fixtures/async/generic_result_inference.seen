@@ -15,16 +15,30 @@ fun forwardInferred<T>(value: T) r: T {
     if result.isErr() { abort("generic passthrough lost Result type") }
     let returned = result.unwrap(); result.releaseContainer(); return returned
 }
+fun unwrapArray(result: Result<Array<Int>, InferenceError>) r: Array<Int> {
+    if result.isErr() {
+        let error = result.unwrapErr()
+        error.free()
+        result.releaseContainer()
+        abort("concrete array inference fixture received error")
+    }
+    let value = result.unwrap()
+    result.releaseContainer()
+    return value
+}
+fun forwardArray(value: Array<Int>) r: Array<Int> {
+    return unwrapArray(Ok<Array<Int>, InferenceError>(value))
+}
 fun checkGenericInference() r: Void {
     if forwardInferred<Int>(47) != 47 { abort("in-scope generic Result call lost its signature") }
     let passed = Array<Int>(); passed.push(53)
-    let forwarded = forwardInferred<Array<Int>>(passed)
+    let forwarded = forwardArray(passed)
     if forwarded[0] != 53 { abort("generic Result passthrough lost array pointer") }
     forwarded.free()
     let object = unwrapInferred(Ok<InferredValue, InferenceError>(InferredValue{number: 37}))
     if object.number != 37 { abort("generic object return lost its type") }; object.free()
     let values = Array<Int>(); values.push(41)
-    let array = unwrapInferred(Ok<Array<Int>, InferenceError>(values))
+    let array = unwrapArray(Ok<Array<Int>, InferenceError>(values))
     if array[0] != 41 { abort("generic array return lost pointer ABI") }; array.free()
     let flag = unwrapInferred(Ok<Bool, InferenceError>(true))
     if not flag { abort("generic Bool return lost scalar ABI") }
@@ -48,6 +62,6 @@ fun main() r: Int {
         if seen_memory_used_bytes() != baseline { abort("generic scalar return leaked runtime owners") }
         i = i + 1
     }
-    println("PASS: inferred generic class array and scalar return ABIs")
+    println("PASS: inferred generic scalar/class and concrete Array return ABIs")
     return 0
 }

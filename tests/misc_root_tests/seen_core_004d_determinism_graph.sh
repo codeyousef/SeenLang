@@ -243,6 +243,7 @@ done
 
 for fixture in unsupported_aggregate_function.seen \
     unsupported_inferred_aggregate_function.seen \
+    unsupported_array_function.seen \
     unsupported_explicit_descriptor_body.seen \
     unsupported_inferred_descriptor_body.seen; do
     aggregate_negative="$WORK_DIR/${fixture%.seen}"

@@ -36,6 +36,11 @@ Foundations**.
 - Extract async task-group barrier arrays through concrete return signatures
   instead of unsupported bare generic return slots; preserve job, array, result
   container and error ownership without weakening the generic ABI guards.
+  Use the same concrete Array boundary in executor Result-inference fixtures,
+  retaining generic scalar/class bit-preservation and repeated cleanup coverage;
+  reject unsupported bare-generic Array erasure before producing a native file.
+  Cover worker-local shutdown rejection and idempotent owner shutdown after
+  close, including preserved completion state and resource baselines.
 - Decode package-map rows into one caller-owned record reused for the complete
   scan, resetting every field on valid and invalid input and releasing the owner
   after use. Keep the frozen bootstrap boundary on its reference ABI instead of

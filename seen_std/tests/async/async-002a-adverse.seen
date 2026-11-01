@@ -29,6 +29,9 @@ class AdverseExecutorJob {
         if task.core.wait(task.slot, task.id, task.operation, task.depth) != (1 as Int32) {
             abort("executor admitted a self join")
         }
+        if task.core.shutdown(false) != (1 as Int32) or task.core.stopping {
+            abort("worker shutdown must reject without stopping the scheduler")
+        }
         must(task.checkpoint())
         if must(task.advanceProgress(3 as UInt64)) != (3 as UInt64) { return false }
         expectError(task.advanceProgress(9223372036854775807 as UInt64), "async.limit", 3 as UInt64)
@@ -186,6 +189,10 @@ fun main() r: Int {
     must(queue.close()); must(queue.release())
     must(pool.close()); if pool.core.progress() != (2 as UInt64) { abort("closed executor lost completion progress") }
     must(pool.close())
+    if not must(pool.shutdown(false)) or not pool.core.closed or
+        not pool.core.stopped or pool.core.progress() != (2 as UInt64) {
+        abort("shutdown after close changed the completed executor state")
+    }
     let retained = AdverseExecutorJob{number: 10}
     expectError(pool.spawn(retained, retained, ctx), "async.invalid", 0 as UInt64); retained.release()
     expectError(pool.core.observe(0, 0, true), "async.invalid", 0 as UInt64)
