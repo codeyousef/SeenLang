@@ -96,6 +96,8 @@ class GpuVulkanStagingRing {
         if this.core.closed or bytes == (0 as UInt64) or bytes > this.core.stride {
             return Err<GpuVulkanStagingTicket, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.staging.reserve", "staging ticket escapes its active fixed backing"))
         }
+        let ready = this.core.queue.lease.admission("gpu.vulkan.staging.reserve")
+        if ready.isErr() { let error = ready.unwrapErr(); ready.releaseContainer(); return Err<GpuVulkanStagingTicket, GpuError>(error) }; ready.releaseContainer()
         if this.core.queue.poisoned {
             return Err<GpuVulkanStagingTicket, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.staging.reserve", "staging queue requires drain and shutdown"))
         }
@@ -167,9 +169,12 @@ class GpuVulkanStagingTicket {
         }
         let signal = this.slice.core.slots[this.slice.slot].sequence
         let observed = this.core.queue.poll(signal)
-        // Device loss retires native use but never licenses reading output.
-        if this.core.queue.lastCompleted > this.core.metadata.core.lastCompleted {
-            let recorded = this.core.metadata.complete(this.core.queue.lastCompleted)
+        // A loss error carrying this signal is emitted only AFTER native
+        // retirement proof. Metadata completion releases ownership, not output.
+        var retired = this.core.queue.lastCompleted
+        if observed.isErr() and observed.unwrapErr().code == "gpu.device_lost" and observed.unwrapErr().progress == signal { retired = signal }
+        if retired > this.core.metadata.core.lastCompleted {
+            let recorded = this.core.metadata.complete(retired)
             if recorded.isErr() { abort("private staging completion timeline diverged") }
             recorded.releaseContainer()
         }
@@ -178,11 +183,13 @@ class GpuVulkanStagingTicket {
     /// The caller exclusively owns the destination span for this synchronous
     /// copy; no native pointer or mapping escapes the method.
     fun read(destination: MutableSpan<UInt8>, offset: UInt64, operation: OperationContext) r: Result<Bool, GpuError> {
-        if not this.valid() or this.direction != 2 or not this.slice.isComplete() or this.core.queue.lost or
+        if not this.valid() or this.direction != 2 or not this.slice.isComplete() or
             offset > this.bytes or destination.length > this.bytes - offset or
             not gpuVkStagingSpanValid(destination.data as *const UInt8, destination.length) {
             return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.staging.read", "host read requires completed, valid download bytes"))
         }
+        let ready = this.core.queue.lease.admission("gpu.vulkan.staging.read")
+        if ready.isErr() { return ready }; ready.releaseContainer()
         let mapped = gpuVkMapBuffer(this.core.buffers[this.buffer], offset, destination.length, false, operation)
         if mapped.isErr() { let error = mapped.unwrapErr(); mapped.releaseContainer(); return Err<Bool, GpuError>(error) }
         let view = mapped.unwrap(); mapped.releaseContainer(); let source = view.address as *const UInt8

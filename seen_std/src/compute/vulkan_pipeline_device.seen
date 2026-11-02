@@ -1,0 +1,52 @@
+/// Independent physical layout capture made before discovery transfers into a
+/// typed device. The runtime validates its domain, native ordinal and UUID.
+import core.result.{Result, Ok, Err}
+import compute.error.{GpuError, gpuFailure}
+import compute.vulkan_provider.{GpuVulkanProvider}
+import compute.vulkan_properties.{VulkanMetadata}
+import compute.vulkan_abi.{gpuVkU32, gpuVkVersionSupported, GPU_VK_API_VERSION}
+import compute.device_info.{GpuDeviceInfo}
+import json.builder.{seen_string_release_owned}
+// The provider requests a Vulkan 1.2 instance without shader extensions.
+// A newer physical device does not raise that application's core API ceiling.
+fun gpuVkPipelineVersionSupported(apiVersion: UInt32, spirvVersion: Int) r: Bool {
+    if not gpuVkVersionSupported(apiVersion) { return false }
+    var required = 4202496 as UInt32
+    if spirvVersion == 67072 { required = 4206592 as UInt32 }
+    else if spirvVersion != 66816 { return false }
+    return apiVersion >= required and GPU_VK_API_VERSION >= required
+}
+@move
+class GpuVulkanPipelineDevice {
+    var metadata: VulkanMetadata
+    var providerId: UInt64
+    var ordinal: Int
+    var apiVersion: UInt32
+    // Borrowed physical identity is used only during timestamp construction;
+    // the captured queue family is the one discovery selected for this device.
+    var nativePhysical: UInt64
+    var queueFamily: UInt32
+    static fun capture(borrow provider: GpuVulkanProvider, index: Int) r: Result<GpuVulkanPipelineDevice, GpuError> {
+        if index < 0 or index >= provider.records.length() { return Err<GpuVulkanPipelineDevice, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.device", "physical catalog index is invalid")) }
+        let allocated = VulkanMetadata.create()
+        if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); return Err<GpuVulkanPipelineDevice, GpuError>(error) }
+        let metadata = allocated.unwrap(); allocated.releaseContainer(); let record = provider.records[index]
+        let captured = metadata.capture(record.physical)
+        if captured.isErr() { let error = captured.unwrapErr(); captured.releaseContainer(); metadata.release(); return Err<GpuVulkanPipelineDevice, GpuError>(error) }
+        captured.releaseContainer()
+        let apiVersion = gpuVkU32(metadata.buffers[0], 16 as UInt64)
+        if not gpuVkVersionSupported(apiVersion) { metadata.release(); return Err<GpuVulkanPipelineDevice, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.pipeline.device", "physical pipeline device requires Vulkan 1.2")) }
+        return Ok<GpuVulkanPipelineDevice, GpuError>(GpuVulkanPipelineDevice{metadata: metadata, providerId: provider.domain, ordinal: record.ordinal, apiVersion: apiVersion, nativePhysical: record.physical, queueFamily: record.family})
+    }
+    fun matches(borrow info: GpuDeviceInfo) r: Bool {
+        if this.providerId != info.identity.providerId or this.ordinal != info.identity.ordinal or info.identity.uuid.length() != 32 { return false }
+        if this.apiVersion != gpuVkU32(this.metadata.buffers[0], 16 as UInt64) { return false }
+        let hex = "0123456789abcdef"; var i = 0
+        while i < 16 { let byte = this.metadata.buffers[1].data[16 + i] as Int
+            if info.identity.uuid.byteAt(i * 2) != hex.byteAt(byte / 16) or info.identity.uuid.byteAt(i * 2 + 1) != hex.byteAt(byte % 16) { return false }; i = i + 1
+        }
+        let driver = (gpuVkU32(this.metadata.buffers[0], 20 as UInt64) as Int).toString()
+        let valid = driver == info.driverVersion; seen_string_release_owned(driver); return valid
+    }
+    fun release() r: Void { this.metadata.release(); this.free() }
+}

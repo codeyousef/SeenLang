@@ -2612,6 +2612,41 @@
       ]
     },
     {
+      "name": "cudaDeviceCanAccessPeer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/cuda_peer.seen"
+      ]
+    },
+    {
+      "name": "cudaDeviceDisablePeerAccess",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/cuda_peer.seen"
+      ]
+    },
+    {
+      "name": "cudaDeviceEnablePeerAccess",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/cuda_peer.seen"
+      ]
+    },
+    {
+      "name": "cudaGetDeviceCount",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/cuda_peer.seen"
+      ]
+    },
+    {
+      "name": "cudaMemcpyPeerAsync",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/cuda_peer.seen"
+      ]
+    },
+    {
       "name": "currentLoweringFunctionOptions",
       "abi": "Seen",
       "sources": [
@@ -4053,6 +4088,7 @@
       "abi": "C",
       "sources": [
         "compiler_seen/src/bootstrap/allocation_owner.seen",
+        "seen_std/src/compute/vulkan_pipeline.seen",
         "seen_std/src/env/env.seen",
         "seen_std/src/fs/file.seen"
       ]
@@ -6297,6 +6333,13 @@
       ]
     },
     {
+      "name": "seen_spirv_validate_binary",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_artifact.seen"
+      ]
+    },
+    {
       "name": "seen_stack_region_alloc",
       "abi": "Seen",
       "sources": [
@@ -6351,6 +6394,7 @@
       "sources": [
         "seen_std/src/crypto/sha256.seen",
         "seen_std/src/json/builder.seen",
+        "seen_std/src/json/float_format.seen",
         "seen_std/src/json/parser.seen"
       ]
     },
@@ -6363,6 +6407,7 @@
         "seen_std/src/async/owned_strings.seen",
         "seen_std/src/formats/safetensors.seen",
         "seen_std/src/json/builder.seen",
+        "seen_std/src/json/float_format.seen",
         "seen_std/src/json/value.seen"
       ]
     },
@@ -6423,6 +6468,7 @@
         "compiler_seen/src/codegen/gpu_bytes.seen",
         "seen_std/src/async/dns_wire.seen",
         "seen_std/src/async/owned_strings.seen",
+        "seen_std/src/compute/vulkan_pipeline_cache.seen",
         "seen_std/src/compute/vulkan_properties.seen",
         "seen_std/src/formats/safetensors.seen"
       ]
@@ -8072,6 +8118,13 @@
       ]
     },
     {
+      "name": "vkAllocateDescriptorSets",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
       "name": "vkAllocateMemory",
       "abi": "C",
       "sources": [
@@ -8093,6 +8146,20 @@
       ]
     },
     {
+      "name": "vkCmdBindDescriptorSets",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCmdBindPipeline",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
       "name": "vkCmdCopyBuffer",
       "abi": "C",
       "sources": [
@@ -8100,10 +8167,38 @@
       ]
     },
     {
+      "name": "vkCmdDispatch",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCmdFillBuffer",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
       "name": "vkCmdPipelineBarrier",
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCmdResetQueryPool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_timestamps.seen"
+      ]
+    },
+    {
+      "name": "vkCmdWriteTimestamp",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_timestamps.seen"
       ]
     },
     {
@@ -8121,6 +8216,27 @@
       ]
     },
     {
+      "name": "vkCreateComputePipelines",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreateDescriptorPool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreateDescriptorSetLayout",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
       "name": "vkCreateDevice",
       "abi": "C",
       "sources": [
@@ -8135,10 +8251,38 @@
       ]
     },
     {
+      "name": "vkCreatePipelineCache",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreatePipelineLayout",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreateQueryPool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_timestamps.seen"
+      ]
+    },
+    {
       "name": "vkCreateSemaphore",
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkCreateShaderModule",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
       ]
     },
     {
@@ -8156,6 +8300,20 @@
       ]
     },
     {
+      "name": "vkDestroyDescriptorPool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyDescriptorSetLayout",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
       "name": "vkDestroyDevice",
       "abi": "C",
       "sources": [
@@ -8170,10 +8328,45 @@
       ]
     },
     {
+      "name": "vkDestroyPipeline",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyPipelineCache",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyPipelineLayout",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyQueryPool",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_timestamps.seen"
+      ]
+    },
+    {
       "name": "vkDestroySemaphore",
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_transfer_abi.seen"
+      ]
+    },
+    {
+      "name": "vkDestroyShaderModule",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
       ]
     },
     {
@@ -8261,6 +8454,20 @@
       ]
     },
     {
+      "name": "vkGetPipelineCacheData",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
+      ]
+    },
+    {
+      "name": "vkGetQueryPoolResults",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_timestamps.seen"
+      ]
+    },
+    {
       "name": "vkInvalidateMappedMemoryRanges",
       "abi": "C",
       "sources": [
@@ -8293,6 +8500,13 @@
       "abi": "C",
       "sources": [
         "seen_std/src/compute/vulkan_mapping.seen"
+      ]
+    },
+    {
+      "name": "vkUpdateDescriptorSets",
+      "abi": "C",
+      "sources": [
+        "seen_std/src/compute/vulkan_pipeline_abi.seen"
       ]
     },
     {

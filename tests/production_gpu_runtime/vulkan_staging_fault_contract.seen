@@ -96,7 +96,9 @@ fun main() r: Int {
                 op.cancellation = false; op.monotonicDeadline = 9223372036854775807 as Int64
                 if not ticket.slice.isComplete() { abort("staging native retirement did not reach metadata") }
                 if lost {
-                    stagingFaultReject(ticket.read(MutableSpan<UInt8>{data: host.data, length: 32 as UInt64}, 0 as UInt64, op), "gpu.invalid")
+                    // Retirement preserves the live ticket for cleanup; output
+                    // admission reports sticky context loss, not stale ownership.
+                    stagingFaultReject(ticket.read(MutableSpan<UInt8>{data: host.data, length: 32 as UInt64}, 0 as UInt64, op), "gpu.device_lost")
                 }
             }
             completed(device.release(), true)

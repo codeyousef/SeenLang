@@ -124,11 +124,14 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `compute/buffer_region`
 - `compute/capabilities`
 - `compute/context_lease`
+- `compute/cuda_device_transfer`
+- `compute/cuda_peer`
 - `compute/cuda_staging`
 - `compute/device`
 - `compute/device_info`
 - `compute/discovery`
 - `compute/error`
+- `compute/fallback`
 - `compute/limits`
 - `compute/memory_kind`
 - `compute/operation`
@@ -142,16 +145,27 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `compute/vulkan_abi`
 - `compute/vulkan_buffer_abi`
 - `compute/vulkan_error`
+- `compute/vulkan_graph`
+- `compute/vulkan_host_transfer`
 - `compute/vulkan_instance`
 - `compute/vulkan_mapping`
 - `compute/vulkan_memory`
 - `compute/vulkan_memory_info`
 - `compute/vulkan_native`
+- `compute/vulkan_pipeline`
+- `compute/vulkan_pipeline_abi`
+- `compute/vulkan_pipeline_artifact`
+- `compute/vulkan_pipeline_cache`
+- `compute/vulkan_pipeline_cache_file`
+- `compute/vulkan_pipeline_device`
+- `compute/vulkan_pipeline_dispatch`
 - `compute/vulkan_properties`
 - `compute/vulkan_provider`
 - `compute/vulkan_queue`
 - `compute/vulkan_staging`
+- `compute/vulkan_stream`
 - `compute/vulkan_timeline`
+- `compute/vulkan_timestamps`
 - `compute/vulkan_transfer`
 - `compute/vulkan_transfer_abi`
 
@@ -291,6 +305,7 @@ direct-ready memory streams are distinct from OS completion-queue adapters.
 
 - `json/builder`
 - `json/canonical`
+- `json/float_format`
 - `json/mod`
 - `json/parser`
 - `json/strict`

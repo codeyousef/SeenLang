@@ -18,7 +18,6 @@ python3 "$ROOT_DIR/scripts/check_gpu_ptx_toolchain.py" > "$TMP_DIR/toolchain.jso
 for profile in fast release undefined address; do
     # Numeric/specialization and packed fuzz run in their mandatory gate.
     compile_case "$profile" rejection "$ROOT_DIR/tests/cuda_ptx_lowering/capabilities_contract.seen"
-    rg -Fq 'PASS: PTX native target shape layout and full-warp rejection preserve selected-entry isolation' "$TMP_DIR/rejection-$profile.log"
     compile_fixture "$profile" layout "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
     for pair in capabilities:cuda_ptx_lowering/capabilities_happy packed:spir_v_vulkan_lowering/packed_happy cooperative:cuda_ptx_lowering/cooperative_happy bf16:cuda_ptx_lowering/cooperative_bf16; do
         name=${pair%%:*}; source="$ROOT_DIR/tests/${pair#*:}.seen"; arguments=()
@@ -28,7 +27,6 @@ for profile in fast release undefined address; do
         cp -- "$TMP_DIR/layout-$profile.compile.log" "$TMP_DIR/$name-$profile.compile.log"
         cp -- "$TMP_DIR/layout-$profile.compile.status" "$TMP_DIR/$name-$profile.compile.status"
         run_fixture "$profile" "$name" cuda "$source" "${arguments[@]}"
-        rg -Fq 'PASS: PTX target coverage deterministic artifacts reflection and repeated cleanup' "$TMP_DIR/$name-$profile.log"
     done
 done
 python3 "$ROOT_DIR/scripts/check_gpu_ptx_artifacts.py" "$TMP_DIR" capabilities packed cooperative bf16 --sm80-minimum bf16

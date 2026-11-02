@@ -28,12 +28,12 @@ codes=(gpu.out_of_memory gpu.invalid gpu.out_of_memory gpu.invalid gpu.out_of_me
     gpu.timeout none gpu.unsupported_capability)
 run_compiler check "$ROOT_DIR/tests/production_gpu_runtime/vulkan_transfer_contract.seen" > "$TMP_DIR/frontend.log" 2>&1
 for profile in fast release undefined address; do
-    compile_fixture "$profile" transfer "$ROOT_DIR/tests/production_gpu_runtime/vulkan_transfer_contract.seen"
+    compile_vulkan_fixture "$profile" transfer "$ROOT_DIR/tests/production_gpu_runtime/vulkan_transfer_contract.seen"
     seen_run_vulkan_reference "$profile" transfer
     rg -Fq 'VULKAN_COPY_TRACE pool=1/1 semaphore=1/1 alloc=1 commands=2 copy=102 submit=102 buffers=3 memory=3' "$TMP_DIR/transfer-$profile.log"
-    compile_fixture "$profile" transfer-adverse "$ROOT_DIR/tests/production_gpu_runtime/vulkan_transfer_adverse_contract.seen"
+    compile_vulkan_fixture "$profile" transfer-adverse "$ROOT_DIR/tests/production_gpu_runtime/vulkan_transfer_adverse_contract.seen"
     seen_run_vulkan_reference "$profile" transfer-adverse
-    compile_fixture "$profile" transfer-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_transfer_fault_contract.seen"
+    compile_vulkan_fixture "$profile" transfer-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_transfer_fault_contract.seen"
     for index in "${!faults[@]}"; do
         seen_run_vulkan_fault "$profile" transfer-fault "${faults[index]}" "${codes[index]}"
     done
@@ -43,11 +43,11 @@ for name in transfer transfer-adverse; do
     export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
     source_name=vulkan_transfer_contract.seen
     if [ "$name" = transfer-adverse ]; then source_name=vulkan_transfer_adverse_contract.seen; fi
-    compile_fixture fast "coverage-$name" "$ROOT_DIR/tests/production_gpu_runtime/$source_name"
+    compile_vulkan_fixture fast "coverage-$name" "$ROOT_DIR/tests/production_gpu_runtime/$source_name"
     seen_run_vulkan_reference fast "coverage-$name"
     coverage+=(--fixture "$TMP_DIR/coverage-$name-fast" "$TMP_DIR/$name.profraw")
 done
-compile_fixture fast coverage-transfer-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_transfer_fault_contract.seen"
+compile_vulkan_fixture fast coverage-transfer-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_transfer_fault_contract.seen"
 for index in "${!faults[@]}"; do
     seen_run_vulkan_fault fast coverage-transfer-fault "${faults[index]}" "${codes[index]}"
 done

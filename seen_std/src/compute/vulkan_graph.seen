@@ -1,0 +1,350 @@
+/// Bounded creator-confined command DAG. Nodes retain pipelines; the graph owns
+/// each region exactly once, including producer/consumer intermediate writes.
+import core.result.{Result, Ok, Err}
+import core.option.{Option, Some}
+import core.operation_context.{OperationContext}
+import compute.error.{GpuError, gpuFailure}
+import compute.operation.{gpuCheckOperation}
+import compute.vulkan_error.{gpuVkContextFailure}
+import compute.buffer_region.{GpuBufferRegion}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_stream.{GpuVulkanStream, GpuVulkanStreamCore}
+import compute.vulkan_timestamps.{GpuVulkanTimestampPool, GpuVulkanTimestampSample}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop}
+import compute.vulkan_mapping.{vkMapMemory, vkUnmapMemory}
+import compute.vulkan_transfer_abi.{VulkanCopyPoolInfo, VulkanCopyAllocateInfo, VulkanCopyBeginInfo, vkCreateCommandPool, vkDestroyCommandPool, vkAllocateCommandBuffers, vkBeginCommandBuffer, vkEndCommandBuffer}
+import compute.vulkan_pipeline_abi.{VulkanPoolSize, VulkanDescriptorPoolInfo, VulkanDescriptorAllocateInfo, VulkanDescriptorBufferInfo, VulkanDescriptorWrite, vkCreateDescriptorPool, vkDestroyDescriptorPool, vkAllocateDescriptorSets, vkUpdateDescriptorSets, vkCmdBindPipeline, vkCmdBindDescriptorSets, vkCmdDispatch, vkCmdFillBuffer, gpuVkPipelineBarrier}
+import memory.allocation.{allocationBudgetAvailable}
+
+@move
+class GpuVulkanGraphNode {
+    var pipeline: GpuVulkanPipeline
+    var regions: Array<Int>
+    var dependencies: Array<Int>
+    var x: UInt64
+    var y: UInt64
+    var z: UInt64
+    var sets: Array<UInt64>
+    var closed: Bool
+    var graphOwned: Bool
+    /// Both index arrays transfer on every return; pipeline is borrowed.
+    static fun create(borrow pipeline: GpuVulkanPipeline, regions: Array<Int>, dependencies: Array<Int>, x: UInt64, y: UInt64, z: UInt64, operation: OperationContext) r: Result<GpuVulkanGraphNode, GpuError> {
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.graph.node")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); regions.free(); dependencies.free(); return Err<GpuVulkanGraphNode, GpuError>(error) }; checked.releaseContainer()
+        if pipeline.closed or pipeline.stream.closed or not pipeline.stream.lease.valid() or regions.length() != pipeline.artifact.bindings.length() or regions.length() > 256 or dependencies.length() > 64 or x == (0 as UInt64) or y == (0 as UInt64) or z == (0 as UInt64) or x > pipeline.maxX or y > pipeline.maxY or z > pipeline.maxZ {
+            regions.free(); dependencies.free(); return Err<GpuVulkanGraphNode, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.node", "node requires live pipeline, bounded reflected indices and physical dispatch geometry"))
+        }
+        let ready = pipeline.stream.lease.admission("gpu.vulkan.graph.node")
+        if ready.isErr() { let error = ready.unwrapErr(); ready.releaseContainer(); regions.free(); dependencies.free(); return Err<GpuVulkanGraphNode, GpuError>(error) }; ready.releaseContainer()
+        if pipeline.stream.poisoned { regions.free(); dependencies.free(); return Err<GpuVulkanGraphNode, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.graph.node", "stream submission is uncertain")) }
+        if pipeline.borrowers >= pipeline.stream.lease.core.limits.maxResources or not allocationBudgetAvailable(8192) { regions.free(); dependencies.free(); return Err<GpuVulkanGraphNode, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.graph.node", "node metadata or pipeline borrower ceiling reached")) }
+        pipeline.borrowers = pipeline.borrowers + 1
+        return Ok<GpuVulkanGraphNode, GpuError>(GpuVulkanGraphNode{pipeline: pipeline, regions: regions, dependencies: dependencies, x: x, y: y, z: z, sets: Array<UInt64>(), closed: false, graphOwned: false})
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.graphOwned { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.graph.node.close", "node ownership was transferred to a graph")) }
+        this.regions.free(); this.dependencies.free(); this.sets.free()
+        if this.pipeline.borrowers <= 0 { abort("graph node pipeline borrower underflow") }
+        this.pipeline.borrowers = this.pipeline.borrowers - 1; this.closed = true
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> { let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true) }
+}
+
+@move
+class GpuVulkanCommandGraph {
+    var core: GpuVulkanStreamCore
+    var regions: Array<GpuBufferRegion>
+    var nodes: Array<GpuVulkanGraphNode>
+    var order: Array<Int>
+    var reaches: Array<Int>
+    var faultRegions: Array<Int>
+    var faultAddresses: Array<UInt64>
+    var timing: Option<GpuVulkanTimestampPool>
+    var sample: GpuVulkanTimestampSample
+    var timingRetained: Bool
+    var retained: Bool
+    var descriptorPool: UInt64
+    var commandPool: UInt64
+    var command: UInt64
+    var sequence: UInt64
+    var pending: Bool
+    var terminal: Bool
+    var closed: Bool
+    var faultBits: UInt32
+    /// Preflight rejects oversized collections and stale/duplicate owners WITHOUT transfer:
+    /// caller retains both arrays, every element, and the Option wrapper. Alias
+    /// identities are compared before any element can be released. After this
+    /// preflight, all three containers and node/region payloads transfer on EVERY
+    /// return; a Some pool payload remains borrowed and is never freed here.
+    static fun prepare(borrow stream: GpuVulkanStream, regions: Array<GpuBufferRegion>, nodes: Array<GpuVulkanGraphNode>, timing: Option<GpuVulkanTimestampPool>, operation: OperationContext) r: Result<GpuVulkanCommandGraph, GpuError> {
+        if regions.length() > 256 or nodes.length() > 64 { return Err<GpuVulkanCommandGraph, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.graph.prepare", "oversized owner collections are rejected without transfer")) }
+        var i = 0
+        while i < regions.length() {
+            var j = 0; while j < i { if regions[j] == regions[i] { return Err<GpuVulkanCommandGraph, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "duplicate region ownership is not transferred")) }; j = j + 1 }
+            if not regions[i].valid() { return Err<GpuVulkanCommandGraph, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "stale region ownership is not transferred")) }; i = i + 1
+        }
+        i = 0; while i < nodes.length() {
+            var j = 0; while j < i { if nodes[j] == nodes[i] { return Err<GpuVulkanCommandGraph, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "duplicate node ownership is not transferred")) }; j = j + 1 }
+            if nodes[i].closed or nodes[i].graphOwned { return Err<GpuVulkanCommandGraph, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "stale node ownership is not transferred")) }; i = i + 1
+        }
+        // Sole transfer boundary. Cleanup below never deduplicates freed owners.
+        let graph = GpuVulkanCommandGraph{core: stream.core, regions: regions, nodes: nodes, order: Array<Int>(), reaches: Array<Int>(), faultRegions: Array<Int>(), faultAddresses: Array<UInt64>(), timing: timing, sample: GpuVulkanTimestampSample.empty(), timingRetained: false, retained: false, descriptorPool: 0 as UInt64, commandPool: 0 as UInt64, command: 0 as UInt64, sequence: 0 as UInt64, pending: false, terminal: false, closed: false, faultBits: 0 as UInt32}
+        i = 0; while i < nodes.length() { nodes[i].graphOwned = true; i = i + 1 }
+        let built = graph.construct(operation)
+        if built.isErr() { let error = built.unwrapErr(); built.releaseContainer(); let released = graph.release(); if released.isErr() { abort("unsubmitted graph constructor could not drain") }; released.releaseContainer(); return Err<GpuVulkanCommandGraph, GpuError>(error) }
+        built.releaseContainer(); return Ok<GpuVulkanCommandGraph, GpuError>(graph)
+    }
+    fun construct(operation: OperationContext) r: Result<Bool, GpuError> {
+        if this.closed or this.retained or this.commandPool != (0 as UInt64) or this.descriptorPool != (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "graph construction is single-use")) }
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.graph.prepare"); if checked.isErr() { return checked }; checked.releaseContainer()
+        if this.nodes.length() < 1 or this.nodes.length() > 64 or this.regions.length() > 256 or not allocationBudgetAvailable(262144) { return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.graph.prepare", "graph exceeds bounded node, region or metadata budget")) }
+        let retained = this.core.retain(operation); if retained.isErr() { return retained }; retained.releaseContainer(); this.retained = true
+        let validated = this.validate(); if validated.isErr() { return validated }; validated.releaseContainer()
+        if this.timing.isSome() {
+            let pool = this.timing.unwrap()
+            if pool.core != this.core { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "timestamp pool must retain the identical graph stream")) }
+            let retained = pool.retainGraph(operation); if retained.isErr() { return retained }; retained.releaseContainer(); this.timingRetained = true
+        }
+        let mapped = this.mapFaults(); if mapped.isErr() { return mapped }; mapped.releaseContainer()
+        let descriptors = this.allocateDescriptors(); if descriptors.isErr() { return descriptors }; descriptors.releaseContainer()
+        return this.record()
+    }
+    fun validate() r: Result<Bool, GpuError> {
+        if this.closed or this.reaches.length() != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "graph validation is single-use")) }
+        let n = this.nodes.length(); var i = 0; var descriptors = 0; var sets = 0; var edges = 0
+        while i < this.regions.length() {
+            let region = this.regions[i]
+            if region.lease.core != this.core.lease.core or region.lease.slot != this.core.lease.slot or region.lease.generation != this.core.lease.generation { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "region belongs to a foreign native context")) }
+            this.faultRegions.push(0); this.faultAddresses.push(0 as UInt64); i = i + 1
+        }
+        i = 0; while i < n * n { this.reaches.push(0); i = i + 1 }
+        i = 0; while i < n {
+            let node = this.nodes[i]; let pipeline = node.pipeline
+            if pipeline.closed or pipeline.stream != this.core or pipeline.pipeline == (0 as UInt64) or node.regions.length() != pipeline.artifact.bindings.length() or node.x == (0 as UInt64) or node.y == (0 as UInt64) or node.z == (0 as UInt64) or node.x > pipeline.maxX or node.y > pipeline.maxY or node.z > pipeline.maxZ { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "node pipeline, stream, reflected bindings or geometry changed")) }
+            descriptors = descriptors + node.regions.length(); sets = sets + pipeline.sets.length(); edges = edges + node.dependencies.length()
+            if descriptors > 256 or sets > 256 or node.dependencies.length() > 64 or edges > 4096 { return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.graph.prepare", "descriptor, set or edge ceiling exceeded")) }
+            var d = 0; while d < node.dependencies.length() {
+                let dependency = node.dependencies[d]
+                if dependency < 0 or dependency >= n or dependency == i { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "dependency index is invalid")) }
+                if this.reaches[i * n + dependency] != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "duplicate dependency edge")) }
+                this.reaches[i * n + dependency] = 1; d = d + 1
+            }
+            var b = 0; while b < node.regions.length() {
+                let index = node.regions[b]
+                if index < 0 or index >= this.regions.length() { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "binding region index is outside graph ownership")) }
+                let region = this.regions[index]; let binding = pipeline.artifact.bindings[b]
+                var alignment = pipeline.storageAlignment; var maximum = pipeline.storageRange
+                if binding.descriptorType == 6 { alignment = pipeline.uniformAlignment; maximum = pipeline.uniformRange }
+                if alignment == (0 as UInt64) or (binding.descriptorType != 6 and binding.descriptorType != 7) or binding.group < 0 or binding.group >= pipeline.sets.length() or (binding.write and not region.write) or region.bytes < binding.minimumBytes as UInt64 or region.bytes > maximum or region.offset % alignment != (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "binding layout, access, range or alignment is invalid")) }
+                if binding.descriptorType == 7 { if binding.stride <= 0 or region.bytes % (binding.stride as UInt64) != (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "storage binding stride is invalid")) } }
+                if binding.fault {
+                    let block = region.core.blocks[region.core.slots[region.slot].block]
+                    if not binding.write or region.bytes != (4 as UInt64) or region.offset % (4 as UInt64) != (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "checked fault binding requires an exclusive four-byte word")) }
+                    if not block.native.hostVisible or not block.native.hostCoherent { return Err<Bool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.graph.prepare", "checked fault words require host-coherent native memory")) }
+                    if this.faultRegions[index] == -1 { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "fault word cannot alias ordinary shader data")) }; this.faultRegions[index] = 1
+                } else { if this.faultRegions[index] == 1 { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "fault word cannot alias ordinary shader data")) }; this.faultRegions[index] = -1 }
+                var a = 0; while a < b {
+                    if (binding.write or pipeline.artifact.bindings[a].write) and this.overlap(index, node.regions[a]) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "potentially writable within-node native alias has no ABI guarantee")) }; a = a + 1
+                }; b = b + 1
+            }; i = i + 1
+        }
+        // Transitive dependency closure is bounded (64 cubed), not recursive.
+        var k = 0; while k < n { i = 0; while i < n { var j = 0; while j < n { if this.reaches[i * n + k] != 0 and this.reaches[k * n + j] != 0 { this.reaches[i * n + j] = 1 }; j = j + 1 }; i = i + 1 }; k = k + 1 }
+        i = 0; while i < n { if this.reaches[i * n + i] != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "graph contains a dependency cycle")) }; i = i + 1 }
+        // Earliest original index wins among ready nodes: stable topological order.
+        while this.order.length() < n {
+            var chosen = -1; i = 0; while i < n and chosen < 0 {
+                var present = false; var p = 0; while p < this.order.length() { if this.order[p] == i { present = true }; p = p + 1 }
+                if not present { var ready = true; var d = 0; while d < this.nodes[i].dependencies.length() { var found = false; p = 0; while p < this.order.length() { if this.order[p] == this.nodes[i].dependencies[d] { found = true }; p = p + 1 }; if not found { ready = false }; d = d + 1 }; if ready { chosen = i } }; i = i + 1
+            }
+            if chosen < 0 { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "graph has no ready node")) }; this.order.push(chosen)
+        }
+        i = 0; while i < n { var j = 0; while j < i {
+            if this.reaches[i * n + j] == 0 and this.reaches[j * n + i] == 0 {
+                var a = 0; while a < this.nodes[i].regions.length() { var b = 0; while b < this.nodes[j].regions.length() {
+                    if (this.nodes[i].pipeline.artifact.bindings[a].write or this.nodes[j].pipeline.artifact.bindings[b].write) and this.overlap(this.nodes[i].regions[a], this.nodes[j].regions[b]) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "unordered overlapping native access includes a writer")) }; b = b + 1
+                }; a = a + 1 }
+            }; j = j + 1
+        }; i = i + 1 }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun overlap(a: Int, b: Int) r: Bool {
+        let left = this.regions[a]; let right = this.regions[b]
+        let lb = left.core.blocks[left.core.slots[left.slot].block]; let rb = right.core.blocks[right.core.slots[right.slot].block]
+        if lb.native.buffer != rb.native.buffer { return false }
+        if left.offset <= right.offset { return right.offset - left.offset < left.bytes }
+        return left.offset - right.offset < right.bytes
+    }
+    /// Borrow native mappings without transferring graph regions to a mapping
+    /// wrapper: failed mapping must leave the graph's sole region owner intact.
+    fun mapFaults() r: Result<Bool, GpuError> {
+        if this.closed or this.faultRegions.length() != this.regions.length() { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.map_fault", "graph has not validated its fault regions")) }
+        let ready = this.core.lease.admission("gpu.vulkan.graph.map_fault")
+        if ready.isErr() { return ready }; ready.releaseContainer()
+        var previous = 0; while previous < this.faultAddresses.length() { if this.faultAddresses[previous] != (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.map_fault", "fault mappings are single-use")) }; previous = previous + 1 }
+        var i = 0; while i < this.regions.length() {
+            if this.faultRegions[i] == 1 {
+                let region = this.regions[i]; let block = region.core.blocks[region.core.slots[region.slot].block]
+                if block.mappedBorrowers == 0 {
+                    var pointer = null as *Void
+                    let status = vkMapMemory(this.core.device, block.native.memory, 0 as UInt64, 18446744073709551615 as UInt64, 0 as UInt32, &pointer)
+                    if status != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(this.core.lease, status, "gpu.vulkan.graph.map_fault")) }
+                    if pointer == (null as *Void) { vkUnmapMemory(this.core.device, block.native.memory); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.map_fault", "native mapping address is empty")) }; block.mappedAddress = pointer as UInt64
+                }
+                if region.offset > (18446744073709551612 as UInt64) or block.mappedAddress == (0 as UInt64) or block.mappedAddress > (18446744073709551615 as UInt64) - region.offset - (3 as UInt64) { if block.mappedBorrowers == 0 { vkUnmapMemory(this.core.device, block.native.memory); block.mappedAddress = 0 as UInt64 }; return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.map_fault", "native fault address is invalid")) }
+                block.mappedBorrowers = block.mappedBorrowers + 1; this.faultAddresses[i] = block.mappedAddress + region.offset
+            }; i = i + 1
+        }; return Ok<Bool, GpuError>(true)
+    }
+    fun allocateDescriptors() r: Result<Bool, GpuError> {
+        if this.closed or this.descriptorPool != (0 as UInt64) or this.order.length() != this.nodes.length() { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.prepare", "descriptor setup requires a validated fresh graph")) }
+        let ready = this.core.lease.admission("gpu.vulkan.graph.prepare")
+        if ready.isErr() { return ready }; ready.releaseContainer()
+        let allocated = gpuVkAllocate(4096 as UInt64)
+        if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); return Err<Bool, GpuError>(error) }
+        let scratch = allocated.unwrap(); allocated.releaseContainer(); var storage = 0; var uniform = 0; var count = 0; var i = 0
+        while i < this.nodes.length() { let node = this.nodes[i]; count = count + node.pipeline.sets.length(); var b = 0; while b < node.regions.length() { if node.pipeline.artifact.bindings[b].descriptorType == 6 { uniform = uniform + 1 } else { storage = storage + 1 }; b = b + 1 }; i = i + 1 }
+        if count > 0 {
+            let sizes = scratch.data as *VulkanPoolSize; var sizeCount = 0
+            if storage > 0 { sizes[sizeCount] = VulkanPoolSize{descriptorType: 7 as UInt32, count: storage as UInt32}; sizeCount = sizeCount + 1 }
+            if uniform > 0 { sizes[sizeCount] = VulkanPoolSize{descriptorType: 6 as UInt32, count: uniform as UInt32}; sizeCount = sizeCount + 1 }
+            let info = VulkanDescriptorPoolInfo{sType: 33 as UInt32, pNext: null as *Void, flags: 0 as UInt32, maxSets: count as UInt32, sizeCount: sizeCount as UInt32, sizes: sizes as *const VulkanPoolSize}
+            var pool = 0 as UInt64; let status = vkCreateDescriptorPool(this.core.device, (&info) as *const VulkanDescriptorPoolInfo, null as *Void, &pool); this.descriptorPool = pool
+            if status != (0 as Int32) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuVkContextFailure(this.core.lease, status, "gpu.vulkan.graph.descriptor_pool")) }
+            if pool == (0 as UInt64) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.descriptor_pool", "native descriptor pool identity is empty")) }
+            i = 0; while i < this.nodes.length() {
+                let node = this.nodes[i]; let pipeline = node.pipeline
+                if pipeline.sets.length() > 0 {
+                    let layouts = scratch.data as *UInt64; var s = 0; while s < pipeline.sets.length() { layouts[s] = pipeline.sets[s]; s = s + 1 }
+                    let info = VulkanDescriptorAllocateInfo{sType: 34 as UInt32, pNext: null as *Void, pool: pool, count: pipeline.sets.length() as UInt32, layouts: layouts as *const UInt64}
+                    let output = ((scratch.data as UInt64) + (2048 as UInt64)) as *UInt64
+                    let status = vkAllocateDescriptorSets(this.core.device, (&info) as *const VulkanDescriptorAllocateInfo, output)
+                    if status != (0 as Int32) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuVkContextFailure(this.core.lease, status, "gpu.vulkan.graph.descriptors")) }
+                    s = 0; while s < pipeline.sets.length() { if output[s] == (0 as UInt64) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.descriptors", "native descriptor identity is empty")) }; node.sets.push(output[s]); s = s + 1 }
+                    var b = 0; while b < node.regions.length() {
+                        let region = this.regions[node.regions[b]]; let binding = pipeline.artifact.bindings[b]; let block = region.core.blocks[region.core.slots[region.slot].block]
+                        let buffer = VulkanDescriptorBufferInfo{buffer: block.native.buffer, offset: region.offset, range: region.bytes}
+                        let write = VulkanDescriptorWrite{sType: 35 as UInt32, pNext: null as *Void, set: node.sets[binding.group], binding: binding.binding as UInt32, arrayElement: 0 as UInt32, count: 1 as UInt32, descriptorType: binding.descriptorType as UInt32, imageInfo: null as *Void, bufferInfo: (&buffer) as *const VulkanDescriptorBufferInfo, texelView: null as *Void}
+                        vkUpdateDescriptorSets(this.core.device, 1 as UInt32, (&write) as *const VulkanDescriptorWrite, 0 as UInt32, null as *Void); b = b + 1
+                    }
+                }; i = i + 1
+            }
+        }; gpuVkDrop(scratch); return Ok<Bool, GpuError>(true)
+    }
+    /// Recorded once with usage flags zero: resubmission follows retirement.
+    fun record() r: Result<Bool, GpuError> {
+        if this.closed or this.commandPool != (0 as UInt64) or this.nodes.length() == 0 or this.order.length() != this.nodes.length() { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.record", "command recording requires a validated fresh graph")) }
+        let ready = this.core.lease.admission("gpu.vulkan.graph.record")
+        if ready.isErr() { return ready }; ready.releaseContainer()
+        let info = VulkanCopyPoolInfo{sType: 39 as UInt32, pNext: null as *Void, flags: 0 as UInt32, queueFamilyIndex: this.nodes[0].pipeline.queueFamily}
+        var pool = 0 as UInt64; let status = vkCreateCommandPool(this.core.device, (&info) as *const VulkanCopyPoolInfo, null as *Void, &pool); this.commandPool = pool
+        if status != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(this.core.lease, status, "gpu.vulkan.graph.command_pool")) }
+        if pool == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.command_pool", "native command pool identity is empty")) }
+        let allocate = VulkanCopyAllocateInfo{sType: 40 as UInt32, pNext: null as *Void, commandPool: pool, level: 0 as UInt32, commandBufferCount: 1 as UInt32}
+        var command = 0 as UInt64; let assigned = vkAllocateCommandBuffers(this.core.device, (&allocate) as *const VulkanCopyAllocateInfo, &command); this.command = command
+        if assigned != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(this.core.lease, assigned, "gpu.vulkan.graph.command")) }
+        if command == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.command", "native command identity is empty")) }
+        let begin = VulkanCopyBeginInfo{sType: 42 as UInt32, pNext: null as *Void, flags: 0 as UInt32, inheritance: null as *Void}
+        let begun = vkBeginCommandBuffer(command, (&begin) as *const VulkanCopyBeginInfo); if begun != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(this.core.lease, begun, "gpu.vulkan.graph.begin")) }
+        if this.timingRetained { this.timing.unwrap().recordReset(command); this.timing.unwrap().recordStart(command) }
+        var i = 0; while i < this.regions.length() {
+            if this.faultRegions[i] == 1 {
+                let region = this.regions[i]; let block = region.core.blocks[region.core.slots[region.slot].block]
+                gpuVkPipelineBarrier(command, block.native.buffer, region.offset, region.bytes, 81920 as UInt32, 4096 as UInt32, 98304 as UInt32, 4096 as UInt32)
+                vkCmdFillBuffer(command, block.native.buffer, region.offset, 4 as UInt64, 0 as UInt32)
+                gpuVkPipelineBarrier(command, block.native.buffer, region.offset, region.bytes, 4096 as UInt32, 2048 as UInt32, 4096 as UInt32, 96 as UInt32)
+            }; i = i + 1
+        }
+        var p = 0; while p < this.order.length() {
+            let node = this.nodes[this.order[p]]; let pipeline = node.pipeline; var b = 0
+            while b < node.regions.length() {
+                let index = node.regions[b]; let region = this.regions[index]; let binding = pipeline.artifact.bindings[b]; let block = region.core.blocks[region.core.slots[region.slot].block]
+                var access = 32 as UInt32; if binding.write { access = 96 as UInt32 }; if binding.descriptorType == 6 { access = 8 as UInt32 }
+                gpuVkPipelineBarrier(command, block.native.buffer, region.offset, region.bytes, 81920 as UInt32, 2048 as UInt32, 98304 as UInt32, access); b = b + 1
+            }
+            vkCmdBindPipeline(command, 1 as UInt32, pipeline.pipeline)
+            i = 0; while i < node.sets.length() { var set = node.sets[i]; vkCmdBindDescriptorSets(command, 1 as UInt32, pipeline.layout, i as UInt32, 1 as UInt32, &set, 0 as UInt32, null as *const UInt32); i = i + 1 }
+            vkCmdDispatch(command, node.x as UInt32, node.y as UInt32, node.z as UInt32)
+            b = 0; while b < node.regions.length() {
+                if pipeline.artifact.bindings[b].write { let region = this.regions[node.regions[b]]; let block = region.core.blocks[region.core.slots[region.slot].block]; gpuVkPipelineBarrier(command, block.native.buffer, region.offset, region.bytes, 2048 as UInt32, 81920 as UInt32, 64 as UInt32, 98304 as UInt32) }; b = b + 1
+            }; p = p + 1
+        }
+        if this.timingRetained { this.timing.unwrap().recordEnd(command) }
+        let ended = vkEndCommandBuffer(command); if ended != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(this.core.lease, ended, "gpu.vulkan.graph.end")) }; return Ok<Bool, GpuError>(true)
+    }
+    fun submit(operation: OperationContext) r: Result<UInt64, GpuError> {
+        if this.closed { return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.submit", "graph is closed")) }
+        if this.faultBits != (0 as UInt32) { return Err<UInt64, GpuError>(this.shaderFault()) }
+        if this.pending { return Err<UInt64, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.graph.submit", "graph prior submission has not retired")) }
+        if this.terminal { return Err<UInt64, GpuError>(this.deviceLost()) }
+        var i = 0; while i < this.regions.length() { if not this.regions[i].valid() { return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.submit", "graph region generation is stale")) }; i = i + 1 }
+        let result = this.core.submit(this.command, operation); var sequence = 0 as UInt64
+        if result.isOkay() { sequence = result.unwrap() } else { sequence = result.unwrapErr().progress }
+        if sequence != (0 as UInt64) { this.sequence = sequence; this.pending = true; this.sample.ready = false; if this.timingRetained { this.timing.unwrap().markSubmitted(sequence) } }
+        return result
+    }
+    fun poll() r: Result<Bool, GpuError> {
+        if this.closed or this.sequence == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.graph.poll", "graph has no live submitted sequence")) }
+        if this.faultBits != (0 as UInt32) { this.observeTimingRetirement(); return Err<Bool, GpuError>(this.shaderFault()) }
+        if this.terminal { this.observeTimingRetirement(); return Err<Bool, GpuError>(this.deviceLost()) }
+        let observed = this.core.poll(this.sequence)
+        if observed.isErr() {
+            let error = observed.unwrapErr()
+            if error.code == "gpu.device_lost" and error.progress == this.sequence {
+                this.pending = false; this.terminal = true; this.sample.ready = false
+                this.observeTimingRetirement()
+            }
+            if error.progress == (0 as UInt64) { error.progress = this.sequence }; return observed
+        }
+        if not observed.unwrap() { return observed }; observed.releaseContainer()
+        var i = 0; while i < this.faultAddresses.length() { if this.faultAddresses[i] != (0 as UInt64) { let words = this.faultAddresses[i] as *const UInt32; this.faultBits = this.faultBits | words[0] }; i = i + 1 }
+        if this.faultBits != (0 as UInt32) {
+            this.pending = false; this.terminal = true
+            this.observeTimingRetirement()
+            return Err<Bool, GpuError>(this.shaderFault())
+        }
+        // Native retirement permits reuse even if optional profiling is unavailable.
+        this.pending = false
+        if this.timingRetained { let timed = this.timing.unwrap().poll(this.sample); if timed.isErr() { return timed }; if not timed.unwrap() { return timed }; timed.releaseContainer() }
+        return Ok<Bool, GpuError>(true)
+    }
+    /// Sticky diagnostics do not abandon a timestamp owner's failed native
+    /// retirement observation. Each later poll makes one nonblocking attempt.
+    fun observeTimingRetirement() r: Void {
+        if this.timingRetained and this.timing.unwrap().pending {
+            let retired = this.timing.unwrap().poll(this.sample)
+            if retired.isErr() { retired.unwrapErr().release() }
+            retired.releaseContainer()
+        }
+    }
+    fun shaderFault() r: GpuError {
+        let error = gpuFailure("gpu.kernel_fault", "gpu.vulkan.graph.poll", "graph completed with checked fault bits; reuse is disabled")
+        error.nativeCode.free(); error.nativeCode = Some<Int64>(this.faultBits as Int64); error.progress = this.sequence; return error
+    }
+    fun deviceLost() r: GpuError { let error = this.core.lease.lostFailure("gpu.vulkan.graph.poll"); error.progress = this.sequence; return error }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.pending {
+            let retired = this.core.retired(this.sequence)
+            if not this.timingRetained or this.timing.unwrap().pending or not retired { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.graph.close", "graph native submission remains pending")) }
+            // Unavailable profiling data is not unretired native resource use.
+            this.pending = false
+        }
+        if this.timingRetained and this.timing.unwrap().pending {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.graph.close", "timestamp owner still awaits native retirement observation"))
+        }
+        if this.commandPool != (0 as UInt64) { vkDestroyCommandPool(this.core.device, this.commandPool, null as *Void); this.commandPool = 0 as UInt64; this.command = 0 as UInt64 }
+        if this.descriptorPool != (0 as UInt64) { vkDestroyDescriptorPool(this.core.device, this.descriptorPool, null as *Void); this.descriptorPool = 0 as UInt64 }
+        var i = 0; while i < this.faultAddresses.length() {
+            if this.faultAddresses[i] != (0 as UInt64) { let region = this.regions[i]; let block = region.core.blocks[region.core.slots[region.slot].block]; if block.mappedBorrowers <= 0 { abort("graph fault mapping borrower underflow") }; if block.mappedBorrowers == 1 { vkUnmapMemory(this.core.device, block.native.memory); block.mappedAddress = 0 as UInt64 }; block.mappedBorrowers = block.mappedBorrowers - 1 }; i = i + 1
+        }
+        i = 0; while i < this.regions.length() { let released = this.regions[i].release(); if released.isErr() { abort("graph lost its sole region owner") }; released.releaseContainer(); i = i + 1 }; this.regions.free()
+        i = 0; while i < this.nodes.length() { this.nodes[i].graphOwned = false; let released = this.nodes[i].release(); if released.isErr() { abort("graph lost its sole node owner") }; released.releaseContainer(); i = i + 1 }; this.nodes.free()
+        if this.timingRetained { this.timing.unwrap().dropGraph(); this.timingRetained = false }; this.timing.free(); this.sample.free()
+        this.order.free(); this.reaches.free(); this.faultRegions.free(); this.faultAddresses.free()
+        if this.retained { this.core.dropBorrow(); this.retained = false }; this.closed = true; return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> { let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true) }
+}

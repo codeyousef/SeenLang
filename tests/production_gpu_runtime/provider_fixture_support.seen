@@ -74,7 +74,8 @@ fun rejectedContext(result: Result<GpuContext, GpuError>, code: String) r: Void 
     error.release()
 }
 fun completed(result: Result<Bool, GpuError>, expected: Bool) r: Void {
-    if result.isErr() or result.unwrap() != expected { abort("context cleanup result changed") }
+    if result.isErr() { let error = result.unwrapErr(); println(error.code); println(error.operation); println(error.message); abort("native cleanup failed") }
+    if result.unwrap() != expected { abort("context cleanup result changed") }
     result.releaseContainer()
 }
 fun newProviderCounts() r: ProviderCounts { return ProviderCounts{creates: 0, destroys: 0, live: 0, releases: 0, next: 0 as UInt64, failCreate: false,

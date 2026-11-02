@@ -4,6 +4,17 @@ The typed GPU frontend validates actual parsed `@compute` bodies and explicit
 resource access. Kernel lowering and the experimental Vulkan runtime are separate
 capabilities. Frontend validation does not certify GPU execution.
 
+Native Vulkan execution requires an explicit linker dependency in the nearest
+`Seen.toml`:
+
+```toml
+[native.dependencies]
+vulkan = {}
+```
+
+Importing Vulkan declarations alone does not discover or link the SDK. Artifact
+emission and CPU-only type/metadata consumers do not opt into native execution.
+
 Source reflection and artifact emission use an exclusive, bounded Seen frontend
 owner. Returned GPU IR and diagnostics retain their own data after temporary
 parser storage is released. See [frontend allocation lifetime](../architecture/frontend-allocation-lifetime.md)
@@ -451,6 +462,372 @@ under four profiles, checks that rejection creates no backend artifact, and runs
 60 seconds of seeded AST mutation fuzz with allocation baselines. These checks
 exercise software semantics and do not establish hardware execution.
 
+## Owned Vulkan runtime
+
+The experimental `compute` runtime is separate from the legacy C API below.
+It requires an explicitly selected provider, live context and bounded allocator;
+it does not choose a device or silently fall back to another backend.
+See [device discovery](../compute-discovery.md),
+[owned resources](../compute-resources.md) and
+[mapping, transfers and timeline streams](../compute-staging.md).
+
+`compute.vulkan_stream.GpuVulkanStream` owns a native timeline and fixed
+submission records. `signal`, `event`, `wait` and zero-timeout `poll` retain
+events and foreign dependencies through accepted work. Closing rejects pending
+work, active events and prepared-command borrowers.
+
+Native loss is sticky **per context identity**, not a global physical-device
+switch. A resource lease remains lifetime-valid for deterministic teardown after
+loss, but its operational `ready()`/`admission(...)` checks reject new work with
+`gpu.device_lost`. Sibling streams, allocators, mappings, pipelines, graphs and
+timestamp owners observe that shared state; independent native contexts remain
+independent. A fresh native identity resets loss rather than reviving an old
+generation.
+
+Pending or uncertain work still requires actual nonblocking native retirement.
+A sibling's loss notification, cancellation, timeout or previous successful
+timeline value is not permission to drop owners or validate outputs. Checked
+shader faults retain their original bits and progress after later loss. Native
+pool/fragmentation exhaustion returns `gpu.out_of_memory`, and native object
+ceilings return `gpu.limit`; neither silently enables fallback or changes caller
+retry policy. Confirmed OOM rejection permits explicit subsequent submission.
+
+The reflected compute interfaces are:
+
+| Owner/API | Contract |
+| --- | --- |
+| `GpuVulkanPipelineDevice.capture(provider, index)` | Copy physical limits and device/driver/cache identities before discovery ownership is consumed |
+| `GpuVulkanArtifact.parse(binary, reflection, entry)` | Own copied SPIR-V bytes and actual entry-specific reflection; require official conformance validation and matching physical layouts |
+| `GpuVulkanPipeline.open(allocator, stream, physical, artifact, initialEnvelope, operation)` | Consume the artifact on success or rejection; own shader, descriptor layouts, pipeline layout, cache and compute pipeline |
+| `GpuVulkanDispatch.prepare(pipeline, regions, operation)` | Consume valid byte regions in reflection order and prepare reusable descriptor/command resources; reject stale regions without transfer |
+| `dispatch.submit` / `submitAfter` | Check geometry and admit recorded work through the retained stream, preserving ownership after uncertain acceptance |
+| `dispatch.poll` | Observe native completion without blocking; a checked shader fault returns sticky `gpu.kernel_fault` with native fault bits and the completed timeline sequence in `progress` |
+
+The implementation modules are `compute.vulkan_pipeline_artifact`,
+`compute.vulkan_pipeline_device`, `compute.vulkan_pipeline`,
+`compute.vulkan_pipeline_dispatch`, `compute.vulkan_pipeline_cache` and
+`compute.vulkan_pipeline_cache_file`; vendor structures and calls live in
+`compute.vulkan_pipeline_abi`. Returned errors and successful owners must be
+released explicitly. A pipeline cannot close while a prepared dispatch borrows
+it, and a pending dispatch cannot release its commands or buffer regions.
+
+Native success without a required cache, pipeline, layout, shader, descriptor-pool or
+command-pool identity is `gpu.invalid`, rejected before a dependent SDK call.
+Each constructor retains ownership of every handle already created and releases
+partial state exactly once. A nonempty compute-pipeline output returned together
+with a Vulkan error is still owned and destroyed. These pre-submission failures
+report zero progress; a successful native status is not fabricated as an error
+code when an identity is missing.
+
+The dispatch retains a host-visible, host-coherent fault-word mapping through
+completion. Once a shader fault is observed, subsequent submission is rejected;
+reuse cannot erase the failure. Preparation checks cancellation and deadlines
+before allocating native resources and still consumes valid transferred regions
+on rejection.
+
+The v1 compiler emits scalar descriptors. Descriptor arrays or incompatible
+physical layouts are explicit `gpu.unsupported_abi` failures. Official
+SPIRV-Tools conformance validation is an explicit runtime prerequisite; an
+unavailable validator is an error, never permission to submit unchecked words.
+On Linux this requires `libSPIRV-Tools-shared.so` with the requested validation
+environment. Validation borrows the owned binary's length-delimited byte span;
+embedded zero bytes are not interpreted as a C-string terminator.
+
+Module capabilities and extensions are checked independently of selected-entry
+reflection. Physical Workgroup storage must agree with reflected shared bytes
+and device limits. The current Vulkan instance requests API 1.2: SPIR-V 1.5 is
+supported, while SPIR-V 1.6 is rejected with `gpu.unsupported_capability` even
+when a physical device advertises API 1.3.
+
+Pipeline-cache envelopes bind the binary, reflection, entry and native
+device/driver identities. Cache publication must distinguish atomic visibility
+from directory durability and report post-publication failure with `progress=1`.
+Cancellation and timeout retain their typed errors; pre-publication failure has
+zero progress and preserves the previous destination. Destinations ending in
+`.pending` are reserved and rejected, and a competing staging file is never
+reused or removed. Cancellation/deadlines are rechecked after staging sync and
+close immediately before atomic replacement.
+
+Cache allocation admission includes rounded `Array<Int>` growth peaks, retained
+copies and hashing scratch. Over-budget operations return `gpu.out_of_memory`
+before growing those arrays. File loading uses nonblocking acquisition and
+checks the regular-file kind on the acquired descriptor, so a FIFO without a
+writer cannot trap the caller inside open.
+
+Only load trusted cache files. Envelope identity and SHA-256 integrity checks do
+not authenticate the provenance of opaque vendor data. A truncated native cache
+header is rejected rather than padded or turned into a usable cache.
+
+`bash tests/misc_root_tests/seen_gpu_runtime_e.sh` is the required
+software-reference acceptance entrypoint. Physical execution is a separate
+explicit hardware class; offline artifacts, discovery and passing software
+fixtures never establish physical-device or production certification.
+
+For an explicitly provisioned software SDK, set `SEEN_VULKAN_REFERENCE_ICD` to an
+absolute, nonsymlink ICD manifest path. The acceptance fixtures still require an
+actual software device; selection does not turn hardware into reference evidence
+or silently fall back when the chosen SDK fails.
+
+### Persistent command graphs and timestamp profiling
+
+`compute.vulkan_graph` provides `GpuVulkanGraphNode` and
+`GpuVulkanCommandGraph`. A graph owns its unique byte regions once, so an
+exclusive intermediate write lease can serve a producer output and a dependent
+consumer input without acquiring conflicting second leases.
+
+| API | Ownership and behavior |
+| --- | --- |
+| `GpuVulkanGraphNode.create(pipeline, regionIndices, dependencies, x, y, z, operation)` | Consume both index arrays on every return; retain the borrowed pipeline until node release |
+| `GpuVulkanCommandGraph.prepare(stream, regions, nodes, timing, operation)` | Validate bounded owner collections before transfer; then consume region/node owners and the `Option<GpuVulkanTimestampPool>` container on success or failure; retain, but do not consume, a `Some` pool payload |
+| `graph.submit(operation)` | Admit one persistent recorded batch through the native timeline; return its sequence, or preserve uncertain admission in error `progress` |
+| `graph.poll()` | Nonblocking native retirement and optional profiling observation; checked faults retain original bits and sequence even after later device loss |
+| `graph.close()` / `release()` | Reject unretired native work; unavailable profiling data alone prevents neither releasing nor resubmitting an already-retired graph |
+
+Graphs accept at most 64 nodes, 256 region owners, 256 descriptors/sets in total
+and 4,096 edges. Stable topological ordering uses the earliest original ready
+node. Cycles, duplicate edges, invalid indices, foreign contexts, incompatible
+geometry/layout/access and unordered overlapping access with a writer are
+rejected before submission. Within-node writable aliases have no ABI guarantee
+and are rejected. Oversized, stale or duplicate owner collections are rejected
+**without transfer**; callers still own their arrays, elements and timing
+container. After preflight, valid transferred owners are cleaned up on every
+constructor failure.
+
+Descriptor/command resources persist for the graph lifetime. The entire batch,
+including barriers, is recorded once with reusable command-buffer flags; reuse
+requires retirement and does not create per-operation fences, wait for global
+idle, rebuild a pipeline/cache or rerecord commands. Nodes cannot close after
+ownership transfers to a graph, and retained pipelines/streams cannot close
+while graph borrowers remain.
+
+`compute.vulkan_timestamps.GpuVulkanTimestampPool.open(allocator, stream,
+physical, operation)` creates one two-query pool and fixed result scratch using
+the selected native queue's timestamp-valid bits and physical timestamp period.
+Unsupported clocks return `gpu.unsupported_capability`, without disabling
+ordinary pipelines. A pool retains its stream and can be borrowed by one graph.
+Pass `Some(pool)` for profiling or `None<GpuVulkanTimestampPool>()` explicitly.
+The graph owns one reusable `sample` with `startTicks`, `endTicks`,
+`elapsedTicks`, `elapsedNanoseconds` and `ready`; this is not proof that shader
+outputs succeeded independently of `poll`'s result.
+
+Timestamp reads first observe the submitted timeline and then request 64-bit
+results with availability, never a native query wait. Pending/unavailable/error
+results leave the caller's sample unchanged. Tick differences are exact modulo
+the queue's validated 1–64-bit clock width; the number of complete clock wraps
+cannot be inferred. Cancellation/deadlines reject admission, but do not prevent
+nonblocking retirement of admitted work. Device-loss retirement never validates
+outputs. Release the graph before its borrowed pool.
+
+`compute.vulkan_host_transfer.gpuVkHostTransfer(destinationMapping,
+destinationOffset, sourceMapping, sourceOffset, bytes, operation)` is an
+**explicit host-mediated** transport between distinct native Vulkan devices,
+not peer DMA or a silently selected fallback. It borrows both live mappings,
+requires an exclusive writable destination, rejects aliasing/invalid ranges and
+copies at most 16 MiB per call. Cancellation/deadlines are checked before each
+64-KiB chunk and after the last write; error `progress` is the exact CPU-written
+byte prefix, not a timeline sequence. Source data must already be valid in the
+CPU mapping; use a read mapping to invalidate noncoherent prior GPU writes.
+Destination visibility follows the mapping's normal coherent/flush-on-close
+protocol. Neither success nor failure consumes or implicitly closes mappings.
+An observed loss in either native context rejects transport with
+`gpu.device_lost` and zero byte progress before touching either mapping.
+
+`bash tests/misc_root_tests/seen_gpu_runtime_f.sh` exercises native graph reuse,
+checked faults, timestamp arithmetic/availability, partial construction,
+uncertain submission, cancellation and isolated host-transfer shutdown.
+The software reference uses two independently opened logical native devices;
+it does **not** establish execution on two physical GPUs or production
+certification. Executable ownership examples are in
+`tests/production_gpu_runtime/vulkan_graph_contract.seen`,
+`vulkan_timestamps_contract.seen` and `vulkan_host_transfer_contract.seen`.
+
+### Persistent native-loop evidence
+
+`bash tests/misc_root_tests/seen_gpu_runtime_h.sh` runs the emitted Vulkan
+foundation kernel through a restored native pipeline cache and a persistent
+timed graph. Each compiler profile performs five warmups, 30 measured samples
+and a further 1,024 hot cycles, then compares native readback with an independent
+numeric oracle and drains the Seen/native owners.
+
+The test-only SDK interposer rejects hot buffer/memory, shader/layout/pipeline,
+cache, descriptor, command, semaphore and query acquisitions, and any fence or
+global-idle call. Isolated fence, buffer, cache and global-wait probes must each
+reach its designated guard exit; an arbitrary crash is not acceptance evidence.
+The trace observes calls across this SDK boundary, not allocations internal to
+the driver.
+
+`runtime-h-evidence.json` retains the raw GPU/CPU nanosecond samples and medians,
+device identity, actual native submission/poll counters, cache payload bytes
+passed to the SDK, transfer/fallback accounting, requested device-memory bytes,
+process peak RSS, compiler hash and read-back cgroup limits. Requested device
+memory is not physical VRAM; unmeasured VRAM remains `null`. The software
+reference is not physical-device, other-platform or production certification.
+
+### Gate 0 accelerator foundation evidence
+
+The canonical Bash entrypoints enter the attested compiler/resource scope and
+keep required failures nonzero. Required CPU CI runs A/B/C; D requires the named
+physical RTX 4090 and is never substituted with the software reference.
+
+| Phase | Entrypoint below `tests/misc_root_tests/` | Evidence boundary |
+| --- | --- | --- |
+| A | `seen_p0_accel_gate_a.sh` | CPU-default compilation/execution, disabled CUDA build discovery, actual SDK file/tool probes and ELF dependencies |
+| B | `seen_p0_accel_gate_b.sh` | Full emitter/scalar corpus, Metal-C native integrity/explicit SDK admission, and shared-source logical reflection across SPIR-V, CUDA, HIP and Metal |
+| C | `seen_p0_accel_gate_c.sh` | Full 15-child ownership, failure, cancellation, staging, cache, synchronization and native-trace corpus |
+| D | `seen_p0_accel_gate_d.sh` | Same foundation on actual CUDA and Vulkan RTX 4090, all four native profiles, official artifacts and device UUID checks |
+
+A requires Linux `strace`, records its version and binary hash, and calibrates
+actual failed SDK-file probes and a rejecting tool before interpreting an empty
+finding set. It includes `/etc/vulkan` manifest discovery, not just library
+linkage. ASan/LSan native runs
+keep normal leak checks and tool tripwires but are not ptraced: LSan cannot run
+under ptrace. Their compilation is traced; their runtime filesystem/dlopen
+coverage is explicitly unobserved rather than inferred from ELF dependencies.
+
+B compares logical entry/workgroup/user bindings and comparable canonical IR,
+not target-specific physical ABI hashes. Official SDK validation, CPU scalar
+execution and optional physical observations remain distinct. C classifies
+lavapipe as native CPU software-reference execution, not physical GPU execution;
+unexecuted CUDA and distinct-device peer-positive cases remain unsupported.
+
+D performs five warmups, 30 raw measured samples and a 1,024-cycle soak, checks
+all 37 output elements, and records exact transfers, fallback counters, owner
+drains, native process peak RSS and explicitly unmeasured physical VRAM.
+CUDA CPU samples time the scalar reference loop; Vulkan CPU samples time its
+submission/poll path. They are not interchangeable speedup denominators.
+Malformed CUDA reflection, including out-of-range numeric capabilities and
+missing/directory inputs, must reject without releasing borrowed error text or
+initializing successful hardware evidence. Native sanitizer/driver failures
+remain failures even when a timing record was printed before process exit.
+
+`seen-accelerator-gate-evidence-v1` binds check statuses and actual log hashes to
+the compiler, source revision/dirty catalog and read-back cgroup limits.
+`phase_checks_passed` covers the required rows only; `production_certified`
+remains false. Unavailable SDK/platform/hardware evidence and a dirty source
+tree do not become clean-checkout or merged-main certification.
+
+Only evidence is retained outside disposable build scratch:
+`.seen/accelerator-gate-evidence/index.json` identifies at most two archives per
+phase, each capped at 144 MiB. An archive contains `evidence.json`, referenced
+raw logs/reports under `logs/`, and the shared emitted foundation artifacts,
+not native executables or compiler caches. Interrupted publications are indexed
+for bounded cleanup; changed retained data is not silently deleted. Publication
+is atomic visibility, not a power-loss durability guarantee. Required CI uploads
+these bounded archives separately from the transient build tree.
+Raw producers keep a 64 MiB soft file limit. The archive writer temporarily
+uses its larger archive ceiling, restores the original limit, and rejects an
+incompatible host hard limit rather than raising it.
+
+
+## Explicit caller-policy CPU fallback
+
+`compute.fallback` owns policy and outcome accounting, not an executor, native
+adapter or device selector. CPU-only behavior remains the default. Acceleration
+and any fallback must be explicitly requested by the caller.
+
+| API | Contract |
+| --- | --- |
+| `GpuFallbackPolicy` | `Disabled`, `OutOfMemory`, `DeviceLost` or `Either`; other GPU failures are not eligible |
+| `GpuFallbackStats.create(maxAttempts, maxLiveAttempts)` | Own finite admission/outcome counters and retained-attempt accounting |
+| `GpuFallbackAttempt.begin(stats, policy, gpuError, retired, operation)` | Consume the original GPU error on every return; admit requested failures only after actual caller-observed retirement |
+| `attempt.finish(cpuResult)` | Consume the actual caller CPU `Result<Bool,GpuError>`; preserve true/false and record the real outcome once |
+| `attempt.close()` / `release()` | Release retained diagnostics/statistics; unfinished close counts abandonment, not successful execution |
+
+The caller must prove `retired=true` by observing retirement of **that same
+failed operation**. Error progress, a lost context or timeout alone is not proof.
+Pending/uncertain, policy-disabled and noneligible failures return the original
+owned error without running duplicate CPU work. Invalid data, unsupported ABI
+and checked-kernel failures never cause silent CPU execution. Eligible admission
+cancellation/deadline/limit errors retain the original GPU error as an owned
+cause.
+
+The caller executes CPU work against authoritative retained inputs and obeys its
+own `OperationContext`, then supplies the actual result to `finish`; the adapter
+does not execute or retry it. On success, `attempt.original` remains borrowed
+diagnostic access until close, including original native code and GPU progress.
+Do not move, release or mutate that borrowed error. On CPU failure,
+`gpu.fallback_failed` owns the original GPU and CPU failures at `causes[0]` and
+`causes[1]`. Finished attempts still borrow statistics until released, so
+statistics cannot close prematurely.
+Passing the borrowed original back as an owned CPU error, **while retained by
+the attempt**, is rejected with `gpu.invalid` before changing counters or
+consuming that diagnostic; only the incoming result container is released.
+CPU failure transfers the original into the returned error and ends the
+attempt's diagnostic borrow. A borrowed cause is not an owned CPU error.
+
+Counters distinguish `admitted`, `succeeded`, `failed`, `abandoned`,
+`pendingAttempts`, `liveAttempts`, `outOfMemorySucceeded` and
+`deviceLostSucceeded`. Admission alone never fabricates successful fallback.
+Owners are creator-confined, bounded and explicitly released.
+
+`bash tests/misc_root_tests/seen_gpu_runtime_g.sh` runs native shared-context loss,
+retryable OOM/partial construction and actual reflected GPU-failure-to-CPU
+computation with independent numeric output checks, preserved causes and owner
+drain. Its software reference is not physical-device or production certification.
+The CPU-only policy fixture does not discover or link an accelerator SDK.
+
+## Experimental CUDA peer transport
+
+`compute.cuda_peer.GpuCudaPeerCapability.query(sourceOrdinal,
+destinationOrdinal, operation)` explicitly queries native CUDA device count and
+destination-to-source peer access. The owned result distinguishes same-device
+memory from actual peer support; release the primitive capability wrapper with
+`free()`. A false capability is not permission to choose another route.
+
+`GpuCudaPeerLink.prepare(capability)` requires capable, distinct devices and
+returns a cleanup owner before `link.open(operation)` enables native access.
+Keep that owner even when open fails: asynchronous errors or late cancellation
+can leave an uncertain activation that must be closed explicitly. An already
+enabled pair is `gpu.busy`; this owner never disables another owner's access.
+Close rejects retained transfers. Native `NOT_ENABLED` is proof that an
+uncertain activation left no active access, not a fabricated success result.
+`enabled` becomes true only after native enable and post-call operation checks
+succeed. `cleanupRequired` separately retains uncertain activation/disable
+ownership; such an owner is cleanup-only, never transfer capability. Transfer
+start revalidates confirmed activation and device ordinals before native copy.
+
+`compute.cuda_device_transfer.GpuCudaDeviceTransfer.prepare(destinationTicket,
+sourceTicket, sourceOffset, linkOption, operation)` borrows a completed valid
+source and reserved destination from distinct staging rings. The `Option`
+container transfers on every return; its link payload remains borrowed.
+Same-device transfers require `None<GpuCudaPeerLink>()`; distinct-device
+transfers require `Some(enabledLink)` with matching ordinals. There is no
+automatic host route. Byte geometry is checked and transfers are capped at
+16 MiB, with bounded ticket/link borrowers.
+
+`transfer.start(operation)` uses existing allocation/stream/event owners without
+per-operation native allocation or synchronization. Admission cancellation has
+zero progress. After a copy may have been accepted, both tickets and peer access
+remain retained; failures and late cancellation preserve the submitted sequence
+in error `progress`. `poll()` observes the actual event/private stream without
+blocking or obeying post-admission cancellation. Original copy errors remain
+available with subsequent observation errors as owned causes; poisoned output
+is never treated as successful data. Release the transfer only after native
+retirement, then release its tickets/rings and peer link. Failure in one ring
+does not poison an independent source ring.
+
+Applications must explicitly declare both the packaged `seen_cuda` resource
+runtime and the CUDA runtime library used by the direct peer SDK calls:
+
+```toml
+[native.dependencies]
+seen_cuda = { bundled = true }
+cudart = { path = "/opt/cuda/lib64" } # Use the provisioned SDK directory.
+```
+
+The native package currently targets Linux x86-64. Unused peer imports retain
+CPU-only execution without discovering or linking a GPU SDK.
+`bash tests/misc_root_tests/seen_gpu_cuda_peer.sh` checks this default;
+`SEEN_CUDA_PEER_HARDWARE=1` explicitly requests native execution and records
+whether a distinct-device peer-positive route actually ran.
+
+RTX 4090 same-device cross-ring copies, real native second-copy failure,
+retained-owner drain and byte canaries execute in fast, ThinLTO and UBSan
+profiles. Strict ASan/LSan acceptance remains blocked by the existing
+183-byte/four-allocation CUDA driver initialization leak; it is not suppressed.
+One physical device does not certify a positive multi-GPU peer route. This API
+remains experimental, not production-certified.
+
 ## Runtime C API
 
 The authoritative declarations are in `seen_runtime/seen_gpu.h`:
@@ -878,3 +1255,31 @@ ABI. The shared scalar corpus is also used by HIP. Apple SDK compilation,
 metallib linking, hardware execution and performance remain separate requirements.
 The host compiler identity and specification mapping are recorded in
 `docs/architecture/metal-toolchain.json`.
+
+`bash tests/misc_root_tests/seen_gpu_metal_c.sh` is the separate integrity and
+official-toolchain entrypoint. Its native four-profile checks cover exact MSL,
+reflection-file and manifest hashes, source relocation, owned cleanup and
+adverse integrity claims. Official compilation uses those CPU-validated source
+and reflection snapshots, not a later unchecked reread.
+
+The command exits **126** after retaining CPU proof when no approved Apple SDK
+policy is available. Set `SEEN_METAL_TOOLCHAIN_POLICY` to a real approved policy
+file to request native Apple compilation; malformed supplied policies fail,
+not downgrade to unsupported. The policy schema is
+`seen-metal-official-toolchain-v1`: Darwin system/machine identity, the three
+deployment targets and MSL versions above, canonical SDK path and
+`SDKSettings.plist` SHA-256, resolved `metal`/`metallib` paths and binary hashes,
+and the expected observed `metal` version line. The existing Linux diagnostic
+policy is not an official SDK policy.
+
+Approved tools produce real AIR/metallib artifacts and rejection diagnostics.
+MSL/reflection/manifest determinism is required; external SDK binary equality
+is recorded separately, not invented as an Apple format guarantee. Native SDK
+calls have finite current-memory-derived process limits, deadlines, bounded
+scratch/output and a 20 ms process-group RSS watchdog, not instantaneous
+aggregate RSS isolation. SIGTERM and default SIGINT handling kill/reap owned SDK
+work; cleanup for other termination signals, including SIGKILL, is not claimed.
+SDK compilation still proves no GPU execution.
+The aggregate retains the actual native profile log/status witnesses separately
+from the optional SDK result; unsupported SDK status cannot substitute for CPU
+integrity success.

@@ -238,6 +238,15 @@ The verify and full rebuild tiers run the gate inside their aggregate hard
 scope. Do not run `scripts/seen_prebuild_gates.sh` directly until it has a
 standalone entry point with the same read-back-verified containment.
 
+Compiler self-build discovery uses a curated module list rather than recursively
+including every standard-library import. A new standard-library implementation
+dependency reachable from the compiler must appear in both the entry module's
+bootstrap imports and its curated list. This includes `json.float_format` and
+`math.math` for JSON numeric serialization. Frozen builders inspect the entry
+imports before applying their embedded list; omitting a dependency can therefore
+produce valid module IR but fail the final link. Verify such changes with an
+actual guarded compiler build and executable CLI smoke, not source-presence pins.
+
 ## Package Artifacts During Bootstrap
 
 Package prebuild artifacts contain:

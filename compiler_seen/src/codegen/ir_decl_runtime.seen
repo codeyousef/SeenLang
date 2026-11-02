@@ -39,7 +39,7 @@ fun emitCoreRuntimeDecls(output: StringBuilder, runtimeDeclsLoaded: Bool, define
         output.append("declare %SeenString @seen_str_concat_ss(%SeenString, %SeenString) nounwind\n")
         output.append("declare %SeenString @seen_int_to_string(i64) nounwind\n")
         output.append("declare %SeenString @seen_uint_to_string(i64) nounwind\n")
-        output.append("declare %SeenString @seen_float_to_string(double) nounwind readonly\n")
+        output.append("declare %SeenString @seen_float_to_string(double) nounwind\n")
         output.append("declare %SeenString @seen_char_to_str(i64) nounwind\n")
         output.append("declare %SeenString @String_fromCharCode(i64) nounwind\n")
         output.append("declare %SeenString @seen_bool_to_string(i1) nounwind readonly\n")

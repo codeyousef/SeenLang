@@ -497,12 +497,8 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_inf_simd_f.sh"
 python3 "$REPO_ROOT/tests/gpu_artifacts/toolchain_memory_contract.py"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_a.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_b.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_c.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_a.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_b.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_d.sh"
 COMPILER="$REAL_COMPILER" \
@@ -510,58 +506,17 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_e.sh"
 COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_spirv_a.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_spirv_b.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_spirv_c.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ptx_a.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ptx_b.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ptx_b_numeric.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ptx_c.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_amdgpu_a.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_amdgpu_b.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_amdgpu_b_numeric.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_amdgpu_c.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_metal_a.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_metal_b.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_metal_b_numeric.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_runtime_a.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_runtime_a_vulkan.sh"
-COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_compiled_fixture_status.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_compiled_fixture_metadata_linux_x86_64.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_ir_only_phase_linux_x86_64.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_runtime_b.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_staging_foundations.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_vulkan_mapping.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_vulkan_transfer.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_vulkan_staging.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_cuda_event_query.sh"
-COMPILER="$REAL_COMPILER" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_gpu_cuda_staging.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_c.sh"
 bash "$REPO_ROOT/tests/misc_root_tests/seen_asan_address_layout.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_fs_close_error.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_fs_file_ownership.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_scalar_print_ownership.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_json_float_serialization.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_generic_reprc_abi.sh"
 COMPILER="$REAL_COMPILER" \

@@ -12,6 +12,36 @@ Foundations**.
 
 ### Added
 
+- Require explicit `[native.dependencies] vulkan = {}` for native Vulkan loader
+  calls instead of inferring SDK discovery and link flags from unused foreign
+  declarations or imported module paths. Keep CPU-only imports outside native
+  fixture projects and use ordinary manifest opt-in for native acceptance.
+- Add canonical accelerator foundation gates for CPU SDK isolation, the complete
+  emitter/scalar corpus, runtime lifecycle/trace aggregation and actual paired
+  CUDA/Vulkan RTX 4090 execution. Bind real statuses and raw evidence to source,
+  compiler and cgroup identities; keep software-reference, unsupported and
+  physical-device results distinct. Retain bounded evidence independently of
+  disposable build output and include it in required CI artifacts.
+  Preserve raw-producer file limits while writing larger bounded archives,
+  without raising host hard limits, and retain copied native baseline witnesses
+  after their build scratch is removed.
+  The CUDA canary owns a private context, checks loaded-kernel parameter layout
+  and scalar outputs, records raw timings/process RSS, and rejects malformed
+  reflection before unsafe numeric conversion or borrowed-string release.
+  Native sanitizer failures remain nonzero; none of these development reports
+  claims production or merged-main certification.
+- Add the missing Metal-C integrity and official-toolchain entrypoint. Keep its
+  four-profile CPU byte/ownership proof separate from explicitly unsupported
+  Apple SDK execution; bind official inputs to validated source/reflection
+  hashes and retain native witnesses after scratch cleanup. Bound SDK process
+  lifetime and temporary files without hiding termination or driver failures.
+- Canonicalize signed-64 aliases in numeric cast lowering, so floating casts to
+  `Int64` and signed-64 casts to floating types emit real conversions instead of
+  reusing an SSA value of the wrong LLVM type.
+- Expose reusable staging foundation acceptance as `seen_gpu_runtime_c.sh`,
+  updating all callers without an obsolete alias, and preserve sticky
+  `gpu.device_lost` for output reads after native staging-loss retirement.
+
 - Lower source generic classes with String/Array arguments through concrete field
   types and method ABIs, retaining String aggregates and native Array references
   rather than mismatched erased slots. Preserve runtime-owned container ABIs and
@@ -55,6 +85,108 @@ Foundations**.
   the candidate compiler and invoke their Bash entrypoints independently of
   checkout executable bits. Keep native assertions, rejection cases, sanitizer
   runs and coverage gates authoritative instead of matching fixture PASS text.
+  Apply the same executable-result authority to quantized SIMD and I/O overlap
+  fixtures while retaining their numeric, code-generation and evidence checks.
+- Add creator-confined native Vulkan streams and retained timeline events with
+  bounded submission slots, nonblocking cross-stream dependencies, retryable OOM
+  admission and ownership-preserving uncertain submission/device-loss handling.
+  Shutdown rejects outstanding work, events and prepared-command borrowers.
+- Decode a quantized store's single active tail lane once while preserving its
+  requested 128/256/512-bit mask and output bounds. Retain all raw paired timing
+  samples across the complete 21-case quantized benchmark matrix, independently
+  validate medians against the unchanged five-percent ceiling, and record
+  allocator peak, actual benchmark-child RSS, source/compiler identity and
+  read-back limits. Drain known benchmark owners before returning a hard
+  performance failure; do not silently drop later measurement cases.
+- Add experimental bounded Vulkan command graphs with explicit dependency/hazard
+  validation, graph-owned intermediate leases, retained pipelines and persistent
+  descriptor/command resources. Record a reusable multi-kernel batch once and
+  preserve checked faults, uncertain-admission progress and partial-owner drain.
+  Add native two-query timestamp profiling with exact unsigned clock wrapping,
+  nonblocking availability and fixed result scratch; unavailable profiling data
+  no longer prevents reuse or shutdown after native work has retired.
+- Add explicit bounded host-mediated transport between distinct native Vulkan
+  devices, with byte-prefix progress, chunked cancellation/deadline checks and
+  independent source/destination shutdown. This route is never chosen implicitly
+  and does not claim peer DMA or physical multi-GPU certification.
+- Add experimental CUDA peer capability/access owners and retained cross-ring
+  device transfers. Native peer transfers require explicit enabled access and
+  caller-declared CUDA runtime linking; same-device copies are not advertised as
+  peer support, and unsupported peer routes never silently fall back to the CPU.
+  Reject malformed native catalog counts and non-Boolean or same-device peer
+  replies while preserving original SDK failure codes.
+  Keep confirmed peer activation separate from uncertain cleanup ownership and
+  revalidate the active route before copy admission.
+- Track Vulkan loss per native context while retaining lifetime-valid cleanup
+  identities. Deny new resource, stream, mapping, graph and pipeline work without
+  dropping pending owners; require real native retirement even after sibling
+  loss or failed observations. Preserve checked shader faults and independent
+  contexts, classify pool/fragmentation exhaustion as OOM and object ceilings as
+  limits, and permit explicit retry after confirmed recoverable OOM rejection.
+- Add a bounded native Vulkan persistent-loop qualification harness with actual
+  cache restore, five warmups, 30 raw timing samples, a 1,024-cycle soak and
+  independent numeric readback. Observe SDK-boundary acquisitions, reject hot
+  resource/cache/descriptor creation and fence/global-idle calls, and require
+  designated negative-guard exits. Retain owner-drain, native memory requests,
+  RSS, transfer/fallback counters and explicit software-reference qualification;
+  do not equate requested memory with measured physical VRAM.
+- Add bounded explicit caller-policy CPU fallback for retired OOM/device-loss
+  operations, preserving original GPU diagnostics and actual CPU failures.
+  Counters distinguish admission, successful/failed outcomes and abandonment;
+  disabled, pending or ineligible work never silently executes on the CPU.
+  Reject aliased borrowed diagnostics without consuming the retained owner.
+- Add experimental reflected Vulkan pipeline and prepared-dispatch owners with
+  entry-specific descriptor validation, official SPIRV-Tools conformance checks,
+  physical shared-storage accounting and explicit application/device API limits.
+  Retain completed shader-fault bits and timeline progress; reject reuse rather
+  than erasing a checked failure. Transfer existing fault-word mapping leases
+  without acquiring a conflicting second buffer borrow.
+  Reject empty-success pipeline, descriptor and command identities before
+  dependent SDK calls; release partial native construction exactly once.
+- Bind native pipeline-cache envelopes to artifact, entry, device and driver
+  identities. Preserve typed cancellation/timeouts, reserve the `.pending`
+  staging namespace and recheck admission immediately before atomic replacement;
+  distinguish pre-publication failure from committed durability failure.
+  Reject nonregular cache inputs through nonblocking descriptor acquisition and
+  pre-admit array-growth, retained-copy and hash scratch budgets before allocation.
+- Release owned nullable JSON lookup boxes while retaining borrowed reflection
+  nodes, preserving exact allocation baselines on valid and malformed artifacts.
+- Preserve finite JSON floating-point values in incremental, compact and pretty
+  serialization with bounded, nearest-even 17-digit Seen formatting. Keep signed
+  zero and out-of-integer-range values; explicitly reject NaN and infinity.
+  Preserve representable native parser subnormals without admitting overflow or
+  nonzero underflow-to-zero.
+- Keep JSON numeric-formatting dependencies reachable through both compiler
+  bootstrap entry imports and curated roots, avoiding undefined formatter
+  symbols at the final link.
+- Emit relaxed SPIR-V atomics without storage-memory semantics bits, preserving
+  source ordering and satisfying Vulkan's non-relaxed storage-semantics rule
+  without strengthening fault-flag atomics unnecessarily.
+  Use implicit Workgroup array layout unless explicit-layout features are enabled,
+  rather than emitting unsupported `ArrayStride` decorations.
+- Keep instrumented module functions and data in individually collectable sections,
+  preserving unused-import SDK isolation under sanitizer builds.
+- Release compiler-created scalar `print`/`println` formatting temporaries after
+  output while preserving borrowed caller Strings and static Boolean text.
+  Keep allocating floating-point formatting out of the read-only ABI class.
+  Reuse width- and signedness-aware conversion for fixed-width integer and
+  floating-point aliases instead of forwarding a numeric register as a String.
+- Keep GPU and Gate 0 acceptance on native values, resource traces, structured
+  errors and coverage rather than fixture PASS wording or source-presence pins.
+- Consume POSIX file-close ownership after one native attempt even on failure,
+  preserving the reported error while clearing and releasing the opaque handle.
+  Prevent close retries from reaching reused descriptors and verify exact
+  allocation cleanup under fast, ThinLTO, UBSan and ASan.
+  Repeated close reports no effect without attempting native close again.
+- Release filesystem context, range and write-all progress Result containers on
+  success and propagated failure while preserving their transferred payloads.
+- Add `File.openNonBlocking` without changing ordinary `File.open` behavior.
+  Retire newly exclusive-created files after post-open metadata or wrapper-allocation
+  failures without removing pre-existing or competing paths.
+- Store repr(C) literals through typed pointers as aggregate values, not their
+  temporary addresses, and release the copied literal storage. Preserve mixed
+  fixed-width fields, adjacent-record canaries and stable live allocation
+  across repeated stores under all four native execution profiles.
 - Emit pointer/64-bit integer casts from physical ABI metadata rather than
   treating the language `Ptr` spelling as a no-op and generating malformed IR.
   Keep native `Ptr`/Array/List field projections as pointers while retaining

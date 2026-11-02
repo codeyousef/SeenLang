@@ -469,10 +469,16 @@ enum {
     SEEN_FS_END = 14
 };
 
+/* flags: read=1, write=2, create=4, truncate=8, append=16, exclusive=32,
+   directory=64, no-follow=128, nonblocking=256 (unsupported if unavailable).
+   Post-open failure removes only a successfully exclusive-created path,
+   closes the descriptor once, and preserves the primary native status. */
 int32_t seen_fs_open(int64_t path_len, const char *path_data, int32_t flags,
                      int32_t direct_mode, uint64_t *out_handle,
                      uint64_t *out_alignment, int32_t *out_direct_active,
                      uint64_t *out_fallback_count);
+/* POSIX close consumes and clears the opaque owner even on failure; never retry
+   the underlying descriptor. The value form has the same consumption contract. */
 int32_t seen_fs_close(uint64_t *handle);
 int32_t seen_fs_close_value(uint64_t handle);
 int32_t seen_fs_metadata(uint64_t handle, uint64_t *out_size,
@@ -1178,5 +1184,11 @@ int64_t  seen_small_vec_get_f64(int64_t handle, int64_t index);
 int64_t  seen_small_vec_get_str(int64_t handle, int64_t index);
 int64_t  seen_small_vec_length(int64_t handle);
 void     seen_small_vec_clear(int64_t handle);
+
+/* Explicit official SPIRV-Tools validation: 0 valid, vendor error otherwise;
+   -1000 means unavailable SDK/platform, -2 means validator allocation failure.
+   Borrows the aligned binary String span synchronously without a byte copy;
+   never opens a GPU device. Embedded zero bytes are preserved by its length. */
+int32_t seen_spirv_validate_binary(SeenString binary, int32_t vulkan_version);
 
 #endif // SEEN_RUNTIME_H

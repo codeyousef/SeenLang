@@ -1,0 +1,32 @@
+import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun doubleToSigned(value: Float64) r: Int64 { return value as Int64 }
+fun singleToSigned(value: Float32) r: Int64 { return value as Int64 }
+fun signedToDouble(value: Int64) r: Float64 { return value as Float64 }
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let allocated = OwnedBuffer<Int64>.allocate(6 as UInt64, 8 as UInt64, 16 as UInt64)
+    if allocated.isErr() {
+        allocated.unwrapErr().free(); allocated.releaseContainer()
+        abort("signed-64 cast sample storage unavailable")
+    }
+    let samples = allocated.unwrap(); allocated.releaseContainer()
+    samples.data[0] = doubleToSigned(3.75 as Float64)
+    samples.data[1] = doubleToSigned(-3.75 as Float64)
+    samples.data[2] = doubleToSigned(4294967297.875 as Float64)
+    samples.data[3] = singleToSigned(-123.75 as Float32)
+    let milliseconds = 0.5 as Float32
+    samples.data[4] = ((milliseconds as Float) * 1000000.0) as Int64
+    samples.data[5] = doubleToSigned(signedToDouble(-4294967297 as Int64))
+    if samples.data[0] != (3 as Int64) or samples.data[1] != (-3 as Int64) or
+        samples.data[2] != (4294967297 as Int64) or samples.data[3] != (-123 as Int64) or
+        samples.data[4] != (500000 as Int64) or samples.data[5] != (-4294967297 as Int64) {
+        abort("signed-64 floating conversion or typed pointer store differs")
+    }
+    samples.close(); samples.free()
+    if seen_memory_used_bytes() != baseline { abort("signed-64 cast sample storage retained") }
+    println("PASS: signed-64 aliases floating truncation wide values typed stores and exact cleanup")
+    return 0
+}

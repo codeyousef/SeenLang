@@ -25,10 +25,10 @@ traces=('map=1 unmap=0 flush=0 invalidate=0' 'map=1 unmap=1 flush=0 invalidate=0
     'map=2 unmap=2 flush=1 invalidate=1')
 run_compiler check "$ROOT_DIR/tests/production_gpu_runtime/vulkan_mapping_contract.seen" > "$TMP_DIR/frontend.log" 2>&1
 for profile in fast release undefined address; do
-    compile_fixture "$profile" mapping "$ROOT_DIR/tests/production_gpu_runtime/vulkan_mapping_contract.seen"
+    compile_vulkan_fixture "$profile" mapping "$ROOT_DIR/tests/production_gpu_runtime/vulkan_mapping_contract.seen"
     seen_run_vulkan_reference "$profile" mapping
     rg -Fq 'VULKAN_MAP_TRACE map=20 unmap=20 flush=0 invalidate=0' "$TMP_DIR/mapping-$profile.log"
-    compile_fixture "$profile" mapping-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_mapping_fault_contract.seen"
+    compile_vulkan_fixture "$profile" mapping-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_mapping_fault_contract.seen"
     for index in "${!faults[@]}"; do
         seen_run_vulkan_fault "$profile" mapping-fault "${faults[index]}" "${codes[index]}"
         rg -Fq "VULKAN_MAP_TRACE ${traces[index]}" "$TMP_DIR/fault-mapping-fault-${faults[index]}-$profile.log"

@@ -8,6 +8,7 @@
 #include "seen_runtime.h"
 #include "seen_compat_win32.h"
 #include <errno.h>
+#include <float.h>
 #include <sys/stat.h>
 #include <math.h>
 #include <time.h>
@@ -29,6 +30,7 @@
 
 #include "seen_runtime.h"
 #include <errno.h>
+#include <float.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -11564,6 +11566,11 @@ int32_t seen_fs_open(int64_t path_len, const char *path_data, int32_t flags,
 #ifdef O_NOFOLLOW
     if ((flags & 128) != 0) native_flags |= O_NOFOLLOW;
 #endif
+#ifdef O_NONBLOCK
+    if ((flags & 256) != 0) native_flags |= O_NONBLOCK;
+#else
+    if ((flags & 256) != 0) return SEEN_FS_UNSUPPORTED;
+#endif
 #ifdef O_CLOEXEC
     native_flags |= O_CLOEXEC;
 #endif
@@ -11592,14 +11599,19 @@ int32_t seen_fs_open(int64_t path_len, const char *path_data, int32_t flags,
     }
 #endif
     if (fd < 0) return seen_fs_status_from_errno(errno, SEEN_FS_OPEN_FAILED);
+    /* Only a successful O_CREAT|O_EXCL open owns a newly created path.
+       Ordinary opens and failed exclusive opens never authorize unlink. */
+    bool created_exclusively = (flags & (4 | 32)) == (4 | 32);
     struct stat st;
     if (fstat(fd, &st) != 0) {
         int error = errno;
+        if (created_exclusively) (void)unlink(path);
         close(fd);
         return seen_fs_status_from_errno(error, SEEN_FS_IO_FAILED);
     }
     SeenFsFile *file = (SeenFsFile *)seen_try_malloc(sizeof(*file));
     if (!file) {
+        if (created_exclusively) (void)unlink(path);
         close(fd);
         return SEEN_FS_OPEN_FAILED;
     }
@@ -11622,13 +11634,14 @@ int32_t seen_fs_close(uint64_t *handle) {
     (void)file;
     return SEEN_FS_UNSUPPORTED;
 #else
-    /* POSIX leaves descriptor state unspecified after close(2) returns EINTR;
-       retrying can close a newly reused descriptor. */
+    /* Consume the opaque owner after one attempt, including close errors.
+       Retrying an interrupted close can destroy a newly reused descriptor. */
     int result = close(file->fd);
-    if (result != 0) return seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
+    int32_t status = result == 0 ? SEEN_FS_OK :
+        seen_fs_status_from_errno(errno, SEEN_FS_IO_FAILED);
     seen_runtime_free_budgeted(file, sizeof(*file));
     *handle = 0;
-    return SEEN_FS_OK;
+    return status;
 #endif
 }
 
@@ -13955,7 +13968,12 @@ SEEN_BOOTSTRAP_WEAK double seen_parse_float_range(SeenString text, int64_t start
     char* parse_end = NULL;
     errno = 0;
     double value = strtod(buf, &parse_end);
-    bool valid = errno != ERANGE && parse_end == buf + len && isfinite(value);
+    /* ERANGE also reports rounded, nonzero subnormals. Preserve those finite
+     * results, including a value rounded up to DBL_MIN, without admitting
+     * overflow clamped to DBL_MAX or nonzero input rounded down to zero. */
+    bool in_range = errno != ERANGE ||
+        (value != 0.0 && fabs(value) <= DBL_MIN);
+    bool valid = in_range && parse_end == buf + len && isfinite(value);
 
     if (heap) {
         free(buf);
@@ -14288,6 +14306,55 @@ SEEN_BOOTSTRAP_WEAK int64_t seen_rle_total_memory(void) { return 0; }
 // --- Shader hot-reload stubs ---
 SEEN_BOOTSTRAP_WEAK int64_t seen_shader_check_modified(int64_t a) { (void)a; return 0; }
 SEEN_BOOTSTRAP_WEAK void seen_shader_register_watch(int64_t a, int64_t b) { (void)a; (void)b; }
+
+/* Irreducible official SPIRV-Tools C ABI. Seen owns input limits, artifact and
+   device policy; this adapter only loads/calls/destroys the vendor validator.
+   No SDK is located or loaded unless validation is explicitly requested. */
+int32_t seen_spirv_validate_binary(SeenString binary, int32_t vulkan_version) {
+    if (!binary.data || ((uintptr_t)binary.data & 3U) ||
+        binary.len < 20 || binary.len > 33554432 || (binary.len % 4) != 0)
+        return -4; /* SPV_ERROR_INVALID_BINARY */
+#if defined(__linux__)
+    const uint32_t *words = (const uint32_t *)binary.data;
+    size_t count = (size_t)binary.len / sizeof(uint32_t);
+    if (vulkan_version != 12 && vulkan_version != 13) return -4;
+    void *library = dlopen("libSPIRV-Tools-shared.so", RTLD_NOW | RTLD_LOCAL);
+    if (!library) return -1000;
+    typedef _Bool (*ParseEnv)(const char *, int *);
+    typedef void *(*CreateContext)(int);
+    typedef void (*DestroyContext)(void *);
+    typedef int32_t (*ValidateBinary)(const void *, const uint32_t *, size_t, void **);
+    typedef void (*DestroyDiagnostic)(void *);
+    ParseEnv parse_env = (ParseEnv)dlsym(library, "spvParseTargetEnv");
+    CreateContext create = (CreateContext)dlsym(library, "spvContextCreate");
+    DestroyContext destroy = (DestroyContext)dlsym(library, "spvContextDestroy");
+    ValidateBinary validate = (ValidateBinary)dlsym(library, "spvValidateBinary");
+    DestroyDiagnostic destroy_diagnostic = (DestroyDiagnostic)dlsym(library, "spvDiagnosticDestroy");
+    if (!parse_env || !create || !destroy || !validate || !destroy_diagnostic) {
+        dlclose(library);
+        return -1000;
+    }
+    int environment = 0;
+    if (!parse_env(vulkan_version == 12 ? "vulkan1.2" : "vulkan1.3", &environment)) {
+        dlclose(library);
+        return -1000;
+    }
+    void *context = create(environment);
+    if (!context) {
+        dlclose(library);
+        return -2; /* SPV_ERROR_OUT_OF_MEMORY */
+    }
+    void *diagnostic = NULL;
+    int32_t status = validate(context, words, (size_t)count, &diagnostic);
+    destroy_diagnostic(diagnostic);
+    destroy(context);
+    dlclose(library);
+    return status;
+#else
+    (void)vulkan_version;
+    return -1000;
+#endif
+}
 
 // The actual main function should be defined in user code as seen_main
 // This wrapper initializes the runtime

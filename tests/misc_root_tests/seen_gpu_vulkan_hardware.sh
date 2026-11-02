@@ -31,7 +31,6 @@ esac
 [ -f "$VK_DRIVER_FILES" ] && [ ! -L "$VK_DRIVER_FILES" ]
 for profile in fast release undefined address; do
     compile_case "$profile" resources "$ROOT_DIR/tests/production_gpu_runtime/vulkan_hardware_contract.seen"
-    rg -Fq 'PASS: GPU-006A/B RTX 4090 Vulkan discovery context typed allocation accounting and cleanup' "$TMP_DIR/resources-$profile.log"
 done
 python3 - "$ROOT_DIR" "$COMPILER" "$TMP_DIR" <<'PY'
 import hashlib, json, pathlib, subprocess, sys

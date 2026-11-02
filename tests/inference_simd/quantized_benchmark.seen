@@ -28,18 +28,20 @@ fun quantizedSample(borrow source: OwnedBuffer<UInt8>, borrow output: OwnedBuffe
     return elapsed
 }
 fun main() r: Int {
+    let entryBytes = seen_memory_used_bytes()
     let argv = args(); var enforce = false
     if argv.length() > 2 { releaseArgs(argv); return 1 }
     if argv.length() == 2 { if argv[1] != "--enforce" { releaseArgs(argv); return 1 }; enforce = true }; releaseArgs(argv)
     let source: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 64 as UInt64))
     let output: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 64 as UInt64))
     let ctx = context(); let progress = SimdMemoryProgress.create()
-    let ratios = Array<Int64>(); var i = 0; while i < 30 { ratios.push(0 as Int64); i = i + 1 }
-    var kind = 0
-    while kind < 7 {
+    let ratios = Array<Int64>(); let candidates = Array<Int64>(); let controls = Array<Int64>()
+    var i = 0; while i < 30 { ratios.push(0 as Int64); candidates.push(0 as Int64); controls.push(0 as Int64); i = i + 1 }
+    var result = 0; var kind = 0
+    while kind < 7 and result != 2 {
         let format = corpusFormat(kind); prepareQuantizedCorpus(source.data, format, 0)
         var mode = 0
-        while mode < 3 {
+        while mode < 3 and result != 2 {
             var width = 128; if mode == 1 { width = 256 }; if mode == 2 { width = 512 }
             i = 0
             while i < 5 {
@@ -47,7 +49,7 @@ fun main() r: Int {
                 let candidate = quantizedSample(source, output, format, width, ctx, progress); i = i + 1
             }
             let baseline = seen_memory_used_bytes(); i = 0
-            while i < 30 {
+            while i < 30 and result != 2 {
                 var control = 0 as Int64; var candidate = 0 as Int64
                 if i % 2 == 0 {
                     control = quantizedSample(source, output, format, 0, ctx, progress)
@@ -56,22 +58,31 @@ fun main() r: Int {
                     candidate = quantizedSample(source, output, format, width, ctx, progress)
                     control = quantizedSample(source, output, format, 0, ctx, progress)
                 }
+                candidates[i] = candidate; controls[i] = control
                 ratios[i] = candidate * (1000000 as Int64) / control
-                if seen_memory_used_bytes() != baseline { return 2 }; i = i + 1
+                if seen_memory_used_bytes() != baseline { result = 2 }; i = i + 1
             }
-            let ratio = medianRatioPpm(ratios)
-            println("BENCH: quantized-decode warmups=5 samples=30 paired=true control=scalar clock=monotonic blocks_per_sample=128")
-            metric("BENCH: corpus_format_index=", kind as Int64)
-            metric("BENCH: vector_bits=", width as Int64)
-            metric("BENCH: median_ratio_ppm=", ratio)
-            metric("BENCH: allocator_peak_bytes=", seen_memory_peak_bytes())
-            if enforce and ratio > (1050000 as Int64) { return 3 }
+            if result != 2 {
+                let ratio = medianRatioPpm(ratios)
+                println("BENCH: quantized-decode warmups=5 samples=30 paired=true control=scalar clock=monotonic blocks_per_sample=128")
+                metric("BENCH: corpus_format_index=", kind as Int64)
+                metric("BENCH: vector_bits=", width as Int64)
+                i = 0; while i < 30 {
+                    metric("BENCH: candidate_ns=", candidates[i]); metric("BENCH: scalar_ns=", controls[i])
+                    i = i + 1
+                }
+                metric("BENCH: median_ratio_ppm=", ratio)
+                metric("BENCH: allocator_peak_bytes=", seen_memory_peak_bytes())
+                if enforce and ratio > (1050000 as Int64) { result = 3 }
+            }
             mode = mode + 1
         }
         kind = kind + 1
     }
-    ratios.free(); progress.free(); ctx.limits.free(); ctx.traceId.free(); ctx.free()
+    ratios.free(); candidates.free(); controls.free(); progress.free(); ctx.limits.free(); ctx.traceId.free(); ctx.free()
     source.close(); source.free(); output.close(); output.free()
+    if seen_memory_used_bytes() != entryBytes { abort("quantized benchmark retained owners after common success/failure cleanup") }
+    if result != 0 { return result }
     println("PASS: quantized paired performance observation and live-allocation stability")
     if not enforce { println("PENDING: quantized designated-machine performance enforcement") }
     return 0

@@ -35,14 +35,14 @@ for name in staging staging-adverse staging-fault; do
     run_compiler check "$ROOT_DIR/tests/production_gpu_runtime/$source_name" > "$TMP_DIR/$name-frontend.log" 2>&1
 done
 for profile in fast release undefined address; do
-    compile_fixture "$profile" staging "$ROOT_DIR/tests/production_gpu_runtime/vulkan_staging_contract.seen"
+    compile_vulkan_fixture "$profile" staging "$ROOT_DIR/tests/production_gpu_runtime/vulkan_staging_contract.seen"
     seen_run_vulkan_reference "$profile" staging
     # Two logical staging slots share one native arena block; the device
     # destination owns the other. Neither count grows over the 100 copies.
     rg -Fq 'VULKAN_COPY_TRACE pool=1/1 semaphore=1/1 alloc=1 commands=2 copy=100 submit=100 buffers=2 memory=2' "$TMP_DIR/staging-$profile.log"
-    compile_fixture "$profile" staging-adverse "$ROOT_DIR/tests/production_gpu_runtime/vulkan_staging_adverse_contract.seen"
+    compile_vulkan_fixture "$profile" staging-adverse "$ROOT_DIR/tests/production_gpu_runtime/vulkan_staging_adverse_contract.seen"
     seen_run_vulkan_reference "$profile" staging-adverse
-    compile_fixture "$profile" staging-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_staging_fault_contract.seen"
+    compile_vulkan_fixture "$profile" staging-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_staging_fault_contract.seen"
     for index in "${!faults[@]}"; do
         seen_run_vulkan_fault "$profile" staging-fault "${faults[index]}" "${codes[index]}"
     done
@@ -52,11 +52,11 @@ for name in staging staging-adverse; do
     export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
     source_name=vulkan_staging_contract.seen
     if [ "$name" = staging-adverse ]; then source_name=vulkan_staging_adverse_contract.seen; fi
-    compile_fixture fast "coverage-$name" "$ROOT_DIR/tests/production_gpu_runtime/$source_name"
+    compile_vulkan_fixture fast "coverage-$name" "$ROOT_DIR/tests/production_gpu_runtime/$source_name"
     seen_run_vulkan_reference fast "coverage-$name"
     coverage+=(--fixture "$TMP_DIR/coverage-$name-fast" "$TMP_DIR/$name.profraw")
 done
-compile_fixture fast coverage-staging-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_staging_fault_contract.seen"
+compile_vulkan_fixture fast coverage-staging-fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_staging_fault_contract.seen"
 for index in "${!faults[@]}"; do
     seen_run_vulkan_fault fast coverage-staging-fault "${faults[index]}" "${codes[index]}"
 done

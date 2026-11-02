@@ -19,6 +19,24 @@ int main(void) {
     SIZE(VkPhysicalDeviceIDProperties, 64); SIZE(VkPhysicalDeviceSubgroupProperties, 32);
     SIZE(VkPhysicalDeviceMemoryProperties, 520); SIZE(VkPhysicalDeviceFeatures, 220);
     SIZE(VkQueueFamilyProperties, 24);
+    FIELD(VkQueueFamilyProperties, timestampValidBits, 8);
+    FIELD(VkPhysicalDeviceLimits, timestampComputeAndGraphics, 420);
+    FIELD(VkPhysicalDeviceLimits, timestampPeriod, 424);
+    _Static_assert(offsetof(VkPhysicalDeviceProperties2, properties) +
+        offsetof(VkPhysicalDeviceProperties, limits) +
+        offsetof(VkPhysicalDeviceLimits, timestampPeriod) == 736, "timestamp period output offset");
+    SIZE(VkQueryPoolCreateInfo, 32);
+    FIELD(VkQueryPoolCreateInfo, pNext, 8);
+    FIELD(VkQueryPoolCreateInfo, flags, 16);
+    FIELD(VkQueryPoolCreateInfo, queryType, 20);
+    FIELD(VkQueryPoolCreateInfo, queryCount, 24);
+    FIELD(VkQueryPoolCreateInfo, pipelineStatistics, 28);
+    _Static_assert(VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO == 11, "query pool sType");
+    _Static_assert(VK_QUERY_TYPE_TIMESTAMP == 2, "timestamp query type");
+    _Static_assert(VK_QUERY_RESULT_64_BIT == 1 &&
+        VK_QUERY_RESULT_WITH_AVAILABILITY_BIT == 4 && VK_QUERY_RESULT_WAIT_BIT == 2, "timestamp result flags");
+    _Static_assert(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT == 1 &&
+        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT == 8192, "timestamp stages");
     SIZE(VkPhysicalDeviceFeatures2, 240); SIZE(VkPhysicalDeviceTimelineSemaphoreFeatures, 24);
     FIELD(VkPhysicalDeviceFeatures2, pNext, 8); FIELD(VkPhysicalDeviceFeatures2, features, 16);
     FIELD(VkPhysicalDeviceTimelineSemaphoreFeatures, timelineSemaphore, 16);
@@ -29,6 +47,14 @@ int main(void) {
     SIZE(VkSemaphoreCreateInfo, 24); SIZE(VkBufferCopy, 24);
     SIZE(VkBufferMemoryBarrier, 56); SIZE(VkTimelineSemaphoreSubmitInfo, 48);
     SIZE(VkSubmitInfo, 72); SIZE(VkSemaphoreWaitInfo, 40);
+    /* Runtime H's negative probes call these real SDK layouts directly. */
+    SIZE(VkFenceCreateInfo, 24); SIZE(VkFence, 8);
+    FIELD(VkFenceCreateInfo, sType, 0);
+    FIELD(VkFenceCreateInfo, pNext, 8); FIELD(VkFenceCreateInfo, flags, 16);
+    _Static_assert(VK_STRUCTURE_TYPE_FENCE_CREATE_INFO == 8, "H fence probe sType");
+    _Static_assert(VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO == 12, "H buffer probe sType");
+    FIELD(VkBufferCreateInfo, sType, 0); FIELD(VkBufferCreateInfo, pNext, 8);
+    FIELD(VkBufferCreateInfo, flags, 16); FIELD(VkBufferCreateInfo, sharingMode, 36);
     FIELD(VkCommandPoolCreateInfo, queueFamilyIndex, 20);
     FIELD(VkCommandBufferAllocateInfo, commandPool, 16);
     FIELD(VkCommandBufferAllocateInfo, commandBufferCount, 28);
@@ -55,6 +81,48 @@ int main(void) {
     FIELD(VkMappedMemoryRange, offset, 24); FIELD(VkMappedMemoryRange, size, 32);
     _Static_assert(VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE == 6, "mapped range sType");
     _Static_assert(VK_WHOLE_SIZE == UINT64_MAX, "whole mapped allocation encoding");
+    _Static_assert((VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) == 307, "owned typed buffer usage encoding");
+    SIZE(VkShaderModuleCreateInfo, 40); FIELD(VkShaderModuleCreateInfo, codeSize, 24);
+    FIELD(VkShaderModuleCreateInfo, pCode, 32);
+    SIZE(VkDescriptorSetLayoutBinding, 24); FIELD(VkDescriptorSetLayoutBinding, pImmutableSamplers, 16);
+    SIZE(VkDescriptorSetLayoutCreateInfo, 32); FIELD(VkDescriptorSetLayoutCreateInfo, pBindings, 24);
+    SIZE(VkPipelineLayoutCreateInfo, 48); FIELD(VkPipelineLayoutCreateInfo, pSetLayouts, 24);
+    FIELD(VkPipelineLayoutCreateInfo, pPushConstantRanges, 40);
+    SIZE(VkPipelineShaderStageCreateInfo, 48); FIELD(VkPipelineShaderStageCreateInfo, module, 24);
+    FIELD(VkPipelineShaderStageCreateInfo, pName, 32); FIELD(VkPipelineShaderStageCreateInfo, pSpecializationInfo, 40);
+    SIZE(VkComputePipelineCreateInfo, 96); FIELD(VkComputePipelineCreateInfo, stage, 24);
+    FIELD(VkComputePipelineCreateInfo, layout, 72); FIELD(VkComputePipelineCreateInfo, basePipelineIndex, 88);
+    SIZE(VkPipelineCacheCreateInfo, 40); FIELD(VkPipelineCacheCreateInfo, initialDataSize, 24);
+    FIELD(VkPipelineCacheCreateInfo, pInitialData, 32);
+    FIELD(VkPipelineCacheCreateInfo, sType, 0);
+    FIELD(VkPipelineCacheCreateInfo, pNext, 8); FIELD(VkPipelineCacheCreateInfo, flags, 16);
+    SIZE(VkDescriptorPoolSize, 8); SIZE(VkDescriptorPoolCreateInfo, 40);
+    FIELD(VkDescriptorPoolCreateInfo, pPoolSizes, 32);
+    SIZE(VkDescriptorSetAllocateInfo, 40); FIELD(VkDescriptorSetAllocateInfo, pSetLayouts, 32);
+    SIZE(VkDescriptorBufferInfo, 24); FIELD(VkDescriptorBufferInfo, range, 16);
+    SIZE(VkWriteDescriptorSet, 64); FIELD(VkWriteDescriptorSet, dstSet, 16);
+    FIELD(VkWriteDescriptorSet, pBufferInfo, 48);
+    _Static_assert(VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO == 16, "shader module sType");
+    _Static_assert(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO == 18, "shader stage sType");
+    _Static_assert(VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO == 29, "compute pipeline sType");
+    _Static_assert(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO == 30, "pipeline layout sType");
+    _Static_assert(VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO == 17, "pipeline cache sType");
+    _Static_assert(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO == 32, "descriptor layout sType");
+    _Static_assert(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO == 33, "descriptor pool sType");
+    _Static_assert(VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO == 34, "descriptor allocation sType");
+    _Static_assert(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET == 35, "descriptor write sType");
+    FIELD(VkPhysicalDeviceProperties, pipelineCacheUUID, 276);
+    FIELD(VkPhysicalDeviceLimits, maxUniformBufferRange, 24);
+    FIELD(VkPhysicalDeviceLimits, maxStorageBufferRange, 28);
+    FIELD(VkPhysicalDeviceLimits, maxBoundDescriptorSets, 64);
+    FIELD(VkPhysicalDeviceLimits, maxPerStageDescriptorUniformBuffers, 72);
+    FIELD(VkPhysicalDeviceLimits, maxPerStageDescriptorStorageBuffers, 76);
+    FIELD(VkPhysicalDeviceLimits, maxDescriptorSetUniformBuffers, 100);
+    FIELD(VkPhysicalDeviceLimits, maxDescriptorSetStorageBuffers, 108);
+    FIELD(VkPhysicalDeviceLimits, maxComputeWorkGroupCount, 220);
+    FIELD(VkPhysicalDeviceLimits, minUniformBufferOffsetAlignment, 320);
     FIELD(VkBufferCreateInfo, size, 24); FIELD(VkBufferCreateInfo, usage, 32);
     FIELD(VkBufferCreateInfo, queueFamilyIndexCount, 40); FIELD(VkBufferCreateInfo, pQueueFamilyIndices, 48);
     FIELD(VkMemoryAllocateInfo, allocationSize, 16); FIELD(VkMemoryAllocateInfo, memoryTypeIndex, 24);

@@ -19,7 +19,7 @@ fun main() r: Int {
     if opened.isErr() { abort("Vulkan resource fault failed before reference selection") }
     let device = opened.unwrap(); opened.releaseContainer(); let created = device.createContext(op)
     if created.isErr() { abort("Vulkan resource fault failed before native context creation") }
-    let context = created.unwrap(); created.releaseContainer()
+    var context = created.unwrap(); created.releaseContainer()
     var index = 0
     while index < 16 {
         var kind = GpuMemoryKind.DeviceLocal; var blockBytes = 1024 as UInt64
@@ -43,6 +43,14 @@ fun main() r: Int {
         pooled.releaseContainer()
         if device.core.resourceCommittedBytes != (0 as UInt64) or device.core.resourceBorrowers != 0 {
             abort("Vulkan native resource rejection retained commitment or context leases")
+        }
+        // Native bind loss invalidates admission for this actual context, not
+        // its ownership identity. A repeated loss case requires a fresh device.
+        if arguments[1] == "bind-status" and index < 15 {
+            completed(context.release(), true)
+            let fresh = device.createContext(op)
+            if fresh.isErr() { abort("fresh context after native loss was rejected") }
+            context = fresh.unwrap(); fresh.releaseContainer()
         }
         index = index + 1
     }

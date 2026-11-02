@@ -60,6 +60,18 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 6
+      - name: Retain bounded accelerator gate evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: seen-accelerator-evidence-${{ github.sha }}
+          path: |
+            .seen/accelerator-gate-evidence/*.tar.gz
+            .seen/accelerator-gate-evidence/index.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0
       - name: Prepare verified release toolchain
         run: scripts/prepare_release_toolchain_artifact.sh
       - name: Retain exact-commit release toolchain
@@ -349,6 +361,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
             "nvidia-cuda-nvcc-cu12==12.8.93 (pinned ptxas only)",
             "ripgrep",
             "spirv-tools",
+            "strace",
         ],
         "host_tools_provisioning": "ubuntu-packages-pinned-assembler-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",

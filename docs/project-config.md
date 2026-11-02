@@ -221,6 +221,11 @@ containing the library file. The path is resolved relative to the nearest
 Linux/macOS builds it also records that directory as a runtime search path so
 the output can run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH` wrappers.
 
+Declare `vulkan = {}` when a native executable actually calls the Vulkan loader.
+The compiler does not infer this dependency from `vk*` foreign declarations or
+imported Vulkan modules. CPU-only users may import their types without probing
+or linking the Vulkan SDK.
+
 Legacy `system = true` entries inside `[dependencies]` are still accepted for
 backward compatibility, but new manifests should prefer `[native.dependencies]`.
 

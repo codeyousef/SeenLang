@@ -115,6 +115,9 @@ Input, nesting, and value-limit failures are deterministic parse errors. The
 limits bound recursion and graph growth; partial arrays, objects, strings, and
 result wrappers are released on every error path. Number conversion uses a
 runtime range parser, avoiding a full-number substring allocation.
+Representable nonzero subnormals, including values rounded to the minimum normal
+binary64 value, remain valid. Overflow and nonzero input rounded to zero are
+range errors rather than silently changed numeric values.
 
 ### JSON Builder
 
@@ -133,6 +136,18 @@ after the result is no longer needed. Call `destroyJsonBuilder` exactly once
 for an incremental builder; it releases escaped-string parts retained between
 `build` calls. `reset` performs the same part cleanup while keeping the builder
 available for reuse.
+
+`JsonBuilder.numberFloat`, `jsonToString` and `toJsonPretty` preserve finite
+binary64 values, including signed zero, fractions and magnitudes outside the
+integer range. Formatting uses bounded Seen arithmetic with nearest-even rounding
+to at most 17 significant decimal digits; display-oriented `Float.toString()`
+precision is not used. The formatter uses fixed scratch capacity and emits at
+most 24 bytes per number. `JsonBuilder.number(Int)` retains its integer contract.
+
+NaN and infinity violate the JSON-number precondition and abort before numeric
+conversion. They are not silently converted to zero, null, or invalid JSON tokens.
+Serialization borrows its `JsonValue` tree; the returned text has independent
+ownership and follows the same `releaseJsonText` rule above.
 
 ```seen
 import json.{jsonToString, releaseJsonText}

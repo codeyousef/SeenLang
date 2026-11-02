@@ -1,0 +1,302 @@
+/// Creator-confined Vulkan timelines. Each admitted submission owns one bounded
+/// slot and retains its foreign semaphore until native completion is observed.
+import compute.backend.{GpuBackend}
+import compute.allocator.{GpuAllocator}
+import compute.context_lease.{GpuContextLease}
+import compute.resource_arena_core.{gpuReleaseResourceLease}
+import compute.capabilities.{GPU_FEATURE_TIMELINE_EVENTS}
+import compute.error.{GpuError, gpuFailure}
+import compute.vulkan_error.{gpuVkContextFailure}
+import compute.operation.{gpuCheckOperation}
+import compute.vulkan_transfer_abi.{VulkanCopySemaphoreType, VulkanCopySemaphoreInfo,
+    VulkanCopyTimelineInfo, VulkanCopySubmitInfo, VulkanCopyWaitInfo,
+    vkCreateSemaphore, vkDestroySemaphore, vkQueueSubmit, vkWaitSemaphores}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+import memory.allocation.{allocationBudgetAvailable}
+
+let GPU_VULKAN_STREAM_MAX_SLOTS: Int = 256
+let GPU_VULKAN_STREAM_MAX_SIGNAL: UInt64 = 9223372036854775807 as UInt64
+
+class GpuVulkanStreamSlot {
+    var sequence: UInt64
+    var pending: Bool
+    var dependency: GpuVulkanStreamCore
+    var dependencyActive: Bool
+}
+
+/// Internal integration owner. submit/submitAfter borrow command handles only:
+/// the command producer must retain every recorded object through poll completion.
+class GpuVulkanStreamCore {
+    var lease: GpuContextLease
+    var device: UInt64
+    var queue: UInt64
+    var semaphore: UInt64
+    var slots: Array<GpuVulkanStreamSlot>
+    var lastSubmitted: UInt64
+    var lastCompleted: UInt64
+    var inFlight: Int
+    var borrowers: Int
+    var eventBorrowers: Int
+    var waitBorrowers: Int
+    var poisoned: Bool
+    var lost: Bool
+    var closed: Bool
+
+    fun retain(operation: OperationContext) r: Result<Bool, GpuError> {
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.stream.borrow")
+        if checked.isErr() { return checked }
+        checked.releaseContainer()
+        if this.closed or not this.lease.valid() {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.stream.borrow", "stream core is closed or stale"))
+        }
+        let ready = this.lease.admission("gpu.vulkan.stream.borrow")
+        if ready.isErr() { return ready }; ready.releaseContainer()
+        if this.poisoned { return Err<Bool, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.stream.borrow", "stream submission is uncertain")) }
+        if not this.borrowAvailable() {
+            return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.stream.borrow", "stream borrower ceiling reached"))
+        }
+        this.borrowers = this.borrowers + 1
+        return Ok<Bool, GpuError>(true)
+    }
+    fun borrowAvailable() r: Bool {
+        return this.borrowers + this.eventBorrowers + this.waitBorrowers < this.lease.core.limits.maxResources
+    }
+    fun dropBorrow() r: Void {
+        if this.borrowers <= 0 { abort("native stream integration borrow underflow") }
+        this.borrowers = this.borrowers - 1
+    }
+    fun submit(command: UInt64, operation: OperationContext) r: Result<UInt64, GpuError> {
+        return this.admit(command, this, 0 as UInt64, false, operation)
+    }
+    fun submitAfter(command: UInt64, borrow event: GpuVulkanEvent, operation: OperationContext) r: Result<UInt64, GpuError> {
+        if not event.valid() {
+            return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.stream.submit", "dependency event is closed, stale or unsubmitted"))
+        }
+        return this.admit(command, event.core, event.sequence, true, operation)
+    }
+    fun admit(command: UInt64, dependency: GpuVulkanStreamCore, value: UInt64,
+        waiting: Bool, operation: OperationContext) r: Result<UInt64, GpuError> {
+        if this.closed or not this.lease.valid() {
+            return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.stream.submit", "stream core is closed or stale"))
+        }
+        let ready = this.lease.admission("gpu.vulkan.stream.submit")
+        if ready.isErr() { let error = ready.unwrapErr(); ready.releaseContainer(); return Err<UInt64, GpuError>(error) }; ready.releaseContainer()
+        if this.poisoned { return Err<UInt64, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.stream.submit", "uncertain submission requires shutdown")) }
+        if this.inFlight >= this.slots.length() or this.lastSubmitted >= GPU_VULKAN_STREAM_MAX_SIGNAL or not allocationBudgetAvailable(16384) {
+            return Err<UInt64, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.stream.submit", "stream slot, signal or result metadata ceiling reached"))
+        }
+        if waiting {
+            if dependency.closed or not dependency.lease.valid() or value == (0 as UInt64) or value > dependency.lastSubmitted or
+                dependency.device != this.device or dependency.lease.core != this.lease.core or
+                dependency.lease.slot != this.lease.slot or dependency.lease.generation != this.lease.generation {
+                return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.stream.submit", "dependency is unsubmitted or belongs to a foreign native context"))
+            }
+            if dependency.lost { return Err<UInt64, GpuError>(gpuFailure("gpu.device_lost", "gpu.vulkan.stream.submit", "dependency device is lost")) }
+            if dependency.poisoned { return Err<UInt64, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.stream.submit", "dependency submission is uncertain")) }
+            if not dependency.borrowAvailable() {
+                return Err<UInt64, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.stream.submit", "dependency retention ceiling reached"))
+            }
+        }
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.stream.submit")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<UInt64, GpuError>(error) }
+        checked.releaseContainer()
+        var index = 0
+        while index < this.slots.length() and this.slots[index].pending { index = index + 1 }
+        if index == this.slots.length() { return Err<UInt64, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.stream.submit", "stream slots exhausted")) }
+        let slot = this.slots[index]
+        var sequence = this.lastSubmitted + (1 as UInt64)
+        var signalSemaphore = this.semaphore; var waitSemaphore = dependency.semaphore
+        var waitValue = value; var waitStage = 65536 as UInt32; var nativeCommand = command
+        var waitCount = 0 as UInt32; var commandCount = 0 as UInt32
+        var waitValues = null as *const UInt64; var waitSemaphores = null as *const UInt64
+        var waitStages = null as *const UInt32; var commands = null as *const UInt64
+        if waiting { waitCount = 1 as UInt32; waitValues = &waitValue; waitSemaphores = &waitSemaphore; waitStages = &waitStage }
+        if command != (0 as UInt64) { commandCount = 1 as UInt32; commands = &nativeCommand }
+        let timeline = VulkanCopyTimelineInfo{sType: 1000207003 as UInt32, pNext: null as *Void,
+            waitCount: waitCount, waitValues: waitValues, signalCount: 1 as UInt32, signalValues: &sequence}
+        let submit = VulkanCopySubmitInfo{sType: 4 as UInt32, pNext: (&timeline) as *Void,
+            waitCount: waitCount, waitSemaphores: waitSemaphores, waitStages: waitStages,
+            commandCount: commandCount, commands: commands, signalCount: 1 as UInt32, signalSemaphores: &signalSemaphore}
+        // Publish retention before the SDK boundary; uncertain acceptance cannot
+        // discard a semaphore borrow or permit signal/slot reuse.
+        slot.sequence = sequence; slot.pending = true; slot.dependency = dependency; slot.dependencyActive = waiting
+        if waiting { dependency.waitBorrowers = dependency.waitBorrowers + 1 }
+        this.inFlight = this.inFlight + 1
+        let accepted = vkQueueSubmit(this.queue, 1 as UInt32, (&submit) as *const VulkanCopySubmitInfo, 0 as UInt64)
+        if accepted == (-1 as Int32) or accepted == (-2 as Int32) {
+            this.retireSlot(index); slot.sequence = 0 as UInt64
+            return Err<UInt64, GpuError>(gpuVkContextFailure(this.lease, accepted, "gpu.vulkan.stream.submit"))
+        }
+        this.lastSubmitted = sequence
+        if accepted != (0 as Int32) {
+            this.poisoned = true
+            if accepted == (-4 as Int32) { this.lost = true }
+            let error = gpuVkContextFailure(this.lease, accepted, "gpu.vulkan.stream.submit"); error.progress = sequence
+            return Err<UInt64, GpuError>(error)
+        }
+        return Ok<UInt64, GpuError>(sequence)
+    }
+    fun retireSlot(index: Int) r: Void {
+        let slot = this.slots[index]
+        if not slot.pending { abort("native stream slot retired twice") }
+        if slot.dependencyActive {
+            if slot.dependency.waitBorrowers <= 0 { abort("native stream dependency retention underflow") }
+            slot.dependency.waitBorrowers = slot.dependency.waitBorrowers - 1
+            slot.dependencyActive = false
+        }
+        slot.dependency = this; slot.pending = false; this.inFlight = this.inFlight - 1
+    }
+    /// Nonblocking observation ignores cancellation after admission. Device loss
+    /// retires all resource use, but lastCompleted must never validate outputs.
+    fun poll(sequence: UInt64) r: Result<Bool, GpuError> {
+        if this.closed or not this.lease.valid() or sequence == (0 as UInt64) or sequence > this.lastSubmitted {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.stream.poll", "signal is outside this live submitted timeline"))
+        }
+        if this.lease.ready() and not this.lost and sequence <= this.lastCompleted { return Ok<Bool, GpuError>(true) }
+        var semaphore = this.semaphore; var value = sequence
+        let info = VulkanCopyWaitInfo{sType: 1000207004 as UInt32, pNext: null as *Void,
+            flags: 0 as UInt32, count: 1 as UInt32, semaphores: &semaphore, values: &value}
+        let observed = vkWaitSemaphores(this.device, (&info) as *const VulkanCopyWaitInfo, 0 as UInt64)
+        if observed == (2 as Int32) { return Ok<Bool, GpuError>(false) }
+        if observed != (0 as Int32) and observed != (-4 as Int32) {
+            return Err<Bool, GpuError>(gpuVkContextFailure(this.lease, observed, "gpu.vulkan.stream.poll"))
+        }
+        let nativeLost = observed == (-4 as Int32)
+        if nativeLost {
+            this.lost = true; this.poisoned = true
+            let error = gpuVkContextFailure(this.lease, observed, "gpu.vulkan.stream.poll"); error.release()
+        }
+        var index = 0
+        while index < this.slots.length() {
+            if this.slots[index].pending and (nativeLost or this.slots[index].sequence <= sequence) { this.retireSlot(index) }
+            index = index + 1
+        }
+        if not this.lease.ready() or this.lost {
+            let error = this.lease.lostFailure("gpu.vulkan.stream.poll"); error.progress = sequence
+            return Err<Bool, GpuError>(error)
+        }
+        this.lastCompleted = sequence
+        return Ok<Bool, GpuError>(true)
+    }
+    /// Native retirement proof, never an output-validity or admission predicate.
+    fun retired(sequence: UInt64) r: Bool {
+        if sequence == (0 as UInt64) or sequence > this.lastSubmitted { return false }
+        if sequence <= this.lastCompleted { return true }
+        var index = 0
+        while index < this.slots.length() {
+            let slot = this.slots[index]
+            if slot.sequence == sequence { return not slot.pending }
+            index = index + 1
+        }
+        return false
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.inFlight != 0 or this.borrowers != 0 or this.eventBorrowers != 0 or this.waitBorrowers != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.stream.close", "pending work or retained native timeline borrowers remain"))
+        }
+        if this.semaphore != (0 as UInt64) { vkDestroySemaphore(this.device, this.semaphore, null as *Void); this.semaphore = 0 as UInt64 }
+        var index = 0
+        while index < this.slots.length() { this.slots[index].free(); index = index + 1 }
+        this.slots.free(); gpuReleaseResourceLease(this.lease); this.closed = true
+        return Ok<Bool, GpuError>(true)
+    }
+}
+
+@move
+class GpuVulkanStream {
+    var core: GpuVulkanStreamCore
+    static fun open(borrow allocator: GpuAllocator, slots: Int, operation: OperationContext) r: Result<GpuVulkanStream, GpuError> {
+        if allocator.core.closed or not allocator.core.lease.valid() {
+            return Err<GpuVulkanStream, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.stream.open", "stream requires a live allocator context"))
+        }
+        if slots <= 0 or slots > GPU_VULKAN_STREAM_MAX_SLOTS or slots > allocator.core.lease.core.limits.maxResources or not allocationBudgetAvailable(16384 + slots * 1024) {
+            return Err<GpuVulkanStream, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.stream.open", "stream slot or metadata ceiling exceeded"))
+        }
+        if allocator.core.provider.value.backend() != GpuBackend.Vulkan or allocator.core.provider.nativeQueue == (0 as UInt64) or
+            (allocator.core.lease.core.info.capabilities.features & GPU_FEATURE_TIMELINE_EVENTS) == (0 as UInt64) {
+            return Err<GpuVulkanStream, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.stream.open", "native Vulkan queue and enabled timeline semaphores are required"))
+        }
+        let borrowed = allocator.core.lease.borrow(operation)
+        if borrowed.isErr() { let error = borrowed.unwrapErr(); borrowed.releaseContainer(); return Err<GpuVulkanStream, GpuError>(error) }
+        let lease = borrowed.unwrap(); borrowed.releaseContainer()
+        let core = GpuVulkanStreamCore{lease: lease, device: allocator.core.provider.value.contextIdentity(), queue: allocator.core.provider.nativeQueue,
+            semaphore: 0 as UInt64, slots: Array<GpuVulkanStreamSlot>(), lastSubmitted: 0 as UInt64, lastCompleted: 0 as UInt64,
+            inFlight: 0, borrowers: 0, eventBorrowers: 0, waitBorrowers: 0, poisoned: false, lost: false, closed: false}
+        let owner = GpuVulkanStream{core: core}
+        let timeline = VulkanCopySemaphoreType{sType: 1000207002 as UInt32, pNext: null as *Void, semaphoreType: 1 as UInt32, initialValue: 0 as UInt64}
+        let info = VulkanCopySemaphoreInfo{sType: 9 as UInt32, pNext: (&timeline) as *Void, flags: 0 as UInt32}
+        var semaphore = 0 as UInt64
+        let created = vkCreateSemaphore(core.device, (&info) as *const VulkanCopySemaphoreInfo, null as *Void, &semaphore)
+        core.semaphore = semaphore
+        if created != (0 as Int32) {
+            let error = gpuVkContextFailure(core.lease, created, "gpu.vulkan.stream.open")
+            let closed = owner.release(); closed.releaseContainer()
+            return Err<GpuVulkanStream, GpuError>(error)
+        }
+        if semaphore == (0 as UInt64) {
+            let closed = owner.release(); closed.releaseContainer()
+            return Err<GpuVulkanStream, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.stream.open", "Vulkan returned an empty timeline semaphore"))
+        }
+        core.semaphore = semaphore
+        var index = 0
+        while index < slots {
+            core.slots.push(GpuVulkanStreamSlot{sequence: 0 as UInt64, pending: false, dependency: core, dependencyActive: false})
+            index = index + 1
+        }
+        return Ok<GpuVulkanStream, GpuError>(owner)
+    }
+    fun signal(operation: OperationContext) r: Result<UInt64, GpuError> { return this.core.submit(0 as UInt64, operation) }
+    fun wait(borrow event: GpuVulkanEvent, operation: OperationContext) r: Result<UInt64, GpuError> { return this.core.submitAfter(0 as UInt64, event, operation) }
+    fun poll(sequence: UInt64) r: Result<Bool, GpuError> { return this.core.poll(sequence) }
+    fun event(sequence: UInt64, operation: OperationContext) r: Result<GpuVulkanEvent, GpuError> {
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.stream.event")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<GpuVulkanEvent, GpuError>(error) }
+        checked.releaseContainer()
+        if this.core.closed or not this.core.lease.valid() or sequence == (0 as UInt64) or sequence > this.core.lastSubmitted {
+            return Err<GpuVulkanEvent, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.stream.event", "event requires an already submitted live timeline sequence"))
+        }
+        let ready = this.core.lease.admission("gpu.vulkan.stream.event")
+        if ready.isErr() { let error = ready.unwrapErr(); ready.releaseContainer(); return Err<GpuVulkanEvent, GpuError>(error) }; ready.releaseContainer()
+        if this.core.poisoned { return Err<GpuVulkanEvent, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.stream.event", "event submission is uncertain")) }
+        if not this.core.borrowAvailable() or not allocationBudgetAvailable(4096) {
+            return Err<GpuVulkanEvent, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.stream.event", "event borrower or metadata ceiling reached"))
+        }
+        let event = GpuVulkanEvent{core: this.core, sequence: sequence, active: true}
+        this.core.eventBorrowers = this.core.eventBorrowers + 1
+        return Ok<GpuVulkanEvent, GpuError>(event)
+    }
+    fun close() r: Result<Bool, GpuError> { return this.core.close() }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.core.free(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}
+
+@move
+class GpuVulkanEvent {
+    var core: GpuVulkanStreamCore
+    var sequence: UInt64
+    var active: Bool
+    fun valid() r: Bool {
+        return this.active and not this.core.closed and this.core.lease.valid() and this.core.eventBorrowers > 0 and
+            this.sequence != (0 as UInt64) and this.sequence <= this.core.lastSubmitted
+    }
+    fun poll() r: Result<Bool, GpuError> {
+        if not this.valid() { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.event.poll", "event is closed or stale")) }
+        return this.core.poll(this.sequence)
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if not this.active { return Ok<Bool, GpuError>(false) }
+        if not this.valid() { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.event.close", "event borrow is stale")) }
+        this.core.eventBorrowers = this.core.eventBorrowers - 1; this.active = false
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}

@@ -100,6 +100,12 @@ fun decodeQuantizedBlock(borrow source: OwnedBuffer<UInt8>, sourceOffset: UInt64
 
 fun storeQuantized128(input: *const UInt8, output: *Float32, format: QuantizedFormat,
     lane: Int, count: Int, scale: Float32, minimum: Float32) r: Void {
+    if count - lane == 1 {
+        let word = quantizedLane(input, format, lane, scale, minimum)
+        let single: f32x4 = f32x4(word, word, word, word)
+        simd_unsafe_masked_store_f32x4(single, ((output as UInt64) + (lane as UInt64) * (4 as UInt64)) as Int, mask4(true, false, false, false))
+        return
+    }
     let value: f32x4 = f32x4(
         quantizedTailLane(input, format, lane + 0, count, scale, minimum),
         quantizedTailLane(input, format, lane + 1, count, scale, minimum),
@@ -110,6 +116,12 @@ fun storeQuantized128(input: *const UInt8, output: *Float32, format: QuantizedFo
 
 fun storeQuantized256(input: *const UInt8, output: *Float32, format: QuantizedFormat,
     lane: Int, count: Int, scale: Float32, minimum: Float32) r: Void {
+    if count - lane == 1 {
+        let word = quantizedLane(input, format, lane, scale, minimum)
+        let single: f32x8 = f32x8(word, word, word, word, word, word, word, word)
+        simd_unsafe_masked_store_f32x8(single, ((output as UInt64) + (lane as UInt64) * (4 as UInt64)) as Int, mask8(true, false, false, false, false, false, false, false))
+        return
+    }
     let value: f32x8 = f32x8(
         quantizedTailLane(input, format, lane + 0, count, scale, minimum),
         quantizedTailLane(input, format, lane + 1, count, scale, minimum),
@@ -124,6 +136,12 @@ fun storeQuantized256(input: *const UInt8, output: *Float32, format: QuantizedFo
 
 fun storeQuantized512(input: *const UInt8, output: *Float32, format: QuantizedFormat,
     lane: Int, count: Int, scale: Float32, minimum: Float32) r: Void {
+    if count - lane == 1 {
+        let word = quantizedLane(input, format, lane, scale, minimum)
+        let single: f32x16 = f32x16(word, word, word, word, word, word, word, word, word, word, word, word, word, word, word, word)
+        simd_unsafe_masked_store_f32x16(single, ((output as UInt64) + (lane as UInt64) * (4 as UInt64)) as Int, mask16(true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false))
+        return
+    }
     let value: f32x16 = f32x16(
         quantizedTailLane(input, format, lane + 0, count, scale, minimum),
         quantizedTailLane(input, format, lane + 1, count, scale, minimum),

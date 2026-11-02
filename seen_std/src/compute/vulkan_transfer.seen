@@ -8,7 +8,7 @@ import compute.context_lease.{GpuContextLease}
 import compute.resource_arena_core.{gpuReleaseResourceLease}
 import compute.capabilities.{GPU_FEATURE_TIMELINE_EVENTS}
 import compute.error.{GpuError, gpuFailure}
-import compute.vulkan_error.{gpuVkFailure}
+import compute.vulkan_error.{gpuVkContextFailure}
 import compute.operation.{gpuCheckOperation}
 import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop}
 import compute.vulkan_transfer_abi.{VulkanCopyPoolInfo, VulkanCopyAllocateInfo,
@@ -92,20 +92,22 @@ class GpuVulkanCopyQueue {
             this.slots.length() != 0 or count <= 0 or count > GPU_VULKAN_COPY_MAX_SLOTS {
             return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.copy.open", "copy construction state or slot count is invalid"))
         }
+        let ready = this.lease.admission("gpu.vulkan.copy.open")
+        if ready.isErr() { return ready }; ready.releaseContainer()
         let poolInfo = VulkanCopyPoolInfo{sType: 39 as UInt32, pNext: null as *Void,
             flags: 2 as UInt32, queueFamilyIndex: family}
         var pool = 0 as UInt64
         let pooled = vkCreateCommandPool(this.device, (&poolInfo) as *const VulkanCopyPoolInfo, null as *Void, &pool)
-        if pooled != (0 as Int32) { return Err<Bool, GpuError>(gpuVkFailure(pooled, "gpu.vulkan.copy.pool")) }
         this.pool = pool
+        if pooled != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(this.lease, pooled, "gpu.vulkan.copy.pool")) }
         if pool == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.copy.pool", "Vulkan returned an empty command pool")) }
         let timeline = VulkanCopySemaphoreType{sType: 1000207002 as UInt32, pNext: null as *Void,
             semaphoreType: 1 as UInt32, initialValue: 0 as UInt64}
         let semInfo = VulkanCopySemaphoreInfo{sType: 9 as UInt32, pNext: (&timeline) as *Void, flags: 0 as UInt32}
         var semaphore = 0 as UInt64
         let signalled = vkCreateSemaphore(this.device, (&semInfo) as *const VulkanCopySemaphoreInfo, null as *Void, &semaphore)
-        if signalled != (0 as Int32) { return Err<Bool, GpuError>(gpuVkFailure(signalled, "gpu.vulkan.copy.timeline")) }
         this.semaphore = semaphore
+        if signalled != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(this.lease, signalled, "gpu.vulkan.copy.timeline")) }
         if semaphore == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.copy.timeline", "Vulkan returned an empty timeline semaphore")) }
         let allocated = gpuVkAllocate((count as UInt64) * (8 as UInt64))
         if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); return Err<Bool, GpuError>(error) }
@@ -114,7 +116,7 @@ class GpuVulkanCopyQueue {
             commandPool: pool, level: 0 as UInt32, commandBufferCount: count as UInt32}
         let commands = storage.data as *UInt64
         let prepared = vkAllocateCommandBuffers(this.device, (&info) as *const VulkanCopyAllocateInfo, commands)
-        if prepared != (0 as Int32) { gpuVkDrop(storage); return Err<Bool, GpuError>(gpuVkFailure(prepared, "gpu.vulkan.copy.commands")) }
+        if prepared != (0 as Int32) { gpuVkDrop(storage); return Err<Bool, GpuError>(gpuVkContextFailure(this.lease, prepared, "gpu.vulkan.copy.commands")) }
         var index = 0
         while index < count {
             var other = 0
@@ -135,29 +137,33 @@ class GpuVulkanCopyQueue {
         if this.closed or not this.lease.valid() or sequence == (0 as UInt64) or sequence > this.lastSubmitted {
             return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.copy.poll", "copy signal is outside its active private timeline"))
         }
-        if sequence <= this.lastCompleted {
-            if this.lost { return Err<Bool, GpuError>(gpuFailure("gpu.device_lost", "gpu.vulkan.copy.poll", "copy timeline lost its device")) }
-            return Ok<Bool, GpuError>(true)
-        }
+        if this.lease.ready() and not this.lost and sequence <= this.lastCompleted { return Ok<Bool, GpuError>(true) }
         var semaphore = this.semaphore; var value = sequence
         let info = VulkanCopyWaitInfo{sType: 1000207004 as UInt32, pNext: null as *Void,
             flags: 0 as UInt32, count: 1 as UInt32, semaphores: &semaphore, values: &value}
         let observed = vkWaitSemaphores(this.device, (&info) as *const VulkanCopyWaitInfo, 0 as UInt64)
         if observed == (2 as Int32) { return Ok<Bool, GpuError>(false) }
         if observed != (0 as Int32) and observed != (-4 as Int32) {
-            return Err<Bool, GpuError>(gpuVkFailure(observed, "gpu.vulkan.copy.poll"))
+            return Err<Bool, GpuError>(gpuVkContextFailure(this.lease, observed, "gpu.vulkan.copy.poll"))
         }
-        if observed == (-4 as Int32) { this.lost = true; this.poisoned = true }
+        let nativeLost = observed == (-4 as Int32)
+        if nativeLost {
+            this.lost = true; this.poisoned = true
+            let error = gpuVkContextFailure(this.lease, observed, "gpu.vulkan.copy.poll"); error.release()
+        }
         var index = 0
         while index < this.slots.length() {
             let slot = this.slots[index]
-            if slot.pending and slot.sequence <= sequence {
+            if slot.pending and (nativeLost or slot.sequence <= sequence) {
                 slot.pending = false; slot.dropRegions(); this.inFlight = this.inFlight - 1
             }
             index = index + 1
         }
+        if not this.lease.ready() or this.lost {
+            let error = this.lease.lostFailure("gpu.vulkan.copy.poll"); error.progress = sequence
+            return Err<Bool, GpuError>(error)
+        }
         this.lastCompleted = sequence
-        if this.lost { return Err<Bool, GpuError>(gpuVkFailure(-4 as Int32, "gpu.vulkan.copy.poll")) }
         return Ok<Bool, GpuError>(true)
     }
     fun close() r: Result<Bool, GpuError> {
@@ -185,6 +191,8 @@ fun gpuVkCopy<S, D>(borrow owner: GpuVulkanCopyQueue, borrow source: GpuBuffer<S
     if owner.closed or not owner.lease.valid() or not source.isOpen() or not destination.isOpen() {
         return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.copy.submit", "copy queue and buffers must remain live"))
     }
+    let ready = owner.lease.admission("gpu.vulkan.copy.submit")
+    if ready.isErr() { let error = ready.unwrapErr(); ready.releaseContainer(); return Err<UInt64, GpuError>(error) }; ready.releaseContainer()
     if owner.poisoned {
         var code = "gpu.unavailable"
         if owner.lost { code = "gpu.device_lost" }
@@ -215,17 +223,17 @@ fun gpuVkCopy<S, D>(borrow owner: GpuVulkanCopyQueue, borrow source: GpuBuffer<S
         slot.dropRegions(); return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.copy.submit", "native copy source and destination alias"))
     }
     let reset = vkResetCommandBuffer(slot.command, 0 as UInt32)
-    if reset != (0 as Int32) { slot.dropRegions(); return Err<UInt64, GpuError>(gpuVkFailure(reset, "gpu.vulkan.copy.reset")) }
+    if reset != (0 as Int32) { slot.dropRegions(); return Err<UInt64, GpuError>(gpuVkContextFailure(owner.lease, reset, "gpu.vulkan.copy.reset")) }
     let begin = VulkanCopyBeginInfo{sType: 42 as UInt32, pNext: null as *Void, flags: 1 as UInt32, inheritance: null as *Void}
     let begun = vkBeginCommandBuffer(slot.command, (&begin) as *const VulkanCopyBeginInfo)
-    if begun != (0 as Int32) { slot.dropRegions(); return Err<UInt64, GpuError>(gpuVkFailure(begun, "gpu.vulkan.copy.begin")) }
+    if begun != (0 as Int32) { slot.dropRegions(); return Err<UInt64, GpuError>(gpuVkContextFailure(owner.lease, begun, "gpu.vulkan.copy.begin")) }
     gpuVkCopyBarrier(slot.command, fromBlock.native.buffer, readOffset, bytes, 81920 as UInt32, 2048 as UInt32, true)
     gpuVkCopyBarrier(slot.command, toBlock.native.buffer, writeOffset, bytes, 98304 as UInt32, 4096 as UInt32, true)
     let region = VulkanCopyRegion{srcOffset: readOffset, dstOffset: writeOffset, size: bytes}
     vkCmdCopyBuffer(slot.command, fromBlock.native.buffer, toBlock.native.buffer, 1 as UInt32, (&region) as *const VulkanCopyRegion)
     gpuVkCopyBarrier(slot.command, toBlock.native.buffer, writeOffset, bytes, 4096 as UInt32, 43008 as UInt32, false)
     let ended = vkEndCommandBuffer(slot.command)
-    if ended != (0 as Int32) { slot.dropRegions(); return Err<UInt64, GpuError>(gpuVkFailure(ended, "gpu.vulkan.copy.end")) }
+    if ended != (0 as Int32) { slot.dropRegions(); return Err<UInt64, GpuError>(gpuVkContextFailure(owner.lease, ended, "gpu.vulkan.copy.end")) }
     let checked = gpuCheckOperation(operation, "gpu.vulkan.copy.submit")
     if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); slot.dropRegions(); return Err<UInt64, GpuError>(error) }
     checked.releaseContainer()
@@ -239,13 +247,13 @@ fun gpuVkCopy<S, D>(borrow owner: GpuVulkanCopyQueue, borrow source: GpuBuffer<S
     let accepted = vkQueueSubmit(owner.queue, 1 as UInt32, (&submit) as *const VulkanCopySubmitInfo, 0 as UInt64)
     if accepted == (-1 as Int32) or accepted == (-2 as Int32) {
         slot.pending = false; slot.sequence = 0 as UInt64; owner.inFlight = owner.inFlight - 1; slot.dropRegions()
-        return Err<UInt64, GpuError>(gpuVkFailure(accepted, "gpu.vulkan.copy.submit"))
+        return Err<UInt64, GpuError>(gpuVkContextFailure(owner.lease, accepted, "gpu.vulkan.copy.submit"))
     }
     owner.lastSubmitted = sequence
     if accepted != (0 as Int32) {
         owner.poisoned = true
         if accepted == (-4 as Int32) { owner.lost = true }
-        let error = gpuVkFailure(accepted, "gpu.vulkan.copy.submit"); error.progress = sequence
+        let error = gpuVkContextFailure(owner.lease, accepted, "gpu.vulkan.copy.submit"); error.progress = sequence
         return Err<UInt64, GpuError>(error)
     }
     // Do not observe cancellation here: the native queue already owns work.

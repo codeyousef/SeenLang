@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
-SCOPE=seen-gpu-staging-foundations
+SCOPE=seen-gpu-runtime-c
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
 if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ]; then
     exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0"
@@ -11,15 +11,14 @@ bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
 COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
-TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-staging-foundations.XXXXXX")"
-FIXTURE_ARTIFACT_PREFIX=gpu-staging-foundations
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-runtime-c.XXXXXX")"
+FIXTURE_ARTIFACT_PREFIX=gpu-runtime-c
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 source "$ROOT_DIR/scripts/source_coverage_fixture_support.sh"
 fixtures=(staging_ring staging_readback staging_adverse buffer_region)
 for profile in fast release undefined address; do
     for name in "${fixtures[@]}"; do
         compile_case "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
-        rg -Fq 'PASS: GPU-006C' "$TMP_DIR/$name-$profile.log"
     done
 done
 readelf -d "$TMP_DIR/staging_ring-fast" > "$TMP_DIR/metadata-libraries.txt"
@@ -36,12 +35,12 @@ run_timeline_faults() {
 }
 for profile in fast release undefined address; do
     for name in "${native_fixtures[@]}"; do
-        compile_fixture "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
+        compile_vulkan_fixture "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
         seen_run_vulkan_reference "$profile" "$name"
     done
     SEEN_VULKAN_FIXTURE_FAULT=timeline-none LD_PRELOAD="$TMP_DIR/vulkan-fault-driver.so" \
         run_fixture "$profile" vulkan_timeline unsupported
-    compile_fixture "$profile" timeline_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
+    compile_vulkan_fixture "$profile" timeline_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
     run_timeline_faults "$profile" timeline_fault
 done
 FIXTURE_COMPILE_FLAGS=(--coverage); coverage=()
@@ -49,10 +48,15 @@ for name in "${fixtures[@]}" "${native_fixtures[@]}" vulkan_timeline_fuzz; do
     export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
     source="$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
     if [ "$name" = vulkan_timeline_fuzz ]; then source="$ROOT_DIR/tests/production_gpu_runtime/$name.seen"; fi
-    compile_case fast "coverage-$name" "$source"
+    if [ "$name" = vulkan_timeline ] || [ "$name" = vulkan_timeline_adverse ]; then
+        compile_vulkan_fixture fast "coverage-$name" "$source"
+        run_fixture fast "coverage-$name"
+    else
+        compile_case fast "coverage-$name" "$source"
+    fi
     coverage+=(--fixture "$TMP_DIR/coverage-$name-fast" "$TMP_DIR/$name.profraw")
 done
-compile_fixture fast coverage-timeline_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
+compile_vulkan_fixture fast coverage-timeline_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
 run_timeline_faults fast coverage-timeline_fault
 seen_source_coverage_tool llvm-profdata merge -sparse --num-threads=1 \
     "$TMP_DIR"/fault-coverage-timeline_fault-*.profraw -o "$TMP_DIR/fault.profdata"

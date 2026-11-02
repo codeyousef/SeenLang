@@ -1,0 +1,166 @@
+/// Explicit creator-confined caller policy, not a device adapter or executor.
+/// begin consumes the original GPU error on EVERY return. The caller must have
+/// observed retirement of THIS failed operation before passing retired=true;
+/// an error's progress, context loss, cancellation or timeout is not proof.
+/// No CPU work, retry, data validation or device selection occurs here.
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GPU_MAX_RESOURCES}
+import compute.operation.{gpuCheckOperation}
+import core.operation_context.{OperationContext}
+import core.option.{Option, Some}
+import core.result.{Result, Ok, Err}
+import memory.allocation.{allocationBudgetAvailable}
+
+enum GpuFallbackPolicy { Disabled; OutOfMemory; DeviceLost; Either }
+
+fun gpuFallbackEligible(policy: GpuFallbackPolicy, borrow error: GpuError) r: Bool {
+    if policy == GpuFallbackPolicy.OutOfMemory or policy == GpuFallbackPolicy.Either {
+        if error.code == "gpu.out_of_memory" { return true }
+    }
+    if policy == GpuFallbackPolicy.DeviceLost or policy == GpuFallbackPolicy.Either {
+        if error.code == "gpu.device_lost" { return true }
+    }
+    return false
+}
+
+@move
+class GpuFallbackStats {
+    var maxAttempts: Int
+    var maxLiveAttempts: Int
+    var admitted: Int
+    var succeeded: Int
+    var failed: Int
+    var abandoned: Int
+    var pendingAttempts: Int
+    var liveAttempts: Int
+    var outOfMemorySucceeded: Int
+    var deviceLostSucceeded: Int
+    var active: Bool
+
+    static fun create(maxAttempts: Int, maxLiveAttempts: Int) r: Result<GpuFallbackStats, GpuError> {
+        if maxAttempts <= 0 or maxAttempts > GPU_MAX_RESOURCES or
+            maxLiveAttempts <= 0 or maxLiveAttempts > maxAttempts or not allocationBudgetAvailable(4096) {
+            return Err<GpuFallbackStats, GpuError>(gpuFailure("gpu.limit", "gpu.fallback.stats", "fallback counters or metadata exceed their finite ceiling"))
+        }
+        return Ok<GpuFallbackStats, GpuError>(GpuFallbackStats{maxAttempts: maxAttempts,
+            maxLiveAttempts: maxLiveAttempts, admitted: 0, succeeded: 0, failed: 0,
+            abandoned: 0, pendingAttempts: 0, liveAttempts: 0,
+            outOfMemorySucceeded: 0, deviceLostSucceeded: 0, active: true})
+    }
+    fun valid() r: Bool {
+        if this.maxAttempts <= 0 or this.maxAttempts > GPU_MAX_RESOURCES or
+            this.maxLiveAttempts <= 0 or this.maxLiveAttempts > this.maxAttempts or
+            this.admitted < 0 or this.admitted > this.maxAttempts or
+            this.succeeded < 0 or this.succeeded > this.admitted or
+            this.failed < 0 or this.failed > this.admitted or
+            this.abandoned < 0 or this.abandoned > this.admitted or
+            this.pendingAttempts < 0 or this.pendingAttempts > this.admitted or
+            this.liveAttempts < this.pendingAttempts or this.liveAttempts > this.maxLiveAttempts or
+            this.liveAttempts > this.admitted or
+            this.outOfMemorySucceeded < 0 or this.outOfMemorySucceeded > this.succeeded or
+            this.deviceLostSucceeded < 0 or this.deviceLostSucceeded > this.succeeded { return false }
+        return this.admitted == this.succeeded + this.failed + this.abandoned + this.pendingAttempts and
+            this.succeeded == this.outOfMemorySucceeded + this.deviceLostSucceeded and
+            (this.active or this.liveAttempts == 0)
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if not this.active { return Ok<Bool, GpuError>(false) }
+        if this.liveAttempts != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.fallback.stats.close", "fallback attempts still borrow these statistics"))
+        }
+        this.active = false; return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}
+
+@move
+class GpuFallbackAttempt {
+    var stats: GpuFallbackStats
+    /// Owned here, BORROWED by diagnostic readers. Never release/mutate this
+    /// error or its Option. Success retains it until close; CPU failure moves
+    /// it into returned causes[0], followed by the owned CPU error at causes[1].
+    var original: Option<GpuError>
+    var outOfMemory: Bool
+    var finished: Bool
+    var active: Bool
+
+    static fun begin(borrow stats: GpuFallbackStats, policy: GpuFallbackPolicy,
+        gpuError: GpuError, retired: Bool, operation: OperationContext)
+        r: Result<GpuFallbackAttempt, GpuError> {
+        if not retired or not gpuFallbackEligible(policy, gpuError) {
+            return Err<GpuFallbackAttempt, GpuError>(gpuError)
+        }
+        let checked = gpuCheckOperation(operation, "gpu.fallback.begin")
+        if checked.isErr() {
+            let error = checked.unwrapErr(); checked.releaseContainer()
+            error.causes.push(gpuError); return Err<GpuFallbackAttempt, GpuError>(error)
+        }
+        checked.releaseContainer()
+        if not stats.active or not stats.valid() {
+            let error = gpuFailure("gpu.invalid", "gpu.fallback.begin", "fallback statistics are closed or invalid")
+            error.causes.push(gpuError); return Err<GpuFallbackAttempt, GpuError>(error)
+        }
+        // Reserving one admission reserves room for exactly one eventual
+        // success, failure or abandonment, so finish/close never wrap counters.
+        if stats.admitted >= stats.maxAttempts or stats.liveAttempts >= stats.maxLiveAttempts or
+            not allocationBudgetAvailable(4096) {
+            let error = gpuFailure("gpu.limit", "gpu.fallback.begin", "fallback attempt ceiling or metadata budget reached")
+            error.causes.push(gpuError); return Err<GpuFallbackAttempt, GpuError>(error)
+        }
+        let outOfMemory = gpuError.code == "gpu.out_of_memory"
+        let attempt = GpuFallbackAttempt{stats: stats, original: Some<GpuError>(gpuError),
+            outOfMemory: outOfMemory, finished: false, active: true}
+        stats.admitted = stats.admitted + 1; stats.pendingAttempts = stats.pendingAttempts + 1
+        stats.liveAttempts = stats.liveAttempts + 1
+        return Ok<GpuFallbackAttempt, GpuError>(attempt)
+    }
+    /// Consumes the CPU result container and its genuinely owned error payload.
+    /// An alias of borrowed original diagnostics is rejected without consuming
+    /// that retained owner. The caller executes real CPU work with its context.
+    /// finish records that actual result, not a later cancellation snapshot;
+    /// false is a valid CPU result, not a reason to execute another fallback.
+    fun finish(cpuResult: Result<Bool, GpuError>) r: Result<Bool, GpuError> {
+        if cpuResult.isErr() and this.original.isSome() and cpuResult.unwrapErr() == this.original.unwrap() {
+            cpuResult.releaseContainer()
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.fallback.finish", "CPU error aliases borrowed original GPU diagnostics"))
+        }
+        if not this.active or this.finished {
+            if cpuResult.isErr() { cpuResult.unwrapErr().release() }
+            cpuResult.releaseContainer()
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.fallback.finish", "fallback attempt is closed or already finished"))
+        }
+        this.finished = true; this.stats.pendingAttempts = this.stats.pendingAttempts - 1
+        if cpuResult.isErr() {
+            let cpuError = cpuResult.unwrapErr(); cpuResult.releaseContainer()
+            let error = gpuFailure("gpu.fallback_failed", "gpu.fallback.finish", "explicit CPU fallback failed after the original GPU failure")
+            error.causes.push(this.original.unwrap()); this.original.hasValue = false
+            error.causes.push(cpuError); this.stats.failed = this.stats.failed + 1
+            return Err<Bool, GpuError>(error)
+        }
+        let value = cpuResult.unwrap(); cpuResult.releaseContainer()
+        this.stats.succeeded = this.stats.succeeded + 1
+        if this.outOfMemory { this.stats.outOfMemorySucceeded = this.stats.outOfMemorySucceeded + 1 }
+        else { this.stats.deviceLostSucceeded = this.stats.deviceLostSucceeded + 1 }
+        return Ok<Bool, GpuError>(value)
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if not this.active { return Ok<Bool, GpuError>(false) }
+        if not this.finished {
+            this.stats.pendingAttempts = this.stats.pendingAttempts - 1
+            this.stats.abandoned = this.stats.abandoned + 1
+        }
+        if this.original.isSome() { this.original.unwrap().release(); this.original.hasValue = false }
+        this.stats.liveAttempts = this.stats.liveAttempts - 1; this.active = false
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.original.free(); this.free()
+        return Ok<Bool, GpuError>(true)
+    }
+}

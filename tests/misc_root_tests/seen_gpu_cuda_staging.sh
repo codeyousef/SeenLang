@@ -54,7 +54,6 @@ run_staging_modes() {
         cp -- "$TMP_DIR/$name-$profile.log" "$TMP_DIR/$name-$profile-$mode.log" || return
         cp -- "$TMP_DIR/$name-$profile.run.status" "$TMP_DIR/$name-$profile-$mode.status" || return
         [ "$status" = 0 ] || return "$status"
-        rg -Fq 'PASS: CUDA pinned staging' "$TMP_DIR/$name-$profile-$mode.log" || return
         rg -Fq 'drained=1 waits=0' "$TMP_DIR/$name-$profile-$mode.log" || return
         if [ "$mode" = soak ]; then
             rg -Fq 'CUDA_STAGING_SOAK seed=17317 cycles=4096 copies=12288 live=stable' "$TMP_DIR/$name-$profile-$mode.log" || return

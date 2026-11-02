@@ -68,7 +68,8 @@ class GpuSpirvFunction {
         if this.faultVariable == 0 { context.error("E_GPU_SPIRV_LAYOUT", "checked operation lacks its fault binding"); return }
         let pointer = context.id(); let index = context.constant(3, 0)
         this.emit(65, [context.pointerType(12, 3), pointer, this.faultVariable, index])
-        let ignored = context.id(); let scope = context.constant(3, 1); let semantics = context.constant(3, 64); let bit = context.constant(3, 1 << (kind - 1))
+        // Fault flags publish no other memory; relaxed atomics carry no storage semantics bits.
+        let ignored = context.id(); let scope = context.constant(3, 1); let semantics = context.constant(3, 0); let bit = context.constant(3, 1 << (kind - 1))
         this.emit(241, [context.valueType(3), ignored, pointer, scope, semantics, bit])
     }
     fun faultWhen(condition: Int, kind: Int) r: Void {

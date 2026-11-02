@@ -1,4 +1,4 @@
-import compute.vulkan_mapping.{gpuVkMapBuffer, GpuVulkanMappedRegion}
+import compute.vulkan_mapping.{gpuVkMapBuffer, gpuVkMapRegion, GpuVulkanMappedRegion}
 import compute.buffer.{GpuBuffer}
 import compute.memory_kind.{GpuMemoryKind}
 import compute.error.{GpuError}
@@ -30,7 +30,10 @@ fun main() r: Int {
         if a.isErr() or b.isErr() { abort("Vulkan staging buffers unavailable") }
         let first = a.unwrap(); let second = b.unwrap(); a.releaseContainer(); b.releaseContainer()
         let writeA = mapped(gpuVkMapBuffer(first, 0 as UInt64, 32 as UInt64, true, op))
-        let writeB = mapped(gpuVkMapBuffer(second, 0 as UInt64, 32 as UInt64, true, op))
+        let acquiredWrite = second.region(0 as UInt64, 32 as UInt64, true, op)
+        if acquiredWrite.isErr() { abort("existing mapping lease unavailable") }
+        let ownedWrite = acquiredWrite.unwrap(); acquiredWrite.releaseContainer()
+        let writeB = mapped(gpuVkMapRegion(ownedWrite, op))
         var i = 0 as UInt64
         while i < (32 as UInt64) {
             let wa = writeA.writeByte(i, (i + (128 as UInt64)) as UInt8)
@@ -67,7 +70,17 @@ fun main() r: Int {
         completed(readA.close(), true); retired.push(readA)
         completed(readB.release(), true); completed(readSecond.release(), true)
         rejected(gpuVkMapBuffer(first, 32 as UInt64, 1 as UInt64, false, op), "gpu.invalid")
+        let staleResult = first.region(0 as UInt64, 1 as UInt64, false, op)
+        if staleResult.isErr() { abort("stale lease fixture acquisition failed") }
+        let staleRegion = staleResult.unwrap(); staleResult.releaseContainer()
+        completed(staleRegion.close(), true)
+        rejected(gpuVkMapRegion(staleRegion, op), "gpu.invalid")
+        completed(staleRegion.release(), true)
+        let cancelResult = first.region(0 as UInt64, 1 as UInt64, true, op)
+        if cancelResult.isErr() { abort("cancelled lease fixture acquisition failed") }
+        let cancelRegion = cancelResult.unwrap(); cancelResult.releaseContainer()
         op.cancellation = true
+        rejected(gpuVkMapRegion(cancelRegion, op), "gpu.cancelled")
         rejected(gpuVkMapBuffer(first, 0 as UInt64, 1 as UInt64, false, op), "gpu.cancelled")
         op.cancellation = false
         completed(first.close(), true)

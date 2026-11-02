@@ -6,6 +6,7 @@ import compute.operation.{gpuCheckOperation}
 import core.operation_context.{OperationContext}
 import core.result.{Result, Ok, Err}
 import memory.allocation.{allocationBudgetAvailable}
+import core.option.{Some}
 
 @move
 class GpuContextLease {
@@ -31,6 +32,11 @@ class GpuContextLease {
             return Err<GpuContextLease, GpuError>(gpuFailure("gpu.invalid", "gpu.context.lease", "resource lease requires a live context"))
         }
         let slot = core.slots[index]
+        if slot.lost {
+            let error = gpuFailure("gpu.device_lost", "gpu.context.lease", "GPU context is lost")
+            error.nativeCode.free(); error.nativeCode = Some<Int64>(slot.lostNativeCode as Int64)
+            return Err<GpuContextLease, GpuError>(error)
+        }
         if core.resourceBorrowers >= core.limits.maxResources or not allocationBudgetAvailable(4096) {
             return Err<GpuContextLease, GpuError>(gpuFailure("gpu.limit", "gpu.context.lease", "GPU resource lease ceiling or metadata budget reached"))
         }
@@ -43,6 +49,25 @@ class GpuContextLease {
         if not this.active { return false }
         if not this.core.validSlot(this.slot, this.generation) { return false }
         return this.core.slots[this.slot].resourceBorrowers > 0 and this.core.resourceBorrowers > 0
+    }
+    /// Ownership remains valid after loss; ready is strictly an admission check.
+    fun ready() r: Bool { return this.valid() and not this.core.slots[this.slot].lost }
+    fun lostFailure(operation: String) r: GpuError {
+        let error = gpuFailure("gpu.device_lost", operation, "GPU context is lost")
+        error.nativeCode.free(); error.nativeCode = Some<Int64>(this.core.slots[this.slot].lostNativeCode as Int64)
+        return error
+    }
+    fun admission(operation: String) r: Result<Bool, GpuError> {
+        if not this.valid() { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", operation, "GPU context lease is stale")) }
+        if not this.ready() { return Err<Bool, GpuError>(this.lostFailure(operation)) }
+        return Ok<Bool, GpuError>(true)
+    }
+    /// Only an actual native loss report changes the slot; OOM never poisons it.
+    fun observeFailure(borrow error: GpuError) r: Void {
+        if this.valid() and error.code == "gpu.device_lost" and error.nativeCode.isSome() and error.nativeCode.unwrap() == (-4 as Int64) {
+            let slot = this.core.slots[this.slot]
+            if not slot.lost { slot.lost = true; slot.lostNativeCode = -4 as Int32 }
+        }
     }
     fun native() r: Result<UInt64, GpuError> {
         if not this.valid() {

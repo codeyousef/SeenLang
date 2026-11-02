@@ -4,7 +4,7 @@ import compute.backend.{GpuBackend}
 import compute.buffer.{GpuBuffer}
 import compute.buffer_region.{GpuBufferRegion}
 import compute.error.{GpuError, gpuFailure}
-import compute.vulkan_error.{gpuVkFailure}
+import compute.vulkan_error.{gpuVkContextFailure}
 import compute.operation.{gpuCheckOperation}
 import core.operation_context.{OperationContext}
 import core.result.{Result, Ok, Err}
@@ -54,6 +54,7 @@ class GpuVulkanMappedRegion {
         if not this.valid() or offset >= this.region.bytes {
             return Err<UInt8, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.map.read", "mapped read escapes its active byte region"))
         }
+        if not this.region.lease.ready() { return Err<UInt8, GpuError>(this.region.lease.lostFailure("gpu.vulkan.map.read")) }
         let data = this.address as *UInt8
         return Ok<UInt8, GpuError>(data[offset])
     }
@@ -61,6 +62,7 @@ class GpuVulkanMappedRegion {
         if not this.valid() or not this.region.write or offset >= this.region.bytes {
             return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.map.write", "mapped write requires an active exclusive byte region"))
         }
+        if not this.region.lease.ready() { return Err<Bool, GpuError>(this.region.lease.lostFailure("gpu.vulkan.map.write")) }
         let data = this.address as *UInt8; data[offset] = value
         return Ok<Bool, GpuError>(true)
     }
@@ -71,12 +73,12 @@ class GpuVulkanMappedRegion {
         }
         let arena = this.region.core.blocks[this.block]
         let device = this.region.core.provider.value.contextIdentity()
-        if this.region.write and not arena.native.hostCoherent {
+        if this.region.write and not arena.native.hostCoherent and this.region.lease.ready() {
             let range = gpuVkWholeMappedRange(arena.native.memory)
             let flushed = vkFlushMappedMemoryRanges(device, 1 as UInt32, (&range) as *const VulkanMappedMemoryRange)
             if flushed != (0 as Int32) {
                 // A failed flush preserves both mapping and lease for retry.
-                return Err<Bool, GpuError>(gpuVkFailure(flushed, "gpu.vulkan.map.flush"))
+                return Err<Bool, GpuError>(gpuVkContextFailure(this.region.lease, flushed, "gpu.vulkan.map.flush"))
             }
         }
         if arena.mappedBorrowers == 1 {
@@ -104,7 +106,41 @@ fun gpuVkMapBuffer<T>(borrow buffer: GpuBuffer<T>, offset: UInt64, bytes: UInt64
     let acquired = buffer.region(offset, bytes, write, operation)
     if acquired.isErr() { let error = acquired.unwrapErr(); acquired.releaseContainer(); return Err<GpuVulkanMappedRegion, GpuError>(error) }
     let region = acquired.unwrap(); acquired.releaseContainer()
-    let block = buffer.core.slots[buffer.slot].block; let arena = buffer.core.blocks[block]
+    return gpuVkMapOwnedRegion(region, operation)
+}
+
+/// Consumes a valid existing byte lease on success and failure. Stale leases
+/// are rejected without transfer; no second, conflicting lease is acquired.
+fun gpuVkMapRegion(region: GpuBufferRegion, operation: OperationContext)
+    r: Result<GpuVulkanMappedRegion, GpuError> {
+    if not region.valid() {
+        return Err<GpuVulkanMappedRegion, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.map", "stale mapping region ownership is not transferred"))
+    }
+    if region.core.provider.value.backend() != GpuBackend.Vulkan {
+        gpuVkDropMappingRegion(region)
+        return Err<GpuVulkanMappedRegion, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.map", "mapping requires an explicit Vulkan region"))
+    }
+    if not allocationBudgetAvailable(4096) {
+        gpuVkDropMappingRegion(region)
+        return Err<GpuVulkanMappedRegion, GpuError>(gpuFailure("gpu.out_of_memory", "gpu.vulkan.map", "mapping metadata budget is unavailable"))
+    }
+    let checked = gpuCheckOperation(operation, "gpu.vulkan.map")
+    if checked.isErr() {
+        let error = checked.unwrapErr(); checked.releaseContainer()
+        gpuVkDropMappingRegion(region); return Err<GpuVulkanMappedRegion, GpuError>(error)
+    }
+    checked.releaseContainer()
+    return gpuVkMapOwnedRegion(region, operation)
+}
+
+private fun gpuVkMapOwnedRegion(region: GpuBufferRegion, operation: OperationContext)
+    r: Result<GpuVulkanMappedRegion, GpuError> {
+    let ready = region.lease.admission("gpu.vulkan.map")
+    if ready.isErr() {
+        let error = ready.unwrapErr(); ready.releaseContainer(); gpuVkDropMappingRegion(region)
+        return Err<GpuVulkanMappedRegion, GpuError>(error)
+    }; ready.releaseContainer()
+    let block = region.core.slots[region.slot].block; let arena = region.core.blocks[block]
     if not arena.native.hostVisible {
         gpuVkDropMappingRegion(region)
         return Err<GpuVulkanMappedRegion, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.map", "selected native memory is not host-visible"))
@@ -115,14 +151,15 @@ fun gpuVkMapBuffer<T>(borrow buffer: GpuBuffer<T>, offset: UInt64, bytes: UInt64
         gpuVkDropMappingRegion(region)
         return Err<GpuVulkanMappedRegion, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.map", "noncoherent native block already has a host mapping"))
     }
-    let device = buffer.core.provider.value.contextIdentity()
+    let device = region.core.provider.value.contextIdentity()
     if arena.mappedBorrowers == 0 {
         var pointer = null as *Void
         let status = vkMapMemory(device, arena.native.memory, 0 as UInt64,
             18446744073709551615 as UInt64, 0 as UInt32, &pointer)
         if status != (0 as Int32) {
+            let error = gpuVkContextFailure(region.lease, status, "gpu.vulkan.map")
             gpuVkDropMappingRegion(region)
-            return Err<GpuVulkanMappedRegion, GpuError>(gpuVkFailure(status, "gpu.vulkan.map"))
+            return Err<GpuVulkanMappedRegion, GpuError>(error)
         }
         if pointer == (null as *Void) {
             vkUnmapMemory(device, arena.native.memory); gpuVkDropMappingRegion(region)
@@ -138,13 +175,14 @@ fun gpuVkMapBuffer<T>(borrow buffer: GpuBuffer<T>, offset: UInt64, bytes: UInt64
         gpuVkDropMappingRegion(region)
         return Err<GpuVulkanMappedRegion, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.map", "native mapped address overflows its byte span"))
     }
-    if not write and not arena.native.hostCoherent {
+    if not region.write and not arena.native.hostCoherent {
         let range = gpuVkWholeMappedRange(arena.native.memory)
         let invalidated = vkInvalidateMappedMemoryRanges(device, 1 as UInt32, (&range) as *const VulkanMappedMemoryRange)
         if invalidated != (0 as Int32) {
+            let error = gpuVkContextFailure(region.lease, invalidated, "gpu.vulkan.map.invalidate")
             vkUnmapMemory(device, arena.native.memory); arena.mappedAddress = 0 as UInt64
             gpuVkDropMappingRegion(region)
-            return Err<GpuVulkanMappedRegion, GpuError>(gpuVkFailure(invalidated, "gpu.vulkan.map.invalidate"))
+            return Err<GpuVulkanMappedRegion, GpuError>(error)
         }
     }
     let observed = gpuCheckOperation(operation, "gpu.vulkan.map")

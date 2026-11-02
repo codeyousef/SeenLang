@@ -1,0 +1,177 @@
+import compute.vulkan_pipeline_cache.{gpuVkCacheEncode, gpuVkCacheDecode, gpuVkCacheDigest, gpuVkLoadPipelineCache, GPU_VULKAN_CACHE_MAX_BYTES}
+import compute.vulkan_pipeline_cache_file.{gpuVkAtomicCacheWrite}
+import compute.error.{GpuError}
+import core.result.{Result}
+import fs.types.{Path, OpenOptions, DirectIoPolicy}
+import fs.file.{File, seen_cstr_free}
+import fs.operations.{seen_fs_directory_open, seen_fs_directory_advance, seen_fs_directory_close_value}
+import device_fixture_support.{operation, releaseOperation}
+import io.file.{writeText, exists, deleteFile}
+import env.env.{args, releaseArgs}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+// argv: ABSENT-ABSOLUTE-CACHE-PATH MODE. contract needs no preload. Other modes
+// require vulkan_cache_read_fault_driver.so and matching SEEN_CACHE_READ_TARGET
+// / SEEN_CACHE_READ_MODE: metadata-error, pread-error, pread-unavailable,
+// pread-eof, pread-short, pread-eintr, close-error, read-close-error,
+// expire-partial, expire-close. Each invocation owns and removes its path.
+fun cacheAdverseDescriptors() r: Int {
+    let directory = "/proc/self/fd"; let text = directory.toCString(); var handle = 0 as UInt64
+    let opened = seen_fs_directory_open(directory.length() as Int64, text as *const Char, &handle)
+    seen_cstr_free(text as *Void)
+    if opened != (0 as Int32) { abort("cache adverse descriptor inventory unavailable") }
+    var count = 0; var status = seen_fs_directory_advance(handle)
+    while status > (0 as Int64) { count = count + 1; status = seen_fs_directory_advance(handle) }
+    let closed = seen_fs_directory_close_value(handle)
+    if status != (0 as Int64) or closed != (0 as Int32) { abort("cache adverse descriptor inventory failed") }
+    return count
+}
+fun cacheAdverseError(error: GpuError, code: String, name: String, native: Int, retryable: Bool, causes: Int) r: Void {
+    if error.code != code or error.operation != name or error.subsystem != "gpu" or
+        error.retryable != retryable or error.progress != (0 as UInt64) or error.causes.length() != causes {
+        abort("cache adverse typed diagnostic changed")
+    }
+    if native < 0 {
+        if not error.nativeCode.isNone() { abort("cache adverse unexpectedly invented a native status") }
+    } else {
+        if error.nativeCode.isNone() { abort("cache adverse lost native status") }
+        if error.nativeCode.unwrap() != (native as Int64) { abort("cache adverse changed native status") }
+    }
+}
+fun cacheAdverseReject(result: Result<Array<Int>, GpuError>, name: String) r: Void {
+    if result.isOkay() { result.unwrap().free(); result.releaseContainer(); abort("malformed cache accepted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    cacheAdverseError(error, "gpu.cache_invalid", name, -1, false, 0); error.release()
+}
+fun cacheAdverseEqual(actual: Array<Int>, expected: Array<Int>) r: Void {
+    if actual.length() != expected.length() { abort("cache adverse byte count changed") }
+    var i = 0; while i < actual.length() {
+        if actual[i] != expected[i] { abort("cache adverse bytes changed") }; i = i + 1
+    }
+}
+fun cacheAdverseCodec(payload: Array<Int>) r: Void {
+    let baseline = seen_memory_used_bytes()
+    var maximum = seen_string_clone_owned("x")
+    while maximum.length() < 4096 {
+        let doubled = maximum + maximum; seen_string_release_owned(maximum); maximum = doubled
+    }
+    let oversized = maximum + "x"
+    cacheAdverseReject(gpuVkCacheEncode("", payload), "gpu.vulkan.cache.encode")
+    cacheAdverseReject(gpuVkCacheEncode(oversized, payload), "gpu.vulkan.cache.encode")
+    let short = Array<Int>(); cacheAdverseReject(gpuVkCacheEncode("i", short), "gpu.vulkan.cache.encode")
+    var i = 0; while i < 31 { short.push(255); i = i + 1 }
+    cacheAdverseReject(gpuVkCacheEncode("i", short), "gpu.vulkan.cache.encode"); short.free()
+    // Unlike the existing 256-byte roundtrip, both public lower payload and
+    // upper identity bounds are exact here; high unsigned bytes must survive.
+    let encoded = gpuVkCacheEncode(maximum, payload)
+    if encoded.isErr() { abort("cache rejected exact identity/payload bounds") }
+    let envelope = encoded.unwrap(); encoded.releaseContainer()
+    let decoded = gpuVkCacheDecode(maximum, envelope)
+    if decoded.isErr() { abort("cache maximum identity did not roundtrip") }
+    let decodedBytes = decoded.unwrap(); decoded.releaseContainer(); cacheAdverseEqual(decodedBytes, payload); decodedBytes.free()
+    cacheAdverseReject(gpuVkCacheDecode("", envelope), "gpu.vulkan.cache")
+    cacheAdverseReject(gpuVkCacheDecode(oversized, envelope), "gpu.vulkan.cache")
+    let magic = "seen-vulkan-cache-v1\n"; let prefix = magic.length() + maximum.length() + 1; let offset = prefix + 65
+    // Truncate before magic, identity terminator, digest terminator, and the
+    // final required payload byte. Never conflate corruption with truncation.
+    let lengths = [0, magic.length() - 1, prefix - 1, offset - 1, offset + 31]
+    i = 0; while i < lengths.length() {
+        let truncated = Array<Int>(); var j = 0
+        while j < lengths[i] { truncated.push(envelope[j]); j = j + 1 }
+        cacheAdverseReject(gpuVkCacheDecode(maximum, truncated), "gpu.vulkan.cache"); truncated.free(); i = i + 1
+    }; lengths.free()
+    // Existing bit-flip coverage stays inside [0,255]. Isolate both sides of
+    // the domain in each envelope section and restore the valid input each time.
+    let positions = [0, magic.length(), prefix - 1, prefix, offset - 1, offset, envelope.length() - 1]
+    let invalid = [-1, 256]; i = 0
+    while i < invalid.length() {
+        let saved = payload[31]; payload[31] = invalid[i]
+        let digest = gpuVkCacheDigest(payload)
+        if digest.isOkay() { seen_string_release_owned(digest.unwrap()); digest.releaseContainer(); abort("digest narrowed an out-of-domain integer") }
+        let error = digest.unwrapErr(); digest.releaseContainer()
+        cacheAdverseError(error, "gpu.cache_invalid", "gpu.vulkan.cache.digest", -1, false, 0); error.release()
+        cacheAdverseReject(gpuVkCacheEncode("i", payload), "gpu.vulkan.cache.digest"); payload[31] = saved
+        var j = 0; while j < positions.length() {
+            let position = positions[j]; let previous = envelope[position]; envelope[position] = invalid[i]
+            var name = "gpu.vulkan.cache"; if position >= offset { name = "gpu.vulkan.cache.digest" }
+            cacheAdverseReject(gpuVkCacheDecode(maximum, envelope), name); envelope[position] = previous; j = j + 1
+        }; i = i + 1
+    }; invalid.free(); positions.free(); envelope.free(); seen_string_release_owned(oversized); seen_string_release_owned(maximum)
+    if seen_memory_used_bytes() != baseline { abort("cache codec adverse cases retained ownership") }
+}
+fun cacheAdverseLoadContract(path: Path, identity: String) r: Void {
+    let op = operation(); let steady = seen_memory_used_bytes(); let descriptors = cacheAdverseDescriptors()
+    let absent = gpuVkLoadPipelineCache(path, identity, op)
+    if absent.isOkay() { abort("missing requested cache became a success") }
+    let missing = absent.unwrapErr(); absent.releaseContainer()
+    cacheAdverseError(missing, "gpu.unavailable", "gpu.vulkan.cache.open", 5, false, 0); missing.release()
+    if not writeText(path.asString(), "short") { abort("cache short fixture creation failed") }
+    cacheAdverseReject(gpuVkLoadPipelineCache(path, identity, op), "gpu.vulkan.cache")
+    if not writeText(path.asString(), "01234567890123456789012345678901") { abort("cache malformed fixture creation failed") }
+    cacheAdverseReject(gpuVkLoadPipelineCache(path, identity, op), "gpu.vulkan.cache")
+    // A real sparse file exceeds the read bound without allocating its contents.
+    let options = OpenOptions{read: false, write: true, create: false, truncate: false, append: false, exclusive: false, directory: false, noFollow: true}
+    let opened = File.open(op, path, options, DirectIoPolicy.Off); options.free()
+    if opened.isErr() { abort("cache sparse fixture open failed") }
+    let file = opened.unwrap(); opened.releaseContainer()
+    let grown = file.truncate(op, (GPU_VULKAN_CACHE_MAX_BYTES + 8193) as UInt64)
+    if grown.isErr() { abort("cache sparse fixture resize failed") }; grown.releaseContainer()
+    let closed = file.close(); file.directIo.free(); file.free()
+    if closed.isErr() { abort("cache sparse fixture close failed") }; closed.releaseContainer()
+    cacheAdverseReject(gpuVkLoadPipelineCache(path, identity, op), "gpu.vulkan.cache")
+    op.cancellation = true
+    let cancelled = gpuVkLoadPipelineCache(path, identity, op)
+    if cancelled.isOkay() { abort("cache ignored cancellation before acquisition") }
+    let cancellation = cancelled.unwrapErr(); cancelled.releaseContainer()
+    cacheAdverseError(cancellation, "gpu.cancelled", "gpu.vulkan.cache.read", -1, false, 0); cancellation.release(); op.cancellation = false
+    let afterBytes = seen_memory_used_bytes(); let afterDescriptors = cacheAdverseDescriptors()
+    if afterBytes != steady or afterDescriptors != descriptors { abort("cache load rejection retained allocation or fd") }
+    if not deleteFile(path.asString()) { abort("cache sparse fixture cleanup failed") }; releaseOperation(op)
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let arguments = args()
+    if arguments.length() != 3 { abort("requires absent absolute cache path and adverse mode") }
+    let mode = arguments[2]; let text = arguments[1]
+    if not text.startsWith("/") or exists(text) { abort("cache adverse fixture requires its own absent absolute path") }
+    let parsed = Path.fromString(text); if parsed.isErr() { abort("cache adverse path invalid") }
+    let path = parsed.unwrap(); parsed.releaseContainer()
+    let payload = Array<Int>(); var i = 0; while i < 32 { payload.push(224 + i); i = i + 1 }
+    if mode == "contract" { cacheAdverseCodec(payload); cacheAdverseLoadContract(path, "cache-adverse") }
+    else {
+        if mode != "metadata-error" and mode != "pread-error" and mode != "pread-unavailable" and mode != "pread-eof" and
+            mode != "pread-short" and mode != "pread-eintr" and mode != "close-error" and mode != "read-close-error" and
+            mode != "expire-partial" and mode != "expire-close" { abort("unknown cache read fault mode") }
+        let op = operation(); let identity = "cache-adverse"
+        let encoded = gpuVkCacheEncode(identity, payload); if encoded.isErr() { abort("cache read fixture encode failed") }
+        let bytes = encoded.unwrap(); encoded.releaseContainer()
+        let saved = gpuVkAtomicCacheWrite(path, bytes, op); if saved.isErr() { abort("cache read fixture publication failed") }; saved.releaseContainer()
+        op.monotonicDeadline = seen_time_monotonic_nanos() + (30000000000 as Int64)
+        let steady = seen_memory_used_bytes(); let descriptors = cacheAdverseDescriptors()
+        let loaded = gpuVkLoadPipelineCache(path, identity, op)
+        if mode == "pread-short" or mode == "pread-eintr" {
+            if loaded.isErr() { abort("cache failed to recover from legal short read or EINTR") }
+            let actual = loaded.unwrap(); loaded.releaseContainer(); cacheAdverseEqual(actual, bytes); actual.free()
+        } else {
+            if loaded.isOkay() { abort("cache read fault became success") }
+            let error = loaded.unwrapErr(); loaded.releaseContainer()
+            var code = "gpu.unavailable"; var name = "gpu.vulkan.cache.read"; var native = 4; var retryable = false; var causes = 0
+            if mode == "close-error" { name = "gpu.vulkan.cache.close" }
+            if mode == "pread-unavailable" { native = 8; retryable = true }
+            if mode == "pread-eof" { code = "gpu.cache_invalid"; name = "gpu.vulkan.cache"; native = -1 }
+            if mode == "expire-partial" or mode == "expire-close" { code = "gpu.timeout"; native = -1 }
+            if mode == "read-close-error" { causes = 1 }
+            cacheAdverseError(error, code, name, native, retryable, causes)
+            if causes == 1 { cacheAdverseError(error.causes[0], "gpu.unavailable", "gpu.vulkan.cache.close", 4, false, 0) }
+            error.release()
+        }
+        if seen_memory_used_bytes() != steady or cacheAdverseDescriptors() != descriptors { abort("cache read fault retained allocation or fd") }
+        bytes.free(); releaseOperation(op)
+        if not deleteFile(text) { abort("cache read fixture cleanup failed") }
+    }
+    payload.free(); path.raw.free(); path.free(); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline { abort("cache adverse fixture retained live ownership") }
+    println("PASS: cache adverse codec and read lifecycle preserve typed diagnostics and exact ownership")
+    return 0
+}

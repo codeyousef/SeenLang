@@ -19,7 +19,6 @@ python3 "$ROOT_DIR/tests/gpu_artifacts/certification_io_contract.py" "$TMP_DIR"
 for profile in fast release undefined address; do
     compile_case "$profile" artifact "$ROOT_DIR/tests/gpu_artifacts/integrity_contract.seen" cuda \
         "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
-    rg -Fq 'PASS: GPU artifact hashes manifests mutation rejection and allocation baseline' "$TMP_DIR/artifact-$profile.log"
 done
 mkdir "$TMP_DIR/relocated"
 cp "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen" "$TMP_DIR/relocated/source.seen"

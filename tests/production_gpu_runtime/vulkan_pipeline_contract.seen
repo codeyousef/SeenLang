@@ -1,0 +1,289 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice}
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_pipeline_dispatch.{GpuVulkanDispatch}
+import compute.vulkan_pipeline_cache.{gpuVkLoadPipelineCache, gpuVkCacheDecode}
+import compute.vulkan_pipeline_cache_file.{gpuVkAtomicCacheWrite}
+import compute.vulkan_stream.{GpuVulkanStream}
+import compute.buffer.{GpuBuffer}
+import compute.buffer_region.{GpuBufferRegion}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import compute.vulkan_mapping.{gpuVkMapBuffer, GpuVulkanMappedRegion}
+import core.operation_context.{OperationContext}
+import core.result.{Result}
+import compute.error.{GpuError}
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{completed}
+import env.env.{args, releaseArgs, set}
+import io.file.{readText, size, exists, deleteFile}
+import fs.types.{Path, OpenOptions, DirectIoPolicy, FsError}
+import fs.file.{File, seen_fs_pwrite_array_result}
+import json.builder.{seen_string_release_owned, seen_string_clone_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+fun pipelineTake<T>(result: Result<T, GpuError>) r: T {
+    if result.isErr() { println(result.unwrapErr().code); println(result.unwrapErr().message); abort("native pipeline contract operation failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+private fun pipelineCacheTaken(result: Result<Array<Int>, GpuError>) r: Array<Int> {
+    if result.isErr() { println(result.unwrapErr().code); abort("pipeline cache could not be loaded") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+private fun pipelineCacheLoadRejected(result: Result<Array<Int>, GpuError>, code: String) r: Void {
+    if result.isOkay() { result.unwrap().free(); abort("cancelled or expired cache read succeeded") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.progress != (0 as UInt64) { abort("cache read lost its typed failure") }
+    error.release()
+}
+fun pipelineRejected<T>(result: Result<T, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid pipeline operation was admitted") }
+    let error = result.unwrapErr(); result.releaseContainer(); if error.code != code { println(error.code); abort("pipeline rejection diagnostic differs") }; error.release()
+}
+private fun pipelineFaultRejected<T>(result: Result<T, GpuError>, sequence: UInt64) r: Void {
+    if result.isOkay() { abort("latched shader fault was reported as success") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != "gpu.kernel_fault" or error.progress != sequence or error.nativeCode.isNone() { abort("latched shader fault lost its diagnostic identity") }
+    if error.nativeCode.unwrap() != (1 as Int64) { abort("latched shader fault bits changed") }
+    error.release()
+}
+fun pipelineCacheRejected(result: Result<Bool, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("failed cache publication was admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.progress != (0 as UInt64) { println(error.code); abort("precommit cache failure lost its typed diagnostic or reported a commit") }
+    error.release()
+}
+fun pipelineCacheUnchanged(path: Path, expected: String) r: Void {
+    let actual = readText(path.asString())
+    if actual != expected { abort("failed cache publication replaced the previous cache") }
+    seen_string_release_owned(actual)
+}
+fun pipelineCacheFsTake<T>(result: Result<T, FsError>) r: T {
+    if result.isErr() { println(result.unwrapErr().code); abort("cache fixture filesystem operation failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun pipelineMap(borrow buffer: GpuBuffer<UInt32>, write: Bool, operation: OperationContext) r: GpuVulkanMappedRegion {
+    return pipelineTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(buffer, 0 as UInt64, buffer.byteLength, write, operation))
+}
+fun pipelineWord(borrow mapping: GpuVulkanMappedRegion, index: Int) r: UInt32 {
+    var word = 0 as UInt32; var b = 0
+    while b < 4 { let byte = pipelineTake<UInt8>(mapping.readByte((index * 4 + b) as UInt64)); word = word | ((byte as UInt32) << ((b * 8) as UInt32)); b = b + 1 }; return word
+}
+fun pipelinePut(borrow mapping: GpuVulkanMappedRegion, index: Int, word: UInt32) r: Void {
+    var b = 0; while b < 4 { completed(mapping.writeByte((index * 4 + b) as UInt64, ((word >> ((b * 8) as UInt32)) & (255 as UInt32)) as UInt8), true); b = b + 1 }
+}
+fun pipelineDrain(borrow dispatch: GpuVulkanDispatch) r: Void {
+    var fuel = 0; while fuel < 1000000 { let ready = pipelineTake<Bool>(dispatch.poll()); if ready { return }; fuel = fuel + 1 }; abort("bounded native dispatch completion fuel exhausted")
+}
+fun pipelineRegions(borrow input: GpuBuffer<UInt32>, borrow output: GpuBuffer<UInt32>, borrow scale: GpuBuffer<UInt32>, borrow fault: GpuBuffer<UInt32>, op: OperationContext) r: Array<GpuBufferRegion> {
+    let regions = Array<GpuBufferRegion>()
+    regions.push(pipelineTake<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op)))
+    regions.push(pipelineTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, true, op)))
+    regions.push(pipelineTake<GpuBufferRegion>(scale.region(0 as UInt64, 16 as UInt64, false, op)))
+    regions.push(pipelineTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op))); return regions
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    if arguments.length() != 5 { abort("requires emitted SPIR-V, actual reflection, cache path and explicit software-reference or rtx4090") }
+    if size(arguments[1]) < 20 or size(arguments[1]) > 33554432 or size(arguments[2]) < 1 or size(arguments[2]) > 4194304 { abort("artifact input size is invalid") }
+    let binary = readText(arguments[1]); let reflection = readText(arguments[2]); let hardware = arguments[4] == "rtx4090"
+    if not hardware and arguments[4] != "software-reference" { abort("device class must be explicit") }
+    let op = operation(); let limits = GpuLimits.bounded(8, 4, 128, 1048576 as UInt64)
+    let provider = pipelineTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, not hardware)); var selected = -1; var i = 0
+    while i < provider.catalog.devices.length() { let info = provider.catalog.devices[i]
+        if hardware { if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") { selected = i } }
+        else if info.kind == GpuDeviceKind.Software { selected = i }; i = i + 1
+    }
+    if selected < 0 { abort("designated device class unavailable; no fallback") }
+    let physical = pipelineTake<GpuVulkanPipelineDevice>(GpuVulkanPipelineDevice.capture(provider, selected))
+    let device = pipelineTake(openVulkanDevice(provider, selected, op)); let context = pipelineTake(device.createContext(op))
+    let allocator = pipelineTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 4, op))
+    let stream = pipelineTake<GpuVulkanStream>(GpuVulkanStream.open(allocator, 4, op))
+    let empty = Array<Int>(); let artifact = pipelineTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation"))
+    if artifact.bindings.length() != 4 or artifact.x != 8 { abort("actual emitted foundation reflection differs") }
+    if artifact.word(1) == 67072 {
+        // Parsing and official conformance validation succeed for Vulkan1.3,
+        // but this provider explicitly requests an unextended Vulkan1.2 API.
+        pipelineRejected<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, artifact, empty, op), "gpu.unsupported_capability"); empty.free()
+        completed(stream.release(), true); completed(allocator.release(), true); completed(context.release(), true); completed(device.release(), true)
+        physical.release(); limits.release(); releaseOperation(op)
+        seen_string_release_owned(binary); seen_string_release_owned(reflection); releaseArgs(arguments)
+        if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("unsupported SPIR-V version retained native owners") }
+        println("PASS: officially validated SPIR-V1.6 rejected before native pipeline creation under Vulkan1.2 instance"); return 0
+    }
+    let pipeline = pipelineTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, artifact, empty, op)); empty.free()
+    let otherContext = pipelineTake(device.createContext(op))
+    let otherAllocator = pipelineTake<GpuAllocator>(GpuAllocator.create(otherContext, GpuMemoryKind.HostCoherent, 4096 as UInt64, 2, op))
+    let otherArtifact = pipelineTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation")); let noCache = Array<Int>()
+    pipelineRejected<GpuVulkanPipeline>(GpuVulkanPipeline.open(otherAllocator, stream, physical, otherArtifact, noCache, op), "gpu.invalid"); noCache.free()
+    let input = pipelineTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let output = pipelineTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let scale = pipelineTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 4 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let fault = pipelineTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 1 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let foreignBuffer = pipelineTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(otherAllocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    pipelineRejected<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, pipelineRegions(foreignBuffer, output, scale, fault, op), op), "gpu.invalid")
+    completed(foreignBuffer.release(), true); completed(otherAllocator.release(), true); completed(otherContext.release(), true)
+    let wrongAccess = Array<GpuBufferRegion>()
+    wrongAccess.push(pipelineTake<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op)))
+    wrongAccess.push(pipelineTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, false, op)))
+    wrongAccess.push(pipelineTake<GpuBufferRegion>(scale.region(0 as UInt64, 16 as UInt64, false, op)))
+    wrongAccess.push(pipelineTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op)))
+    pipelineRejected<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, wrongAccess, op), "gpu.invalid")
+    let shortUniform = Array<GpuBufferRegion>()
+    shortUniform.push(pipelineTake<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op)))
+    shortUniform.push(pipelineTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, true, op)))
+    shortUniform.push(pipelineTake<GpuBufferRegion>(scale.region(0 as UInt64, 4 as UInt64, false, op)))
+    shortUniform.push(pipelineTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op)))
+    pipelineRejected<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, shortUniform, op), "gpu.invalid")
+    let stale = pipelineTake<GpuBufferRegion>(input.region(0 as UInt64, 4 as UInt64, false, op)); completed(stale.close(), true)
+    let staleRegions = Array<GpuBufferRegion>(); staleRegions.push(stale)
+    pipelineRejected<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, staleRegions, op), "gpu.invalid")
+    completed(stale.release(), true); staleRegions.free()
+    let cancelledRegions = pipelineRegions(input, output, scale, fault, op)
+    op.cancellation = true
+    pipelineRejected<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, cancelledRegions, op), "gpu.cancelled")
+    op.cancellation = false
+    let expiredRegions = pipelineRegions(input, output, scale, fault, op)
+    op.monotonicDeadline = -1 as Int64
+    pipelineRejected<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, expiredRegions, op), "gpu.timeout")
+    op.monotonicDeadline = 9223372036854775807 as Int64
+    let inputMap = pipelineMap(input, true, op); let scaleMap = pipelineMap(scale, true, op)
+    i = 0; while i < 37 { pipelinePut(inputMap, i, ((4294967200 as UInt64) + (i * 3) as UInt64) as UInt32); i = i + 1 }
+    pipelinePut(scaleMap, 0, 7 as UInt32); completed(inputMap.release(), true); completed(scaleMap.release(), true)
+    let dispatch = pipelineTake<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, pipelineRegions(input, output, scale, fault, op), op))
+    let invalid = dispatch.submit(0 as UInt64, 1 as UInt64, 1 as UInt64, op)
+    if invalid.isOkay() { abort("zero group geometry admitted") }; invalid.unwrapErr().release(); invalid.releaseContainer()
+    let oversized = dispatch.submit(pipeline.maxX + (1 as UInt64), 1 as UInt64, 1 as UInt64, op)
+    if oversized.isOkay() { abort("device group ceiling ignored") }; oversized.unwrapErr().release(); oversized.releaseContainer()
+    if stream.core.lastSubmitted != (0 as UInt64) { abort("invalid dispatch consumed native admission") }
+    op.cancellation = true; let cancelled = dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op); op.cancellation = false
+    if cancelled.isOkay() or cancelled.unwrapErr().code != "gpu.cancelled" { abort("cancelled command was admitted") }; cancelled.unwrapErr().release(); cancelled.releaseContainer()
+    let sequence = pipelineTake<UInt64>(dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op))
+    gpuFixtureRejected(dispatch.close(), "gpu.busy"); gpuFixtureRejected(pipeline.close(), "gpu.busy"); gpuFixtureRejected(output.close(), "gpu.busy"); gpuFixtureRejected(stream.close(), "gpu.busy")
+    pipelineDrain(dispatch)
+    let again = pipelineTake<UInt64>(dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op))
+    if again <= sequence { abort("prepared command was not reused on native timeline") }; pipelineDrain(dispatch); completed(dispatch.release(), true)
+    let outputMap = pipelineMap(output, false, op); let faultMap = pipelineMap(fault, false, op)
+    i = 0; while i < 37 { let value = ((4294967200 as UInt64) + ((i * 3) as UInt64)) & (4294967295 as UInt64)
+        let expected = (value * (7 as UInt64) + (i as UInt64)) & (4294967295 as UInt64)
+        if pipelineWord(outputMap, i) != expected as UInt32 { abort("actual Vulkan dispatch disagrees with scalar wrap-u32 oracle") }; i = i + 1
+    }
+    if pipelineWord(faultMap, 0) != (0 as UInt32) { abort("guarded modern kernel published a checked fault") }
+    completed(outputMap.release(), true); completed(faultMap.release(), true)
+    let cachePathResult = Path.fromString(arguments[3]); if cachePathResult.isErr() { abort("cache path invalid") }; let cachePath = cachePathResult.unwrap(); cachePathResult.releaseContainer()
+    completed(pipeline.saveCache(cachePath, op), true)
+    let oldCache = readText(arguments[3]); if oldCache.length() < 32 { abort("saved cache is empty") }
+    let pendingText = arguments[3] + ".pending"; let nestedPendingText = pendingText + ".pending"
+    if exists(pendingText) or exists(nestedPendingText) { abort("cache fixture staging namespace is not clean") }
+    op.cancellation = true; pipelineCacheRejected(pipeline.saveCache(cachePath, op), "gpu.cancelled"); op.cancellation = false
+    pipelineCacheUnchanged(cachePath, oldCache)
+    op.monotonicDeadline = -1 as Int64; pipelineCacheRejected(pipeline.saveCache(cachePath, op), "gpu.timeout")
+    op.monotonicDeadline = 1 as Int64; pipelineCacheRejected(pipeline.saveCache(cachePath, op), "gpu.timeout")
+    op.monotonicDeadline = 9223372036854775807 as Int64; pipelineCacheUnchanged(cachePath, oldCache)
+    if exists(pendingText) { abort("pre-admission cancellation or deadline retained staging") }
+    let pending = pipelineCacheFsTake<Path>(Path.fromString(pendingText))
+    let sentinel = Array<Int>(); sentinel.push(83); sentinel.push(84); sentinel.push(65); sentinel.push(71); sentinel.push(69)
+    pipelineCacheRejected(gpuVkAtomicCacheWrite(pending, sentinel, op), "gpu.invalid")
+    if exists(pendingText) or exists(nestedPendingText) { abort("reserved cache destination created a conflicting staging file") }
+    let stagingOptions = OpenOptions.createNew()
+    let foreignStaging = pipelineCacheFsTake<File>(File.open(op, pending, stagingOptions, DirectIoPolicy.Off)); stagingOptions.free()
+    if seen_fs_pwrite_array_result(foreignStaging.handle, 0 as UInt64, sentinel, 0 as Int64, sentinel.length() as Int64) != sentinel.length() as Int64 { abort("foreign cache staging fixture is incomplete") }
+    pipelineCacheFsTake<Bool>(foreignStaging.close()); foreignStaging.directIo.free(); foreignStaging.free()
+    pipelineCacheRejected(pipeline.saveCache(cachePath, op), "gpu.busy")
+    op.cancellation = true; pipelineCacheRejected(pipeline.saveCache(cachePath, op), "gpu.cancelled"); op.cancellation = false
+    op.monotonicDeadline = 1 as Int64; pipelineCacheRejected(pipeline.saveCache(cachePath, op), "gpu.timeout")
+    op.monotonicDeadline = 9223372036854775807 as Int64
+    pipelineCacheRejected(gpuVkAtomicCacheWrite(pending, sentinel, op), "gpu.invalid")
+    pipelineCacheUnchanged(pending, "STAGE"); pipelineCacheUnchanged(cachePath, oldCache)
+    if exists(nestedPendingText) { abort("reserved staging destination admitted a nested staging file") }
+    if not deleteFile(pendingText) { abort("cache fixture could not remove its own staging file") }
+    sentinel.free(); pending.raw.free(); pending.free(); seen_string_release_owned(nestedPendingText); seen_string_release_owned(oldCache)
+    completed(pipeline.saveCache(cachePath, op), true)
+    if exists(pendingText) { abort("successful cache replacement retained staging") }
+    seen_string_release_owned(pendingText)
+    let identity = seen_string_clone_owned(pipeline.cacheIdentity); completed(pipeline.release(), true)
+    op.cancellation = true
+    pipelineCacheLoadRejected(gpuVkLoadPipelineCache(cachePath, identity, op), "gpu.cancelled")
+    op.cancellation = false; op.monotonicDeadline = -1 as Int64
+    pipelineCacheLoadRejected(gpuVkLoadPipelineCache(cachePath, identity, op), "gpu.timeout")
+    op.monotonicDeadline = 9223372036854775807 as Int64
+    let envelope = pipelineCacheTaken(gpuVkLoadPipelineCache(cachePath, identity, op))
+    let cachedArtifact = pipelineTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation"))
+    let cached = pipelineTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, cachedArtifact, envelope, op)); completed(cached.release(), true)
+    let foreignEntryArtifact = pipelineTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "increment"))
+    pipelineRejected<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, foreignEntryArtifact, envelope, op), "gpu.cache_invalid")
+    envelope[envelope.length() - 1] = envelope[envelope.length() - 1] ^ 1; let corrupt = gpuVkCacheDecode(identity, envelope)
+    if corrupt.isOkay() { abort("corrupt persistent cache accepted") }; corrupt.unwrapErr().release(); corrupt.releaseContainer(); envelope.free(); seen_string_release_owned(identity)
+    let incrementArtifact = pipelineTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "increment")); let fresh = Array<Int>()
+    let increment = pipelineTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, incrementArtifact, fresh, op)); fresh.free()
+    let incrementRegions = Array<GpuBufferRegion>(); incrementRegions.push(pipelineTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, true, op))); incrementRegions.push(pipelineTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op)))
+    let incrementDispatch = pipelineTake<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(increment, incrementRegions, op))
+    let event = pipelineTake(stream.event(again, op)); let incrementSequence = pipelineTake<UInt64>(incrementDispatch.submitAfter(10 as UInt64, 1 as UInt64, 1 as UInt64, event, op))
+    if incrementSequence <= again { abort("selected entry dispatch failed timeline ordering") }; pipelineDrain(incrementDispatch); completed(event.release(), true); completed(incrementDispatch.release(), true); completed(increment.close(), true)
+    let finalMap = pipelineMap(output, false, op); i = 0
+    while i < 37 { let value = ((4294967200 as UInt64) + ((i * 3) as UInt64)) & (4294967295 as UInt64); let expected = (value * (7 as UInt64) + (i as UInt64) + (1 as UInt64)) & (4294967295 as UInt64)
+        if pipelineWord(finalMap, i) != expected as UInt32 { abort("multi-entry reflected read-write binding disagrees with scalar oracle") }; i = i + 1
+    }; completed(finalMap.release(), true)
+    let sharedArtifact = pipelineTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "sharedProbe")); let sharedCache = Array<Int>()
+    let sharedPipeline = pipelineTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, sharedArtifact, sharedCache, op)); sharedCache.free()
+    let sharedRegions = Array<GpuBufferRegion>()
+    sharedRegions.push(pipelineTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, true, op)))
+    sharedRegions.push(pipelineTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op)))
+    let sharedDispatch = pipelineTake<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(sharedPipeline, sharedRegions, op))
+    let sharedSequence = pipelineTake<UInt64>(sharedDispatch.submit(10 as UInt64, 1 as UInt64, 1 as UInt64, op))
+    if sharedSequence <= incrementSequence { abort("shared entry did not advance native timeline") }
+    pipelineDrain(sharedDispatch); completed(sharedDispatch.release(), true); completed(sharedPipeline.release(), true)
+    let sharedMap = pipelineMap(output, false, op); i = 0
+    while i < 37 {
+        let lane = i % 4; let expected = lane + 1 + ((lane + 1) % 4 + 1)
+        if pipelineWord(sharedMap, i) != expected as UInt32 { abort("actual Workgroup storage or barrier disagrees with scalar oracle") }; i = i + 1
+    }
+    completed(sharedMap.release(), true)
+    let faultArtifact = pipelineTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "checkedFault")); let faultCache = Array<Int>()
+    let faultPipeline = pipelineTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, faultArtifact, faultCache, op)); faultCache.free()
+    let checkedDispatch = pipelineTake<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(faultPipeline, pipelineRegions(input, output, scale, fault, op), op))
+    let faultSequence = pipelineTake<UInt64>(checkedDispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op))
+    var faultObserved = false; var faultFuel = 0
+    while faultFuel < 1000000 and not faultObserved {
+        let observed = checkedDispatch.poll()
+        if observed.isErr() {
+            let error = observed.unwrapErr()
+            if error.code != "gpu.kernel_fault" or error.progress != faultSequence or error.nativeCode.isNone() { abort("completed checked fault lost its native identity or timeline progress") }
+            if error.nativeCode.unwrap() != (1 as Int64) { abort("checked out-of-bounds shader reported incorrect fault bits") }
+            error.release(); faultObserved = true
+        } else if observed.unwrap() { abort("completed checked fault was reported as success") }
+        observed.releaseContainer(); faultFuel = faultFuel + 1
+    }
+    if not faultObserved { abort("checked fault completion fuel exhausted") }
+    pipelineFaultRejected<UInt64>(checkedDispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op), faultSequence)
+    pipelineFaultRejected<Bool>(checkedDispatch.poll(), faultSequence)
+    let laterSignal = pipelineTake<UInt64>(stream.signal(op))
+    if not set("SEEN_VULKAN_FIXTURE_FAULT", "copy-poll-lost") { abort("could not enable designated native completion fault") }
+    var lossObserved = false; var lossFuel = 0
+    while lossFuel < 1000000 and not lossObserved {
+        let observed = stream.poll(laterSignal)
+        if observed.isErr() {
+            let error = observed.unwrapErr()
+            if error.code != "gpu.device_lost" or error.progress != laterSignal { abort("native device-loss witness changed") }
+            error.release(); lossObserved = true
+        } else if observed.unwrap() { abort("designated native device-loss fault was not exercised") }
+        observed.releaseContainer(); lossFuel = lossFuel + 1
+    }
+    if not lossObserved { abort("native device-loss observation fuel exhausted") }
+    if not set("SEEN_VULKAN_FIXTURE_FAULT", "none") { abort("could not restore native fixture mode") }
+    pipelineFaultRejected<Bool>(checkedDispatch.poll(), faultSequence)
+    pipelineFaultRejected<UInt64>(checkedDispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op), faultSequence)
+    completed(checkedDispatch.release(), true); completed(faultPipeline.release(), true)
+    completed(stream.release(), true)
+    pipelineRejected<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op), "gpu.device_lost")
+    completed(increment.release(), true)
+    completed(input.release(), true); completed(output.release(), true); completed(scale.release(), true); completed(fault.release(), true); completed(allocator.release(), true)
+    completed(context.release(), true); completed(device.release(), true); physical.release(); limits.release(); releaseOperation(op)
+    cachePath.raw.free(); cachePath.free()
+    seen_string_release_owned(binary); seen_string_release_owned(reflection); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("pipeline dispatch cache lifecycle retained owned Seen resources") }
+    println("PASS: actual emitted multi-entry SPIR-V bindings dispatch scalar parity persistent cache and cold cleanup"); return 0
+}

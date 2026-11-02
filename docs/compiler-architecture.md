@@ -693,6 +693,12 @@ discovery unless `SEEN_ENABLE_CUDA=ON` is supplied to its isolated build.
 Consequently the default compiler, runtime, and standard-library build remains
 CPU-only and has no CUDA/cuBLAS linkage.
 
+Raw Vulkan declarations and imported module names do not select native linker
+libraries. A project that calls the Vulkan loader declares `vulkan = {}` under
+`[native.dependencies]`; importing Vulkan types alone requires neither that
+declaration nor a Vulkan SDK probe. Native fixture projects use the same manifest
+boundary rather than compiler-only automatic link inference.
+
 The `seen_cuda_*` resource ABI is versioned separately from compiler lowering.
 Native Linux x86-64 projects opt in with
 `seen_cuda = { bundled = true }` under `[native.dependencies]`. The compiler

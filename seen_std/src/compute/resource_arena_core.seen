@@ -116,7 +116,7 @@ class GpuArenaCore {
             return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.block.close", "GPU block context or accounting identity is stale"))
         }
         let destroyed = this.provider.value.destroyBlock(block.native)
-        if destroyed.isErr() { return destroyed }
+        if destroyed.isErr() { this.lease.observeFailure(destroyed.unwrapErr()); return destroyed }
         let consumed = destroyed.unwrap(); destroyed.releaseContainer()
         if not consumed { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.allocator.block.close", "provider retained its native GPU block")) }
         this.lease.core.resourceCommittedBytes = this.lease.core.resourceCommittedBytes - block.chargedBytes
@@ -154,7 +154,8 @@ class GpuArenaCore {
         reservedMetadata.releaseContainer()
         let created = this.provider.value.createBlock(capacity, remaining, this.kind)
         if created.isErr() {
-            let error = created.unwrapErr(); created.releaseContainer(); gpuReleaseRangeSet(ranges); gpuReleaseResourceLease(lease)
+            let error = created.unwrapErr(); created.releaseContainer(); this.lease.observeFailure(error)
+            gpuReleaseRangeSet(ranges); gpuReleaseResourceLease(lease)
             return Err<Int, GpuError>(error)
         }
         let native = created.unwrap(); created.releaseContainer()

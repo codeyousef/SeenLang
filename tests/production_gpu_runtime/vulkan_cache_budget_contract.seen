@@ -1,0 +1,131 @@
+import compute.vulkan_pipeline_cache.{gpuVkCacheEncode, gpuVkCacheDecode, gpuVkCacheDigest, gpuVkLoadPipelineCache, GPU_VULKAN_CACHE_MAX_BYTES}
+import compute.vulkan_pipeline_cache_file.{gpuVkAtomicCacheWrite}
+import compute.error.{GpuError}
+import core.result.{Result}
+import fs.types.{Path}
+import fs.file.{seen_cstr_free}
+import fs.operations.{seen_fs_directory_open, seen_fs_directory_advance, seen_fs_directory_close_value}
+import device_fixture_support.{operation, releaseOperation}
+import env.env.{args, releaseArgs}
+import json.builder.{seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+extern "C" fun seen_memory_limit_bytes() r: Int64
+extern "C" fun seen_memory_set_limit_bytes(bytes: Int64) r: Void
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+// Linux-only consumer: count actual descriptors, including this iterator's own
+// descriptor consistently. Do not mistake restored Seen ownership for fd close.
+fun descriptorCount() r: Int {
+    let directory = "/proc/self/fd"; let text = directory.toCString(); var handle = 0 as UInt64
+    let opened = seen_fs_directory_open(directory.length() as Int64, text as *const Char, &handle)
+    seen_cstr_free(text as *Void)
+    if opened != (0 as Int32) { abort("cache fixture descriptor inventory unavailable") }
+    var count = 0; var status = seen_fs_directory_advance(handle)
+    while status > (0 as Int64) { count = count + 1; status = seen_fs_directory_advance(handle) }
+    let closed = seen_fs_directory_close_value(handle)
+    if status != (0 as Int64) or closed != (0 as Int32) { abort("cache fixture descriptor inventory failed") }
+    return count
+}
+fun reducedBudget(original: Int64, headroom: Int64) r: Void {
+    var target = seen_memory_used_bytes() + seen_memory_reserved_bytes() + headroom
+    // Never relax an inherited target limit, nor change the aggregate OS policy.
+    if original > (0 as Int64) and target > original { target = original }
+    seen_memory_set_limit_bytes(target)
+}
+fun rejected(value: Result<Array<Int>, GpuError>, operationName: String) r: Void {
+    if value.isOkay() { abort("cache exceeded the admitted tracked allocation budget") }
+    let error = value.unwrapErr(); value.releaseContainer()
+    if error.code != "gpu.out_of_memory" or error.operation != operationName or not error.retryable or
+        error.progress != (0 as UInt64) or error.causes.length() != 0 or not error.nativeCode.isNone() {
+        abort("cache allocation rejection lost its typed pre-admission diagnostic")
+    }
+    error.release()
+}
+fun equalBytes(actual: Array<Int>, expected: Array<Int>) r: Void {
+    if actual.length() != expected.length() { abort("cache roundtrip changed its byte count") }
+    var i = 0; while i < actual.length() {
+        if actual[i] != expected[i] { abort("cache roundtrip changed its bytes") }; i = i + 1
+    }
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let arguments = args()
+    if arguments.length() != 3 { abort("requires regular-cache destination and an existing no-writer FIFO") }
+    if GPU_VULKAN_CACHE_MAX_BYTES != 16777216 { abort("public cache byte bound changed") }
+    let cachePathResult = Path.fromString(arguments[1]); let fifoPathResult = Path.fromString(arguments[2])
+    if cachePathResult.isErr() or fifoPathResult.isErr() { abort("cache budget fixture path invalid") }
+    let cachePath = cachePathResult.unwrap(); cachePathResult.releaseContainer()
+    let fifoPath = fifoPathResult.unwrap(); fifoPathResult.releaseContainer()
+    let op = operation(); let identity = "cache-budget-identity"
+    // Cross a doubling boundary: 65537 byte values require 131072 eight-byte
+    // slots. Logical payload bytes alone underestimate both capacity and SHA.
+    let payload = Array<Int>(); var i = 0
+    while i < 65537 { payload.push((i * 17) % 256); i = i + 1 }
+    let encoded = gpuVkCacheEncode(identity, payload)
+    if encoded.isErr() { abort("valid cache budget fixture could not encode") }
+    let bytes = encoded.unwrap(); encoded.releaseContainer()
+    let saved = gpuVkAtomicCacheWrite(cachePath, bytes, op)
+    if saved.isErr() { abort("valid cache budget fixture could not publish") }; saved.releaseContainer()
+    let decoded = gpuVkCacheDecode(identity, bytes)
+    if decoded.isErr() { abort("valid cache budget fixture could not decode") }
+    let decodedBytes = decoded.unwrap(); decoded.releaseContainer(); equalBytes(decodedBytes, payload); decodedBytes.free()
+    let loaded = gpuVkLoadPipelineCache(cachePath, identity, op)
+    if loaded.isErr() { abort("valid cache budget fixture could not load") }
+    let loadedBytes = loaded.unwrap(); loaded.releaseContainer(); equalBytes(loadedBytes, bytes); loadedBytes.free()
+    let descriptors = descriptorCount(); let steady = seen_memory_used_bytes(); let original = seen_memory_limit_bytes()
+    var cycle = 0
+    while cycle < 16 {
+        // The second budget fits a retained Int array plus packed bytes, but
+        // not the additional Int-array checksum/copy peak. Both are local to
+        // this consumer and restored before inspecting or releasing results.
+        var headroom = 131072 as Int64
+        if cycle % 2 == 1 { headroom = 1572864 as Int64 }
+        reducedBudget(original, headroom)
+        let deniedEncode = gpuVkCacheEncode(identity, payload)
+        seen_memory_set_limit_bytes(original); rejected(deniedEncode, "gpu.vulkan.cache.encode")
+        if seen_memory_used_bytes() != steady { abort("cache encode OOM retained ownership") }
+        reducedBudget(original, headroom)
+        let deniedDecode = gpuVkCacheDecode(identity, bytes)
+        seen_memory_set_limit_bytes(original); rejected(deniedDecode, "gpu.vulkan.cache.decode")
+        if seen_memory_used_bytes() != steady { abort("cache decode OOM retained ownership") }
+        reducedBudget(original, headroom)
+        let deniedDigest = gpuVkCacheDigest(payload)
+        seen_memory_set_limit_bytes(original)
+        if deniedDigest.isOkay() { abort("cache digest ignored checksum array scratch") }
+        let digestError = deniedDigest.unwrapErr(); deniedDigest.releaseContainer()
+        if digestError.code != "gpu.out_of_memory" or digestError.operation != "gpu.vulkan.cache.digest" or not digestError.retryable {
+            abort("cache digest scratch rejection lost its typed diagnostic")
+        }
+        digestError.release()
+        if seen_memory_used_bytes() != steady { abort("cache digest OOM retained ownership") }
+        reducedBudget(original, headroom)
+        let deniedLoad = gpuVkLoadPipelineCache(cachePath, identity, op)
+        seen_memory_set_limit_bytes(original); rejected(deniedLoad, "gpu.vulkan.cache.read")
+        if descriptorCount() != descriptors or seen_memory_used_bytes() != steady { abort("cache file OOM retained a descriptor or allocation") }
+        cycle = cycle + 1
+    }
+    cycle = 0
+    while cycle < 16 {
+        let started = seen_time_monotonic_nanos()
+        if started < (0 as Int64) { abort("cache FIFO monotonic clock unavailable") }
+        op.monotonicDeadline = started + (2000000000 as Int64)
+        // Harness creates this real FIFO and never opens a writer. A blocking
+        // O_RDONLY open cannot reach metadata or observe this finite deadline.
+        let fifo = gpuVkLoadPipelineCache(fifoPath, identity, op)
+        let finished = seen_time_monotonic_nanos()
+        if fifo.isOkay() { abort("cache accepted a nonregular opened descriptor") }
+        let error = fifo.unwrapErr(); fifo.releaseContainer()
+        if error.code != "gpu.cache_invalid" or finished < started or finished >= op.monotonicDeadline {
+            abort("no-writer FIFO did not reject within the finite deadline")
+        }
+        error.release()
+        if descriptorCount() != descriptors or seen_memory_used_bytes() != steady { abort("FIFO rejection retained a descriptor or allocation") }
+        cycle = cycle + 1
+    }
+    if seen_memory_limit_bytes() != original { abort("cache fixture did not restore its target budget") }
+    bytes.free(); payload.free(); releaseOperation(op)
+    cachePath.raw.free(); cachePath.free(); fifoPath.raw.free(); fifoPath.free(); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline { abort("cache budget or FIFO fixture retained live ownership") }
+    println("PASS: Vulkan cache bounded capacity and checksum admission return typed OOM with exact cleanup; no-writer FIFO rejects within deadline")
+    return 0
+}

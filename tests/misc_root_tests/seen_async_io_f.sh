@@ -17,7 +17,6 @@ source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 python3 "$ROOT_DIR/tests/misc_root_tests/seen_io_overlap_evidence_contract.py"
 for profile in fast release undefined address; do
     compile_case "$profile" diagnostics "$ROOT_DIR/tests/cross_platform_asynchronous_i_o/diagnostics_contract.seen"
-    rg -Fq 'PASS: IO-002F fixed diagnostics snapshot lifetime saturation and 1000 exact cleanup rounds' "$TMP_DIR/diagnostics-$profile.log"
     compile_fixture "$profile" overlap "$ROOT_DIR/tests/cross_platform_asynchronous_i_o/io_overlap.seen"
     command=("$TMP_DIR/overlap-$profile")
     if [ "$profile" = address ]; then

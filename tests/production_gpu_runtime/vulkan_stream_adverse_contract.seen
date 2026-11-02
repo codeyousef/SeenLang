@@ -1,0 +1,110 @@
+import compute.vulkan_stream.{GpuVulkanStream, GpuVulkanEvent, GPU_VULKAN_STREAM_MAX_SIGNAL}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.error.{GpuError}
+import core.result.{Result}
+import vulkan_mapping_fixture_support.{mappingWorld}
+import device_fixture_support.{gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+fun stream(result: Result<GpuVulkanStream, GpuError>) r: GpuVulkanStream {
+    if result.isErr() { abort("adverse stream setup rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun rejectedOpen(result: Result<GpuVulkanStream, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid stream constructor accepted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("stream constructor diagnostic differs") }
+    error.release()
+}
+fun rejectedEvent(result: Result<GpuVulkanEvent, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid stream event accepted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("stream event diagnostic differs") }
+    error.release()
+}
+fun rejected(result: Result<UInt64, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid stream submission accepted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.progress != (0 as UInt64) { println(error.code); abort("stream admission diagnostic or progress differs") }
+    error.release()
+}
+fun signal(result: Result<UInt64, GpuError>) r: UInt64 {
+    if result.isErr() { abort("adverse native signal rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun finish(borrow owner: GpuVulkanStream, sequence: UInt64) r: Void {
+    var fuel = 100000
+    while fuel > 0 {
+        let observed = owner.poll(sequence)
+        if observed.isErr() { abort("adverse native poll failed") }
+        let done = observed.unwrap(); observed.releaseContainer()
+        if done { return }
+        fuel = fuel - 1
+    }
+    abort("bounded adverse stream poll fuel exhausted")
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let world = mappingWorld(GpuMemoryKind.HostCoherent); let op = world.operation
+    rejectedOpen(GpuVulkanStream.open(world.allocator, 0, op), "gpu.limit")
+    rejectedOpen(GpuVulkanStream.open(world.allocator, -1, op), "gpu.limit")
+    rejectedOpen(GpuVulkanStream.open(world.allocator, 257, op), "gpu.limit")
+    rejectedOpen(GpuVulkanStream.open(world.allocator, 65, op), "gpu.limit")
+    op.cancellation = true
+    rejectedOpen(GpuVulkanStream.open(world.allocator, 1, op), "gpu.cancelled")
+    op.cancellation = false
+    let a = stream(GpuVulkanStream.open(world.allocator, 2, op))
+    let b = stream(GpuVulkanStream.open(world.allocator, 1, op))
+    rejectedEvent(a.event(0 as UInt64, op), "gpu.invalid")
+    rejectedEvent(a.event(1 as UInt64, op), "gpu.invalid")
+    gpuFixtureRejected(a.poll(0 as UInt64), "gpu.invalid")
+    gpuFixtureRejected(a.poll(1 as UInt64), "gpu.invalid")
+    op.cancellation = true; rejected(a.signal(op), "gpu.cancelled"); op.cancellation = false
+    op.monotonicDeadline = seen_time_monotonic_nanos() - (1 as Int64)
+    rejected(a.signal(op), "gpu.timeout"); op.monotonicDeadline = 9223372036854775807 as Int64
+    if a.core.lastSubmitted != (0 as UInt64) or a.core.inFlight != 0 { abort("pre-admission cancellation consumed native slots") }
+    // Boundary setup reaches otherwise impractical UInt64 signal exhaustion;
+    // no SDK work is fabricated and the native timeline remains at zero.
+    b.core.lastSubmitted = GPU_VULKAN_STREAM_MAX_SIGNAL
+    rejected(b.signal(op), "gpu.limit"); b.core.lastSubmitted = 0 as UInt64
+    let first = signal(a.signal(op)); let second = signal(a.signal(op))
+    if first != (1 as UInt64) or second != (2 as UInt64) { abort("adverse signals differ") }
+    rejected(a.signal(op), "gpu.limit"); finish(a, first)
+    if a.core.inFlight != 1 or a.core.lastCompleted != first { abort("partial completion retired a later native command slot") }
+    gpuFixtureRejected(a.close(), "gpu.busy")
+    let third = signal(a.signal(op))
+    if third != (3 as UInt64) or a.core.inFlight != 2 { abort("retired bounded slot could not be reused") }
+    finish(a, third)
+    let created = a.event(first, op)
+    if created.isErr() { abort("completed older event rejected") }
+    let dependency = created.unwrap(); created.releaseContainer()
+    completed(dependency.poll(), true)
+    dependency.sequence = 4 as UInt64
+    rejected(b.wait(dependency, op), "gpu.invalid"); dependency.sequence = first
+    var index = 0
+    while index < world.limits.maxResources - 1 { completed(a.core.retain(op), true); index = index + 1 }
+    gpuFixtureRejected(a.core.retain(op), "gpu.limit")
+    rejectedEvent(a.event(first, op), "gpu.limit"); rejected(b.wait(dependency, op), "gpu.limit")
+    while index > 0 { a.core.dropBorrow(); index = index - 1 }
+    let foreign = mappingWorld(GpuMemoryKind.HostCoherent)
+    let other = stream(GpuVulkanStream.open(foreign.allocator, 1, foreign.operation))
+    rejected(other.wait(dependency, foreign.operation), "gpu.invalid")
+    completed(other.release(), true); foreign.release()
+    op.cancellation = true
+    gpuFixtureRejected(a.core.retain(op), "gpu.cancelled")
+    rejected(b.wait(dependency, op), "gpu.cancelled")
+    rejectedEvent(a.event(first, op), "gpu.cancelled"); op.cancellation = false
+    completed(dependency.close(), true); completed(dependency.close(), false)
+    gpuFixtureRejected(dependency.poll(), "gpu.invalid"); rejected(b.wait(dependency, op), "gpu.invalid")
+    completed(dependency.release(), true)
+    completed(a.close(), true)
+    rejected(a.signal(op), "gpu.invalid"); rejectedEvent(a.event(first, op), "gpu.invalid")
+    gpuFixtureRejected(a.poll(first), "gpu.invalid"); gpuFixtureRejected(a.core.retain(op), "gpu.invalid")
+    completed(a.release(), true); completed(b.release(), true); world.release()
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("adverse stream paths retained ownership") }
+    println("PASS: GPU-006D native stream rejects invalid stale foreign exhausted cancelled and closed admission with exact cleanup")
+    return 0
+}

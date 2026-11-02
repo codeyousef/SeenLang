@@ -1,0 +1,188 @@
+/// H: actual persistent Vulkan graph/cache/timestamps, never a CPU execution witness.
+/// argv: foundation.spv reflection software-reference|rtx4090 reference|probe-*
+import compute.device.{GpuDevice, GpuContext}
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice}
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_pipeline_cache.{gpuVkCacheEncode}
+import compute.vulkan_graph.{GpuVulkanGraphNode, GpuVulkanCommandGraph}
+import compute.vulkan_timestamps.{GpuVulkanTimestampPool}
+import compute.vulkan_stream.{GpuVulkanStream}
+import compute.vulkan_mapping.{GpuVulkanMappedRegion, gpuVkMapBuffer}
+import compute.vulkan_buffer_abi.{VulkanBufferCreateInfo, gpuVkBufferInfo, vkCreateBuffer}
+import compute.vulkan_pipeline_abi.{VulkanCacheInfo, vkCreatePipelineCache}
+import compute.buffer.{GpuBuffer}
+import compute.buffer_region.{GpuBufferRegion}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import compute.fallback.{GpuFallbackStats}
+import compute.error.{GpuError}
+import core.operation_context.{OperationContext}
+import core.result.{Result}
+import core.option.{Some}
+import device_fixture_support.{operation, releaseOperation}
+import provider_fixture_support.{completed}
+import env.env.{args, releaseArgs, set}
+import io.file.{readText, size}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, seen_string_clone_owned, seen_string_release_owned}
+
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun _Exit(status: Int32) r: Void
+extern "C" fun vkDeviceWaitIdle(device: UInt64) r: Int32
+
+/// The companion SDK oracle asserts sizeof=24, pNext=8, flags=16 and sType=8.
+@repr(C)
+class HTraceFenceCreateInfo { var sType: UInt32; var padding: UInt32; var pNext: *Void; var flags: UInt32; var tail: UInt32 }
+extern "C" fun vkCreateFence(device: UInt64, info: *const HTraceFenceCreateInfo, allocator: *Void, output: *UInt64) r: Int32
+
+fun hTake<T>(result: Result<T, GpuError>) r: T {
+    if result.isErr() { println(result.unwrapErr().code); println(result.unwrapErr().operation); abort("native H operation failed; no CPU fallback") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+/// Concrete array return avoids generic Result<Array<Int>> payload erasure.
+fun hCacheTake(result: Result<Array<Int>, GpuError>) r: Array<Int> {
+    if result.isErr() { println(result.unwrapErr().code); abort("native H cache capture/envelope failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun hPhase(phase: String) r: Void { if not set("SEEN_VULKAN_FIXTURE_TRACE_PHASE", phase) { abort("cannot set in-process H phase marker") } }
+fun hPut(borrow mapping: GpuVulkanMappedRegion, index: Int, word: UInt32) r: Void {
+    var b = 0; while b < 4 { completed(mapping.writeByte((index * 4 + b) as UInt64, ((word >> ((b * 8) as UInt32)) & (255 as UInt32)) as UInt8), true); b = b + 1 }
+}
+fun hWord(borrow mapping: GpuVulkanMappedRegion, index: Int) r: UInt32 {
+    var word = 0 as UInt32; var b = 0
+    while b < 4 { word = word | ((hTake<UInt8>(mapping.readByte((index * 4 + b) as UInt64)) as UInt32) << ((b * 8) as UInt32)); b = b + 1 }; return word
+}
+fun hGraph(borrow stream: GpuVulkanStream, borrow pipeline: GpuVulkanPipeline, borrow clock: GpuVulkanTimestampPool, borrow input: GpuBuffer<UInt32>, borrow output: GpuBuffer<UInt32>, borrow scale: GpuBuffer<UInt32>, borrow fault: GpuBuffer<UInt32>, op: OperationContext) r: GpuVulkanCommandGraph {
+    let regions = Array<GpuBufferRegion>()
+    regions.push(hTake<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op)))
+    regions.push(hTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, true, op)))
+    regions.push(hTake<GpuBufferRegion>(scale.region(0 as UInt64, 16 as UInt64, false, op)))
+    regions.push(hTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op)))
+    let bindings = Array<Int>(); bindings.push(0); bindings.push(1); bindings.push(2); bindings.push(3)
+    let nodes = Array<GpuVulkanGraphNode>()
+    nodes.push(hTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(pipeline, bindings, Array<Int>(), 5 as UInt64, 1 as UInt64, 1 as UInt64, op)))
+    return hTake<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, regions, nodes, Some<GpuVulkanTimestampPool>(clock), op))
+}
+fun hCycle(borrow graph: GpuVulkanCommandGraph, op: OperationContext) r: Int64 {
+    let before = seen_memory_used_bytes(); let started = seen_time_monotonic_nanos()
+    let sequence = hTake<UInt64>(graph.submit(op)); var fuel = 0; var ready = false
+    while fuel < 1000000 and not ready { ready = hTake<Bool>(graph.poll()); fuel = fuel + 1 }
+    let finished = seen_time_monotonic_nanos()
+    if not ready or sequence == (0 as UInt64) or not graph.sample.ready { abort("bounded native H graph/timestamp completion failed") }
+    if graph.sample.elapsedNanoseconds != graph.sample.elapsedNanoseconds or graph.sample.elapsedNanoseconds < 0.0 or graph.sample.elapsedNanoseconds > 1.0e30 or finished < started { abort("native H timestamp/monotonic sample is not finite and ordered") }
+    if seen_memory_used_bytes() != before { abort("persistent H cycle retained Seen allocations") }
+    return finished - started
+}
+fun hProbe(mode: String, device: UInt64) r: Void {
+    hPhase("hot"); var output = 0 as UInt64
+    if mode == "probe-fence" {
+        let info = HTraceFenceCreateInfo{sType: 8 as UInt32, padding: 0 as UInt32, pNext: null as *Void, flags: 0 as UInt32, tail: 0 as UInt32}
+        vkCreateFence(device, (&info) as *const HTraceFenceCreateInfo, null as *Void, &output)
+    } else if mode == "probe-buffer" {
+        let info = gpuVkBufferInfo(256 as UInt64)
+        vkCreateBuffer(device, (&info) as *const VulkanBufferCreateInfo, null as *Void, &output)
+    } else if mode == "probe-cache" {
+        let info = VulkanCacheInfo{sType: 17 as UInt32, pNext: null as *Void, flags: 0 as UInt32, initialSize: 0 as UInt64, initialData: null as *const UInt8}
+        vkCreatePipelineCache(device, (&info) as *const VulkanCacheInfo, null as *Void, &output)
+    } else { vkDeviceWaitIdle(device) }
+    // Guard interception must terminate at its ABI boundary. Neither a real SDK
+    // success nor an SDK error is proof of interception; bypass is distinct.
+    _Exit(91 as Int32)
+}
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    // Fixed sample storage is completely admitted before any hot submission.
+    let gpuSamples = Array<Float>(); let cpuSamples = Array<Int64>(); var i = 0
+    while i < 30 { gpuSamples.push(0.0); cpuSamples.push(0 as Int64); i = i + 1 }
+    var retainedEvidenceBytes = seen_memory_used_bytes() - baseline
+    let arguments = args()
+    if arguments.length() != 5 { abort("H requires SPIR-V reflection explicit-device and reference/probe mode") }
+    if size(arguments[1]) < 20 or size(arguments[1]) > 33554432 or size(arguments[2]) < 1 or size(arguments[2]) > 4194304 { abort("H artifact extent is invalid") }
+    let hardware = arguments[3] == "rtx4090"
+    if not hardware and arguments[3] != "software-reference" { abort("H device class must be explicit") }
+    let mode = arguments[4]
+    if mode != "reference" and mode != "probe-fence" and mode != "probe-buffer" and mode != "probe-cache" and mode != "probe-global-wait" { abort("unknown H trace/probe mode") }
+    hPhase("setup")
+    let binary = readText(arguments[1]); let reflection = readText(arguments[2])
+    let op = operation(); let limits = GpuLimits.bounded(8, 4, 256, 1048576 as UInt64)
+    let provider = hTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, not hardware)); var selected = -1; i = 0
+    while i < provider.catalog.devices.length() { let info = provider.catalog.devices[i]
+        if hardware { if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") { selected = i } } else if info.kind == GpuDeviceKind.Software { selected = i }; i = i + 1
+    }
+    if selected < 0 { abort("explicit H native device unavailable; no fallback") }
+    let physical = hTake<GpuVulkanPipelineDevice>(GpuVulkanPipelineDevice.capture(provider, selected))
+    let device = hTake<GpuDevice>(openVulkanDevice(provider, selected, op)); let context = hTake<GpuContext>(device.createContext(op))
+    let identityBefore = seen_memory_used_bytes()
+    let deviceName = seen_string_clone_owned(device.core.info.name); let deviceUuid = seen_string_clone_owned(device.core.info.identity.uuid); let driverVersion = seen_string_clone_owned(device.core.info.driverVersion)
+    retainedEvidenceBytes = retainedEvidenceBytes + seen_memory_used_bytes() - identityBefore
+    let allocator = hTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 16, op))
+    let stream = hTake<GpuVulkanStream>(GpuVulkanStream.open(allocator, 2, op))
+    let clock = hTake<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op))
+    let stats = hTake<GpuFallbackStats>(GpuFallbackStats.create(4, 1))
+    let input = hTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let output = hTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let scale = hTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 4 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let fault = hTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 1 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let inputMap = hTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(input, 0 as UInt64, 148 as UInt64, true, op))
+    let scaleMap = hTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(scale, 0 as UInt64, 16 as UInt64, true, op)); i = 0
+    while i < 37 { hPut(inputMap, i, (i + 1) as UInt32); i = i + 1 }; hPut(scaleMap, 0, 7 as UInt32)
+    completed(inputMap.release(), true); completed(scaleMap.release(), true)
+    let empty = Array<Int>(); let artifact1 = hTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation"))
+    let pipeline1 = hTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, artifact1, empty, op)); empty.free()
+    let graph1 = hGraph(stream, pipeline1, clock, input, output, scale, fault, op)
+    hCycle(graph1, op)
+    let payload = hCacheTake(pipeline1.cacheBytes()); let payloadBytes = payload.length()
+    if payloadBytes < 32 { abort("native pipeline cache payload is empty") }
+    let envelope = hCacheTake(gpuVkCacheEncode(pipeline1.cacheIdentity, payload)); let envelopeBytes = envelope.length(); payload.free()
+    completed(graph1.release(), true); completed(pipeline1.release(), true)
+    // Fresh artifact/pipeline from the actual encoded cache, same live queue and clock.
+    let artifact2 = hTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation"))
+    let pipeline2 = hTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, artifact2, envelope, op)); envelope.free()
+    let graph = hGraph(stream, pipeline2, clock, input, output, scale, fault, op)
+    i = 0; while i < 5 { hCycle(graph, op); i = i + 1 }
+    if mode != "reference" { hProbe(mode, stream.core.device); _Exit(91 as Int32) }
+    let command = graph.command; let commandPool = graph.commandPool; let descriptorPool = graph.descriptorPool; let queryPool = clock.pool; let pipelineId = pipeline2.pipeline; let cacheId = pipeline2.cache
+    let hotBaseline = seen_memory_used_bytes(); let hotAtomics = seen_sync_live_atomics()
+    hPhase("hot"); i = 0
+    while i < 30 { cpuSamples[i] = hCycle(graph, op); gpuSamples[i] = graph.sample.elapsedNanoseconds; i = i + 1 }
+    i = 0; while i < 1024 { hCycle(graph, op); i = i + 1 }
+    if seen_memory_used_bytes() != hotBaseline or seen_sync_live_atomics() != hotAtomics or graph.command != command or graph.commandPool != commandPool or graph.descriptorPool != descriptorPool or clock.pool != queryPool or pipeline2.pipeline != pipelineId or pipeline2.cache != cacheId { abort("persistent H hot state changed native identity/allocation owners") }
+    hPhase("done")
+    completed(graph.release(), true)
+    // Independent final CPU arithmetic is only an oracle for real native output.
+    // The graph's writable leases have been released before readback admission.
+    let resultMap = hTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(output, 0 as UInt64, 148 as UInt64, false, op)); i = 0
+    while i < 37 { if hWord(resultMap, i) != (8 * i + 7) as UInt32 { abort("H final native readback differs from independent numeric oracle") }; i = i + 1 }; completed(resultMap.release(), true)
+    if stats.admitted != 0 or stats.succeeded != 0 or stats.failed != 0 or stats.abandoned != 0 or stats.pendingAttempts != 0 or stats.liveAttempts != 0 or stats.outOfMemorySucceeded != 0 or stats.deviceLostSucceeded != 0 { abort("native H unexpectedly used CPU fallback") }
+    let admitted = stats.admitted; let succeeded = stats.succeeded; let failed = stats.failed; let abandoned = stats.abandoned; let pendingAttempts = stats.pendingAttempts; let liveAttempts = stats.liveAttempts; let oomSucceeded = stats.outOfMemorySucceeded; let lostSucceeded = stats.deviceLostSucceeded
+    completed(stats.release(), true); completed(pipeline2.release(), true); completed(clock.release(), true); completed(stream.release(), true)
+    completed(input.release(), true); completed(output.release(), true); completed(scale.release(), true); completed(fault.release(), true); completed(allocator.release(), true)
+    if device.core.resourceBorrowers != 0 or device.core.resourceCommittedBytes != (0 as UInt64) { abort("H resource commitment/lease drain failed") }
+    completed(context.release(), true); completed(device.release(), true); physical.release(); limits.release(); releaseOperation(op)
+    seen_string_release_owned(binary); seen_string_release_owned(reflection); releaseArgs(arguments)
+    // Only fixed sample arrays and copied identity strings remain for reporting.
+    // Exact allocation deltas, not an assumed String/Array allocation size.
+    if seen_memory_used_bytes() != baseline + retainedEvidenceBytes or seen_sync_live_atomics() != atomics { abort("H native owner allocation/atomic drain failed") }
+    let report = JsonBuilder_new(); report.startObject()
+    if hardware { report.stringProp("target", "rtx4090"); report.stringProp("platform_classification", "physical-device-requested-not-platform-qualified") } else { report.stringProp("target", "software-reference"); report.stringProp("platform_classification", "software-reference-not-physical-qualification") }
+    report.stringProp("backend", "vulkan"); report.boolProp("native_execution", 1); report.stringProp("device_name", deviceName); report.stringProp("device_uuid", deviceUuid); report.stringProp("driver_version", driverVersion)
+    report.nullProp("physical_vram_bytes"); report.stringProp("physical_vram_measurement", "not-measured")
+    report.intProp("cache_payload_bytes", payloadBytes); report.intProp("cache_envelope_bytes", envelopeBytes); report.boolProp("cache_restored", 1)
+    report.intProp("warmup_count", 5); report.intProp("measured_count", 30); report.intProp("soak_count", 1024); report.intProp("successful_hot_cycles", 1054)
+    report.key("gpu_nanoseconds"); report.startArray(); i = 0; while i < 30 { report.numberFloat(gpuSamples[i]); i = i + 1 }; report.endArray()
+    report.key("cpu_nanoseconds"); report.startArray(); i = 0; while i < 30 { report.number(cpuSamples[i] as Int); i = i + 1 }; report.endArray()
+    report.key("fallback"); report.startObject(); report.intProp("admitted", admitted); report.intProp("succeeded", succeeded); report.intProp("failed", failed); report.intProp("abandoned", abandoned); report.intProp("pending_attempts", pendingAttempts); report.intProp("live_attempts", liveAttempts); report.intProp("out_of_memory_succeeded", oomSucceeded); report.intProp("device_lost_succeeded", lostSucceeded); report.endObject()
+    report.key("transfer"); report.startObject(); report.intProp("initial_host_upload_bytes", 152); report.intProp("hot_host_upload_bytes", 0); report.intProp("final_readback_bytes", 148); report.intProp("timestamp_query_result_bytes_per_query_read", 32); report.endObject()
+    report.boolProp("resource_drain", 1); report.boolProp("per_cycle_allocation_stable", 1); report.boolProp("allocations_drained", 1); report.boolProp("atomics_drained", 1); report.intProp("evidence_retained_bytes", retainedEvidenceBytes as Int); report.endObject()
+    let text = report.build(); print("GPU_RUNTIME_H_EVIDENCE "); println(text); seen_string_release_owned(text); destroyJsonBuilder(report)
+    gpuSamples.free(); cpuSamples.free(); seen_string_release_owned(deviceName); seen_string_release_owned(deviceUuid); seen_string_release_owned(driverVersion)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("H evidence retained Seen allocation/atomic owners") }
+    println("PASS: native H persistent graph cache timestamps readback and exact owner drain")
+    return 0
+}

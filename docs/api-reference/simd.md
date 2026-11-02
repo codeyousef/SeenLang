@@ -421,6 +421,8 @@ or masked stores of 128/256/512 bits; scalar lane decoding is shared. This
 API does not promise an architecture-specific arithmetic kernel or native
 execution at a requested store width: LLVM may legalize wider stores for the
 selected CPU baseline. Invalid widths never silently select another policy.
+A one-active-lane tail decodes that lane once and retains the requested
+128/256/512-bit masked store; inactive lanes do not read input or write output.
 The existing checked owner-range and alias helpers reject closed owners,
 address wrap, insufficient ranges and overlapping input/output. A block
 produces at most 1024 bytes, with no kernel allocation or global mutable state.
@@ -448,10 +450,16 @@ case; compiler containment continues to use the aggregate project scope.
 
 The paired benchmark records seven formats and all three vector store widths,
 with five warmups and thirty alternating scalar/candidate measurements per
-case. It reports median ratio and allocator peak and checks correctness/live
-allocations. `SEEN_REQUIRE_QUANTIZED_SIMD_PERF=1` enforces a median ratio no
-higher than 1.05 on a designated machine; ordinary CI reports observations.
-Record the exact commit, toolchain, CPU/OS and aggregate-limit readback with
-these logs. Software fixtures and legalizable vector IR do not certify an ISA,
-platform, final LTO performance or accelerator hardware. Hardware testing and
-performance certification remain deferred to the designated machine.
+case. `quantized-performance.json` retains all raw nanosecond pairs, median
+ratios and quartiles, allocator peak, waited benchmark-child peak RSS, CPU/OS,
+compiler/source hashes and aggregate-limit readback. All 21 cases finish
+before a performance failure is returned, and known benchmark owners are
+released on that failure. RSS and allocator accounting remain distinct.
+
+`SEEN_REQUIRE_QUANTIZED_SIMD_PERF=1` enforces the unchanged median-ratio ceiling
+of 1.05 on a designated machine; ordinary CI records observations without
+claiming performance enforcement. A failed enforced result is retained as
+failed evidence, not relabeled as an observation pass. Software fixtures and
+legalizable vector IR do not certify an ISA, another platform, final LTO
+performance or accelerator hardware. Designated-machine certification remains
+separate from a development-host run.

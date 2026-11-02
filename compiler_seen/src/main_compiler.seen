@@ -51,6 +51,8 @@ entry module. Keep these bridge imports here until every supported bootstrap
 already contains the corresponding modules in its curated module list.
 ///
 import lsp.formatter.{formatSeenDocumentEditsWithLanguageOptions}
+import json.float_format.{formatJsonFloat}
+import math.math.{copysign}
 import typechecker.type_ref.{parseTypeRef as _seedParseTypeRef}
 import lsp.server.{runLspServer}
 import typechecker.determinism.{DeterminismEffectGraph, printDeterminismErrors}
@@ -9896,6 +9898,8 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("json.value")
         modules.push("json.parser")
         modules.push("json.builder")
+        modules.push("json.float_format")
+        modules.push("math.math")
         // IO module (required by LSP for stdio)
         modules.push("io.stdio")
         ///
@@ -13310,25 +13314,6 @@ fun sourcesNeedLinuxPlatformEvdevShim(modulePaths: Array<String>) r: Bool {
     return false
 }
 
-fun sourcesNeedRawVulkanLink(modulePaths: Array<String>) r: Bool {
-    var mi = 0
-    while mi < modulePaths.length() {
-        let modulePath = modulePaths[mi]
-        if modulePath.contains("/seen_vk/src/") {
-            return true
-        }
-        let sourceText = readText(modulePath)
-        if sourceContainsOutsideTripleSlashBlockBodies(sourceText,
-            "extern fun vk") or sourceContainsOutsideTripleSlashBlockBodies(
-            sourceText, "extern \"C\" fun vk") {
-
-            return true
-        }
-        mi = mi + 1
-    }
-    return false
-}
-
 fun sourcesNeedSdl3Link(modulePaths: Array<String>) r: Bool {
     var mi = 0
     while mi < modulePaths.length() {
@@ -15162,7 +15147,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     instrumentedModulePicFlag = " -fPIC"
                 }
                 moduleObjCmd = targetClangDriver +
-                    " -O1 -Wno-unused-command-line-argument -c -x ir " +
+                    " -O1 -ffunction-sections -fdata-sections -Wno-unused-command-line-argument -c -x ir " +
                     targetClangArgs + moduleInstrumentationFlags +
                     instrumentedModulePicFlag + " " +
                     mainCompilerShellQuote(optFile) + " -o " +
@@ -16671,13 +16656,6 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         }
     }
     if normalizedCrossTarget == "" {
-        if sourcesNeedRawVulkanLink(modulePaths) and not linkLibs.contains("vulkan") {
-            linkLibs = appendHostPkgOrFallbackLinkFlag(linkLibs, "vulkan",
-                "-lvulkan")
-            if not linkLibs.contains("-ldl") {
-                linkLibs = linkLibs + " -ldl"
-            }
-        }
         if sourcesNeedSdl3Link(modulePaths) and not linkLibs.contains("SDL3") {
             linkLibs = appendHostPkgOrFallbackLinkFlag(linkLibs, "sdl3",
                 "-lSDL3")

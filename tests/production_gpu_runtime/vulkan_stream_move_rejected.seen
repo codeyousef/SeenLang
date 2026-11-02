@@ -1,0 +1,12 @@
+import compute.vulkan_stream.{GpuVulkanStream, GpuVulkanEvent}
+fun consumeStream(value: GpuVulkanStream) r: Void {}
+fun invalidStream(value: GpuVulkanStream) r: Void {
+    consumeStream(value)
+    value.close()
+}
+fun consumeEvent(value: GpuVulkanEvent) r: Void {}
+fun invalidEvent(value: GpuVulkanEvent) r: Void {
+    consumeEvent(value)
+    value.close()
+}
+fun main() r: Int { return 0 }

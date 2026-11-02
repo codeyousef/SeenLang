@@ -1,0 +1,142 @@
+import compute.device.{GpuDevice, GpuContext}
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice}
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_pipeline_dispatch.{GpuVulkanDispatch}
+import compute.vulkan_stream.{GpuVulkanStream}
+import compute.buffer.{GpuBuffer}
+import compute.buffer_region.{GpuBufferRegion}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import core.operation_context.{OperationContext}
+import core.result.{Result}
+import compute.error.{GpuError}
+import device_fixture_support.{operation, releaseOperation}
+import provider_fixture_support.{completed}
+import env.env.{args, releaseArgs, set}
+import io.file.{readText, size}
+import json.builder.{seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun pipelineFaultTake<T>(result: Result<T, GpuError>) r: T {
+    if result.isErr() { println(result.unwrapErr().code); println(result.unwrapErr().operation); abort("native pipeline fault setup failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+private fun pipelineFaultCacheTake(result: Result<Array<Int>, GpuError>) r: Array<Int> {
+    if result.isErr() { println(result.unwrapErr().code); abort("genuine pipeline cache capture failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun pipelineFaultRejected<T>(result: Result<T, GpuError>, mode: String, expectedOperation: String) r: Void {
+    if result.isOkay() { abort("native constructor or cache fault was admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    var code = "gpu.invalid"; var native = 0 as Int64
+    if mode.contains("status") or mode == "pipeline-create-partial" { code = "gpu.out_of_memory"; native = -1 as Int64 }
+    if mode.contains("incomplete") { code = "gpu.invalid"; native = 5 as Int64 }
+    if mode.contains("measure-short") or mode.contains("measure-oversized") { code = "gpu.limit" }
+    if mode.contains("capture-short") or mode.contains("capture-oversized") { code = "gpu.cache_invalid" }
+    if error.code != code or error.operation != expectedOperation or error.progress != (0 as UInt64) {
+        println(error.code); println(error.operation); abort("native fault lost typed code operation or zero progress")
+    }
+    if native == (0 as Int64) {
+        if error.nativeCode.isSome() { abort("empty native identity fabricated a Vulkan status") }
+    } else {
+        if error.nativeCode.isNone() { abort("SDK failure lost its native status") }
+        if error.nativeCode.unwrap() != native { abort("SDK failure changed its native status") }
+    }
+    error.release()
+}
+private fun restored(memory: Int64) r: Void {
+    if seen_memory_used_bytes() != memory { abort("native operation did not restore its exact Seen allocation baseline") }
+}
+private fun regions(borrow input: GpuBuffer<UInt32>, borrow output: GpuBuffer<UInt32>, borrow scale: GpuBuffer<UInt32>, borrow fault: GpuBuffer<UInt32>, op: OperationContext) r: Array<GpuBufferRegion> {
+    let values = Array<GpuBufferRegion>()
+    values.push(pipelineFaultTake<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op)))
+    values.push(pipelineFaultTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, true, op)))
+    values.push(pipelineFaultTake<GpuBufferRegion>(scale.region(0 as UInt64, 16 as UInt64, false, op)))
+    values.push(pipelineFaultTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op)))
+    return values
+}
+private fun bufferUnborrowed(borrow buffer: GpuBuffer<UInt32>) r: Void {
+    let slot = buffer.core.slots[buffer.slot]
+    if slot.readers != 0 or slot.writers != 0 { abort("failed prepared constructor did not consume every region") }
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    if arguments.length() != 5 { abort("requires actual foundation SPIR-V reflection mode and explicit software-reference") }
+    if arguments[4] != "software-reference" { abort("fault fixture requires explicitly selected software-reference Vulkan") }
+    if size(arguments[1]) < 20 or size(arguments[1]) > 33554432 or size(arguments[2]) < 1 or size(arguments[2]) > 4194304 { abort("artifact input size is invalid") }
+    let binary = readText(arguments[1]); let reflection = readText(arguments[2]); let mode = arguments[3]
+    var pipelineOperation = ""
+    if mode == "pipeline-cache-status" or mode == "pipeline-cache-empty" { pipelineOperation = "gpu.vulkan.pipeline.cache" }
+    if mode == "pipeline-shader-status" or mode == "pipeline-shader-empty" { pipelineOperation = "gpu.vulkan.pipeline.shader" }
+    if mode == "pipeline-set-layout-status" or mode == "pipeline-set-layout-empty" { pipelineOperation = "gpu.vulkan.pipeline.set_layout" }
+    if mode == "pipeline-layout-status" or mode == "pipeline-layout-empty" { pipelineOperation = "gpu.vulkan.pipeline.layout" }
+    if mode == "pipeline-create-status" or mode == "pipeline-create-empty" or mode == "pipeline-create-partial" { pipelineOperation = "gpu.vulkan.pipeline.create" }
+    var dispatchOperation = ""
+    if mode == "pipeline-descriptor-pool-status" or mode == "pipeline-descriptor-pool-empty" { dispatchOperation = "gpu.vulkan.dispatch.descriptor_pool" }
+    if mode == "pipeline-descriptors-status" or mode == "pipeline-descriptors-empty" { dispatchOperation = "gpu.vulkan.dispatch.descriptors" }
+    if mode == "copy-pool-status" or mode == "copy-pool-empty" { dispatchOperation = "gpu.vulkan.dispatch.command_pool" }
+    if mode == "copy-commands-status" { dispatchOperation = "gpu.vulkan.dispatch.command" }
+    if mode == "copy-command-empty" { dispatchOperation = "gpu.vulkan.dispatch.prepare" }
+    let cacheFault = mode == "pipeline-cache-measure-status" or mode == "pipeline-cache-measure-incomplete" or mode == "pipeline-cache-measure-short" or mode == "pipeline-cache-measure-oversized" or mode == "pipeline-cache-capture-status" or mode == "pipeline-cache-capture-incomplete" or mode == "pipeline-cache-capture-short" or mode == "pipeline-cache-capture-oversized"
+    if pipelineOperation == "" and dispatchOperation == "" and not cacheFault and mode != "pipeline-ok" { abort("unknown pipeline fault fixture mode") }
+    if not set("SEEN_VULKAN_FIXTURE_PIPELINE_TRACE", mode) { abort("cannot enable native ownership drain assertion") }
+    if not set("SEEN_VULKAN_FIXTURE_FAULT", "") { abort("cannot clear native fault before setup") }
+    let op = operation(); let limits = GpuLimits.bounded(8, 4, 128, 1048576 as UInt64)
+    let provider = pipelineFaultTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, true)); var selected = -1; var i = 0
+    while i < provider.catalog.devices.length() { if provider.catalog.devices[i].kind == GpuDeviceKind.Software { selected = i }; i = i + 1 }
+    if selected < 0 { abort("explicit software-reference Vulkan device unavailable; no fallback") }
+    let physical = pipelineFaultTake<GpuVulkanPipelineDevice>(GpuVulkanPipelineDevice.capture(provider, selected))
+    let device = pipelineFaultTake<GpuDevice>(openVulkanDevice(provider, selected, op)); let context = pipelineFaultTake<GpuContext>(device.createContext(op))
+    let allocator = pipelineFaultTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 4, op))
+    let stream = pipelineFaultTake<GpuVulkanStream>(GpuVulkanStream.open(allocator, 4, op))
+    if pipelineOperation != "" {
+        let before = seen_memory_used_bytes(); let borrowers = stream.core.borrowers
+        let artifact = pipelineFaultTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation")); let empty = Array<Int>()
+        if artifact.bindings.length() != 4 or artifact.x != 8 { abort("fault fixture did not receive actual foundation reflection") }
+        if not set("SEEN_VULKAN_FIXTURE_FAULT", mode) { abort("cannot enable constructor fault") }
+        pipelineFaultRejected<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, artifact, empty, op), mode, pipelineOperation); empty.free()
+        if stream.core.borrowers != borrowers { abort("failed pipeline construction retained a stream borrower") }
+        restored(before)
+    } else {
+        let artifact = pipelineFaultTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation")); let empty = Array<Int>()
+        if artifact.bindings.length() != 4 or artifact.x != 8 { abort("fault fixture did not receive actual foundation reflection") }
+        let pipeline = pipelineFaultTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, artifact, empty, op)); empty.free()
+        if cacheFault {
+            let before = seen_memory_used_bytes()
+            if not set("SEEN_VULKAN_FIXTURE_FAULT", mode) { abort("cannot enable cache fault") }
+            pipelineFaultRejected<Array<Int>>(pipeline.cacheBytes(), mode, "gpu.vulkan.cache"); restored(before)
+        } else {
+            let input = pipelineFaultTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+            let output = pipelineFaultTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+            let scale = pipelineFaultTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 4 as UInt64, 4 as UInt64, 256 as UInt64, op))
+            let fault = pipelineFaultTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 1 as UInt64, 4 as UInt64, 256 as UInt64, op))
+            // Warm the real coherent mapping metadata before measuring an operation.
+            let warm = pipelineFaultTake<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, regions(input, output, scale, fault, op), op)); completed(warm.release(), true)
+            let before = seen_memory_used_bytes(); let borrowers = pipeline.borrowers
+            if dispatchOperation != "" {
+                if not set("SEEN_VULKAN_FIXTURE_FAULT", mode) { abort("cannot enable prepared-constructor fault") }
+                pipelineFaultRejected<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, regions(input, output, scale, fault, op), op), mode, dispatchOperation)
+            } else {
+                let prepared = pipelineFaultTake<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, regions(input, output, scale, fault, op), op)); completed(prepared.release(), true)
+                let cache = pipelineFaultCacheTake(pipeline.cacheBytes()); if cache.length() < 32 { abort("genuine native cache capture is empty") }; cache.free()
+            }
+            if pipeline.borrowers != borrowers { abort("prepared constructor retained its pipeline borrower") }
+            bufferUnborrowed(input); bufferUnborrowed(output); bufferUnborrowed(scale); bufferUnborrowed(fault)
+            restored(before)
+            completed(input.release(), true); completed(output.release(), true); completed(scale.release(), true); completed(fault.release(), true)
+        }
+        completed(pipeline.release(), true)
+    }
+    if not set("SEEN_VULKAN_FIXTURE_FAULT", "") { abort("cannot clear native fault after operation") }
+    completed(stream.release(), true); completed(allocator.release(), true); completed(context.release(), true); completed(device.release(), true)
+    physical.release(); limits.release(); releaseOperation(op)
+    seen_string_release_owned(binary); seen_string_release_owned(reflection); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("pipeline fault fixture retained Seen or atomic ownership") }
+    println("PASS: real Vulkan pipeline constructor faults preserve typed errors and exact native and Seen ownership")
+    return 0
+}

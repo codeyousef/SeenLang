@@ -1,0 +1,180 @@
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import compute.vulkan_pipeline_device.{gpuVkPipelineVersionSupported}
+import compute.vulkan_pipeline_cache.{gpuVkCacheEncode, gpuVkCacheDecode}
+import core.result.{Result}
+import compute.error.{GpuError}
+import io.file.{readText, size}
+import env.env.{args, releaseArgs}
+import memory.aligned_buffer.{OwnedBuffer}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun artifactReject(result: Result<GpuVulkanArtifact, GpuError>) r: Void {
+    if result.isOkay() { result.unwrap().release(); abort("malformed physical ABI was accepted") }
+    let error = result.unwrapErr(); result.releaseContainer(); if error.code != "gpu.unsupported_abi" { abort("physical ABI diagnostic changed") }; error.release()
+}
+fun artifactMutate(text: String, index: Int, value: Int) r: String {
+    let allocated = OwnedBuffer<UInt8>.allocate(text.length() as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { abort("artifact mutation buffer unavailable") }; let buffer = allocated.unwrap(); allocated.releaseContainer(); var i = 0
+    while i < text.length() { buffer.data[i] = text.byteAt(i) as UInt8; i = i + 1 }; buffer.data[index] = value as UInt8
+    let output = seen_string_clone_owned(seen_string_view_bytes(buffer.data as *const UInt8, text.length() as Int64)); buffer.close(); buffer.free(); return output
+}
+fun artifactReplace(text: String, before: String, after: String) r: String {
+    var i = 0
+    while i <= text.length() - before.length() {
+        var equal = true; var j = 0; while j < before.length() { if text.byteAt(i + j) != before.byteAt(j) { equal = false }; j = j + 1 }
+        if equal { let first = text.substring(0, i); let last = text.substring(i + before.length(), text.length()); let partial = first + after; let output = partial + last; seen_string_release_owned(partial); seen_string_release_owned(first); seen_string_release_owned(last); return output }; i = i + 1
+    }; abort("actual emitted reflection lacks mutation field")
+}
+fun artifactWord(text: String, index: Int) r: Int {
+    let n = index * 4
+    return text.byteAt(n) | (text.byteAt(n + 1) << 8) | (text.byteAt(n + 2) << 16) | (text.byteAt(n + 3) << 24)
+}
+fun artifactBinary(words: Array<Int>) r: String {
+    let allocated = OwnedBuffer<UInt8>.allocate((words.length() * 4) as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { abort("SPIR-V mutation buffer unavailable") }
+    let buffer = allocated.unwrap(); allocated.releaseContainer(); var i = 0
+    while i < words.length() { var b = 0; while b < 4 { buffer.data[i * 4 + b] = ((words[i] >> (b * 8)) & 255) as UInt8; b = b + 1 }; i = i + 1 }
+    let output = seen_string_clone_owned(seen_string_view_bytes(buffer.data as *const UInt8, (words.length() * 4) as Int64))
+    buffer.close(); buffer.free(); return output
+}
+fun artifactInsert(text: String, offset: Int, inserted: Array<Int>) r: String {
+    let words = Array<Int>(); var i = 0
+    while i < text.length() / 4 {
+        if i == offset { var j = 0; while j < inserted.length() { words.push(inserted[j]); j = j + 1 } }
+        words.push(artifactWord(text, i)); i = i + 1
+    }
+    let output = artifactBinary(words); words.free(); return output
+}
+fun artifactEntry(text: String, offset: Int, name: String) r: Bool {
+    let start = (offset + 3) * 4; let end = (offset + (artifactWord(text, offset) >> 16)) * 4
+    if start + name.length() >= end { return false }
+    var i = 0; while i < name.length() { if text.byteAt(start + i) != name.byteAt(i) { return false }; i = i + 1 }
+    return text.byteAt(start + name.length()) == 0
+}
+// A real fixed Workgroup allocation and store in foundation. The increment
+// interface remains unchanged, so it must still reflect zero shared bytes.
+fun artifactShared(text: String, length: Int, stride: Int, listed: Bool) r: String {
+    let bound = artifactWord(text, 3); var scalar = 0; var annotation = 0; var function = 0; var entry = 0; var offset = 5; var body = 0; var inEntry = false; var labeled = false
+    while offset < text.length() / 4 {
+        let instruction = artifactWord(text, offset); let count = instruction >> 16; let opcode = instruction & 65535
+        if opcode == 21 and count == 4 and artifactWord(text, offset + 2) == 32 and artifactWord(text, offset + 3) == 0 { scalar = artifactWord(text, offset + 1) }
+        if annotation == 0 and (opcode == 71 or opcode == 72) { annotation = offset }
+        if function == 0 and opcode == 54 { function = offset }
+        if opcode == 15 and artifactEntry(text, offset, "foundation") { entry = offset }
+        if opcode == 54 { inEntry = entry != 0 and artifactWord(text, offset + 2) == artifactWord(text, entry + 2); labeled = false }
+        if inEntry and labeled and body == 0 and opcode != 59 { body = offset }
+        if inEntry and opcode == 248 { labeled = true }
+        offset = offset + count
+    }
+    if scalar == 0 or annotation == 0 or function == 0 or entry == 0 or body == 0 or bound + 7 > 65536 { abort("actual emitted module lacks shared fixture insertion points") }
+    let decoration = [262215, bound + 1, 6, stride]
+    let declarations = [262187, scalar, bound, length, 262172, bound + 1, scalar, bound, 262176, bound + 2, 4, bound + 1, 262203, bound + 2, bound + 3, 4, 262176, bound + 4, 4, scalar, 262187, scalar, bound + 5, 0]
+    let store = [327745, bound + 4, bound + 6, bound + 3, bound + 5, 196670, bound + 6, bound + 5]
+    let words = Array<Int>(); offset = 0
+    while offset < text.length() / 4 {
+        if offset == annotation and stride != 0 { var j = 0; while j < decoration.length() { words.push(decoration[j]); j = j + 1 } }
+        if offset == function { var j = 0; while j < declarations.length() { words.push(declarations[j]); j = j + 1 } }
+        if offset == body { var j = 0; while j < store.length() { words.push(store[j]); j = j + 1 } }
+        if offset == 3 { words.push(bound + 7) }
+        else if offset == entry and listed {
+            let count = artifactWord(text, offset) >> 16; words.push(((count + 1) << 16) | 15); var j = 1
+            while j < count { words.push(artifactWord(text, offset + j)); j = j + 1 }
+            words.push(bound + 3); offset = offset + count - 1
+        } else { words.push(artifactWord(text, offset)) }
+        offset = offset + 1
+    }
+    let output = artifactBinary(words); words.free(); decoration.free(); declarations.free(); store.free(); return output
+}
+fun artifactConsume(result: Result<GpuVulkanArtifact, GpuError>) r: Void {
+    if result.isOkay() { result.unwrap().release() } else { let error = result.unwrapErr(); if error.code != "gpu.unsupported_abi" and error.code != "gpu.limit" and error.code != "gpu.out_of_memory" { abort("fuzz diagnostic escaped contract") }; error.release() }; result.releaseContainer()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let arguments = args()
+    if arguments.length() != 4 { abort("requires actual emitted SPIR-V, reflection and contract or fuzz") }
+    if size(arguments[1]) < 20 or size(arguments[1]) > 33554432 or size(arguments[2]) < 1 or size(arguments[2]) > 4194304 { abort("artifact fuzz input bounds invalid") }
+    let binary = readText(arguments[1]); let reflection = readText(arguments[2])
+    let first = GpuVulkanArtifact.parse(binary, reflection, "foundation"); let second = GpuVulkanArtifact.parse(binary, reflection, "increment")
+    if first.isErr() { println(first.unwrapErr().code); println(first.unwrapErr().operation); println(first.unwrapErr().message); abort("actual emitted foundation ABI was rejected") }
+    if second.isErr() { println(second.unwrapErr().code); println(second.unwrapErr().operation); println(second.unwrapErr().message); abort("actual emitted increment ABI was rejected") }
+    if first.unwrap().bindings.length() != 4 or second.unwrap().bindings.length() != 2 { abort("entry-specific reflected descriptor count changed") }
+    first.unwrap().release(); second.unwrap().release(); first.releaseContainer(); second.releaseContainer()
+    let emittedShared = GpuVulkanArtifact.parse(binary, reflection, "sharedProbe")
+    if emittedShared.isErr() { println(emittedShared.unwrapErr().code); println(emittedShared.unwrapErr().message); abort("actual emitted Workgroup storage was rejected") }
+    if emittedShared.unwrap().sharedBytes != 16 or emittedShared.unwrap().x != 4 { abort("actual shared entry physical storage disagrees with reflection") }
+    emittedShared.unwrap().release(); emittedShared.releaseContainer()
+    artifactReject(GpuVulkanArtifact.parse(binary, reflection, "missing")); artifactReject(GpuVulkanArtifact.parse("", reflection, "foundation"))
+    let malformed = ["", "null", "[]", "{}", "{", "{\"schema\":1}", "{\"schema\":\"seen-gpu-reflection-v1\",\"schema\":1}"]
+    var i = 0; while i < malformed.length() { artifactReject(GpuVulkanArtifact.parse(binary, malformed[i], "foundation")); i = i + 1 }; malformed.free()
+    let before = ["\"backend\":\"spirv\"", "\"binding\":0", "\"group\":0", "\"kind\":\"storage\"", "\"access\":\"read\"", "\"element_stride\":4", "\"minimum_binding_bytes\":16", "\"scalar_type\":3", "\"lanes\":1", "\"fault_binding\":3", "\"requires_fault_buffer\":true"]
+    let after = ["\"backend\":\"cuda\"", "\"binding\":65536", "\"group\":4", "\"kind\":\"image\"", "\"access\":\"write\"", "\"element_stride\":8", "\"minimum_binding_bytes\":0", "\"scalar_type\":2", "\"lanes\":4", "\"fault_binding\":0", "\"requires_fault_buffer\":false"]
+    i = 0; while i < before.length() { let changed = artifactReplace(reflection, before[i], after[i]); artifactReject(GpuVulkanArtifact.parse(binary, changed, "foundation")); seen_string_release_owned(changed); i = i + 1 }; before.free(); after.free()
+    let numeric = ["\"binding\":-1", "\"binding\":1e100", "\"binding\":0.5", "\"binding\":0,\"count\":2"]
+    i = 0; while i < numeric.length() { let changed = artifactReplace(reflection, "\"binding\":0", numeric[i]); artifactReject(GpuVulkanArtifact.parse(binary, changed, "foundation")); seen_string_release_owned(changed); i = i + 1 }; numeric.free()
+    let positions = [0, 1, 2, 3, 4, 16, 17, 18, 19]
+    i = 0; while i < positions.length() { let position = positions[i]; let changed = artifactMutate(binary, position, binary.byteAt(position) ^ 1); artifactReject(GpuVulkanArtifact.parse(changed, reflection, "foundation")); seen_string_release_owned(changed); i = i + 1 }; positions.free()
+    let truncated = binary.substring(0, binary.length() - 1); artifactReject(GpuVulkanArtifact.parse(truncated, reflection, "foundation")); seen_string_release_owned(truncated)
+    let alignedTruncation = binary.substring(0, binary.length() - 4); artifactReject(GpuVulkanArtifact.parse(alignedTruncation, reflection, "foundation")); seen_string_release_owned(alignedTruncation)
+    let unsupported = [9, 39, 6022, 65535]
+    i = 0; while i < unsupported.length() {
+        let instruction = [131089, unsupported[i]]; let changed = artifactInsert(binary, 5, instruction); instruction.free()
+        artifactReject(GpuVulkanArtifact.parse(changed, reflection, "foundation")); seen_string_release_owned(changed); i = i + 1
+    }; unsupported.free()
+    var extensionOffset = 5; while (artifactWord(binary, extensionOffset) & 65535) == 17 { extensionOffset = extensionOffset + (artifactWord(binary, extensionOffset) >> 16) }
+    let extension = Array<Int>(); let extensionName = "SPV_KHR_cooperative_matrix"
+    extension.push(((((extensionName.length() + 4) / 4) + 1) << 16) | 10); i = 0
+    while i <= extensionName.length() { var word = 0; var b = 0; while b < 4 { if i + b < extensionName.length() { word = word | (extensionName.byteAt(i + b) << (b * 8)) }; b = b + 1 }; extension.push(word); i = i + 4 }
+    let extended = artifactInsert(binary, extensionOffset, extension); extension.free()
+    artifactReject(GpuVulkanArtifact.parse(extended, reflection, "foundation")); seen_string_release_owned(extended)
+    let reflectedShared = artifactReplace(reflection, "\"shared_bytes\":0", "\"shared_bytes\":16")
+    let shared = artifactShared(binary, 4, 0, true)
+    artifactReject(GpuVulkanArtifact.parse(shared, reflection, "foundation"))
+    let acceptedShared = GpuVulkanArtifact.parse(shared, reflectedShared, "foundation")
+    if acceptedShared.isErr() { println(acceptedShared.unwrapErr().code); println(acceptedShared.unwrapErr().message); abort("matching physical shared allocation rejected") }
+    acceptedShared.unwrap().release(); acceptedShared.releaseContainer()
+    let unrelatedShared = GpuVulkanArtifact.parse(shared, reflectedShared, "increment")
+    if unrelatedShared.isErr() { abort("unrelated entry inherited foundation shared allocation") }; unrelatedShared.unwrap().release(); unrelatedShared.releaseContainer()
+    seen_string_release_owned(shared)
+    let hiddenShared = artifactShared(binary, 4, 0, false); artifactReject(GpuVulkanArtifact.parse(hiddenShared, reflection, "foundation")); seen_string_release_owned(hiddenShared)
+    let lengths = [5, 4294967295]; i = 0
+    while i < lengths.length() { let changed = artifactShared(binary, lengths[i], 0, true); artifactReject(GpuVulkanArtifact.parse(changed, reflectedShared, "foundation")); seen_string_release_owned(changed); i = i + 1 }; lengths.free()
+    let unsupportedStride = artifactShared(binary, 4, 8, true); artifactReject(GpuVulkanArtifact.parse(unsupportedStride, reflectedShared, "foundation")); seen_string_release_owned(unsupportedStride); seen_string_release_owned(reflectedShared)
+    if not gpuVkPipelineVersionSupported(4202496 as UInt32, 66816) or not gpuVkPipelineVersionSupported(4206592 as UInt32, 66816) { abort("Vulkan 1.2 SPIR-V compatibility rejected") }
+    if gpuVkPipelineVersionSupported(4198400 as UInt32, 66816) or gpuVkPipelineVersionSupported(4202496 as UInt32, 67072) or gpuVkPipelineVersionSupported(4206592 as UInt32, 67072) or gpuVkPipelineVersionSupported(4202496 as UInt32, 65536) or gpuVkPipelineVersionSupported(536870912 as UInt32, 66816) { abort("physical or requested instance API ceiling ignored") }
+    let nativePayloadResult = OwnedBuffer<UInt8>.allocate(256 as UInt64, 1 as UInt64, 16 as UInt64)
+    if nativePayloadResult.isErr() { abort("native cache byte fixture allocation failed") }
+    let nativePayload = nativePayloadResult.unwrap(); nativePayloadResult.releaseContainer()
+    i = 0; while i < 256 { nativePayload.data[i] = i as UInt8; i = i + 1 }
+    let payload = Array<Int>(); i = 0
+    while i < 256 {
+        let byte = nativePayload.data[i] as Int
+        if byte != i { abort("native unsigned cache byte did not widen losslessly") }
+        payload.push(byte); i = i + 1
+    }
+    nativePayload.close(); nativePayload.free()
+    let encoded = gpuVkCacheEncode("actual-device:driver:artifact:layout", payload); if encoded.isErr() { abort("cache envelope construction failed") }; let envelope = encoded.unwrap(); encoded.releaseContainer()
+    let decoded = gpuVkCacheDecode("actual-device:driver:artifact:layout", envelope); if decoded.isErr() { abort("cache envelope roundtrip failed") }; let bytes = decoded.unwrap(); decoded.releaseContainer()
+    i = 0; while i < bytes.length() { if bytes[i] != payload[i] { abort("cache envelope changed payload") }; i = i + 1 }; bytes.free()
+    let foreign = gpuVkCacheDecode("another-device:driver:artifact:layout", envelope); if foreign.isOkay() { abort("foreign cache identity accepted") }; foreign.unwrapErr().release(); foreign.releaseContainer()
+    i = 0; while i < envelope.length() { let previous = envelope[i]; envelope[i] = previous ^ 1; let corrupt = gpuVkCacheDecode("actual-device:driver:artifact:layout", envelope)
+        if corrupt.isOkay() { abort("corrupted cache envelope accepted") }; corrupt.unwrapErr().release(); corrupt.releaseContainer(); envelope[i] = previous; i = i + 1
+    }; payload.free(); envelope.free()
+    if arguments[3] == "fuzz" {
+        var seed = 1101; var cases = 0; let start = seen_time_monotonic_nanos()
+        while seen_time_monotonic_nanos() - start < (60000000000 as Int64) {
+            seed = (seed * 48271) % 2147483647
+            if seed % 2 == 0 { let changed = artifactMutate(binary, (seed / 2) % binary.length(), seed % 256); artifactConsume(GpuVulkanArtifact.parse(changed, reflection, "foundation")); seen_string_release_owned(changed) }
+            else { let changed = artifactMutate(reflection, (seed / 2) % reflection.length(), seed % 256); artifactConsume(GpuVulkanArtifact.parse(binary, changed, "foundation")); seen_string_release_owned(changed) }
+            cases = cases + 1
+        }
+        if cases < 100 { abort("artifact fuzz corpus did not execute") }; println(cases)
+    } else if arguments[3] != "contract" { abort("artifact contract mode invalid") }
+    seen_string_release_owned(binary); seen_string_release_owned(reflection); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline {
+        let delta = (seen_memory_used_bytes() - baseline).toString()
+        println("artifact-final-owned-bytes"); println(delta); seen_string_release_owned(delta)
+        abort("artifact reflection or cache parsing leaked owned memory")
+    }
+    println("PASS: actual artifact reflection ABI negative corpus bounded cache corruption and seed1101 parser ownership"); return 0
+}

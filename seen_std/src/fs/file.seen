@@ -43,6 +43,40 @@ fun validateArrayRange(values: Array<Int>, offset: Int, count: Int,
     return Ok<Bool, FsError>(true)
 }
 
+private fun openFileWithFlags(context: OperationContext, path: Path,
+    options: OpenOptions, policy: DirectIoPolicy, extraFlags: Int32)
+    r: Result<File, FsError> {
+    let contextCheck = validateFsContext(context, "open")
+    if contextCheck.isErr() {
+        let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+        return Err<File, FsError>(error)
+    }
+    contextCheck.releaseContainer()
+    if path.byteLength() > context.limits.maxPathBytes {
+        return Err<File, FsError>(fsFailure(1 as Int32, "open"))
+    }
+    var handle: UInt64 = 0 as UInt64
+    var alignment: UInt64 = 0 as UInt64
+    var active: Int32 = 0 as Int32
+    var fallbacks: UInt64 = 0 as UInt64
+    let value = path.asString()
+    let nativePath = value.toCString()
+    let status = seen_fs_open(value.length() as Int64, nativePath as *const Char,
+        options.nativeFlags() + extraFlags, directIoMode(policy), &handle,
+        &alignment, &active, &fallbacks)
+    seen_cstr_free(nativePath as *Void)
+    if status != FS_OK {
+        return Err<File, FsError>(fsFailure(status, "open"))
+    }
+    return Ok<File, FsError>(File{
+        handle: handle, path: path,
+        directIo: DirectIoDiagnostics{
+            active: active != (0 as Int32), alignment: alignment,
+            fallbackCount: fallbacks
+        }
+    })
+}
+
 @move
 class File {
     var handle: UInt64
@@ -52,42 +86,24 @@ class File {
     static fun open(context: OperationContext, path: Path,
         options: OpenOptions, policy: DirectIoPolicy)
         r: Result<File, FsError> {
-        let contextCheck = validateFsContext(context, "open")
-        if contextCheck.isErr() {
-            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
-            return Err<File, FsError>(error)
-        }
-        contextCheck.releaseContainer()
-        if path.byteLength() > context.limits.maxPathBytes {
-            return Err<File, FsError>(fsFailure(1 as Int32, "open"))
-        }
-        var handle: UInt64 = 0 as UInt64
-        var alignment: UInt64 = 0 as UInt64
-        var active: Int32 = 0 as Int32
-        var fallbacks: UInt64 = 0 as UInt64
-        let value = path.asString()
-        let nativePath = value.toCString()
-        let status = seen_fs_open(value.length() as Int64, nativePath as *const Char,
-            options.nativeFlags(), directIoMode(policy), &handle, &alignment,
-            &active, &fallbacks)
-        seen_cstr_free(nativePath as *Void)
-        if status != FS_OK {
-            return Err<File, FsError>(fsFailure(status, "open"))
-        }
-        return Ok<File, FsError>(File{
-            handle: handle, path: path,
-            directIo: DirectIoDiagnostics{
-                active: active != (0 as Int32), alignment: alignment,
-                fallbackCount: fallbacks
-            }
-        })
+        return openFileWithFlags(context, path, options, policy, 0 as Int32)
+    }
+
+    /// POSIX nonblocking acquisition, including FIFOs without a writer.
+    /// The caller must inspect metadata on the opened file to admit its kind.
+    static fun openNonBlocking(context: OperationContext, path: Path,
+        options: OpenOptions, policy: DirectIoPolicy)
+        r: Result<File, FsError> {
+        return openFileWithFlags(context, path, options, policy, 256 as Int32)
     }
 
     fun metadata(context: OperationContext) r: Result<FileMetadata, FsError> {
         let contextCheck = validateFsContext(context, "metadata")
         if contextCheck.isErr() {
-            return Err<FileMetadata, FsError>(contextCheck.unwrapErr())
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<FileMetadata, FsError>(error)
         }
+        contextCheck.releaseContainer()
         var size: UInt64 = 0 as UInt64
         var kind: Int32 = 0 as Int32
         var mode: UInt64 = 0 as UInt64
@@ -112,11 +128,17 @@ class File {
         r: Result<Int, FsError> {
         let contextCheck = validateFsContext(context, "read-at")
         if contextCheck.isErr() {
-            return Err<Int, FsError>(contextCheck.unwrapErr())
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<Int, FsError>(error)
         }
+        contextCheck.releaseContainer()
         let range = validateArrayRange(destination, destinationOffset, count,
             "read-at")
-        if range.isErr() { return Err<Int, FsError>(range.unwrapErr()) }
+        if range.isErr() {
+            let error = range.unwrapErr(); range.releaseContainer()
+            return Err<Int, FsError>(error)
+        }
+        range.releaseContainer()
         let transferred = seen_fs_pread_array_result(this.handle, fileOffset,
             destination, destinationOffset as Int64, count as Int64)
         if transferred < 0 {
@@ -131,10 +153,16 @@ class File {
         r: Result<Int, FsError> {
         let contextCheck = validateFsContext(context, "write-at")
         if contextCheck.isErr() {
-            return Err<Int, FsError>(contextCheck.unwrapErr())
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<Int, FsError>(error)
         }
+        contextCheck.releaseContainer()
         let range = validateArrayRange(source, sourceOffset, count, "write-at")
-        if range.isErr() { return Err<Int, FsError>(range.unwrapErr()) }
+        if range.isErr() {
+            let error = range.unwrapErr(); range.releaseContainer()
+            return Err<Int, FsError>(error)
+        }
+        range.releaseContainer()
         let transferred = seen_fs_pwrite_array_result(this.handle, fileOffset,
             source, sourceOffset as Int64, count as Int64)
         if transferred < 0 {
@@ -150,8 +178,12 @@ class File {
         while completed < source.length() {
             let next = this.writeAt(context, fileOffset + (completed as UInt64),
                 source, completed, source.length() - completed)
-            if next.isErr() { return Err<Int, FsError>(next.unwrapErr()) }
+            if next.isErr() {
+                let error = next.unwrapErr(); next.releaseContainer()
+                return Err<Int, FsError>(error)
+            }
             let count = next.unwrap()
+            next.releaseContainer()
             if count == 0 {
                 return Err<Int, FsError>(fsFailure(4 as Int32, "write-all"))
             }
@@ -164,8 +196,10 @@ class File {
         r: Result<Bool, FsError> {
         let contextCheck = validateFsContext(context, "sync")
         if contextCheck.isErr() {
-            return Err<Bool, FsError>(contextCheck.unwrapErr())
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<Bool, FsError>(error)
         }
+        contextCheck.releaseContainer()
         var dataFlag: Int32 = 0 as Int32
         if dataOnly { dataFlag = 1 as Int32 }
         let status = seen_fs_sync(this.handle, dataFlag)
@@ -176,7 +210,11 @@ class File {
     fun preallocate(context: OperationContext, offset: UInt64, length: UInt64)
         r: Result<Bool, FsError> {
         let contextCheck = validateFsContext(context, "preallocate")
-        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        if contextCheck.isErr() {
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<Bool, FsError>(error)
+        }
+        contextCheck.releaseContainer()
         let status = seen_fs_preallocate(this.handle, offset, length)
         if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "preallocate")) }
         return Ok<Bool, FsError>(true)
@@ -185,7 +223,11 @@ class File {
     fun truncate(context: OperationContext, length: UInt64)
         r: Result<Bool, FsError> {
         let contextCheck = validateFsContext(context, "truncate")
-        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        if contextCheck.isErr() {
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<Bool, FsError>(error)
+        }
+        contextCheck.releaseContainer()
         let status = seen_fs_truncate(this.handle, length)
         if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "truncate")) }
         return Ok<Bool, FsError>(true)
@@ -194,7 +236,11 @@ class File {
     fun punchHole(context: OperationContext, offset: UInt64, length: UInt64)
         r: Result<Bool, FsError> {
         let contextCheck = validateFsContext(context, "punch-hole")
-        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        if contextCheck.isErr() {
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<Bool, FsError>(error)
+        }
+        contextCheck.releaseContainer()
         let status = seen_fs_punch_hole(this.handle, offset, length)
         if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "punch-hole")) }
         return Ok<Bool, FsError>(true)
@@ -202,7 +248,11 @@ class File {
 
     fun space(context: OperationContext) r: Result<SpaceInfo, FsError> {
         let contextCheck = validateFsContext(context, "space")
-        if contextCheck.isErr() { return Err<SpaceInfo, FsError>(contextCheck.unwrapErr()) }
+        if contextCheck.isErr() {
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<SpaceInfo, FsError>(error)
+        }
+        contextCheck.releaseContainer()
         var available: UInt64 = 0 as UInt64
         var total: UInt64 = 0 as UInt64
         var blockSize: UInt64 = 0 as UInt64
@@ -216,7 +266,11 @@ class File {
     fun lock(context: OperationContext, exclusive: Bool, wait: Bool)
         r: Result<Bool, FsError> {
         let contextCheck = validateFsContext(context, "lock")
-        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        if contextCheck.isErr() {
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<Bool, FsError>(error)
+        }
+        contextCheck.releaseContainer()
         var exclusiveFlag: Int32 = 0 as Int32
         var waitFlag: Int32 = 0 as Int32
         if exclusive { exclusiveFlag = 1 as Int32 }
@@ -228,16 +282,22 @@ class File {
 
     fun unlock(context: OperationContext) r: Result<Bool, FsError> {
         let contextCheck = validateFsContext(context, "unlock")
-        if contextCheck.isErr() { return Err<Bool, FsError>(contextCheck.unwrapErr()) }
+        if contextCheck.isErr() {
+            let error = contextCheck.unwrapErr(); contextCheck.releaseContainer()
+            return Err<Bool, FsError>(error)
+        }
+        contextCheck.releaseContainer()
         let status = seen_fs_unlock(this.handle)
         if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "unlock")) }
         return Ok<Bool, FsError>(true)
     }
 
     fun close() r: Result<Bool, FsError> {
-        let status = seen_fs_close_value(this.handle)
-        if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "close")) }
+        let handle = this.handle
+        if handle == (0 as UInt64) { return Ok<Bool, FsError>(false) }
         this.handle = 0 as UInt64
+        let status = seen_fs_close_value(handle)
+        if status != FS_OK { return Err<Bool, FsError>(fsFailure(status, "close")) }
         return Ok<Bool, FsError>(true)
     }
 }

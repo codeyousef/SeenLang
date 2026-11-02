@@ -14,7 +14,7 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/generic-reprc-abi.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=generic-reprc-abi
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
-for name in fields methods plain; do
+for name in fields methods plain pointer_stores; do
     source="$ROOT_DIR/tests/fixtures/reprc-generic-abi/$name.seen"
     run_compiler check "$source" > "$TMP_DIR/$name-check.log" 2>&1
     for profile in fast release undefined address; do

@@ -31,13 +31,41 @@ source compatibility. They are not the production filesystem ownership API.
 |--------------------------|----------|
 | `Path.fromString` | Preserve path bytes and reject empty, oversized, or embedded-NUL values |
 | `File.open` | Open a move-only handle with explicit options and direct-I/O policy |
+| `File.openNonBlocking` | Use the same owning open contract with POSIX nonblocking acquisition; do not wait for a FIFO writer |
 | `File.readAt` / `writeAt` | Checked positional I/O with exact partial progress |
+| `File.close` | Attempt POSIX close once, retire the handle even on failure, and return `false` when already consumed |
 | `Directory.open` / `next` | Owned bounded directory iteration with explicit close |
 | `createDirectoryPath` | Context-aware directory creation for a checked `Path` |
 | `confinedChild` | Reject absolute, empty, dot, and parent traversal components |
 | `atomicReplace` | Adjacent exclusive temporary file, data sync, rename, and optional directory sync |
 | `moveAcrossFilesystems` | Rename first, then bounded copy/sync/remove only on `EXDEV` |
 | `readGather` / `writeGather` | At most 64 validated segments with explicit partial completion |
+
+On POSIX, `File.close()` consumes the native wrapper and clears `File.handle`
+even when close reports an error. The error remains observable; clearing the
+owner is not success. Do not retry the underlying descriptor: it may already
+have been closed and reused by another owner. Closing the cleared file returns
+`Ok(false)` without another native attempt and cannot close that replacement
+descriptor. The native pointer and value close entrypoints have the same
+consumption contract.
+
+`File` borrows its `Path`; keep that path alive while using the file. Closing
+consumes the native handle, not the Seen wrapper or its `directIo` diagnostics.
+The caller releases those objects separately and retains ownership of the path.
+Operation results own their containers; an unwrapped metadata or space value
+also remains caller-owned. Internal context/range/progress results are released
+by `File` on both success and failure.
+
+`File.openNonBlocking(context, path, options, policy)` uses `O_NONBLOCK` on
+supported POSIX targets. It does not turn regular-file reads or durability
+operations into asynchronous I/O. Consumers that require a regular file must
+validate metadata on the acquired descriptor, not perform a racy pathname check.
+Unsupported platforms return an explicit filesystem error.
+
+If metadata or wrapper allocation fails after successful exclusive creation,
+cleanup targets only the newly created file and consumes its descriptor while
+preserving the primary failure. An ordinary open failure does not remove an
+existing path; failed exclusive creation never removes another owner's file.
 
 ### High-Level Functions
 
@@ -322,12 +350,22 @@ Source/frontend checks alone do not establish executable platform verification.
 
 | Function | Description |
 |----------|-------------|
-| `println(s: String)` | Print string with newline |
+| `print(value)` | Print a supported scalar or String without a newline |
+| `println(value)` | Print a supported scalar or String with a newline |
 | `__Print(s: String)` | Print without newline |
 | `__PrintInt(n: Int)` | Print integer |
 | `__PrintFloat(f: Float)` | Print float |
 | `__PrintRaw(s: String)` | Print without newline (for LSP headers) |
 | `__FlushStdout()` | Flush stdout buffer |
+
+The compiler handles `Int`, `Float`, fixed-width signed and unsigned integers,
+`Float32`, `Float64`, `Char`, `Bool`, and `String` output. Numeric aliases use
+their actual width and signedness before conversion to the formatter ABI.
+Formatting temporaries created by `print` or `println` are released after output.
+A passed String is borrowed, not consumed; its owner still releases it. Boolean
+text is static and is not freed. Ownership of explicit allocating conversions
+is unchanged: an owned numeric `toString()` result passed to output remains
+caller-owned.
 
 ### Input
 

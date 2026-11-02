@@ -15,6 +15,12 @@ bytes; no floating-point conversion is involved. The buffer, allocator and nativ
 context remain borrowed until the mapped view closes. Read-only views reject
 writes, and all offsets are checked against the view rather than pool capacity.
 
+`gpuVkMapRegion(region, operation)` maps an already-held byte-region lease
+without acquiring a conflicting second lease. It consumes a valid region on
+success or failure; stale regions are rejected without transfer. The returned
+mapped owner releases the transferred region exactly once. This is the
+integration boundary used by prepared dispatches to retain their fault word.
+
 Each native block is mapped only once while any views exist. Coherent views may
 share that mapping under the existing buffer reader/exclusive-writer rules.
 Noncoherent mapping is exclusive across the entire block, including other byte
@@ -83,6 +89,43 @@ late deadlines and source coverage. Native-call traces reject per-copy command,
 semaphore or memory creation, fences and global idle waits. Such traces describe
 SDK calls made by Seen, not every internal driver allocation. Physical-device,
 benchmark and other-platform certification are separate evidence.
+
+## Native timeline streams and events
+
+`compute.vulkan_stream.GpuVulkanStream.open(allocator, slots, operation)`
+borrows an explicitly selected Vulkan context, creates one timeline semaphore
+and prepares up to 256 submission records within the context resource ceiling.
+Owners are move-only and creator-confined. Stream creation does not select a
+backend or create a thread, and requires enabled native timeline support.
+
+`signal(operation)` submits an empty native signal and returns its increasing
+UInt64 sequence. `event(sequence, operation)` creates a move-only retained event
+for an already submitted sequence; future values, closed owners and unavailable
+timelines are rejected. `wait(event, operation)` submits a native semaphore wait
+and a new signal on the destination stream, without blocking the host. Both
+streams must belong to the same live native context. The destination retains
+the source semaphore until completion even if the caller releases the event.
+
+`poll(sequence)` and `event.poll()` use a zero-timeout native query. A pending
+result retains all ownership; observed completion retires submission records
+and dependency borrows. Cancellation and deadlines are checked before admission,
+not used to revoke accepted work. Guaranteed OOM rejection leaves the sequence
+and slot retryable; uncertain acceptance preserves them in
+`GpuError.progress` and poisons further admission. Observed device loss permits
+retiring native use but never validates output.
+
+Closing a stream rejects pending submissions, active events, foreign waits and
+prepared-command borrowers. Repeated close is idempotent. Release events and
+observe pending work before releasing their stream; no shutdown path detaches
+work or inserts a device-wide idle wait. The stream core's native-command
+submission methods are integration boundaries: the prepared-command owner must
+retain its command pool, pipeline, descriptor sets and byte leases through
+completion or observed device loss.
+
+`bash tests/misc_root_tests/seen_gpu_runtime_d.sh` uses the attested capped
+path and explicit software ICD for native ordering, fault-prefix cleanup,
+capacity, OOM retry, uncertain admission, dependency lifetime and source coverage.
+Software-reference execution is not physical-device or performance certification.
 
 ## Owned Vulkan staging
 
@@ -288,7 +331,7 @@ feature during logical-device creation. Unsupported features remain disabled.
 No timeline is emulated and no backend is selected implicitly. Native mapping,
 submission and transfer APIs are separate from these foundations.
 
-Run `bash tests/misc_root_tests/seen_gpu_staging_foundations.sh` for the software
+Run `bash tests/misc_root_tests/seen_gpu_runtime_c.sh` for the software
 regressions. They cover staging reuse, cancellation, saturation, stale tickets,
 exhausted counters, byte-borrow aliasing, native feature-chain faults, a
 60-second metadata fuzzer, ownership rejections and source coverage. The native

@@ -31,7 +31,8 @@ fun spirvSharedArrayType(context: GpuSpirvContext, code: Int, count: Int) r: Int
     while i < context.sharedArrayKeys.length() { if context.sharedArrayKeys[i] == key { return context.sharedArrayIds[i] }; i = i + 1 }
     if context.sharedArrayKeys.length() >= 4096 { context.error("E_GPU_SPIRV_LIMIT", "SPIR-V shared array type cache ceiling exceeded"); return 0 }
     let element = context.valueType(code); let length = context.constant(3, count); let identity = context.id()
-    context.emit(SPV_DECLARATIONS, 28, [identity, element, length]); context.emit(SPV_ANNOTATIONS, 71, [identity, 6, gpuIrElementStride(code)])
+    // Ordinary Workgroup memory uses implicit layout, not explicit ArrayStride decorations.
+    context.emit(SPV_DECLARATIONS, 28, [identity, element, length])
     context.sharedArrayKeys.push(key); context.sharedArrayIds.push(identity); return identity
 }
 fun spirvCreateResource(context: GpuSpirvContext, typeCode: Int, binding: Int, count: Int) r: GpuSpirvResource {

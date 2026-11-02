@@ -30,14 +30,18 @@ run_vendor_faults() {
 native_fixtures=(vulkan_abi vulkan_instance vulkan_properties vulkan_provider)
 for profile in fast release undefined address; do
     for name in "${native_fixtures[@]}"; do
-        compile_case "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
-        rg -Fq 'PASS:' "$TMP_DIR/$name-$profile.log"
+        if [ "$name" = vulkan_abi ]; then
+            compile_fixture "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
+        else
+            compile_vulkan_fixture "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
+        fi
+        run_fixture "$profile" "$name"
     done
-    compile_fixture "$profile" vulkan_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
+    compile_vulkan_fixture "$profile" vulkan_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
     run_vendor_faults "$profile" vulkan_fault
 done
 FIXTURE_COMPILE_FLAGS=(--coverage)
-compile_fixture fast coverage-vulkan_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
+compile_vulkan_fixture fast coverage-vulkan_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_fault_contract.seen"
 run_vendor_faults fast coverage-vulkan_fault
 seen_source_coverage_tool llvm-profdata merge -sparse --num-threads=1 \
     "$TMP_DIR"/fault-coverage-vulkan_fault-*.profraw -o "$TMP_DIR/fault.profdata"
@@ -46,7 +50,12 @@ for name in "${native_fixtures[@]}" vulkan_properties_fuzz; do
     export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
     source="$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
     if [ "$name" = vulkan_properties_fuzz ]; then source="$ROOT_DIR/tests/production_gpu_runtime/$name.seen"; fi
-    compile_case fast "coverage-$name" "$source"
+    if [ "$name" = vulkan_abi ] || [ "$name" = vulkan_properties_fuzz ]; then
+        compile_fixture fast "coverage-$name" "$source"
+    else
+        compile_vulkan_fixture fast "coverage-$name" "$source"
+    fi
+    run_fixture fast "coverage-$name"
     native_coverage+=(--fixture "$TMP_DIR/coverage-$name-fast" "$TMP_DIR/$name.profraw")
 done
 seen_verify_source_coverage "$TMP_DIR/vulkan" "${native_coverage[@]}" \

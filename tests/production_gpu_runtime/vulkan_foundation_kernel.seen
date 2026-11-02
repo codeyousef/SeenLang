@@ -1,0 +1,33 @@
+@compute(8)
+fun foundation(input: ReadBuffer<UInt32>, output: WriteBuffer<UInt32>, scale: Uniform<UInt32>) {
+    let index = globalInvocationId.x
+    if index < input.length and index < output.length {
+        output[index] = input[index] * scale + index
+    }
+}
+
+@compute(4)
+fun increment(values: Buffer<UInt32>) {
+    let index = globalInvocationId.x
+    if index < values.length {
+        values[index] = values[index] + (1 as UInt32)
+    }
+}
+
+@compute(8)
+fun checkedFault(input: ReadBuffer<UInt32>, output: WriteBuffer<UInt32>, scale: Uniform<UInt32>) {
+    let index = globalInvocationId.x
+    output[index] = input[index] * scale + index
+}
+
+@compute(4)
+fun sharedProbe(output: WriteBuffer<UInt32>) {
+    let scratch: SharedBuffer<UInt32> = sharedBuffer(4)
+    let local = localInvocationIndex
+    scratch[local] = local + (1 as UInt32)
+    barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory)
+    let index = globalInvocationId.x
+    if index < output.length {
+        output[index] = scratch[local] + scratch[(local + (1 as UInt32)) % (4 as UInt32)]
+    }
+}

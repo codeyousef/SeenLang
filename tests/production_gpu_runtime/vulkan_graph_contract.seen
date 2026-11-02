@@ -1,0 +1,329 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice}
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_graph.{GpuVulkanGraphNode, GpuVulkanCommandGraph}
+import compute.vulkan_timestamps.{GpuVulkanTimestampPool}
+import compute.vulkan_stream.{GpuVulkanStream}
+import compute.buffer.{GpuBuffer}
+import compute.buffer_region.{GpuBufferRegion}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import compute.vulkan_mapping.{gpuVkMapBuffer, GpuVulkanMappedRegion}
+import core.operation_context.{OperationContext}
+import core.option.{Option, Some, None}
+import core.result.{Result}
+import compute.error.{GpuError}
+import device_fixture_support.{operation, releaseOperation}
+import provider_fixture_support.{completed}
+import env.env.{args, releaseArgs, set}
+import io.file.{readText, size}
+import json.builder.{seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun graphFTake<T>(result: Result<T, GpuError>) r: T {
+    if result.isErr() { println(result.unwrapErr().code); println(result.unwrapErr().message); abort("native graph contract operation failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun graphFRejected<T>(result: Result<T, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid graph operation was admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.progress != (0 as UInt64) { println(error.code); abort("graph preadmission diagnostic differs") }; error.release()
+}
+fun graphFFaultRejected<T>(result: Result<T, GpuError>, sequence: UInt64) r: Void {
+    if result.isOkay() { abort("latched checked graph fault became success") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != "gpu.kernel_fault" or error.progress != sequence or error.nativeCode.isNone() { abort("checked graph fault lost native identity") }
+    if error.nativeCode.unwrap() != (1 as Int64) { abort("checked graph fault bits changed") }; error.release()
+}
+fun graphFMap(borrow buffer: GpuBuffer<UInt32>, write: Bool, op: OperationContext) r: GpuVulkanMappedRegion {
+    return graphFTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(buffer, 0 as UInt64, buffer.byteLength, write, op))
+}
+fun graphFWord(borrow mapping: GpuVulkanMappedRegion, index: Int) r: UInt32 {
+    var word = 0 as UInt32; var b = 0
+    while b < 4 { let byte = graphFTake<UInt8>(mapping.readByte((index * 4 + b) as UInt64)); word = word | ((byte as UInt32) << ((b * 8) as UInt32)); b = b + 1 }; return word
+}
+fun graphFPut(borrow mapping: GpuVulkanMappedRegion, index: Int, word: UInt32) r: Void {
+    var b = 0; while b < 4 { completed(mapping.writeByte((index * 4 + b) as UInt64, ((word >> ((b * 8) as UInt32)) & (255 as UInt32)) as UInt8), true); b = b + 1 }
+}
+fun graphFBindings(input: Int, output: Int) r: Array<Int> {
+    let indices = Array<Int>(); indices.push(input); indices.push(output); indices.push(3); indices.push(4); return indices
+}
+fun graphFNodes(borrow producer: GpuVulkanPipeline, borrow consumer: GpuVulkanPipeline, variant: Int, op: OperationContext) r: Array<GpuVulkanGraphNode> {
+    let nodes = Array<GpuVulkanGraphNode>(); let first = Array<Int>(); let second = Array<Int>()
+    if variant == 1 { first.push(1) }
+    if variant != 2 and variant != 8 { second.push(0) }
+    if variant == 3 { second.push(0) }
+    if variant == 6 { second[0] = 2 }
+    if variant == 8 {
+        first.push(1)
+        nodes.push(graphFTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(consumer, graphFBindings(1, 2), first, 5 as UInt64, 1 as UInt64, 1 as UInt64, op)))
+        nodes.push(graphFTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(producer, graphFBindings(0, 1), second, 5 as UInt64, 1 as UInt64, 1 as UInt64, op))); return nodes
+    }
+    var input = 0; var output = 2; if variant == 5 { input = 1 }; if variant == 4 { output = 9 }
+    nodes.push(graphFTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(producer, graphFBindings(input, 1), first, 5 as UInt64, 1 as UInt64, 1 as UInt64, op)))
+    nodes.push(graphFTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(consumer, graphFBindings(1, output), second, 5 as UInt64, 1 as UInt64, 1 as UInt64, op))); return nodes
+}
+fun graphFRegions(borrow input: GpuBuffer<UInt32>, borrow intermediate: GpuBuffer<UInt32>, borrow output: GpuBuffer<UInt32>, borrow scale: GpuBuffer<UInt32>, borrow fault: GpuBuffer<UInt32>, outputWrite: Bool, op: OperationContext) r: Array<GpuBufferRegion> {
+    let regions = Array<GpuBufferRegion>()
+    regions.push(graphFTake<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op)))
+    regions.push(graphFTake<GpuBufferRegion>(intermediate.region(0 as UInt64, 148 as UInt64, true, op)))
+    regions.push(graphFTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, outputWrite, op)))
+    regions.push(graphFTake<GpuBufferRegion>(scale.region(0 as UInt64, 16 as UInt64, false, op)))
+    regions.push(graphFTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op))); return regions
+}
+fun graphFDropNodes(nodes: Array<GpuVulkanGraphNode>) r: Void { var i = 0; while i < nodes.length() { completed(nodes[i].release(), true); i = i + 1 }; nodes.free() }
+fun graphFDropRegions(regions: Array<GpuBufferRegion>) r: Void { var i = 0; while i < regions.length() { completed(regions[i].release(), true); i = i + 1 }; regions.free() }
+fun graphFDrain(borrow graph: GpuVulkanCommandGraph) r: Void {
+    var fuel = 0; while fuel < 1000000 { let ready = graphFTake<Bool>(graph.poll()); if ready { return }; fuel = fuel + 1 }; abort("bounded native graph completion fuel exhausted")
+}
+fun graphFOracle(borrow output: GpuBuffer<UInt32>, borrow intermediate: GpuBuffer<UInt32>, borrow fault: GpuBuffer<UInt32>, op: OperationContext) r: Void {
+    let finalMap = graphFMap(output, false, op); let middleMap = graphFMap(intermediate, false, op); let faultMap = graphFMap(fault, false, op); var i = 0
+    while i < 37 {
+        let input = ((4294967200 as UInt64) + ((i * 3) as UInt64)) & (4294967295 as UInt64)
+        let middle = (input * (7 as UInt64) + (i as UInt64)) & (4294967295 as UInt64)
+        let final = (middle * (7 as UInt64) + (i as UInt64)) & (4294967295 as UInt64)
+        if graphFWord(middleMap, i) != middle as UInt32 or graphFWord(finalMap, i) != final as UInt32 { abort("native producer/intermediate/consumer differs from independent wrap-u32 oracle") }; i = i + 1
+    }
+    if graphFWord(faultMap, 0) != (0 as UInt32) { abort("guarded graph emitted checked fault") }
+    completed(finalMap.release(), true); completed(middleMap.release(), true); completed(faultMap.release(), true)
+}
+
+// Independent permutation oracle, not the production closure/topological code.
+// Shared writable output/fault words require exactly one legal permutation.
+fun graphFGraphSpace(borrow stream: GpuVulkanStream, borrow pipeline: GpuVulkanPipeline,
+    borrow input: GpuBuffer<UInt32>, borrow intermediate: GpuBuffer<UInt32>,
+    borrow output: GpuBuffer<UInt32>, borrow scale: GpuBuffer<UInt32>,
+    borrow fault: GpuBuffer<UInt32>, op: OperationContext) r: Void {
+    var mask = 0
+    while mask < 64 {
+        let baseline = seen_memory_used_bytes(); var possibilities = 0
+        var first = -1; var second = -1; var third = -1; var a = 0
+        while a < 3 { var b = 0; while b < 3 {
+            if a != b {
+                let c = 3 - a - b; var legal = true; var node = 0; var bit = 0
+                while node < 3 { var dependency = 0; while dependency < 3 {
+                    if node != dependency {
+                        if ((mask >> bit) & 1) != 0 {
+                            var np = 2; var dp = 2
+                            if node == a { np = 0 } else if node == b { np = 1 }
+                            if dependency == a { dp = 0 } else if dependency == b { dp = 1 }
+                            if dp >= np { legal = false }
+                        }; bit = bit + 1
+                    }; dependency = dependency + 1
+                }; node = node + 1 }
+                if legal { possibilities = possibilities + 1; first = a; second = b; third = c }
+            }; b = b + 1
+        }; a = a + 1 }
+        let nodes = Array<GpuVulkanGraphNode>(); var node = 0; var bit = 0
+        while node < 3 {
+            let dependencies = Array<Int>(); var dependency = 0
+            while dependency < 3 {
+                if node != dependency { if ((mask >> bit) & 1) != 0 { dependencies.push(dependency) }; bit = bit + 1 }; dependency = dependency + 1
+            }
+            nodes.push(graphFTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(pipeline, graphFBindings(0, 2), dependencies, 5 as UInt64, 1 as UInt64, 1 as UInt64, op))); node = node + 1
+        }
+        let built = GpuVulkanCommandGraph.prepare(stream, graphFRegions(input, intermediate, output, scale, fault, true, op), nodes, None<GpuVulkanTimestampPool>(), op)
+        if possibilities == 1 {
+            let graph = graphFTake<GpuVulkanCommandGraph>(built)
+            if graph.order.length() != 3 or graph.order[0] != first or graph.order[1] != second or graph.order[2] != third { abort("native graph differs from exhaustive permutation oracle") }
+            completed(graph.release(), true)
+        } else { graphFRejected<GpuVulkanCommandGraph>(built, "gpu.invalid") }
+        if seen_memory_used_bytes() != baseline or pipeline.borrowers != 0 { abort("small DAG validation retained owner prefix") }; mask = mask + 1
+    }
+    let nodes = Array<GpuVulkanGraphNode>(); var node = 0
+    while node < 64 {
+        let dependencies = Array<Int>(); if node > 0 { dependencies.push(node - 1) }
+        nodes.push(graphFTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(pipeline, graphFBindings(0, 2), dependencies, 5 as UInt64, 1 as UInt64, 1 as UInt64, op))); node = node + 1
+    }
+    let maximum = graphFTake<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, graphFRegions(input, intermediate, output, scale, fault, true, op), nodes, None<GpuVulkanTimestampPool>(), op))
+    if maximum.order.length() != 64 { abort("64-node native graph boundary was truncated") }
+    node = 0; while node < 64 { if maximum.order[node] != node { abort("maximum graph dependency order differs") }; node = node + 1 }
+    completed(maximum.release(), true)
+}
+
+/// argv: SPIR-V reflection explicit-device mode [expected-native-error].
+/// mode: plain | timed | checked | checked-loss | prepare-fault | submit-fault | poll-fault.
+/// Native fault modes are driven by the F runner's direct SDK fault driver;
+/// no production state or native success is synthesized by this fixture.
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    if arguments.length() < 5 or arguments.length() > 6 { abort("requires SPIR-V reflection device mode and optional native error") }
+    let mode = arguments[4]
+    if mode != "plain" and mode != "timed" and mode != "checked" and mode != "checked-loss" and mode != "prepare-fault" and mode != "submit-fault" and mode != "poll-fault" { abort("unknown graph fixture mode") }
+    let nativeFault = mode == "prepare-fault" or mode == "submit-fault" or mode == "poll-fault"
+    if nativeFault and arguments.length() != 6 { abort("native fault mode requires exact expected typed error") }
+    if size(arguments[1]) < 20 or size(arguments[1]) > 33554432 or size(arguments[2]) < 1 or size(arguments[2]) > 4194304 { abort("graph artifact extent invalid") }
+    let binary = readText(arguments[1]); let reflection = readText(arguments[2]); let hardware = arguments[3] == "rtx4090"
+    if not hardware and arguments[3] != "software-reference" { abort("graph device class must be explicit") }
+    let op = operation(); let limits = GpuLimits.bounded(8, 4, 128, 1048576 as UInt64)
+    let provider = graphFTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, not hardware)); var selected = -1; var i = 0
+    while i < provider.catalog.devices.length() { let info = provider.catalog.devices[i]
+        if hardware { if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") { selected = i } } else if info.kind == GpuDeviceKind.Software { selected = i }; i = i + 1
+    }
+    if selected < 0 { abort("designated graph device unavailable; no fallback") }
+    let physical = graphFTake<GpuVulkanPipelineDevice>(GpuVulkanPipelineDevice.capture(provider, selected))
+    let device = graphFTake(openVulkanDevice(provider, selected, op)); let context = graphFTake(device.createContext(op))
+    let allocator = graphFTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 4, op))
+    let stream = graphFTake<GpuVulkanStream>(GpuVulkanStream.open(allocator, 4, op))
+    let empty = Array<Int>(); let producerEntry = "foundation"
+    var artifact = graphFTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, producerEntry))
+    if mode == "checked" or mode == "checked-loss" { artifact.release(); artifact = graphFTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "checkedFault")) }
+    let producer = graphFTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, artifact, empty, op))
+    let consumerArtifact = graphFTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation"))
+    let consumer = graphFTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, consumerArtifact, empty, op)); empty.free()
+    let input = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let intermediate = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let output = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let scale = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 4 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let fault = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 1 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let inputMap = graphFMap(input, true, op); let scaleMap = graphFMap(scale, true, op); i = 0
+    while i < 37 { graphFPut(inputMap, i, ((4294967200 as UInt64) + (i * 3) as UInt64) as UInt32); i = i + 1 }; graphFPut(scaleMap, 0, 7 as UInt32)
+    completed(inputMap.release(), true); completed(scaleMap.release(), true)
+    if not nativeFault {
+        if mode == "plain" { graphFGraphSpace(stream, consumer, input, intermediate, output, scale, fault, op) }
+        i = 1; while i <= 6 {
+            graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, graphFRegions(input, intermediate, output, scale, fault, true, op), graphFNodes(producer, consumer, i, op), None<GpuVulkanTimestampPool>(), op), "gpu.invalid"); i = i + 1
+        }
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, graphFRegions(input, intermediate, output, scale, fault, false, op), graphFNodes(producer, consumer, 0, op), None<GpuVulkanTimestampPool>(), op), "gpu.invalid")
+        let negativeDependency = graphFNodes(producer, consumer, 0, op); negativeDependency[1].dependencies[0] = -1
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, graphFRegions(input, intermediate, output, scale, fault, true, op), negativeDependency, None<GpuVulkanTimestampPool>(), op), "gpu.invalid")
+        let negativeBinding = graphFNodes(producer, consumer, 0, op); negativeBinding[0].regions[0] = -1
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, graphFRegions(input, intermediate, output, scale, fault, true, op), negativeBinding, None<GpuVulkanTimestampPool>(), op), "gpu.invalid")
+        let stale = graphFTake<GpuBufferRegion>(input.region(0 as UInt64, 4 as UInt64, false, op)); completed(stale.close(), true)
+        let staleRegions = Array<GpuBufferRegion>(); staleRegions.push(stale); let staleNodes = graphFNodes(producer, consumer, 0, op); let staleTiming = None<GpuVulkanTimestampPool>()
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, staleRegions, staleNodes, staleTiming, op), "gpu.invalid")
+        completed(stale.release(), true); staleRegions.free(); graphFDropNodes(staleNodes); staleTiming.free()
+        let duplicateRegions = graphFRegions(input, intermediate, output, scale, fault, true, op); duplicateRegions.push(duplicateRegions[0]); let duplicateNodes = graphFNodes(producer, consumer, 0, op); let duplicateTiming = None<GpuVulkanTimestampPool>()
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, duplicateRegions, duplicateNodes, duplicateTiming, op), "gpu.invalid")
+        i = 0; while i < 5 { completed(duplicateRegions[i].release(), true); i = i + 1 }; duplicateRegions.free(); graphFDropNodes(duplicateNodes); duplicateTiming.free()
+        let nodes = graphFNodes(producer, consumer, 0, op); nodes.push(nodes[0]); let regions = graphFRegions(input, intermediate, output, scale, fault, true, op); let timing = None<GpuVulkanTimestampPool>()
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, regions, nodes, timing, op), "gpu.invalid")
+        completed(nodes[0].release(), true); completed(nodes[1].release(), true); nodes.free(); graphFDropRegions(regions); timing.free()
+        let oversized = Array<GpuVulkanGraphNode>(); let single = graphFTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(producer, graphFBindings(0, 1), Array<Int>(), 5 as UInt64, 1 as UInt64, 1 as UInt64, op)); i = 0
+        while i < 65 { oversized.push(single); i = i + 1 }; let boundedRegions = Array<GpuBufferRegion>(); let boundedTiming = None<GpuVulkanTimestampPool>()
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, boundedRegions, oversized, boundedTiming, op), "gpu.limit")
+        completed(single.release(), true); oversized.free(); boundedRegions.free(); boundedTiming.free()
+        graphFRejected<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(producer, graphFBindings(0, 1), Array<Int>(), 0 as UInt64, 1 as UInt64, 1 as UInt64, op), "gpu.invalid")
+        graphFRejected<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(producer, graphFBindings(0, 1), Array<Int>(), producer.maxX + (1 as UInt64), 1 as UInt64, 1 as UInt64, op), "gpu.invalid")
+        let cancelledRegions = graphFRegions(input, intermediate, output, scale, fault, true, op); let cancelledNodes = graphFNodes(producer, consumer, 0, op); op.cancellation = true
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, cancelledRegions, cancelledNodes, None<GpuVulkanTimestampPool>(), op), "gpu.cancelled"); op.cancellation = false
+        let expiredRegions = graphFRegions(input, intermediate, output, scale, fault, true, op); let expiredNodes = graphFNodes(producer, consumer, 0, op); op.monotonicDeadline = -1 as Int64
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, expiredRegions, expiredNodes, None<GpuVulkanTimestampPool>(), op), "gpu.timeout"); op.monotonicDeadline = 9223372036854775807 as Int64
+        let otherContext = graphFTake(device.createContext(op)); let foreignAllocator = graphFTake<GpuAllocator>(GpuAllocator.create(otherContext, GpuMemoryKind.HostCoherent, 4096 as UInt64, 2, op))
+        let foreign = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(foreignAllocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        graphFRejected<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(stream, graphFRegions(foreign, intermediate, output, scale, fault, true, op), graphFNodes(producer, consumer, 0, op), None<GpuVulkanTimestampPool>(), op), "gpu.invalid")
+        completed(foreign.release(), true); completed(foreignAllocator.release(), true); completed(otherContext.release(), true)
+        if stream.core.lastSubmitted != (0 as UInt64) or producer.borrowers != 0 or consumer.borrowers != 0 { abort("graph rejection retained owners or admitted native work") }
+    }
+    var optionalPool: Option<GpuVulkanTimestampPool> = None<GpuVulkanTimestampPool>()
+    if mode == "timed" { optionalPool.free(); optionalPool = Some<GpuVulkanTimestampPool>(graphFTake<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op))) }
+    let built = GpuVulkanCommandGraph.prepare(stream, graphFRegions(input, intermediate, output, scale, fault, true, op), graphFNodes(producer, consumer, 8, op), optionalPool, op)
+    if mode == "prepare-fault" {
+        graphFRejected<GpuVulkanCommandGraph>(built, arguments[5])
+    } else {
+        let graph = graphFTake<GpuVulkanCommandGraph>(built)
+        if graph.order.length() != 2 or graph.order[0] != 1 or graph.order[1] != 0 { abort("stable dependency order did not reorder consumer before recording") }
+        let command = graph.command; let commandPool = graph.commandPool; let descriptorPool = graph.descriptorPool
+        if mode == "timed" { graphFRejected<Bool>(graph.timing.unwrap().close(), "gpu.busy") }
+        if not nativeFault {
+            op.cancellation = true; graphFRejected<UInt64>(graph.submit(op), "gpu.cancelled"); op.cancellation = false
+            op.monotonicDeadline = -1 as Int64; graphFRejected<UInt64>(graph.submit(op), "gpu.timeout"); op.monotonicDeadline = 9223372036854775807 as Int64
+            if graph.pending or stream.core.lastSubmitted != (0 as UInt64) { abort("pre-admission cancellation consumed graph sequence") }
+        }
+        let submitted = graph.submit(op)
+        if mode == "submit-fault" {
+            if submitted.isOkay() { abort("injected native graph submit failure became success") }
+            let error = submitted.unwrapErr(); submitted.releaseContainer(); if error.code != arguments[5] { abort("native graph submit code differs") }; let progress = error.progress; error.release()
+            if progress != (0 as UInt64) {
+                if not graph.pending or graph.sequence != progress { abort("uncertain acceptance lost graph ownership") }
+                graphFRejected<Bool>(graph.close(), "gpu.busy"); var fuel = 0
+                while graph.pending and fuel < 1000000 { let observed = graph.poll(); if observed.isErr() { let failure = observed.unwrapErr(); if failure.progress != progress { abort("uncertain graph poll lost sequence") }; failure.release() }; observed.releaseContainer(); fuel = fuel + 1 }
+                if graph.pending { abort("uncertain native graph did not retire within bounded fuel") }
+            } else if graph.pending { abort("confirmed rejected submit retained graph admission") }
+        } else {
+            let sequence = graphFTake<UInt64>(submitted)
+            graphFRejected<Bool>(graph.close(), "gpu.busy"); graphFRejected<Bool>(producer.close(), "gpu.busy"); graphFRejected<Bool>(intermediate.close(), "gpu.busy"); graphFRejected<Bool>(stream.close(), "gpu.busy")
+            graphFRejected<UInt64>(graph.submit(op), "gpu.busy")
+            if mode == "checked" or mode == "checked-loss" {
+                var observedFault = false; var fuel = 0
+                while not observedFault and fuel < 1000000 {
+                    let observed = graph.poll()
+                    if observed.isErr() { graphFFaultRejected<Bool>(observed, sequence); observedFault = true } else { if observed.unwrap() { abort("checked graph completed without native fault") }; observed.releaseContainer() }; fuel = fuel + 1
+                }
+                if not observedFault or graph.pending { abort("checked graph did not latch and retire") }
+                graphFFaultRejected<Bool>(graph.poll(), sequence); graphFFaultRejected<UInt64>(graph.submit(op), sequence)
+                if mode == "checked-loss" {
+                    // Driver injects real SDK device loss on the second queue
+                    // submission, after the checked graph has actually retired.
+                    let submittedLoss = stream.signal(op)
+                    if submittedLoss.isOkay() { abort("checked-loss mode requires native second-submit device loss") }
+                    let loss = submittedLoss.unwrapErr(); submittedLoss.releaseContainer()
+                    if loss.code != "gpu.device_lost" or loss.progress <= sequence { abort("later native loss lost admitted progress") }; let lostSequence = loss.progress; loss.release()
+                    var lossFuel = 0
+                    while stream.core.inFlight != 0 and lossFuel < 1000000 {
+                        let retired = stream.poll(lostSequence)
+                        if retired.isOkay() { if retired.unwrap() { abort("device-loss retirement became successful output") } } else { let error = retired.unwrapErr(); if error.code != "gpu.device_lost" or error.progress != lostSequence { abort("later device loss drain lost sequence") }; error.release() }; retired.releaseContainer(); lossFuel = lossFuel + 1
+                    }
+                    if stream.core.inFlight != 0 { abort("later native loss did not retire") }
+                    graphFFaultRejected<Bool>(graph.poll(), sequence); graphFFaultRejected<UInt64>(graph.submit(op), sequence)
+                }
+            } else if mode == "poll-fault" {
+                var observedFault = false; var fuel = 0
+                while not observedFault and fuel < 1000000 {
+                    let observed = graph.poll()
+                    if observed.isErr() { let error = observed.unwrapErr(); observed.releaseContainer(); if error.code != arguments[5] or error.progress != sequence { abort("native graph poll lost typed failure/progress") }; error.release(); observedFault = true } else { if observed.unwrap() { abort("injected native poll fault became success") }; observed.releaseContainer() }; fuel = fuel + 1
+                }
+                if not observedFault { abort("native poll failure was not observed") }
+                // Non-loss errors preserve pending resources; the next native
+                // observation (driver one-shot fault) must retire them safely.
+                if graph.pending { graphFRejected<Bool>(graph.close(), "gpu.busy"); graphFDrain(graph) }
+            } else {
+                // Cancellation after admission must not prevent native retirement.
+                op.cancellation = true; op.monotonicDeadline = -1 as Int64; graphFDrain(graph); op.cancellation = false; op.monotonicDeadline = 9223372036854775807 as Int64
+                completed(graph.poll(), true)
+                if mode == "timed" { if not graph.sample.ready or graph.sample.elapsedNanoseconds < 0.0 { abort("native graph timestamp was not published") } }
+                let next = graphFTake<UInt64>(graph.submit(op)); if next <= sequence { abort("graph reuse did not advance native timeline") }; graphFDrain(graph)
+                if graph.command != command or graph.commandPool != commandPool or graph.descriptorPool != descriptorPool { abort("graph reuse replaced persistent native setup") }
+                if mode == "timed" {
+                    let last = graphFTake<UInt64>(graph.submit(op)); var fuel = 0; var retired = false
+                    while not retired and fuel < 1000000 { retired = graphFTake<Bool>(stream.poll(last)); fuel = fuel + 1 }
+                    if not retired { abort("timed graph did not retire native batch") }
+                    set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-unavailable")
+                    completed(graph.poll(), false)
+                    if graph.sample.ready or graph.timing.unwrap().pending { abort("unavailable profiling validated output or retained retired query use") }
+                    // Unavailable profiling must permit reusing the same native
+                    // batch and query owner, not merely permit their release.
+                    let clock = graph.timing.unwrap(); let queryPool = clock.pool
+                    let reused = graphFTake<UInt64>(graph.submit(op))
+                    if reused <= last or not graph.pending or not clock.pending or graph.sample.ready { abort("unavailable profiling blocked fresh native graph ownership") }
+                    graphFRejected<UInt64>(graph.submit(op), "gpu.busy"); graphFRejected<Bool>(graph.close(), "gpu.busy")
+                    fuel = 0; retired = false
+                    while not retired and fuel < 1000000 { retired = graphFTake<Bool>(stream.poll(reused)); fuel = fuel + 1 }
+                    if not retired { abort("reused timed graph did not retire native batch") }
+                    completed(graph.poll(), false)
+                    if graph.pending or clock.pending or graph.sample.ready or stream.core.inFlight != 0 { abort("unavailable profiling retained reused native work or validated a sample") }
+                    if graph.command != command or graph.commandPool != commandPool or graph.descriptorPool != descriptorPool or clock.pool != queryPool { abort("unavailable-profile reuse replaced persistent native setup") }
+                    set("SEEN_VULKAN_FIXTURE_FAULT", "")
+                    graphFDrain(graph)
+                    if not graph.sample.ready or graph.sample.elapsedNanoseconds < 0.0 { abort("reused native graph timestamp was not published after availability recovered") }
+                }
+            }
+        }
+        // Keep the borrowed timestamp payload separately before graph consumes
+        // its Option wrapper, then release it only after dropGraph.
+        if mode == "timed" { let pool = graph.timing.unwrap(); completed(graph.close(), true); completed(graph.close(), false); graphFRejected<UInt64>(graph.submit(op), "gpu.invalid"); completed(graph.release(), true); completed(pool.release(), true) }
+        else { completed(graph.close(), true); completed(graph.close(), false); graphFRejected<UInt64>(graph.submit(op), "gpu.invalid"); completed(graph.release(), true) }
+        if mode == "plain" or mode == "timed" { graphFOracle(output, intermediate, fault, op) }
+    }
+    if producer.borrowers != 0 or consumer.borrowers != 0 or stream.core.inFlight != 0 { abort("graph shutdown retained node or timeline owners") }
+    completed(producer.release(), true); completed(consumer.release(), true)
+    completed(input.release(), true); completed(intermediate.release(), true); completed(output.release(), true); completed(scale.release(), true); completed(fault.release(), true)
+    completed(stream.release(), true); completed(allocator.release(), true); completed(context.release(), true); completed(device.release(), true)
+    physical.release(); limits.release(); releaseOperation(op); seen_string_release_owned(binary); seen_string_release_owned(reflection); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("native graph contract retained Seen owners") }
+    println("PASS: native persistent graph ownership, producer-consumer execution and bounded lifecycle contract"); return 0
+}

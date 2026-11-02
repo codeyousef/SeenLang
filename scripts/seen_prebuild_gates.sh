@@ -329,7 +329,7 @@ bash -n "$SCRIPT_DIR/artifact_root.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_lexer_interface_token_type.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_pkg_prebuild_operand_resolution.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_atomic_text_io.sh" \
-    "$REPO_ROOT/tests/misc_root_tests/seen_capped_regression_wiring.sh" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_capped_regression_rejections.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_focused_regression_entry_contract.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_memory_guard_fail_closed.sh" \
     "$REPO_ROOT/tests/misc_root_tests/seen_low_task_helper_serialization.sh" \
@@ -423,7 +423,7 @@ echo "Prebuild gates: explicit package manifest resolution contract..."
 bash "$REPO_ROOT/tests/misc_root_tests/seen_pkg_prebuild_operand_resolution.sh"
 
 echo "Prebuild gates: fail-closed memory containment..."
-bash "$REPO_ROOT/tests/misc_root_tests/seen_capped_regression_wiring.sh"
+bash "$REPO_ROOT/tests/misc_root_tests/seen_capped_regression_rejections.sh"
 bash "$REPO_ROOT/tests/misc_root_tests/seen_focused_regression_entry_contract.sh"
 bash "$REPO_ROOT/tests/misc_root_tests/seen_memory_guard_fail_closed.sh"
 bash "$REPO_ROOT/tests/misc_root_tests/seen_low_task_helper_serialization.sh"

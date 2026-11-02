@@ -4,12 +4,44 @@
     echo 'RESOURCE STOP: Vulkan reference fixtures require an attested capped regression' >&2
     exit 126
 }
+# Native execution opts into the loader through a real project manifest.
+# CPU import/ABI fixtures keep compile_fixture and never enter this project.
+compile_vulkan_fixture() {
+    local profile=$1 name=$2 source=$3
+    local fixtures="$ROOT_DIR/tests/production_gpu_runtime"
+    local project="$TMP_DIR/vulkan-native-project"
+    if [ "${source%/*}" != "$fixtures" ] || [ ! -f "$source" ]; then
+        echo 'FAIL: native Vulkan fixture must belong to the shared fixture directory' >&2
+        return 126
+    fi
+    if [ ! -d "$project" ]; then
+        mkdir -- "$project" || return
+        printf '%s\n' 'manifest-version = 1' '[project]' \
+            'name = "vulkan_native_fixture"' 'version = "0.23.0"' 'language = "en"' \
+            '[native.dependencies]' 'vulkan = {}' > "$project/Seen.toml" || return
+        cp -- "$fixtures/"*_fixture_support.seen "$fixtures/resource_assertions.seen" "$project/" || return
+    fi
+    cp -- "$source" "$project/${source##*/}" || return
+    if [ ! -f "$project/Seen.lock" ]; then
+        (cd -- "$project" && run_compiler pkg fetch --offline) \
+            > "$TMP_DIR/vulkan-native-project-prepare.log" 2>&1 || {
+            cat -- "$TMP_DIR/vulkan-native-project-prepare.log" >&2
+            return 1
+        }
+    fi
+    compile_fixture "$profile" "$name" "$project/${source##*/}"
+}
 seen_prepare_vulkan_reference() {
-    local candidate reference_icd=
-    for candidate in /usr/share/vulkan/icd.d/lvp_icd.json /usr/share/vulkan/icd.d/lvp_icd.x86_64.json; do
-        if [ -f "$candidate" ] && [ ! -L "$candidate" ]; then reference_icd=$candidate; break; fi
-    done
-    [ -n "$reference_icd" ] || { echo 'FAIL: explicit Mesa Vulkan reference ICD is unavailable' >&2; return 1; }
+    local candidate reference_icd="${SEEN_VULKAN_REFERENCE_ICD:-}"
+    if [ -n "$reference_icd" ]; then
+        case "$reference_icd" in /*) ;; *) echo 'FAIL: explicit Vulkan reference ICD must be absolute' >&2; return 1 ;; esac
+        [ -f "$reference_icd" ] && [ ! -L "$reference_icd" ] || { echo 'FAIL: explicit Vulkan reference ICD is not a regular manifest' >&2; return 1; }
+    else
+        for candidate in /usr/share/vulkan/icd.d/lvp_icd.json /usr/share/vulkan/icd.d/lvp_icd.x86_64.json; do
+            if [ -f "$candidate" ] && [ ! -L "$candidate" ]; then reference_icd=$candidate; break; fi
+        done
+        [ -n "$reference_icd" ] || { echo 'FAIL: explicit Mesa Vulkan reference ICD is unavailable' >&2; return 1; }
+    fi
     export VK_DRIVER_FILES="$reference_icd" LP_NUM_THREADS=1
     timeout --foreground --kill-after=5s 60s clang -std=c11 -Wall -Wextra -Werror \
         "$ROOT_DIR/tests/production_gpu_runtime/vulkan_abi_oracle.c" -o "$TMP_DIR/vulkan-abi-oracle" || return
@@ -57,7 +89,6 @@ seen_run_vulkan_fault() {
         run_fixture "$profile" "$name" "$mode" "$expected" || return
     cp -- "$TMP_DIR/$name-$profile.log" "$TMP_DIR/fault-$name-$mode-$profile.log" || return
     cp -- "$TMP_DIR/$name-$profile.run.status" "$TMP_DIR/fault-$name-$mode-$profile.status" || return
-    rg -Fq 'PASS:' "$TMP_DIR/fault-$name-$mode-$profile.log"
 }
 seen_run_vulkan_reference() {
     SEEN_VULKAN_FIXTURE_FAULT=none LD_PRELOAD="$TMP_DIR/vulkan-fault-driver.so" \

@@ -17,6 +17,9 @@ class GpuContextSlot {
     var generation: UInt64
     var borrowed: Bool
     var resourceBorrowers: Int
+    // Operational loss never invalidates an ownership identity used by teardown.
+    var lost: Bool
+    var lostNativeCode: Int32
 }
 
 class GpuDeviceCore {
@@ -47,7 +50,7 @@ class GpuDeviceCore {
         if this.slots.length() >= this.limits.maxContexts {
             return Err<Int, GpuError>(gpuFailure("gpu.limit", "gpu.context", "GPU context ceiling reached"))
         }
-        this.slots.push(GpuContextSlot{native: 0 as UInt64, generation: 1 as UInt64, borrowed: false, resourceBorrowers: 0})
+        this.slots.push(GpuContextSlot{native: 0 as UInt64, generation: 1 as UInt64, borrowed: false, resourceBorrowers: 0, lost: false, lostNativeCode: 0 as Int32})
         return Ok<Int, GpuError>(index)
     }
 
@@ -170,6 +173,7 @@ class GpuDevice {
             other = other + 1
         }
         let slot = this.core.slots[index]; slot.native = native
+        slot.lost = false; slot.lostNativeCode = 0 as Int32
         let observed = gpuCheckOperation(context, "gpu.context")
         if observed.isErr() {
             let error = observed.unwrapErr(); observed.releaseContainer()

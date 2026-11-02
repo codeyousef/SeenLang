@@ -57,6 +57,11 @@ bash -n \
     tests/misc_root_tests/seen_inf_simd_d.sh \
     tests/misc_root_tests/seen_inf_simd_e.sh \
     tests/misc_root_tests/seen_inf_simd_f.sh \
+    tests/misc_root_tests/seen_p0_accel_gate_a.sh \
+    tests/misc_root_tests/seen_p0_accel_gate_b.sh \
+    tests/misc_root_tests/seen_p0_accel_gate_c.sh \
+    tests/misc_root_tests/seen_p0_accel_gate_d.sh \
+    tests/expanded_gate_0_accelerator_certification/cpu_isolation/tool_trap.sh \
     tests/misc_root_tests/seen_gpu_ir_a.sh \
     tests/misc_root_tests/seen_gpu_ir_b.sh \
     tests/misc_root_tests/seen_gpu_ir_c.sh \
@@ -77,15 +82,26 @@ bash -n \
     tests/misc_root_tests/seen_gpu_metal_a.sh \
     tests/misc_root_tests/seen_gpu_metal_b.sh \
     tests/misc_root_tests/seen_gpu_metal_b_numeric.sh \
+    tests/misc_root_tests/seen_gpu_metal_c.sh \
     tests/misc_root_tests/seen_gpu_runtime_a.sh \
     tests/misc_root_tests/seen_gpu_runtime_a_vulkan.sh \
     tests/misc_root_tests/seen_gpu_runtime_b.sh \
-    tests/misc_root_tests/seen_gpu_staging_foundations.sh \
+    tests/misc_root_tests/seen_gpu_runtime_c.sh \
     tests/misc_root_tests/seen_gpu_vulkan_mapping.sh \
     tests/misc_root_tests/seen_gpu_vulkan_transfer.sh \
     tests/misc_root_tests/seen_gpu_vulkan_staging.sh \
+    tests/misc_root_tests/seen_gpu_runtime_d.sh \
+    tests/misc_root_tests/seen_gpu_runtime_e.sh \
+    tests/misc_root_tests/seen_gpu_runtime_f.sh \
+    tests/misc_root_tests/seen_gpu_runtime_g.sh \
+    tests/misc_root_tests/seen_gpu_runtime_h.sh \
     tests/misc_root_tests/seen_cuda_event_query.sh \
     tests/misc_root_tests/seen_gpu_cuda_staging.sh \
+    tests/misc_root_tests/seen_gpu_cuda_peer.sh \
+    tests/misc_root_tests/seen_fs_close_error.sh \
+    tests/misc_root_tests/seen_scalar_print_ownership.sh \
+    tests/misc_root_tests/seen_fs_file_ownership.sh \
+    tests/misc_root_tests/seen_json_float_serialization.sh \
     tests/misc_root_tests/seen_generic_reprc_abi.sh \
     tests/misc_root_tests/seen_prebuilt_generic_reprc_abi.sh \
     tests/misc_root_tests/seen_compiled_fixture_status.sh \
@@ -133,6 +149,13 @@ SEEN_CORE_004G_FUZZ_SECONDS=0.01 \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh
 
 python3 -m py_compile \
+    scripts/accelerator_gate_evidence.py \
+    tests/misc_root_tests/seen_accelerator_gate_evidence_contract.py \
+    tests/expanded_gate_0_accelerator_certification/cpu_isolation/probe_evidence.py \
+    tests/expanded_gate_0_accelerator_certification/logical_reflection.py \
+    tests/expanded_gate_0_accelerator_certification/runtime_child_evidence.py \
+    tests/expanded_gate_0_accelerator_certification/hardware_evidence.py \
+    tests/expanded_gate_0_accelerator_certification/metal_child_evidence.py \
     scripts/check_gpu_spirv_artifacts.py \
     scripts/check_gpu_spirv_toolchain.py \
     scripts/gpu_toolchain_process.py \
@@ -147,6 +170,10 @@ python3 -m py_compile \
     scripts/check_gpu_amdgpu_scalar.py \
     scripts/check_gpu_metal_artifacts.py \
     scripts/check_gpu_metal_scalar.py \
+    scripts/check_gpu_metal_toolchain.py \
+    scripts/certify_gpu_metal.py \
+    tests/gpu_artifacts/metal_certification_contract.py \
+    tests/gpu_artifacts/metal_toolchain_lifecycle_contract.py \
     scripts/gpu_metal_host.py \
     scripts/gpu_scalar_corpus.py \
     tests/gpu_artifacts/metal_metadata_contract.py \
@@ -227,6 +254,9 @@ python3 -m py_compile \
     tests/runner/test_release_toolchain_artifact_unit.py \
     tests/runner/test_release_platform_inputs_unit.py \
     tests/runner/test_release_draft_api_unit.py
+python3 tests/misc_root_tests/seen_accelerator_gate_evidence_contract.py
+python3 tests/gpu_artifacts/metal_certification_contract.py
+python3 tests/gpu_artifacts/metal_toolchain_lifecycle_contract.py
 python3 -m unittest \
     tests.runner.test_release_ci_run_unit \
     tests.runner.test_release_toolchain_artifact_unit \

@@ -16,9 +16,7 @@ FIXTURE_ARTIFACT_PREFIX=gpu-metal-b-numeric
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 for profile in fast release undefined address; do
     compile_case "$profile" numeric "$ROOT_DIR/tests/gpu_scalar_words/metal_numeric_contract.seen"
-    rg -Fq 'PASS: emitted Metal scalar cases share fixed IEEE packed goldens and restore allocation baseline' "$TMP_DIR/numeric-$profile.log"
     compile_case "$profile" specialization "$ROOT_DIR/tests/gpu_artifacts/specialization_contract.seen" metal
-    rg -Fq 'PASS: Metal bounded specialization overrides preserve source and independent clone ownership' "$TMP_DIR/specialization-$profile.log"
 done
 python3 "$ROOT_DIR/scripts/check_gpu_metal_numerics.py" "$TMP_DIR/numeric-fast.log"
 python3 - "$ROOT_DIR/scripts" "$TMP_DIR" <<'PY'

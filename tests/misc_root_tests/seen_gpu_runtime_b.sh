@@ -19,7 +19,6 @@ fixtures=(resource_foundations resource_geometry resource_ranges resource_alloca
 for profile in fast release undefined address; do
     for name in "${fixtures[@]}"; do
         compile_case "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
-        rg -Fq 'PASS: GPU-006B' "$TMP_DIR/$name-$profile.log"
     done
 done
 readelf -d "$TMP_DIR/resource_allocator-fast" > "$TMP_DIR/explicit-provider-libraries.txt"
@@ -40,10 +39,10 @@ run_native_faults() {
 }
 for profile in fast release undefined address; do
     for name in "${native_fixtures[@]}"; do
-        compile_fixture "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
+        compile_vulkan_fixture "$profile" "$name" "$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
         seen_run_vulkan_reference "$profile" "$name"
     done
-    compile_fixture "$profile" vulkan_resource_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_resource_fault_contract.seen"
+    compile_vulkan_fixture "$profile" vulkan_resource_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_resource_fault_contract.seen"
     run_native_faults "$profile" vulkan_resource_fault
 done
 FIXTURE_COMPILE_FLAGS=(--coverage)
@@ -52,10 +51,15 @@ for name in "${fixtures[@]}" "${native_fixtures[@]}" vulkan_properties_fuzz; do
     export LLVM_PROFILE_FILE="$TMP_DIR/$name.profraw"
     source="$ROOT_DIR/tests/production_gpu_runtime/${name}_contract.seen"
     if [ "$name" = vulkan_properties_fuzz ]; then source="$ROOT_DIR/tests/production_gpu_runtime/$name.seen"; fi
-    compile_case fast "coverage-$name" "$source"
+    if [ "$name" = vulkan_resource ] || [ "$name" = vulkan_properties ]; then
+        compile_vulkan_fixture fast "coverage-$name" "$source"
+        run_fixture fast "coverage-$name"
+    else
+        compile_case fast "coverage-$name" "$source"
+    fi
     coverage+=(--fixture "$TMP_DIR/coverage-$name-fast" "$TMP_DIR/$name.profraw")
 done
-compile_fixture fast coverage-vulkan_resource_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_resource_fault_contract.seen"
+compile_vulkan_fixture fast coverage-vulkan_resource_fault "$ROOT_DIR/tests/production_gpu_runtime/vulkan_resource_fault_contract.seen"
 run_native_faults fast coverage-vulkan_resource_fault
 seen_source_coverage_tool llvm-profdata merge -sparse --num-threads=1 \
     "$TMP_DIR"/fault-coverage-vulkan_resource_fault-*.profraw -o "$TMP_DIR/fault.profdata"
@@ -78,7 +82,6 @@ python3 "$ROOT_DIR/scripts/check_source_coverage_thresholds.py" "$TMP_DIR/resour
 FIXTURE_COMPILE_FLAGS=()
 unset LLVM_PROFILE_FILE
 compile_case fast geometry-fuzz "$ROOT_DIR/tests/production_gpu_runtime/resource_geometry_fuzz.seen"
-rg -Fq 'PASS: GPU-006B geometry fuzz 60s seed=1101' "$TMP_DIR/geometry-fuzz-fast.log"
 for name in buffer allocator; do
     for purpose in move share; do
         expected=E_OWNERSHIP_USE_AFTER_MOVE

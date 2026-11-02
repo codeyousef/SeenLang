@@ -1,0 +1,48 @@
+// Native CPU arithmetic and ownership remain independent of unused SDK APIs.
+import compute.cuda_peer.{GpuCudaPeerCapability, GpuCudaPeerLink}
+import compute.cuda_device_transfer.{GpuCudaDeviceTransfer}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_pipeline_dispatch.{GpuVulkanDispatch}
+import compute.backend.{GpuBackend, gpuBackendFromName}
+import compute.discovery.{GpuDeviceCatalog}
+import compute.limits.{GpuLimits}
+import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: Int64
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let allocated = OwnedBuffer<UInt32>.allocate(37 as UInt64, 4 as UInt64, 64 as UInt64)
+    if allocated.isErr() { abort("CPU isolation buffer allocation failed") }
+    let output = allocated.unwrap(); allocated.releaseContainer()
+    var index = 0
+    while index < 37 {
+        let input = (index + 1) as UInt32
+        output.data[index] = input * (7 as UInt32) + (index as UInt32)
+        index = index + 1
+    }
+    index = 0
+    while index < 37 {
+        if output.data[index] != ((8 * index + 7) as UInt32) { abort("CPU isolation arithmetic differs") }
+        index = index + 1
+    }
+    if not output.close() or output.close() { abort("CPU buffer close lost idempotence") }
+    output.free()
+    // CPU is the absence of an accelerator selection, never implicit discovery.
+    let decoded = gpuBackendFromName("none")
+    if decoded.isErr() { abort("CPU-only backend name rejected") }
+    let backend = decoded.unwrap(); decoded.releaseContainer()
+    if backend != GpuBackend.CpuOnly { abort("CPU-only backend changed") }
+    let limits = GpuLimits.bounded(1, 1, 4, 4096 as UInt64)
+    let rejected = GpuDeviceCatalog.create(backend, 1 as UInt64, limits)
+    if rejected.isOkay() { abort("CPU-only discovery accepted an accelerator provider") }
+    let error = rejected.unwrapErr(); rejected.releaseContainer()
+    if error.code != "gpu.invalid" or error.operation != "gpu.discovery" or error.retryable {
+        abort("CPU-only discovery lost its typed permanent error")
+    }
+    error.release(); limits.release()
+    if seen_memory_used_bytes() != memory or seen_sync_live_atomics() != atomics {
+        abort("CPU isolation ownership did not return to baseline")
+    }
+    return 0
+}

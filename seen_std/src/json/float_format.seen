@@ -1,0 +1,178 @@
+/// Finite binary64 JSON formatting, independent of display precision and locale.
+import str.string.{StringBuilder}
+import math.math.{copysign}
+
+extern "C" fun seen_string_builder_flatten_owned(parts: Array<String>,
+    totalLength: Int) r: String
+extern "C" fun seen_string_clone_owned(value: String) r: String
+
+fun jsonFloatDigit(digit: Int) r: String {
+    if digit == 0 { return "0" }
+    if digit == 1 { return "1" }
+    if digit == 2 { return "2" }
+    if digit == 3 { return "3" }
+    if digit == 4 { return "4" }
+    if digit == 5 { return "5" }
+    if digit == 6 { return "6" }
+    if digit == 7 { return "7" }
+    if digit == 8 { return "8" }
+    return "9"
+}
+
+fun jsonFloatAppendPositiveInt(builder: StringBuilder, value: Int) r: Void {
+    if value >= 10 { jsonFloatAppendPositiveInt(builder, value / 10) }
+    builder.append(jsonFloatDigit(value % 10))
+}
+
+// Little-endian base-1e9 limbs. Multipliers are at most 2^29 or 5^12,
+// so each product plus carry is below 2^59, safely inside Seen Int.
+fun jsonFloatMultiply(limbs: Array<Int>, length: Int, multiplier: Int) r: Int {
+    var index = 0
+    var carry = 0
+    while index < length {
+        let product = limbs[index] * multiplier + carry
+        limbs[index] = product % 1000000000
+        carry = product / 1000000000
+        index = index + 1
+    }
+    if carry != 0 {
+        limbs[length] = carry
+        return length + 1
+    }
+    return length
+}
+
+/// Returns one owned string, released by releaseJsonText. Nonfinite values
+/// violate the JSON-number precondition and abort rather than emit invalid JSON.
+/// Negative zero retains its sign. Seventeen significant decimal digits rounded
+/// to nearest/even suffice to recover every finite binary64 with a strict parser.
+fun formatJsonFloat(value: Float) r: String {
+    if value.isNaN() or value.isInfinite() {
+        abort("JSON serialization requires finite numbers")
+    }
+    if value == 0.0 {
+        if copysign(1.0, value) < 0.0 { return seen_string_clone_owned("-0") }
+        return seen_string_clone_owned("0")
+    }
+
+    var magnitude = value
+    if magnitude < 0.0 { magnitude = -magnitude }
+    var binaryExponent = 0
+    // Scaling by two is exact, including subnormals. Only convert to Int after
+    // normalization into [2^52, 2^53), never an out-of-range floating value.
+    while magnitude < 4503599627370496.0 {
+        magnitude = magnitude * 2.0
+        binaryExponent = binaryExponent - 1
+    }
+    while magnitude >= 9007199254740992.0 {
+        magnitude = magnitude / 2.0
+        binaryExponent = binaryExponent + 1
+    }
+    var significand = magnitude.toInt()
+    while significand % 2 == 0 {
+        significand = significand / 2
+        binaryExponent = binaryExponent + 1
+    }
+
+    // Exact decimal integer times 10^decimalScale. Binary64 needs at most
+    // 767 integer digits here: 86 base-1e9 limbs, preallocated once. Only the
+    // first 17 digits, one rounding digit, and a sticky bit need retention.
+    let limbs = Array<Int>.withLength(86)
+    limbs[0] = significand % 1000000000
+    var limbCount = 1
+    if significand >= 1000000000 {
+        limbs[1] = significand / 1000000000
+        limbCount = 2
+    }
+    var decimalScale = 0
+    var remaining = binaryExponent
+    var factorBase = 2
+    var chunkLimit = 29
+    if remaining < 0 {
+        decimalScale = remaining
+        remaining = -remaining
+        factorBase = 5
+        chunkLimit = 12
+    }
+    while remaining > 0 {
+        var multiplier = 1
+        var chunk = 0
+        while chunk < chunkLimit and remaining > 0 {
+            multiplier = multiplier * factorBase
+            remaining = remaining - 1
+            chunk = chunk + 1
+        }
+        limbCount = jsonFloatMultiply(limbs, limbCount, multiplier)
+    }
+
+    let digits = Array<Int>.withLength(17)
+    var digitCount = 0
+    var roundingDigit = 0
+    var sticky = false
+    var limbIndex = limbCount - 1
+    while limbIndex >= 0 {
+        var divisor = 100000000
+        if limbIndex == limbCount - 1 {
+            while divisor > limbs[limbIndex] { divisor = divisor / 10 }
+        }
+        while divisor > 0 {
+            let digit = (limbs[limbIndex] / divisor) % 10
+            if digitCount < 17 {
+                digits[digitCount] = digit
+            } else {
+                if digitCount == 17 { roundingDigit = digit }
+                else if digit != 0 { sticky = true }
+            }
+            digitCount = digitCount + 1
+            divisor = divisor / 10
+        }
+        limbIndex = limbIndex - 1
+    }
+    limbs.free()
+    var decimalExponent = digitCount - 1 + decimalScale
+    var kept = digitCount
+    if kept > 17 { kept = 17 }
+    if digitCount > 17 and (roundingDigit > 5 or
+        (roundingDigit == 5 and (sticky or digits[16] % 2 != 0))) {
+
+        var position = 16
+        while position >= 0 and digits[position] == 9 {
+            digits[position] = 0
+            position = position - 1
+        }
+        if position < 0 {
+            digits[0] = 1
+            decimalExponent = decimalExponent + 1
+        } else {
+            digits[position] = digits[position] + 1
+        }
+    }
+    while kept > 1 and digits[kept - 1] == 0 { kept = kept - 1 }
+
+    let builder = StringBuilder.new()
+    if value < 0.0 { builder.append("-") }
+    builder.append(jsonFloatDigit(digits[0]))
+    if kept > 1 {
+        builder.append(".")
+        var index = 1
+        while index < kept {
+            builder.append(jsonFloatDigit(digits[index]))
+            index = index + 1
+        }
+    }
+    digits.free()
+    if decimalExponent != 0 {
+        builder.append("e")
+        if decimalExponent < 0 {
+            builder.append("-")
+            decimalExponent = -decimalExponent
+        }
+        jsonFloatAppendPositiveInt(builder, decimalExponent)
+    }
+    // Every part above is a borrowed digit/punctuation literal.
+    let result = seen_string_builder_flatten_owned(builder.parts,
+        builder.totalLength)
+    builder.parts.free()
+    builder.free()
+    return result
+}

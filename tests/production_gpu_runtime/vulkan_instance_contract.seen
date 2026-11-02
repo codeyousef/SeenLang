@@ -5,9 +5,11 @@ extern "C" fun seen_memory_used_bytes() r: Int64
 
 fun main() r: Int {
     let memory = seen_memory_used_bytes(); let context = operation()
-    let native = [-1 as Int32, -2 as Int32, -4 as Int32, -6 as Int32, -7 as Int32, -8 as Int32, -9 as Int32, 1 as Int32]
+    let native = [-1 as Int32, -2 as Int32, -4 as Int32, -6 as Int32, -7 as Int32, -8 as Int32, -9 as Int32, 1 as Int32,
+        -10 as Int32, -12 as Int32, -1000069000 as Int32, -1000161000 as Int32]
     let codes = ["gpu.out_of_memory", "gpu.out_of_memory", "gpu.device_lost", "gpu.unsupported_capability",
-        "gpu.unsupported_capability", "gpu.unsupported_capability", "gpu.unavailable", "gpu.invalid"]
+        "gpu.unsupported_capability", "gpu.unsupported_capability", "gpu.unavailable", "gpu.invalid",
+        "gpu.limit", "gpu.out_of_memory", "gpu.out_of_memory", "gpu.out_of_memory"]
     var index = 0
     while index < native.length() {
         let error = gpuVkFailure(native[index], "gpu.vulkan.fixture")

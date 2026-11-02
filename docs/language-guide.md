@@ -662,6 +662,11 @@ let f = x as Float
 let s = x as String
 ```
 
+Native 64-bit numeric casts give `Int64` the same conversion behavior as `Int`.
+Casts from `Float32` or `Float`/`Float64` to signed-64 integers truncate toward
+zero for finite, in-range inputs; they do not provide saturation. Conversions
+back to floating types may round values beyond that type's exact precision.
+
 On supported 64-bit targets, `Ptr`↔`Int`/`UInt64` casts preserve the pointer bits
 using the physical pointer/word ABI. Converting an integer to a pointer does not
 validate the address or extend an allocation's lifetime.

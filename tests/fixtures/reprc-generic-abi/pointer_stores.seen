@@ -1,0 +1,47 @@
+import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+@repr(C)
+@trivially_copyable
+class PointerStoreRecord {
+    var tag: UInt32
+    var length: UInt64
+    var address: *UInt8
+    var signed: Int32
+}
+fun main() r: Int {
+    let initial = seen_memory_used_bytes()
+    let allocated = OwnedBuffer<UInt8>.allocate(96 as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { abort("pointer-store backing allocation failed") }
+    let owner = allocated.unwrap(); allocated.releaseContainer()
+    let raw = owner.data as *Void
+    let bytes = raw as *UInt8
+    var i = 0
+    while i < 96 { bytes[i] = 165 as UInt8; i = i + 1 }
+    let records = raw as *PointerStoreRecord
+    let address = ((raw as UInt64) + (7 as UInt64)) as *UInt8
+    let length = (9223372036854775807 as UInt64) + (19 as UInt64)
+    let baseline = seen_memory_used_bytes()
+    var iteration = 0
+    while iteration < 1000 {
+        records[1] = PointerStoreRecord{tag: 4294967291 as UInt32,
+            length: length, address: address, signed: -7 as Int32}
+        if records[1].tag != (4294967291 as UInt32) or
+            records[1].length != length or records[1].address != address or
+            records[1].signed != (-7 as Int32) {
+            abort("typed pointer aggregate store changed field values")
+        }
+        if seen_memory_used_bytes() != baseline { abort("copied aggregate literal retained temporary storage") }
+        iteration = iteration + 1
+    }
+    i = 0
+    while i < 32 {
+        if bytes[i] != (165 as UInt8) or bytes[i + 64] != (165 as UInt8) {
+            abort("typed aggregate pointer store crossed adjacent records")
+        }
+        i = i + 1
+    }
+    owner.close(); owner.free()
+    if seen_memory_used_bytes() != initial { abort("pointer-store owner was not released") }
+    return 0
+}

@@ -6,6 +6,8 @@ fun spirvMemoryScope(scope: Int) r: Int {
 fun spirvMemorySemantics(order: Int, spaces: Int) r: Int {
     // Vulkan forbids SequentiallyConsistent shader memory semantics.
     if order < 1 or order > 4 or spaces < 1 or spaces > 3 { return -1 }
+    // VUID-StandaloneSpirv-MemorySemantics-10871: storage semantics require a non-relaxed order.
+    if order == 1 { return 0 }
     var result = 0
     if order == 2 { result = 2 }; if order == 3 { result = 4 }; if order == 4 { result = 8 }
     if (spaces & 1) != 0 { result = result | 64 }; if (spaces & 2) != 0 { result = result | 256 }
