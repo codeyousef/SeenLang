@@ -15,9 +15,11 @@ Bootstrap, acceptance, proportional gates and artifact retention must fit those
 bounds; increasing a wall-clock budget does not bypass a check or change its
 memory, task, sanitizer, fuzz-duration or performance policy.
 
-`seen-verification-logs-<commit>` retains build/guard log tails independently of
-the larger frontend diagnostic artifact. Its index records original and retained
-sizes, hashes and omitted files. Collection allows at most 128 files, 1 MiB per
-file and 32 MiB in total, with bounded directory discovery and no symlink
-following. This keeps a timeout's active gate and guard diagnostics accessible
-without downloading generated LLVM IR and compiler executables.
+`seen-verification-logs-<commit>` retains build/guard log tails on success and
+failure. Its index records original and retained sizes, hashes and omitted
+files. Collection allows at most 128 files, 1 MiB per file and 32 MiB in total,
+with bounded directory discovery and no symlink following. Failed runs do not
+upload compiler executables or bulk generated LLVM IR. Structured accelerator
+and I/O evidence is retained separately under its own bounds. A failure does not
+publish an exact-commit release toolchain; that artifact still requires successful
+verification.

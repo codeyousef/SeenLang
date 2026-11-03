@@ -41,6 +41,20 @@ Foundations**.
 - Expose reusable staging foundation acceptance as `seen_gpu_runtime_c.sh`,
   updating all callers without an obsolete alias, and preserve sticky
   `gpu.device_lost` for output reads after native staging-loss retirement.
+- Remove the separate bulk failed-frontend CI upload, which could retain
+  gigabytes of compiler executables and generated LLVM IR. Preserve bounded
+  verification-log tails and independently bounded accelerator/I/O evidence;
+  release-toolchain uploads still require successful verification.
+- Invoke the bounded instrumentation soak through Bash instead of requiring an
+  executable bit on the capped-regression helper, so actual compiler/emitter
+  instrumentation acceptance reaches its native soak checks.
+- Route `seen test --profile sanitizer-thread` through attested compilation and
+  reviewed generated-executable admission with a finite hard virtual-address
+  limit. Propagate admission/startup failures instead of allowing a sanitizer
+  runtime to lift an inherited soft limit and appear to pass.
+- Validate formatter TextEdit JSON by parsed UTF-16 range and replacement
+  values instead of pinning decimal number spellings. Keep equivalent JSON
+  number encodings valid and verify the real LSP JSON-RPC consumer.
 
 - Lower source generic classes with String/Array arguments through concrete field
   types and method ABIs, retaining String aggregates and native Array references

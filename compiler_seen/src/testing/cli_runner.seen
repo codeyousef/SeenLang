@@ -206,14 +206,46 @@ fun testCliExecute(root: String, selfPath: String, compilerSourceRoot: String,
                 testCliShellQuote(sanitizer) + " --instrumentation-report " +
                 testCliShellQuote(report)
         }
-        command = "SEEN_COMPILER_SOURCE_ROOT=" +
-            testCliShellQuote(compilerSourceRoot) +
-            " SEEN_PACKAGE_CLIENT=" +
-            testCliShellQuote(packageClientPath) +
-            " " + testCliShellQuote(selfPath) + " compile " +
-            testCliShellQuote(absolute) + " " + testCliShellQuote(binary) +
-            " --fast --no-fork" + instrumentationFlags + " && " +
-            executionPrefix + testCliShellQuote(binary) + executionPostfix
+        if profile == "sanitizer-thread" {
+            // TSan may raise an inherited soft address limit. Compile inside
+            // an attested artifact scope and admit only the generated binary
+            // through the reviewed finite-hard-limit runner.
+            let threadBody = "set -eu; " +
+                "work=$(mktemp -d \"$SEEN_ARTIFACT_ROOT/test-cli-thread.XXXXXX\"); " +
+                "keep_tmp=; if [ -v SEEN_KEEP_TMP ]; then keep_tmp=\"$SEEN_KEEP_TMP\"; fi; " +
+                "trap 'status=$?; trap - EXIT; if [ \"$status\" -eq 0 ] && [ -z \"$keep_tmp\" ]; then rm -rf -- \"$work\"; fi; exit \"$status\"' EXIT; " +
+                "trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM; " +
+                "cd " + testCliShellQuote(workingRoot) + "; " +
+                "build_status=0; SEEN_COMPILER_SOURCE_ROOT=" +
+                testCliShellQuote(compilerSourceRoot) +
+                " SEEN_PACKAGE_CLIENT=" + testCliShellQuote(packageClientPath) +
+                " bash " + testCliShellQuote(compilerSourceRoot +
+                    "/scripts/run_attested_seen.sh") + " " +
+                testCliShellQuote(selfPath) + " compile " +
+                testCliShellQuote(absolute) + " \"$work/test\" --fast --no-fork" +
+                instrumentationFlags +
+                " >\"$work/compile.log\" 2>&1 || build_status=$?; " +
+                "tail -c 32768 -- \"$work/compile.log\"; " +
+                "if [ \"$build_status\" -ne 0 ]; then exit \"$build_status\"; fi; " +
+                "bash " + testCliShellQuote(compilerSourceRoot +
+                    "/scripts/run_asan_in_hard_memory_scope.sh") +
+                " --sanitizer thread --target-root \"$work\"" +
+                " --compile-log \"$work/compile.log\" -- \"$work/test\""
+            command = "bash " + testCliShellQuote(compilerSourceRoot +
+                "/scripts/run_capped_regression.sh") +
+                " test-cli-thread-profile --compiler " +
+                testCliShellQuote(selfPath) + " -- bash -c " +
+                testCliShellQuote(threadBody)
+        } else {
+            command = "SEEN_COMPILER_SOURCE_ROOT=" +
+                testCliShellQuote(compilerSourceRoot) +
+                " SEEN_PACKAGE_CLIENT=" +
+                testCliShellQuote(packageClientPath) +
+                " " + testCliShellQuote(selfPath) + " compile " +
+                testCliShellQuote(absolute) + " " + testCliShellQuote(binary) +
+                " --fast --no-fork" + instrumentationFlags + " && " +
+                executionPrefix + testCliShellQuote(binary) + executionPostfix
+        }
     } else if relative.endsWith(".sh") {
         // A self-wrapping test must establish its own scope-bound identity,
         // not mistake this caller's active binding for its own. Keep the

@@ -202,6 +202,15 @@ limits. Reviewed ASan contracts, including `test_sanitizers.sh`, use the separat
 generated-executable runner: its finite shadow allowance is read back while
 kernel RAM, zero-swap, task and timeout containment remain enforced. That narrow
 ASan admission does not qualify MemorySanitizer or ThreadSanitizer execution.
+The CLI `sanitizer-thread` profile enters an attested capped binding, compiles
+through the selected compiler runner, and uses the reviewed generated-executable
+admission path rather than launching its binary directly. Missing scope,
+refused admission and sanitizer startup failure remain failed tests with nonzero
+exit status. LLVM 20's requirement for unlimited `RLIMIT_AS` is not admitted by
+the finite-address policy; compilation alone is not ThreadSanitizer execution
+evidence. A positive TSan acceptance check remains blocked until a compatible,
+explicitly admitted execution environment is available.
+
 
 Acceptance evidence names compiler host code, GPU emitters, Seen modules, the
 native runtime, and ledgered ABI shims separately. Each must be compiled and
@@ -354,3 +363,16 @@ identity, cancellation, and output bounds are validated before rendering.
 Human output is the canonical CLI display; JSON and JUnit are written only to
 the safe transactional report paths documented above. XML declarations and
 entities are rejected by the host oracle, and all formats end deterministically.
+
+## Formatter protocol acceptance
+
+`compiler_seen/tests/lsp_formatter.seen` parses serialized TextEdit JSON and
+checks the UTF-16 range and replacement string. Equivalent JSON number
+representations must not fail an assertion about decimal spelling, whitespace,
+or object member order.
+
+`tests/lsp_formatter_jsonrpc.py` drives a real server and applies returned edits
+to documents across the supported languages, including surrogate pairs and
+percent-encoded file URIs. These protocol checks validate consumer-visible
+formatting, not serializer presentation.
+

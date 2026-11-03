@@ -640,6 +640,7 @@ run_fixture test-instrumentation \
 run_fixture test-instrumentation-example \
     "$REPO_ROOT/compiler_seen/examples/test_instrumentation.seen"
 if [ "$TIER" = "verify" ]; then
+    COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_cli_thread_admission.sh"
     "$REPO_ROOT/scripts/run_test_instrumentation_acceptance.sh" "$REAL_COMPILER"
 fi
 run_fixture test-fuzz-corpus \

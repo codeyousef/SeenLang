@@ -137,6 +137,6 @@ python3 "$ROOT/scripts/check_test_reporters.py" --format json \
 python3 "$ROOT/scripts/check_test_reporters.py" --format junit \
     --validate "$RUN/cli-shell-scope.xml" >/dev/null
 python3 -c 'import json, sys; report = json.load(open(sys.argv[1])); assert report["passed"] == 1 and report["failed"] == 0, report' "$RUN/cli-shell-scope.json"
-"$ROOT/scripts/run_capped_regression.sh" test-instrumentation-soak \
+bash "$ROOT/scripts/run_capped_regression.sh" test-instrumentation-soak \
     --compiler "$COMPILER" -- bash "$ROOT/tests/misc_root_tests/seen_test_instrumentation_soak.sh"
 echo "PASS: TEST-002A instrumented compiler, GPU emitter, runtime, and ABI execution"
