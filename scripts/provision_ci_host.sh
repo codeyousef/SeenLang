@@ -138,6 +138,26 @@ mapped_identity=$(/usr/bin/bwrap --die-with-parent --bind / / \
 [ "$mapped_identity" = "$host_identity" ] ||
     fail "Bubblewrap bind mapping failed read-back"
 
+# Noble ships the official validator as a static archive, not the shared C ABI
+# required by opt-in runtime artifact validation. Relink those exact pinned
+# vendor bytes; do not replace validation with a CLI success or a local shim.
+mkdir -p -- .seen/toolchains
+validator_root=$(mktemp -d "$PWD/.seen/toolchains/ci-spirv-validator.XXXXXX") ||
+    fail "could not create the runtime validator installation root"
+timeout --kill-after=5s 30s python3 tests/gpu_artifacts/spirv_validator_install_contract.py "$validator_root"
+if ! SEEN_MEMORY_GUARD_RSS_KB=2097152 \
+    bash scripts/run_capped_regression.sh --platform seen-spirv-validator-sdk -- \
+        timeout --kill-after=5s 360s python3 scripts/install_gpu_spirv_validator.py \
+        "$validator_root/libSPIRV-Tools-shared.so" > "$validator_root/install.log"; then
+    cat -- "$validator_root/install.log" >&2
+    fail "pinned official runtime validator installation failed"
+fi
+# Install through the normal loader cache, not a global SDK LD_LIBRARY_PATH:
+# CPU-only compiler processes must not probe a GPU SDK directory on startup.
+sudo -n install -m 0755 -- "$validator_root/libSPIRV-Tools-shared.so" \
+    /usr/local/lib/libSPIRV-Tools-shared.so
+sudo -n ldconfig
+
 # The committed 0.10.1 bootstrap seeds predate the Linux --as-needed link
 # policy and carry an unused SDL3 DT_NEEDED entry. Noble has no SDL3 package.
 # Admit a loader-only bridge solely after proving that neither seed imports an

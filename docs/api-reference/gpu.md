@@ -532,6 +532,13 @@ unavailable validator is an error, never permission to submit unchecked words.
 On Linux this requires `libSPIRV-Tools-shared.so` with the requested validation
 environment. Validation borrows the owned binary's length-delimited byte span;
 embedded zero bytes are not interpreted as a C-string terminator.
+Ubuntu's pinned `spirv-tools` package supplies the static archive but no shared
+library. `scripts/install_gpu_spirv_validator.py`, run through the platform
+capped wrapper, verifies that exact archive and publishes the vendor shared
+library only after real valid/corrupt-module checks. Expose the installation
+through the normal dynamic loader; see [testing](../testing.md#official-spir-v-runtime-validator).
+There is no CLI-success substitution or unchecked fallback, and CPU-only
+imports do not load the SDK.
 
 Module capabilities and extensions are checked independently of selected-entry
 reflection. Physical Workgroup storage must agree with reflected shared bytes

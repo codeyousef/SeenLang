@@ -56,6 +56,12 @@ Foundations**.
   `TaskBackend.Vulkan` no longer turns `GpuBackend.Vulkan` into the CPU-only
   ordinal when both APIs are imported. Cover typed calls and repeated CUDA,
   Vulkan and Metal spellings with real four-profile native regression checks.
+- Provision the runtime-loadable official SPIR-V validator from the existing
+  pinned Ubuntu package's verified static archive. Link it serially in a
+  read-back-verified hard-memory scope, require real valid/malformed C ABI
+  outcomes before atomic publication, and install through the normal CI loader
+  cache without adding GPU SDK searches to CPU-only startup. Missing or damaged
+  vendor inputs still fail closed; no validator or runtime ABI is substituted.
 - Canonicalize signed-64 aliases in numeric cast lowering, so floating casts to
   `Int64` and signed-64 casts to floating types emit real conversions instead of
   reusing an SSA value of the wrong LLVM type.

@@ -77,6 +77,42 @@ SDK identity probes still run. Measure actual
 baseline/aggregate wall time separately; no speedup follows from build-count
 reduction alone.
 
+## Official SPIR-V runtime validator
+
+The pinned Ubuntu `spirv-tools` package includes the command-line tools and
+`libSPIRV-Tools.a`, but not the shared C ABI required by runtime artifact
+validation. `scripts/install_gpu_spirv_validator.py` verifies the archive hash
+in `docs/architecture/spirv-toolchain.json` and links only those official vendor
+bytes. It requires the platform-only capped entrypoint; the linker is serial
+and has a finite process-group deadline. The installer assembles a real Vulkan
+1.2 compute module and requires the loaded vendor C ABI to accept it and reject
+a corrupted magic word, destroying both contexts and diagnostics.
+
+With the pinned package installed, a non-root local installation is:
+
+```sh
+mkdir -p .seen/toolchains/spirv-validator
+SEEN_MEMORY_GUARD_RSS_KB=2097152 \
+  bash scripts/run_capped_regression.sh --platform seen-spirv-validator-sdk -- \
+  python3 scripts/install_gpu_spirv_validator.py \
+  "$PWD/.seen/toolchains/spirv-validator/libSPIRV-Tools-shared.so"
+```
+
+The wrapper refuses a cap above the live-memory-derived ceiling and enforces
+zero swap and bounded tasks. `--archive PATH` accepts only an exact matching
+archive, not a different validator implementation. Output is limited to an
+8 MiB archive and 8 MiB shared image. Archive, linker and validation refusals
+leave the previous destination unchanged. Publication is atomic, not
+power-loss durable.
+
+Applications must expose the installed directory through their normal dynamic
+loader configuration (or a command-scoped `LD_LIBRARY_PATH`). Required CI
+installs the library through the system loader cache instead of exporting an
+SDK search directory into every CPU-only process. CPU-only import/build paths
+still never call this validator. The installer proves vendor C ABI admission,
+not GPU execution; runtime E–H retain their independent native correctness,
+sanitizer, ownership and failure checks.
+
 ## Persistent async mixed-workload soak
 
 The manual `scripts/run_async_stress_soak.sh` defaults to exactly 86,400 seconds

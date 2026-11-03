@@ -32,7 +32,7 @@
     {
       "id": "accelerator-spirv-validation-abi",
       "subsystem": "stdlib.compute.vulkan.artifact",
-      "purpose": "Opt-in official SPIRV-Tools C ABI load/call/destroy only. Seen owns byte/ID limits, reflection/layout/capability policy and artifact lifetime. Borrows the aligned, length-delimited binary String without copying; destroys context/diagnostic and unloads on every path. Missing SDK/platform is explicit, with no fallback. Experimental Linux x86-64; seen_gpu_runtime_e.sh covers native profiles and malformed artifacts. Permanent vendor boundary; never foreign shader translation or policy.",
+      "purpose": "Opt-in official SPIRV-Tools C ABI. Borrows aligned, length-delimited bytes without copying; destroys diagnostics/context and unloads. Seen owns bounds, reflection/layout/capability policy and lifetime. Missing SDK/platform fails without fallback. Ubuntu CI relinks the exact pinned vendor archive under capped serial execution and checks valid/corrupt modules. Experimental Linux x86-64; runtime E covers native profiles/adverses. Permanent vendor boundary, not shader translation or policy.",
       "abi": "SPIRV-Tools C",
       "platforms": ["linux-x86_64"],
       "symbols": ["seen_spirv_validate_binary"],
