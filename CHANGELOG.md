@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.10] - 2026-11-03
+
+### Fixed
+
+- Fixed signed ranges with negative literal or constant-folded starts so they
+  terminate at the upper bound instead of continuing past it (FEL-3067).
+
 ## [0.22.9] - 2026-10-10
 
 ### Fixed

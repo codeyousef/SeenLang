@@ -6,6 +6,12 @@ seen_release_tag_policy_error() {
     return 1
 }
 
+seen_release_source_branch() {
+    local policy_dir
+    policy_dir="$(cd -P -- "${BASH_SOURCE[0]%/*}" && pwd -P)" || return 1
+    python3 "$policy_dir/check_release_ci_run.py" --tag "$1" --source-branch
+}
+
 seen_release_remote_ref() {
     local refs="$1"
     local wanted_ref="$2"
@@ -31,10 +37,11 @@ seen_release_verify_published_tag() {
     local expected_repository="$4"
     local tag_ref="refs/tags/$tag"
     local local_tag_object local_tag_type local_tag_commit origin_url remote_refs
-    local remote_main remote_tag_object remote_tag_commit object_id
+    local source_branch source_ref remote_source remote_tag_object remote_tag_commit object_id
 
-    [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]] ||
-        seen_release_tag_policy_error "release tag is not a supported version tag: $tag" || return 1
+    source_branch=$(seen_release_source_branch "$tag") ||
+        seen_release_tag_policy_error "release source policy could not be resolved" || return 1
+    source_ref="refs/heads/$source_branch"
     [[ "$expected_commit" =~ ^[0-9a-f]{40}$ ]] ||
         seen_release_tag_policy_error "expected release commit is invalid" || return 1
     [[ "$expected_repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
@@ -69,17 +76,17 @@ seen_release_verify_published_tag() {
             "local tag $tag peels to $local_tag_commit instead of $expected_commit" || return 1
 
     remote_refs=$(git -C "$root" ls-remote origin \
-        refs/heads/main "$tag_ref" "$tag_ref^{}") ||
-        seen_release_tag_policy_error "remote main/tag identity could not be read" || return 1
-    remote_main=$(seen_release_remote_ref "$remote_refs" refs/heads/main) ||
-        seen_release_tag_policy_error "remote main is missing or ambiguous" || return 1
+        "$source_ref" "$tag_ref" "$tag_ref^{}") ||
+        seen_release_tag_policy_error "remote source/tag identity could not be read" || return 1
+    remote_source=$(seen_release_remote_ref "$remote_refs" "$source_ref") ||
+        seen_release_tag_policy_error "remote $source_branch is missing or ambiguous" || return 1
     remote_tag_object=$(seen_release_remote_ref "$remote_refs" "$tag_ref") ||
         seen_release_tag_policy_error "remote tag $tag is missing or ambiguous" || return 1
     remote_tag_commit=$(seen_release_remote_ref "$remote_refs" "$tag_ref^{}") ||
         seen_release_tag_policy_error \
             "remote tag $tag is not an unambiguous annotated tag" || return 1
 
-    for object_id in "$remote_main" "$remote_tag_object" "$remote_tag_commit"; do
+    for object_id in "$remote_source" "$remote_tag_object" "$remote_tag_commit"; do
         [[ "$object_id" =~ ^[0-9a-f]{40}$ ]] ||
             seen_release_tag_policy_error "remote returned an invalid object identifier" || return 1
     done
@@ -89,7 +96,7 @@ seen_release_verify_published_tag() {
     [ "$remote_tag_commit" = "$expected_commit" ] ||
         seen_release_tag_policy_error \
             "remote tag $tag peels to $remote_tag_commit instead of $expected_commit" || return 1
-    [ "$remote_main" = "$expected_commit" ] ||
+    [ "$remote_source" = "$expected_commit" ] ||
         seen_release_tag_policy_error \
-            "remote main is $remote_main instead of release commit $expected_commit" || return 1
+            "remote $source_branch is $remote_source instead of release commit $expected_commit" || return 1
 }

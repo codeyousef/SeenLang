@@ -22,6 +22,7 @@ IMPLICIT_MACOS_ARTIFACT="$DIST_DIR/seen-0.10.1-macos-arm64.tar.gz"
 mkdir -p "$FIXTURE_ROOT/scripts" "$FIXTURE_BIN" "$MIN_PATH" "$OPTIONAL_PATH" "$DIST_DIR"
 cp "$ROOT_DIR/scripts/build_and_upload_release.sh" "$FIXTURE_ROOT/scripts/"
 cp "$ROOT_DIR/scripts/release_tag_policy.sh" "$FIXTURE_ROOT/scripts/"
+cp "$ROOT_DIR/scripts/check_release_ci_run.py" "$FIXTURE_ROOT/scripts/"
 cp "$ROOT_DIR/scripts/verify_stdlib_component_payload.sh" \
     "$FIXTURE_ROOT/scripts/"
 cat > "$FIXTURE_ROOT/scripts/verify_linux_delivery_compiler_identity.sh" <<'PROVENANCE_EOF'
@@ -281,7 +282,7 @@ export SEEN_RELEASE_CONTAINMENT_IN_SCOPE=1
 export SEEN_RELEASE_PROJECT_WRAPPER="$FIXTURE_ROOT/scripts/run_with_project_artifacts.sh"
 export SEEN_JOBS=1 SEEN_OPT_JOBS=1 SEEN_PACKAGE_JOBS=1 SEEN_NO_FORK=1
 
-for tool in awk bash basename cat chmod cp dirname grep gzip ls mkdir mktemp rm sha256sum sort tar; do
+for tool in awk bash basename cat chmod cp dirname grep gzip ls mkdir mktemp python3 rm sha256sum sort tar; do
     ln -s "$(command -v "$tool")" "$MIN_PATH/$tool"
 done
 

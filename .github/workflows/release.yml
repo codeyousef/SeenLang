@@ -42,6 +42,16 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+      - name: Verify version-bound dispatch ref
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: |
+          $policyArgs = @("--tag", "v$env:RELEASE_VERSION", "--dispatch-ref", $env:GITHUB_REF)
+          if ($env:PROBE_ONLY -eq "true") { $policyArgs += "--probe-only" }
+          python scripts/check_release_ci_run.py @policyArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify staged Windows compiler on Windows
         if: ${{ !inputs.probe_only }}
         shell: pwsh
@@ -84,7 +94,7 @@ jobs:
           [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$GITHUB_REF_TYPE" == tag ]]
           [[ "$GITHUB_REF_NAME" == "v$RELEASE_VERSION" ]]
-      - name: Verify successful main certification
+      - name: Verify successful authorized-source certification
         run: scripts/verify_release_ci_run.sh
       - name: Set up pinned Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
