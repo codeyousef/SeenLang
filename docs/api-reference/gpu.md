@@ -1283,11 +1283,19 @@ The command exits **126** after retaining CPU proof when no approved Apple SDK
 policy is available. Set `SEEN_METAL_TOOLCHAIN_POLICY` to a real approved policy
 file to request native Apple compilation; malformed supplied policies fail,
 not downgrade to unsupported. The policy schema is
-`seen-metal-official-toolchain-v1`: Darwin system/machine identity, the three
+`seen-metal-official-toolchain-v2`: Darwin system/machine identity, the three
 deployment targets and MSL versions above, canonical SDK path and
-`SDKSettings.plist` SHA-256, resolved `metal`/`metallib` paths and binary hashes,
-and the expected observed `metal` version line. The existing Linux diagnostic
-policy is not an official SDK policy.
+`SDKSettings.plist` SHA-256, and an explicit binding for each tool. Its `path`
+is the logical `metal`/`metallib` invocation name in a resolved directory;
+`resolved_path` is the canonical executable whose bytes match `sha256`.
+This supports Xcode's `metallib` alias to `air-lld` without renaming binaries.
+Execution selects the pinned resolved binary while preserving the logical
+invocation as `argv[0]`. Changed alias bindings, unresolved parent directories
+and changed executable bytes are rejected before/after invocation.
+The `metal` entry also pins its observed version line. Version-1 policies are
+rejected rather than silently interpreting old fields; supply both paths when
+regenerating the policy. The existing Linux diagnostic policy is not an
+official SDK policy.
 
 Approved tools produce real AIR/metallib artifacts and rejection diagnostics.
 MSL/reflection/manifest determinism is required; external SDK binary equality
@@ -1296,6 +1304,11 @@ calls have finite current-memory-derived process limits, deadlines, bounded
 scratch/output and a 20 ms process-group RSS watchdog, not instantaneous
 aggregate RSS isolation. SIGTERM and default SIGINT handling kill/reap owned SDK
 work; cleanup for other termination signals, including SIGKILL, is not claimed.
+Darwin's DATA and AS limits both account for existing memory-map reservations.
+Their finite ceilings bound additional mapping growth by the live-derived
+budget, clamped to inherited limits; DATA is not treated as a separate heap-size
+ceiling below the launcher's existing mappings. The RSS budget, minimum free
+memory admission, CPU/file limits and deadlines are unchanged.
 SDK compilation still proves no GPU execution.
 The aggregate retains the actual native profile log/status witnesses separately
 from the optional SDK result; unsupported SDK status cannot substitute for CPU

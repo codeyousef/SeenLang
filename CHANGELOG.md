@@ -515,6 +515,15 @@ Foundations**.
 
 ### Fixed
 
+- Bind official Metal tool invocation names separately from pinned resolved
+  executables, supporting Xcode's `metallib` to `air-lld` alias while preserving
+  `argv[0]` and rejecting alias/target replacement. Require explicit version-2
+  policies rather than weakening identity checks or retaining a compatibility
+  path.
+- Apply Darwin DATA limits using XNU's existing-map accounting, matching the
+  unchanged finite AS mapping-growth ceiling instead of rejecting a launcher
+  whose existing mappings exceed the allocation budget. Keep live-derived RSS
+  admission, inherited limits and native process cleanup unchanged.
 - Preserve bounded active-child diagnostics when accelerator runtime Gate C is
   interrupted before its aggregate report: atomically publish incomplete and
   actual statuses, prioritize the active child's identity/log/status, and retain

@@ -6,6 +6,8 @@ https://developer.apple.com/documentation/metal/building-a-shader-library-by-pre
 https://developer.apple.com/library/archive/documentation/Miscellaneous/Conceptual/MetalProgrammingGuide/Dev-Technique/Dev-Technique.html
 https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf
 https://github.com/apple-oss-distributions/xnu/blob/main/bsd/vm/vm_unix.c
+https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_resource.c
+https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/vm/vm_map.c
 https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h
 https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.h
 https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.c
@@ -37,7 +39,7 @@ from gpu_certification_io import read_bounded
 
 TARGETS = ['macos13', 'macos14', 'macos15']
 LANGUAGES = dict(zip(TARGETS, ['metal3.0', 'metal3.1', 'metal3.2']))
-SCHEMA = 'seen-metal-official-toolchain-v1'
+SCHEMA = 'seen-metal-official-toolchain-v2'
 MIB = 1024**2
 
 
@@ -98,9 +100,10 @@ def _validate(profile):
     _digest(profile['sdk']['settings_sha256'])
     _object(profile['tools'], ('metal', 'metallib'), 'tool')
     for name, tool in profile['tools'].items():
-        _object(tool, ('path', 'sha256', 'version_line') if name == 'metal' else
-                ('path', 'sha256'), name)
-        require(_path(tool['path']).name == name, 'unexpected official tool filename')
+        _object(tool, ('path', 'resolved_path', 'sha256', 'version_line') if name == 'metal' else
+                ('path', 'resolved_path', 'sha256'), name)
+        require(_path(tool['path']).name == name, 'unexpected official invocation filename')
+        _path(tool['resolved_path'])
         _digest(tool['sha256'])
         if name == 'metal':
             require(_text(tool['version_line'], 512), 'invalid approved metal version line')
@@ -159,7 +162,19 @@ def _installation(profile):
     if _text(settings.get('ProductBuildVersion'), 128):
         metadata['product_build_version'] = settings['ProductBuildVersion']
     for name, tool in profile['tools'].items():
-        identities[name], _ = _pinned(Path(tool['path']), tool['sha256'], 256 * MIB, True)
+        invocation = Path(tool['path'])
+        resolved = Path(tool['resolved_path'])
+        require(invocation.parent.resolve(strict=True) == invocation.parent,
+                'official invocation directory is not resolved')
+        binding = _identity(invocation)
+        require(stat.S_ISREG(binding[2]) or stat.S_ISLNK(binding[2]),
+                'official invocation is not a file or symlink')
+        require(invocation.resolve(strict=True) == resolved,
+                'official invocation resolves to a different approved tool')
+        identities[name], _ = _pinned(resolved, tool['sha256'], 256 * MIB, True)
+        require(_identity(invocation) == binding and invocation.resolve(strict=True) == resolved,
+                'official invocation binding changed during inspection')
+        identities[name + '_invocation'] = binding
     return identities, metadata
 
 
@@ -310,16 +325,16 @@ def invoke(profile, toolname, args, output_limit=65536):
         require(own_task is not None, 'cannot account for launcher address space')
         import resource
 
-        # Darwin reserves very large shared-cache address ranges. Bound additional
-        # address space, data allocations and observed RSS rather than pretending
-        # an RLIMIT_AS below the already-mapped shared cache could work.
+        # XNU validates both DATA and AS against the existing memory-map size,
+        # including large shared-cache reservations. Bound additional mapping
+        # growth by budget; the separate RSS watchdog still uses budget alone.
         address_limit = own_task.virtual + budget
 
         def limits():
             # Popen inherits the acquisition mask; do not leave SDK signals blocked.
             signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
             _lower_limit(resource.RLIMIT_AS, address_limit)
-            _lower_limit(resource.RLIMIT_DATA, budget)
+            _lower_limit(resource.RLIMIT_DATA, address_limit)
             _lower_limit(resource.RLIMIT_CPU, 30)
             _lower_limit(resource.RLIMIT_FSIZE, 64 * MIB)
             _lower_limit(resource.RLIMIT_CORE, 0)
@@ -340,6 +355,7 @@ def invoke(profile, toolname, args, output_limit=65536):
                     signal.signal(signal.SIGTERM, terminate)
                     handler_installed = True
                 child = subprocess.Popen([profile['tools'][toolname]['path'], *args],
+                                         executable=profile['tools'][toolname]['resolved_path'],
                                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                          stderr=subprocess.PIPE, env=env, cwd=directory,
                                          start_new_session=True, preexec_fn=limits, close_fds=True)
@@ -416,9 +432,11 @@ def verify_installation(profile):
                 'platform': profile['platform'], 'targets': TARGETS, 'languages': LANGUAGES,
                 'sdk': sdk, 'tools': {
                     'metal': {'path': profile['tools']['metal']['path'],
+                              'resolved_path': profile['tools']['metal']['resolved_path'],
                               'sha256': profile['tools']['metal']['sha256'], 'version_line': lines[0],
                               'version_output': output, 'version_diagnostic': diagnostic},
                     'metallib': {'path': profile['tools']['metallib']['path'],
+                                 'resolved_path': profile['tools']['metallib']['resolved_path'],
                                  'sha256': profile['tools']['metallib']['sha256']}},
                 'gpu_execution_verified': False, 'hardware_verified': False}
     except ToolchainError:
