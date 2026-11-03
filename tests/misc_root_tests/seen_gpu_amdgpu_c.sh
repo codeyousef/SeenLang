@@ -14,10 +14,11 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-amdgpu-c.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-amdgpu-c
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+source "$ROOT_DIR/scripts/emitter_fixture_support.sh"
 python3 "$ROOT_DIR/scripts/check_gpu_amdgpu_toolchain.py" > "$TMP_DIR/toolchain.json"
 python3 "$ROOT_DIR/tests/gpu_artifacts/certification_io_contract.py" "$TMP_DIR"
 for profile in fast release undefined address; do
-    compile_case "$profile" artifact "$ROOT_DIR/tests/gpu_artifacts/integrity_contract.seen" hip \
+    compile_emitter_case "$profile" artifact "$ROOT_DIR/tests/gpu_artifacts/integrity_contract.seen" hip \
         "$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
 done
 mkdir "$TMP_DIR/relocated"

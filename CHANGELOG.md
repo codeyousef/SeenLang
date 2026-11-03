@@ -35,6 +35,15 @@ Foundations**.
   Apple SDK execution; bind official inputs to validated source/reflection
   hashes and retain native witnesses after scratch cleanup. Bound SDK process
   lifetime and temporary files without hiding termination or driver failures.
+- Provision Gate B's two repeated native emitter programs once per four-profile
+  matrix: eight real uncached frozen builds, then 40 explicit same-run fixture
+  deliveries across the original ten leaves. Keep all 18 child entrypoints,
+  runtime processes, arguments, sanitizer profiles, goldens and SDK checks.
+  Seal bounded compiler/source/toolchain/environment/scope identity, reject
+  stale or damaged pools without recompiling, retain truthful reuse origins
+  and independently mutable logs, and run real sealed-pool adverse admission
+  checks before children. Standalone leaves still compile fresh; neither reuse
+  nor native admission supplies hardware certification or a measured speedup.
 - Canonicalize signed-64 aliases in numeric cast lowering, so floating casts to
   `Int64` and signed-64 casts to floating types emit real conversions instead of
   reusing an SSA value of the wrong LLVM type.

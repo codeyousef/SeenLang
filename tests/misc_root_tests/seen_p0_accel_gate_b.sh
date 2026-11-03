@@ -48,6 +48,44 @@ finish() {
     exit "$report_status"
 }
 trap finish EXIT
+# The pool is owned by this one aggregate, never inherited from an earlier run.
+# Export the selected compiler before fingerprinting: leaf rebindings explicitly
+# pass this same value, while only their scope label/PATH duplication may vary.
+export COMPILER
+unset SEEN_EMITTER_FIXTURE_POOL
+source "$ROOT_DIR/scripts/emitter_fixture_support.sh"
+POOL="$TMP_DIR/emitter-fixtures"
+status=0
+prepare_emitter_fixture_pool "$POOL" > "$TMP_DIR/emitter-fixture-build.log" 2>&1 || status=$?
+printf '%s\n' "$status" > "$TMP_DIR/emitter-fixture-build.status"
+logs=(emitter-fixture-build.log emitter-fixture-build.status)
+for file in context.json manifest.json; do
+    if [ -f "$POOL/$file" ]; then logs+=("emitter-fixtures/$file"); fi
+done
+record emitter-fixture-producer "$status" native-cpu compile-only true \
+    'Eight actual uncached frozen native builds (two source programs, four profiles); sealed same-run deliveries are reuse, not additional compilations or GPU execution' "${logs[@]}"
+for program in text integrity; do
+    program_logs=("${logs[@]}")
+    for profile in fast release undefined address; do
+        for suffix in compile.log compile.status; do
+            file="$program-$profile.$suffix"
+            if [ -f "$POOL/$file" ]; then program_logs+=("emitter-fixtures/$file"); fi
+        done
+    done
+    record "emitter-fixture-producer-$program" "$status" native-cpu compile-only true \
+        'Actual four-profile compile witnesses and aggregate producer admission status; no new consumer compilation or GPU execution' "${program_logs[@]}"
+done
+[ "$status" -eq 0 ] || exit "$status"
+status=0
+timeout --foreground --kill-after=5s 300s python3 \
+    "$ROOT_DIR/tests/misc_root_tests/emitter_fixture_pool_contract.py" \
+    --root "$ROOT_DIR" --compiler "$COMPILER" --pool "$POOL" \
+    > "$TMP_DIR/emitter-fixture-adverse.log" 2>&1 || status=$?
+printf '%s\n' "$status" > "$TMP_DIR/emitter-fixture-adverse.status"
+record emitter-fixture-adverse "$status" native-cpu compile-only true \
+    'Real sealed-pool context/integrity refusal checks and two temporary clone controls; no new build, native fixture execution or hardware certification' \
+    emitter-fixture-adverse.log emitter-fixture-adverse.status emitter-fixtures/manifest.json
+[ "$status" -eq 0 ] || exit "$status"
 children=(
     seen_gpu_ir_a seen_gpu_ir_b seen_gpu_ir_c
     seen_gpu_spirv_a seen_gpu_spirv_b seen_gpu_spirv_c

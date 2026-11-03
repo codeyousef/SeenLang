@@ -1,5 +1,82 @@
 # Testing
 
+## Gate B native emitter fixture provisioning
+
+`tests/misc_root_tests/seen_p0_accel_gate_b.sh` owns a private pool below its
+current attested artifact directory. The producer uses the unchanged generic
+`compile_fixture` path with `--no-cache --frozen`: `text_layout_contract.seen`
+and `integrity_contract.seen`, each in `fast`, `release` (ThinLTO), `undefined`
+and `address`, for eight actual builds. The original 18 children still enter
+their own attested scopes. Exactly the six PTX/AMDGPU/Metal A/B text-program
+calls and four SPIR-V/PTX/AMDGPU/Metal C integrity-program calls use the pool
+(40 profile deliveries). All runtime loops, backend/case arguments, goldens,
+typed rejections, SDK checks and other source builds remain independent.
+Without the pool selector, the ten leaves use their original fresh compilation.
+
+The internal `scripts/emitter_fixture_support.sh` API is
+`prepare_emitter_fixture_pool POOL`, `compile_emitter_fixture PROFILE NAME SOURCE`
+and `compile_emitter_case PROFILE NAME SOURCE [runtime args...]`. Sourcing it
+installs no trap; leaves source it after the generic fixture helper. Only B
+provisions and exports `SEEN_EMITTER_FIXTURE_POOL`, after a valid seal.
+The Python helper provides `fingerprint`, `seal` and `clone`, all taking
+`--root`, `--compiler`, `--pool`; `clone` additionally requires `--source`,
+`--profile`, `--destination` (the executable prefix).
+
+The seal binds the actual compiler path/bytes, existing bounded HEAD/dirty
+source identity, compiler-source/standard-library/runtime/language dependency bytes, exact
+program/profile/flags/default x86-64 CPU, selected native tool and bounded-wrapper
+bytes, artifact-root/pool ownership, cgroup and mount namespace identity.
+The global mount table is not a compilation input: unrelated mount churn must
+not invalidate unchanged SDK/source bytes or the owned artifact bindings.
+Semantic environment values are hashed, not published; only leaf scope,
+`SHLVL`, `_` and the pool selector are omitted, and duplicate PATH components
+are removed without changing search order. A changed dependency or context
+rejects the pool; it never silently falls back to recompilation or cross-run
+reuse. B retains producer and adverse logs/statuses plus the sealed manifest.
+These are build/admission evidence, not physical GPU certification.
+Compiler-owned runtime object/signature caches are derived outputs, not stable
+source identities: the catalog excludes only the named legacy runtime object
+outputs and normal generated cache/target directories, while binding their
+authoritative source/header/toolchain/profile inputs. Unrecognized native
+dependency files are not blanket-excluded by extension.
+System SDK directories are not assumed immutable merely because the mount
+namespace is unchanged. Each admission discovers C/C++ search roots using the
+selected bounded Clang wrappers with empty preprocessing, resource-directory
+and startup/support-file queries. It streams the actual include, Clang
+resource/sanitizer and selected startup/support bytes, plus resolved native-tool
+shared dependencies and loader obtained with trusted `ldd`. Explicit include
+and library environment roots are included. Canonical aliases and directory
+cycles are bounded; missing required libraries, unsupported dependency records
+or catalog overflow reject admission. Only aggregate hashes/counts enter the
+manifest: at most 100,000 unique SDK files, 200,000 traversal entries, 4 GiB
+total bytes and 512 MiB per file, using 1 MiB streaming reads. Discovery output
+is capped at 256 KiB per 30-second tool call. No SDK tree is copied, mounted
+differently or presumed safe after an unobserved mutation.
+Inspector admission checks protected paths and effective write permissions,
+not host UID numbers that a user namespace may remap. Relocatable startup
+objects are hashed without asking the dynamic loader to inspect them. Loader
+stdout records and stderr diagnostics stay separate; diagnostics are retained
+in the SDK identity with a 32 KiB aggregate ceiling, not discarded or treated
+as dependency records. Unexpected failures or unresolved dynamic inspection reject.
+
+Every clone validates all eight slots and writes the producer's actual
+successful compile status last. Executables are read-only same-filesystem
+hardlinks; `.compile.log`, `.log`, `.compile.status` and
+`.compile.origin.json` are independent consumer metadata, explicitly identifying
+same-run reuse rather than a new compilation. The pool is limited to eight
+native blobs, 128 MiB each and 512 MiB total, 8 MiB per producer log and 256 KiB
+per context/manifest. Only successful producer-owned module-IR directories are
+removed; failed diagnostics remain. Publication guarantees atomic visibility,
+not power-loss durability. No memory/task/deadline policy is relaxed.
+
+Before children, `emitter_fixture_pool_contract.py` uses the real sealed pool
+for stale-context, source/compiler/profile, ownership, completeness and damage
+refusals. Its two temporary successful clone controls are separate from the
+40 leaf deliveries and do not execute a fixture or Seen compiler/build; native
+SDK identity probes still run. Measure actual
+baseline/aggregate wall time separately; no speedup follows from build-count
+reduction alone.
+
 ## Seen source coverage
 
 On Linux x86-64 with LLVM 20, `seen test . --filter <case> --profile coverage

@@ -14,13 +14,14 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-metal-c.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-metal-c
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+source "$ROOT_DIR/scripts/emitter_fixture_support.sh"
 # Certification evidence remains available on success as well as unsupported/failure.
 SEEN_KEEP_TMP=1
 python3 "$ROOT_DIR/tests/gpu_artifacts/certification_io_contract.py" "$TMP_DIR"
 SOURCE="$ROOT_DIR/tests/spir_v_vulkan_lowering/packed_happy.seen"
 cp -- "$SOURCE" "$TMP_DIR/original-source.seen"
 for profile in fast release undefined address; do
-    compile_case "$profile" artifact "$ROOT_DIR/tests/gpu_artifacts/integrity_contract.seen" metal "$SOURCE"
+    compile_emitter_case "$profile" artifact "$ROOT_DIR/tests/gpu_artifacts/integrity_contract.seen" metal "$SOURCE"
 done
 mkdir "$TMP_DIR/relocated"
 cp -- "$SOURCE" "$TMP_DIR/relocated/source.seen"

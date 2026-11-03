@@ -14,15 +14,19 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-ptx-a.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-ptx-a
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+source "$ROOT_DIR/scripts/emitter_fixture_support.sh"
 python3 "$ROOT_DIR/scripts/check_gpu_ptx_toolchain.py" > "$TMP_DIR/toolchain.json"
 for profile in fast release undefined address; do
-    compile_fixture "$profile" text "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
+    compile_emitter_fixture "$profile" text "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
     for pair in layout:cuda_ptx_lowering/layout_happy splat:gpu_artifacts/vector_splat; do
         name=${pair%%:*}; source="$ROOT_DIR/tests/${pair#*:}.seen"
         cp -- "$TMP_DIR/text-$profile" "$TMP_DIR/$name-$profile"
         cp -- "$TMP_DIR/text-$profile.log" "$TMP_DIR/$name-$profile.log"
         cp -- "$TMP_DIR/text-$profile.compile.log" "$TMP_DIR/$name-$profile.compile.log"
         cp -- "$TMP_DIR/text-$profile.compile.status" "$TMP_DIR/$name-$profile.compile.status"
+        if [ -f "$TMP_DIR/text-$profile.compile.origin.json" ]; then
+            cp -- "$TMP_DIR/text-$profile.compile.origin.json" "$TMP_DIR/$name-$profile.compile.origin.json"
+        fi
         run_fixture "$profile" "$name" cuda "$source"
     done
 done

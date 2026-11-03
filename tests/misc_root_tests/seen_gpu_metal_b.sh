@@ -14,10 +14,11 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-metal-b.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-metal-b
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+source "$ROOT_DIR/scripts/emitter_fixture_support.sh"
 for profile in fast release undefined address; do
     # Numeric/specialization parity has its own mandatory four-profile gate.
     compile_case "$profile" synchronization "$ROOT_DIR/tests/metal_msl_metallib_lowering/synchronization_contract.seen"
-    compile_fixture "$profile" text "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
+    compile_emitter_fixture "$profile" text "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
     for pair in packed:spir_v_vulkan_lowering/packed_happy atomic:metal_msl_metallib_lowering/atomic_relaxed edges:metal_msl_metallib_lowering/atomic_edges ordered:metal_msl_metallib_lowering/atomic_ordered fences:metal_msl_metallib_lowering/synchronization_happy; do
         name=${pair%%:*}; source="$ROOT_DIR/tests/${pair#*:}.seen"; arguments=()
         if [ "$name" = ordered ] || [ "$name" = fences ]; then arguments=(metal3.2); fi
@@ -25,6 +26,9 @@ for profile in fast release undefined address; do
         cp -- "$TMP_DIR/text-$profile.log" "$TMP_DIR/$name-$profile.log"
         cp -- "$TMP_DIR/text-$profile.compile.log" "$TMP_DIR/$name-$profile.compile.log"
         cp -- "$TMP_DIR/text-$profile.compile.status" "$TMP_DIR/$name-$profile.compile.status"
+        if [ -f "$TMP_DIR/text-$profile.compile.origin.json" ]; then
+            cp -- "$TMP_DIR/text-$profile.compile.origin.json" "$TMP_DIR/$name-$profile.compile.origin.json"
+        fi
         run_fixture "$profile" "$name" metal "$source" "${arguments[@]}"
     done
 done

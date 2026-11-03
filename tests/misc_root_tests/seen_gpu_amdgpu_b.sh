@@ -14,11 +14,12 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-amdgpu-b.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-amdgpu-b
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+source "$ROOT_DIR/scripts/emitter_fixture_support.sh"
 python3 "$ROOT_DIR/scripts/check_gpu_amdgpu_toolchain.py" > "$TMP_DIR/toolchain.json"
 for profile in fast release undefined address; do
     # Numeric/specialization parity has its own mandatory four-profile gate.
     compile_case "$profile" rejection "$ROOT_DIR/tests/hip_amdgpu_lowering/capabilities_contract.seen"
-    compile_fixture "$profile" text "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
+    compile_emitter_fixture "$profile" text "$ROOT_DIR/tests/gpu_artifacts/text_layout_contract.seen"
     for pair in capabilities:cuda_ptx_lowering/capabilities_happy packed:spir_v_vulkan_lowering/packed_happy atomic:hip_amdgpu_lowering/atomic_happy subgroup:hip_amdgpu_lowering/subgroup_happy cooperative:hip_amdgpu_lowering/cooperative_happy; do
         name=${pair%%:*}; source="$ROOT_DIR/tests/${pair#*:}.seen"; arguments=()
         if [ "$name" = cooperative ]; then arguments=(cdna); fi
@@ -26,6 +27,9 @@ for profile in fast release undefined address; do
         cp -- "$TMP_DIR/text-$profile.log" "$TMP_DIR/$name-$profile.log"
         cp -- "$TMP_DIR/text-$profile.compile.log" "$TMP_DIR/$name-$profile.compile.log"
         cp -- "$TMP_DIR/text-$profile.compile.status" "$TMP_DIR/$name-$profile.compile.status"
+        if [ -f "$TMP_DIR/text-$profile.compile.origin.json" ]; then
+            cp -- "$TMP_DIR/text-$profile.compile.origin.json" "$TMP_DIR/$name-$profile.compile.origin.json"
+        fi
         run_fixture "$profile" "$name" hip "$source" "${arguments[@]}"
     done
 done

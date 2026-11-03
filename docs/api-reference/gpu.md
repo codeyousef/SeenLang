@@ -684,6 +684,16 @@ keep normal leak checks and tool tripwires but are not ptraced: LSan cannot run
 under ptrace. Their compilation is traced; their runtime filesystem/dlopen
 coverage is explicitly unobserved rather than inferred from ELF dependencies.
 
+B provisions eight actual uncached frozen native builds of the shared text and
+integrity programs (four profiles each), then delivers those sealed same-run
+fixtures to the ten duplicated callsites without removing any of its 18 child
+entrypoints or their independent runtime cases. Standalone children compile
+fresh. Invalid compiler/source/toolchain/environment/scope or native-byte
+identity fails closed; consumer origin files distinguish reuse from compilation.
+The real sealed-pool adverse contract runs before children. These producer and
+admission checks are build-only evidence, never GPU execution certification;
+see [testing](../testing.md#gate-b-native-emitter-fixture-provisioning).
+
 B compares logical entry/workgroup/user bindings and comparable canonical IR,
 not target-specific physical ABI hashes. Official SDK validation, CPU scalar
 execution and optional physical observations remain distinct. C classifies
