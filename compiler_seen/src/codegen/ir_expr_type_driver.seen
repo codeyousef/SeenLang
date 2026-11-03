@@ -4,7 +4,8 @@ import codegen.ir_generic_call_type.{findGenericCallTypeImpl, genericCallDeclara
 import codegen.ir_generic_type_specialize.{genericTypeArgumentsImpl}
 import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
-import codegen.ir_codegen_feature_state.{getAsyncDeclaredRetTypeWithFeatureStateImpl, getEnumVariantCountWithFeatureStateImpl, isEnumVariantWithFeatureStateImpl, lookupEnumParentWithFeatureStateImpl}
+import codegen.ir_codegen_feature_state.{getAsyncDeclaredRetTypeWithFeatureStateImpl, getEnumVariantCountWithFeatureStateImpl, isEnumVariantWithFeatureStateImpl, lookupEnumParentWithFeatureStateImpl, getFeatureEnumVariantNamesImpl, getFeatureEnumVariantParentImpl}
+import codegen.ir_enum_lookup.{findEnumVariantInParentImpl}
 import codegen.ir_codegen_global_state.{getGlobalStructNamesImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructMethodNamesImpl, getGlobalStructMethodRetTypesImpl, getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findActiveVariableIndexWithGlobalStateImpl, getBoundedActiveVarCountWithGlobalStateImpl}
 import codegen.ir_generic_aggregate.{genericAggregateMetaBuiltinAllowedImpl}
 import codegen.ir_codegen_metrics_state.{inferStringInterpolationExprTypeWithMetricsStateImpl}
@@ -229,13 +230,11 @@ fun inferMemberAccessExprTypeLocalState(expr: ParserExpressionNode,
         }
     }
     if memberPlan.shouldTryEnumVariant {
-        if isEnumVariantWithFeatureStateImpl(expr.variableName) {
-            let enumParent = lookupEnumParentWithFeatureStateImpl(
-                expr.variableName)
-            if enumParent != "" and enumParent == expr.literalValue {
-                return enumParent
-            }
-        }
+        let variantIndex = findEnumVariantInParentImpl(expr.literalValue,
+            expr.variableName, getFeatureEnumVariantNamesImpl(),
+            getFeatureEnumVariantParentImpl(),
+            getEnumVariantCountWithFeatureStateImpl())
+        if variantIndex >= 0 { return expr.literalValue }
     }
     let fieldName = extractLastMemberFieldSegmentImpl(expr.variableName)
     var operandReceiverType: String = ""

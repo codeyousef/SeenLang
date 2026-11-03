@@ -1,3 +1,4 @@
+import cpu_stress_fixture_support.{StressTask, stressTask, runBatch, spawnStressTask}
 import stress_fixture_support.{must, errorIs, atomicValue, context, counter, closeCounter, addOne}
 import async.executor_native.{seen_string_release_owned}
 import async.structured.{AsyncOperationContext}
@@ -12,75 +13,6 @@ extern "C" fun seen_memory_reserved_bytes() r: Int64
 extern "C" fun seen_time_monotonic_nanos() r: Int64
 extern "C" fun seen_sync_atomic_store(handle: UInt64, value: Int64, order: Int32) r: Int32
 extern "C" fun __ThreadYield() r: Void
-@send
-class StressTask {
-    var number: Int
-    var depth: Int
-    var mode: Int
-    var unique: UInt64
-    var executions: UInt64
-    var releases: UInt64
-    var started: UInt64
-    var result: Int
-    fun run(context: ExecutorTaskContext) r: Bool {
-        if addOne(this.unique) != (0 as Int64) { println("FAIL: stress duplicate execution depth=" + this.depth.toString()); return false }
-        let previous = addOne(this.executions)
-        let advanced = context.advanceProgress(1 as UInt64)
-        if advanced.isErr() { let error = advanced.unwrapErr(); println("FAIL: stress progress " + error.code + " task_depth=" + this.depth.toString() + " context_depth=" + context.depth.toString()); error.free(); advanced.releaseContainer(); return false }
-        advanced.releaseContainer()
-        if this.mode == 1 {
-            let signalled = addOne(this.started)
-            while not context.isCancelled() { __ThreadYield() }
-            return true
-        }
-        if this.mode == 2 { return false }
-        this.result = this.number * 2
-        if this.depth > 0 {
-            let childUnique = counter()
-            let child = stressTask(this.number, this.depth - 1, 0, childUnique,
-                this.executions, this.releases, this.started)
-            let submitted = spawnStressChild(context, child)
-            if submitted.isErr() { abort("nested stress task admission failed") }
-            let handle = submitted.unwrap(); submitted.releaseContainer()
-            let joined = handle.join(context.operation)
-            if joined.isErr() { let error = joined.unwrapErr(); println("FAIL: nested join " + error.code + " operation=" + error.operation + " progress=" + error.progress.toString() + " parent_depth=" + this.depth.toString() + " context_depth=" + context.depth.toString() + " child_slot=" + handle.slot.toString() + " parent_slot=" + context.slot.toString()); abort("nested stress child did not terminate") }
-            let value = joined.unwrap(); joined.releaseContainer()
-            this.result = value.result + 2
-            value.release(); handle.free()
-            if atomicValue(childUnique) != (1 as Int64) { abort("nested child ran more than once") }
-            closeCounter(childUnique)
-        }
-        return true
-    }
-    fun release() r: Bool {
-        let previous = addOne(this.releases); this.free(); return true
-    }
-}
-fun stressTask(number: Int, depth: Int, mode: Int, unique: UInt64, executions: UInt64,
-    releases: UInt64, started: UInt64) r: StressTask {
-    return StressTask{number: number, depth: depth, mode: mode, unique: unique,
-        executions: executions, releases: releases, started: started, result: 0}
-}
-fun runBatch(executor: MultithreadExecutor<StressTask>, unique: Array<UInt64>,
-    executions: UInt64, releases: UInt64, started: UInt64, ctx: AsyncOperationContext) r: Int64 {
-    let handles = Array<ExecutorJoinHandle<StressTask>>()
-    let before = seen_time_monotonic_nanos(); var i = 0
-    while i < unique.length() {
-        if seen_sync_atomic_store(unique[i], 0 as Int64, 4 as Int32) != (0 as Int32) { abort("stress reset failed") }
-        handles.push(must(spawnStressTask(executor,stressTask(i, 0, 0, unique[i], executions, releases, started), ctx)))
-        i = i + 1
-    }
-    i = 0
-    while i < handles.length() {
-        let value = must(handles[i].join(ctx))
-        if value.result != i * 2 or atomicValue(unique[i]) != (1 as Int64) { abort("stress task result/exactly-once mismatch") }
-        value.release(); handles[i].free(); i = i + 1
-    }
-    handles.free()
-    let after = seen_time_monotonic_nanos()
-    if before < (0 as Int64) or after < before { abort("stress monotonic clock failed") }
-    return after - before
-}
 fun main() r: Int {
     let threads = seen_executor_live_threads(); let mutexes = seen_sync_live_mutexes()
     let conditions = seen_sync_live_conditions(); let atomics = seen_sync_live_atomics()
@@ -194,15 +126,4 @@ fun main() r: Int {
         seen_sync_live_conditions() != conditions or seen_sync_live_atomics() != atomics { return 12 }
     println("PASS: ASYNC-002G_cleanup")
     return 0
-}
-
-
-import core.result.{Result}
-import async.structured.{AsyncError}
-import async.multithread.{spawnExecutorTaskWitness}
-fun spawnStressTask(pool: MultithreadExecutor<StressTask>, task: StressTask, context: AsyncOperationContext) r: Result<ExecutorJoinHandle<StressTask>, AsyncError> {
-    return pool.spawn(task, task, context)
-}
-fun spawnStressChild(context: ExecutorTaskContext, task: StressTask) r: Result<ExecutorJoinHandle<StressTask>, AsyncError> {
-    return spawnExecutorTaskWitness<StressTask>(context, task, task)
 }

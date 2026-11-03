@@ -44,6 +44,18 @@ Foundations**.
   and independently mutable logs, and run real sealed-pool adverse admission
   checks before children. Standalone leaves still compile fresh; neither reuse
   nor native admission supplies hardware certification or a measured speedup.
+- Add an explicit persistent mixed CPU/I/O/GPU stress scenario with a manual
+  24-hour RTX 4090 entrypoint, separate from the two-second software-reference
+  discovery smoke. Retain real exactly-once/cancellation, direct-I/O ownership,
+  independent GPU-output and readiness-callback checks across persistent workers.
+  Bound the file, logs, metrics, deadlines and process-group cleanup; preserve
+  actual OS observations and raw samples without claiming TSan, performance,
+  production certification or an unobserved 24-hour result.
+- Resolve qualified enum member constants and their inferred types against the
+  owning enum, not the first same-spelled variant in the module graph. Async
+  `TaskBackend.Vulkan` no longer turns `GpuBackend.Vulkan` into the CPU-only
+  ordinal when both APIs are imported. Cover typed calls and repeated CUDA,
+  Vulkan and Metal spellings with real four-profile native regression checks.
 - Canonicalize signed-64 aliases in numeric cast lowering, so floating casts to
   `Int64` and signed-64 casts to floating types emit real conversions instead of
   reusing an SSA value of the wrong LLVM type.

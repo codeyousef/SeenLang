@@ -452,6 +452,7 @@ COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_project_qualifi
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_project_transitive_memory_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_imported_function_method_collision.sh"
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_qualified_enum_variant_collision.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_nested_array_batch_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_safetensors_slot_return_regression.sh"
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_json_tiny_object_regression.sh"
@@ -564,6 +565,8 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_async_reactor_contract.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_async_streams_process_dns_contract.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_task_context_policy_contract.sh"
+# This entrypoint is fixed to two seconds; the manual 24-hour soak is separate.
+COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_async_stress_soak_slow.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_async_stress_contract.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_open_issue_regressions.sh"

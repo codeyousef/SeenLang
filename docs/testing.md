@@ -77,6 +77,76 @@ SDK identity probes still run. Measure actual
 baseline/aggregate wall time separately; no speedup follows from build-count
 reduction alone.
 
+## Persistent async mixed-workload soak
+
+The manual `scripts/run_async_stress_soak.sh` defaults to exactly 86,400 seconds
+on a discovered NVIDIA RTX 4090. It is not an automatically discovered test.
+`tests/misc_root_tests/seen_async_stress_soak_slow.sh` instead performs a real
+two-second software-reference smoke plus malformed/range/device-class cases.
+Selecting slow tests must never accidentally start the 24-hour scenario.
+
+For the manual run, select the verified current compiler through the normal
+rebuild workflow, derive a finite physical-memory cap from live RAM and
+containing cgroup headroom, and supply a separate finite long-run scope budget:
+
+```bash
+: "${SEEN_GUARD_RSS_KB:?Set a finite current-memory-derived cap in KiB}"
+export SEEN_GUARD_RSS_KB
+SEEN_GUARD_TASKS_MAX=24 SEEN_JOBS=1 SEEN_OPT_JOBS=1 \
+SEEN_MEMORY_GUARD_TIMEOUT_SECS=87000 SEEN_TIER_TIMEOUT_SECS=87000 \
+  bash scripts/safe_rebuild.sh \
+    --regression-script scripts/run_async_stress_soak.sh
+```
+
+This leaves ordinary CI, one-hour `seen test` and short-fixture deadlines
+unchanged. The manual shell/native CLI accepts `--seconds N` / positional
+`SECONDS` only in `1..86400`, with explicit `rtx4090` or `software-reference`
+device class. Long runs require a caller budget covering duration plus bounded
+preparation/drain. No hardware fallback is implicit. Hardware execution rejects
+inherited loader/fault-layer interposition, selects the actual NVIDIA ICD and
+checks device kind, vendor, name and matching discovery/capture/open UUIDs.
+
+The native program is
+`tests/production_gpu_runtime/async_stress_soak_contract.seen`; its five operands
+are `SECONDS IO_PATH SHADER_SPV REFLECTION_JSON DEVICE_CLASS`. It keeps two CPU
+and two readiness workers, the direct-I/O queue/file, and creator-confined GPU
+device/context/allocator/stream/pipeline/buffers alive through five complete
+mixed warmups, thirty actual raw samples, and the requested monotonic interval.
+Every completed round checks 39 CPU executions and 47 destructors including
+nested and cancelled work; two successful I/O completions; a real two-kernel GPU
+graph with all 37 intermediate/output wrap-u32 oracle values; and a post-oracle
+GPU-to-CPU readiness callback. No GPU handle is sent to worker tasks. Retired
+graph owners close before oracle mapping; persistent GPU owners remain live.
+
+The reused direct-I/O file stays exactly 8 KiB. Managed allocation, reserved
+storage, workers, synchronization and readiness handles are checked against
+warmed baselines each round, then resources drain to the original baseline.
+Only the independently measured UUID/sample/report owner remains during the
+final report; its release is also checked before successful exit.
+
+`scripts/monitor_async_stress_soak.py` observes the exact native argv without a
+shell, validates duplicate-free bounded `seen-async-stress-soak-v1` records,
+counter relationships, monotonic duration and actual native exit, and owns
+finite TERM/KILL/reap cleanup of its child process group. Native minute
+heartbeats accompany real `/proc` descriptor/thread/child/RSS/HWM observations.
+Baseline/peak/last are observed values; no post-reap zeroes are invented.
+Logs and metrics each stop at 2 MiB, with 4 KiB records and one artifact
+directory rather than per-iteration files. Successful compiler IR scratch is
+removed before timing; failed compile diagnostics remain. The printed artifact
+directory contains native `.log`, `.metrics.jsonl`, compile/run statuses,
+shader/reflection evidence and bounded `build-inputs.json` / `build-receipt.json`.
+The receipts reuse the gate's source/compiler/cgroup identity, reject source
+or compiler changes during preparation, and bind actual native/shader/reflection
+hashes before runtime. Remove owned executables/projects after retaining the
+bounded evidence required for review.
+
+The monitor reports `physical_24h_observed:true` only after an actual successful
+86,400-second RTX 4090 run. Short hardware runs and software-reference runs do
+not establish that result. Neither this component scenario nor its raw samples
+prove a designated performance regression threshold, scaling, TSan startup,
+production GPU certification, green required CI or merged-main acceptance.
+The original five-profile short stress contract remains separately required.
+
 ## Seen source coverage
 
 On Linux x86-64 with LLVM 20, `seen test . --filter <case> --profile coverage

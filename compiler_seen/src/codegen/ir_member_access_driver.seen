@@ -8,7 +8,9 @@ import codegen.ir_codegen_module_state.{findModuleConstantWithModuleStateImpl, g
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_field_layout.{generateFieldAccessImpl, generateFieldAccessPtrImpl}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getSeenFieldTypeState}
-import codegen.ir_enum_ctor_gen.{isEnumVariantStateImpl, lookupEnumParentStateImpl, lookupEnumFieldCountStateImpl, lookupEnumVariantTagStateImpl}
+import codegen.ir_enum_ctor_gen.{allocateEnumConstructorObjectImpl}
+import codegen.ir_enum_lookup.{findEnumVariantInParentImpl}
+import codegen.ir_optimization.{pipeGet, parseIntManual}
 import codegen.ir_local_type_leaf_driver.{findVarTypeState}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_member_access.{emitSimdSwizzleMemberAccessImpl, inferSimdSwizzleMemberTypeImpl, prepareBorrowedMemberReceiverImpl}
@@ -386,25 +388,22 @@ fun tryGeneratePlannedMemberAccessTailState(output: StringBuilder,
     return ""
 }
 
-fun tryGenerateEnumMemberAccessState(ctx: CodegenLoweringContext,
+fun tryGenerateEnumMemberAccessState(output: StringBuilder,
     receiverName: String, fieldName: String, enumVariantNames: String,
     enumVariantParent: String, enumVariantTags: String,
     enumVariantFieldCounts: String, enumVariantCount: Int) r: String {
 
-    if enumVariantCount > 0 and isEnumVariantStateImpl(fieldName,
-        enumVariantNames, enumVariantCount) {
-        let parentEnum = lookupEnumParentStateImpl(fieldName,
-            enumVariantNames, enumVariantParent, enumVariantCount)
-        if parentEnum == receiverName {
-            let varFieldCount = lookupEnumFieldCountStateImpl(fieldName,
-                enumVariantNames, enumVariantFieldCounts, enumVariantCount)
-            if varFieldCount > 0 {
-                let enumExpr = ParserExpressionNode.new()
-                return lowerEnumConstructor(ctx, fieldName, enumExpr)
-            }
-            return lookupEnumVariantTagStateImpl(fieldName, enumVariantNames,
-                enumVariantTags, enumVariantCount).toString()
+    let variantIndex = findEnumVariantInParentImpl(receiverName, fieldName,
+        enumVariantNames, enumVariantParent, enumVariantCount)
+    if variantIndex >= 0 {
+        let tag = parseIntManual(pipeGet(enumVariantTags, variantIndex))
+        let fieldCount = parseIntManual(
+            pipeGet(enumVariantFieldCounts, variantIndex))
+        if fieldCount > 0 {
+            return allocateEnumConstructorObjectImpl(output,
+                getFeatureRegBoxImpl(), tag, fieldCount)
         }
+        return tag.toString()
     }
     if receiverName == "SeenTokenType" {
         return getSeenTokenTypeValueImpl(fieldName).toString()
@@ -466,7 +465,7 @@ fun generateMemberAccessState(ctx: CodegenLoweringContext,
     }
 
     if memberRoute.shouldTryEnum {
-        let enumResult = tryGenerateEnumMemberAccessState(ctx, receiverName,
+        let enumResult = tryGenerateEnumMemberAccessState(output, receiverName,
             fieldName, enumVariantNames, enumVariantParent, enumVariantTags,
             enumVariantFieldCounts, enumVariantCount)
         if enumResult != "" {

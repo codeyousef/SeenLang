@@ -465,6 +465,11 @@ fallback. Forbidden fallback also marks the task failed as
 A second fallback report returns `async.limit`; recording never grows an
 unbounded list. Backend identity is a typed `TaskBackend` enum.
 
+`TaskBackend` and `compute.backend.GpuBackend` are distinct enum identities.
+Same-spelled `Cuda`, `Vulkan` and `Metal` members retain their owning enum's
+tags and inferred types when both APIs are imported; a qualified GPU Vulkan
+member must not become `GpuBackend.CpuOnly` through an async diagnostic import.
+
 `ExecutorJoinHandle.joinDetailed(ctx)` and `PoolJoinHandle.joinDetailed(ctx)`
 return `ExecutorJoinReport<T>` after terminal reaping. A report owns its successful
 result, optional error, copied diagnostic/fallback records and progress.
@@ -516,11 +521,32 @@ swap, process and worker caps. LLVM 20 TSan instead requires unlimited
 `RLIMIT_AS`; increasing a finite ceiling does not admit it. The finite TSan
 launcher is not a certified execution path: a compatible, explicitly approved
 test-host policy is still required, and failed startup is not race coverage.
-The JSON result explicitly sets `certified:false`:
-designated performance comparison, 7950X3D scaling and GPU completion remain
-separate deferred verification. The stress fixtures add no native exports;
+The short-contract JSON explicitly sets `certified:false`: designated
+performance comparison and 7950X3D scaling remain separate verification.
+GPU completion has its separate persistent scenario below; the short contract
+does not certify it. The stress fixtures add no native exports;
 the current identities are stdlib 0.17.0 and runtime-v15, recorded in the
 release compatibility manifest.
+
+The separate persistent mixed-workload scenario is
+`scripts/run_async_stress_soak.sh` (manual default: 86,400 seconds, RTX 4090).
+Its native CLI is
+`async_stress_soak_contract SECONDS IO_PATH SHADER_SPV REFLECTION_JSON DEVICE_CLASS`,
+with decimal `SECONDS` in `1..86400` and explicit `rtx4090` or
+`software-reference`. Invalid arguments fail before worker/file/GPU admission.
+Two CPU and two readiness workers persist across actual CPU nesting/cancellation,
+pipe/direct-file completion and verified creator-confined GPU graph work.
+GPU completion is bridged to CPU readiness only after all independent output
+checks; it never makes a GPU handle Send.
+
+The ordinary slow-discovery wrapper
+`tests/misc_root_tests/seen_async_stress_soak_slow.sh` runs two seconds on the
+software reference, not the manual 24-hour scenario. The bounded observer checks
+actual monotonic duration, native status, resource conservation and OS process
+observations; its component result explicitly leaves performance regression,
+TSan and production certification false.
+See [the soak workflow](../testing.md#persistent-async-mixed-workload-soak)
+for scope budgets, retained evidence and exact completion boundaries.
 
 The repeated concrete argument at witness boundaries must refer to the same
 object. Validation compares the trait-box payload address with the typed job;

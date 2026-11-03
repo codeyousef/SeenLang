@@ -4,6 +4,19 @@
     echo 'RESOURCE STOP: Vulkan reference fixtures require an attested capped regression' >&2
     exit 126
 }
+# Preparation is separate so explicit native fixture clients can install their
+# shared sources into the owning manifest project before the frozen compile.
+seen_prepare_vulkan_fixture_project() {
+    local fixtures="$ROOT_DIR/tests/production_gpu_runtime"
+    local project="$TMP_DIR/vulkan-native-project"
+    if [ ! -d "$project" ]; then
+        mkdir -- "$project" || return
+        printf '%s\n' 'manifest-version = 1' '[project]' \
+            'name = "vulkan_native_fixture"' 'version = "0.23.0"' 'language = "en"' \
+            '[native.dependencies]' 'vulkan = {}' > "$project/Seen.toml" || return
+        cp -- "$fixtures/"*_fixture_support.seen "$fixtures/resource_assertions.seen" "$project/" || return
+    fi
+}
 # Native execution opts into the loader through a real project manifest.
 # CPU import/ABI fixtures keep compile_fixture and never enter this project.
 compile_vulkan_fixture() {
@@ -14,13 +27,7 @@ compile_vulkan_fixture() {
         echo 'FAIL: native Vulkan fixture must belong to the shared fixture directory' >&2
         return 126
     fi
-    if [ ! -d "$project" ]; then
-        mkdir -- "$project" || return
-        printf '%s\n' 'manifest-version = 1' '[project]' \
-            'name = "vulkan_native_fixture"' 'version = "0.23.0"' 'language = "en"' \
-            '[native.dependencies]' 'vulkan = {}' > "$project/Seen.toml" || return
-        cp -- "$fixtures/"*_fixture_support.seen "$fixtures/resource_assertions.seen" "$project/" || return
-    fi
+    seen_prepare_vulkan_fixture_project || return
     cp -- "$source" "$project/${source##*/}" || return
     if [ ! -f "$project/Seen.lock" ]; then
         (cd -- "$project" && run_compiler pkg fetch --offline) \
