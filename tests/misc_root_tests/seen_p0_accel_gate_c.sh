@@ -17,6 +17,19 @@ export SEEN_KEEP_TMP=1
 ulimit -c 0
 ulimit -S -f 65536
 printf '[]\n' > "$TMP_DIR/checks.json"
+# Publish before launching any child work: SIGKILL/cgroup teardown cannot run
+# finish(), so these breadcrumbs must not depend on the aggregate EXIT trap.
+active_child() {
+    printf '{"schema":"seen-accelerator-active-child-v1","child":"%s","stage":"%s","child_exit_status":%s,"shell_elapsed_seconds":%s}\n' \
+        "$child" "$1" "${2:-null}" "$SECONDS" > "$TMP_DIR/.active-child.pending"
+    mv -- "$TMP_DIR/.active-child.pending" "$TMP_DIR/active-child.json"
+    printf 'Runtime C child=%s stage=%s shell_elapsed_seconds=%s exit_status=%s\n' \
+        "$child" "$1" "$SECONDS" "${2:-incomplete}" >&2
+}
+child_status() {
+    printf '%s\n' "$2" > "$TMP_DIR/.$1.status.pending"
+    mv -- "$TMP_DIR/.$1.status.pending" "$TMP_DIR/$1.status"
+}
 record() {
     local name=$1 status=$2 detail=$3
     shift 3
@@ -29,7 +42,9 @@ rows.append({'name': sys.argv[2], 'exit_status': int(sys.argv[3]),
              'execution': 'native-cpu', 'classification': 'compile-only',
              'required': True, 'logs': sys.argv[5:],
              'details': {'evidence_boundary': sys.argv[4], 'production_certified': False}})
-path.write_text(json.dumps(rows, indent=2) + '\n')
+pending = path.with_name('.checks.pending')
+pending.write_text(json.dumps(rows, indent=2) + '\n')
+pending.replace(path)
 PY
 }
 finish() {
@@ -75,6 +90,9 @@ for child in "${children[@]}"; do
     if [ "$child" = seen_gpu_runtime_e ]; then
         hardware_opt_in="${SEEN_VULKAN_PIPELINE_HARDWARE-unset}"
     fi
+    child_status "$child" incomplete
+    child_status "$child.observation" incomplete
+    active_child snapshot
     snapshot_status=0
     timeout --foreground --kill-after=5s 30s python3 "$COLLECTOR" --artifacts "$SEEN_ARTIFACT_ROOT" --aggregate "$TMP_DIR" \
         --prefix "$prefix" --snapshot "$TMP_DIR/$child.before.json" --before \
@@ -83,11 +101,13 @@ for child in "${children[@]}"; do
         record "$child-artifact-snapshot" "$snapshot_status" \
             'Failed artifact discovery is retained without skipping the required child' "$child.snapshot.log"
     fi
+    active_child running
     status=0
     timeout --foreground --kill-after=5s 3600s env SEEN_CAPPED_REGRESSION_ACTIVE=0 \
         COMPILER="$COMPILER" SEEN_KEEP_TMP=1 bash "$ROOT_DIR/tests/misc_root_tests/$child.sh" \
         > "$TMP_DIR/$child.log" 2>&1 || status=$?
-    printf '%s\n' "$status" > "$TMP_DIR/$child.status"
+    child_status "$child" "$status"
+    active_child observation "$status"
     record "$child" "$status" \
         'Full existing child gate executed serially, with every native/sanitizer/fault/coverage contract it requires; this row denotes the CPU harness/compiler, not proof of GPU execution. Actual completed runtime profiles and nested reports are recorded separately.' \
         "$child.log" "$child.status"
@@ -98,8 +118,9 @@ for child in "${children[@]}"; do
         --prefix "$prefix" --snapshot "$TMP_DIR/$child.before.json" \
         --child "$child" --status "$status" --boundary "$boundary" \
         --hardware-opt-in "$hardware_opt_in" > "$TMP_DIR/$child.observation.log" 2>&1 || collector_status=$?
-    printf '%s\n' "$collector_status" > "$TMP_DIR/$child.observation.status"
+    child_status "$child.observation" "$collector_status"
     record "$child-observation" "$collector_status" \
         'Parse this run only: retained child statuses/raw logs and genuine nested reports, with no PASS-text assertion or source pins; absent hardware observations remain unsupported/unexecuted, not synthetic successes.' \
         "$child.observation.log" "$child.observation.status"
+    active_child child-finished "$status"
 done

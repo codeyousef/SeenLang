@@ -1,5 +1,31 @@
 # Testing
 
+## Interrupted runtime Gate C diagnostics
+
+`seen_p0_accel_gate_c.sh` publishes `active-child.json` before snapshot,
+execution and observation work, with the child name, stage, shell-elapsed
+seconds and nullable actual child exit status. The parent log also records
+each transition and its shell-elapsed time, so cumulative suite cost can be
+distinguished from a child that stops progressing.
+Child and observation status files begin as `incomplete`;
+only completed processes replace them with numeric statuses. Marker, status
+and checks updates are atomic publications, not power-loss durability claims.
+An aggregate killed before its EXIT trap still leaves these breadcrumbs.
+
+`scripts/collect_verification_logs.py` retains these fixed-depth, allowlisted
+diagnostics from unfinished `p0-accel-c.*` directories. Active child identity,
+log and status outrank older build tails; checks and snapshot/observation
+metadata follow within the unchanged 128-file, 1 MiB-per-file, 32 MiB-total
+and 16,384-discovery-entry bounds. It never descends into child artifacts or
+copies IR/native binaries. Directory and file opens reject symlinks; nonregular
+files cannot block collection. The index marks truncation, observed mutation,
+incomplete JSON and sources that disappear before reading.
+
+Retained files are independent tails, not an atomic gate snapshot or proof of
+success. A missing or malformed marker cannot identify an active child.
+Timeouts and sanitizer failures remain failures; neither diagnostic retention
+nor an earlier successful child certifies an unfinished aggregate.
+
 ## Gate B native emitter fixture provisioning
 
 `tests/misc_root_tests/seen_p0_accel_gate_b.sh` owns a private pool below its

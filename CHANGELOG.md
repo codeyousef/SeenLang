@@ -515,6 +515,17 @@ Foundations**.
 
 ### Fixed
 
+- Preserve bounded active-child diagnostics when accelerator runtime Gate C is
+  interrupted before its aggregate report: atomically publish incomplete and
+  actual statuses, prioritize the active child's identity/log/status, and retain
+  allowlisted metadata without copying IR or relaxing any resource limit.
+  Distinguish truncated, changing, incomplete and unavailable evidence from
+  a stable snapshot or successful gate.
+- Carry FEL-3067 signed-range termination coverage from the published 0.22.10
+  hotfix into this milestone: negative literal and folded bounds, signed
+  extremes, nested/empty ranges and collection iteration run in both fast and
+  ThinLTO release profiles. Keep signed induction free of unsigned-no-wrap
+  assumptions and document the exclusive upper bound.
 - Invalidate prebuilt objects using the previous generic record method ABI;
   advance the live layout identity and verify object and manifest SHA-256
   digests consistently in the compiler and package client.

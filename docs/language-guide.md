@@ -183,10 +183,14 @@ for i in 0..10 {
     println("{i}")  // 0 through 9
 }
 
-for i in 0..=10 {
-    println("{i}")  // 0 through 10
+for i in -3..3 {
+    println("{i}")  // -3 through 2; six iterations
 }
 ```
+
+Integer ranges have a signed start and an exclusive upper bound. Negative
+literal, constant-folded and parameter bounds follow the same rule. A range
+whose start is greater than or equal to its end executes no iterations.
 
 ### loop (infinite)
 
@@ -622,7 +626,7 @@ ByteBuffer, primitive buffers, sort/search helpers, priority queues, and more.
 
 ```seen
 0..10      // exclusive: 0, 1, 2, ..., 9
-0..=10     // inclusive: 0, 1, 2, ..., 10
+-3..3      // exclusive: -3, -2, -1, 0, 1, 2
 ```
 
 ## Operators
