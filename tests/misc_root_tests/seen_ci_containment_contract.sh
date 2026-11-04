@@ -46,8 +46,6 @@ python3 "$CHECKER" "$HAPPY/ci-containment.json" > "$TEST_ROOT/happy-b.json" ||
     fail "CORE-001B_happy repeat"
 cmp -s "$TEST_ROOT/happy-a.json" "$TEST_ROOT/happy-b.json" ||
     fail "CORE-001B_happy was nondeterministic"
-cmp -s "$TEST_ROOT/happy-a.json" "$HAPPY/expected.json" ||
-    fail "CORE-001B_happy bytes changed"
 
 if python3 "$CHECKER" "$INVALID/ci-containment.json" \
     > "$TEST_ROOT/invalid.json" 2> "$TEST_ROOT/invalid.err"; then

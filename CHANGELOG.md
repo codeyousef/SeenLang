@@ -80,6 +80,17 @@ Foundations**.
   as the runtime-A metadata, IOCP completion and ARM dispatch functional oracles.
   Preserve all profiles, fuzz runs, structured platform classifications,
   coverage thresholds and benchmark sample contracts.
+- Split hosted complete acceptance into four isolated groups using the same
+  source- and hash-bound fresh Stage3 candidate. Keep candidate artifacts
+  unverified and non-release-eligible until every group and final installed
+  compiler checks pass. Preserve all cases and profiles, fresh per-job kernel
+  containment and serial workers, with the configured critical path still
+  bounded to 20,700 seconds. Reject damaged, substituted or incomplete inputs
+  before installation and retain bounded group-specific failure diagnostics.
+- Select the existing reviewed CUDA-compatible ASan shadow mapping for the
+  physical CUDA foundation canary, rather than its default inaccessible gap.
+  Keep heap/UAF/stack/global/poison/leak diagnostics and the existing finite
+  address, aggregate memory and task limits; native-library leaks still fail.
 - Invoke the bounded instrumentation soak through Bash instead of requiring an
   executable bit on the capped-regression helper, so actual compiler/emitter
   instrumentation acceptance reaches its native soak checks.

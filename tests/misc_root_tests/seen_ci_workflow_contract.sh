@@ -45,6 +45,9 @@ python3 "$CHECKER" --root "$HAPPY" > "$TEST_ROOT/happy-b.json" ||
 cmp -s "$TEST_ROOT/happy-a.json" "$TEST_ROOT/happy-b.json" ||
     fail "CORE-001A_happy was nondeterministic"
 
+python3 "$ROOT_DIR/tests/runner/test_ci_workflow_policy_unit.py" ||
+    fail "hosted certification and release policy mutations"
+
 # actions/checkout receives github.ref and github.sha for tag events. Without
 # an explicit `ref` input its targeted SHA refspec materializes refs/tags/<tag>
 # as a lightweight commit alias. Supplying the exact event SHA makes the action

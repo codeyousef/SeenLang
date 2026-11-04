@@ -14,85 +14,115 @@ WORKFLOW = ".github/workflows/ci.yml"
 RELEASE_WORKFLOW = ".github/workflows/release.yml"
 MAX_FILES_HARD = 256
 MAX_BYTES_HARD = 4 * 1024 * 1024
-EXPECTED_WORKFLOW = """name: CI
+ACCEPTANCE_GROUPS = ("core", "io-simd", "gpu-emitter", "gpu-runtime-async")
+CHECKOUT = "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+SETUP_GO = "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+UPLOAD_ARTIFACT = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+# Official actions/download-artifact refs/tags/v4.3.0, resolved through GitHub's API.
+DOWNLOAD_ARTIFACT = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+SOURCE_SHA = "${{ github.sha }}"
+MATRIX_GROUP = "${{ matrix.group }}"
+DIAGNOSTIC_IF = "${{ !cancelled() }}"
 
-on:
-  push:
-    branches: [main, release/0.23.0]
-  workflow_dispatch:
 
-permissions:
-  contents: read
+def provision_steps() -> list[dict]:
+    return [
+        {"uses": CHECKOUT, "with": {"ref": SOURCE_SHA}},
+        {"uses": SETUP_GO, "with": {"go-version": "1.26.5", "cache": False}},
+        {"run": "scripts/provision_ci_host.sh"},
+    ]
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[replace-ci]') }}
 
-jobs:
-  required:
-    name: required
-    runs-on: ubuntu-24.04
-    timeout-minutes: 360
-    env:
-      GOTOOLCHAIN: local
-      SEEN_RELEASE_CPU_BASELINE: x86-64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Set up pinned Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
-        with:
-          go-version: '1.26.5'
-          cache: false
-      - name: Provision required isolation and search tools
-        run: scripts/provision_ci_host.sh
-      - name: Run required contained gates
-        run: scripts/run_ci_required.sh
-      - name: Collect bounded verification logs
-        if: ${{ !cancelled() }}
-        run: python3 scripts/collect_verification_logs.py
-      - name: Retain bounded verification logs
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: seen-verification-logs-${{ github.sha }}
-          path: target/seen-build/verification-logs/
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 6
-      - name: Retain bounded accelerator gate evidence
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: seen-accelerator-evidence-${{ github.sha }}
-          path: |
-            .seen/accelerator-gate-evidence/*.tar.gz
-            .seen/accelerator-gate-evidence/index.json
-          include-hidden-files: true
-          if-no-files-found: ignore
-          retention-days: 14
-          compression-level: 0
-      - name: Prepare verified release toolchain
-        run: scripts/prepare_release_toolchain_artifact.sh
-      - name: Retain exact-commit release toolchain
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: seen-release-toolchain-${{ github.sha }}
-          path: target/seen-build/release-toolchain.tar.gz
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-      - name: Retain I/O overlap resource evidence
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: seen-io-overlap-${{ github.sha }}
-          path: .seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json
-          include-hidden-files: true
-          if-no-files-found: ignore
-          retention-days: 14
-          compression-level: 6
-""".encode("utf-8")
+def artifact_upload(name: str, path: str, *, days: int = 14, compression: int = 6,
+                    missing: str = "error", diagnostic: bool = False,
+                    hidden: bool = False) -> dict:
+    step = {"uses": UPLOAD_ARTIFACT, "with": {
+        "name": name, "path": path, "if-no-files-found": missing,
+        "retention-days": days, "compression-level": compression,
+    }}
+    if diagnostic:
+        step["if"] = DIAGNOSTIC_IF
+    if hidden:
+        step["with"]["include-hidden-files"] = True
+    return step
+
+
+def diagnostics(phase: str) -> list[dict]:
+    return [
+        {"if": DIAGNOSTIC_IF, "run": "python3 scripts/collect_verification_logs.py"},
+        artifact_upload(f"seen-verification-logs-{phase}-{SOURCE_SHA}",
+                        "target/seen-build/verification-logs/", days=7, diagnostic=True),
+        artifact_upload(f"seen-accelerator-evidence-{phase}-{SOURCE_SHA}",
+                        ".seen/accelerator-gate-evidence/*.tar.gz\n"
+                        ".seen/accelerator-gate-evidence/index.json\n",
+                        compression=0, missing="ignore", diagnostic=True, hidden=True),
+        artifact_upload(f"seen-io-overlap-{phase}-{SOURCE_SHA}",
+                        ".seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json",
+                        missing="ignore", diagnostic=True, hidden=True),
+    ]
+
+
+def candidate_steps() -> list[dict]:
+    return [
+        {"uses": DOWNLOAD_ARTIFACT, "with": {
+            "name": f"seen-bootstrap-candidate-{SOURCE_SHA}",
+            "path": "target/seen-build/candidate-transfer/",
+        }},
+        {"run": 'python3 scripts/ci_bootstrap_candidate.py unpack --root "$PWD" '
+                '--archive "$PWD/target/seen-build/candidate-transfer/bootstrap-candidate.tar.gz" '
+                '--output "$PWD/target/seen-build/bootstrap-candidate"'},
+    ]
+
+
+def hosted_job(name: str, minutes: int, steps: list[dict], **fields: object) -> dict:
+    return {"name": name, "runs-on": "ubuntu-24.04", "timeout-minutes": minutes,
+            "env": {"GOTOOLCHAIN": "local", "SEEN_RELEASE_CPU_BASELINE": "x86-64"},
+            **fields, "steps": steps}
+
+
+def ci_policy() -> dict:
+    bootstrap = hosted_job("bootstrap", 120, provision_steps() + [
+        {"run": "scripts/run_ci_required.sh --phase bootstrap"},
+        {"run": "tar -czf target/seen-build/bootstrap-candidate.tar.gz "
+                "-C target/seen-build/bootstrap-candidate seen seen-pkg candidate.json"},
+        artifact_upload(f"seen-bootstrap-candidate-{SOURCE_SHA}",
+                        "target/seen-build/bootstrap-candidate.tar.gz", compression=0),
+    ] + diagnostics("bootstrap"))
+    acceptance = hosted_job("acceptance (${{ matrix.group }})", 195,
+        provision_steps() + candidate_steps() + [
+            {"run": f"scripts/run_ci_required.sh --phase acceptance --group {MATRIX_GROUP}"},
+            artifact_upload(f"seen-acceptance-receipt-{MATRIX_GROUP}-{SOURCE_SHA}",
+                            f"target/seen-build/acceptance-receipts/{MATRIX_GROUP}.json"),
+        ] + diagnostics(f"acceptance-{MATRIX_GROUP}"), needs="bootstrap",
+        strategy={"fail-fast": False, "matrix": {"group": list(ACCEPTANCE_GROUPS)}})
+    required = hosted_job("required", 30, [
+        {"env": {"BOOTSTRAP_RESULT": "${{ needs.bootstrap.result }}",
+                 "ACCEPTANCE_RESULT": "${{ needs.acceptance.result }}"},
+         "run": '[[ "$BOOTSTRAP_RESULT" == success && "$ACCEPTANCE_RESULT" == success ]]'},
+    ] + provision_steps() + candidate_steps() + [
+        {"uses": DOWNLOAD_ARTIFACT, "with": {
+            "pattern": f"seen-acceptance-receipt-*-{SOURCE_SHA}",
+            "path": "target/seen-build/acceptance-receipts/", "merge-multiple": True,
+        }},
+        {"run": "scripts/run_ci_required.sh --phase finalize"},
+        {"run": "scripts/prepare_release_toolchain_artifact.sh"},
+        artifact_upload(f"seen-release-toolchain-{SOURCE_SHA}",
+                        "target/seen-build/release-toolchain.tar.gz", compression=0),
+    ] + diagnostics("required"), needs=["bootstrap", "acceptance"], **{"if": "${{ always() }}"})
+    return {
+        "name": "CI",
+        "on": {"push": {"branches": ["main", "release/0.23.0"]}, "workflow_dispatch": None},
+        "permissions": {"contents": "read"},
+        "concurrency": {
+            "group": "ci-${{ github.workflow }}-${{ github.ref }}",
+            "cancel-in-progress": "${{ github.ref == 'refs/heads/main' || "
+                                   "contains(github.event.head_commit.message, '[replace-ci]') }}",
+        },
+        "jobs": {"bootstrap": bootstrap, "acceptance": acceptance, "required": required},
+    }
+
+
+EXPECTED_WORKFLOW = ci_policy()
 EXPECTED_RELEASE_WORKFLOW = """name: Release
 
 on:
@@ -267,13 +297,129 @@ def safe_github_files(
     return files
 
 
-def mismatch_line(actual: bytes, expected: bytes) -> int:
-    actual_lines = actual.splitlines()
-    expected_lines = expected.splitlines()
-    for number, (left, right) in enumerate(zip(actual_lines, expected_lines), 1):
-        if left != right:
-            return number
-    return min(len(actual_lines), len(expected_lines)) + 1
+def parse_workflow(raw: bytes) -> dict[str, object]:
+    """Read the reviewed YAML subset, rejecting aliases, tags and duplicate keys.
+
+    Keeping this small subset avoids an ambient YAML dependency in clean CI.
+    Maps, sequences, quoted/plain scalars and literal blocks are supported;
+    unsupported YAML syntax fails closed rather than being reinterpreted.
+    """
+    text = raw.decode("utf-8")
+    if "\t" in text or text.startswith("\ufeff"):
+        fail("invalid", "workflow contains tabs or a BOM")
+    rows = text.splitlines()
+
+    def scalar(value: str) -> object:
+        if value.startswith('"'):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                fail("invalid", "invalid double-quoted YAML scalar")
+        if value.startswith("'"):
+            if not value.endswith("'"):
+                fail("invalid", "unterminated quoted YAML scalar")
+            return value[1:-1].replace("''", "'")
+        if value.startswith("[") and value.endswith("]"):
+            return [scalar(item.strip()) for item in value[1:-1].split(",") if item.strip()]
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        if value.isdigit():
+            return int(value)
+        if value.startswith(("&", "*", "!", "{", ">", "|", "[")) or " #" in value:
+            fail("invalid", "unsupported YAML scalar syntax")
+        return value
+
+    def skip(index: int) -> int:
+        while index < len(rows) and (not rows[index].strip() or rows[index].lstrip().startswith("#")):
+            index += 1
+        return index
+
+    def indentation(index: int) -> int:
+        return len(rows[index]) - len(rows[index].lstrip(" "))
+
+    def entry(mapping: dict, content: str, index: int, depth: int) -> int:
+        key, separator, value = content.partition(":")
+        if not separator or not key or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for char in key):
+            fail("invalid", "unsupported YAML mapping key")
+        if key in mapping:
+            fail("invalid", f"duplicate YAML mapping key: {key}")
+        value = value.strip()
+        if value == "|":
+            start = index
+            end = index
+            while end < len(rows) and (not rows[end].strip() or indentation(end) > depth):
+                end += 1
+            nonempty = [indentation(number) for number in range(start, end) if rows[number].strip()]
+            margin = min(nonempty) if nonempty else depth + 2
+            mapping[key] = "\n".join(row[margin:] if row.strip() else "" for row in rows[start:end]).rstrip("\n") + "\n"
+            return end
+        if value:
+            mapping[key] = scalar(value)
+            return index
+        next_index = skip(index)
+        if next_index < len(rows) and indentation(next_index) > depth:
+            mapping[key], index = block(next_index, indentation(next_index))
+        else:
+            mapping[key] = None
+        return index
+
+    def block(index: int, depth: int) -> tuple[object, int]:
+        sequence = rows[index][depth:].startswith("- ")
+        result = [] if sequence else {}
+        while True:
+            index = skip(index)
+            if index >= len(rows) or indentation(index) < depth:
+                return result, index
+            if indentation(index) != depth:
+                fail("invalid", "inconsistent YAML indentation")
+            content = rows[index][depth:]
+            index += 1
+            if sequence:
+                if not content.startswith("- "):
+                    fail("invalid", "mixed YAML collection types")
+                item = content[2:]
+                if ": " in item or item.endswith(":"):
+                    mapping = {}
+                    index = entry(mapping, item, index, depth + 2)
+                    while True:
+                        index = skip(index)
+                        if index >= len(rows) or indentation(index) <= depth:
+                            break
+                        if indentation(index) != depth + 2:
+                            fail("invalid", "inconsistent sequence mapping indentation")
+                        index = entry(mapping, rows[index][depth + 2:], index + 1, depth + 2)
+                    result.append(mapping)
+                else:
+                    result.append(scalar(item))
+            else:
+                index = entry(result, content, index, depth)
+
+    start = skip(0)
+    if start == len(rows):
+        fail("invalid", "workflow is empty")
+    document, end = block(start, 0)
+    if skip(end) != len(rows) or not isinstance(document, dict):
+        fail("invalid", "workflow must be one mapping document")
+    return document
+
+
+def policy_semantics(document: object, *, steps: bool = False) -> object:
+    """Display labels are not authorization; all executable fields remain exact."""
+    if isinstance(document, list):
+        return [policy_semantics(item, steps=steps) for item in document]
+    if isinstance(document, dict):
+        return {key: policy_semantics(value, steps=(key == "steps"))
+                for key, value in document.items() if not (steps and key == "name")}
+    return document
+
+
+def same_policy(actual: object, expected: object) -> bool:
+    # JSON preserves scalar types: YAML false must not compare equal to integer 0.
+    return json.dumps(policy_semantics(actual), sort_keys=True) == json.dumps(
+        policy_semantics(expected), sort_keys=True
+    )
 
 
 def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> dict[str, object]:
@@ -288,20 +434,10 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
             "invalid",
             f"active workflow set must be exactly {WORKFLOW} and {RELEASE_WORKFLOW}",
         )
-    actual = files[WORKFLOW]
-    if actual != EXPECTED_WORKFLOW:
-        fail(
-            "invalid",
-            f"{WORKFLOW} differs from the canonical contract at line "
-            f"{mismatch_line(actual, EXPECTED_WORKFLOW)}",
-        )
-    release_actual = files[RELEASE_WORKFLOW]
-    if release_actual != EXPECTED_RELEASE_WORKFLOW:
-        fail(
-            "invalid",
-            f"{RELEASE_WORKFLOW} differs from the canonical contract at line "
-            f"{mismatch_line(release_actual, EXPECTED_RELEASE_WORKFLOW)}",
-        )
+    if not same_policy(parse_workflow(files[WORKFLOW]), EXPECTED_WORKFLOW):
+        fail("invalid", "CI graph, containment, candidate transfer or final certification policy differs")
+    if not same_policy(parse_workflow(files[RELEASE_WORKFLOW]), parse_workflow(EXPECTED_RELEASE_WORKFLOW)):
+        fail("invalid", "release authorization, exact-source, signing or native Windows policy differs")
     return {
         "active_workflows": workflows,
         "checkout": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
@@ -323,7 +459,11 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         ],
         "host_tools_provisioning": "ubuntu-packages-pinned-assembler-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
-        "job_count": 1,
+        "job_count": 6,
+        "job_graph": {"bootstrap": [], "acceptance": ["bootstrap"], "required": ["bootstrap", "acceptance"]},
+        "acceptance_groups": list(ACCEPTANCE_GROUPS),
+        "candidate": "same-run-source-bound-unverified-stage3",
+        "release_artifact_producer": "required-only-after-all-four-receipts",
         "platforms": {
             "linux-arm64": "static-policy",
             "linux-x86_64": "required",
@@ -340,10 +480,12 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_toolchain_artifact": "exact-main-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
-        "timeout_minutes": 360,
+        "timeout_minutes": {"bootstrap": 120, "acceptance": 195, "required": 30},
+        "critical_path_seconds": 20700,
         "trigger": "push-main-or-release-0.23.0-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 11,
+        "version": 12,
+        "download_artifact": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
     }
 
 

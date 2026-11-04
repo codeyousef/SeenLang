@@ -508,29 +508,47 @@ memory and rejects any byte-level drift before a pull request can merge.
 
 ## Required CI contract
 
-Gate 0 has one active workflow and one required job: `.github/workflows/ci.yml`
-publishes `CI / required` from an Ubuntu 24.04 runner. It uses commit-pinned
-checkout and Go setup actions, exact Go 1.26.5, read-only repository
-permissions, a 210-minute job timeout, and the fail-closed
-`scripts/run_ci_required.sh` entry point. That outer entry point
-derives the aggregate cap from live system memory, enters a Linux cgroup v2
-user-systemd scope, and applies zero swap, serial workers, a 24-task ceiling,
-per-process virtual-memory limits, and a 10,800-second child timeout. The inner
-`scripts/ci_required.sh` gate re-reads the live kernel scope before running the
-deterministic policy and containment regressions. It then invokes
-`scripts/certify_gate0_clean_checkout.sh`, which refuses a dirty checkout,
-hash-verifies the frozen compiler and compatibility record, performs the full
-serial rebuild and Stage-1 acceptance surface, fuzz-smokes the bounded evidence
-parser with seed 1101, packages the same source package twice, and records
-canonical `seen-gate0-certification-v1` evidence. An environment marker alone
-is never accepted as evidence.
+The authoritative `.github/workflows/ci.yml` preserves the required check
+`CI / required` while separating hosted work into three dependency phases:
 
-The aggregate and main-compiler limits are the smaller of 60% of total memory
-and currently available memory after retaining a 10%-of-total system reserve.
-They have no fixed byte ceiling; this keeps a bounded host fraction while
-allowing LLVM linking to use the capacity of larger development machines.
-Caller-supplied limits are accepted only when they are no larger than the
-freshly derived value.
+1. `bootstrap` (120 minutes) provisions the pinned tools and builds a fresh
+   Stage2/Stage3 toolchain with actual smoke checks. It uploads an **unverified**
+   Stage3 candidate, not an installed or release-eligible compiler.
+2. `acceptance` (195 minutes per job) runs the exact `core`, `io-simd`,
+   `gpu-emitter`, and `gpu-runtime-async` matrix on separate hosted machines,
+   with `fail-fast: false`. Every group downloads the same run's source-SHA-bound
+   candidate and verifies its commit/tree, portable x86-64 baseline, file sizes,
+   and hashes before execution. A group receipt is uploaded only after success.
+3. `required` (30 minutes) always runs and explicitly rejects unsuccessful,
+   skipped, or missing dependencies. It downloads the candidate and all four
+   receipts, verifies their common identity, and only then installs and certifies
+   the compiler, performs the installed Gate 0 checks, writes the full stamp,
+   and produces `seen-release-toolchain-${sha}`. No other job produces an eligible
+   release toolchain artifact.
+
+The longest configured dependency path is 345 minutes (20,700 seconds), not
+an increased gate deadline. Each build-capable job uses Ubuntu 24.04,
+commit-pinned checkout/Go/artifact actions, exact Go 1.26.5, read-only repository
+permissions, the portable CPU baseline, and pinned host provisioning.
+`scripts/run_ci_required.sh --phase bootstrap`, `--phase acceptance --group GROUP`,
+and `--phase finalize` are the hosted entries; the default invocation still runs
+the complete local CI surface, with its 14,400-second full acceptance timeout.
+
+Each phase independently derives its aggregate memory cap from live memory
+(the smaller of one quarter of total memory and one half of available memory),
+enters a read-back-verified Linux cgroup v2 scope, and applies zero swap, a
+24-task ceiling, and serial compiler/LLVM work with the 2 GiB optimizer limit.
+Scope-bound serializer handles are never artifacts and never cross machines.
+Candidates travel as an exact three-member archive; the candidate helper rejects
+unsafe paths, links, duplicates, excess sizes, and malformed identity before
+publishing extracted files. An environment marker alone is never scope evidence.
+
+Each phase/group retains separately named, bounded failure-log tails and gate
+evidence, never failed bulk compiler IR. Candidate and receipt artifacts use
+source-SHA-bound names and same-run downloads. Release verification additionally
+requires all six actual jobs to have completed successfully and the live
+same-run exact-source final toolchain artifact; a workflow-level green conclusion
+or candidate upload alone is not certification.
 
 The exact reviewed limits and platform support are versioned in
 [`architecture/ci-containment.json`](architecture/ci-containment.json), with
@@ -543,8 +561,11 @@ until an equivalent read-back-verified aggregate boundary exists.
 Obsolete disabled workflows are not retained as fallbacks: they referenced
 unsupported compiler commands and paths and bypassed current containment
 policy. `scripts/check_ci_workflows.py` scans `.github` with explicit file and
-byte bounds, rejects links and retired workflow paths, and compares the active
-workflow byte-for-byte with the reviewed contract. Run
+byte bounds, rejects links and retired workflow paths, and validates the reviewed
+YAML semantics, including the graph, commands, action pins, permissions, and
+release authorization. Display-step labels, comments, and formatting are not
+authorization. Its bounded, dependency-free YAML subset rejects aliases, tags,
+duplicate keys, and unsupported syntax rather than interpreting them loosely. Run
 `tests/misc_root_tests/seen_ci_workflow_contract.sh` and
 `tests/misc_root_tests/seen_ci_containment_contract.sh` after any CI-policy
 change.

@@ -194,6 +194,10 @@ PY
 for profile in fast release undefined address; do
     for backend in cuda vulkan; do
         name="$backend"
+        # CUDA needs LLVM's reviewed application shadow-gap mapping, not the
+        # default inaccessible gap. Bounds/UAF/poison/leak checks stay enabled.
+        FIXTURE_ASAN_ADDRESS_LAYOUT=default
+        if [ "$backend" = cuda ]; then FIXTURE_ASAN_ADDRESS_LAYOUT=cuda; fi
         source="$ROOT_DIR/tests/expanded_gate_0_accelerator_certification/cuda_foundation/src/main.seen"
         compile_status=0
         if [ "$backend" = vulkan ]; then

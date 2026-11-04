@@ -14,6 +14,7 @@ SERIALIZER_VERIFY="$SCRIPT_DIR/verify_fork_serializer.sh"
 BOUNDED_TOOLCHAIN_PREPARE="$SCRIPT_DIR/prepare_bounded_toolchain.sh"
 TIER=""
 COMPILER=""
+GROUP=all
 FIXTURE_LOG_TAIL_BYTES=32768
 
 [ -f "$ARTIFACT_ROOT_SCRIPT" ] || {
@@ -25,9 +26,9 @@ source "$ARTIFACT_ROOT_SCRIPT"
 
 usage() {
     cat <<EOF
-Usage: $0 --tier quick|verify --compiler <fresh-compiler>
+Usage: $0 --tier quick|verify --compiler <fresh-compiler> [--group all|core|io-simd|gpu-emitter|gpu-runtime-async]
 
-Runs the focused 0.11 Stage-1 acceptance surface against exactly the compiler
+Runs the selected Stage-1 acceptance surface against exactly the compiler
 path supplied by the caller. All generated files stay below the repository's
 ignored .seen/agent-tools tree.
 EOF
@@ -59,6 +60,18 @@ while [ "$#" -gt 0 ]; do
             COMPILER=${1#--compiler=}
             shift
             ;;
+        --group)
+            [ "$#" -ge 2 ] || {
+                echo "ERROR: --group requires an acceptance group" >&2
+                exit 2
+            }
+            GROUP=$2
+            shift 2
+            ;;
+        --group=*)
+            GROUP=${1#--group=}
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -78,6 +91,14 @@ case "$TIER" in
         exit 2
         ;;
 esac
+
+case "$GROUP" in
+    all|core|io-simd|gpu-emitter|gpu-runtime-async) ;;
+    *) echo "ERROR: unknown acceptance group: $GROUP" >&2; exit 2 ;;
+esac
+acceptance_group_enabled() {
+    [ "$GROUP" = all ] || [ "$GROUP" = "$1" ]
+}
 
 [ -n "$COMPILER" ] || {
     echo "ERROR: --compiler is required; PATH compilers are never accepted" >&2
@@ -168,7 +189,7 @@ if [ "${SEEN_PROJECT_ARTIFACT_WRAPPER:-0}" != "1" ] ||
             SEEN_MAIN_VMEM_KB="$SEEN_MAIN_VMEM_KB" \
             SEEN_OPT_VMEM_KB="$SEEN_OPT_VMEM_KB" \
             SEEN_MEMORY_LIMIT_BYTES="$SEEN_MEMORY_LIMIT_BYTES" \
-            "$0" --tier "$TIER" --compiler "$COMPILER"
+            "$0" --tier "$TIER" --compiler "$COMPILER" --group "$GROUP"
 fi
 
 seen_artifact_root_init "$REPO_ROOT" || {
@@ -198,7 +219,7 @@ if [ "${SEEN_HARD_MEMORY_SCOPE_ACTIVE:-0}" != "1" ] &&
         exit 1
     }
     exec "$HARD_SCOPE_WRAPPER" --label "Stage-1 acceptance $TIER" -- \
-        "$0" --tier "$TIER" --compiler "$COMPILER"
+        "$0" --tier "$TIER" --compiler "$COMPILER" --group "$GROUP"
 fi
 SEEN_HARD_MEMORY_SCOPE_ACTIVE=1
 export SEEN_HARD_MEMORY_SCOPE_ACTIVE
@@ -445,6 +466,7 @@ if [ "$compiler_version_line" != "Seen $EXPECTED_VERSION" ]; then
 fi
 "$DIRECT_COMPILER" --help >/dev/null
 
+if acceptance_group_enabled core; then
 # Run release-blocking stabilization regressions before the broader acceptance
 # corpus so a known compiler/runtime regression fails locally within minutes.
 COMPILER="$REAL_COMPILER" "$REPO_ROOT/tests/misc_root_tests/seen_allocator_oom_exit.sh"
@@ -473,6 +495,8 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_result_aggregate_array_data_contract.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_result_scalar_payload_contract.sh"
+fi
+if acceptance_group_enabled io-simd; then
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_inf_simd_a.sh"
 COMPILER="$REAL_COMPILER" \
@@ -497,6 +521,8 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_inf_simd_e.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_inf_simd_f.sh"
+fi
+if acceptance_group_enabled gpu-emitter; then
 python3 "$REPO_ROOT/tests/gpu_artifacts/toolchain_memory_contract.py"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_a.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_b.sh"
@@ -512,7 +538,11 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_compiled_fixture_metadata_linux_x86_64.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_ir_only_phase_linux_x86_64.sh"
+fi
+if acceptance_group_enabled gpu-runtime-async; then
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_c.sh"
+fi
+if acceptance_group_enabled core; then
 bash "$REPO_ROOT/tests/misc_root_tests/seen_asan_address_layout.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_fs_close_error.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_fs_file_ownership.sh"
@@ -556,6 +586,8 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_default_constant_arguments_contract.sh"
 SEEN_BIN="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh"
+fi
+if acceptance_group_enabled gpu-runtime-async; then
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_async_structured_contract.sh"
 COMPILER="$REAL_COMPILER" \
@@ -573,6 +605,8 @@ COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_async_stre
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_open_issue_regressions.sh"
 
+fi
+if acceptance_group_enabled core; then
 if [ "$TIER" = "verify" ]; then
     "$REPO_ROOT/tests/misc_root_tests/seen_unimported_extension_contract.sh"
     "$REPO_ROOT/tests/misc_root_tests/seen_core_004d_determinism_graph.sh"
@@ -1055,5 +1089,6 @@ if [ "$TIER" = "verify" ]; then
     COMPILER="$REAL_COMPILER" \
         "$REPO_ROOT/tests/e2e_multilang/run_all_e2e.sh"
 fi
+fi
 
-echo "PASS: $TIER Stage-1 acceptance against $COMPILER"
+echo "PASS: $TIER Stage-1 acceptance group $GROUP against $COMPILER"

@@ -1,10 +1,39 @@
 {
-  "version": 1,
   "entrypoints": {
     "guard": "scripts/memory_guard.sh",
     "inner_gate": "scripts/ci_required.sh",
     "outer_gate": "scripts/run_ci_required.sh",
     "scope": "scripts/run_in_hard_memory_scope.sh"
+  },
+  "execution": {
+    "acceptance_fail_fast": false,
+    "acceptance_groups": [
+      "core",
+      "io-simd",
+      "gpu-emitter",
+      "gpu-runtime-async"
+    ],
+    "candidate": "unverified-same-source-stage3-until-finalization",
+    "critical_path_seconds": 20700,
+    "default_local": "full",
+    "finalizer": "always-require-all-needs-success-and-four-source-bound-receipts",
+    "graph": {
+      "acceptance": [
+        "bootstrap"
+      ],
+      "bootstrap": [],
+      "required": [
+        "bootstrap",
+        "acceptance"
+      ]
+    },
+    "job_timeout_seconds": {
+      "acceptance": 11700,
+      "bootstrap": 7200,
+      "required": 1800
+    },
+    "local_full_acceptance_seconds": 14400,
+    "scope": "fresh-memory-derived-aggregate-swap0-pids24-per-job"
   },
   "memory": {
     "available_divisor": 2,
@@ -28,5 +57,6 @@
     "hard_max": 24,
     "jobs": 1,
     "optimizer_jobs": 1
-  }
+  },
+  "version": 2
 }

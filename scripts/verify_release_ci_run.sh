@@ -66,12 +66,25 @@ gh api --method GET \
     fail "could not fetch authoritative CI evidence"
 
 report="$run_root/attestation.json"
-python3 "$CHECKER" --evidence "$evidence" \
+python3 "$CHECKER" --select-run --evidence "$evidence" \
     --commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" > "$report"
-cat "$report"
 run_id=$(python3 -c \
     'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); run=value["run_id"]; assert isinstance(run, int) and not isinstance(run, bool) and run > 0; print(run)' \
     "$report") || fail "could not read the attested CI run identifier"
+
+jobs_evidence="$run_root/jobs.json"
+artifacts_evidence="$run_root/artifacts.json"
+gh api --method GET \
+    "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?filter=latest&per_page=100" \
+    > "$jobs_evidence" || fail "could not fetch all certification job results"
+gh api --method GET \
+    "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
+    > "$artifacts_evidence" || fail "could not fetch same-run release artifact evidence"
+python3 "$CHECKER" --evidence "$evidence" --jobs-evidence "$jobs_evidence" \
+    --artifacts-evidence "$artifacts_evidence" \
+    --commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" > "$report" ||
+    fail "full certification graph or final release artifact was not successful"
+cat "$report"
 
 download_root="$run_root/toolchain"
 mkdir -p "$download_root" || fail "could not create release toolchain download directory"

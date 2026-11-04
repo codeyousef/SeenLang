@@ -11,34 +11,36 @@ import sys
 from pathlib import Path
 
 MAX_BYTES_HARD = 1024 * 1024
-EXPECTED = {
-    "version": 1,
-    "entrypoints": {
-        "guard": "scripts/memory_guard.sh",
-        "inner_gate": "scripts/ci_required.sh",
-        "outer_gate": "scripts/run_ci_required.sh",
-        "scope": "scripts/run_in_hard_memory_scope.sh",
-    },
-    "memory": {
-        "available_divisor": 2,
-        "memory_high_percent": 99,
-        "swap_max_bytes": 0,
-        "total_divisor": 4,
-    },
-    "platforms": {
-        "linux-aarch64": "static-policy",
-        "linux-x86_64": "required",
-        "macos": "unsupported-fail-closed",
-        "windows": "unsupported-fail-closed",
-    },
-    "process": {
-        "allocation_limit": "aggregate-cap",
-        "main_vmem_limit": "aggregate-cap",
-        "optimizer_vmem_max_kib": 2097152,
-        "timeout_seconds": 20700,
-    },
-    "tasks": {"hard_max": 24, "jobs": 1, "optimizer_jobs": 1},
-}
+EXPECTED = {'version': 2,
+ 'entrypoints': {'guard': 'scripts/memory_guard.sh',
+                 'inner_gate': 'scripts/ci_required.sh',
+                 'outer_gate': 'scripts/run_ci_required.sh',
+                 'scope': 'scripts/run_in_hard_memory_scope.sh'},
+ 'memory': {'available_divisor': 2,
+            'memory_high_percent': 99,
+            'swap_max_bytes': 0,
+            'total_divisor': 4},
+ 'platforms': {'linux-aarch64': 'static-policy',
+               'linux-x86_64': 'required',
+               'macos': 'unsupported-fail-closed',
+               'windows': 'unsupported-fail-closed'},
+ 'process': {'allocation_limit': 'aggregate-cap',
+             'main_vmem_limit': 'aggregate-cap',
+             'optimizer_vmem_max_kib': 2097152,
+             'timeout_seconds': 20700},
+ 'tasks': {'hard_max': 24, 'jobs': 1, 'optimizer_jobs': 1},
+ 'execution': {'default_local': 'full',
+               'acceptance_groups': ['core', 'io-simd', 'gpu-emitter', 'gpu-runtime-async'],
+               'graph': {'bootstrap': [],
+                         'acceptance': ['bootstrap'],
+                         'required': ['bootstrap', 'acceptance']},
+               'job_timeout_seconds': {'bootstrap': 7200, 'acceptance': 11700, 'required': 1800},
+               'critical_path_seconds': 20700,
+               'local_full_acceptance_seconds': 14400,
+               'acceptance_fail_fast': False,
+               'finalizer': 'always-require-all-needs-success-and-four-source-bound-receipts',
+               'candidate': 'unverified-same-source-stage3-until-finalization',
+               'scope': 'fresh-memory-derived-aggregate-swap0-pids24-per-job'}}
 
 
 class ContractError(ValueError):
@@ -60,7 +62,7 @@ def positive_bounded(value: str, maximum: int, name: str) -> int:
 
 
 def validate(document: object) -> dict[str, object]:
-    if document != EXPECTED:
+    if json.dumps(document, sort_keys=True) != json.dumps(EXPECTED, sort_keys=True):
         fail("invalid", "containment policy differs from the reviewed contract")
     return EXPECTED
 

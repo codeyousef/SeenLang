@@ -7,11 +7,45 @@ ARTIFACT_HELPER="$ROOT_DIR/scripts/artifact_root.sh"
 HARD_SCOPE="$ROOT_DIR/scripts/run_in_hard_memory_scope.sh"
 INNER_GATE="$ROOT_DIR/scripts/ci_required.sh"
 TIMEOUT_SECS=20700
+CI_PHASE=all
+CI_GROUP=""
 
 fail() {
     echo "ci-containment: core.001b.invalid: $*" >&2
     exit 126
 }
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --phase)
+            [ "$#" -ge 2 ] || fail "--phase requires a value"
+            CI_PHASE=$2
+            shift 2
+            ;;
+        --group)
+            [ "$#" -ge 2 ] || fail "--group requires a value"
+            CI_GROUP=$2
+            shift 2
+            ;;
+        *) fail "unknown required CI option: $1" ;;
+    esac
+done
+case "$CI_PHASE" in
+    all) ;;
+    bootstrap) TIMEOUT_SECS=7200 ;;
+    acceptance)
+        TIMEOUT_SECS=11700
+        case "$CI_GROUP" in
+            core|io-simd|gpu-emitter|gpu-runtime-async) ;;
+            *) fail "acceptance requires one complete named group" ;;
+        esac
+        export SEEN_TIER_TIMEOUT_SECS="$TIMEOUT_SECS"
+        ;;
+    finalize) TIMEOUT_SECS=1800 ;;
+    *) fail "unknown required CI phase: $CI_PHASE" ;;
+esac
+[ "$CI_PHASE" = acceptance ] || [ -z "$CI_GROUP" ] ||
+    fail "--group is only valid for the acceptance phase"
 
 [ "$(uname -s)" = "Linux" ] ||
     fail "required CI has no supported hard scope on this platform"
@@ -52,7 +86,8 @@ trap 'exit 143' TERM
 status=0
 env TMPDIR="$CI_TMPDIR" \
     "$HARD_SCOPE" --label "required CI" --timeout-secs "$TIMEOUT_SECS" -- \
-    env SEEN_CI_CONTAINMENT_IN_SCOPE=1 "$INNER_GATE" || status=$?
+    env SEEN_CI_CONTAINMENT_IN_SCOPE=1 SEEN_CI_PHASE="$CI_PHASE" \
+        SEEN_CI_ACCEPTANCE_GROUP="$CI_GROUP" "$INNER_GATE" || status=$?
 if [ "$status" -ne 0 ]; then
     echo "ci-containment: core.001b.invalid: contained required gates failed (status $status)" >&2
 fi

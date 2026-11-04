@@ -8,6 +8,31 @@ matching human-readable PASS sentences. Stable diagnostic codes, structured
 capability classifications, coverage thresholds and benchmark sample contracts
 remain checked separately.
 
+## Complete hosted acceptance
+
+Ordinary `scripts/run_ci_required.sh` and full rebuilds still execute the complete
+acceptance surface. Hosted CI first exports a fresh portable Stage3 candidate
+after both bootstrap stages and hello checks. This candidate is explicitly
+unverified: it does not install a production compiler or create a release stamp.
+
+The canonical acceptance runner supports four complete groups: `core`,
+`io-simd`, `gpu-emitter` and `gpu-runtime-async`. Its default `--group all`
+preserves local full/verify behavior. Hosted workers run these groups on separate
+machines with identical candidate bytes, same-commit source, fresh live kernel
+containment, zero swap and serial compiler workers. No profile, native assertion,
+fuzz duration, coverage threshold or benchmark sample contract is removed.
+
+The final required job rejects missing, failed or skipped dependencies and
+validates all four source/candidate-bound completion receipts before installation.
+It then executes the installed compiler's Gate 0 checks and writes the full
+release stamp. Only this job can produce the exact-commit release toolchain.
+Candidate transport is bounded and admitted before publication; archive links,
+traversal, duplicate entries and substituted source or binaries fail closed.
+
+The configured dependency-path budgets are 120 minutes for bootstrap,
+195 minutes for the acceptance matrix and 30 minutes for finalization:
+345 minutes total, matching the existing 20,700-second hard CI bound.
+
 ## Interrupted runtime Gate C diagnostics
 
 `seen_p0_accel_gate_c.sh` publishes `active-child.json` before snapshot,

@@ -32,11 +32,26 @@ if ! scripts/run_in_hard_memory_scope.sh --verify-only >/dev/null; then
     containment_fail "live kernel scope read-back failed"
 fi
 
+case "${SEEN_CI_PHASE:-all}" in
+    all|bootstrap) ;;
+    acceptance)
+        exec "$ROOT_DIR/scripts/run_ci_acceptance_group.sh" \
+            "${SEEN_CI_ACCEPTANCE_GROUP:-}"
+        ;;
+    finalize)
+        exec "$ROOT_DIR/scripts/certify_gate0_clean_checkout.sh" --finalize-candidate
+        ;;
+    *) containment_fail "unknown required CI phase" ;;
+esac
+
 # CORE-004E/F/G: reject malformed deterministic contracts before any bootstrap
 # or clean-checkout certification work. CORE-004E execution is deliberately
 # deferred to Stage-1 acceptance, where the verified fresh compiler is explicit.
 bash -n \
     scripts/compiled_fixture_support.sh \
+    scripts/run_ci_acceptance_group.sh \
+    scripts/seen_stage1_acceptance.sh \
+    scripts/certify_gate0_clean_checkout.sh \
     scripts/run_attested_seen.sh \
     scripts/installed_payload_fixture_worker.sh \
     tests/misc_root_tests/seen_core_004e_deterministic_context.sh \
@@ -240,6 +255,10 @@ python3 -m py_compile \
     scripts/check_native_boundaries.py \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
+    scripts/ci_bootstrap_candidate.py \
+    scripts/ci_candidate_io.py \
+    tests/runner/test_ci_bootstrap_candidate_unit.py \
+    tests/runner/test_ci_workflow_policy_unit.py \
     scripts/check_release_ci_run.py \
     scripts/release_toolchain_artifact.py \
     scripts/release_platform_inputs.py \
@@ -258,6 +277,7 @@ python3 tests/misc_root_tests/seen_accelerator_gate_evidence_contract.py
 python3 tests/gpu_artifacts/metal_certification_contract.py
 python3 tests/gpu_artifacts/metal_toolchain_lifecycle_contract.py
 python3 -m unittest \
+    tests.runner.test_ci_bootstrap_candidate_unit \
     tests.runner.test_release_ci_run_unit \
     tests.runner.test_release_toolchain_artifact_unit \
     tests.runner.test_release_platform_inputs_unit \
@@ -332,6 +352,10 @@ tests/misc_root_tests/seen_memory_guard_fail_closed.sh
 tests/misc_root_tests/seen_low_task_helper_serialization.sh
 git diff --check
 
-scripts/certify_gate0_clean_checkout.sh
+if [ "${SEEN_CI_PHASE:-all}" = bootstrap ]; then
+    scripts/certify_gate0_clean_checkout.sh --bootstrap-candidate
+else
+    scripts/certify_gate0_clean_checkout.sh
+fi
 
-echo "PASS: required CI gates"
+echo "PASS: required CI phase ${SEEN_CI_PHASE:-all}"

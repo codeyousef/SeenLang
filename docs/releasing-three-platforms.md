@@ -17,6 +17,11 @@ success followed by optional uploads.
    Linux scope is unavailable, stop; do not substitute an uncapped Mac build.
 2. Merge/push the exact tree to `main` and obtain the successful authoritative
    `CI / required` push run for that SHA. Do not poll it. Preserve the run ID.
+   Certification requires successful `bootstrap`, all four `acceptance` matrix
+   jobs, and the final `required` job from that same run. The release verifier
+   checks each actual job result and the non-expired, exact-source
+   `seen-release-toolchain-SHA` artifact; skipped jobs and unverified
+   `seen-bootstrap-candidate-SHA` artifacts cannot authorize publication.
 3. Build both cross-host inputs from the clean final commit, using a locally
    copied, hash-recorded Apple SDK and the verified candidate compiler:
 

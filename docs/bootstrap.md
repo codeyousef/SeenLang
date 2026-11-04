@@ -115,16 +115,22 @@ The verify/full paths run their required prebuild gates inside the same hard
 scope before expensive compiler work. Do not disable them for a routine
 rebuild.
 
-Required pull-request CI uses the same boundary through
-`scripts/run_ci_required.sh`. The wrapper derives a cap from current memory,
-creates a project-local artifact directory, enters the hard scope with a
-10,800-second deadline, and then invokes `scripts/ci_required.sh`. The inner gate
-must successfully run `scripts/run_in_hard_memory_scope.sh --verify-only`
-before any required checks proceed. The final required gate performs the
-clean-checkout full rebuild, canonical Seen test, fuzz smoke, and deterministic
-package certification described by `seen-gate0-certification-v1`. Its versioned contract is
-`docs/architecture/ci-containment.json`; unsupported hosts fail before running
-the gate.
+Required hosted CI uses the same boundary through `scripts/run_ci_required.sh`.
+Its explicit phases are `--phase bootstrap`, `--phase acceptance --group GROUP`,
+and `--phase finalize`; the default invocation remains the complete local gate.
+Hosted bootstrap receives 7,200 seconds, each of the four independent acceptance
+groups receives 11,700 seconds, and finalization receives 1,800 seconds. Their
+longest dependency path remains 20,700 seconds. Local full acceptance retains its
+14,400-second timeout.
+
+Every machine derives its own current-memory cap and re-verifies its real hard
+scope, zero swap, serial compiler/LLVM limits, and 24-task ceiling. Only the
+source/tree/baseline/hash-bound Stage3 candidate and success receipts cross jobs;
+scope-bound serializer handles do not. The candidate is not installed or certified
+until finalization has verified **all four** receipts and installed Gate 0 checks.
+Candidate archives are safely unpacked by `scripts/ci_bootstrap_candidate.py`,
+not blindly extracted. The versioned execution and containment contract is
+`docs/architecture/ci-containment.json`; unsupported hosts fail closed.
 
 All rebuild scratch files default to the Git-ignored
 `.seen/agent-tools/safe-rebuild/` directory in the checkout. Set

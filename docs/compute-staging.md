@@ -281,8 +281,12 @@ redzones, quarantine, leak detection and error exits remain enabled. The default
 runner layout remains protected and unchanged. The `seen_asan_address_layout.sh`
 contract requires both layouts to detect heap/UAF/stack/global/leak errors, and
 requires poison detection within the newly supported gap mapping itself.
+The physical Gate D CUDA canary uses this same reviewed layout; Vulkan and the
+default runner keep their existing layout. The finite 64 TiB sanitizer address
+ceiling and aggregate RAM/swap/task limits are unchanged. A native leak or
+sanitizer finding remains a nonzero failure after successful SDK initialization.
 See [NVIDIA's ASan build instructions](https://github.com/NVIDIA/nccl/blob/master/makefiles/common.mk)
-and [LLVM's shadow setup](https://github.com/llvm/llvm-project/blob/release/21.x/compiler-rt/lib/asan/asan_shadow_setup.cpp).
+and [LLVM 20.1.2's shadow setup](https://github.com/llvm/llvm-project/blob/llvmorg-20.1.2/compiler-rt/lib/asan/asan_shadow_setup.cpp).
 This resolves the independently reproduced startup OOM, but the hardware gate
 still fails on an independently reproduced native-library leak. No leak is
 suppressed or counted as a pass. Passing other profiles or device memcheck does

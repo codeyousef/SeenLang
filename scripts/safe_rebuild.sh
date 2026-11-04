@@ -60,6 +60,9 @@ SOURCE_PACKAGE_CLIENT=""
 SOURCE_PACKAGE_CLIENT_VERSION=""
 BUILDER_PACKAGE_CLIENT=""
 REBUILD_SCOPE_EVIDENCE_FILE=""
+BOOTSTRAP_CANDIDATE_ONLY=0
+CANDIDATE_STAGE2_SMOKE_OK=0
+CANDIDATE_STAGE3_SMOKE_OK=0
 
 if [ -f "$BUILD_TRACE_COMMON" ]; then
     # shellcheck source=scripts/build_trace_common.sh
@@ -74,6 +77,7 @@ safe_rebuild_usage() {
     echo "  verify  Cache-enabled production rebuild; targeted checks; install after verification."
     echo "  full    Cold staged bootstrap verification. This is the default for compatibility."
     echo "  --regression-script PATH  Run a focused repository script with a verified exact-version builder and scope-attested serializer; no compiler installation or bootstrap certification."
+    echo "  --bootstrap-candidate  Export a fresh portable Linux Stage3 candidate without acceptance, installation or release certification; full tier only."
     echo ""
     echo "Artifacts default to <repository>/.seen/agent-tools. Set SEEN_ARTIFACT_ROOT"
     echo "to another Git-ignored path inside the repository to override that location."
@@ -106,6 +110,14 @@ while [ "$#" -gt 0 ]; do
             ARTIFACT_PREFLIGHT_ONLY=1
             shift
             ;;
+        --bootstrap-candidate)
+            [ "$BOOTSTRAP_CANDIDATE_ONLY" = 0 ] || {
+                echo "ERROR: duplicate --bootstrap-candidate option" >&2
+                exit 2
+            }
+            BOOTSTRAP_CANDIDATE_ONLY=1
+            shift
+            ;;
         --regression-script)
             [ "$#" -ge 2 ] && [ -n "$2" ] && [ -z "$REGRESSION_SCRIPT" ] || {
                 echo "ERROR: --regression-script requires one repository script" >&2
@@ -133,6 +145,26 @@ case "$REBUILD_TIER" in
         exit 1
         ;;
 esac
+
+if [ "$BOOTSTRAP_CANDIDATE_ONLY" = 1 ]; then
+    if [ "$REBUILD_TIER" != full ] || [ -n "$REGRESSION_SCRIPT" ] ||
+        [ "$ARTIFACT_PREFLIGHT_ONLY" != 0 ] ||
+        [ "${SEEN_STOP_AFTER_STAGE2_SMOKE:-0}" != 0 ]; then
+        echo "ERROR: bootstrap candidate requires the complete staged full bootstrap" >&2
+        exit 2
+    fi
+    if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ] ||
+        [ "${SEEN_RELEASE_CPU_BASELINE:-}" != x86-64 ]; then
+        echo "ERROR: bootstrap candidate requires the portable Linux x86-64 baseline" >&2
+        exit 126
+    fi
+    [ -f "$SCRIPT_DIR/ci_bootstrap_candidate.py" ] &&
+        [ ! -L "$SCRIPT_DIR/ci_bootstrap_candidate.py" ] || {
+        echo "ERROR: bootstrap candidate validator is missing or unsafe" >&2
+        exit 126
+    }
+    export SEEN_REQUIRE_STAGE3=1 SEEN_DISABLE_IR_RECOVERY=1
+fi
 
 if [ -n "$REGRESSION_SCRIPT" ]; then
     case "$REGRESSION_SCRIPT" in
@@ -3819,7 +3851,8 @@ if [ "$REBUILD_TIER" = "full" ]; then
     fi
 fi
 
-if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_SKIP_LOW_MEMORY_SHORTCUT:-0}" != "1" ]; then
+if [ "$BOOTSTRAP_CANDIDATE_ONLY" = 0 ] && [ "$LOW_MEMORY_MODE" = "1" ] &&
+    [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_SKIP_LOW_MEMORY_SHORTCUT:-0}" != "1" ]; then
     echo ""
     echo "Low-memory shortcut: trying existing stage builders before frozen bootstrap..."
     if recover_with_existing_stage_builders; then
@@ -4418,6 +4451,7 @@ if ! smoke_test_compiler "$STAGE2" "Stage2" "stage2"; then
     echo -e "${RED}Refusing to continue with an unusable bootstrap compiler.${NC}"
     exit 1
 fi
+CANDIDATE_STAGE2_SMOKE_OK=1
 if [ "${SEEN_STOP_AFTER_STAGE2_SMOKE:-0}" = "1" ]; then
     echo -e "${YELLOW}Stopping after Stage2 smoke as requested.${NC}"
     echo "Stage2 binary preserved at $STAGE2"
@@ -4556,6 +4590,7 @@ else
         echo ""
         echo "Stage3 smoke: checking hello-world..."
         if smoke_test_compiler "$STAGE3" "Stage3" "stage3"; then
+            CANDIDATE_STAGE3_SMOKE_OK=1
             echo ""
             echo "Step 3: Verifying bootstrap..."
             if diff "$STAGE2" "$STAGE3" > /dev/null 2>&1; then
@@ -4626,6 +4661,21 @@ else
 
     rm -rf "$OPT_WRAPPER_DIR"
 fi
+fi
+
+if [ "$BOOTSTRAP_CANDIDATE_ONLY" = 1 ]; then
+    if [ "$CANDIDATE_STAGE2_SMOKE_OK" != 1 ] ||
+        [ "$CANDIDATE_STAGE3_SMOKE_OK" != 1 ] || [ "$VERIFIED" != "$STAGE3" ]; then
+        echo "ERROR: candidate export requires fresh unmodified Stage2 and Stage3 smokes" >&2
+        exit 1
+    fi
+    python3 "$SCRIPT_DIR/ci_bootstrap_candidate.py" create \
+        --root "$REPO_ROOT" --compiler "$STAGE3" --stage2 "$STAGE2" \
+        --package-client "$SOURCE_PACKAGE_CLIENT" \
+        --output "$REPO_ROOT/target/seen-build/bootstrap-candidate"
+    echo "UNVERIFIED bootstrap candidate exported; all acceptance groups remain required."
+    echo "Production compiler artifacts and full-release stamp were not installed."
+    exit 0
 fi
 
 # A full rebuild must cover the same Stage-1 acceptance surface as verify
