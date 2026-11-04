@@ -1,5 +1,13 @@
 # Testing
 
+## Fixture execution oracles
+
+The runtime-A metadata, IOCP completion and ARM dispatch harnesses use native
+assertions and exact process statuses as their functional oracles, rather than
+matching human-readable PASS sentences. Stable diagnostic codes, structured
+capability classifications, coverage thresholds and benchmark sample contracts
+remain checked separately.
+
 ## Interrupted runtime Gate C diagnostics
 
 `seen_p0_accel_gate_c.sh` publishes `active-child.json` before snapshot,

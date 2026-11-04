@@ -76,6 +76,10 @@ Foundations**.
   its bounded tail after interrupted acceptance. Correlate compiler phases with
   fixture compile/run begin events and actual completion statuses, without
   recording arguments or changing compiler profiles, coverage or deadlines.
+- Use native assertions and process statuses, not human-readable PASS wording,
+  as the runtime-A metadata, IOCP completion and ARM dispatch functional oracles.
+  Preserve all profiles, fuzz runs, structured platform classifications,
+  coverage thresholds and benchmark sample contracts.
 - Invoke the bounded instrumentation soak through Bash instead of requiring an
   executable bit on the capped-regression helper, so actual compiler/emitter
   instrumentation acceptance reaches its native soak checks.

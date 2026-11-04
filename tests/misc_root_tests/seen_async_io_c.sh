@@ -16,10 +16,6 @@ FIXTURE_ARTIFACT_PREFIX=completion-io-c
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
 for profile in fast release undefined address; do
     compile_case "$profile" contract "$ROOT_DIR/tests/cross_platform_asynchronous_i_o/iocp_contract.seen"
-    for name in 'offset encoding completion identity cancellation and stale generations' \
-        'malformed progress retains record and buffer ownership' 'repeated lifecycle allocation baseline'; do
-        rg -Fq "PASS: IO-002C $name" "$TMP_DIR/contract-$profile.log"
-    done
     compile_case "$profile" native "$ROOT_DIR/tests/cross_platform_asynchronous_i_o/iocp_windows.seen" "$TMP_DIR/native-$profile.data"
     rg -Fq '"schema":"seen-io-iocp-v1"' "$TMP_DIR/native-$profile.log"
     if [ "${SEEN_REQUIRE_IOCP:-0}" = 1 ]; then
@@ -27,5 +23,4 @@ for profile in fast release undefined address; do
     fi
 done
 compile_case fast fuzz "$ROOT_DIR/tests/cross_platform_asynchronous_i_o/iocp_fuzz.seen"
-rg -Fq 'PASS: IO-002C completion fuzz 60s seed=1103 identity progress and ownership' "$TMP_DIR/fuzz-fast.log"
 echo 'PASS: overlapped completion contracts; platform classification retained in fixture evidence'
