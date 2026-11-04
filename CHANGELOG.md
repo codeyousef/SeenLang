@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checking both cell coverage and coordinate-dependent results.
 - Put hosted CI's existing LLVM SDK compiler probes and frozen-loader bridge
   inside a live-derived kernel memory/task scope before compiler execution.
+- Verify packaged CUDA execution and invalid dependency/ABI rejection without
+  coupling acceptance to internal cache filenames or human-readable status text.
 
 ## [0.22.10] - 2026-11-03
 
