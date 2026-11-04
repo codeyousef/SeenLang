@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/personality.h>
+#include <sys/prctl.h>
 #include <sys/resource.h>
 
 static pthread_barrier_t barrier;
@@ -34,6 +35,9 @@ static void *worker(void *unused) {
 }
 
 int main(int argc, char **argv) {
+    if (prctl(PR_SET_DUMPABLE, 0L, 0L, 0L, 0L) != 0) {
+        return 5;
+    }
     struct rlimit limit;
     if (getrlimit(RLIMIT_AS, &limit) != 0) {
         return 2;

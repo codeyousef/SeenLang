@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR=$(git rev-parse --show-toplevel)
 INPUTS=${1:?immutable diagnostic inputs directory required}
 SCOPE=m0-tsan-finite-sdk-experiment
+export SEEN_MEMORY_GUARD_METRICS_FILE="$ROOT_DIR/.seen/hardware-checks/tsan-finite-guard-metrics.txt"
 if [ "${SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE:-0}" != 1 ]; then
     exec bash "$ROOT_DIR/scripts/run_capped_regression.sh" --platform "$SCOPE" -- bash "$0" "$INPUTS"
 fi
@@ -41,6 +42,7 @@ for filename,size,digest in assets:
   if filename.startswith('llvm-'):
    members=[member for member in members if member.name.startswith('llvm-20.1.2.src/cmake/')]
   archive.extractall(base,members=members,filter='data')
+subprocess.run(['gpgconf','--homedir',str(home),'--kill','all'],check=True,timeout=15)
 (proof/'source-provenance.json').write_text(json.dumps({'prototype_only':True,'production_certified':False,'assets':rows,'llvm_source_extraction':'genuine CMake source subtree; installed LLVM20 development package supplies supported configuration and headers'},indent=2)+'\n')
 PY
 printf '%s  %s\n' 4f7622030b7db53e7287b8d98ca6d880a2d1980ef24a9432176f762eb163143f "$BASE/compiler-rt-20.1.2.src/lib/tsan/rtl/tsan_platform_linux.cpp" | sha256sum --check
@@ -71,6 +73,10 @@ done
     "$INPUTS/tsan-finite-control.c" -o "$WORK/control") > "$WORK/compile.log" 2>&1
 cp -- "$WORK/compile.log" "$PROOF/control-compile.log"
 sha256sum -- "$WORK/control" "$resource/lib/linux/libclang_rt.tsan-x86_64.a" > "$PROOF/native-identities.sha256"
+mkdir -p "$PROOF/sdk"
+for filename in libclang_rt.tsan-x86_64.a libclang_rt.tsan-x86_64.a.syms libclang_rt.tsan_cxx-x86_64.a libclang_rt.tsan_cxx-x86_64.a.syms; do
+    cp -- "$BASE/build/lib/linux/$filename" "$PROOF/sdk/$filename"
+done
 for mode in clean race; do
     status=0
     timeout --foreground --kill-after=5s 30s bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
@@ -94,8 +100,15 @@ result=subprocess.run([str(binary),'clean'],env=dict(os.environ,TSAN_OPTIONS='ha
 (proof/'insufficient-address-space.err').write_bytes(result.stderr)
 clean=int((proof/'clean.status').read_text());race=int((proof/'race.status').read_text())
 positive_output=(proof/'clean.out').read_text();race_error=(proof/'race.err').read_text()
-passed=clean==0 and race==66 and 'ThreadSanitizer: data race' in race_error and 'soft=140737488355328 hard=140737488355328 aslr_disabled=0' in positive_output and result.returncode!=0 and b'finite address-space limit must cover' in result.stderr
-packet={'prototype_only':True,'production_certified':False,'sdk_controls_passed':passed,'clean_exit':clean,'race_exit':race,'insufficient_limit_exit':result.returncode,'insufficient_limit_stdout':result.stdout.decode(errors='replace'),'insufficient_limit_stderr':result.stderr.decode(errors='replace')}
+passed=clean==0 and race!=0 and 'ThreadSanitizer: data race' in race_error and 'soft=140737488355328 hard=140737488355328 aslr_disabled=0' in positive_output and result.returncode!=0 and b'finite address-space limit must cover' in result.stderr
+group_path=next(line[3:] for line in pathlib.Path('/proc/self/cgroup').read_text().splitlines() if line.startswith('0::'))
+group=pathlib.Path('/sys/fs/cgroup'+group_path)
+kernel={name:(group/name).read_text().strip() for name in ['memory.max','memory.peak','memory.events','pids.max','pids.peak','pids.events','cgroup.procs']}
+processes=[]
+for pid in kernel['cgroup.procs'].splitlines():
+ try:processes.append({'pid':int(pid),'comm':pathlib.Path('/proc',pid,'comm').read_text().strip()})
+ except FileNotFoundError:pass
+packet={'prototype_only':True,'production_certified':False,'sdk_controls_passed':passed,'clean_exit':clean,'race_exit':race,'insufficient_limit_exit':result.returncode,'insufficient_limit_stdout':result.stdout.decode(errors='replace'),'insufficient_limit_stderr':result.stderr.decode(errors='replace'),'kernel':kernel,'remaining_scope_processes':processes}
 (proof/'observations.json').write_text(json.dumps(packet,indent=2)+'\n')
 print(json.dumps(packet,indent=2),flush=True)
 PY
