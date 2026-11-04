@@ -9,6 +9,7 @@ if [ "${SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE:-0}" != 1 ]; then
 fi
 bash "$ROOT_DIR/scripts/run_capped_regression.sh" --verify-platform-active "$SCOPE"
 ulimit -c 0
+mkdir -p -- "$ROOT_DIR/.seen/toolchains"
 BASE=$(mktemp -d "$ROOT_DIR/.seen/toolchains/tsan-finite-probe.XXXXXX")
 PROOF=$(mktemp -d "$ROOT_DIR/.seen/hardware-checks/tsan-finite-proof.XXXXXX")
 WORK=$(mktemp -d "${SEEN_ARTIFACT_ROOT:?}/tsan-finite-control.XXXXXX")
