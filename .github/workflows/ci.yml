@@ -84,6 +84,14 @@ jobs:
           python3 scripts/ci_bootstrap_candidate.py unpack --root "$PWD" --archive "$PWD/target/seen-build/diagnostic-input/bootstrap-candidate.tar.gz" --output "$PWD/target/seen-build/bootstrap-candidate"
           python3 scripts/ci_bootstrap_candidate.py verify --root "$PWD" --candidate-dir "$PWD/target/seen-build/bootstrap-candidate"
           printf '%s  %s\n' 6aec69f9de6eacb2fb2229568568d768ec6c6b67b30b6476846be22e2a5ed686 target/seen-build/bootstrap-candidate/seen | sha256sum --check
+      - name: Observe original core ordering with a diagnostic-only watchdog
+        run: |
+          set -euo pipefail
+          mkdir -p .seen/hardware-checks
+          status=0
+          timeout --foreground --kill-after=5s 840s scripts/run_ci_required.sh --phase acceptance --group core || status=$?
+          printf '%s\n' "$status" > .seen/hardware-checks/original-core-observation.status
+          printf 'Original complete core observation exit=%s; this diagnostic is not required CI certification.\n' "$status"
       - name: Observe native optimized and instrumented failure boundary
         run: |
           set -euo pipefail
@@ -192,18 +200,24 @@ jobs:
           clang --version
           llc --version
           ld.lld --version
-          if [ -x "$TMP_DIR/arguments-thin" ]; then
+          gdb_index=0
+          for native_target in "$TMP_DIR/arguments-thin" "$ROOT_DIR"/.seen/agent-tools/safe-rebuild/run.*/core-004e.*/arguments-thin-lto; do
+              [ -f "$native_target" ] && [ -x "$native_target" ] && [ ! -L "$native_target" ] || continue
+              [ "$(stat -c %s "$native_target")" -le 16777216 ] || exit 126
+              cp -- "$native_target" "$PROOF_DIR/observed-native-$gdb_index"
+              sha256sum -- "$native_target" > "$PROOF_DIR/observed-native-$gdb_index.sha256"
               gdb_status=0
               timeout --foreground --kill-after=5s 45s env -i PATH="$PATH" \
                   SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 SEEN_DETERMINISTIC_SEED=1101 \
                   SEEN_HASH_SEED=1101 LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
                   gdb --batch --nx -iex 'set auto-load off' -iex 'set debuginfod enabled off' \
                   -ex 'set pagination off' -ex 'set startup-with-shell off' -ex run \
-                  -ex 'bt 12' -ex 'x/12i $pc-24' --args "$TMP_DIR/arguments-thin" kept \
-                  > "$PROOF_DIR/native-gdb.log" 2>&1 || gdb_status=$?
-              printf '%s\n' "$gdb_status" > "$PROOF_DIR/native-gdb.status"
-              cat "$PROOF_DIR/native-gdb.log"
-          fi
+                  -ex 'bt 12' -ex 'x/12i $pc-24' --args "$native_target" kept \
+                  > "$PROOF_DIR/native-gdb-$gdb_index.log" 2>&1 || gdb_status=$?
+              printf '%s\n' "$gdb_status" > "$PROOF_DIR/native-gdb-$gdb_index.status"
+              cat "$PROOF_DIR/native-gdb-$gdb_index.log"
+              gdb_index=$((gdb_index + 1))
+          done
           PROBE
           export SEEN_COMPILER_SOURCE_ROOT="$PWD"
           export SEEN_STAGE_BUILDER="$PWD/target/seen-build/bootstrap-candidate/seen"
