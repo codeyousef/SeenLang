@@ -629,7 +629,7 @@ CURRENT_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)" ||
     die "could not re-resolve the release commit"
 seen_release_verify_published_tag \
     "$ROOT_DIR" "$TAG" "$CURRENT_COMMIT" "$RELEASE_REPOSITORY" ||
-    die "release tag changed or remote main advanced during release preparation"
+    die "release tag changed or its authorized remote source advanced during release preparation"
 if [[ "$THREE_PLATFORMS" == 1 ]]; then
     assert_staged_draft
     UPLOAD_ARTIFACTS=()

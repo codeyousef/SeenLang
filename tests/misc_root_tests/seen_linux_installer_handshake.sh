@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["release_version"])' \
+    "$ROOT_DIR/releases/compatibility-manifest.json")
+export SEEN_TEST_RELEASE_VERSION="$VERSION"
 # shellcheck source=scripts/artifact_root.sh
 source "$ROOT_DIR/scripts/artifact_root.sh"
 seen_artifact_root_init "$ROOT_DIR"
@@ -37,7 +40,7 @@ cat > "$SOURCE_DIR/seen" <<'COMPILER_EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "--version" && $# -eq 1 ]]; then
     printf 'Seen %s\nLanguage: Seen\nEntrypoint: fixture\n' \
-        "${FAKE_COMPILER_VERSION:-0.22.9}"
+        "${FAKE_COMPILER_VERSION:-$SEEN_TEST_RELEASE_VERSION}"
     exit 0
 fi
 exit 2
@@ -46,7 +49,7 @@ COMPILER_EOF
 cat > "$SOURCE_DIR/seen-pkg" <<'PACKAGE_CLIENT_EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$SEEN_INSTALLER_PACKAGE_CLIENT_LOG"
-if [[ "${1:-}" != "--expect-version" || "${2:-}" != "0.22.9" ||
+if [[ "${1:-}" != "--expect-version" || "${2:-}" != "$SEEN_TEST_RELEASE_VERSION" ||
       "${3:-}" != "version" || "${4:-}" != "--machine" || $# -ne 4 ]]; then
     exit 64
 fi
@@ -55,7 +58,7 @@ if [[ "${FAKE_PACKAGE_CLIENT_FAILURE:-0}" == "1" ]]; then
 fi
 printf 'protocol=%s\nversion=%s\n' \
     "${FAKE_PACKAGE_PROTOCOL:-SEENPKG1}" \
-    "${FAKE_PACKAGE_VERSION:-0.22.9}"
+    "${FAKE_PACKAGE_VERSION:-$SEEN_TEST_RELEASE_VERSION}"
 PACKAGE_CLIENT_EOF
 
 cat > "$FAKE_BIN/package-tool" <<'PACKAGE_TOOL_EOF'
@@ -76,9 +79,9 @@ compiler_digest=$(sha256sum "$SOURCE_DIR/seen" | awk '{print $1}')
 compiler_size=$(wc -c < "$SOURCE_DIR/seen" | tr -d ' ')
 cat > "$PROVENANCE_FILE" <<EOF
 seen_compiler_provenance_version=1
-release_version=0.22.9
+release_version=$VERSION
 source_commit=1111111111111111111111111111111111111111
-source_asset=seen-compiler-0.22.9-linux-x64
+source_asset=seen-compiler-$VERSION-linux-x64
 compiler_sha256=$compiler_digest
 compiler_size=$compiler_size
 compiler_build_id=none
@@ -100,7 +103,7 @@ assert_no_packager_call() {
 }
 
 assert_handshake_invocation() {
-    if ! grep -Fxq -- '--expect-version 0.22.9 version --machine' \
+    if ! grep -Fxq -- "--expect-version $VERSION version --machine" \
         "$PACKAGE_CLIENT_LOG"; then
         printf 'package-client handshake did not use the required arguments\n' >&2
         cat "$PACKAGE_CLIENT_LOG" >&2
@@ -132,7 +135,7 @@ run_builder_failure() {
         SEEN_COMPILER_PROVENANCE_VERIFIER="$PROVENANCE_VERIFIER" \
         "$@" \
         bash "$ROOT_DIR/installer/linux/$builder" \
-        0.22.9 "$arch" \
+        "$VERSION" "$arch" \
         --source-dir "$SOURCE_DIR" \
         --output-dir "$OUTPUT_DIR" >"$log_file" 2>&1; then
         printf '%s unexpectedly succeeded\n' "$builder" >&2
@@ -156,7 +159,7 @@ for builder_arch in \
     : > "$PACKAGER_LOG"
     : > "$PACKAGE_CLIENT_LOG"
     run_builder_failure "$builder" "$arch" \
-        'does not match package version 0.22.9' \
+        "does not match package version $VERSION" \
         "$TEST_ROOT/case-$case_number.log" \
         FAKE_COMPILER_VERSION=9.9.9
     assert_no_packager_call
@@ -179,7 +182,7 @@ for builder_arch in \
     : > "$PACKAGER_LOG"
     : > "$PACKAGE_CLIENT_LOG"
     run_builder_failure "$builder" "$arch" \
-        'does not match Seen 0.22.9' \
+        "does not match Seen $VERSION" \
         "$TEST_ROOT/case-$case_number.log" \
         FAKE_PACKAGE_CLIENT_FAILURE=1
     assert_no_packager_call

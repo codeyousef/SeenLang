@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["release_version"])' \
+    "$ROOT_DIR/releases/compatibility-manifest.json")
+export SEEN_TEST_RELEASE_VERSION="$VERSION"
 TMP_DIR="$(mktemp -d /tmp/seen_build_installers_pkg.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -38,12 +41,12 @@ while [[ $# -gt 0 ]]; do
         *) exit 2 ;;
     esac
 done
-[[ "$version" == "0.22.9" && "$goos" == "linux" && "$goarch" == "amd64" ]]
+[[ "$version" == "$SEEN_TEST_RELEASE_VERSION" && "$goos" == "linux" && "$goarch" == "amd64" ]]
 cat > "$output" <<'HELPER_EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "--expect-version" && "${2:-}" == "0.22.9" &&
+if [[ "${1:-}" == "--expect-version" && "${2:-}" == "$SEEN_TEST_RELEASE_VERSION" &&
       "${3:-}" == "version" && "${4:-}" == "--machine" ]]; then
-    printf 'protocol=SEENPKG1\nversion=0.22.9\n'
+    printf 'protocol=SEENPKG1\nversion=%s\n' "$SEEN_TEST_RELEASE_VERSION"
     exit 0
 fi
 exit 1
@@ -71,7 +74,7 @@ done
 cmp -s "$FIXTURE_ROOT/$source_dir/compatibility-manifest.json" \
     "$FIXTURE_ROOT/releases/compatibility-manifest.json"
 "$FIXTURE_ROOT/$source_dir/seen-pkg" \
-    --expect-version 0.22.9 version --machine >/dev/null
+    --expect-version "$SEEN_TEST_RELEASE_VERSION" version --machine >/dev/null
 basename "$0" >> "$CALL_LOG"
 BUILDER_EOF
 chmod +x "$FIXTURE_ROOT/installer/linux/fake-builder.sh"
@@ -82,7 +85,7 @@ done
 
 export FIXTURE_ROOT CALL_LOG
 "$FIXTURE_ROOT/scripts/build_installers.sh" \
-    --version 0.22.9 \
+    --version "$VERSION" \
     --stage3 "$FIXTURE_ROOT/stage3_seen" \
     --output-dir "$TMP_DIR/output" >/dev/null
 

@@ -182,11 +182,13 @@ for item in items {
 for i in 0..10 {
     println("{i}")  // 0 through 9
 }
-
-for i in 0..=10 {
-    println("{i}")  // 0 through 10
-}
 ```
+
+Numeric range starts may be negative: `-3..3` visits `-3, -2, -1, 0, 1, 2`.
+The exclusive upper bound uses signed ordering, and a start at or above that
+bound produces an empty range. Literal, constant-folded, and runtime bounds
+have the same termination behavior, including nested ranges crossing zero.
+Range advancement uses signed `Int` semantics; crossing `-1` to `0` is valid.
 
 ### loop (infinite)
 
@@ -200,6 +202,12 @@ loop {
 ```
 
 ### break and continue
+
+`break` exits the innermost loop. `continue` skips the rest of its current
+iteration: ranges, arrays, and strings advance exactly once before the next
+condition check. Nested loops preserve the enclosing loop's control targets.
+For `while`, `continue` rechecks the condition; any manual update must occur
+before the `continue` branch.
 
 ```seen
 for i in 0..100 {
@@ -588,8 +596,9 @@ ByteBuffer, primitive buffers, sort/search helpers, priority queues, and more.
 
 ```seen
 0..10      // exclusive: 0, 1, 2, ..., 9
-0..=10     // inclusive: 0, 1, 2, ..., 10
 ```
+
+Inclusive `..=` syntax is not currently accepted by the parser.
 
 ## Operators
 

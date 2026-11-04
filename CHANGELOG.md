@@ -21,6 +21,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added 512-bit vector spellings, lane-mask comparisons, checked constructors
   and machine-readable representation information in `--simd-report`.
 
+## [0.22.11] - 2026-11-04
+
+### Fixed
+
+- Make `continue` advance range, array, and string loops before their next
+  condition check instead of repeating the same index indefinitely (FEL-3069).
+  Preserve nested loop targets, `break`, and `while` behavior, including
+  unconditional and nested-conditional `continue`.
+- Retain the signed range-induction fix from 0.22.10: crossing `-1` to `0`
+  must not carry an unsigned no-wrap assumption (FEL-3070). Extend optimized
+  regression coverage to parameterized 13-by-13 cross-zero coordinate ranges,
+  checking both cell coverage and coordinate-dependent results.
+- Put hosted CI's existing LLVM SDK compiler probes and frozen-loader bridge
+  inside a live-derived kernel memory/task scope before compiler execution.
+- Verify packaged CUDA execution and invalid dependency/ABI rejection without
+  coupling acceptance to internal cache filenames or human-readable status text.
+
+## [0.22.10] - 2026-11-03
+
+### Fixed
+
+- Fixed signed ranges with negative literal or constant-folded starts so they
+  terminate at the upper bound instead of continuing past it (FEL-3067).
+
 ## [0.22.9] - 2026-10-10
 
 ### Fixed

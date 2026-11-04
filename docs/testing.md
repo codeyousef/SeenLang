@@ -73,23 +73,23 @@ The compiling example is
 
 ## Sanitizer and coverage profiles
 
-TEST-002A defines `seen-test-instrumentation-v1`. In addition to `default` and
-`ci`, `seen test --profile` accepts `coverage`, `sanitizer-undefined`, and
-`sanitizer-thread`. Seen test
-sources are compiled with the matching compiler instrumentation, execute under
-the existing per-test timeout and the serialized `--no-fork` compiler path,
-and keep reports and raw coverage profiles below
-`.seen_cache/test/run`. Coverage mode also merges every raw profile with
-`llvm-profdata` and emits a text report with `llvm-cov`; missing post-processing
-tools are an infrastructure failure, never an implicit downgrade.
-On LLD targets, no-fork mode also pins the linker and ThinLTO backend to one
-worker so the compilation remains valid inside the aggregate task cap.
+TEST-002A defines the `seen-test-instrumentation-v1` contract with `default`,
+`ci`, `coverage`, `sanitizer-undefined`, and `sanitizer-thread` profiles. The
+current unreleased compiler exposes these through `seen test <path> --profile
+<profile>`; the published 0.22.11 compiler does not include that command.
+Maintained acceptance harnesses include
+`tests/misc_root_tests/seen_test_instrumentation_contract.sh` and
+`tests/misc_root_tests/seen_test_runner_contract.sh`. Compiler-capable invocations
+must use the verified containment described in [bootstrap.md](bootstrap.md).
 
-The compiler still accepts AddressSanitizer and MemorySanitizer build flags as
-compile-only capabilities. They are deliberately not runnable `seen test`
-profiles under the mandatory finite VMEM ceiling because their multi-terabyte
-shadow-address reservations cannot coexist with that containment. The runner
-rejects those profile names instead of weakening limits or claiming execution.
+The source runner compiles Seen tests with the selected instrumentation,
+per-test timeout, and serialized compiler path. Reports and raw coverage
+profiles stay below `.seen_cache/test/run`. Coverage post-processing requires
+`llvm-profdata` and `llvm-cov`; missing tools are infrastructure failures, not an
+implicit downgrade. On LLD targets, no-fork mode also bounds linker and ThinLTO
+workers. AddressSanitizer and MemorySanitizer compiler flags do not imply
+runnable source-runner profiles; unsupported profile execution fails closed
+rather than weakening the mandatory memory limits.
 
 Acceptance evidence names compiler host code, GPU emitters, Seen modules, the
 native runtime, and ledgered ABI shims separately. Each must be compiled and
@@ -133,15 +133,16 @@ slow, and privileged remain independent flags so categories compose without
 stringly typed combinations.
 
 `scripts/discover_seen_tests.py --discover <absolute-repository-root>` is the
-strict host oracle for the shipped canonical `seen test` execution command. It emits canonical JSON to standard output. Validation is
-available with `--validate <manifest>` and never repairs input.
+strict host oracle for the current compiler's canonical `seen test` execution
+command. It emits canonical JSON to standard output. Validation is available
+with `--validate <manifest>` and never repairs input.
 
 ## Canonical test runner
 
-`seen test <project>` consumes that native inventory through the
-`seen-test-run-v1` policy. Selection is deterministic and supports `--filter`,
+The canonical `seen test <path>` command consumes that native inventory through
+the `seen-test-run-v1` policy. Selection is deterministic and supports a filter,
 the `default` and `ci` profiles, explicit ignored/slow/privileged opt-ins, one
-bounded worker, and a timeout of at most one hour. The runner executes Seen,
+bounded worker, and a timeout of at most one hour. Its contract executes Seen,
 shell, and Python test shapes through a narrow process boundary while retaining
 per-test logs below `.seen_cache/test/run/`.
 
@@ -166,12 +167,12 @@ unknown or duplicate fields, reordered sources, inconsistent totals, and input
 above the configured limits; native Seen exposes the equivalent typed plan and
 stable `test.001f.*` errors.
 
-`seen test` discovers the external-package fixture alongside compiler and
-standard-library tests, then executes every migrated `.seen` test from its own
-manifest directory. This preserves package dependency resolution and removes
-the former implicit assumption that all tests run from the repository root.
-CPU-only discovery does not locate or link accelerator SDKs. Linux x86-64 is
-the verified execution platform; the package-neutral schema remains portable.
+The package-owned migration contract includes the external-package fixture
+alongside compiler and standard-library tests. Every migrated `.seen` test runs
+from its own manifest directory, preserving package dependency resolution rather
+than assuming the repository root. CPU-only discovery does not locate or link
+accelerator SDKs. Platform execution evidence belongs to the individual
+acceptance harnesses; a portable schema is not a native execution claim.
 
 ## Assertions and snapshots
 

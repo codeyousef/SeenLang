@@ -18,7 +18,7 @@ EXPECTED_WORKFLOW = """name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/0.22.11]
   workflow_dispatch:
 
 permissions:
@@ -120,6 +120,16 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+      - name: Verify version-bound dispatch ref
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: |
+          $policyArgs = @("--tag", "v$env:RELEASE_VERSION", "--dispatch-ref", $env:GITHUB_REF)
+          if ($env:PROBE_ONLY -eq "true") { $policyArgs += "--probe-only" }
+          python scripts/check_release_ci_run.py @policyArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify staged Windows compiler on Windows
         if: ${{ !inputs.probe_only }}
         shell: pwsh
@@ -162,7 +172,7 @@ jobs:
           [[ "$RELEASE_VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]
           [[ "$GITHUB_REF_TYPE" == tag ]]
           [[ "$GITHUB_REF_NAME" == "v$RELEASE_VERSION" ]]
-      - name: Verify successful main certification
+      - name: Verify successful authorized-source certification
         run: scripts/verify_release_ci_run.sh
       - name: Set up pinned Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -315,13 +325,13 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_cpu_baseline": "x86-64",
         "release_signing": "github-oidc-keyless",
         "release_windows_runner": "windows-2025-native-smoke-required",
-        "release_toolchain_artifact": "exact-main-run",
+        "release_toolchain_artifact": "exact-authorized-source-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
         "timeout_minutes": 210,
-        "trigger": "push-main-or-explicit-manual",
+        "trigger": "push-main-or-release-0.22.11-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 9,
+        "version": 11,
     }
 
 

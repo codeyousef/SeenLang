@@ -1,0 +1,124 @@
+// FEL-3067/FEL-3070: signed induction may cross unsigned wrap at -1 -> 0.
+// Every range is half-open; guards keep a miscompiled loop finite.
+fun variableCount(lo: Int, hi: Int) r: Int {
+    var count = 0
+    for value in lo..hi {
+        count = count + 1
+        if count > 32 { abort("parameter range exceeded its bound") }
+    }
+    return count
+}
+
+fun variableWorldGridChecksum(minX: Int, maxX: Int,
+    minZ: Int, maxZ: Int) r: Int {
+    var visits = 0
+    var checksum = 0
+    for x in minX..maxX {
+        for z in minZ..maxZ {
+            visits = visits + 1
+            if visits > 169 { return -1 }
+            checksum = checksum + x * x + z * z + x * z
+        }
+    }
+    if visits != 169 { return -2 }
+    return checksum
+}
+
+fun main() {
+    var count = 0
+    var sum = 0
+    var negative = 0
+    for value in -6..7 {
+        count = count + 1
+        sum = sum + value
+        if value < 0 { negative = negative + 1 }
+        if count > 32 { abort("literal range exceeded its bound") }
+    }
+    if count != 13 or sum != 0 or negative != 6 {
+        abort("literal range coverage or upper bound differs")
+    }
+
+    count = 0
+    sum = 0
+    for value in -9..-4 {
+        count = count + 1
+        sum = sum + value
+        if count > 32 { abort("negative-only range exceeded its bound") }
+    }
+    if count != 5 or sum != -35 { abort("negative-only range differs") }
+
+    count = 0
+    sum = 0
+    for value in -5..0 {
+        count = count + 1
+        sum = sum + value
+        if count > 32 { abort("zero-ending range exceeded its bound") }
+    }
+    if count != 5 or sum != -15 { abort("zero-ending range differs") }
+
+    let lo = 0 - 11
+    count = 0
+    sum = 0
+    for value in lo..5 {
+        count = count + 1
+        sum = sum + value
+        if count > 32 { abort("constant-folded range exceeded its bound") }
+    }
+    if count != 16 or sum != -56 { abort("constant-folded range differs") }
+
+    var pairs = 0
+    var negativePairs = 0
+    for x in -6..7 {
+        for y in -3..4 {
+            pairs = pairs + 1
+            if x < 0 and y < 0 { negativePairs = negativePairs + 1 }
+            if pairs > 128 { abort("nested conditional range exceeded its bound") }
+        }
+    }
+    if pairs != 91 or negativePairs != 18 { abort("nested conditional range differs") }
+
+    count = 0
+    for value in -4..-4 { count = count + 1; if count > 8 { break } }
+    for value in -1..-5 { count = count + 1; if count > 8 { break } }
+    for value in 3..-4 { count = count + 1; if count > 8 { break } }
+    if count != 0 { abort("empty or descending range executed") }
+    if variableCount(-6, 7) != 13 or variableCount(-9, -4) != 5 or
+        variableCount(3, -4) != 0 { abort("parameter range behavior changed") }
+    // Independent reference: 2 * 13 * sum(-6..6 squared) = 4732.
+    // The cross term sums to zero; a collapsed outer coordinate changes it.
+    if variableWorldGridChecksum(-6, 7, -6, 7) != 4732 {
+        abort("parameterized cross-zero world grid differs")
+    }
+
+    let lowest = -9223372036854775807 - 1
+    let lowEnd = lowest + 3
+    count = 0
+    for value in lowest..lowEnd {
+        if value != lowest + count { abort("minimum range value differs") }
+        count = count + 1
+        if count > 8 { abort("minimum range exceeded its bound") }
+    }
+    if count != 3 { abort("minimum range coverage differs") }
+    let highStart = 9223372036854775804
+    let highEnd = 9223372036854775807
+    count = 0
+    for value in highStart..highEnd {
+        if value != highStart + count { abort("maximum range value differs") }
+        count = count + 1
+        if count > 8 { abort("maximum range exceeded its bound") }
+    }
+    if count != 3 { abort("maximum range coverage differs") }
+
+    // Collection iteration shares the induction emitter, but starts at zero.
+    let values = Array<Int>()
+    values.push(2); values.push(4); values.push(6)
+    count = 0
+    sum = 0
+    for value in values { count = count + 1; sum = sum + value }
+    if count != 3 or sum != 12 { abort("array iteration changed") }
+    values.free()
+    count = 0
+    for character in "abc" { count = count + 1; if count > 8 { break } }
+    if count != 3 { abort("string iteration changed") }
+    println("PASS: signed literal folded parameter boundary and collection ranges")
+}

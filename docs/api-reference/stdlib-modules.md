@@ -19,6 +19,7 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 | `collections` | Collection types, buffers, maps, sets, pools |
 | `core` | Core types, conversion, reflection, binary helpers |
 | `crypto` | Hashing utilities |
+| `determinism` | Explicit runtime inputs and capability policy |
 | `env` | Environment helpers |
 | `ffi` | C type and interop helpers |
 | `framework` | Component, routing, middleware, store, VDOM, hot reload |
@@ -32,13 +33,16 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 | `memory` | Allocation budget, statistics, and region helpers |
 | `net` | Polling and TCP wrappers |
 | `platform` | OS-specific windows/audio/input/GPU bindings |
+| `operation_context` | Cancellation, deadline, and operation-limit facade |
 | `process` | Process execution helpers |
 | `random` | Random number generators |
 | `scripting` | Lua integration |
+| `secret` | Secret-value facade |
 | `security` | TEE/enclave helpers |
 | `simd` | SIMD vector/math helpers |
 | `str` | Character, escape, and string utilities |
 | `sync` | Mutexes, atomics, channels, queues, barriers |
+| `testing` | Source-level test policy and category contracts |
 | `thread` | Threads, affinity, worker pools |
 | `time` | Time and duration helpers |
 | `uww` | Deterministic UWW/fixed-point helpers |
@@ -205,6 +209,10 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `net/poll`
 - `net/tcp`
 
+### `operation_context`
+
+- `operation_context`
+
 ### `platform`
 
 - `platform/darwin/cocoa`
@@ -244,6 +252,10 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 ### `scripting`
 
 - `scripting/lua`
+
+### `secret`
+
+- `secret`
 
 ### `security`
 

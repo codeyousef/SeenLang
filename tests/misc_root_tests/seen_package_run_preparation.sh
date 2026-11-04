@@ -115,7 +115,7 @@ if [[ ! -f "$CAPTURE" ]]; then
     exit 1
 fi
 
-python3 - "$CAPTURE" "$PROJECT/Seen.toml" <<'PY'
+python3 - "$CAPTURE" "$PROJECT/Seen.toml" "$ROOT_DIR/releases/compatibility-manifest.json" <<'PY'
 import json
 import pathlib
 import sys
@@ -123,7 +123,7 @@ import sys
 capture = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 expected = [
     "--expect-version",
-    "0.22.9",
+    json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))["components"]["package_client"]["version"],
     "fetch",
     sys.argv[2],
     "--quiet",

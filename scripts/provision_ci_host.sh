@@ -2,6 +2,8 @@
 # Provision the exact Ubuntu-hosted tools required by the contained CI gate.
 
 set -euo pipefail
+ROOT_DIR=$(cd -P -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)
+cd -- "$ROOT_DIR"
 
 fail() {
     echo "ci-host-provision: core.001a.invalid: $*" >&2
@@ -56,31 +58,17 @@ case "$("$llvm_root/llvm-as" --version | sed -n '1,2p')" in
     *'LLVM version 20.'*) ;;
     *) fail "LLVM assembler is not the pinned major version 20" ;;
 esac
-if ! printf '%s\n' \
-    'define ptr @seen_ci_gep_nuw(ptr %base, i64 %index) {' \
-    'entry:' \
-    '  %result = getelementptr inbounds nuw i64, ptr %base, i64 %index' \
-    '  ret ptr %result' \
-    '}' | "$llvm_root/llvm-as" -o /dev/null -; then
-
-    fail "pinned LLVM does not accept Seen's required GEP no-wrap IR dialect"
-fi
-if ! printf '%s\n' 'int main(void) { return 0; }' | "$llvm_root/clang" \
-    -x c - -o /dev/null -fuse-ld=lld -fprofile-instr-generate \
-    -fcoverage-mapping -fsanitize=undefined -fno-omit-frame-pointer -g; then
-
-    fail "pinned LLVM instrumentation runtimes cannot compile and link"
-fi
 printf '%s\n' "$llvm_root" >> "$GITHUB_PATH"
 PATH="$llvm_root:$PATH"
 export PATH
 
-work_root=$(mktemp -d "$RUNNER_TEMP/seen-ci-host.XXXXXX") ||
-    fail "could not create runner-local provisioning root"
+mkdir -p -- "$ROOT_DIR/.seen/toolchains"
+work_root=$(mktemp -d "$ROOT_DIR/.seen/toolchains/ci-host.XXXXXX") ||
+    fail "could not create project-local provisioning root"
 cleanup() {
     local status=$?
     case "$work_root" in
-        "$RUNNER_TEMP"/seen-ci-host.*)
+        "$ROOT_DIR"/.seen/toolchains/ci-host.*)
             [ -d "$work_root" ] && [ ! -L "$work_root" ] &&
                 rm -rf -- "$work_root"
             ;;
@@ -111,38 +99,21 @@ mapped_identity=$(/usr/bin/bwrap --die-with-parent --bind / / \
 [ "$mapped_identity" = "$host_identity" ] ||
     fail "Bubblewrap bind mapping failed read-back"
 
-# The committed 0.10.1 bootstrap seeds predate the Linux --as-needed link
-# policy and carry an unused SDL3 DT_NEEDED entry. Noble has no SDL3 package.
-# Admit a loader-only bridge solely after proving that neither seed imports an
-# SDL symbol. The rebuilt compiler drops this dependency at its source linker.
-needs_sdl3_bridge=0
-for frozen in bootstrap/stage1_frozen bootstrap/stage1_frozen_v3; do
-    [ -f "$frozen" ] && [ ! -L "$frozen" ] ||
-        fail "frozen bootstrap input is missing or unsafe: $frozen"
-    if /usr/bin/readelf -d "$frozen" | /usr/bin/grep -Fq 'libSDL3.so.0'; then
-        needs_sdl3_bridge=1
-        if /usr/bin/nm -D --undefined-only "$frozen" |
-            /usr/bin/grep -Eq '(^|[[:space:]])SDL_[[:alnum:]_]+'; then
-
-            fail "frozen bootstrap imports SDL3 symbols; loader bridge refused"
-        fi
-    fi
-done
-
-if [ "$needs_sdl3_bridge" -eq 1 ]; then
-    compat_root=$(mktemp -d "$RUNNER_TEMP/seen-bootstrap-compat.XXXXXX") ||
-        fail "could not create bootstrap compatibility root"
-    printf '%s\n' 'void seen_ci_sdl3_loader_bridge(void) {}' |
-        /usr/bin/cc -x c -shared -Wl,-soname,libSDL3.so.0 - \
-            -o "$compat_root/libSDL3.so.0" ||
-        fail "could not build the frozen-bootstrap SDL3 loader bridge"
-    ln -s libSDL3.so.0 "$compat_root/libSDL3.so" ||
-        fail "could not expose the frozen-bootstrap SDL3 linker name"
-    [ -f "$compat_root/libSDL3.so.0" ] &&
-        [ -L "$compat_root/libSDL3.so" ] ||
-        fail "SDL3 loader bridge failed read-back"
+# Compiler probes and the loader bridge must follow kernel limit read-back.
+# The platform runner freshly admits this 2 GiB ceiling and private scratch.
+compat_root=$(mktemp -d "$ROOT_DIR/.seen/toolchains/ci-bootstrap-compat.XXXXXX") ||
+    fail "could not create bootstrap compatibility root"
+if ! SEEN_MEMORY_GUARD_RSS_KB=2097152 SEEN_MEMORY_GUARD_CGROUP_STOP_KB=2097152 \
+    SEEN_MAIN_VMEM_KB=2097152 SEEN_OPT_VMEM_KB=1048576 SEEN_MEMORY_LIMIT_BYTES=2147483648 \
+    bash "$ROOT_DIR/scripts/verify_ci_native_host_inputs.sh" "$compat_root"; then
+    rm -rf -- "$compat_root"
+    fail "scoped native host input verification failed"
+fi
+if [ -f "$compat_root/libSDL3.so.0" ]; then
     printf 'LD_LIBRARY_PATH=%s\n' "$compat_root" >> "$GITHUB_ENV"
     printf 'LIBRARY_PATH=%s\n' "$compat_root" >> "$GITHUB_ENV"
+else
+    rmdir -- "$compat_root"
 fi
 
 echo "PASS: Ubuntu CI host tools, scoped Bubblewrap namespace, and bootstrap compatibility"

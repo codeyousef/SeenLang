@@ -79,8 +79,8 @@ fun emitContinueStatementImpl(output: StringBuilder,
             metaIdStr + "\n")
         return 1
     }
-    output.append("  br label %" + currentLoopCondLabel +
-        ", !llvm.loop !202\n")
+    // Indexed loops use a forward edge to their increment latch.
+    output.append("  br label %" + currentLoopCondLabel + "\n")
     return 1
 }
 

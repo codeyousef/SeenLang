@@ -37,6 +37,8 @@ source "$TAG_POLICY" || fail "could not load release tag policy"
 seen_release_verify_published_tag \
     "$ROOT_DIR" "$GITHUB_REF_NAME" "$GITHUB_SHA" "$GITHUB_REPOSITORY" ||
     fail "release tag did not satisfy the published-tag policy"
+source_branch=$(seen_release_source_branch "$GITHUB_REF_NAME") ||
+    fail "release source policy could not be resolved"
 
 # shellcheck source=scripts/artifact_root.sh
 source "$ARTIFACT_HELPER" || fail "could not load artifact-root helper"
@@ -61,13 +63,14 @@ trap cleanup EXIT
 
 gh api --method GET \
     "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-    -f head_sha="$GITHUB_SHA" -f branch=main -f event=push \
+    -f head_sha="$GITHUB_SHA" -f branch="$source_branch" -f event=push \
     -f status=completed -f per_page=20 > "$evidence" ||
     fail "could not fetch authoritative CI evidence"
 
 report="$run_root/attestation.json"
 python3 "$CHECKER" --evidence "$evidence" \
-    --commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" > "$report"
+    --commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" \
+    --tag "$GITHUB_REF_NAME" > "$report"
 cat "$report"
 run_id=$(python3 -c \
     'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); run=value["run_id"]; assert isinstance(run, int) and not isinstance(run, bool) and run > 0; print(run)' \

@@ -15,8 +15,21 @@ success followed by optional uploads.
    and `run_in_hard_memory_scope.sh`, with numerical memory/swap/task read-back,
    a current-memory-derived cap no greater than 64 GiB, and a timeout. If this
    Linux scope is unavailable, stop; do not substitute an uncapped Mac build.
-2. Merge/push the exact tree to `main` and obtain the successful authoritative
-   `CI / required` push run for that SHA. Do not poll it. Preserve the run ID.
+2. Push the exact tree to the authorized source branch and obtain the successful
+   authoritative `CI / required` push run for that SHA. Do not poll it. Preserve
+   the run ID. Resolve the branch from the version-bound policy:
+
+   ```bash
+   VERSION=0.22.11
+   SOURCE_BRANCH=$(python3 scripts/check_release_ci_run.py \
+     --tag "v$VERSION" --source-branch)
+   ```
+
+   Only `v0.22.11` uses `release/0.22.11`, based on published `v0.22.10`.
+   All other supported versions use `main`; do not merge unreleased 0.23.0
+   feature commits into this maintenance branch. Full contained CI and the
+   exact-SHA toolchain artifact run on both authorized branches. Explicit manual
+   CI is available for diagnostics but is not authoritative push evidence.
 3. Build both cross-host inputs from the clean final commit, using a locally
    copied, hash-recorded Apple SDK and the verified candidate compiler:
 
@@ -43,8 +56,10 @@ success followed by optional uploads.
 1. Rebuild both cross-platform inputs **after the final source commit**. The
    Windows ZIP and macOS archive each carry `release-provenance.env` with the
    exact commit. Do not reuse an archive from a dirty/pre-commit tree.
-2. After exact-SHA main CI is green, create and push one annotated `vVERSION`
-   tag peeling to that SHA. Tag push no longer auto-publishes.
+2. After exact-SHA authorized-source CI is green, create and push one annotated
+   `vVERSION` tag peeling to that SHA. Origin's selected source branch tip must
+   equal the same commit; the local and remote annotated tag objects and peeled
+   commits must agree. Tag push no longer auto-publishes.
 3. Copy the macOS arm64 archive, Windows x64 ZIP, and NSIS installer to one
    ignored input directory. Run `scripts/stage_release_platform_inputs.sh
    VERSION ABSOLUTE_INPUT_DIR`. It validates the payloads, writes a manifest of
@@ -52,19 +67,23 @@ success followed by optional uploads.
    A pre-existing release is a stop condition. Record the draft's numeric release
    ID and four asset IDs/digests; do not rely on tag-name lookup from an Actions
    runner token. Before spending the release tag attempt, dispatch
-   `.github/workflows/release.yml` on `main` with `probe_only=true`, the exact
-   `version`, and `draft_release_id`. Require its read-only Windows runner-token
+   `.github/workflows/release.yml` on the resolved `$SOURCE_BRANCH` with
+   `probe_only=true`, the exact `version`, and `draft_release_id`. Require its
+   read-only Windows runner-token
    access job to succeed; the signed-release job must be skipped.
    The probe makes no release changes, but its job needs `contents: write`:
    GitHub rejects read-scoped workflow tokens for unpublished draft access.
 
    ```bash
-   gh workflow run release.yml --ref main \
-     -f version=VERSION -f draft_release_id=NUMERIC_ID -f probe_only=true
+   gh workflow run release.yml --ref "$SOURCE_BRANCH" \
+     -f version="$VERSION" -f draft_release_id=NUMERIC_ID -f probe_only=true
    ```
 
    Record the single probe run ID and inspect it after completion. A failed
    probe blocks tag dispatch; do not substitute a maintainer-token check.
+   The workflow rejects probe dispatches on any other branch or tag. Non-probe
+   dispatches must use the exact version tag; the branch exception does not
+   authorize branch-based publication.
 4. Dispatch `.github/workflows/release.yml` **on the tag ref**, with its exact
    `version` and numeric `draft_release_id` inputs and `probe_only=false`, once.
 
@@ -76,7 +95,8 @@ success followed by optional uploads.
    The required `windows-smoke` job downloads and hashes assets by validated
    numeric IDs on a real Windows x64 runner and executes the compiler and package
    client with short timeouts. Only then does the Linux release job check
-   merged-main CI, download the exact certified Linux toolchain, and
+   authorized-source push CI (repository, workflow, branch, SHA, and success),
+   download that run's toolchain bound to the exact commit/tree/CPU baseline, and
    build Linux artifacts inside the hard scope. It signs the four Linux
    components/manifest and signs the combined `SHA256SUMS` covering all three
    platforms. Upload, re-download, and publication use the same validated

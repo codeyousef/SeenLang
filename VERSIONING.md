@@ -58,13 +58,27 @@ Examples:
 Follow [the three-platform release procedure](docs/releasing-three-platforms.md).
 In brief: update the changelog and complete compatibility manifest; run focused
 contracts, the full contained local CI gate, and clean-tree release-toolchain
-preparation on the final commit; merge and require green exact-SHA `main` CI;
-build and verify Linux x64, macOS arm64, and Windows x64 assets at that commit;
+preparation on the final commit; push and require green exact-SHA CI on the
+authorized release source branch; build and verify Linux x64, macOS arm64, and
+Windows x64 assets at that commit;
 then create **one annotated tag**. Stage the cross-platform assets in an
 unpublished draft and dispatch the release workflow on that tag. It signs and
 audits the complete draft before publication. A tag push by itself does not
 publish a release. A published release is complete only after its downloaded
 assets, hashes, signatures, source identity, and installed-layout smoke pass.
+
+The source policy in `scripts/check_release_ci_run.py` authorizes
+`release/0.22.11` **only for the exact tag `v0.22.11`**; every other supported
+version, including prereleases, continues to require `main`. This maintenance
+release is based on published `v0.22.10`, not on unreleased 0.23.0 feature commits.
+There is no caller-supplied branch override. The annotated tag's object and
+peeled commit must match origin, and the selected origin branch tip must equal
+that exact release commit. CI evidence must identify this repository's `CI`
+workflow, a successful completed push on that branch, and that SHA. The
+toolchain is downloaded only from that selected run and verified against the
+exact commit, source tree, and CPU baseline. A manual CI run is not release
+certification. Read-only draft probes use the authorized branch; signed
+publication still dispatches only on the exact version tag.
 
 ## Compatibility manifest
 

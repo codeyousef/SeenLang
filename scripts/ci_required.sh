@@ -36,6 +36,8 @@ fi
 # or clean-checkout certification work. CORE-004E execution is deliberately
 # deferred to Stage-1 acceptance, where the verified fresh compiler is explicit.
 bash -n \
+    scripts/provision_ci_host.sh \
+    scripts/verify_ci_native_host_inputs.sh \
     tests/misc_root_tests/seen_core_004e_deterministic_context.sh \
     tests/misc_root_tests/seen_program_artifacts_contract.sh \
     tests/misc_root_tests/seen_program_reproducibility_contract.sh \
