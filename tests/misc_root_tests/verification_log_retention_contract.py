@@ -57,6 +57,16 @@ class Retention(unittest.TestCase):
         self.assertEqual((destination / "log-000.txt").read_bytes(), b"TIMEOUT: active gate\n")
         self.assertEqual(json.loads((destination / "index.json").read_text()), result)
 
+    def test_trace_tail_is_retained_without_admitting_other_jsonl_or_ir(self):
+        trace = self.run / "safe-rebuild.trace.jsonl"
+        trace.write_bytes(b"old trace rows\n" + b'{"status":"begin"}\n')
+        (self.run / "unrelated.trace.jsonl").write_bytes(b"private unrelated bytes")
+        (self.run / "module.ll").write_bytes(b"unbounded compiler IR")
+        with patch.object(logs, "MAX_FILE_BYTES", 19):
+            result = logs.collect(self.root)
+        self.assertEqual(self.retained(result), {trace.name: b'{"status":"begin"}\n'})
+        self.assertTrue(result["files"][0]["truncated"])
+
     def test_file_limit_is_explicit(self):
         for index in range(3):
             (self.run / f"safe_rebuild_{index}.log").write_text("x")

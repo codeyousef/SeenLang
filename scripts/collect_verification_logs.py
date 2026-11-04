@@ -76,7 +76,8 @@ def candidates(root):
             examined += 1
             if examined > MAX_ENTRIES:
                 raise ValueError("verification log discovery exceeds its bound")
-            if child.name.startswith("safe_rebuild") and child.suffix in (".log", ".metrics"):
+            if (child.name == "safe-rebuild.trace.jsonl" or
+                    (child.name.startswith("safe_rebuild") and child.suffix in (".log", ".metrics"))):
                 result.append((2, child))
             elif child.name.startswith("p0-accel-c."):
                 # Exactly one extra level, with an explicit diagnostic allowlist.

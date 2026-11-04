@@ -12,6 +12,15 @@ only completed processes replace them with numeric statuses. Marker, status
 and checks updates are atomic publications, not power-loss durability claims.
 An aggregate killed before its EXIT trap still leaves these breadcrumbs.
 
+Clean-checkout certification enables the existing build trace for its full
+rebuild. `safe_rebuild.sh` rebases the trace into its ignored work directory as
+`safe-rebuild.trace.jsonl`; it does not create a file named `1` in the checkout.
+Compiled fixture helpers add compile/run begin events and completion events
+with the actual exit status, fixture name and profile, alongside compiler phase
+events. These use Unix wall-clock milliseconds, not benchmark-quality monotonic
+timings. A begin without a completion identifies unfinished work, not its cause.
+Fixture events record no command arguments, environment dumps, IR or native payloads.
+
 `scripts/collect_verification_logs.py` retains these fixed-depth, allowlisted
 diagnostics from unfinished `p0-accel-c.*` directories. Active child identity,
 log and status outrank older build tails; checks and snapshot/observation
@@ -20,6 +29,10 @@ and 16,384-discovery-entry bounds. It never descends into child artifacts or
 copies IR/native binaries. Directory and file opens reject symlinks; nonregular
 files cannot block collection. The index marks truncation, observed mutation,
 incomplete JSON and sources that disappear before reading.
+
+The same bounded collector retains `safe-rebuild.trace.jsonl` with the top-level
+build tails. Its final JSONL record may be partial after interruption or tail
+truncation; a missing completion must not be interpreted as a successful compile.
 
 Retained files are independent tails, not an atomic gate snapshot or proof of
 success. A missing or malformed marker cannot identify an active child.

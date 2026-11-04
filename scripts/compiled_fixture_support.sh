@@ -11,6 +11,12 @@ FIXTURE_COMPILE_FLAGS=()
 case "$FIXTURE_RUN_SECONDS" in ''|*[!0-9]*) echo 'invalid fixture run time limit' >&2; exit 126 ;; esac
 [ "$FIXTURE_RUN_SECONDS" -ge 1 ] && [ "$FIXTURE_RUN_SECONDS" -le 900 ] || exit 126
 source "$ROOT_DIR/scripts/report_fixture_failure_logs.sh"
+seen_fixture_trace_enabled=0
+if [ -n "${SEEN_TRACE_BUILD:-${SEEN_BUILD_TRACE:-}}" ]; then
+    source "$ROOT_DIR/scripts/build_trace_common.sh"
+    seen_build_trace_init "compiled-fixture:$FIXTURE_ARTIFACT_PREFIX"
+    seen_fixture_trace_enabled=1
+fi
 cleanup() {
     local status=$?
     if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
@@ -29,8 +35,16 @@ compile_fixture() {
     if [ "$profile" = undefined ] || [ "$profile" = address ]; then flags+=("--sanitize=$profile"); fi
     local log="$TMP_DIR/00-active.log" status=0
     printf '126\n' > "$TMP_DIR/$name-$profile.compile.status" || return
+    local trace_start=0
+    if [ "$seen_fixture_trace_enabled" = 1 ]; then
+        trace_start=$(seen_build_trace_step_start)
+        seen_build_trace_event "fixture compile" begin "name=$name profile=$profile"
+    fi
     run_compiler compile "$source" "$TMP_DIR/$name-$profile" --no-cache --frozen \
         --target-cpu="${FIXTURE_TARGET_CPU:-x86-64}" --emit-module-ir-dir "$TMP_DIR/$name-$profile-ir" "${flags[@]}" "${FIXTURE_COMPILE_FLAGS[@]}" >"$log" 2>&1 || status=$?
+    if [ "$seen_fixture_trace_enabled" = 1 ]; then
+        seen_build_trace_step_end "fixture compile" "$trace_start" "exit=$status" "name=$name profile=$profile"
+    fi
     cp -- "$log" "$TMP_DIR/$name-$profile.compile.log" || return
     cp -- "$log" "$TMP_DIR/$name-$profile.log" || return
     printf '%s\n' "$status" > "$TMP_DIR/$name-$profile.compile.status" || return
@@ -47,6 +61,11 @@ run_fixture() {
         echo 'FAIL: invalid fixture compile status' >&2; return 126
     fi
     printf '126\n' > "$TMP_DIR/$name-$profile.run.status" || return
+    local trace_start=0
+    if [ "$seen_fixture_trace_enabled" = 1 ]; then
+        trace_start=$(seen_build_trace_step_start)
+        seen_build_trace_event "fixture run" begin "name=$name profile=$profile"
+    fi
     if [ "$profile" = address ]; then
         local preload_args=()
         if [ -n "${FIXTURE_ASAN_PRELOAD_LIBRARY:-}" ]; then
@@ -59,6 +78,9 @@ run_fixture() {
     else
         UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0 \
             timeout --foreground --kill-after=5s "${FIXTURE_RUN_SECONDS}s" "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1 || status=$?
+    fi
+    if [ "$seen_fixture_trace_enabled" = 1 ]; then
+        seen_build_trace_step_end "fixture run" "$trace_start" "exit=$status" "name=$name profile=$profile"
     fi
     cp -- "$log" "$TMP_DIR/$name-$profile.log" || return
     printf '%s\n' "$status" > "$TMP_DIR/$name-$profile.run.status" || return

@@ -58,7 +58,7 @@ trap 'exit 143' TERM
 
 echo "Gate 0: building and verifying the compiler from the hash-pinned frozen seed"
 SEEN_GO="${SEEN_GO:-$(command -v go || true)}" \
-    SEEN_LOW_MEMORY=1 SEEN_JOBS=1 SEEN_OPT_JOBS=1 \
+    SEEN_LOW_MEMORY=1 SEEN_JOBS=1 SEEN_OPT_JOBS=1 SEEN_TRACE_BUILD=1 \
     "$ROOT/scripts/safe_rebuild.sh" --tier full
 
 [ -x "$ROOT/compiler_seen/target/seen" ] || fail unverified "full rebuild did not install the compiler"

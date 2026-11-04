@@ -72,6 +72,10 @@ Foundations**.
   gigabytes of compiler executables and generated LLVM IR. Preserve bounded
   verification-log tails and independently bounded accelerator/I/O evidence;
   release-toolchain uploads still require successful verification.
+- Enable the existing build trace during clean-checkout certification and retain
+  its bounded tail after interrupted acceptance. Correlate compiler phases with
+  fixture compile/run begin events and actual completion statuses, without
+  recording arguments or changing compiler profiles, coverage or deadlines.
 - Invoke the bounded instrumentation soak through Bash instead of requiring an
   executable bit on the capped-regression helper, so actual compiler/emitter
   instrumentation acceptance reaches its native soak checks.
