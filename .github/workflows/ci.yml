@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           version=$(python3 -c 'import json; print(json.load(open("docs/architecture/amdgpu-toolchain.json"))["profiles"]["linux-x86_64"]["package_version"])')
           sudo -n apt-get update
-          sudo -n apt-get install --yes --no-install-recommends bubblewrap ripgrep strace gdb \
+          sudo -n apt-get install --yes --no-install-recommends bubblewrap ripgrep strace gdb valgrind libc6-dbg \
             "llvm-20=$version" "clang-20=$version" "lld-20=$version" \
             "libllvm20=$version" "libclang-rt-20-dev=$version"
           llvm_root="$RUNNER_TEMP/seen-diagnostic-llvm20/bin"
@@ -84,80 +84,69 @@ jobs:
           python3 scripts/ci_bootstrap_candidate.py unpack --root "$PWD" --archive "$PWD/target/seen-build/diagnostic-input/bootstrap-candidate.tar.gz" --output "$PWD/target/seen-build/bootstrap-candidate"
           python3 scripts/ci_bootstrap_candidate.py verify --root "$PWD" --candidate-dir "$PWD/target/seen-build/bootstrap-candidate"
           printf '%s  %s\n' 6aec69f9de6eacb2fb2229568568d768ec6c6b67b30b6476846be22e2a5ed686 target/seen-build/bootstrap-candidate/seen | sha256sum --check
-      - name: Observe independent compiler hash seeds and retain the first native fault
+      - name: Observe unchanged deterministic arguments under real memory instrumentation
         run: |
           set -euo pipefail
           mkdir -p .seen/hardware-checks
-          cat > .seen/hardware-checks/core004e-seed-discriminator.sh <<'PROBE'
+          cat > .seen/hardware-checks/core004e-memcheck-discriminator.sh <<'PROBE'
           #!/usr/bin/env bash
           set -euo pipefail
           ROOT_DIR=$(git rev-parse --show-toplevel)
           CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
-          SCOPE=core004e-compiler-seed-discriminator
+          SCOPE=core004e-native-memory-discriminator
           COMPILER=${COMPILER:-${SEEN_STAGE_BUILDER:?}}
           if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ]; then
            exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
           fi
           bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
           ATTESTED_SEEN=${SEEN_ATTESTED_COMPILER_RUNNER:?}
-          TMP_DIR=$(mktemp -d "${SEEN_ARTIFACT_ROOT:?}/core004e-seeds.XXXXXX")
+          TMP_DIR=$(mktemp -d "${SEEN_ARTIFACT_ROOT:?}/core004e-memcheck.XXXXXX")
           PROOF_DIR=$(mktemp -d "$ROOT_DIR/.seen/hardware-checks/core004e-native-debug.XXXXXX")
           export SEEN_KEEP_TMP=1
           ulimit -c 0
           lscpu --json > "$PROOF_DIR/cpu.json"
           clang --version > "$PROOF_DIR/clang-version.txt"
+          valgrind --version > "$PROOF_DIR/valgrind-version.txt"
           sha256sum -- "$COMPILER" > "$PROOF_DIR/compiler.sha256"
-          for seed in {1101..1120}; do
-           binary="$TMP_DIR/arguments-$seed"
-           ir="$TMP_DIR/ir-$seed"
-           compile_status=0
-           SEEN_HASH_SEED="$seed" timeout --foreground --kill-after=5s 180s bash "$ATTESTED_SEEN" "$COMPILER" compile \
-            "$ROOT_DIR/tests/fixtures/core-004e/arguments_contract.seen" "$binary" --release --lto=thin \
-            --no-cache --no-fork --emit-module-ir-dir "$ir" > "$PROOF_DIR/compile-$seed.log" 2>&1 || compile_status=$?
-           printf '%s\n' "$compile_status" > "$PROOF_DIR/compile-$seed.status"
-           [ "$compile_status" = 0 ] || exit "$compile_status"
-           native_status=0
-           python3 - "$binary" "$PROOF_DIR" "$seed" <<'PY' || native_status=$?
-          import json, pathlib, re, subprocess, sys
-          binary,proof,seed=pathlib.Path(sys.argv[1]),pathlib.Path(sys.argv[2]),int(sys.argv[3])
-          environment={'SEEN_DETERMINISTIC':'1','SOURCE_DATE_EPOCH':'1700000000','SEEN_DETERMINISTIC_SEED':'1101','SEEN_HASH_SEED':'1101','LANG':'C.UTF-8','LC_ALL':'C.UTF-8','TZ':'UTC'}
-          rows=[];retained=[];bad=False
+          for profile in fast thin; do
+           flags=(--fast)
+           if [ "$profile" = thin ]; then flags=(--release --lto=thin); fi
+           binary="$TMP_DIR/arguments-$profile"
+           ir="$TMP_DIR/ir-$profile"
+           timeout --foreground --kill-after=5s 180s bash "$ATTESTED_SEEN" "$COMPILER" compile \
+            "$ROOT_DIR/tests/fixtures/core-004e/arguments_contract.seen" "$binary" "${flags[@]}" \
+            --target-cpu=x86-64-v3 --no-cache --no-fork --emit-module-ir-dir "$ir" \
+            > "$PROOF_DIR/compile-$profile.log" 2>&1
+           cp -- "$binary" "$PROOF_DIR/native-$profile"
+           cp -R -- "$ir" "$PROOF_DIR/ir-$profile"
+           python3 - "$binary" "$PROOF_DIR" "$profile" <<'PY'
+          import hashlib,json,pathlib,subprocess,sys
+          binary,proof,profile=pathlib.Path(sys.argv[1]),pathlib.Path(sys.argv[2]),sys.argv[3]
+          environment={'DEBUGINFOD_URLS':'','SEEN_DETERMINISTIC':'1','SOURCE_DATE_EPOCH':'1700000000','SEEN_DETERMINISTIC_SEED':'1101','SEEN_HASH_SEED':'1101','LANG':'C.UTF-8','LC_ALL':'C.UTF-8','TZ':'UTC'}
+          rows=[]
           for label,extra in [('short',[]),('long',[f'unused-{i}-'+'x'*96 for i in range(64)])]:
-           result=subprocess.run([str(binary),'kept',*extra],env=environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
-           (proof/f'native-{seed}-{label}.out').write_bytes(result.stdout)
-           (proof/f'native-{seed}-{label}.err').write_bytes(result.stderr)
-           row={'compiler_hash_seed':seed,'argv':label,'native_exit':result.returncode,'stdout':result.stdout.decode(errors='replace'),'stderr_bytes':len(result.stderr)}
-           rows.append(row);print(json.dumps(row),flush=True)
-           match=re.fullmatch(rb'ARGUMENT_VIEW=kept\nINVALID_RETAINED_BYTES=([0-9]+)\n',result.stdout)
-           if result.returncode or result.stderr or match is None:bad=True
-           else:retained.append(int(match.group(1)))
-          (proof/f'observed-{seed}.json').write_text(json.dumps(rows,indent=2)+'\n')
-          if bad or len(retained)!=2 or retained[0]!=retained[1]:raise SystemExit(1)
+           for mode in ('native','memcheck'):
+            command=[str(binary),'kept',*extra]
+            if mode=='memcheck':
+             command=['/usr/bin/valgrind','--tool=memcheck','--track-origins=yes','--leak-check=full','--error-exitcode=87','--num-callers=24','--log-file='+str(proof/f'{profile}-{label}.memcheck.log'),*command]
+            result=subprocess.run(command,env=environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=180)
+            (proof/f'{profile}-{label}-{mode}.out').write_bytes(result.stdout)
+            (proof/f'{profile}-{label}-{mode}.err').write_bytes(result.stderr)
+            row={'profile':profile,'argv':label,'mode':mode,'native_or_tool_exit':result.returncode,'stdout':result.stdout.decode(errors='replace'),'stderr_bytes':len(result.stderr)}
+            rows.append(row);print(json.dumps(row),flush=True)
+          (proof/f'observed-{profile}.json').write_text(json.dumps({'diagnostic_only':True,'production_certified':False,'native_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'observations':rows},indent=2)+'\n')
           PY
-           if [ "$native_status" != 0 ]; then
-            cp -- "$binary" "$PROOF_DIR/failure-native"
-            cp -R -- "$ir" "$PROOF_DIR/failure-ir"
-            gdb_status=0
-            timeout --foreground --kill-after=5s 45s env -i PATH="$PATH" \
-             SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 SEEN_DETERMINISTIC_SEED=1101 \
-             SEEN_HASH_SEED=1101 LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
-             gdb --batch --nx -iex 'set auto-load off' -iex 'set debuginfod enabled off' \
-             -ex 'set pagination off' -ex 'set startup-with-shell off' -ex run -ex 'bt 12' \
-             -ex 'x/12i $pc-24' --args "$binary" kept > "$PROOF_DIR/failure-gdb.log" 2>&1 || gdb_status=$?
-            printf '%s\n' "$gdb_status" > "$PROOF_DIR/failure-gdb.status"
-            cat "$PROOF_DIR/failure-gdb.log"
-            exit "$native_status"
-           fi
-           rm -rf -- "$binary" "$ir"
+           cat "$PROOF_DIR/$profile-short.memcheck.log"
+           cat "$PROOF_DIR/$profile-long.memcheck.log"
           done
-          printf 'All twenty compiler-seed observations completed; no source fix or release certification claimed.\n'
+          printf 'Memory observations completed; individual tool/native statuses remain authoritative, not this script status.\n'
           PROBE
           export SEEN_COMPILER_SOURCE_ROOT="$PWD"
           export SEEN_STAGE_BUILDER="$PWD/target/seen-build/bootstrap-candidate/seen"
           export SEEN_PACKAGE_CLIENT="$PWD/target/seen-build/bootstrap-candidate/seen-pkg"
           export SEEN_STAGE_BUILDER_ONLY=1 SEEN_KEEP_TMP=1
           export SEEN_TIER_TIMEOUT_SECS=900 SEEN_MEMORY_GUARD_TIMEOUT_SECS=900
-          scripts/safe_rebuild.sh --regression-script .seen/hardware-checks/core004e-seed-discriminator.sh
+          scripts/safe_rebuild.sh --regression-script .seen/hardware-checks/core004e-memcheck-discriminator.sh
       - name: Retain bounded diagnostic evidence only
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
