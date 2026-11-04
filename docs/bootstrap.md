@@ -76,6 +76,11 @@ compiler VMEM and allocation limits equal that live-derived cap; a caller may
 request a smaller value but never a larger one. The optimizer's secondary
 per-process limit is the minimum of 10% of total memory, half the aggregate
 cap, and 2 GiB.
+New scope admission rounds aggregate and compiler VMEM ceilings down to whole
+host kernel pages before exporting allocation budgets. Caller-supplied limits
+remain upper bounds; the allocator budget is clamped to the admitted main limit,
+and no limit is rounded upward to make a receipt pass. Existing scopes retain
+their actual kernel limits and are verified rather than rewritten.
 The rebuild also forces `SEEN_JOBS=1`, `SEEN_OPT_JOBS=1`, and `TasksMax` no
 greater than 24. `ulimit -v` and the userspace RSS observer run inside that
 scope as early-warning and per-process defenses; neither replaces the cgroup.

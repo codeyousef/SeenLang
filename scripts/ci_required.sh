@@ -52,6 +52,7 @@ bash -n \
     scripts/run_ci_acceptance_group.sh \
     scripts/provision_ci_host.sh \
     scripts/verify_ci_native_host_inputs.sh \
+    scripts/memory_budget.sh \
     scripts/seen_stage1_acceptance.sh \
     scripts/certify_gate0_clean_checkout.sh \
     scripts/run_attested_seen.sh \
@@ -260,6 +261,7 @@ python3 -m py_compile \
     scripts/ci_bootstrap_candidate.py \
     scripts/ci_candidate_io.py \
     tests/runner/test_ci_bootstrap_candidate_unit.py \
+    tests/runner/test_memory_budget_unit.py \
     tests/runner/test_ci_workflow_policy_unit.py \
     scripts/check_release_ci_run.py \
     scripts/release_toolchain_artifact.py \
@@ -280,6 +282,7 @@ python3 tests/gpu_artifacts/metal_certification_contract.py
 python3 tests/gpu_artifacts/metal_toolchain_lifecycle_contract.py
 python3 -m unittest \
     tests.runner.test_ci_bootstrap_candidate_unit \
+    tests.runner.test_memory_budget_unit \
     tests.runner.test_release_ci_run_unit \
     tests.runner.test_release_toolchain_artifact_unit \
     tests.runner.test_release_platform_inputs_unit \

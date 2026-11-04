@@ -12,6 +12,10 @@ Foundations**.
 
 ### Added
 
+- Round newly admitted rebuild and CI memory ceilings down to the host kernel's
+  page size and clamp allocation budgets to the admitted compiler limit. Keep
+  receipt validation strict so page-quantized kernel limits agree with the
+  declared budgets after a complete native acceptance corpus.
 - Require explicit `[native.dependencies] vulkan = {}` for native Vulkan loader
   calls instead of inferring SDK discovery and link flags from unused foreign
   declarations or imported module paths. Keep CPU-only imports outside native

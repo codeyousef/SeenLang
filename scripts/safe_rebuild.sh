@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 ARTIFACT_ROOT_SCRIPT="$SCRIPT_DIR/artifact_root.sh"
 SERIAL_AUXILIARY_SCRIPT="$SCRIPT_DIR/serial_auxiliary_env.sh"
+MEMORY_BUDGET_SCRIPT="$SCRIPT_DIR/memory_budget.sh"
 SAFE_REBUILD_ORIGINAL_ARGS=("$@")
 
 # Colors for output
@@ -68,6 +69,12 @@ if [ -f "$BUILD_TRACE_COMMON" ]; then
     # shellcheck source=scripts/build_trace_common.sh
     source "$BUILD_TRACE_COMMON"
 fi
+if [ ! -f "$MEMORY_BUDGET_SCRIPT" ] || [ -L "$MEMORY_BUDGET_SCRIPT" ]; then
+    echo "ERROR: memory-budget helper is missing or unsafe" >&2
+    exit 126
+fi
+# shellcheck source=scripts/memory_budget.sh
+source "$MEMORY_BUDGET_SCRIPT"
 
 safe_rebuild_usage() {
     echo "Usage: $0 [--tier quick|verify|full] [--clean-cache] [--artifact-preflight] [--help]"
@@ -2088,6 +2095,10 @@ if [ -n "$RELEASE_CPU_BASELINE" ]; then
     export SEEN_RELEASE_CPU_BASELINE="$RELEASE_CPU_BASELINE"
     echo -e "${YELLOW}Release CPU baseline enabled: $RELEASE_CPU_BASELINE.${NC}"
 fi
+MEMORY_PAGE_BYTES=$(getconf PAGESIZE) || {
+    echo "ERROR: cannot read the kernel memory page size" >&2
+    exit 126
+}
 
 if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     if ! is_positive_integer "$SYSTEM_MEMORY_KB"; then
@@ -2146,6 +2157,13 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     MEMORY_GUARD_CGROUP_STOP_KB="${SEEN_GUARD_CGROUP_STOP_KB:-$MEMORY_GUARD_RSS_KB}"
     if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
         MEMORY_GUARD_CGROUP_STOP_KB=1
+    fi
+    MEMORY_GUARD_RSS_KB=$(seen_memory_page_floor_kb "$MEMORY_GUARD_RSS_KB" "$MEMORY_PAGE_BYTES") || {
+        echo "ERROR: aggregate memory cap must admit at least one complete kernel page" >&2
+        exit 126
+    }
+    if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -gt "$MEMORY_GUARD_RSS_KB" ]; then
+        MEMORY_GUARD_CGROUP_STOP_KB=$MEMORY_GUARD_RSS_KB
     fi
     export SEEN_MEMORY_GUARD_RSS_KB="$MEMORY_GUARD_RSS_KB"
     export SEEN_MEMORY_GUARD_RESERVE_KB="$MEMORY_GUARD_RESERVE_KB"
@@ -2214,6 +2232,15 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         echo -e "${RED}ERROR: SEEN_OPT_VMEM_KB may not exceed SEEN_MAIN_VMEM_KB.${NC}" >&2
         exit 1
     fi
+    REQUESTED_MAIN_COMPILER_VMEM_KB=$MAIN_COMPILER_VMEM_KB
+    MAIN_COMPILER_VMEM_KB=$(seen_memory_page_floor_kb "$MAIN_COMPILER_VMEM_KB" "$MEMORY_PAGE_BYTES") &&
+        OPT_VMEM_KB=$(seen_memory_page_floor_kb "$OPT_VMEM_KB" "$MEMORY_PAGE_BYTES") || {
+        echo "ERROR: compiler memory ceilings must admit at least one complete kernel page" >&2
+        exit 126
+    }
+    if [ "$OPT_VMEM_KB" -gt "$MAIN_COMPILER_VMEM_KB" ]; then
+        OPT_VMEM_KB=$MAIN_COMPILER_VMEM_KB
+    fi
     if [ -z "${SEEN_GUARD_RSS_KB:-}" ]; then
         MEMORY_GUARD_RSS_KB="$MAIN_COMPILER_VMEM_KB"
         export SEEN_MEMORY_GUARD_RSS_KB="$MEMORY_GUARD_RSS_KB"
@@ -2241,10 +2268,13 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
     RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-7200}"
     MAIN_COMPILER_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-$((MAIN_COMPILER_VMEM_KB * 1024))}"
     if ! is_positive_integer "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" ||
-        [ "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" -gt "$((MAIN_COMPILER_VMEM_KB * 1024))" ]; then
+        [ "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" -gt "$((REQUESTED_MAIN_COMPILER_VMEM_KB * 1024))" ]; then
 
         echo -e "${RED}ERROR: SEEN_MEMORY_LIMIT_BYTES must be positive and no larger than SEEN_MAIN_VMEM_KB in bytes.${NC}" >&2
         exit 1
+    fi
+    if [ "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" -gt "$((MAIN_COMPILER_VMEM_KB * 1024))" ]; then
+        MAIN_COMPILER_MEMORY_LIMIT_BYTES=$((MAIN_COMPILER_VMEM_KB * 1024))
     fi
     export SEEN_LOW_MEMORY=1
     export SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB"
