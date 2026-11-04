@@ -1,4 +1,4 @@
-// FEL-3067: signed range induction may cross the unsigned wrap at -1 -> 0.
+// FEL-3067/FEL-3070: signed induction may cross unsigned wrap at -1 -> 0.
 // Every range is half-open; guards keep a miscompiled loop finite.
 fun variableCount(lo: Int, hi: Int) r: Int {
     var count = 0
@@ -7,6 +7,21 @@ fun variableCount(lo: Int, hi: Int) r: Int {
         if count > 32 { abort("parameter range exceeded its bound") }
     }
     return count
+}
+
+fun variableWorldGridChecksum(minX: Int, maxX: Int,
+    minZ: Int, maxZ: Int) r: Int {
+    var visits = 0
+    var checksum = 0
+    for x in minX..maxX {
+        for z in minZ..maxZ {
+            visits = visits + 1
+            if visits > 169 { return -1 }
+            checksum = checksum + x * x + z * z + x * z
+        }
+    }
+    if visits != 169 { return -2 }
+    return checksum
 }
 
 fun main() {
@@ -69,6 +84,11 @@ fun main() {
     if count != 0 { abort("empty or descending range executed") }
     if variableCount(-6, 7) != 13 or variableCount(-9, -4) != 5 or
         variableCount(3, -4) != 0 { abort("parameter range behavior changed") }
+    // Independent reference: 2 * 13 * sum(-6..6 squared) = 4732.
+    // The cross term sums to zero; a collapsed outer coordinate changes it.
+    if variableWorldGridChecksum(-6, 7, -6, 7) != 4732 {
+        abort("parameterized cross-zero world grid differs")
+    }
 
     let lowest = -9223372036854775807 - 1
     let lowEnd = lowest + 3

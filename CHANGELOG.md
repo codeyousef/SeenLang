@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   condition check instead of repeating the same index indefinitely (FEL-3069).
   Preserve nested loop targets, `break`, and `while` behavior, including
   unconditional and nested-conditional `continue`.
+- Retain the signed range-induction fix from 0.22.10: crossing `-1` to `0`
+  must not carry an unsigned no-wrap assumption (FEL-3070). Extend optimized
+  regression coverage to parameterized 13-by-13 cross-zero coordinate ranges,
+  checking both cell coverage and coordinate-dependent results.
 
 ## [0.22.10] - 2026-11-03
 

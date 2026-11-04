@@ -187,7 +187,8 @@ for i in 0..10 {
 Numeric range starts may be negative: `-3..3` visits `-3, -2, -1, 0, 1, 2`.
 The exclusive upper bound uses signed ordering, and a start at or above that
 bound produces an empty range. Literal, constant-folded, and runtime bounds
-have the same termination behavior.
+have the same termination behavior, including nested ranges crossing zero.
+Range advancement uses signed `Int` semantics; crossing `-1` to `0` is valid.
 
 ### loop (infinite)
 
