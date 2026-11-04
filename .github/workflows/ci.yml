@@ -1,244 +1,222 @@
-name: "CI"
-on:
-  push:
-    branches:
-      - "main"
-      - "release/0.23.0"
-  workflow_dispatch:
+name: Native deterministic argument discriminator
+'on':
+  workflow_dispatch: {}
 permissions:
-  contents: "read"
+  contents: read
+  actions: read
 concurrency:
-  group: "ci-${{ github.workflow }}-${{ github.ref }}"
-  cancel-in-progress: "${{ github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[replace-ci]') }}"
+  group: core004e-native-discriminator
+  cancel-in-progress: false
 jobs:
-  bootstrap:
-    name: "bootstrap"
-    runs-on: "ubuntu-24.04"
-    timeout-minutes: 120
+  native-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     env:
-      GOTOOLCHAIN: "local"
-      SEEN_RELEASE_CPU_BASELINE: "x86-64"
+      GOTOOLCHAIN: local
+      SEEN_RELEASE_CPU_BASELINE: x86-64
     steps:
-      - name: "Checkout exact source"
-        uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+      - name: Checkout original observed source without modification
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: "${{ github.sha }}"
-      - name: "Set up pinned Go"
-        uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+          ref: 727dd02f048ef93d90f4ad79e339098eccdf46c2
+      - name: Set up pinned Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
-          go-version: "1.26.5"
+          go-version: 1.26.5
           cache: false
-      - name: "Provision required isolation and search tools"
-        run: "scripts/provision_ci_host.sh"
-      - name: "Build fresh unverified Stage3 candidate"
-        run: "scripts/run_ci_required.sh --phase bootstrap"
-      - name: "Package candidate without certification"
-        run: "tar -czf target/seen-build/bootstrap-candidate.tar.gz -C target/seen-build/bootstrap-candidate seen seen-pkg candidate.json"
-      - name: "Retain unverified candidate"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+      - name: Derive finite limits from live memory
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          memory = dict((line.split(':',1)[0],int(line.split()[1])*1024) for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith(('MemTotal:','MemAvailable:')))
+          total,available=memory['MemTotal'],memory['MemAvailable']
+          cgroup_root=Path('/sys/fs/cgroup')
+          for line in Path('/proc/self/cgroup').read_text().splitlines():
+           if line.startswith('0::'):
+            group=cgroup_root/line.split(':',2)[2].lstrip('/')
+            while group==cgroup_root or cgroup_root in group.parents:
+             limit_file=group/'memory.max'
+             if limit_file.is_file():
+              limit=limit_file.read_text().strip()
+              if limit.isdecimal():
+               total=min(total,int(limit));available=min(available,max(0,int(limit)-int((group/'memory.current').read_text())))
+             if group==cgroup_root:break
+             group=group.parent
+          reserve=max(512*1024**2,total//10)
+          cap=min(4*1024**3,total*3//5,available-reserve)//1024
+          if cap<512*1024:raise SystemExit('Insufficient live memory for bounded diagnostic')
+          opt=min(2*1024**2,cap//2,total//10240)
+          values={'SEEN_LOW_MEMORY':1,'SEEN_JOBS':1,'SEEN_OPT_JOBS':1,'SEEN_MAIN_VMEM_KB':cap,'SEEN_OPT_VMEM_KB':opt,'SEEN_MEMORY_LIMIT_BYTES':cap*1024,'SEEN_GUARD_RSS_KB':cap,'SEEN_GUARD_RESERVE_KB':reserve//1024,'SEEN_GUARD_TASKS_MAX':24,'SEEN_MEMORY_GUARD_RSS_KB':cap,'SEEN_MEMORY_GUARD_CGROUP_STOP_KB':cap,'SEEN_MEMORY_GUARD_RESERVE_KB':reserve//1024,'SEEN_MEMORY_GUARD_TASKS_MAX':24}
+          with open(os.environ['GITHUB_ENV'],'a') as output:
+           for key,value in values.items():output.write(f'{key}={value}\n')
+          print('Live-derived diagnostic ceiling KiB:',cap,'optimizer KiB:',opt)
+          PY
+      - name: Install exact native diagnostic inputs without unscoped compiler probes
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import json; print(json.load(open("docs/architecture/amdgpu-toolchain.json"))["profiles"]["linux-x86_64"]["package_version"])')
+          sudo -n apt-get update
+          sudo -n apt-get install --yes --no-install-recommends bubblewrap ripgrep strace gdb \
+            "llvm-20=$version" "clang-20=$version" "lld-20=$version" \
+            "libllvm20=$version" "libclang-rt-20-dev=$version"
+          llvm_root="$RUNNER_TEMP/seen-diagnostic-llvm20/bin"
+          mkdir -p "$llvm_root"
+          for tool in clang clang++ opt llvm-as llvm-link llc llvm-profdata llvm-cov llvm-nm llvm-ar llvm-dis llvm-objdump ld.lld lld wasm-ld; do
+            test -x "/usr/bin/$tool-20"
+            ln -s "/usr/bin/$tool-20" "$llvm_root/$tool"
+          done
+          printf '%s\n' "$llvm_root" >> "$GITHUB_PATH"
+          profile="$RUNNER_TEMP/seen-diagnostic-bwrap"
+          printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' \
+            '/usr/bin/bwrap flags=(default_allow) {' '  userns,' '}' > "$profile"
+          sudo -n /usr/sbin/apparmor_parser --replace "$profile"
+      - name: Download original same-source unverified candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: "seen-bootstrap-candidate-${{ github.sha }}"
-          path: "target/seen-build/bootstrap-candidate.tar.gz"
-          if-no-files-found: "error"
-          retention-days: 14
-          compression-level: 0
-      - name: "Collect bounded verification logs"
-        if: "${{ !cancelled() }}"
-        run: "python3 scripts/collect_verification_logs.py"
-      - name: "Retain bounded verification logs"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+          name: seen-bootstrap-candidate-727dd02f048ef93d90f4ad79e339098eccdf46c2
+          run-id: 41793112407
+          repository: codeyousef/SeenLang
+          github-token: ${{ github.token }}
+          path: target/seen-build/diagnostic-input
+      - name: Verify original candidate without certification
+        run: |
+          python3 scripts/ci_bootstrap_candidate.py unpack --root "$PWD" --archive "$PWD/target/seen-build/diagnostic-input/bootstrap-candidate.tar.gz" --output "$PWD/target/seen-build/bootstrap-candidate"
+          python3 scripts/ci_bootstrap_candidate.py verify --root "$PWD" --candidate-dir "$PWD/target/seen-build/bootstrap-candidate"
+          printf '%s  %s\n' 6aec69f9de6eacb2fb2229568568d768ec6c6b67b30b6476846be22e2a5ed686 target/seen-build/bootstrap-candidate/seen | sha256sum --check
+      - name: Observe native optimized and instrumented failure boundary
+        run: |
+          set -euo pipefail
+          mkdir -p .seen/hardware-checks
+          cat > .seen/hardware-checks/core004e-discriminator.sh <<'PROBE'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          ROOT_DIR=$(git rev-parse --show-toplevel)
+          CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+          SCOPE=m0-core004e-argument-diagnostics
+          COMPILER=${COMPILER:-${SEEN_STAGE_BUILDER:?}}
+          if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ]; then
+              exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+          fi
+          bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
+          ATTESTED_SEEN=${SEEN_ATTESTED_COMPILER_RUNNER:?}
+          TMP_DIR=$(mktemp -d "${SEEN_ARTIFACT_ROOT:?}/core004e-argument-diagnostics.XXXXXX")
+          PROOF_DIR=$(mktemp -d "$ROOT_DIR/.seen/hardware-checks/core004e-native-debug.XXXXXX")
+          export SEEN_KEEP_TMP=1
+          ulimit -c 0
+          printf 'Diagnostic-only proof directory: %s\n' "$PROOF_DIR"
+          target_cpu=${CORE004E_PROBE_TARGET_CPU:-native}
+          printf 'Diagnostic target CPU: %s\n' "$target_cpu"
+          for profile in thin address address-thin; do
+              flags=(--release --lto=thin)
+              if [ "$profile" = address ]; then flags=(--fast --sanitize=address); fi
+              if [ "$profile" = address-thin ]; then flags+=(--sanitize=address); fi
+              compile_status=0
+              timeout --foreground --kill-after=5s 300s bash "$ATTESTED_SEEN" "$COMPILER" compile \
+                  "$ROOT_DIR/tests/fixtures/core-004e/arguments_contract.seen" "$TMP_DIR/arguments-$profile" \
+                  "${flags[@]}" --no-cache --no-fork --target-cpu="$target_cpu" --emit-module-ir-dir "$TMP_DIR/arguments-$profile-ir" \
+                  > "$TMP_DIR/arguments-$profile-compile.log" 2>&1 || compile_status=$?
+              printf '%s\n' "$compile_status" > "$TMP_DIR/arguments-$profile.compile.status"
+              if [ "$compile_status" != 0 ]; then
+                  printf 'Argument diagnostic %s compile_exit=%s\n' "$profile" "$compile_status"
+                  continue
+              fi
+              cp -- "$TMP_DIR/arguments-$profile" "$PROOF_DIR/arguments-$profile"
+              python3 - "$ROOT_DIR" "$TMP_DIR" "$profile" <<'PY'
+          import json, os, pathlib, subprocess, sys
+          root, temporary, profile = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+          environment = {'SEEN_DETERMINISTIC':'1','SOURCE_DATE_EPOCH':'1700000000',
+           'SEEN_DETERMINISTIC_SEED':'1101','SEEN_HASH_SEED':'1101',
+           'LANG':'C.UTF-8','LC_ALL':'C.UTF-8','TZ':'UTC'}
+          for label, extra in [('short',[]),('long',[f'unused-{i}-'+'x'*96 for i in range(64)])]:
+           binary = temporary / ('arguments-'+profile)
+           command = [str(binary),'kept',*extra]
+           child_environment = environment
+           if profile.startswith('address'):
+            command = ['bash',str(root/'scripts/run_asan_in_hard_memory_scope.sh'),
+             '--target-root',str(temporary),'--compile-log',str(temporary/('arguments-'+profile+'-compile.log')),
+             '--',*command]
+            binding_names = {'PATH','HOME','USER','LOGNAME','XDG_RUNTIME_DIR','DBUS_SESSION_BUS_ADDRESS',
+             'LD_LIBRARY_PATH','LIBRARY_PATH','TMPDIR','TMP','TEMP','PROJECT_ARTIFACT_ROOT',
+             'RIPGREP_CONFIG_PATH','RAYON_NUM_THREADS','OMP_NUM_THREADS','OPENBLAS_NUM_THREADS',
+             'MKL_NUM_THREADS','NUMEXPR_NUM_THREADS','VECLIB_MAXIMUM_THREADS','BLIS_NUM_THREADS',
+             'GOMAXPROCS','RUST_TEST_THREADS','CARGO_BUILD_JOBS','RPM_BUILD_NCPUS'}
+            child_environment = {key:value for key,value in os.environ.items()
+             if key.startswith(('SEEN_','_SEEN_')) or key in binding_names}
+            child_environment.update(environment)
+           result = subprocess.run(command,env=child_environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120)
+           (temporary/('arguments-'+profile+'-'+label+'.out')).write_bytes(result.stdout)
+           (temporary/('arguments-'+profile+'-'+label+'.err')).write_bytes(result.stderr)
+           (temporary/('arguments-'+profile+'-'+label+'.status')).write_text(str(result.returncode)+'\n')
+           print(json.dumps({'profile':profile,'argv':label,'native_exit':result.returncode,
+            'stdout':result.stdout.decode(errors='replace'),'stderr_bytes':len(result.stderr)}),flush=True)
+          PY
+              timeout --foreground --kill-after=5s 30s llvm-objdump --disassemble-symbols=main "$TMP_DIR/arguments-$profile" \
+                  > "$TMP_DIR/arguments-$profile-main-assembly.log" 2>&1 || :
+          done
+          cat > "$TMP_DIR/native-abi.c" <<'C'
+          #include "seen_runtime.h"
+          SeenString native_argument_abi(int64_t index, int32_t *status) {
+              return seen_deterministic_argument_view(index, status);
+          }
+          SeenString native_environment_abi(SeenString name, int32_t *status) {
+              return seen_deterministic_environment_view(name, status);
+          }
+          C
+          timeout --foreground --kill-after=5s 60s clang -std=c11 -O0 -S -emit-llvm -march=x86-64 \
+              -I "$ROOT_DIR/seen_runtime" "$TMP_DIR/native-abi.c" -o "$TMP_DIR/native-abi.ll" \
+              > "$TMP_DIR/native-abi-compile.log" 2>&1
+          python3 - "$TMP_DIR" "$PROOF_DIR" <<'PY'
+          import hashlib, json, pathlib, shutil, sys
+          source,destination=map(pathlib.Path,sys.argv[1:])
+          used=0; rows=[]
+          for path in sorted(source.rglob('*')):
+           if not path.is_file() or path.is_symlink() or path.suffix not in {'.ll','.log','.out','.err','.status'}:
+            continue
+           size=path.stat().st_size
+           relative=path.relative_to(source)
+           if size > 16*1024*1024 or used+size > 64*1024*1024:
+            rows.append({'path':str(relative),'bytes':size,'retained':False}); continue
+           target=destination/relative
+           target.parent.mkdir(parents=True,exist_ok=True)
+           shutil.copyfile(path,target);used+=size
+           rows.append({'path':str(relative),'bytes':size,'retained':True,'sha256':hashlib.sha256(target.read_bytes()).hexdigest()})
+          (destination/'index.json').write_text(json.dumps({'diagnostic_only':True,'production_certified':False,
+           'retained_bytes':used,'files':rows},indent=2)+'\n')
+          print('Bounded native diagnostics retained:',destination,'bytes:',used)
+          PY
+          printf 'Diagnostics completed; native status files are authoritative, not this script exit status.\n'
+          
+          printf 'Actual native CPU and tool identities\n'
+          lscpu --json
+          clang --version
+          llc --version
+          ld.lld --version
+          if [ -x "$TMP_DIR/arguments-thin" ]; then
+              gdb_status=0
+              timeout --foreground --kill-after=5s 45s env -i PATH="$PATH" \
+                  SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 SEEN_DETERMINISTIC_SEED=1101 \
+                  SEEN_HASH_SEED=1101 LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
+                  gdb --batch --nx -iex 'set auto-load off' -iex 'set debuginfod enabled off' \
+                  -ex 'set pagination off' -ex 'set startup-with-shell off' -ex run \
+                  -ex 'bt 12' -ex 'x/12i $pc-24' --args "$TMP_DIR/arguments-thin" kept \
+                  > "$PROOF_DIR/native-gdb.log" 2>&1 || gdb_status=$?
+              printf '%s\n' "$gdb_status" > "$PROOF_DIR/native-gdb.status"
+              cat "$PROOF_DIR/native-gdb.log"
+          fi
+          PROBE
+          export SEEN_COMPILER_SOURCE_ROOT="$PWD"
+          export SEEN_STAGE_BUILDER="$PWD/target/seen-build/bootstrap-candidate/seen"
+          export SEEN_PACKAGE_CLIENT="$PWD/target/seen-build/bootstrap-candidate/seen-pkg"
+          export SEEN_STAGE_BUILDER_ONLY=1 SEEN_KEEP_TMP=1
+          export SEEN_TIER_TIMEOUT_SECS=900 SEEN_MEMORY_GUARD_TIMEOUT_SECS=900
+          scripts/safe_rebuild.sh --regression-script .seen/hardware-checks/core004e-discriminator.sh
+      - name: Retain bounded diagnostic evidence only
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: "seen-verification-logs-bootstrap-${{ github.sha }}"
-          path: "target/seen-build/verification-logs/"
-          if-no-files-found: "error"
-          retention-days: 7
-          compression-level: 6
-        if: "${{ !cancelled() }}"
-      - name: "Retain bounded accelerator gate evidence"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-accelerator-evidence-bootstrap-${{ github.sha }}"
-          path: |
-            .seen/accelerator-gate-evidence/*.tar.gz
-            .seen/accelerator-gate-evidence/index.json
-          if-no-files-found: "ignore"
-          retention-days: 14
-          compression-level: 0
+          name: core004e-native-discriminator-${{ github.run_id }}
+          path: .seen/hardware-checks/core004e-native-debug.*/
           include-hidden-files: true
-        if: "${{ !cancelled() }}"
-      - name: "Retain I/O overlap resource evidence"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-io-overlap-bootstrap-${{ github.sha }}"
-          path: ".seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json"
-          if-no-files-found: "ignore"
-          retention-days: 14
-          compression-level: 6
-          include-hidden-files: true
-        if: "${{ !cancelled() }}"
-  acceptance:
-    name: "acceptance (${{ matrix.group }})"
-    runs-on: "ubuntu-24.04"
-    timeout-minutes: 195
-    env:
-      GOTOOLCHAIN: "local"
-      SEEN_RELEASE_CPU_BASELINE: "x86-64"
-    needs: "bootstrap"
-    strategy:
-      fail-fast: false
-      matrix:
-        group:
-          - "core"
-          - "io-simd"
-          - "gpu-emitter"
-          - "gpu-runtime-async"
-    steps:
-      - name: "Checkout exact source"
-        uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
-        with:
-          ref: "${{ github.sha }}"
-      - name: "Set up pinned Go"
-        uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
-        with:
-          go-version: "1.26.5"
-          cache: false
-      - name: "Provision required isolation and search tools"
-        run: "scripts/provision_ci_host.sh"
-      - name: "Download same-run unverified candidate"
-        uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
-        with:
-          name: "seen-bootstrap-candidate-${{ github.sha }}"
-          path: "target/seen-build/candidate-transfer/"
-      - name: "Validate and safely unpack same-source candidate"
-        run: "python3 scripts/ci_bootstrap_candidate.py unpack --root \"$PWD\" --archive \"$PWD/target/seen-build/candidate-transfer/bootstrap-candidate.tar.gz\" --output \"$PWD/target/seen-build/bootstrap-candidate\""
-      - name: "Run canonical contained acceptance group"
-        run: "scripts/run_ci_required.sh --phase acceptance --group ${{ matrix.group }}"
-      - name: "Retain successful acceptance receipt"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-acceptance-receipt-${{ matrix.group }}-${{ github.sha }}"
-          path: "target/seen-build/acceptance-receipts/${{ matrix.group }}.json"
-          if-no-files-found: "error"
-          retention-days: 14
-          compression-level: 6
-      - name: "Collect bounded verification logs"
-        if: "${{ !cancelled() }}"
-        run: "python3 scripts/collect_verification_logs.py"
-      - name: "Retain bounded verification logs"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-verification-logs-acceptance-${{ matrix.group }}-${{ github.sha }}"
-          path: "target/seen-build/verification-logs/"
-          if-no-files-found: "error"
-          retention-days: 7
-          compression-level: 6
-        if: "${{ !cancelled() }}"
-      - name: "Retain bounded accelerator gate evidence"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-accelerator-evidence-acceptance-${{ matrix.group }}-${{ github.sha }}"
-          path: |
-            .seen/accelerator-gate-evidence/*.tar.gz
-            .seen/accelerator-gate-evidence/index.json
-          if-no-files-found: "ignore"
-          retention-days: 14
-          compression-level: 0
-          include-hidden-files: true
-        if: "${{ !cancelled() }}"
-      - name: "Retain I/O overlap resource evidence"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-io-overlap-acceptance-${{ matrix.group }}-${{ github.sha }}"
-          path: ".seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json"
-          if-no-files-found: "ignore"
-          retention-days: 14
-          compression-level: 6
-          include-hidden-files: true
-        if: "${{ !cancelled() }}"
-  required:
-    name: "required"
-    runs-on: "ubuntu-24.04"
-    timeout-minutes: 30
-    env:
-      GOTOOLCHAIN: "local"
-      SEEN_RELEASE_CPU_BASELINE: "x86-64"
-    needs:
-      - "bootstrap"
-      - "acceptance"
-    if: "${{ always() }}"
-    steps:
-      - name: "Require every dependency to succeed"
-        env:
-          BOOTSTRAP_RESULT: "${{ needs.bootstrap.result }}"
-          ACCEPTANCE_RESULT: "${{ needs.acceptance.result }}"
-        run: "[[ \"$BOOTSTRAP_RESULT\" == success && \"$ACCEPTANCE_RESULT\" == success ]]"
-      - name: "Checkout exact source"
-        uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
-        with:
-          ref: "${{ github.sha }}"
-      - name: "Set up pinned Go"
-        uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
-        with:
-          go-version: "1.26.5"
-          cache: false
-      - name: "Provision required isolation and search tools"
-        run: "scripts/provision_ci_host.sh"
-      - name: "Download same-run unverified candidate"
-        uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
-        with:
-          name: "seen-bootstrap-candidate-${{ github.sha }}"
-          path: "target/seen-build/candidate-transfer/"
-      - name: "Validate and safely unpack same-source candidate"
-        run: "python3 scripts/ci_bootstrap_candidate.py unpack --root \"$PWD\" --archive \"$PWD/target/seen-build/candidate-transfer/bootstrap-candidate.tar.gz\" --output \"$PWD/target/seen-build/bootstrap-candidate\""
-      - name: "Download all same-run acceptance receipts"
-        uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
-        with:
-          pattern: "seen-acceptance-receipt-*-${{ github.sha }}"
-          path: "target/seen-build/acceptance-receipts/"
-          merge-multiple: true
-      - name: "Finalize all-group certification"
-        run: "scripts/run_ci_required.sh --phase finalize"
-      - name: "Prepare verified release toolchain"
-        run: "scripts/prepare_release_toolchain_artifact.sh"
-      - name: "Retain exact-commit release toolchain"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-release-toolchain-${{ github.sha }}"
-          path: "target/seen-build/release-toolchain.tar.gz"
-          if-no-files-found: "error"
-          retention-days: 14
-          compression-level: 0
-      - name: "Collect bounded verification logs"
-        if: "${{ !cancelled() }}"
-        run: "python3 scripts/collect_verification_logs.py"
-      - name: "Retain bounded verification logs"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-verification-logs-required-${{ github.sha }}"
-          path: "target/seen-build/verification-logs/"
-          if-no-files-found: "error"
-          retention-days: 7
-          compression-level: 6
-        if: "${{ !cancelled() }}"
-      - name: "Retain bounded accelerator gate evidence"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-accelerator-evidence-required-${{ github.sha }}"
-          path: |
-            .seen/accelerator-gate-evidence/*.tar.gz
-            .seen/accelerator-gate-evidence/index.json
-          if-no-files-found: "ignore"
-          retention-days: 14
-          compression-level: 0
-          include-hidden-files: true
-        if: "${{ !cancelled() }}"
-      - name: "Retain I/O overlap resource evidence"
-        uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-        with:
-          name: "seen-io-overlap-required-${{ github.sha }}"
-          path: ".seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json"
-          if-no-files-found: "ignore"
-          retention-days: 14
-          compression-level: 6
-          include-hidden-files: true
-        if: "${{ !cancelled() }}"
+          if-no-files-found: warn
+          retention-days: 1
