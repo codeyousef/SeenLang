@@ -115,6 +115,15 @@ The verify/full paths run their required prebuild gates inside the same hard
 scope before expensive compiler work. Do not disable them for a routine
 rebuild.
 
+Hosted provisioning installs the namespace prerequisites before compiler probes.
+`scripts/verify_ci_native_host_inputs.sh` runs the LLVM dialect, instrumentation
+link, ARM libc object and conditional frozen SDL3 loader-bridge checks through
+the verified platform runner, with a 2 GiB ceiling, zero swap, serial workers and
+at most 24 tasks. Compiler temporaries and compatibility output remain in ignored
+project-local directories. The bridge is allowed only for seeds with an unused
+SDL3 loader dependency and no imported SDL symbols; these checks do not claim
+ARM execution, GPU execution or bootstrap certification.
+
 Required hosted CI uses the same boundary through `scripts/run_ci_required.sh`.
 Its explicit phases are `--phase bootstrap`, `--phase acceptance --group GROUP`,
 and `--phase finalize`; the default invocation remains the complete local gate.

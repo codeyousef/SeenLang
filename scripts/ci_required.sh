@@ -50,6 +50,8 @@ esac
 bash -n \
     scripts/compiled_fixture_support.sh \
     scripts/run_ci_acceptance_group.sh \
+    scripts/provision_ci_host.sh \
+    scripts/verify_ci_native_host_inputs.sh \
     scripts/seen_stage1_acceptance.sh \
     scripts/certify_gate0_clean_checkout.sh \
     scripts/run_attested_seen.sh \

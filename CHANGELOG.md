@@ -91,6 +91,10 @@ Foundations**.
   physical CUDA foundation canary, rather than its default inaccessible gap.
   Keep heap/UAF/stack/global/poison/leak diagnostics and the existing finite
   address, aggregate memory and task limits; native-library leaks still fail.
+- Run hosted LLVM dialect, instrumentation-link and ARM object probes, plus the
+  conditional frozen SDL3 loader-bridge build, only inside a verified native
+  platform scope. Keep the 2 GiB ceiling, zero swap, serial workers and task
+  limits; use ignored project-local scratch and preserve SDK/import rejection.
 - Invoke the bounded instrumentation soak through Bash instead of requiring an
   executable bit on the capped-regression helper, so actual compiler/emitter
   instrumentation acceptance reaches its native soak checks.

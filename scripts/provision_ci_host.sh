@@ -69,31 +69,17 @@ case "$("$llvm_root/llvm-as" --version | sed -n '1,2p')" in
     *'LLVM version 20.'*) ;;
     *) fail "LLVM assembler is not the pinned major version 20" ;;
 esac
-if ! printf '%s\n' \
-    'define ptr @seen_ci_gep_nuw(ptr %base, i64 %index) {' \
-    'entry:' \
-    '  %result = getelementptr inbounds nuw i64, ptr %base, i64 %index' \
-    '  ret ptr %result' \
-    '}' | "$llvm_root/llvm-as" -o /dev/null -; then
-
-    fail "pinned LLVM does not accept Seen's required GEP no-wrap IR dialect"
-fi
-if ! printf '%s\n' 'int main(void) { return 0; }' | "$llvm_root/clang" \
-    -x c - -o /dev/null -fuse-ld=lld -fprofile-instr-generate \
-    -fcoverage-mapping -fsanitize=undefined -fno-omit-frame-pointer -g; then
-
-    fail "pinned LLVM instrumentation runtimes cannot compile and link"
-fi
 printf '%s\n' "$llvm_root" >> "$GITHUB_PATH"
 PATH="$llvm_root:$PATH"
 export PATH
 
-work_root=$(mktemp -d "$RUNNER_TEMP/seen-ci-host.XXXXXX") ||
+mkdir -p -- .seen/toolchains
+work_root=$(mktemp -d "$PWD/.seen/toolchains/ci-host.XXXXXX") ||
     fail "could not create runner-local provisioning root"
 cleanup() {
     local status=$?
     case "$work_root" in
-        "$RUNNER_TEMP"/seen-ci-host.*)
+        "$PWD"/.seen/toolchains/ci-host.*)
             [ -d "$work_root" ] && [ ! -L "$work_root" ] &&
                 rm -rf -- "$work_root"
             ;;
@@ -103,19 +89,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Cross-target acceptance exports LLVM and objects without executing ARM code.
-# Use the real libc sysroot rather than an empty directory or host headers.
-[ -f /usr/aarch64-linux-gnu/include/stdint.h ] && \
-    [ -f /usr/aarch64-linux-gnu/lib/crt1.o ] || fail "ARM64 libc sysroot is unavailable"
-if ! printf '%s\n' '#include <stdint.h>' \
-    'uint32_t seen_ci_arm64(uint32_t value) { return value + 1; }' | \
-    "$llvm_root/clang" --target=aarch64-unknown-linux-gnu \
-        --sysroot=/usr/aarch64-linux-gnu -x c -c - -o "$work_root/arm64.o"; then
-
-    fail "ARM64 libc sysroot cannot compile a target object"
-fi
-LC_ALL=C /usr/bin/readelf --file-header "$work_root/arm64.o" | \
-    grep -Eq 'Machine:[[:space:]]+AArch64' || fail "ARM64 probe produced the wrong object architecture"
 
 profile="$work_root/usr.bin.bwrap"
 printf '%s\n' \
@@ -138,10 +111,27 @@ mapped_identity=$(/usr/bin/bwrap --die-with-parent --bind / / \
 [ "$mapped_identity" = "$host_identity" ] ||
     fail "Bubblewrap bind mapping failed read-back"
 
+# SDK compilation and the conditional loader-only bridge must not precede
+# aggregate containment. The platform runner freshly admits this 2 GiB ceiling,
+# verifies swap/task controls, and maps all compiler scratch into the project.
+compat_root=$(mktemp -d "$PWD/.seen/toolchains/ci-bootstrap-compat.XXXXXX") ||
+    fail "could not create bootstrap compatibility root"
+if ! SEEN_MEMORY_GUARD_RSS_KB=2097152 SEEN_MEMORY_GUARD_CGROUP_STOP_KB=2097152 \
+    SEEN_MAIN_VMEM_KB=2097152 SEEN_OPT_VMEM_KB=1048576 SEEN_MEMORY_LIMIT_BYTES=2147483648 \
+    bash scripts/verify_ci_native_host_inputs.sh "$compat_root"; then
+    rm -rf -- "$compat_root"
+    fail "scoped native host input verification failed"
+fi
+if [ -f "$compat_root/libSDL3.so.0" ]; then
+    printf 'LD_LIBRARY_PATH=%s\n' "$compat_root" >> "$GITHUB_ENV"
+    printf 'LIBRARY_PATH=%s\n' "$compat_root" >> "$GITHUB_ENV"
+else
+    rmdir -- "$compat_root"
+fi
+
 # Noble ships the official validator as a static archive, not the shared C ABI
 # required by opt-in runtime artifact validation. Relink those exact pinned
 # vendor bytes; do not replace validation with a CLI success or a local shim.
-mkdir -p -- .seen/toolchains
 validator_root=$(mktemp -d "$PWD/.seen/toolchains/ci-spirv-validator.XXXXXX") ||
     fail "could not create the runtime validator installation root"
 timeout --kill-after=5s 30s python3 tests/gpu_artifacts/spirv_validator_install_contract.py "$validator_root"
@@ -158,38 +148,5 @@ sudo -n install -m 0755 -- "$validator_root/libSPIRV-Tools-shared.so" \
     /usr/local/lib/libSPIRV-Tools-shared.so
 sudo -n ldconfig
 
-# The committed 0.10.1 bootstrap seeds predate the Linux --as-needed link
-# policy and carry an unused SDL3 DT_NEEDED entry. Noble has no SDL3 package.
-# Admit a loader-only bridge solely after proving that neither seed imports an
-# SDL symbol. The rebuilt compiler drops this dependency at its source linker.
-needs_sdl3_bridge=0
-for frozen in bootstrap/stage1_frozen bootstrap/stage1_frozen_v3; do
-    [ -f "$frozen" ] && [ ! -L "$frozen" ] ||
-        fail "frozen bootstrap input is missing or unsafe: $frozen"
-    if /usr/bin/readelf -d "$frozen" | /usr/bin/grep -Fq 'libSDL3.so.0'; then
-        needs_sdl3_bridge=1
-        if /usr/bin/nm -D --undefined-only "$frozen" |
-            /usr/bin/grep -Eq '(^|[[:space:]])SDL_[[:alnum:]_]+'; then
-
-            fail "frozen bootstrap imports SDL3 symbols; loader bridge refused"
-        fi
-    fi
-done
-
-if [ "$needs_sdl3_bridge" -eq 1 ]; then
-    compat_root=$(mktemp -d "$RUNNER_TEMP/seen-bootstrap-compat.XXXXXX") ||
-        fail "could not create bootstrap compatibility root"
-    printf '%s\n' 'void seen_ci_sdl3_loader_bridge(void) {}' |
-        /usr/bin/cc -x c -shared -Wl,-soname,libSDL3.so.0 - \
-            -o "$compat_root/libSDL3.so.0" ||
-        fail "could not build the frozen-bootstrap SDL3 loader bridge"
-    ln -s libSDL3.so.0 "$compat_root/libSDL3.so" ||
-        fail "could not expose the frozen-bootstrap SDL3 linker name"
-    [ -f "$compat_root/libSDL3.so.0" ] &&
-        [ -L "$compat_root/libSDL3.so" ] ||
-        fail "SDL3 loader bridge failed read-back"
-    printf 'LD_LIBRARY_PATH=%s\n' "$compat_root" >> "$GITHUB_ENV"
-    printf 'LIBRARY_PATH=%s\n' "$compat_root" >> "$GITHUB_ENV"
-fi
 
 echo "PASS: Ubuntu CI host tools, scoped Bubblewrap namespace, and bootstrap compatibility"
