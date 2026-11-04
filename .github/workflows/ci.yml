@@ -84,152 +84,85 @@ jobs:
           python3 scripts/ci_bootstrap_candidate.py unpack --root "$PWD" --archive "$PWD/target/seen-build/diagnostic-input/bootstrap-candidate.tar.gz" --output "$PWD/target/seen-build/bootstrap-candidate"
           python3 scripts/ci_bootstrap_candidate.py verify --root "$PWD" --candidate-dir "$PWD/target/seen-build/bootstrap-candidate"
           printf '%s  %s\n' 6aec69f9de6eacb2fb2229568568d768ec6c6b67b30b6476846be22e2a5ed686 target/seen-build/bootstrap-candidate/seen | sha256sum --check
-      - name: Observe original core ordering with a diagnostic-only watchdog
+      - name: Observe independent compiler hash seeds and retain the first native fault
         run: |
           set -euo pipefail
           mkdir -p .seen/hardware-checks
-          status=0
-          timeout --foreground --kill-after=5s 840s scripts/run_ci_required.sh --phase acceptance --group core || status=$?
-          printf '%s\n' "$status" > .seen/hardware-checks/original-core-observation.status
-          printf 'Original complete core observation exit=%s; this diagnostic is not required CI certification.\n' "$status"
-      - name: Observe native optimized and instrumented failure boundary
-        run: |
-          set -euo pipefail
-          mkdir -p .seen/hardware-checks
-          cat > .seen/hardware-checks/core004e-discriminator.sh <<'PROBE'
+          cat > .seen/hardware-checks/core004e-seed-discriminator.sh <<'PROBE'
           #!/usr/bin/env bash
           set -euo pipefail
           ROOT_DIR=$(git rev-parse --show-toplevel)
           CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
-          SCOPE=m0-core004e-argument-diagnostics
+          SCOPE=core004e-compiler-seed-discriminator
           COMPILER=${COMPILER:-${SEEN_STAGE_BUILDER:?}}
           if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ]; then
-              exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
+           exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- bash "$0" "$@"
           fi
           bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
           ATTESTED_SEEN=${SEEN_ATTESTED_COMPILER_RUNNER:?}
-          TMP_DIR=$(mktemp -d "${SEEN_ARTIFACT_ROOT:?}/core004e-argument-diagnostics.XXXXXX")
+          TMP_DIR=$(mktemp -d "${SEEN_ARTIFACT_ROOT:?}/core004e-seeds.XXXXXX")
           PROOF_DIR=$(mktemp -d "$ROOT_DIR/.seen/hardware-checks/core004e-native-debug.XXXXXX")
           export SEEN_KEEP_TMP=1
           ulimit -c 0
-          printf 'Diagnostic-only proof directory: %s\n' "$PROOF_DIR"
-          target_cpu=${CORE004E_PROBE_TARGET_CPU:-native}
-          printf 'Diagnostic target CPU: %s\n' "$target_cpu"
-          for profile in thin address address-thin; do
-              flags=(--release --lto=thin)
-              if [ "$profile" = address ]; then flags=(--fast --sanitize=address); fi
-              if [ "$profile" = address-thin ]; then flags+=(--sanitize=address); fi
-              compile_status=0
-              timeout --foreground --kill-after=5s 300s bash "$ATTESTED_SEEN" "$COMPILER" compile \
-                  "$ROOT_DIR/tests/fixtures/core-004e/arguments_contract.seen" "$TMP_DIR/arguments-$profile" \
-                  "${flags[@]}" --no-cache --no-fork --target-cpu="$target_cpu" --emit-module-ir-dir "$TMP_DIR/arguments-$profile-ir" \
-                  > "$TMP_DIR/arguments-$profile-compile.log" 2>&1 || compile_status=$?
-              printf '%s\n' "$compile_status" > "$TMP_DIR/arguments-$profile.compile.status"
-              if [ "$compile_status" != 0 ]; then
-                  printf 'Argument diagnostic %s compile_exit=%s\n' "$profile" "$compile_status"
-                  continue
-              fi
-              cp -- "$TMP_DIR/arguments-$profile" "$PROOF_DIR/arguments-$profile"
-              python3 - "$ROOT_DIR" "$TMP_DIR" "$profile" <<'PY'
-          import json, os, pathlib, subprocess, sys
-          root, temporary, profile = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
-          environment = {'SEEN_DETERMINISTIC':'1','SOURCE_DATE_EPOCH':'1700000000',
-           'SEEN_DETERMINISTIC_SEED':'1101','SEEN_HASH_SEED':'1101',
-           'LANG':'C.UTF-8','LC_ALL':'C.UTF-8','TZ':'UTC'}
-          for label, extra in [('short',[]),('long',[f'unused-{i}-'+'x'*96 for i in range(64)])]:
-           binary = temporary / ('arguments-'+profile)
-           command = [str(binary),'kept',*extra]
-           child_environment = environment
-           if profile.startswith('address'):
-            command = ['bash',str(root/'scripts/run_asan_in_hard_memory_scope.sh'),
-             '--target-root',str(temporary),'--compile-log',str(temporary/('arguments-'+profile+'-compile.log')),
-             '--',*command]
-            binding_names = {'PATH','HOME','USER','LOGNAME','XDG_RUNTIME_DIR','DBUS_SESSION_BUS_ADDRESS',
-             'LD_LIBRARY_PATH','LIBRARY_PATH','TMPDIR','TMP','TEMP','PROJECT_ARTIFACT_ROOT',
-             'RIPGREP_CONFIG_PATH','RAYON_NUM_THREADS','OMP_NUM_THREADS','OPENBLAS_NUM_THREADS',
-             'MKL_NUM_THREADS','NUMEXPR_NUM_THREADS','VECLIB_MAXIMUM_THREADS','BLIS_NUM_THREADS',
-             'GOMAXPROCS','RUST_TEST_THREADS','CARGO_BUILD_JOBS','RPM_BUILD_NCPUS'}
-            child_environment = {key:value for key,value in os.environ.items()
-             if key.startswith(('SEEN_','_SEEN_')) or key in binding_names}
-            child_environment.update(environment)
-           result = subprocess.run(command,env=child_environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120)
-           (temporary/('arguments-'+profile+'-'+label+'.out')).write_bytes(result.stdout)
-           (temporary/('arguments-'+profile+'-'+label+'.err')).write_bytes(result.stderr)
-           (temporary/('arguments-'+profile+'-'+label+'.status')).write_text(str(result.returncode)+'\n')
-           print(json.dumps({'profile':profile,'argv':label,'native_exit':result.returncode,
-            'stdout':result.stdout.decode(errors='replace'),'stderr_bytes':len(result.stderr)}),flush=True)
+          lscpu --json > "$PROOF_DIR/cpu.json"
+          clang --version > "$PROOF_DIR/clang-version.txt"
+          sha256sum -- "$COMPILER" > "$PROOF_DIR/compiler.sha256"
+          for seed in {1101..1120}; do
+           binary="$TMP_DIR/arguments-$seed"
+           ir="$TMP_DIR/ir-$seed"
+           compile_status=0
+           SEEN_HASH_SEED="$seed" timeout --foreground --kill-after=5s 180s bash "$ATTESTED_SEEN" "$COMPILER" compile \
+            "$ROOT_DIR/tests/fixtures/core-004e/arguments_contract.seen" "$binary" --release --lto=thin \
+            --no-cache --no-fork --emit-module-ir-dir "$ir" > "$PROOF_DIR/compile-$seed.log" 2>&1 || compile_status=$?
+           printf '%s\n' "$compile_status" > "$PROOF_DIR/compile-$seed.status"
+           [ "$compile_status" = 0 ] || exit "$compile_status"
+           native_status=0
+           python3 - "$binary" "$PROOF_DIR" "$seed" <<'PY' || native_status=$?
+          import json, pathlib, re, subprocess, sys
+          binary,proof,seed=pathlib.Path(sys.argv[1]),pathlib.Path(sys.argv[2]),int(sys.argv[3])
+          environment={'SEEN_DETERMINISTIC':'1','SOURCE_DATE_EPOCH':'1700000000','SEEN_DETERMINISTIC_SEED':'1101','SEEN_HASH_SEED':'1101','LANG':'C.UTF-8','LC_ALL':'C.UTF-8','TZ':'UTC'}
+          rows=[];retained=[];bad=False
+          for label,extra in [('short',[]),('long',[f'unused-{i}-'+'x'*96 for i in range(64)])]:
+           result=subprocess.run([str(binary),'kept',*extra],env=environment,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
+           (proof/f'native-{seed}-{label}.out').write_bytes(result.stdout)
+           (proof/f'native-{seed}-{label}.err').write_bytes(result.stderr)
+           row={'compiler_hash_seed':seed,'argv':label,'native_exit':result.returncode,'stdout':result.stdout.decode(errors='replace'),'stderr_bytes':len(result.stderr)}
+           rows.append(row);print(json.dumps(row),flush=True)
+           match=re.fullmatch(rb'ARGUMENT_VIEW=kept\nINVALID_RETAINED_BYTES=([0-9]+)\n',result.stdout)
+           if result.returncode or result.stderr or match is None:bad=True
+           else:retained.append(int(match.group(1)))
+          (proof/f'observed-{seed}.json').write_text(json.dumps(rows,indent=2)+'\n')
+          if bad or len(retained)!=2 or retained[0]!=retained[1]:raise SystemExit(1)
           PY
-              timeout --foreground --kill-after=5s 30s llvm-objdump --disassemble-symbols=main "$TMP_DIR/arguments-$profile" \
-                  > "$TMP_DIR/arguments-$profile-main-assembly.log" 2>&1 || :
+           if [ "$native_status" != 0 ]; then
+            cp -- "$binary" "$PROOF_DIR/failure-native"
+            cp -R -- "$ir" "$PROOF_DIR/failure-ir"
+            gdb_status=0
+            timeout --foreground --kill-after=5s 45s env -i PATH="$PATH" \
+             SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 SEEN_DETERMINISTIC_SEED=1101 \
+             SEEN_HASH_SEED=1101 LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
+             gdb --batch --nx -iex 'set auto-load off' -iex 'set debuginfod enabled off' \
+             -ex 'set pagination off' -ex 'set startup-with-shell off' -ex run -ex 'bt 12' \
+             -ex 'x/12i $pc-24' --args "$binary" kept > "$PROOF_DIR/failure-gdb.log" 2>&1 || gdb_status=$?
+            printf '%s\n' "$gdb_status" > "$PROOF_DIR/failure-gdb.status"
+            cat "$PROOF_DIR/failure-gdb.log"
+            exit "$native_status"
+           fi
+           rm -rf -- "$binary" "$ir"
           done
-          cat > "$TMP_DIR/native-abi.c" <<'C'
-          #include "seen_runtime.h"
-          SeenString native_argument_abi(int64_t index, int32_t *status) {
-              return seen_deterministic_argument_view(index, status);
-          }
-          SeenString native_environment_abi(SeenString name, int32_t *status) {
-              return seen_deterministic_environment_view(name, status);
-          }
-          C
-          timeout --foreground --kill-after=5s 60s clang -std=c11 -O0 -S -emit-llvm -march=x86-64 \
-              -I "$ROOT_DIR/seen_runtime" "$TMP_DIR/native-abi.c" -o "$TMP_DIR/native-abi.ll" \
-              > "$TMP_DIR/native-abi-compile.log" 2>&1
-          python3 - "$TMP_DIR" "$PROOF_DIR" <<'PY'
-          import hashlib, json, pathlib, shutil, sys
-          source,destination=map(pathlib.Path,sys.argv[1:])
-          used=0; rows=[]
-          for path in sorted(source.rglob('*')):
-           if not path.is_file() or path.is_symlink() or path.suffix not in {'.ll','.log','.out','.err','.status'}:
-            continue
-           size=path.stat().st_size
-           relative=path.relative_to(source)
-           if size > 16*1024*1024 or used+size > 64*1024*1024:
-            rows.append({'path':str(relative),'bytes':size,'retained':False}); continue
-           target=destination/relative
-           target.parent.mkdir(parents=True,exist_ok=True)
-           shutil.copyfile(path,target);used+=size
-           rows.append({'path':str(relative),'bytes':size,'retained':True,'sha256':hashlib.sha256(target.read_bytes()).hexdigest()})
-          (destination/'index.json').write_text(json.dumps({'diagnostic_only':True,'production_certified':False,
-           'retained_bytes':used,'files':rows},indent=2)+'\n')
-          print('Bounded native diagnostics retained:',destination,'bytes:',used)
-          PY
-          printf 'Diagnostics completed; native status files are authoritative, not this script exit status.\n'
-          
-          printf 'Actual native CPU and tool identities\n'
-          lscpu --json
-          clang --version
-          llc --version
-          ld.lld --version
-          gdb_index=0
-          for native_target in "$TMP_DIR/arguments-thin" "$ROOT_DIR"/.seen/agent-tools/safe-rebuild/run.*/core-004e.*/arguments-thin-lto; do
-              [ -f "$native_target" ] && [ -x "$native_target" ] && [ ! -L "$native_target" ] || continue
-              [ "$(stat -c %s "$native_target")" -le 16777216 ] || exit 126
-              cp -- "$native_target" "$PROOF_DIR/observed-native-$gdb_index"
-              sha256sum -- "$native_target" > "$PROOF_DIR/observed-native-$gdb_index.sha256"
-              gdb_status=0
-              timeout --foreground --kill-after=5s 45s env -i PATH="$PATH" \
-                  SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 SEEN_DETERMINISTIC_SEED=1101 \
-                  SEEN_HASH_SEED=1101 LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
-                  gdb --batch --nx -iex 'set auto-load off' -iex 'set debuginfod enabled off' \
-                  -ex 'set pagination off' -ex 'set startup-with-shell off' -ex run \
-                  -ex 'bt 12' -ex 'x/12i $pc-24' --args "$native_target" kept \
-                  > "$PROOF_DIR/native-gdb-$gdb_index.log" 2>&1 || gdb_status=$?
-              printf '%s\n' "$gdb_status" > "$PROOF_DIR/native-gdb-$gdb_index.status"
-              cat "$PROOF_DIR/native-gdb-$gdb_index.log"
-              gdb_index=$((gdb_index + 1))
-          done
+          printf 'All twenty compiler-seed observations completed; no source fix or release certification claimed.\n'
           PROBE
           export SEEN_COMPILER_SOURCE_ROOT="$PWD"
           export SEEN_STAGE_BUILDER="$PWD/target/seen-build/bootstrap-candidate/seen"
           export SEEN_PACKAGE_CLIENT="$PWD/target/seen-build/bootstrap-candidate/seen-pkg"
           export SEEN_STAGE_BUILDER_ONLY=1 SEEN_KEEP_TMP=1
           export SEEN_TIER_TIMEOUT_SECS=900 SEEN_MEMORY_GUARD_TIMEOUT_SECS=900
-          scripts/safe_rebuild.sh --regression-script .seen/hardware-checks/core004e-discriminator.sh
+          scripts/safe_rebuild.sh --regression-script .seen/hardware-checks/core004e-seed-discriminator.sh
       - name: Retain bounded diagnostic evidence only
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: core004e-native-discriminator-${{ github.run_id }}
+          name: core004e-native-seed-discriminator-${{ github.run_id }}
           path: .seen/hardware-checks/core004e-native-debug.*/
           include-hidden-files: true
           if-no-files-found: warn
