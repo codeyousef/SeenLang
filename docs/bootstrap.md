@@ -115,7 +115,7 @@ The verify/full paths run their required prebuild gates inside the same hard
 scope before expensive compiler work. Do not disable them for a routine
 rebuild.
 
-Required pull-request CI uses the same boundary through
+Required CI uses the same boundary through
 `scripts/run_ci_required.sh`. The wrapper derives a cap from current memory,
 creates a project-local artifact directory, enters the hard scope with a
 10,800-second deadline, and then invokes `scripts/ci_required.sh`. The inner gate
@@ -125,6 +125,13 @@ clean-checkout full rebuild, canonical Seen test, fuzz smoke, and deterministic
 package certification described by `seen-gate0-certification-v1`. Its versioned contract is
 `docs/architecture/ci-containment.json`; unsupported hosts fail before running
 the gate.
+
+Hosted provisioning also runs its LLVM dialect/instrumentation compiler probes
+and conditional frozen-loader bridge through
+`scripts/verify_ci_native_host_inputs.sh`. Its platform runner admits a fresh
+aggregate cap no greater than 2 GiB, zero swap, and at most 24 tasks before
+compilation. Probe scratch and compatibility outputs remain project-local;
+installing host packages does not authorize an uncontained compiler invocation.
 
 All rebuild scratch files default to the Git-ignored
 `.seen/agent-tools/safe-rebuild/` directory in the checkout. Set

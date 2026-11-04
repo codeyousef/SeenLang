@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   must not carry an unsigned no-wrap assumption (FEL-3070). Extend optimized
   regression coverage to parameterized 13-by-13 cross-zero coordinate ranges,
   checking both cell coverage and coordinate-dependent results.
+- Put hosted CI's existing LLVM SDK compiler probes and frozen-loader bridge
+  inside a live-derived kernel memory/task scope before compiler execution.
 
 ## [0.22.10] - 2026-11-03
 
