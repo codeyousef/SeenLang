@@ -1,7 +1,7 @@
 # Seen installer tooling
 
 This directory contains release-packaging scripts and templates for Seen
-0.22.10. It is maintainer tooling, not proof that every package is already
+0.22.11. It is maintainer tooling, not proof that every package is already
 published to a public package-manager repository.
 
 ## Layout
@@ -15,7 +15,7 @@ published to a public package-manager repository.
 - `assets/` — icons and release assets
 
 The checked-in Homebrew and Scoop files are templates, not publishable package
-metadata. After building and auditing the exact 0.22.10 release assets, the
+metadata. After building and auditing the exact 0.22.11 release assets, the
 release maintainer must regenerate their versions, URLs, and SHA-256 checksums
 from those bytes. Include only platforms whose archives exist; do not publish
 template checksums or substitute hashes from a previous release. The required
@@ -35,7 +35,7 @@ seen compile src/main.seen my-program
 ./my-program
 ```
 
-Create `Seen.toml` and `src/main.seen` yourself; 0.22.10 does not ship `init`,
+Create `Seen.toml` and `src/main.seen` yourself; 0.22.11 does not ship `init`,
 `build`, `test`, `fmt`, or `clean` commands. New manifests begin with:
 
 ```toml
@@ -59,15 +59,15 @@ helper; binary releases include that helper.
 Examples for the current release version:
 
 ```bash
-installer/linux/build-deb.sh 0.22.10 amd64
-installer/linux/build-rpm.sh 0.22.10 x86_64
-installer/linux/build-appimage.sh 0.22.10 x86_64
-installer/homebrew/generate-formula.sh --version 0.22.10
+installer/linux/build-deb.sh 0.22.11 amd64
+installer/linux/build-rpm.sh 0.22.11 x86_64
+installer/linux/build-appimage.sh 0.22.11 x86_64
+installer/homebrew/generate-formula.sh --version 0.22.11
 ```
 
 ```powershell
-installer\windows\build.bat 0.22.10 x64
-installer\scoop\generate-manifest.ps1 -Version 0.22.10
+installer\windows\build.bat 0.22.11 x64
+installer\scoop\generate-manifest.ps1 -Version 0.22.11
 ```
 
 Each builder has its own host-tool prerequisites. Build release artifacts from

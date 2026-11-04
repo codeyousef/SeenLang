@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.11] - 2026-11-04
+
+### Fixed
+
+- Make `continue` advance range, array, and string loops before their next
+  condition check instead of repeating the same index indefinitely (FEL-3069).
+  Preserve nested loop targets, `break`, and `while` behavior, including
+  unconditional and nested-conditional `continue`.
+
 ## [0.22.10] - 2026-11-03
 
 ### Fixed

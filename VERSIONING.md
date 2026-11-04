@@ -68,9 +68,9 @@ publish a release. A published release is complete only after its downloaded
 assets, hashes, signatures, source identity, and installed-layout smoke pass.
 
 The source policy in `scripts/check_release_ci_run.py` authorizes
-`release/0.22.10` **only for the exact tag `v0.22.10`**; every other supported
+`release/0.22.11` **only for the exact tag `v0.22.11`**; every other supported
 version, including prereleases, continues to require `main`. This maintenance
-release is based on published `v0.22.9`, not on unreleased 0.23.0 feature commits.
+release is based on published `v0.22.10`, not on unreleased 0.23.0 feature commits.
 There is no caller-supplied branch override. The annotated tag's object and
 peeled commit must match origin, and the selected origin branch tip must equal
 that exact release commit. CI evidence must identify this repository's `CI`

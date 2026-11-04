@@ -20,12 +20,12 @@ success followed by optional uploads.
    the run ID. Resolve the branch from the version-bound policy:
 
    ```bash
-   VERSION=0.22.10
+   VERSION=0.22.11
    SOURCE_BRANCH=$(python3 scripts/check_release_ci_run.py \
      --tag "v$VERSION" --source-branch)
    ```
 
-   Only `v0.22.10` uses `release/0.22.10`, based on published `v0.22.9`.
+   Only `v0.22.11` uses `release/0.22.11`, based on published `v0.22.10`.
    All other supported versions use `main`; do not merge unreleased 0.23.0
    feature commits into this maintenance branch. Full contained CI and the
    exact-SHA toolchain artifact run on both authorized branches. Explicit manual

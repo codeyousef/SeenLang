@@ -202,6 +202,12 @@ loop {
 
 ### break and continue
 
+`break` exits the innermost loop. `continue` skips the rest of its current
+iteration: ranges, arrays, and strings advance exactly once before the next
+condition check. Nested loops preserve the enclosing loop's control targets.
+For `while`, `continue` rechecks the condition; any manual update must occur
+before the `continue` branch.
+
 ```seen
 for i in 0..100 {
     if i == 50 { break }

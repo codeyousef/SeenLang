@@ -28,7 +28,7 @@ def source_branch(tag: str) -> str:
     """Return the only authorized source branch for an exact release tag."""
     if not TAG.fullmatch(tag):
         fail("release tag is not a supported version tag")
-    return "release/0.22.10" if tag == "v0.22.10" else "main"
+    return "release/0.22.11" if tag == "v0.22.11" else "main"
 
 
 def validate_dispatch(tag: str, ref: str, probe_only: bool) -> None:

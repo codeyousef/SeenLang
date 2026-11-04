@@ -1,0 +1,149 @@
+// FEL-3069: every indexed continue must reach exactly one increment latch.
+// Finite guards turn a repeated index into a deterministic regression failure.
+fun loopControlFailure(message: String) r: Int {
+    println(message)
+    return 1
+}
+
+fun main() r: Int {
+    var visits = 0
+    var sum = 0
+    for index in 0..5 {
+        visits = visits + 1
+        if visits > 12 { return loopControlFailure("nested-if continue repeated a range index") }
+        if index >= 1 {
+            if index == 2 { continue }
+        }
+        sum = sum + index
+    }
+    if visits != 5 or sum != 8 { return loopControlFailure("range continue visitation differs") }
+
+    visits = 0
+    sum = 0
+    let lower = 0 - 3
+    for value in lower..3 {
+        visits = visits + 1
+        if visits > 12 { return loopControlFailure("signed continue repeated a range index") }
+        if value == -1 { continue }
+        if value == 0 { continue }
+        sum = sum + value
+    }
+    if visits != 6 or sum != -2 { return loopControlFailure("signed continue coverage differs") }
+
+    visits = 0
+    for skipped in 0..5 {
+        visits = visits + 1
+        if visits > 8 { return loopControlFailure("unconditional continue failed to advance") }
+        continue
+    }
+    if visits != 5 { return loopControlFailure("unconditional continue omitted an iteration") }
+    visits = 0
+    for empty in 4..4 { visits = visits + 1; continue }
+    if visits != 0 { return loopControlFailure("empty continued range executed") }
+    for only in 7..8 {
+        visits = visits + 1
+        if visits > 2 { return loopControlFailure("singleton continue failed to terminate") }
+        continue
+    }
+    if visits != 1 { return loopControlFailure("singleton continue coverage differs") }
+
+    var outerVisits = 0
+    var innerVisits = 0
+    var completedOuter = 0
+    sum = 0
+    for outer in 0..4 {
+        outerVisits = outerVisits + 1
+        if outerVisits > 8 { return loopControlFailure("nested loop lost its outer increment") }
+        for inner in 0..5 {
+            innerVisits = innerVisits + 1
+            if innerVisits > 32 { return loopControlFailure("nested loop lost its inner increment") }
+            if inner >= 1 {
+                if inner == 2 { continue }
+            }
+            sum = sum + inner
+        }
+        if outer == 1 { continue }
+        completedOuter = completedOuter + 1
+    }
+    if outerVisits != 4 or innerVisits != 20 or completedOuter != 3 or sum != 32 {
+        return loopControlFailure("nested continue target restoration differs")
+    }
+
+    let values = Array<Int>()
+    values.push(2); values.push(3); values.push(4); values.push(5); values.push(6)
+    visits = 0
+    sum = 0
+    for value in values {
+        visits = visits + 1
+        if visits > 8 { return loopControlFailure("array continue repeated an element") }
+        if value == 4 { continue }
+        sum = sum + value
+    }
+    if visits != 5 or sum != 16 { return loopControlFailure("array continue visitation differs") }
+    values.free()
+
+    visits = 0
+    var bodies = 0
+    for character in "abcde" {
+        visits = visits + 1
+        if visits > 8 { return loopControlFailure("string continue repeated an element") }
+        if visits == 3 { continue }
+        bodies = bodies + 1
+    }
+    if visits != 5 or bodies != 4 { return loopControlFailure("string continue visitation differs") }
+
+    visits = 0
+    sum = 0
+    for value in 0..8 {
+        visits = visits + 1
+        if visits > 10 { return loopControlFailure("mixed break and continue did not terminate") }
+        if value == 1 { continue }
+        if value == 4 { break }
+        sum = sum + value
+    }
+    if visits != 5 or sum != 5 { return loopControlFailure("break did not preserve its exit target") }
+
+    var whileIndex = 0
+    outerVisits = 0
+    innerVisits = 0
+    while whileIndex < 3 {
+        whileIndex = whileIndex + 1
+        outerVisits = outerVisits + 1
+        if outerVisits > 6 { return loopControlFailure("for loop corrupted enclosing while target") }
+        for inner in 0..3 {
+            innerVisits = innerVisits + 1
+            if innerVisits > 16 { return loopControlFailure("continued inner for failed to advance") }
+            if inner == 1 { continue }
+        }
+        if whileIndex == 2 { continue }
+    }
+    if outerVisits != 3 or innerVisits != 9 { return loopControlFailure("for in while visitation differs") }
+
+    outerVisits = 0
+    innerVisits = 0
+    for outer in 0..3 {
+        outerVisits = outerVisits + 1
+        if outerVisits > 6 { return loopControlFailure("while loop corrupted enclosing for target") }
+        var inner = 0
+        while inner < 3 {
+            inner = inner + 1
+            innerVisits = innerVisits + 1
+            if innerVisits > 16 { return loopControlFailure("continued inner while failed to advance") }
+            if inner == 2 { continue }
+        }
+        if outer == 1 { continue }
+    }
+    if outerVisits != 3 or innerVisits != 9 { return loopControlFailure("while in for visitation differs") }
+
+    let highStart = 9223372036854775804
+    let highEnd = 9223372036854775807
+    visits = 0
+    for boundary in highStart..highEnd {
+        visits = visits + 1
+        if visits > 4 { return loopControlFailure("maximum-bound continue failed to terminate") }
+        continue
+    }
+    if visits != 3 { return loopControlFailure("maximum-bound continue coverage differs") }
+    println("continued indexed loops preserve visitation and nested exit targets")
+    return 0
+}

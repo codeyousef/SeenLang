@@ -19,6 +19,7 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 | `collections` | Collection types, buffers, maps, sets, pools |
 | `core` | Core types, conversion, reflection, binary helpers |
 | `crypto` | Hashing utilities |
+| `determinism` | Explicit runtime inputs and capability policy |
 | `env` | Environment helpers |
 | `ffi` | C type and interop helpers |
 | `framework` | Component, routing, middleware, store, VDOM, hot reload |
@@ -32,13 +33,16 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 | `memory` | Allocation budget, statistics, and region helpers |
 | `net` | Polling and TCP wrappers |
 | `platform` | OS-specific windows/audio/input/GPU bindings |
+| `operation_context` | Cancellation, deadline, and operation-limit facade |
 | `process` | Process execution helpers |
 | `random` | Random number generators |
 | `scripting` | Lua integration |
+| `secret` | Secret-value facade |
 | `security` | TEE/enclave helpers |
 | `simd` | SIMD vector/math helpers |
 | `str` | Character, escape, and string utilities |
 | `sync` | Mutexes, atomics, channels, queues, barriers |
+| `testing` | Source-level test policy and category contracts |
 | `thread` | Threads, affinity, worker pools |
 | `time` | Time and duration helpers |
 | `uww` | Deterministic UWW/fixed-point helpers |
@@ -48,7 +52,9 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 ### `async`
 
 - `async/future`
+- `async/mod`
 - `async/runtime`
+- `async/structured`
 
 ### `audio`
 
@@ -80,14 +86,18 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `core/bitfield`
 - `core/compress`
 - `core/convert`
+- `core/error`
 - `core/intrinsics`
 - `core/json_derive`
+- `core/operation_context`
 - `core/option`
 - `core/ord`
+- `core/ownership`
 - `core/packet`
 - `core/prelude`
 - `core/reflect`
 - `core/result`
+- `core/secret`
 - `core/to_string`
 - `core/unit`
 
@@ -95,6 +105,11 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 - `crypto/md5`
 - `crypto/sha256`
+
+### `determinism`
+
+- `determinism/context`
+- `determinism/policy`
 
 ### `env`
 
@@ -236,6 +251,7 @@ capability and unsupported-platform diagnostics. See
 
 - `memory/aligned_buffer`
 - `memory/allocation`
+- `memory/mapped_file`
 - `memory/mapped_region`
 - `memory/pool_region`
 - `memory/stack_region`
@@ -254,6 +270,10 @@ not authorize retention, synchronization, destruction, or device changes.
 
 - `net/poll`
 - `net/tcp`
+
+### `operation_context`
+
+- `operation_context`
 
 ### `platform`
 
@@ -290,6 +310,10 @@ not authorize retention, synchronization, destruction, or device changes.
 
 - `scripting/lua`
 
+### `secret`
+
+- `secret`
+
 ### `security`
 
 - `security/enclave`
@@ -307,17 +331,25 @@ not authorize retention, synchronization, destruction, or device changes.
 
 ### `sync`
 
+- `sync/arc`
 - `sync/atomic`
 - `sync/atomic_queue`
 - `sync/atomic_stack`
 - `sync/barrier`
 - `sync/channel`
+- `sync/contracts`
+- `sync/lock_order`
+- `sync/mod`
 - `sync/mpsc_queue`
 - `sync/mutex`
 - `sync/ordering`
 - `sync/rwlock`
 - `sync/spsc_queue`
 - `sync/thread_local`
+
+### `testing`
+
+- `testing/categories`
 
 ### `thread`
 
