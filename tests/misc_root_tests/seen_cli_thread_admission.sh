@@ -54,9 +54,29 @@ if execution_log.is_file() and not execution_log.is_symlink():
         Path(sys.argv[5]).write_bytes(stream.read(32768))
 PY
 done
+WORKER_PROJECT="$TMP_DIR/worker-project"
+mkdir -p "$WORKER_PROJECT/native"
+cp "$ROOT_DIR/tests/compiler_regressions/tsan_seen_workers.seen" "$WORKER_PROJECT/main.seen"
+cat >"$WORKER_PROJECT/Seen.toml" <<'TOML'
+manifest-version = 1
+[project]
+name = "tsan_seen_workers"
+version = "0.1.0"
+[native.dependencies]
+seen_tsan_workers_control = { path = "native" }
+TOML
+# Coordination is lock-free and never accesses the counter. Keep it sanitized;
+# Result allocation and the normal handle registry may otherwise order stores.
+timeout --foreground --kill-after=5s 60s clang --no-default-config -std=c11 \
+    -O1 -g -fPIC -fsanitize=thread -fno-omit-frame-pointer \
+    -Wall -Wextra -Werror -c \
+    "$ROOT_DIR/tests/compiler_regressions/tsan_seen_workers_control.c" \
+    -o "$WORKER_PROJECT/native/control.o" >"$TMP_DIR/control-compile.log" 2>&1
+ar rcs "$WORKER_PROJECT/native/libseen_tsan_workers_control.a" \
+    "$WORKER_PROJECT/native/control.o"
 bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile \
-    "$ROOT_DIR/tests/compiler_regressions/tsan_seen_workers.seen" \
-    "$TMP_DIR/seen-workers" --fast --no-cache --jobs 1 --opt-jobs 1 \
+    "$WORKER_PROJECT/main.seen" "$TMP_DIR/seen-workers" \
+    --fast --no-cache --jobs 1 --opt-jobs 1 \
     --sanitize thread >"$TMP_DIR/workers-compile.log" 2>&1
 for mode in clean race; do
     status=0

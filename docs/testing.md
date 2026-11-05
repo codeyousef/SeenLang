@@ -475,8 +475,20 @@ admitted by the finite-address policy. Core and gpu-runtime-async CI provisionin
 now explicitly builds the finite-address SDK from authenticated LLVM 20.1.2
 sources; other jobs retain stock resources. The producer must pass real clean,
 deliberate-race and insufficient-64-TiB controls before publishing its manifest.
-The SDK-only prototype passed those controls; fresh integrated production/Seen
-acceptance remains unverified until the required gates pass.
+The prototype and fresh integrated producer passed those controls. The local
+0.23.0 candidate also passed real CLI `ci`/`sanitizer-thread` execution and
+clean/racy native two-worker controls under canonical finite-limit admission.
+These component results do not replace full required-CI or merged-main gates.
+The worker control keeps the counter reads/stores in Seen and uses separate,
+allocation-free C atomic rendezvous phases only for coordination. This prevents
+Result allocation or handle-registry locks from accidentally ordering the
+deliberately conflicting accesses; its native helper is also TSan-instrumented.
+
+SDK configuration probes and native controls use the identity-bound LLVM 20
+linker with `--threads=1`; serial Ninja builds alone do not constrain linker
+threads. The existing 2-GiB aggregate and 24-task limits remain unchanged.
+Failed builds stream at most the retained bounded log tails before deleting
+their staging tree, so private namespace cleanup does not erase CI diagnostics.
 
 SDK selection requires both `SEEN_TSAN_SDK_MANIFEST` and the independently
 published `SEEN_TSAN_SDK_MANIFEST_SHA256`. Internally consistent cache hashes

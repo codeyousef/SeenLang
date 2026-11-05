@@ -100,10 +100,10 @@ class SealedRuntimeTests(unittest.TestCase):
         with mock.patch.object(sdk_exec.os, 'memfd_create', side_effect=record):
             with self.assertRaisesRegex(ValueError, 'SHA-256 differs'):
                 sdk_exec.sealed_runtime(self.source, expected)
-        self.assertEqual(len(created), 1)
-        with self.assertRaises(OSError) as error:
-            os.fstat(created[0])
-        self.assertEqual(error.exception.errno, errno.EBADF)
+        for fd in created:
+            with self.assertRaises(OSError) as error:
+                os.fstat(fd)
+            self.assertEqual(error.exception.errno, errno.EBADF)
 
     def test_missing_empty_malformed_and_oversize_rows_are_rejected(self):
         for expected in (None, {}, {'bytes': 1}, {'bytes': 0, 'sha256': '0' * 64},

@@ -14,6 +14,7 @@ extern "C" fun seen_executor_live_threads() r: UInt64
 extern "C" fun seen_sync_live_mutexes() r: UInt64
 extern "C" fun seen_sync_live_conditions() r: UInt64
 extern "C" fun fflush(stream: *Void) r: Int32
+extern "C" fun seen_tsan_workers_phase(phase: UInt32) r: Int32
 
 fun tsanTake<T, E>(result: Result<T, E>) r: T {
     if result.isErr() { abort("Seen TSan worker operation failed") }
@@ -48,6 +49,9 @@ impl ExecutorJob for TsanSeenJob {
     fun run(this: TsanSeenJob, task: ExecutorTaskContext) r: Bool {
         tsanTake(this.started.fetchAdd(1 as Int64, MemoryOrder.SeqCst))
         tsanTake(this.phase.arrive(task.operation))
+        if seen_tsan_workers_phase(0 as UInt32) != (0 as Int32) {
+            abort("Seen TSan workers did not reach their write phase")
+        }
         if not this.race {
             if task.core.lock(task.operation.operation.monotonicDeadline) != (0 as Int32) {
                 abort("Seen TSan clean control could not acquire its mutex")
@@ -56,16 +60,13 @@ impl ExecutorJob for TsanSeenJob {
         let shared = this.address as *Int64
         shared[0] = shared[0] + (1 as Int64)
         if not this.race { task.core.unlock() }
-        // Neither worker may publish completion through the scheduler mutex
-        // before both conflicting stores have happened. Otherwise a serialized
-        // schedule could accidentally establish happens-before in race mode.
-        tsanTake(this.finished.fetchAdd(1 as Int64, MemoryOrder.SeqCst))
-        var spins = 0
-        while tsanTake(this.finished.load(MemoryOrder.SeqCst)) != (2 as Int64) {
-            if spins >= 10000000 { abort("Seen TSan workers did not rendezvous") }
-            __ThreadYield()
-            spins = spins + 1
+        // Use a lock-free, nonallocating rendezvous before any Result allocation
+        // or handle-registry access can accidentally order the conflicting
+        // stores. The foreign control never reads or writes the counter.
+        if seen_tsan_workers_phase(1 as UInt32) != (0 as Int32) {
+            abort("Seen TSan workers did not finish their write phase")
         }
+        tsanTake(this.finished.fetchAdd(1 as Int64, MemoryOrder.SeqCst))
         return true
     }
     fun release(this: TsanSeenJob) r: Bool { this.free(); return true }

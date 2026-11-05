@@ -17,6 +17,10 @@ Foundations**.
   resource limits, require real clean/race/insufficient-limit controls, and bind
   a separately published manifest digest. Clang consumes sealed runtime bytes
   in a private read-only namespace rather than trusting a mutable cache path.
+  Pin configure probes and native-control links to a hash-bound, single-worker
+  LLVM linker, and stream bounded failure tails before scratch cleanup.
+  Require real Seen worker races with allocation-free coordination so allocator
+  and handle-registry locks cannot conceal the deliberately conflicting stores.
   Keep integrated Seen execution and production certification dependent on the
   actual required acceptance results.
 - Preserve bounded CORE-004E native-signal witnesses with exact invocation,

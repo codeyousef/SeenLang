@@ -27,8 +27,12 @@ RUNTIMES = ('libclang_rt.tsan-x86_64.a', 'libclang_rt.tsan-x86_64.a.syms',
 HELPERS = ('finite_tsan_sdk.py', 'finite_tsan_sdk_source.py', 'finite_tsan_sdk.patch',
            'finite_tsan_sdk_control.c', 'install_finite_tsan_sdk.sh',
            'finite_tsan_sdk_exec.py')
+LINK_FLAGS = '--ld-path=/usr/lib/llvm-20/bin/ld.lld -Wl,--threads=1'
 CONFIG = [
     '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+    '-DCMAKE_EXE_LINKER_FLAGS=' + LINK_FLAGS,
+    '-DCMAKE_SHARED_LINKER_FLAGS=' + LINK_FLAGS,
+    '-DCMAKE_MODULE_LINKER_FLAGS=' + LINK_FLAGS,
     '-DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON', '-DCOMPILER_RT_BUILD_BUILTINS=OFF',
     '-DCOMPILER_RT_BUILD_SANITIZERS=ON', '-DCOMPILER_RT_SANITIZERS_TO_BUILD=tsan',
     '-DCOMPILER_RT_BUILD_XRAY=OFF', '-DCOMPILER_RT_BUILD_LIBFUZZER=OFF',
@@ -120,6 +124,7 @@ def inputs():
         'configuration': CONFIG, 'prefix_mapping': '/seen-finite-tsan', 'helpers': helpers,
         'tools': {name: tool(path) for name, path in {
             'clang': clang, 'clang++': '/usr/bin/clang++-20', 'llvm-config': '/usr/bin/llvm-config-20',
+            'ld.lld': '/usr/lib/llvm-20/bin/ld.lld',
             'cmake': '/usr/bin/cmake', 'ninja': '/usr/bin/ninja', 'patch': '/usr/bin/patch',
         }.items()},
         'llvm_cmake': inventory(Path('/usr/lib/llvm-20/lib/cmake/llvm').resolve(strict=True), follow_links=True),
@@ -235,7 +240,8 @@ def controls(stage, bound, environment):
     try:
         argv = ['/usr/bin/clang-20', '--no-default-config', '-std=c11', '-D_GNU_SOURCE', '-O1', '-g',
                 '-march=x86-64', '-fno-omit-frame-pointer', '-fsanitize=thread', '-resource-dir',
-                stage / 'resource', '-fPIE', '-pie', '-pthread', SCRIPTS / 'finite_tsan_sdk_control.c',
+                stage / 'resource', *shlex.split(LINK_FLAGS), '-fPIE', '-pie', '-pthread',
+                SCRIPTS / 'finite_tsan_sdk_control.c',
                 '-o', work / 'control']
         with open(work / 'compile.log', 'w') as log:
             log.write(shlex.join([str(arg) for arg in argv]) + '\n')
@@ -381,8 +387,12 @@ def build():
                             count = min(remaining, 128 * 1024)
                             source.seek(max(0, path.stat().st_size - count))
                             content = source.read(count)
-                        (diagnostics / (folder + '-' + name)).write_bytes(content)
                         remaining -= len(content)
+                        # Namespace scratch may be removed on failure. Keep the
+                        # same bounded tail in the caller's persistent CI log.
+                        print(f'finite TSan SDK {folder}/{name} tail:', file=sys.stderr)
+                        print(content.decode('utf-8', errors='replace'), file=sys.stderr)
+                        (diagnostics / (folder + '-' + name)).write_bytes(content)
                 print('finite TSan SDK bounded diagnostics: ' + str(diagnostics), file=sys.stderr)
             except OSError as diagnostic_error:
                 print('finite TSan SDK diagnostic retention failed: ' + str(diagnostic_error),
