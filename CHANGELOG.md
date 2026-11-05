@@ -602,8 +602,9 @@ Foundations**.
   source-text/count-only assertions with path-boundary behavior checks while
   retaining the compiled native migration cases in complete acceptance.
 - Keep the positive hosted-workflow fixture aligned with explicit finite TSan
-  provisioning, and check out exact source before the final job rejects failed
-  dependencies so bounded failure diagnostics remain available.
+  provisioning and the Ubuntu ARM filesystem root. Check out exact source
+  before the final job rejects failed dependencies so bounded failure
+  diagnostics remain available.
 - Admit sealed SDK resource selection inside the established rootless artifact
   namespace by validating unmapped root ownership and actual write protection,
   rather than requiring host UID zero to remain numerically visible.
