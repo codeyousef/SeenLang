@@ -9,6 +9,11 @@ length-delimited operating-system path bytes and reject empty, oversized, or
 NUL-containing values before an ABI call. `File` is move-only and accepts an
 `OperationContext`, `Path`, `OpenOptions`, and explicit `DirectIoPolicy`.
 
+Synchronous filesystem context validation returns `fs.cancelled` for a set
+cancellation flag, otherwise `fs.timeout` for a negative `monotonicDeadline`.
+This preflight does not read a clock or preempt blocking syscalls; asynchronous
+queue deadline observation is documented separately below.
+
 The production surface provides checked 64-bit positional reads and writes,
 metadata, durability, preallocation, truncation, sparse-hole punching, space
 queries, advisory locks, directory iteration, symbolic links, exclusive

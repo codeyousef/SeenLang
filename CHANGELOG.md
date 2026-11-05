@@ -21,6 +21,8 @@ Foundations**.
   LLVM linker, and stream bounded failure tails before scratch cleanup.
   Require real Seen worker races with allocation-free coordination so allocator
   and handle-registry locks cannot conceal the deliberately conflicting stores.
+  Preserve the explicit SDK manifest/digest across deterministic compiler
+  execution so SDK-bound tool wrappers keep enforcing the same selection.
   Keep integrated Seen execution and production certification dependent on the
   actual required acceptance results.
 - Preserve bounded CORE-004E native-signal witnesses with exact invocation,

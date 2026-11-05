@@ -496,6 +496,8 @@ alone cannot authorize reuse: provisioning builds fresh and publishes a digest
 outside the cached payload. Clang wrappers verify the selected inputs and consume
 sealed runtime snapshots over the genuine stock resource tree in a private,
 read-only namespace; cache replacement cannot change already sealed bytes.
+Deterministic compiler execution preserves that explicit selection pair through
+its environment allowlist; wrapper-bound identities remain enforced.
 This path rejects pre-terminator response files, explicit compiler configs and
 `CCC_OVERRIDE_OPTIONS` rather than allowing hidden resource-directory overrides.
 It preserves positional `--` and Clang++ driver selection. Bubblewrap represents

@@ -62,8 +62,11 @@ constructors, typed `min`/`max`/`clamp`/`abs`/`sqrt`, mutable locals, `if`, `whi
 and Void returns are checked. Unknown calls, host effects, unsafe operations,
 resource escapes and unsupported constructs fail with a stable `E_GPU_*` code.
 
-Modules contain at most 256 compute kernels and device helpers combined. Bindings are scoped and bounded to
-4096; signatures have at most 64 parameters.
+Modules contain at most 256 compute kernels and device helpers combined.
+GPU lowering scopes lexical names and bounds its binding table to 4096 entries;
+signatures have at most 64 parameters. This is not a runtime resource limit:
+the Vulkan artifact parser separately permits at most 64 reflected bindings
+per entry.
 Traversal stops at 65536 nodes or 128 levels, and each kernel stops at 64 diagnostic records.
 Type/workgroup parsing uses bounded byte ranges without temporary string
 allocations. The checking context owns its arrays and diagnostic records;
