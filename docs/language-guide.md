@@ -188,9 +188,11 @@ for i in -3..3 {
 }
 ```
 
-Integer ranges have a signed start and an exclusive upper bound. Negative
-literal, constant-folded and parameter bounds follow the same rule. A range
-whose start is greater than or equal to its end executes no iterations.
+Integer ranges have a signed start and an exclusive upper bound. Literal,
+constant-folded and runtime bounds have the same termination behavior, including
+nested ranges crossing zero. A start at or above the upper bound produces an
+empty range. Range advancement uses signed `Int` semantics; crossing `-1` to `0`
+is valid.
 
 ### loop (infinite)
 
@@ -204,6 +206,12 @@ loop {
 ```
 
 ### break and continue
+
+`break` exits the innermost loop. `continue` skips the rest of its current
+iteration: ranges, arrays, and strings advance exactly once before the next
+condition check. Nested loops preserve the enclosing loop's control targets.
+For `while`, `continue` rechecks the condition; any manual update must occur
+before the `continue` branch.
 
 ```seen
 for i in 0..100 {
@@ -628,6 +636,8 @@ ByteBuffer, primitive buffers, sort/search helpers, priority queues, and more.
 0..10      // exclusive: 0, 1, 2, ..., 9
 -3..3      // exclusive: -3, -2, -1, 0, 1, 2
 ```
+
+Inclusive `..=` syntax is not currently accepted by the parser.
 
 ## Operators
 

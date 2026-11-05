@@ -47,7 +47,7 @@ Example:
 ```toml
 [project]
 name = "seen_compiler"
-version = "0.22.9"
+version = "0.23.0"
 language = "en"
 visibility = "caps"
 description = "Self-hosted Seen compiler"
@@ -77,9 +77,9 @@ modules = [
 
 ## [dependencies] Section
 
-Seen 0.22.9 uses package aliases from `[dependencies]` as local import roots.
-Registry identity, registry origin, version requirement, and import alias remain
-separate values.
+Seen 0.23.0 development (unreleased) uses package aliases from `[dependencies]`
+as local import roots. Registry identity, registry origin, version requirement,
+and import alias remain separate values.
 
 ```toml
 manifest-version = 1

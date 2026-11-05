@@ -14,7 +14,8 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 | Family | Purpose |
 |--------|---------|
-| `async` | Future and async runtime helpers |
+| `accelerator` | Low-level accelerator bindings |
+| `async` | Structured tasks, executor pools, readiness and async I/O helpers |
 | `audio` | Audio backend/device wrappers |
 | `collections` | Collection types, buffers, maps, sets, pools |
 | `compute` | Accelerator providers, memory resources, staging and transfers |
@@ -23,10 +24,12 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 | `determinism` | Bounded execution-context inputs and capability policy |
 | `env` | Environment helpers |
 | `ffi` | C type and interop helpers |
+| `formats` | Bounded binary format readers |
 | `framework` | Component, routing, middleware, store, VDOM, hot reload |
 | `fs` | Raw paths, move-only files, directories, links, durability, and traversal |
 | `graphics` | GPU, renderer, shader helpers |
 | `hash` | Hash helpers |
+| `inference` | Quantized formats, scalar and span helpers |
 | `input` | Gamepad/input abstractions |
 | `io` | File, buffered, and stdio helpers |
 | `json` | JSON values, parser, builder |
@@ -34,13 +37,17 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 | `memory` | Allocation budget, statistics, and region helpers |
 | `net` | Polling and TCP wrappers |
 | `platform` | OS-specific windows/audio/input/GPU bindings |
+| `operation_context` | Cancellation, deadline, and operation-limit facade |
 | `process` | Process execution helpers |
 | `random` | Random number generators |
+| `reactor` | Readiness reactor primitives |
 | `scripting` | Lua integration |
+| `secret` | Secret-value facade |
 | `security` | TEE/enclave helpers |
 | `simd` | SIMD vector/math helpers |
 | `str` | Character, escape, and string utilities |
 | `sync` | Mutexes, atomics, channels, queues, barriers |
+| `testing` | Source-level test policy and category contracts |
 | `thread` | Threads, affinity, worker pools |
 | `time` | Time and duration helpers |
 | `uww` | Deterministic UWW/fixed-point helpers |
@@ -368,6 +375,10 @@ direct-ready memory streams are distinct from OS completion-queue adapters.
 ### `scripting`
 
 - `scripting/lua`
+
+### `secret`
+
+- `secret`
 
 ### `security`
 

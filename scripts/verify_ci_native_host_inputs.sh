@@ -60,9 +60,8 @@ printf '%s\n' '#include <stdint.h>' \
 LC_ALL=C readelf --file-header "$TMP_DIR/arm64.o" |
     grep -Eq 'Machine:[[:space:]]+AArch64' || fail 'ARM64 probe produced the wrong object architecture'
 needs_sdl3_bridge=0
-# The frozen 0.10.1 seeds carry an unused SDL3 DT_NEEDED entry. This loader-only
-# bridge is admissible only when neither seed imports any SDL symbol; rebuilt
-# compilers remove the unused dependency through their ordinary linker policy.
+# The frozen seeds carry an unused SDL3 dependency. Admit this loader-only
+# bridge only if neither imports SDL symbols; the rebuilt linker drops it.
 frozen_index=0
 for frozen in "$ROOT_DIR/bootstrap/stage1_frozen" "$ROOT_DIR/bootstrap/stage1_frozen_v3"; do
     [ -f "$frozen" ] && [ ! -L "$frozen" ] || fail "frozen bootstrap input is missing or unsafe: $frozen"

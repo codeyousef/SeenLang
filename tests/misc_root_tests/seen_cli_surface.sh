@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPILER="${COMPILER:-${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}}"
-VERSION="${SEEN_EXPECTED_VERSION:-0.22.9}"
+VERSION="${SEEN_EXPECTED_VERSION:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["release_version"])' \
+    "$ROOT_DIR/releases/compatibility-manifest.json")}"
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 SCOPE=seen-cli-surface
 

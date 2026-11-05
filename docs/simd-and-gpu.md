@@ -1,17 +1,21 @@
 # SIMD and GPU
 
-Seen 0.22.9 has native LLVM vector values for CPU SIMD and an experimental
-Vulkan compute path. The two paths are independent.
+Current 0.23.0 development has native LLVM vector values for CPU SIMD and a
+shared typed GPU IR with Vulkan/SPIR-V, CUDA/PTX, AMDGPU, and Metal emitters.
+CPU-only use does not imply GPU SDK discovery. Artifact/toolchain validation,
+software execution, and physical-device certification remain separate;
+unsupported backends and fallback are explicit. See the
+[GPU API reference](api-reference/gpu.md) for the current contracts.
 
 ## Native SIMD vectors
 
-The native vector types exercised by the shipped compiler are:
+The native vector types include:
 
 | Type | Lanes |
 |------|-------|
-| `f32x4`, `f32x8` | four or eight 32-bit floats |
-| `f64x2`, `f64x4` | two or four 64-bit floats |
-| `i32x4`, `i32x8` | four or eight 32-bit integers |
+| `f32x4`, `f32x8`, `f32x16` | four, eight, or sixteen 32-bit floats |
+| `f64x2`, `f64x4`, `f64x8` | two, four, or eight 64-bit floats |
+| `i32x4`, `i32x8`, `i32x16` | four, eight, or sixteen 32-bit integers |
 
 Constructors, arithmetic, and receiver-style horizontal reductions lower to
 LLVM vector values:

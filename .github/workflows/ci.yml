@@ -103,6 +103,8 @@ jobs:
           go-version: "1.26.5"
           cache: false
       - name: "Provision required isolation and search tools"
+        env:
+          SEEN_PREPARE_FINITE_TSAN_SDK: "${{ (matrix.group == 'core' || matrix.group == 'gpu-runtime-async') && '1' || '0' }}"
         run: "scripts/provision_ci_host.sh"
       - name: "Download same-run unverified candidate"
         uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"

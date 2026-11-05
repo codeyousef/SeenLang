@@ -2,7 +2,7 @@
 
 Module: `async.mod`
 
-Seen 0.22.9 provides a bounded, native-Seen structured-concurrency surface.
+Seen 0.23.0 development provides a bounded, native-Seen structured-concurrency surface.
 The executor consumes explicit wakeups in FIFO order and never polls every
 dormant task. The former unbounded coroutine coordinator and unrelated future
 class are not compatibility surfaces.
@@ -517,10 +517,13 @@ Run both through `tests/misc_root_tests/seen_async_stress_contract.sh` inside
 the repository's capped regression scope. The harness runs fast, release with
 ThinLTO, UBSan, ASan and TSan, halting on sanitizer errors with no suppressions.
 ASan's reviewed finite shadow allowance retains the enclosing physical-memory,
-swap, process and worker caps. LLVM 20 TSan instead requires unlimited
-`RLIMIT_AS`; increasing a finite ceiling does not admit it. The finite TSan
-launcher is not a certified execution path: a compatible, explicitly approved
-test-host policy is still required, and failed startup is not race coverage.
+swap, process and worker caps. Stock LLVM 20 TSan requires unlimited
+`RLIMIT_AS`, which remains inadmissible. Selected core/runtime CI jobs instead
+provision the authenticated finite-address SDK described in
+[Testing](../testing.md). Selection binds an independent publication digest and
+sealed runtime bytes; positive integrated Seen execution still requires the
+actual clean/race controls and complete acceptance gates. Compilation or failed
+startup alone is not race coverage.
 The short-contract JSON explicitly sets `certified:false`: designated
 performance comparison and 7950X3D scaling remain separate verification.
 GPU completion has its separate persistent scenario below; the short contract

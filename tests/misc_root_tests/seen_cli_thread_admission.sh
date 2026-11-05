@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# LLVM 20 cannot execute TSan under the reviewed finite-hard-address policy.
-# A CLI profile must not turn an unadmitted generated execution into a pass.
+# Require admitted CLI execution and real Seen clean/racy native worker bodies.
+# A compiler failure, stock-runtime startup failure, or timeout cannot pass.
 set -euo pipefail
 ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
@@ -25,12 +25,9 @@ cleanup() {
     exit "$status"
 }
 trap cleanup EXIT
-python3 - "$SEEN_ARTIFACT_ROOT" "$TMP_DIR/before.json" <<'PY'
-import json, sys
-from pathlib import Path
-root = Path(sys.argv[1])
-Path(sys.argv[2]).write_text(json.dumps(sorted(str(p) for p in root.glob('test-cli-thread.*'))))
-PY
+python3 "$ROOT_DIR/scripts/finite_tsan_sdk.py" validate \
+    "${SEEN_TSAN_SDK_MANIFEST:?finite TSan SDK must be explicitly provisioned}" \
+    --manifest-sha256 "${SEEN_TSAN_SDK_MANIFEST_SHA256:?SDK publication digest required}" >/dev/null
 for profile in ci sanitizer-thread; do
     status=0
     timeout --foreground --kill-after=5s 900s env SEEN_KEEP_TMP=1 \
@@ -47,12 +44,8 @@ from pathlib import Path
 report = json.loads(open(sys.argv[1]).read())
 selected = [row for row in report['results'] if row['status'] != 'skipped']
 assert len(selected) == 1 and selected[0]['path'] == 'compiler_seen/tests/test_002a_instrumentation.seen', report
-if sys.argv[2] == 'ci':
-    assert int(sys.argv[3]) == 0 and report['passed'] == 1 and report['failed'] == 0, report
-    assert selected[0]['exit_code'] == 0, selected
-else:
-    assert int(sys.argv[3]) != 0 and report['passed'] == 0 and report['failed'] == 1, report
-    assert selected[0]['exit_code'] != 0, selected
+assert int(sys.argv[3]) == 0 and report['passed'] == 1 and report['failed'] == 0, report
+assert selected[0]['exit_code'] == 0, selected
 # Execution logs count selected cases, not skipped report rows.
 execution_log = Path(sys.argv[4]) / '.seen_cache/test/run/test-0.log'
 if execution_log.is_file() and not execution_log.is_symlink():
@@ -61,25 +54,43 @@ if execution_log.is_file() and not execution_log.is_symlink():
         Path(sys.argv[5]).write_bytes(stream.read(32768))
 PY
 done
-# Require a freshly linked TSan ELF as well as the failed execution result:
-# invalid source, stale metadata or a compiler failure cannot satisfy this case.
-python3 - "$SEEN_ARTIFACT_ROOT" "$TMP_DIR/before.json" "$TMP_DIR/native-images.json" <<'PY'
-import itertools, json, stat, subprocess, sys
+bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile \
+    "$ROOT_DIR/tests/compiler_regressions/tsan_seen_workers.seen" \
+    "$TMP_DIR/seen-workers" --fast --no-cache --no-fork --jobs 1 --opt-jobs 1 \
+    --sanitize thread >"$TMP_DIR/workers-compile.log" 2>&1
+for mode in clean race; do
+    status=0
+    timeout --foreground --kill-after=5s 30s \
+        bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
+        --sanitizer thread --target-root "$TMP_DIR" \
+        --compile-log "$TMP_DIR/workers-compile.log" -- "$TMP_DIR/seen-workers" "$mode" \
+        >"$TMP_DIR/workers-$mode.log" 2>&1 || status=$?
+    printf '%s\n' "$status" >"$TMP_DIR/workers-$mode.status"
+done
+python3 - "$TMP_DIR" <<'PY'
+import json, re, sys
 from pathlib import Path
 root = Path(sys.argv[1])
-before = set(json.loads(Path(sys.argv[2]).read_text()))
-fresh = [p for p in root.glob('test-cli-thread.*') if str(p) not in before]
-assert len(fresh) == 1, fresh
-entries = list(itertools.islice(fresh[0].iterdir(), 33))
-assert len(entries) <= 32, entries
-images = []
-for path in entries:
-    mode = path.lstat().st_mode
-    if stat.S_ISREG(mode) and mode & 0o111:
-        result = subprocess.run(['readelf', '-Ws', str(path)], check=True, text=True, capture_output=True, timeout=30)
-        assert '__tsan_init' in result.stdout, path
-        images.append(str(path))
-assert len(images) == 1, images
-Path(sys.argv[3]).write_text(json.dumps({'schema': 'seen-cli-thread-admission-regression-v1', 'linked_tsan_images': images, 'execution_passed': False}, indent=2) + '\n')
+clean = (root / 'workers-clean.log').read_text()
+race = (root / 'workers-race.log').read_text()
+clean_status = int((root / 'workers-clean.status').read_text())
+race_status = int((root / 'workers-race.status').read_text())
+assert clean_status == 0, (clean_status, clean)
+assert 'WARNING: ThreadSanitizer' not in clean, clean
+for field, expected in [('WORKERS', 2), ('COUNTER', 2), ('DRAINED', 1)]:
+    assert re.search(rf'^TSAN_SEEN_{field}={expected}$', clean, re.M), clean
+assert race_status not in (0, 124, 137), (race_status, race)
+assert 'WARNING: ThreadSanitizer: data race' in race, race
+address = re.search(r'^TSAN_SEEN_COUNTER_ADDRESS=([0-9]+)$', race, re.M)
+assert address, race
+counter = int(address[1])
+accesses = re.findall(r'\b(?:Read|Write|Previous read|Previous write) of size 8 at (0x[0-9a-fA-F]+)', race)
+assert sum(int(value, 16) == counter for value in accesses) >= 2, race
+(root / 'native-workers.json').write_text(json.dumps({
+    'schema': 'seen-tsan-native-workers-v1', 'clean_exit': clean_status,
+    'race_exit': race_status, 'counter_address': address[1],
+    'clean_workers': 2, 'clean_counter': 2, 'native_resources_drained': True,
+    'seen_counter_race_detected': True,
+}, indent=2) + '\n')
 PY
-printf 'PASS: native CLI keeps ordinary execution and refuses unadmitted LLVM 20 thread-profile success\n'
+printf 'PASS: admitted CLI profiles and real Seen two-worker clean/race controls\n'

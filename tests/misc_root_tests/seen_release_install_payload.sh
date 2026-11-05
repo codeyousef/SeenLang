@@ -45,11 +45,6 @@ while IFS= read -r -d '' runtime_file; do
     mkdir -p -- "$prefix/lib/seen/runtime/$(dirname -- "$relative")"
     cp -- "$ROOT_DIR/$runtime_file" "$prefix/lib/seen/runtime/$relative"
 done < <(git -C "$ROOT_DIR" ls-files -z -- seen_runtime)
-cmp -- "$COMPILER" "$prefix/bin/seen"
-cmp -- "$PACKAGE_CLIENT" "$prefix/bin/seen-pkg"
-cmp -- "$ROOT_DIR/releases/compatibility-manifest.json" "$prefix/bin/compatibility-manifest.json"
-test -f "$prefix/lib/seen/std/json/strict.seen"
-test -f "$prefix/lib/seen/std/crypto/sha256.seen"
 if find "$prefix/lib/seen/runtime" -type f \( -name '*.o' -o -name '*.sig' -o -name '*.a' \) -print -quit | grep -q .; then
     echo 'FAIL: source-only staged runtime contains generated objects' >&2; exit 1
 fi

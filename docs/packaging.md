@@ -1,10 +1,11 @@
 # Seen Packaging
 
-Seen 0.22.9 ships a version-coupled package client for declaring dependencies in
-`Seen.toml`, resolving complete dependency graphs, enforcing `Seen.lock`, and
-installing verified source packages. The compiler prepares those dependencies
-before `compile`, `check`, and `run` and rejects a package client from a
-different Seen release.
+Seen 0.23.0 development retains the version-coupled package client published in
+0.22.11 for declaring dependencies in `Seen.toml`, resolving complete dependency
+graphs, enforcing `Seen.lock`, and installing verified source packages. The
+compiler prepares those dependencies before `compile`, `check`, and `run` and
+rejects a package client from a different Seen release. Version 0.23.0 is
+unreleased.
 
 The official development registry origin is:
 

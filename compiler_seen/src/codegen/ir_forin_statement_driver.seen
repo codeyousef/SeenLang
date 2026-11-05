@@ -16,7 +16,7 @@ import codegen.ir_forin_iterator_driver.{tryEmitIteratorProtocolForInLoopState}
 import codegen.ir_function_body.{beginFunctionBodyLoopContextImpl, restoreFunctionBodyLoopContextImpl, emitFunctionBodyLoopEndLabelImpl}
 import codegen.ir_loop_plan.{isRangeForInIterableImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerBlock}
-import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_stmt_gen.{emitIndexedForLoopHeaderImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
 
@@ -89,14 +89,18 @@ fun generateForInStatementState(ctx: CodegenLoweringContext,
                 getBoundedActiveVarCountWithGlobalStateImpl(varNames))
         }
         let proofScope = enterBoundsProof(proof)
+        let incrementLabel = getNextBlockFn(getFeatureBlockBoxImpl())
+        setCurrentLoopCondLabelWithGlobalStateImpl(incrementLabel)
         lowerBlock(ctx, stmt.loopBody)
         appendBoundsLoopRecord(output, loopContext.loopMetaId, stmt.line, stmt.column,
             proofScope.plan.reason, boundsProofAccessCount(), boundsEnabled)
         leaveBoundsProof(proofScope)
         if not getBlockTerminatedWithGlobalStateImpl() {
-            emitForInIncrementImpl(output, getFeatureRegBoxImpl(), idxReg,
-                loopContext.condLabel, loopContext.loopMetaIdStr)
+            output.append("  br label %" + incrementLabel + "\n")
         }
+        output.append(incrementLabel + ":\n")
+        emitForInIncrementImpl(output, getFeatureRegBoxImpl(), idxReg,
+            loopContext.condLabel, loopContext.loopMetaIdStr)
     } else {
         let iterableType = inferLoweredExpressionType(ctx, forInIterable)
         if tryEmitIteratorProtocolForInLoopState(ctx, output, stmt,
@@ -159,13 +163,17 @@ fun generateForInStatementState(ctx: CodegenLoweringContext,
                     getFeatureBlockBoxImpl(), arrReg, loadIdx, lenReg, elementType)
             }
         }
+        let incrementLabel = getNextBlockFn(getFeatureBlockBoxImpl())
+        setCurrentLoopCondLabelWithGlobalStateImpl(incrementLabel)
         lowerBlock(ctx, stmt.loopBody)
         appendBoundsLoopRecord(output, loopContext.loopMetaId, stmt.line, stmt.column,
             "mutable-iteration-state", 0, getFeatureBoundsCheckEnabledImpl())
         if not getBlockTerminatedWithGlobalStateImpl() {
-            emitForInIncrementImpl(output, getFeatureRegBoxImpl(), idxReg,
-                loopContext.condLabel, loopContext.loopMetaIdStr)
+            output.append("  br label %" + incrementLabel + "\n")
         }
+        output.append(incrementLabel + ":\n")
+        emitForInIncrementImpl(output, getFeatureRegBoxImpl(), idxReg,
+            loopContext.condLabel, loopContext.loopMetaIdStr)
     }
 
     restoreForInLoopContextState(output, savedForInVarCount,

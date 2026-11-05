@@ -255,6 +255,10 @@ prove a designated performance regression threshold, scaling, TSan startup,
 production GPU certification, green required CI or merged-main acceptance.
 The original five-profile short stress contract remains separately required.
 
+An actual 24-hour hardware soak has passed. That result closes the physical
+duration observation only; the independent sanitizer, platform and complete
+milestone acceptance requirements above remain nonwaived.
+
 ## Seen source coverage
 
 On Linux x86-64 with LLVM 20, `seen test . --filter <case> --profile coverage
@@ -371,9 +375,14 @@ The compiling example is
 
 ## Sanitizer and coverage profiles
 
-TEST-002A defines `seen-test-instrumentation-v1`. In addition to `default` and
-`ci`, `seen test --profile` accepts `coverage`, `sanitizer-undefined`, and
-`sanitizer-thread`. Seen test
+TEST-002A defines `seen-test-instrumentation-v1`. The current unreleased 0.23.0
+compiler exposes `default`, `ci`, `coverage`, `sanitizer-undefined`, and
+`sanitizer-thread` through `seen test <path> --profile <profile>`; published
+0.22.11 does not include that command. Maintained acceptance harnesses include
+`tests/misc_root_tests/seen_test_instrumentation_contract.sh` and
+`tests/misc_root_tests/seen_test_runner_contract.sh`. Compiler-capable invocations
+must use the verified containment described in [bootstrap.md](bootstrap.md).
+Seen test
 sources are compiled with the matching compiler instrumentation, execute under
 the existing per-test timeout and the serialized `--no-fork` compiler path,
 and keep reports and raw coverage profiles below
@@ -461,11 +470,40 @@ The CLI `sanitizer-thread` profile enters an attested capped binding, compiles
 through the selected compiler runner, and uses the reviewed generated-executable
 admission path rather than launching its binary directly. Missing scope,
 refused admission and sanitizer startup failure remain failed tests with nonzero
-exit status. LLVM 20's requirement for unlimited `RLIMIT_AS` is not admitted by
-the finite-address policy; compilation alone is not ThreadSanitizer execution
-evidence. A positive TSan acceptance check remains blocked until a compatible,
-explicitly admitted execution environment is available.
+exit status. Stock LLVM 20's requirement for unlimited `RLIMIT_AS` is not
+admitted by the finite-address policy. Core and gpu-runtime-async CI provisioning
+now explicitly builds the finite-address SDK from authenticated LLVM 20.1.2
+sources; other jobs retain stock resources. The producer must pass real clean,
+deliberate-race and insufficient-64-TiB controls before publishing its manifest.
+The SDK-only prototype passed those controls; fresh integrated production/Seen
+acceptance remains unverified until the required gates pass.
 
+SDK selection requires both `SEEN_TSAN_SDK_MANIFEST` and the independently
+published `SEEN_TSAN_SDK_MANIFEST_SHA256`. Internally consistent cache hashes
+alone cannot authorize reuse: provisioning builds fresh and publishes a digest
+outside the cached payload. Clang wrappers verify the selected inputs and consume
+sealed runtime snapshots over the genuine stock resource tree in a private,
+read-only namespace; cache replacement cannot change already sealed bytes.
+This path rejects pre-terminator response files, explicit compiler configs and
+`CCC_OVERRIDE_OPTIONS` rather than allowing hidden resource-directory overrides.
+It preserves positional `--` and Clang++ driver selection. Bubblewrap represents
+a signaled tool as shell status `128 + signal`, not raw waitpid signal identity.
+No source/IR rewrite, ASLR change, unlimited address space, sanitizer suppression,
+aggregate-cap increase or success fallback is admitted.
+
+CORE-004E signal failures retain only allowlisted invocation metadata and bounded
+source/compiler/program identities, plus a complete ELF up to 24 MiB or an
+explicit omission. The collector rejects duplicate JSON keys and changed,
+unsafe or mismatched files; complete upload files are published from staging
+outside the upload directory. Discovery includes guarded standalone scopes and
+private-`/tmp` rebuild compiler aliases verified against their project-backed
+mount. Crash payloads share the existing 32 MiB / 128-file upload budget,
+including the index reservation. This is diagnostic evidence, not a reproduction
+or repair claim for the previously observed ThinLTO SIGILL.
+
+Strict vendor-only CUDA/Vulkan LSan findings remain on unchanged driver
+615.78.08; no suppressions are admitted. A passing component soak or SDK-only
+TSan prototype does not close those findings or certify production hardware.
 
 Acceptance evidence names compiler host code, GPU emitters, Seen modules, the
 native runtime, and ledgered ABI shims separately. Each must be compiled and
@@ -534,15 +572,17 @@ slow, and privileged remain independent flags so categories compose without
 stringly typed combinations.
 
 `scripts/discover_seen_tests.py --discover <absolute-repository-root>` is the
-strict host oracle for the shipped canonical `seen test` execution command. It emits canonical JSON to standard output. Validation is
-available with `--validate <manifest>` and never repairs input.
+strict host oracle for the current compiler's canonical `seen test` execution
+command. It emits canonical JSON to standard output. Validation is available
+with `--validate <manifest>` and never repairs input.
 
 ## Canonical test runner
 
-`seen test <project>` consumes that native inventory through the
-`seen-test-run-v1` policy. Selection is deterministic and supports `--filter`,
-the `default` and `ci` profiles, explicit ignored/slow/privileged opt-ins, one
-bounded worker, and a timeout of at most one hour. The runner executes Seen,
+The current unreleased 0.23.0 compiler's canonical `seen test <path>` command
+consumes that native inventory through the `seen-test-run-v1` policy. Published
+0.22.11 has no `test` command. Selection is deterministic and supports a filter,
+the five profiles described above, explicit ignored/slow/privileged opt-ins, one
+bounded worker, and a timeout of at most one hour. Its contract executes Seen,
 shell, and Python test shapes through a narrow process boundary while retaining
 per-test logs below `.seen_cache/test/run/`.
 
@@ -555,7 +595,7 @@ transactionally with repeatable `--report json:<path>` and
 `.seen/` and may not traverse symlinks or parent segments.
 
 The legacy `scripts/run_all_tests.sh` continues to record and validate the same
-discovery inventory while migration to the shipped runner proceeds.
+discovery inventory while migration to the canonical source runner proceeds.
 
 ## Package-owned test migration
 
@@ -567,12 +607,12 @@ unknown or duplicate fields, reordered sources, inconsistent totals, and input
 above the configured limits; native Seen exposes the equivalent typed plan and
 stable `test.001f.*` errors.
 
-`seen test` discovers the external-package fixture alongside compiler and
-standard-library tests, then executes every migrated `.seen` test from its own
-manifest directory. This preserves package dependency resolution and removes
-the former implicit assumption that all tests run from the repository root.
-CPU-only discovery does not locate or link accelerator SDKs. Linux x86-64 is
-the verified execution platform; the package-neutral schema remains portable.
+The package-owned migration contract includes the external-package fixture
+alongside compiler and standard-library tests. Every migrated `.seen` test runs
+from its own manifest directory, preserving package dependency resolution rather
+than assuming the repository root. CPU-only discovery does not locate or link
+accelerator SDKs. Platform execution evidence belongs to the individual
+acceptance harnesses; a portable schema is not a native execution claim.
 
 ## Assertions and snapshots
 

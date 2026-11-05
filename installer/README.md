@@ -1,21 +1,27 @@
 # Seen installer tooling
 
-This directory contains release-packaging scripts and templates for Seen
-0.22.9. It is maintainer tooling, not proof that every package is already
+This directory contains release-packaging scripts and templates for the
+**0.23.0 development target (unreleased)**. The latest published release remains
+**0.22.11**. This is maintainer tooling, not proof that every package is already
 published to a public package-manager repository.
 
 ## Layout
 
 - `scripts/` — Unix and PowerShell binary-release installers
 - `linux/` — DEB, RPM, and AppImage builders
-- `windows/` — MSI/WiX builder and validation scripts
+- `windows/` — NSIS/Inno Setup and MSI/WiX builders and validation scripts
 - `homebrew/` — formula template and generator
 - `scoop/` — manifest template and generator
 - `test/` — installer/package smoke tests
 - `assets/` — icons and release assets
 
-The checked-in Homebrew and Scoop files are templates. Replace placeholder
-checksums with hashes from the exact 0.22.9 release assets before publishing.
+The checked-in Homebrew and Scoop files are templates, not publishable package
+metadata. After building and auditing the exact candidate release assets, the
+release maintainer must regenerate their versions, URLs, and SHA-256 checksums
+from those bytes. Include only platforms whose archives exist; do not publish
+template checksums or substitute hashes from a previous release. The required
+release set and provenance steps are defined in
+[`docs/releasing-three-platforms.md`](../docs/releasing-three-platforms.md).
 
 ## Installed command surface
 
@@ -30,8 +36,11 @@ seen compile src/main.seen my-program
 ./my-program
 ```
 
-Create `Seen.toml` and `src/main.seen` yourself; 0.22.9 does not ship `init`,
-`build`, `test`, `fmt`, or `clean` commands. New manifests begin with:
+Create `Seen.toml` and `src/main.seen` yourself; neither published 0.22.11 nor
+current source supplies `init`, `build`, `fmt`, or `clean`. Published 0.22.11
+also has no `test` command; current unreleased 0.23.0 source provides canonical
+`seen test <project>`. See the [CLI reference](../docs/cli-reference.md) for its
+bounded options and platform contract. New manifests begin with:
 
 ```toml
 manifest-version = 1
@@ -51,18 +60,18 @@ helper; binary releases include that helper.
 
 ## Building package artifacts
 
-Examples for the current release version:
+Examples for the unreleased 0.23.0 development target (not publication evidence):
 
 ```bash
-installer/linux/build-deb.sh 0.22.9 amd64
-installer/linux/build-rpm.sh 0.22.9 x86_64
-installer/linux/build-appimage.sh 0.22.9 x86_64
-installer/homebrew/generate-formula.sh --version 0.22.9
+installer/linux/build-deb.sh 0.23.0 amd64
+installer/linux/build-rpm.sh 0.23.0 x86_64
+installer/linux/build-appimage.sh 0.23.0 x86_64
+installer/homebrew/generate-formula.sh --version 0.23.0
 ```
 
 ```powershell
-installer\windows\build.bat 0.22.9 x64
-installer\scoop\generate-manifest.ps1 -Version 0.22.9
+installer\windows\build.bat 0.23.0 x64
+installer\scoop\generate-manifest.ps1 -Version 0.23.0
 ```
 
 Each builder has its own host-tool prerequisites. Build release artifacts from

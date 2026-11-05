@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PACKAGE_CLIENT="${SEEN_PACKAGE_CLIENT:-$ROOT_DIR/compiler_seen/target/seen-pkg}"
+VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["components"]["package_client"]["version"])' \
+    "$ROOT_DIR/releases/compatibility-manifest.json")
 PACKAGE_ARTIFACT_ROOT="${SEEN_ARTIFACT_ROOT:-$ROOT_DIR/.seen/agent-tools}"
 UNICODE_CHECK_ROOT="$PACKAGE_ARTIFACT_ROOT/tokenizers-unicode-check"
 mkdir -p "$UNICODE_CHECK_ROOT/python-shadow"
@@ -28,13 +30,13 @@ grep -Fq 'generated Unicode tables are stale: expected sha256' \
     exit 1
 }
 [ -x "$PACKAGE_CLIENT" ] || {
-    echo "FAIL: verified v0.15 package client is unavailable at $PACKAGE_CLIENT" >&2
+    echo "FAIL: package client is unavailable at $PACKAGE_CLIENT" >&2
     exit 1
 }
 mkdir -p "$PACKAGE_ARTIFACT_ROOT/tokenizers-package"
 ARCHIVE="$PACKAGE_ARTIFACT_ROOT/tokenizers-package/seen-tokenizers-0.1.0.tar.gz"
 ARCHIVE_LIST="$PACKAGE_ARTIFACT_ROOT/tokenizers-package/contents.txt"
-"$PACKAGE_CLIENT" --expect-version 0.22.9 pack \
+"$PACKAGE_CLIENT" --expect-version "$VERSION" pack \
     "$ROOT_DIR/packages/seen_tokenizers" --output "$ARCHIVE" >/dev/null
 tar -tzf "$ARCHIVE" >"$ARCHIVE_LIST"
 for required in Seen.toml README.md LICENSE src/mod.seen src/unicode_tables.seen \

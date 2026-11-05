@@ -1,6 +1,6 @@
 # Metaprogramming
 
-Seen 0.22.9 provides a focused set of compile-time expressions and generated
+Seen 0.23.0 development provides a focused set of compile-time expressions and generated
 class features. Treat parser acceptance of an annotation as separate from a
 guarantee that every lowering path implements it.
 
@@ -47,7 +47,7 @@ comptime assert(target.pointerSize == 8, "this program needs a 64-bit target")
 
 The current evaluator is deliberately limited. Arbitrary recursive
 `comptime fun` execution, heap-backed array construction, I/O, and general
-runtime calls are not established 0.22.9 features.
+runtime calls are not established compiler features.
 
 ## Derive and reflection
 
@@ -78,16 +78,16 @@ among others:
 - `@compute(workgroup: 64)` for experimental compute-shader extraction
 - `@test` as test metadata
 - `@derive(...)`, `@reflect`, `@repr(C)`, and `@packed` on types
-- `@send`, `@sync`, `@move`, and `@nondeterministic` as type/policy markers
+- `@send`, `@share`, `@move`, and `@nondeterministic` as type/policy markers
 - `@cfg("feature")` for feature-gated functions
 
-Some markers primarily record metadata or enable one narrow codegen path; they
-do not automatically provide a complete runtime framework. For example,
-`@send` and `@sync` do not add missing parallel-loop capture lowering.
+Markers do not bypass ownership or synchronization rules. `@send` and `@share`
+participate in checked transfer/sharing bounds; immutable parallel-loop captures
+use a compiler-generated environment. The former `@sync` marker is rejected.
 
 Feature names can be supplied in `Seen.toml`; the compiler source also accepts
 `--feature=<name>` on compile paths, though this flag is not listed in the
-compact top-level help in 0.22.9.
+compact top-level help.
 
 ## User macros
 

@@ -25,13 +25,17 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="docs/cli-reference.md"><img src="https://img.shields.io/badge/release-0.22.9-2f855a.svg" alt="Seen 0.22.9"></a>
+  <a href="docs/cli-reference.md"><img src="https://img.shields.io/badge/release-0.22.11-2f855a.svg" alt="Seen 0.22.11"></a>
   <a href="docs/targets.md"><img src="https://img.shields.io/badge/backend-LLVM-5f43b2.svg" alt="LLVM backend"></a>
   <a href="docs/bootstrap.md"><img src="https://img.shields.io/badge/compiler-self--hosted-brightgreen.svg" alt="Self-hosted compiler"></a>
   <a href="docs/multilingual.md"><img src="https://img.shields.io/badge/languages-6-orange.svg" alt="6 keyword languages"></a>
 </p>
 
 ---
+
+Current development targets **0.23.0 (unreleased)**. The latest published release
+is **0.22.11**; source-only commands such as canonical `seen test` are not part
+of that release.
 
 ## Multilingual by Design
 
@@ -116,14 +120,15 @@ seen pkg fetch
 seen lsp
 ```
 
-The shipped compiler surface is documented in
-[docs/cli-reference.md](docs/cli-reference.md). Source build and bootstrap notes
-live in [docs/bootstrap.md](docs/bootstrap.md).
+The current source command surface and published-release differences are
+documented in [docs/cli-reference.md](docs/cli-reference.md). Source build and
+bootstrap notes live in [docs/bootstrap.md](docs/bootstrap.md).
 
 ## Packages
 
-Seen 0.22.9 resolves package dependencies declared in `Seen.toml` and records
-the complete verified graph in `Seen.lock` version 2:
+Seen 0.23.0 development retains the package dependency contract published in
+0.22.11: dependencies declared in `Seen.toml` resolve to the complete verified
+graph in `Seen.lock` version 2:
 
 ```toml
 manifest-version = 1
@@ -273,7 +278,7 @@ See [docs/tooling.md](docs/tooling.md) for editor setup and diagnostics.
 ## Benchmark Gates
 
 Seen keeps small, capped performance gates for the compiler, stdlib, runtime,
-release LTO, and packages. Current 0.22.9 baseline coverage includes:
+release LTO, and packages. Current 0.23.0 development coverage includes:
 
 | Suite | Maintained Gate Coverage |
 |-------|--------------------------|

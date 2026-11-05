@@ -12,7 +12,7 @@ fail() {
     exit 1
 }
 
-[ "$BASELINE" = "x86-64" ] || fail "main CI must certify the portable x86-64 baseline"
+[ "$BASELINE" = "x86-64" ] || fail "release CI must certify the portable x86-64 baseline"
 [ -f "$ARCHIVE_TOOL" ] && [ ! -L "$ARCHIVE_TOOL" ] || fail "archive tool is missing or unsafe"
 [ -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all)" ] ||
     fail "release toolchain preparation requires a clean checkout"

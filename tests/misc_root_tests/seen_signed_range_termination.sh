@@ -11,7 +11,7 @@ fi
 bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
 COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
-FIXTURE="$ROOT_DIR/tests/compiler_regressions/signed_range_termination.seen"
+
 WORK_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/signed-range.XXXXXX")"
 
 cleanup() {
@@ -31,18 +31,21 @@ cleanup() {
 trap cleanup EXIT
 run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 
-run_compiler check "$FIXTURE"
-for profile in fast release; do
-    output="$WORK_DIR/signed-range-$profile"
-    ir_dir="$WORK_DIR/ir-$profile"
-    flags=(--no-cache --frozen --target-cpu=x86-64 --jobs 1 --opt-jobs 1
-        --emit-module-ir-dir "$ir_dir")
-    if [ "$profile" = release ]; then
-        flags+=(--release --lto=thin)
-    else
-        flags+=(--fast)
-    fi
-    run_compiler compile "$FIXTURE" "$output" "${flags[@]}"
-    timeout --foreground --kill-after=5s 30s "$output"
+for fixture in signed_range_termination for_continue_control_flow; do
+    source="$ROOT_DIR/tests/compiler_regressions/$fixture.seen"
+    run_compiler check "$source"
+    for profile in fast release; do
+        output="$WORK_DIR/$fixture-$profile"
+        ir_dir="$WORK_DIR/$fixture-ir-$profile"
+        flags=(--no-cache --frozen --target-cpu=x86-64 --jobs 1 --opt-jobs 1
+            --emit-module-ir-dir "$ir_dir")
+        if [ "$profile" = release ]; then
+            flags+=(--release --lto=thin)
+        else
+            flags+=(--fast)
+        fi
+        run_compiler compile "$source" "$output" "${flags[@]}"
+        timeout --foreground --kill-after=5s 30s "$output"
+    done
 done
-echo 'PASS: FEL-3067 signed ranges terminate in fast and ThinLTO release builds'
+echo 'PASS: signed ranges and continued indexed loops terminate in fast and ThinLTO release builds'

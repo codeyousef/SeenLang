@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
-"""Retain bounded diagnostic tails, never compiler IR or native artifacts."""
+"""Retain bounded diagnostic tails and the fixed CORE-004E signal witness."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import stat
+import tempfile
+
+_spec = importlib.util.spec_from_file_location(
+    "core_004e_crash_witness", Path(__file__).with_name("core_004e_crash_witness.py"))
+crash = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(crash)
 
 MAX_FILES = 128
 MAX_FILE_BYTES = 1024 * 1024
 MAX_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_ENTRIES = 16384
+# The index itself consumes one file and a reserved byte budget.
+MAX_INDEX_BYTES = 256 * 1024
 
 GATE_CHILD = re.compile(r"seen_[a-z0-9_]+\Z")
 GATE_FILE = re.compile(
@@ -19,19 +28,7 @@ GATE_METADATA = {"active-child.json", "checks.json", "harness-exit.log",
                  "accelerator-c-evidence.json"}
 
 
-def open_directory(root, path):
-    """Anchor discovery and reads at no-follow directory descriptors."""
-    directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        for part in path.relative_to(root).parts:
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
-            os.close(directory)
-            directory = child
-        return directory
-    except BaseException:
-        os.close(directory)
-        raise
-
+open_directory = crash.open_directory
 
 def entries(root, path):
     directory = open_directory(root, path)
@@ -138,6 +135,137 @@ def read_tail(root, path, maximum):
         os.close(directory)
 
 
+def crash_candidates(root):
+    """Only direct CORE-004E workdirs, or those immediately inside run.*."""
+    base = root / ".seen/agent-tools"
+    found = []
+    examined = 0
+
+    def scan(parent):
+        nonlocal examined
+        try:
+            for entry in entries(root, parent):
+                examined += 1
+                if examined > MAX_ENTRIES:
+                    raise ValueError("crash discovery exceeds its bound")
+                yield parent / entry.name
+        except FileNotFoundError:
+            return
+
+    def fixture(work):
+        for path in scan(work):
+            if path.name in {
+                    f"crash-witness-{mode}-{label}"
+                    for mode in ("fast", "thin-lto") for label in ("short", "long")}:
+                found.append(path / "witness.json")
+                if len(found) > MAX_FILES:
+                    raise ValueError("too many crash witnesses")
+
+    for path in scan(base):
+        if path.name.startswith("core-004e."):
+            fixture(path)
+        elif path.name in {"safe-rebuild", "seen-core-004e",
+                           "stage1-acceptance-quick", "stage1-acceptance-verify"}:
+            for run in scan(path):
+                if run.name.startswith("run."):
+                    for work in scan(run):
+                        if work.name.startswith("core-004e."):
+                            fixture(work)
+    return sorted(found)
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate crash metadata key")
+        result[key] = value
+    return result
+
+
+def publish_complete(destination, name, content):
+    # Scratch lives outside the upload directory: interrupted writes are never
+    # visible under a final artifact name, even when CI uploads after failure.
+    descriptor, temporary = tempfile.mkstemp(prefix=".verification-publish-",
+                                             dir=destination.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(content)
+        os.replace(temporary, destination / name)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+
+def collect_crashes(root, destination, records, budget):
+    total = 0
+    outcomes = []
+    for metadata in crash_candidates(root):
+        outcome = {"source": metadata.relative_to(root).as_posix()}
+        outcomes.append(outcome)
+        if len(records) >= MAX_FILES - 1 or total >= min(budget, crash.MAX_WITNESS_BYTES):
+            outcome["omission"] = "budget"
+            continue
+        state, content = crash.snapshot(root, metadata, crash.MAX_METADATA_BYTES, keep=True)
+        if "omission" in state:
+            outcome["omission"] = state["omission"]
+            continue
+        try:
+            report = json.loads(content, object_pairs_hook=unique_object)
+            has_elf = crash.validate(report, metadata.parent.parent.relative_to(root).as_posix())
+            if metadata.parent.name != f"crash-witness-{report['mode']}-{report['label']}":
+                raise ValueError("witness directory does not match invocation")
+        except (ValueError, UnicodeError, RecursionError, KeyError, TypeError):
+            outcome["omission"] = "invalid-metadata"
+            continue
+
+        def save(path, data, suffix):
+            nonlocal total
+            if (len(records) >= MAX_FILES - 1 or
+                    len(data) > min(budget, crash.MAX_WITNESS_BYTES) - total):
+                return False
+            name = f"crash-{len(records):03d}.{suffix}"
+            try:
+                publish_complete(destination, name, data)
+            except OSError:
+                outcome["omission"] = "publication-failed"
+                return False
+            records.append({"source": path.relative_to(root).as_posix(), "file": name,
+                            "original_bytes": len(data), "retained_bytes": len(data),
+                            "sha256": hashlib.sha256(data).hexdigest(),
+                            "truncated": False, "changed_during_read": False,
+                            "kind": "core-004e-crash-witness"})
+            total += len(data)
+            return True
+
+        if not save(metadata, content, "json"):
+            outcome.setdefault("omission", "budget")
+            continue
+        if not has_elf:
+            outcome["omission"] = report["executable"]["omission"]
+            continue
+        expected = report["executable"]
+        if (len(records) >= MAX_FILES - 1 or
+                expected["bytes"] > min(budget, crash.MAX_WITNESS_BYTES) - total):
+            outcome["omission"] = "budget"
+            continue
+        binary = metadata.parent / "program.elf"
+        elf_state, elf = crash.snapshot(root, binary, crash.MAX_ELF_BYTES, keep=True, elf=True)
+        if "omission" in elf_state:
+            outcome["omission"] = elf_state["omission"]
+        elif elf_state["sha256"] != expected["sha256"] or len(elf) != expected["bytes"]:
+            outcome["omission"] = "identity-mismatch"
+        else:
+            # Recheck the marker after reading the ELF; never claim a group transaction.
+            current, _ = crash.snapshot(root, metadata, crash.MAX_METADATA_BYTES)
+            if current != state:
+                outcome["omission"] = "changed"
+            elif save(binary, elf, "elf"):
+                outcome["retained_elf"] = True
+            else:
+                outcome.setdefault("omission", "budget")
+    return total, outcomes
+
+
 def collect(root):
     root = root.resolve()
     destination = root / "target/seen-build/verification-logs"
@@ -149,12 +277,16 @@ def collect(root):
     paths = candidates(root)
     records = []
     unavailable = []
-    total = 0
+    budget = MAX_TOTAL_BYTES - MAX_INDEX_BYTES
+    if budget < 0 or MAX_FILES < 1:
+        raise ValueError("verification index reservation exceeds budget")
+    total, crash_outcomes = collect_crashes(root, destination, records, budget)
+    crash_files = len(records)
     for path in paths:
-        if len(records) == MAX_FILES or total == MAX_TOTAL_BYTES:
+        if len(records) >= MAX_FILES - 1 or total >= budget:
             break
         try:
-            original, content, snapshot = read_tail(root, path, min(MAX_FILE_BYTES, MAX_TOTAL_BYTES - total))
+            original, content, snapshot = read_tail(root, path, min(MAX_FILE_BYTES, budget - total))
         except FileNotFoundError:
             # Interrupted producers may remove/replace files between discovery
             # and opening. Keep the other diagnostics, without inventing bytes.
@@ -176,11 +308,16 @@ def collect(root):
                 records[-1]["incomplete_json"] = True
         total += len(content)
     manifest = {"schema": "seen-verification-log-tails-v1", "files": records,
-                "omitted_files": len(paths) - len(records), "retained_bytes": total,
+                "omitted_files": len(paths) - (len(records) - crash_files), "retained_bytes": total,
                 "max_files": MAX_FILES, "max_file_bytes": MAX_FILE_BYTES,
                 "max_total_bytes": MAX_TOTAL_BYTES, "unavailable_sources": unavailable,
-                "snapshot_contract": "Independent file tails, not an atomic gate snapshot or a success claim."}
-    (destination / "index.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+                "crash_witnesses": crash_outcomes,
+                "max_index_bytes": MAX_INDEX_BYTES,
+                "snapshot_contract": "Independent observations, not an atomic execution snapshot or a success claim."}
+    index = (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode()
+    if len(index) > MAX_INDEX_BYTES:
+        raise ValueError("verification index exceeds its reserved bound")
+    (destination / "index.json").write_bytes(index)
     return manifest
 
 

@@ -88,8 +88,13 @@ def ci_policy() -> dict:
         artifact_upload(f"seen-bootstrap-candidate-{SOURCE_SHA}",
                         "target/seen-build/bootstrap-candidate.tar.gz", compression=0),
     ] + diagnostics("bootstrap"))
+    acceptance_provision = provision_steps()
+    acceptance_provision[-1]["env"] = {
+        "SEEN_PREPARE_FINITE_TSAN_SDK":
+            "${{ (matrix.group == 'core' || matrix.group == 'gpu-runtime-async') && '1' || '0' }}",
+    }
     acceptance = hosted_job("acceptance (${{ matrix.group }})", 195,
-        provision_steps() + candidate_steps() + [
+        acceptance_provision + candidate_steps() + [
             {"run": f"scripts/run_ci_required.sh --phase acceptance --group {MATRIX_GROUP}"},
             artifact_upload(f"seen-acceptance-receipt-{MATRIX_GROUP}-{SOURCE_SHA}",
                             f"target/seen-build/acceptance-receipts/{MATRIX_GROUP}.json"),
@@ -167,6 +172,16 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
+      - name: Verify version-bound dispatch ref
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          PROBE_ONLY: ${{ inputs.probe_only }}
+        run: |
+          $policyArgs = @("--tag", "v$env:RELEASE_VERSION", "--dispatch-ref", $env:GITHUB_REF)
+          if ($env:PROBE_ONLY -eq "true") { $policyArgs += "--probe-only" }
+          python scripts/check_release_ci_run.py @policyArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify staged Windows compiler on Windows
         if: ${{ !inputs.probe_only }}
         shell: pwsh
@@ -209,7 +224,7 @@ jobs:
           [[ "$RELEASE_VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]
           [[ "$GITHUB_REF_TYPE" == tag ]]
           [[ "$GITHUB_REF_NAME" == "v$RELEASE_VERSION" ]]
-      - name: Verify successful main certification
+      - name: Verify successful authorized-source certification
         run: scripts/verify_release_ci_run.sh
       - name: Set up pinned Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -457,6 +472,13 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
             "spirv-tools",
             "strace",
         ],
+        "finite_tsan_host_tools_when_requested": [
+            "llvm-20-dev (same pinned LLVM package version)",
+            "cmake",
+            "ninja-build",
+            "gnupg",
+            "patch",
+        ],
         "host_tools_provisioning": "ubuntu-packages-pinned-assembler-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
         "job_count": 6,
@@ -477,7 +499,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_cpu_baseline": "x86-64",
         "release_signing": "github-oidc-keyless",
         "release_windows_runner": "windows-2025-native-smoke-required",
-        "release_toolchain_artifact": "exact-main-run",
+        "release_toolchain_artifact": "exact-authorized-source-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
         "timeout_minutes": {"bootstrap": 120, "acceptance": 195, "required": 30},

@@ -12,6 +12,19 @@ Foundations**.
 
 ### Added
 
+- Add explicit finite-address TSan SDK provisioning for core and runtime CI:
+  authenticate pinned LLVM sources, build serially under the existing hard
+  resource limits, require real clean/race/insufficient-limit controls, and bind
+  a separately published manifest digest. Clang consumes sealed runtime bytes
+  in a private read-only namespace rather than trusting a mutable cache path.
+  Keep integrated Seen execution and production certification dependent on the
+  actual required acceptance results.
+- Preserve bounded CORE-004E native-signal witnesses with exact invocation,
+  source/compiler/program identities, and either a complete ELF or an explicit
+  omission. Validate metadata without duplicate-key ambiguity, publish upload
+  files only after complete writes, and recognize guarded standalone and private
+  rebuild paths. This diagnostic retention does not claim a repair of the
+  previously observed ThinLTO SIGILL.
 - Round newly admitted rebuild and CI memory ceilings down to the host kernel's
   page size and clamp allocation budgets to the admitted compiler limit. Keep
   receipt validation strict so page-quantized kernel limits agree with the
@@ -542,6 +555,10 @@ Foundations**.
 
 ### Fixed
 
+- Carry the 0.22.11 indexed-loop `continue` fix into milestone bounds-proof
+  lowering without losing nested loop targets. Keep range, array, and string
+  progress and parameterized cross-zero world-grid coverage in fast and
+  ThinLTO release profiles (FEL-3069, FEL-3070).
 - Bind official Metal tool invocation names separately from pinned resolved
   executables, supporting Xcode's `metallib` to `air-lld` alias while preserving
   `argv[0]` and rejecting alias/target replacement. Require explicit version-2
@@ -750,6 +767,30 @@ Foundations**.
   preserving return values and skipping work after early returns.
 - Retain the active failing fixture log and emitted LLVM in bounded CI
   diagnostics so nested gate failures remain visible.
+
+## [0.22.11] - 2026-11-04
+
+### Fixed
+
+- Make `continue` advance range, array, and string loops before their next
+  condition check instead of repeating the same index indefinitely (FEL-3069).
+  Preserve nested loop targets, `break`, and `while` behavior, including
+  unconditional and nested-conditional `continue`.
+- Retain the signed range-induction fix from 0.22.10: crossing `-1` to `0`
+  must not carry an unsigned no-wrap assumption (FEL-3070). Extend optimized
+  regression coverage to parameterized 13-by-13 cross-zero coordinate ranges,
+  checking both cell coverage and coordinate-dependent results.
+- Put hosted CI's existing LLVM SDK compiler probes and frozen-loader bridge
+  inside a live-derived kernel memory/task scope before compiler execution.
+- Verify packaged CUDA execution and invalid dependency/ABI rejection without
+  coupling acceptance to internal cache filenames or human-readable status text.
+
+## [0.22.10] - 2026-11-03
+
+### Fixed
+
+- Fixed signed ranges with negative literal or constant-folded starts so they
+  terminate at the upper bound instead of continuing past it (FEL-3067).
 
 ## [0.22.9] - 2026-10-10
 

@@ -98,10 +98,10 @@ containment and an unverified environment marker are not supported fallbacks.
 This section defines the required policy; the read-back reported by each run is
 the evidence that the particular checkout and host enforced it.
 
-Source rebuilds of Seen 0.10 also require Go 1.26 or newer to build the
+Current 0.23.0 source rebuilds also require Go 1.26 or newer to build the
 version-matched `seen-pkg` helper. Set `SEEN_GO` when that executable is not the
-default `go` on `PATH`. Binary releases already include the helper beside the
-compiler and do not require Go.
+default `go` on `PATH`. Published binary releases already include the helper
+beside the compiler and do not require Go.
 
 Use the guarded rebuild entry point and spell the tier explicitly:
 
@@ -145,6 +145,12 @@ until finalization has verified **all four** receipts and installed Gate 0 check
 Candidate archives are safely unpacked by `scripts/ci_bootstrap_candidate.py`,
 not blindly extracted. The versioned execution and containment contract is
 `docs/architecture/ci-containment.json`; unsupported hosts fail closed.
+
+The inner gate must successfully run
+`scripts/run_in_hard_memory_scope.sh --verify-only` before required checks
+proceed. Finalization retains the clean-checkout certification, canonical Seen
+test, fuzz smoke and deterministic package checks required by
+`seen-gate0-certification-v1`; staged transport does not waive certification.
 
 All rebuild scratch files default to the Git-ignored
 `.seen/agent-tools/safe-rebuild/` directory in the checkout. Set

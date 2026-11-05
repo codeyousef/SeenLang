@@ -2,6 +2,8 @@
 # Provision the exact Ubuntu-hosted tools required by the contained CI gate.
 
 set -euo pipefail
+ROOT_DIR=$(cd -P -- "${BASH_SOURCE[0]%/*}/.." && pwd -P)
+cd -- "$ROOT_DIR"
 
 fail() {
     echo "ci-host-provision: core.001a.invalid: $*" >&2
@@ -31,11 +33,18 @@ source /etc/os-release
 spirv_package_version=$(python3 -c 'import json; from pathlib import Path; print(json.loads(Path("docs/architecture/spirv-toolchain.json").read_text())["profiles"]["linux-x86_64"]["package_version"])')
 llvm_package_version=$(python3 -c 'import json; from pathlib import Path; print(json.loads(Path("docs/architecture/amdgpu-toolchain.json").read_text())["profiles"]["linux-x86_64"]["package_version"])')
 
+finite_tsan_packages=()
+case "${SEEN_PREPARE_FINITE_TSAN_SDK:-0}" in
+    0) ;;
+    1) finite_tsan_packages=("llvm-20-dev=$llvm_package_version" cmake ninja-build gnupg patch) ;;
+    *) fail "SEEN_PREPARE_FINITE_TSAN_SDK must be 0 or 1" ;;
+esac
 sudo -n apt-get update
 sudo -n apt-get install --yes --no-install-recommends \
     bubblewrap ripgrep strace libvulkan-dev mesa-vulkan-drivers libc6-dev-arm64-cross \
     "llvm-20=$llvm_package_version" "clang-20=$llvm_package_version" "lld-20=$llvm_package_version" \
-    "libllvm20=$llvm_package_version" "libclang-rt-20-dev=$llvm_package_version" "spirv-tools=$spirv_package_version"
+    "libllvm20=$llvm_package_version" "libclang-rt-20-dev=$llvm_package_version" "spirv-tools=$spirv_package_version" \
+    "${finite_tsan_packages[@]}"
 python3 scripts/check_gpu_amdgpu_toolchain.py >/dev/null || fail "pinned LLVM AMDGPU toolchain identity differs"
 [ -x /usr/bin/spirv-val ] || fail "SPIR-V validator was not installed"
 python3 scripts/check_gpu_spirv_toolchain.py >/dev/null || fail "pinned SPIR-V toolchain identity differs"
@@ -73,13 +82,13 @@ printf '%s\n' "$llvm_root" >> "$GITHUB_PATH"
 PATH="$llvm_root:$PATH"
 export PATH
 
-mkdir -p -- .seen/toolchains
-work_root=$(mktemp -d "$PWD/.seen/toolchains/ci-host.XXXXXX") ||
-    fail "could not create runner-local provisioning root"
+mkdir -p -- "$ROOT_DIR/.seen/toolchains"
+work_root=$(mktemp -d "$ROOT_DIR/.seen/toolchains/ci-host.XXXXXX") ||
+    fail "could not create project-local provisioning root"
 cleanup() {
     local status=$?
     case "$work_root" in
-        "$PWD"/.seen/toolchains/ci-host.*)
+        "$ROOT_DIR"/.seen/toolchains/ci-host.*)
             [ -d "$work_root" ] && [ ! -L "$work_root" ] &&
                 rm -rf -- "$work_root"
             ;;
@@ -114,11 +123,11 @@ mapped_identity=$(/usr/bin/bwrap --die-with-parent --bind / / \
 # SDK compilation and the conditional loader-only bridge must not precede
 # aggregate containment. The platform runner freshly admits this 2 GiB ceiling,
 # verifies swap/task controls, and maps all compiler scratch into the project.
-compat_root=$(mktemp -d "$PWD/.seen/toolchains/ci-bootstrap-compat.XXXXXX") ||
+compat_root=$(mktemp -d "$ROOT_DIR/.seen/toolchains/ci-bootstrap-compat.XXXXXX") ||
     fail "could not create bootstrap compatibility root"
 if ! SEEN_MEMORY_GUARD_RSS_KB=2097152 SEEN_MEMORY_GUARD_CGROUP_STOP_KB=2097152 \
     SEEN_MAIN_VMEM_KB=2097152 SEEN_OPT_VMEM_KB=1048576 SEEN_MEMORY_LIMIT_BYTES=2147483648 \
-    bash scripts/verify_ci_native_host_inputs.sh "$compat_root"; then
+    bash "$ROOT_DIR/scripts/verify_ci_native_host_inputs.sh" "$compat_root"; then
     rm -rf -- "$compat_root"
     fail "scoped native host input verification failed"
 fi
@@ -147,6 +156,31 @@ fi
 sudo -n install -m 0755 -- "$validator_root/libSPIRV-Tools-shared.so" \
     /usr/local/lib/libSPIRV-Tools-shared.so
 sudo -n ldconfig
+
+# Only core and gpu-runtime-async opt in; other jobs retain stock resources.
+if [ "${SEEN_PREPARE_FINITE_TSAN_SDK:-0}" = 1 ]; then
+    sdk_output="$work_root/finite-tsan-manifest"
+    bash "$ROOT_DIR/scripts/install_finite_tsan_sdk.sh" --output "$sdk_output" ||
+        fail "authenticated finite TSan SDK provisioning failed"
+    sdk_publication=$(python3 - "$sdk_output" "$ROOT_DIR" <<'PY'
+import json, re, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[2]) / 'scripts'))
+import finite_tsan_sdk as sdk
+record = json.loads(Path(sys.argv[1]).read_text())
+sdk.require(set(record) == {'manifest', 'sha256'} and
+            re.fullmatch('[0-9a-f]{64}', record['sha256']), 'invalid SDK publication')
+manifest = sdk.safe_path(Path(record['manifest']))
+sdk.validate(manifest, source_auth=True, manifest_sha256=record['sha256'])
+print(manifest)
+print(record['sha256'])
+PY
+    ) || fail "finite TSan SDK publication validation failed"
+    sdk_manifest=${sdk_publication%$'\n'*}
+    sdk_manifest_sha=${sdk_publication##*$'\n'}
+    printf 'SEEN_TSAN_SDK_MANIFEST=%s\nSEEN_TSAN_SDK_MANIFEST_SHA256=%s\n' \
+        "$sdk_manifest" "$sdk_manifest_sha" >> "$GITHUB_ENV"
+fi
 
 
 echo "PASS: Ubuntu CI host tools, scoped Bubblewrap namespace, and bootstrap compatibility"

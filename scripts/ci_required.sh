@@ -48,7 +48,6 @@ esac
 # or clean-checkout certification work. CORE-004E execution is deliberately
 # deferred to Stage-1 acceptance, where the verified fresh compiler is explicit.
 bash -n \
-    scripts/compiled_fixture_support.sh \
     scripts/run_ci_acceptance_group.sh \
     scripts/provision_ci_host.sh \
     scripts/verify_ci_native_host_inputs.sh \
@@ -258,6 +257,13 @@ python3 -m py_compile \
     scripts/check_native_boundaries.py \
     scripts/check_native_inventory.py \
     scripts/check_ci_workflows.py \
+    scripts/finite_tsan_sdk.py \
+    scripts/finite_tsan_sdk_source.py \
+    scripts/finite_tsan_sdk_exec.py \
+    scripts/core_004e_crash_witness.py \
+    tests/runner/test_finite_tsan_sdk_unit.py \
+    tests/runner/test_finite_tsan_sdk_exec_unit.py \
+    tests/misc_root_tests/core_004e_crash_witness_contract.py \
     scripts/ci_bootstrap_candidate.py \
     scripts/ci_candidate_io.py \
     tests/runner/test_ci_bootstrap_candidate_unit.py \
@@ -283,6 +289,8 @@ python3 tests/gpu_artifacts/metal_toolchain_lifecycle_contract.py
 python3 -m unittest \
     tests.runner.test_ci_bootstrap_candidate_unit \
     tests.runner.test_memory_budget_unit \
+    tests.runner.test_finite_tsan_sdk_unit \
+    tests.runner.test_finite_tsan_sdk_exec_unit \
     tests.runner.test_release_ci_run_unit \
     tests.runner.test_release_toolchain_artifact_unit \
     tests.runner.test_release_platform_inputs_unit \
@@ -296,6 +304,7 @@ python3 -m py_compile \
     tests/runner/test_release_artifact_manifest_unit.py
 python3 scripts/check_ci_workflows.py >/dev/null
 python3 tests/misc_root_tests/verification_log_retention_contract.py
+python3 tests/misc_root_tests/core_004e_crash_witness_contract.py
 python3 scripts/check_ci_containment.py \
     docs/architecture/ci-containment.json >/dev/null
 python3 scripts/check_compatibility_manifest.py \

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and install the exact portable toolchain certified by main CI."""
+"""Create and install the exact portable toolchain certified by release-source CI."""
 
 from __future__ import annotations
 

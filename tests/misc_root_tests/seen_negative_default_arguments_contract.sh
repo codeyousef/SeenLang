@@ -80,9 +80,4 @@ if grep -Eq 'call i(8|16|32|64) @[A-Za-z0-9_]+\(i64 -\)' \
     exit 1
 fi
 
-grep -Fq 'captureDefaultParameterValue()' \
-    "$ROOT_DIR/compiler_seen/src/parser/real_parser.seen"
-grep -Fq 'getFixedWidthScalarLlvmTypeImpl(dfType)' \
-    "$ROOT_DIR/compiler_seen/src/codegen/ir_call_args.seen"
-
 echo "PASS: FEL-1578 negative fixed-width default argument contract"

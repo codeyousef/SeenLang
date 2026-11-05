@@ -49,7 +49,7 @@ class Retention(unittest.TestCase):
         leaf = self.run / "gpu.fixture"
         leaf.mkdir()
         (leaf / "00-active.log").write_bytes(b"leaf bytes")
-        with patch.object(logs, "MAX_FILE_BYTES", 21), patch.object(logs, "MAX_TOTAL_BYTES", 26):
+        with patch.object(logs, "MAX_FILE_BYTES", 21), patch.object(logs, "MAX_TOTAL_BYTES", logs.MAX_INDEX_BYTES + 26):
             result = logs.collect(self.root)
         self.assertEqual(result["retained_bytes"], 26)
         self.assertEqual(result["files"][0]["original_bytes"], 32)
@@ -70,7 +70,7 @@ class Retention(unittest.TestCase):
     def test_file_limit_is_explicit(self):
         for index in range(3):
             (self.run / f"safe_rebuild_{index}.log").write_text("x")
-        with patch.object(logs, "MAX_FILES", 2):
+        with patch.object(logs, "MAX_FILES", 3):
             result = logs.collect(self.root)
         self.assertEqual(len(result["files"]), 2)
         self.assertEqual(result["omitted_files"], 1)
@@ -114,7 +114,7 @@ class Retention(unittest.TestCase):
         (gate / "checks.json").write_text('[{"name":"seen_gpu_runtime_a","exit_status":0}]')
         (gate / "seen_gpu_runtime_h.before.json").write_text("[]\n")
         (gate / "seen_gpu_runtime_h.observation.status").write_text("incomplete\n")
-        with patch.object(logs, "MAX_FILES", 4):
+        with patch.object(logs, "MAX_FILES", 5):
             result = logs.collect(self.root)
         retained = self.retained(result)
         self.assertEqual(set(retained), {"safe_rebuild_verify.log", "active-child.json",
@@ -130,7 +130,7 @@ class Retention(unittest.TestCase):
         self.gate()
         for index in range(8):
             (self.run / f"safe_rebuild_old_{index}.log").write_text("completed build\n")
-        with patch.object(logs, "MAX_FILES", 3):
+        with patch.object(logs, "MAX_FILES", 4):
             result = logs.collect(self.root)
         retained = self.retained(result)
         self.assertEqual(set(retained), {
@@ -194,7 +194,7 @@ class Retention(unittest.TestCase):
     def test_gate_file_and_total_byte_limits_still_apply(self):
         gate = self.gate()
         (gate / "seen_gpu_runtime_h.log").write_bytes(b"x" * 200 + b"TIMEOUT\n")
-        with patch.object(logs, "MAX_FILE_BYTES", 16), patch.object(logs, "MAX_TOTAL_BYTES", 37):
+        with patch.object(logs, "MAX_FILE_BYTES", 16), patch.object(logs, "MAX_TOTAL_BYTES", logs.MAX_INDEX_BYTES + 37):
             result = logs.collect(self.root)
         retained = self.retained(result)
         self.assertEqual(result["retained_bytes"], 37)
