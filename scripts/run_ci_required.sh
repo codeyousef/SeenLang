@@ -39,13 +39,45 @@ case "$CI_PHASE" in
             core|io-simd|gpu-emitter|gpu-runtime-async) ;;
             *) fail "acceptance requires one complete named group" ;;
         esac
-        export SEEN_TIER_TIMEOUT_SECS="$TIMEOUT_SECS"
         ;;
     finalize) TIMEOUT_SECS=1800 ;;
     *) fail "unknown required CI phase: $CI_PHASE" ;;
 esac
 [ "$CI_PHASE" = acceptance ] || [ -z "$CI_GROUP" ] ||
     fail "--group is only valid for the acceptance phase"
+
+# Hosted phase limits include setup, scope startup/drain, publication and
+# diagnostics, not just the workload. The first workflow step records the
+# monotonic clock before checkout/provisioning. Never restart that budget here.
+# Reserve 600s: 60s scope startup/drain, two success-only steps at 60s + 10s
+# cancellation each, four diagnostic steps at 60s + 10s each, and 120s for
+# runner startup/step transitions. Local full/phase deadlines remain unchanged.
+if [ "${GITHUB_ACTIONS:-false}" = true ]; then
+    [ "$CI_PHASE" != all ] || fail "hosted CI requires a named phase"
+    job_started=${SEEN_CI_JOB_STARTED_UPTIME_SECS:-}
+    case "$job_started" in
+        ''|*[!0-9]*) fail "hosted CI requires its first-step monotonic start time" ;;
+    esac
+    [ "${#job_started}" -le 10 ] ||
+        fail "hosted CI start time exceeds the supported clock range"
+    IFS=' ' read -r job_now _ < /proc/uptime ||
+        fail "could not read the hosted monotonic clock"
+    job_now=${job_now%%.*}
+    job_started=$((10#$job_started))
+    [ "$job_started" -le "$job_now" ] ||
+        fail "hosted CI start time is in the future"
+    setup_elapsed=$((job_now - job_started))
+    # One extra second covers the two integer-truncated uptime observations.
+    TIMEOUT_SECS=$((TIMEOUT_SECS - setup_elapsed - 600 - 1))
+    if [ "$TIMEOUT_SECS" -le 0 ]; then
+        echo "ci-containment: core.001b.timeout: hosted setup exhausted the workload budget; no required work started" >&2
+        exit 124
+    fi
+    echo "ci-containment: hosted phase=$CI_PHASE setup=${setup_elapsed}s workload=${TIMEOUT_SECS}s reserve=600s rounding=1s" >&2
+fi
+if [ "$CI_PHASE" = acceptance ]; then
+    export SEEN_TIER_TIMEOUT_SECS="$TIMEOUT_SECS"
+fi
 
 [ "$(uname -s)" = "Linux" ] ||
     fail "required CI has no supported hard scope on this platform"

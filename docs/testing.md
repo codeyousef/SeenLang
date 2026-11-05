@@ -33,6 +33,18 @@ The configured dependency-path budgets are 120 minutes for bootstrap,
 195 minutes for the acceptance matrix and 30 minutes for finalization:
 345 minutes total, matching the existing 20,700-second hard CI bound.
 
+Hosted budgets include setup and evidence retention, not just compiler execution.
+The first step records Linux monotonic uptime before checkout or provisioning.
+The workload receives the phase budget minus elapsed setup, a fixed 600-second
+startup/drain/publication/diagnostic reserve, and one second for clock rounding.
+Exhausted setup exits 124 before owned work starts; missing, malformed or future
+clocks fail closed. Diagnostic and post-gate publication steps each have a
+one-minute bound, and success artifacts remain success-only. External cancellation
+still cancels evidence collection; upload service or kernel stalls are not
+guaranteed recoverable. Finalization's release-toolchain preparation runs inside
+the same hard scope and workload deadline as certification. Local phase deadlines
+remain unchanged; this reserve does not establish that the acceptance corpus fits.
+
 ## Interrupted runtime Gate C diagnostics
 
 `seen_p0_accel_gate_c.sh` publishes `active-child.json` before snapshot,

@@ -19,6 +19,12 @@ jobs:
       GOTOOLCHAIN: "local"
       SEEN_RELEASE_CPU_BASELINE: "x86-64"
     steps:
+      - name: "Start monotonic hosted job budget"
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+        run: |
+          IFS=" " read -r uptime _ < /proc/uptime
+          printf 'SEEN_CI_JOB_STARTED_UPTIME_SECS=%s\n' "${uptime%%.*}" >> "$GITHUB_ENV"
       - name: "Checkout exact source"
         uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
         with:
@@ -33,8 +39,10 @@ jobs:
       - name: "Build fresh unverified Stage3 candidate"
         run: "scripts/run_ci_required.sh --phase bootstrap"
       - name: "Package candidate without certification"
+        timeout-minutes: 1
         run: "tar -czf target/seen-build/bootstrap-candidate.tar.gz -C target/seen-build/bootstrap-candidate seen seen-pkg candidate.json"
       - name: "Retain unverified candidate"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-bootstrap-candidate-${{ github.sha }}"
@@ -43,9 +51,11 @@ jobs:
           retention-days: 14
           compression-level: 0
       - name: "Collect bounded verification logs"
+        timeout-minutes: 1
         if: "${{ !cancelled() }}"
         run: "python3 scripts/collect_verification_logs.py"
       - name: "Retain bounded verification logs"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-verification-logs-bootstrap-${{ github.sha }}"
@@ -55,6 +65,7 @@ jobs:
           compression-level: 6
         if: "${{ !cancelled() }}"
       - name: "Retain bounded accelerator gate evidence"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-accelerator-evidence-bootstrap-${{ github.sha }}"
@@ -67,6 +78,7 @@ jobs:
           include-hidden-files: true
         if: "${{ !cancelled() }}"
       - name: "Retain I/O overlap resource evidence"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-io-overlap-bootstrap-${{ github.sha }}"
@@ -93,6 +105,12 @@ jobs:
           - "gpu-emitter"
           - "gpu-runtime-async"
     steps:
+      - name: "Start monotonic hosted job budget"
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+        run: |
+          IFS=" " read -r uptime _ < /proc/uptime
+          printf 'SEEN_CI_JOB_STARTED_UPTIME_SECS=%s\n' "${uptime%%.*}" >> "$GITHUB_ENV"
       - name: "Checkout exact source"
         uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
         with:
@@ -116,6 +134,7 @@ jobs:
       - name: "Run canonical contained acceptance group"
         run: "scripts/run_ci_required.sh --phase acceptance --group ${{ matrix.group }}"
       - name: "Retain successful acceptance receipt"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-acceptance-receipt-${{ matrix.group }}-${{ github.sha }}"
@@ -124,9 +143,11 @@ jobs:
           retention-days: 14
           compression-level: 6
       - name: "Collect bounded verification logs"
+        timeout-minutes: 1
         if: "${{ !cancelled() }}"
         run: "python3 scripts/collect_verification_logs.py"
       - name: "Retain bounded verification logs"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-verification-logs-acceptance-${{ matrix.group }}-${{ github.sha }}"
@@ -136,6 +157,7 @@ jobs:
           compression-level: 6
         if: "${{ !cancelled() }}"
       - name: "Retain bounded accelerator gate evidence"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-accelerator-evidence-acceptance-${{ matrix.group }}-${{ github.sha }}"
@@ -148,6 +170,7 @@ jobs:
           include-hidden-files: true
         if: "${{ !cancelled() }}"
       - name: "Retain I/O overlap resource evidence"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-io-overlap-acceptance-${{ matrix.group }}-${{ github.sha }}"
@@ -169,6 +192,12 @@ jobs:
       - "acceptance"
     if: "${{ always() }}"
     steps:
+      - name: "Start monotonic hosted job budget"
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+        run: |
+          IFS=" " read -r uptime _ < /proc/uptime
+          printf 'SEEN_CI_JOB_STARTED_UPTIME_SECS=%s\n' "${uptime%%.*}" >> "$GITHUB_ENV"
       - name: "Checkout exact source"
         if: "${{ !cancelled() }}"
         uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
@@ -201,9 +230,8 @@ jobs:
           merge-multiple: true
       - name: "Finalize all-group certification"
         run: "scripts/run_ci_required.sh --phase finalize"
-      - name: "Prepare verified release toolchain"
-        run: "scripts/prepare_release_toolchain_artifact.sh"
       - name: "Retain exact-commit release toolchain"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-release-toolchain-${{ github.sha }}"
@@ -212,9 +240,11 @@ jobs:
           retention-days: 14
           compression-level: 0
       - name: "Collect bounded verification logs"
+        timeout-minutes: 1
         if: "${{ !cancelled() }}"
         run: "python3 scripts/collect_verification_logs.py"
       - name: "Retain bounded verification logs"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-verification-logs-required-${{ github.sha }}"
@@ -224,6 +254,7 @@ jobs:
           compression-level: 6
         if: "${{ !cancelled() }}"
       - name: "Retain bounded accelerator gate evidence"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-accelerator-evidence-required-${{ github.sha }}"
@@ -236,6 +267,7 @@ jobs:
           include-hidden-files: true
         if: "${{ !cancelled() }}"
       - name: "Retain I/O overlap resource evidence"
+        timeout-minutes: 1
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
         with:
           name: "seen-io-overlap-required-${{ github.sha }}"

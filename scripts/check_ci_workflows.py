@@ -23,10 +23,13 @@ DOWNLOAD_ARTIFACT = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbd
 SOURCE_SHA = "${{ github.sha }}"
 MATRIX_GROUP = "${{ matrix.group }}"
 DIAGNOSTIC_IF = "${{ !cancelled() }}"
+JOB_CLOCK = ('IFS=" " read -r uptime _ < /proc/uptime\n'
+             'printf \'SEEN_CI_JOB_STARTED_UPTIME_SECS=%s\\n\' "${uptime%%.*}" >> "$GITHUB_ENV"\n')
 
 
 def provision_steps() -> list[dict]:
     return [
+        {"if": DIAGNOSTIC_IF, "timeout-minutes": 1, "run": JOB_CLOCK},
         {"uses": CHECKOUT, "with": {"ref": SOURCE_SHA}},
         {"uses": SETUP_GO, "with": {"go-version": "1.26.5", "cache": False}},
         {"run": "scripts/provision_ci_host.sh"},
@@ -42,6 +45,7 @@ def artifact_upload(name: str, path: str, *, days: int = 14, compression: int = 
     }}
     if diagnostic:
         step["if"] = DIAGNOSTIC_IF
+        step["timeout-minutes"] = 1
     if hidden:
         step["with"]["include-hidden-files"] = True
     return step
@@ -49,7 +53,8 @@ def artifact_upload(name: str, path: str, *, days: int = 14, compression: int = 
 
 def diagnostics(phase: str) -> list[dict]:
     return [
-        {"if": DIAGNOSTIC_IF, "run": "python3 scripts/collect_verification_logs.py"},
+        {"if": DIAGNOSTIC_IF, "timeout-minutes": 1,
+         "run": "python3 scripts/collect_verification_logs.py"},
         artifact_upload(f"seen-verification-logs-{phase}-{SOURCE_SHA}",
                         "target/seen-build/verification-logs/", days=7, diagnostic=True),
         artifact_upload(f"seen-accelerator-evidence-{phase}-{SOURCE_SHA}",
@@ -83,10 +88,11 @@ def hosted_job(name: str, minutes: int, steps: list[dict], **fields: object) -> 
 def ci_policy() -> dict:
     bootstrap = hosted_job("bootstrap", 120, provision_steps() + [
         {"run": "scripts/run_ci_required.sh --phase bootstrap"},
-        {"run": "tar -czf target/seen-build/bootstrap-candidate.tar.gz "
+        {"timeout-minutes": 1, "run": "tar -czf target/seen-build/bootstrap-candidate.tar.gz "
                 "-C target/seen-build/bootstrap-candidate seen seen-pkg candidate.json"},
-        artifact_upload(f"seen-bootstrap-candidate-{SOURCE_SHA}",
-                        "target/seen-build/bootstrap-candidate.tar.gz", compression=0),
+        {**artifact_upload(f"seen-bootstrap-candidate-{SOURCE_SHA}",
+                           "target/seen-build/bootstrap-candidate.tar.gz", compression=0),
+         "timeout-minutes": 1},
     ] + diagnostics("bootstrap"))
     acceptance_provision = provision_steps()
     acceptance_provision[-1]["env"] = {
@@ -96,26 +102,27 @@ def ci_policy() -> dict:
     acceptance = hosted_job("acceptance (${{ matrix.group }})", 195,
         acceptance_provision + candidate_steps() + [
             {"run": f"scripts/run_ci_required.sh --phase acceptance --group {MATRIX_GROUP}"},
-            artifact_upload(f"seen-acceptance-receipt-{MATRIX_GROUP}-{SOURCE_SHA}",
-                            f"target/seen-build/acceptance-receipts/{MATRIX_GROUP}.json"),
+            {**artifact_upload(f"seen-acceptance-receipt-{MATRIX_GROUP}-{SOURCE_SHA}",
+                               f"target/seen-build/acceptance-receipts/{MATRIX_GROUP}.json"),
+             "timeout-minutes": 1},
         ] + diagnostics(f"acceptance-{MATRIX_GROUP}"), needs="bootstrap",
         strategy={"fail-fast": False, "matrix": {"group": list(ACCEPTANCE_GROUPS)}})
     required_provision = provision_steps()
     # Diagnostics still need exact source when an upstream dependency fails.
-    required_provision[0]["if"] = DIAGNOSTIC_IF
-    required = hosted_job("required", 30, required_provision[:1] + [
+    required_provision[1]["if"] = DIAGNOSTIC_IF
+    required = hosted_job("required", 30, required_provision[:2] + [
         {"env": {"BOOTSTRAP_RESULT": "${{ needs.bootstrap.result }}",
                  "ACCEPTANCE_RESULT": "${{ needs.acceptance.result }}"},
          "run": '[[ "$BOOTSTRAP_RESULT" == success && "$ACCEPTANCE_RESULT" == success ]]'},
-    ] + required_provision[1:] + candidate_steps() + [
+    ] + required_provision[2:] + candidate_steps() + [
         {"uses": DOWNLOAD_ARTIFACT, "with": {
             "pattern": f"seen-acceptance-receipt-*-{SOURCE_SHA}",
             "path": "target/seen-build/acceptance-receipts/", "merge-multiple": True,
         }},
         {"run": "scripts/run_ci_required.sh --phase finalize"},
-        {"run": "scripts/prepare_release_toolchain_artifact.sh"},
-        artifact_upload(f"seen-release-toolchain-{SOURCE_SHA}",
-                        "target/seen-build/release-toolchain.tar.gz", compression=0),
+        {**artifact_upload(f"seen-release-toolchain-{SOURCE_SHA}",
+                           "target/seen-build/release-toolchain.tar.gz", compression=0),
+         "timeout-minutes": 1},
     ] + diagnostics("required"), needs=["bootstrap", "acceptance"], **{"if": "${{ always() }}"})
     return {
         "name": "CI",
@@ -507,9 +514,11 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "runner": "ubuntu-24.04",
         "timeout_minutes": {"bootstrap": 120, "acceptance": 195, "required": 30},
         "critical_path_seconds": 20700,
+        "hosted_workload_budget": "phase-limit-minus-monotonic-setup-minus-600s-reserve-minus-1s-rounding",
+        "diagnostic_step_timeout_seconds": 60,
         "trigger": "push-main-or-release-0.23.0-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 12,
+        "version": 13,
         "download_artifact": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
     }
 

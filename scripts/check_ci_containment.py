@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 MAX_BYTES_HARD = 1024 * 1024
-EXPECTED = {'version': 2,
+EXPECTED = {'version': 3,
  'entrypoints': {'guard': 'scripts/memory_guard.sh',
                  'inner_gate': 'scripts/ci_required.sh',
                  'outer_gate': 'scripts/run_ci_required.sh',
@@ -35,6 +35,13 @@ EXPECTED = {'version': 2,
                          'acceptance': ['bootstrap'],
                          'required': ['bootstrap', 'acceptance']},
                'job_timeout_seconds': {'bootstrap': 7200, 'acceptance': 11700, 'required': 1800},
+               'hosted_workload_budget': {
+                   'clock': 'first-step-monotonic-uptime',
+                   'subtract_elapsed_setup': True,
+                   'reserve_seconds': 600,
+                   'rounding_seconds': 1,
+                   'diagnostic_step_seconds': 60,
+                   'publication_step_seconds': 60},
                'critical_path_seconds': 20700,
                'local_full_acceptance_seconds': 14400,
                'acceptance_fail_fast': False,

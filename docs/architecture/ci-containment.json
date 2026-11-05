@@ -27,6 +27,14 @@
         "acceptance"
       ]
     },
+    "hosted_workload_budget": {
+      "clock": "first-step-monotonic-uptime",
+      "subtract_elapsed_setup": true,
+      "reserve_seconds": 600,
+      "rounding_seconds": 1,
+      "diagnostic_step_seconds": 60,
+      "publication_step_seconds": 60
+    },
     "job_timeout_seconds": {
       "acceptance": 11700,
       "bootstrap": 7200,
@@ -58,5 +66,5 @@
     "jobs": 1,
     "optimizer_jobs": 1
   },
-  "version": 2
+  "version": 3
 }

@@ -15,7 +15,7 @@
   ],
   "properties": {
     "version": {
-      "const": 2
+      "const": 3
     },
     "entrypoints": {
       "type": "object",
@@ -156,6 +156,14 @@
           "bootstrap": 7200,
           "acceptance": 11700,
           "required": 1800
+        },
+        "hosted_workload_budget": {
+          "clock": "first-step-monotonic-uptime",
+          "subtract_elapsed_setup": true,
+          "reserve_seconds": 600,
+          "rounding_seconds": 1,
+          "diagnostic_step_seconds": 60,
+          "publication_step_seconds": 60
         },
         "critical_path_seconds": 20700,
         "local_full_acceptance_seconds": 14400,

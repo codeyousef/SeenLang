@@ -39,7 +39,10 @@ case "${SEEN_CI_PHASE:-all}" in
             "${SEEN_CI_ACCEPTANCE_GROUP:-}"
         ;;
     finalize)
-        exec "$ROOT_DIR/scripts/certify_gate0_clean_checkout.sh" --finalize-candidate
+        "$ROOT_DIR/scripts/certify_gate0_clean_checkout.sh" --finalize-candidate
+        # Release preparation includes real package/compiler verification.
+        # Keep that owned work inside the same bounded scope as finalization.
+        exec "$ROOT_DIR/scripts/prepare_release_toolchain_artifact.sh"
         ;;
     *) containment_fail "unknown required CI phase" ;;
 esac

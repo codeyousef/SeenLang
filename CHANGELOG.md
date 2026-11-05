@@ -35,6 +35,11 @@ Foundations**.
   files only after complete writes, and recognize guarded standalone and private
   rebuild paths. This diagnostic retention does not claim a repair of the
   previously observed ThinLTO SIGILL.
+- Account for hosted CI setup before starting the bounded workload, reserve
+  time for scope drain and bounded failure diagnostics, and reject invalid job
+  clocks or exhausted budgets before work starts. Keep the existing job and
+  critical-path limits unchanged, retain success-only publication, and run
+  release-toolchain preparation inside finalization's hard scope and deadline.
 - Round newly admitted rebuild and CI memory ceilings down to the host kernel's
   page size and clamp allocation budgets to the admitted compiler limit. Keep
   receipt validation strict so page-quantized kernel limits agree with the
