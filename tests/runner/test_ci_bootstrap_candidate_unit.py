@@ -266,30 +266,57 @@ class Tests(unittest.TestCase):
 
     def test_missing_receipt_blocks_install_and_preserves_old_certification(self):
         self.journal_all()
-        (self.receipts / "core.json").unlink()
-        self.reject_finalize()
+        for group in ("core", "gpu-runtime", "async"):
+            with self.subTest(group=group):
+                path = self.receipts / (group + ".json")
+                original = path.read_bytes()
+                path.unlink()
+                self.reject_finalize()
+                path.write_bytes(original)
 
     def test_extra_receipt_blocks_install(self):
         self.journal_all()
         (self.receipts / "extra.json").write_bytes((self.receipts / "core.json").read_bytes())
         self.reject_finalize()
 
+    def test_obsolete_combined_receipt_cannot_replace_required_completion(self):
+        self.journal_all()
+        obsolete = self.receipts / "gpu-runtime-async.json"
+        for replaced in (("gpu-runtime",), ("async",), ("gpu-runtime", "async"),
+                         candidate.GROUPS):
+            with self.subTest(replaced=replaced):
+                originals = {group: (self.receipts / (group + ".json")).read_bytes()
+                             for group in replaced}
+                receipt = json.loads(originals[replaced[0]])
+                receipt["group"] = "gpu-runtime-async"
+                obsolete.write_bytes(candidate.encode(receipt))
+                for group in replaced:
+                    (self.receipts / (group + ".json")).unlink()
+                self.reject_finalize()
+                obsolete.unlink()
+                for group, raw in originals.items():
+                    (self.receipts / (group + ".json")).write_bytes(raw)
+
     def test_duplicate_group_wrong_source_and_candidate_receipts_block_install(self):
         self.journal_all()
-        path = self.receipts / "core.json"
-        original = json.loads(path.read_bytes())
         files = self.previous_install()
-        for field, replacement in (("group", "io-simd"), ("source_tree", "c" * 40),
-                                   ("candidate_manifest_sha256", "d" * 64),
-                                   ("compiler_sha256", "e" * 64)):
-            with self.subTest(field=field):
-                value = copy.deepcopy(original)
-                value[field] = replacement
-                path.write_bytes(candidate.encode(value))
-                with self.assertRaises(candidate.ArtifactError):
-                    candidate.finalize(self.root, self.output, self.receipts)
-                self.assert_unchanged(files)
-        path.write_bytes(candidate.encode(original))
+        for group in candidate.GROUPS:
+            path = self.receipts / (group + ".json")
+            original = json.loads(path.read_bytes())
+            for field, replacement in (
+                ("group", "io-simd" if group == "core" else "core"),
+                ("source_tree", "c" * 40), ("candidate_manifest_sha256", "d" * 64),
+                ("compiler_sha256", "e" * 64),
+            ):
+                with self.subTest(group=group, field=field):
+                    value = copy.deepcopy(original)
+                    value[field] = replacement
+                    path.write_bytes(candidate.encode(value))
+                    with self.assertRaisesRegex(candidate.ArtifactError, "identity mismatch"):
+                        candidate.finalize(self.root, self.output, self.receipts)
+                    self.assert_unchanged(files)
+            path.write_bytes(candidate.encode(original))
+        path = self.receipts / "core.json"
         path.write_bytes(path.read_bytes().replace(b'"group":"core"', b'"group":"core","group":"core"'))
         with self.assertRaises(candidate.ArtifactError):
             candidate.finalize(self.root, self.output, self.receipts)

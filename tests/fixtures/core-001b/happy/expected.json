@@ -11,20 +11,30 @@
       "core",
       "io-simd",
       "gpu-emitter",
-      "gpu-runtime-async"
+      "gpu-runtime",
+      "async"
     ],
     "candidate": "unverified-same-source-stage3-until-finalization",
     "critical_path_seconds": 20700,
     "default_local": "full",
-    "finalizer": "always-require-all-needs-success-and-four-source-bound-receipts",
+    "finalizer": "always-require-all-needs-success-five-source-bound-receipts-and-native-arm-proof",
     "graph": {
       "acceptance": [
         "bootstrap"
       ],
       "bootstrap": [],
+      "native-arm": [
+        "bootstrap",
+        "native-arm-inputs"
+      ],
+      "native-arm-inputs": [
+        "bootstrap"
+      ],
       "required": [
         "bootstrap",
-        "acceptance"
+        "acceptance",
+        "native-arm-inputs",
+        "native-arm"
       ]
     },
     "hosted_workload_budget": {
@@ -38,19 +48,22 @@
     "job_timeout_seconds": {
       "acceptance": 11700,
       "bootstrap": 7200,
+      "native-arm": 3000,
+      "native-arm-inputs": 8700,
       "required": 1800
     },
     "local_full_acceptance_seconds": 14400,
     "scope": "fresh-memory-derived-aggregate-swap0-pids24-per-job"
   },
   "memory": {
-    "available_divisor": 2,
+    "available_fallback_divisor": 2,
     "memory_high_percent": 99,
     "swap_max_bytes": 0,
-    "total_divisor": 4
+    "system_reserve_percent": 10,
+    "total_percent": 60
   },
   "platforms": {
-    "linux-aarch64": "static-policy",
+    "linux-aarch64": "required",
     "linux-x86_64": "required",
     "macos": "unsupported-fail-closed",
     "windows": "unsupported-fail-closed"
@@ -66,5 +79,5 @@
     "jobs": 1,
     "optimizer_jobs": 1
   },
-  "version": 3
+  "version": 4
 }

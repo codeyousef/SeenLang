@@ -31,7 +31,7 @@ from release_toolchain_artifact import ArtifactError, SHA256, validate_identity
 
 SCHEMA = "seen-bootstrap-candidate-v1"
 RECEIPT_SCHEMA = "seen-acceptance-receipt-v1"
-GROUPS = ("core", "io-simd", "gpu-emitter", "gpu-runtime-async")
+GROUPS = ("core", "io-simd", "gpu-emitter", "gpu-runtime", "async")
 COMPILER_MAX = 32 * 1024 * 1024
 CLIENT_MAX = 16 * 1024 * 1024
 TOTAL_MAX = 64 * 1024 * 1024

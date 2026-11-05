@@ -14,8 +14,9 @@ MAX_RUNS = 20
 SHA = re.compile(r"[0-9a-f]{40}")
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?")
-ACCEPTANCE_GROUPS = ("core", "io-simd", "gpu-emitter", "gpu-runtime-async")
-EXPECTED_JOBS = {"bootstrap", "required", *(f"acceptance ({group})" for group in ACCEPTANCE_GROUPS)}
+ACCEPTANCE_GROUPS = ("core", "io-simd", "gpu-emitter", "gpu-runtime", "async")
+EXPECTED_JOBS = {"bootstrap", "native-arm-inputs", "native-arm", "required",
+                 *(f"acceptance ({group})" for group in ACCEPTANCE_GROUPS)}
 
 
 def load_evidence(raw: bytes) -> object:
@@ -33,7 +34,7 @@ def validate_jobs(raw: bytes, commit: str, run_id: int) -> None:
         fail("CI job evidence is malformed")
     jobs = value["jobs"]
     if value.get("total_count") != len(EXPECTED_JOBS) or len(jobs) != len(EXPECTED_JOBS):
-        fail("CI must contain bootstrap, all four acceptance groups and required")
+        fail("CI must contain bootstrap, all five acceptance groups, both native ARM jobs and required")
     names = []
     for job in jobs:
         if not isinstance(job, dict) or not isinstance(job.get("name"), str):

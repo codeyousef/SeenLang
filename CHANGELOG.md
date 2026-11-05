@@ -12,7 +12,7 @@ Foundations**.
 
 ### Added
 
-- Add explicit finite-address TSan SDK provisioning for core and runtime CI:
+- Add explicit finite-address TSan SDK provisioning for core and async CI:
   authenticate pinned LLVM sources, build serially under the existing hard
   resource limits, require real clean/race/insufficient-limit controls, and bind
   a separately published manifest digest. Clang consumes sealed runtime bytes
@@ -27,6 +27,10 @@ Foundations**.
   reports fail immediately; no retries or sanitizer exclusions are introduced.
   Preserve the explicit SDK manifest/digest across deterministic compiler
   execution so SDK-bound tool wrappers keep enforcing the same selection.
+  Reduce repeated directory normalization and small-file buffer allocations
+  without caching validation or dropping any fresh source, helper, tool,
+  resource or control-proof identity checks. Guard followed-directory identities
+  around hashing and reject file growth beyond its initially observed size.
   Keep integrated Seen execution and production certification dependent on the
   actual required acceptance results.
 - Preserve bounded CORE-004E native-signal witnesses with exact invocation,
@@ -40,6 +44,23 @@ Foundations**.
   clocks or exhausted budgets before work starts. Keep the existing job and
   critical-path limits unchanged, retain success-only publication, and run
   release-toolchain preparation inside finalization's hard scope and deadline.
+- Run the complete fifteen-child runtime gate and complete ten-gate async suite
+  as separate members of the five-group required acceptance matrix. Require all
+  five same-source/candidate receipts and the native ARM qualification bundle
+  before installation and release certification, preserving every existing
+  profile, case and configured deadline.
+- Add non-publishing, same-source Linux ARM64 input transport and required native
+  qualification on an ARM runner. Cross-build the full compiler and matching
+  package client, then run the unchanged SIMD-C profiles, capability fuzz,
+  cross-object checks and paired performance gate. Require fresh pinned native
+  ASan clean/fault/insufficient-address controls with actual shadow/kernel
+  mapping evidence under the existing finite limits. Retain and independently
+  verify native compiler, source, scope, control, log and benchmark identities
+  before finalization. Keep the 145+50-minute native branch within the existing
+  345-minute critical path; cross-built inputs alone are never qualification.
+- Align the v4 containment manifest with the existing 60%-of-total,
+  live-available-minus-10%-reserve memory derivation and its existing fallback.
+  Correct stale declarative metadata without increasing any execution limit.
 - Round newly admitted rebuild and CI memory ceilings down to the host kernel's
   page size and clamp allocation budgets to the admitted compiler limit. Keep
   receipt validation strict so page-quantized kernel limits agree with the

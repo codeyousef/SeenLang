@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Request finite shadow virtual address space for a generated Linux x86-64
-# sanitizer executable. ASan supports this reviewed admission; LLVM 20 TSan
-# requires unlimited RLIMIT_AS and cannot be certified by a finite allowance.
+# Request finite shadow virtual address space for a generated Linux sanitizer
+# executable. Native ARM address/default admission additionally requires fresh
+# pinned LLVM20 controls; architecture or a caller's receipt cannot authorize it.
 # Physical memory, swap, task, worker and timeout containment remain enforced.
 
 set -euo pipefail
@@ -97,8 +97,19 @@ esac
 [ -n "$TARGET_ROOT" ] && [ -n "$COMPILE_LOG" ] && [ "$#" -ge 1 ] ||
     fail "usage: $0 --target-root DIR --compile-log FILE -- /absolute/generated/executable [args...]"
 
-[ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ] ||
-    fail "the finite ASan virtual-address allowance is certified only on Linux x86-64"
+[ "$(uname -s)" = "Linux" ] || fail "finite sanitizer admission requires Linux"
+NATIVE_ARM_ASAN=0
+case "$(uname -m)" in
+    x86_64) ;;
+    aarch64|arm64)
+        [ "$SANITIZER" = address ] && [ "$ADDRESS_LAYOUT" = default ] ||
+            fail "native ARM admits only controlled default AddressSanitizer, not TSan or CUDA"
+        [ -z "$FIXTURE_PRELOAD" ] && [ -z "$FIXTURE_PRELOAD_SHA256" ] ||
+            fail "native ARM sanitizer fixture preloads have no reviewed admission"
+        NATIVE_ARM_ASAN=1
+        ;;
+    *) fail "no finite sanitizer admission exists for this Linux architecture" ;;
+esac
 
 REGRESSION_MODE=""
 if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" = "1" ] &&
@@ -253,6 +264,20 @@ case "$hard_vmem_kb" in
             fail "the hard virtual-memory limit cannot admit the finite $shadow_label allowance"
         ;;
 esac
+if [ "$NATIVE_ARM_ASAN" = 1 ]; then
+    arm_admission="$SCRIPT_DIR/linux_arm64_asan_admission.py"
+    arm_control="$SCRIPT_DIR/linux_arm64_asan_control.c"
+    [ -f "$arm_admission" ] && [ ! -L "$arm_admission" ] &&
+        [ -f "$arm_control" ] && [ ! -L "$arm_control" ] ||
+        fail "native ARM sanitizer admission owner or control source is missing or unsafe"
+    # No recursive runner and no cached authorization: this owner compiles and
+    # executes real controls in this same verified scope, then execs the fixture.
+    # Its work consumes, rather than extends, the caller's existing deadline.
+    exec env -u LD_PRELOAD -u LD_LIBRARY_PATH \
+        -u SEEN_FORK_SERIALIZER_TARGET -u SEEN_FORK_SERIALIZER_ROOT_PID \
+        python3 "$arm_admission" --target-root "$canonical_target_root" \
+        --compile-log "$canonical_compile_log" -- "$canonical_binary" "$@"
+fi
 ulimit -H -v "$SANITIZER_VMEM_LIMIT_KB" 2>/dev/null ||
     fail "the finite $shadow_label hard virtual-memory limit could not be applied"
 active_hard_vmem_kb=$(ulimit -H -v 2>/dev/null || true)
@@ -273,6 +298,7 @@ if [ -n "$FIXTURE_PRELOAD" ]; then
         fail "fixture library changed after admission"
     printf 'sanitizer-fixture-preload sha256=%s path=%s\n' "$FIXTURE_PRELOAD_SHA256" "$FIXTURE_PRELOAD" >&2
 fi
+
 
 exec env \
     -u LD_PRELOAD \

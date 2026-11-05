@@ -14,7 +14,7 @@ WORKFLOW = ".github/workflows/ci.yml"
 RELEASE_WORKFLOW = ".github/workflows/release.yml"
 MAX_FILES_HARD = 256
 MAX_BYTES_HARD = 4 * 1024 * 1024
-ACCEPTANCE_GROUPS = ("core", "io-simd", "gpu-emitter", "gpu-runtime-async")
+ACCEPTANCE_GROUPS = ("core", "io-simd", "gpu-emitter", "gpu-runtime", "async")
 CHECKOUT = "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
 SETUP_GO = "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
 UPLOAD_ARTIFACT = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
@@ -97,7 +97,7 @@ def ci_policy() -> dict:
     acceptance_provision = provision_steps()
     acceptance_provision[-1]["env"] = {
         "SEEN_PREPARE_FINITE_TSAN_SDK":
-            "${{ (matrix.group == 'core' || matrix.group == 'gpu-runtime-async') && '1' || '0' }}",
+            "${{ (matrix.group == 'core' || matrix.group == 'async') && '1' || '0' }}",
     }
     acceptance = hosted_job("acceptance (${{ matrix.group }})", 195,
         acceptance_provision + candidate_steps() + [
@@ -107,23 +107,59 @@ def ci_policy() -> dict:
              "timeout-minutes": 1},
         ] + diagnostics(f"acceptance-{MATRIX_GROUP}"), needs="bootstrap",
         strategy={"fail-fast": False, "matrix": {"group": list(ACCEPTANCE_GROUPS)}})
+    native_inputs = hosted_job("native-arm-inputs", 145, provision_steps() + [
+        {"run": "sudo -n apt-get install --yes --no-install-recommends "
+                "gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"},
+    ] + candidate_steps() + [
+        {"run": "scripts/run_ci_required.sh --phase native-arm-inputs"},
+        {**artifact_upload(f"seen-linux-arm64-inputs-{SOURCE_SHA}",
+                           "target/seen-build/linux-arm64-inputs.tar.gz", compression=0),
+         "timeout-minutes": 1},
+    ] + diagnostics("native-arm-inputs"), needs="bootstrap", env={
+        "GOTOOLCHAIN": "local", "SEEN_RELEASE_CPU_BASELINE": "x86-64",
+        "SEEN_LINUX_ARM64_SYSROOT": "/usr/aarch64-linux-gnu",
+        "SEEN_LINUX_ARM64_GCC_TOOLCHAIN": "/usr",
+    })
+    native_provision = provision_steps()
+    native_provision[-1]["run"] = "scripts/provision_ci_linux_arm64_host.sh"
+    native_archive = {"uses": DOWNLOAD_ARTIFACT, "with": {
+        "name": f"seen-linux-arm64-inputs-{SOURCE_SHA}",
+        "path": "target/seen-build/linux-arm64-transfer/",
+    }}
+    native = hosted_job("native-arm", 50, native_provision + candidate_steps() + [
+        native_archive,
+        {"run": "scripts/run_ci_required.sh --phase native-arm"},
+        {**artifact_upload(f"seen-linux-arm64-qualification-{SOURCE_SHA}",
+                           "target/seen-build/linux-arm64-qualification/"),
+         "timeout-minutes": 1},
+    ] + diagnostics("native-arm"), needs=["bootstrap", "native-arm-inputs"],
+        **{"runs-on": "ubuntu-24.04-arm", "env": {"GOTOOLCHAIN": "local"}})
     required_provision = provision_steps()
     # Diagnostics still need exact source when an upstream dependency fails.
     required_provision[1]["if"] = DIAGNOSTIC_IF
     required = hosted_job("required", 30, required_provision[:2] + [
         {"env": {"BOOTSTRAP_RESULT": "${{ needs.bootstrap.result }}",
-                 "ACCEPTANCE_RESULT": "${{ needs.acceptance.result }}"},
-         "run": '[[ "$BOOTSTRAP_RESULT" == success && "$ACCEPTANCE_RESULT" == success ]]'},
+                 "ACCEPTANCE_RESULT": "${{ needs.acceptance.result }}",
+                 "NATIVE_INPUTS_RESULT": "${{ needs.native-arm-inputs.result }}",
+                 "NATIVE_RESULT": "${{ needs.native-arm.result }}"},
+         "run": '[[ "$BOOTSTRAP_RESULT" == success && "$ACCEPTANCE_RESULT" == success '
+                '&& "$NATIVE_INPUTS_RESULT" == success && "$NATIVE_RESULT" == success ]]'},
     ] + required_provision[2:] + candidate_steps() + [
         {"uses": DOWNLOAD_ARTIFACT, "with": {
             "pattern": f"seen-acceptance-receipt-*-{SOURCE_SHA}",
             "path": "target/seen-build/acceptance-receipts/", "merge-multiple": True,
         }},
+        native_archive,
+        {"uses": DOWNLOAD_ARTIFACT, "with": {
+            "name": f"seen-linux-arm64-qualification-{SOURCE_SHA}",
+            "path": "target/seen-build/linux-arm64-qualification/",
+        }},
         {"run": "scripts/run_ci_required.sh --phase finalize"},
         {**artifact_upload(f"seen-release-toolchain-{SOURCE_SHA}",
                            "target/seen-build/release-toolchain.tar.gz", compression=0),
          "timeout-minutes": 1},
-    ] + diagnostics("required"), needs=["bootstrap", "acceptance"], **{"if": "${{ always() }}"})
+    ] + diagnostics("required"), needs=["bootstrap", "acceptance", "native-arm-inputs", "native-arm"],
+        **{"if": "${{ always() }}"})
     return {
         "name": "CI",
         "on": {"push": {"branches": ["main", "release/0.23.0"]}, "workflow_dispatch": None},
@@ -133,7 +169,8 @@ def ci_policy() -> dict:
             "cancel-in-progress": "${{ github.ref == 'refs/heads/main' || "
                                    "contains(github.event.head_commit.message, '[replace-ci]') }}",
         },
-        "jobs": {"bootstrap": bootstrap, "acceptance": acceptance, "required": required},
+        "jobs": {"bootstrap": bootstrap, "acceptance": acceptance,
+                 "native-arm-inputs": native_inputs, "native-arm": native, "required": required},
     }
 
 
@@ -471,6 +508,8 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "host_tools": [
             "bubblewrap",
             "clang-20",
+            "gcc-aarch64-linux-gnu",
+            "g++-aarch64-linux-gnu",
             "libc6-dev-arm64-cross",
             "libclang-rt-20-dev",
             "libvulkan-dev",
@@ -491,13 +530,16 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         ],
         "host_tools_provisioning": "ubuntu-packages-pinned-assembler-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
-        "job_count": 6,
-        "job_graph": {"bootstrap": [], "acceptance": ["bootstrap"], "required": ["bootstrap", "acceptance"]},
+        "job_count": 4 + len(ACCEPTANCE_GROUPS),
+        "job_graph": {"bootstrap": [], "acceptance": ["bootstrap"],
+                      "native-arm-inputs": ["bootstrap"],
+                      "native-arm": ["bootstrap", "native-arm-inputs"],
+                      "required": ["bootstrap", "acceptance", "native-arm-inputs", "native-arm"]},
         "acceptance_groups": list(ACCEPTANCE_GROUPS),
         "candidate": "same-run-source-bound-unverified-stage3",
-        "release_artifact_producer": "required-only-after-all-four-receipts",
+        "release_artifact_producer": "required-only-after-all-five-receipts-and-native-arm-proof",
         "platforms": {
-            "linux-arm64": "static-policy",
+            "linux-arm64": "required-native-qualification",
             "linux-x86_64": "required",
             "macos-arm64": "release-required-input",
             "windows-x86_64": "release-required-input",
@@ -512,13 +554,15 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_toolchain_artifact": "exact-authorized-source-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
-        "timeout_minutes": {"bootstrap": 120, "acceptance": 195, "required": 30},
+        "native_arm_runner": "ubuntu-24.04-arm",
+        "timeout_minutes": {"bootstrap": 120, "acceptance": 195,
+                            "native-arm-inputs": 145, "native-arm": 50, "required": 30},
         "critical_path_seconds": 20700,
         "hosted_workload_budget": "phase-limit-minus-monotonic-setup-minus-600s-reserve-minus-1s-rounding",
         "diagnostic_step_timeout_seconds": 60,
         "trigger": "push-main-or-release-0.23.0-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 13,
+        "version": 14,
         "download_artifact": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
     }
 

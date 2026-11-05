@@ -26,7 +26,7 @@ source "$ARTIFACT_ROOT_SCRIPT"
 
 usage() {
     cat <<EOF
-Usage: $0 --tier quick|verify --compiler <fresh-compiler> [--group all|core|io-simd|gpu-emitter|gpu-runtime-async]
+Usage: $0 --tier quick|verify --compiler <fresh-compiler> [--group all|core|io-simd|gpu-emitter|gpu-runtime|async]
 
 Runs the selected Stage-1 acceptance surface against exactly the compiler
 path supplied by the caller. All generated files stay below the repository's
@@ -93,7 +93,7 @@ case "$TIER" in
 esac
 
 case "$GROUP" in
-    all|core|io-simd|gpu-emitter|gpu-runtime-async) ;;
+    all|core|io-simd|gpu-emitter|gpu-runtime|async) ;;
     *) echo "ERROR: unknown acceptance group: $GROUP" >&2; exit 2 ;;
 esac
 acceptance_group_enabled() {
@@ -539,7 +539,7 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_ir_only_phase_linux_x86_64.sh"
 fi
-if acceptance_group_enabled gpu-runtime-async; then
+if acceptance_group_enabled gpu-runtime; then
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_c.sh"
 fi
 if acceptance_group_enabled core; then
@@ -587,7 +587,7 @@ COMPILER="$REAL_COMPILER" \
 SEEN_BIN="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh"
 fi
-if acceptance_group_enabled gpu-runtime-async; then
+if acceptance_group_enabled async; then
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_async_structured_contract.sh"
 COMPILER="$REAL_COMPILER" \

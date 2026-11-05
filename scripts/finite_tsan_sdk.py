@@ -58,9 +58,15 @@ def safe_path(path):
     return path
 
 
+def directory_identity(path):
+    status = os.stat(path)
+    return status.st_dev, status.st_ino, status.st_mtime_ns, status.st_ctime_ns
+
+
 def inventory(root, follow_links=False):
     """Complete finite content inventory; published trees contain no symlinks."""
-    root = safe_path(root)
+    root = os.fspath(safe_path(root))
+    prefix = os.path.join(root, '')
     rows = {}
     total = 0
     directory_count = 0
@@ -68,15 +74,29 @@ def inventory(root, follow_links=False):
         directory_count += 1
         require(directory_count <= 30000, 'SDK directory traversal exceeds ceiling')
         for name in directories:
-            require(follow_links or not (Path(directory) / name).is_symlink(),
+            require(follow_links or not os.path.islink(os.path.join(directory, name)),
                     'resource directory is a symlink')
+        hash_directory = directory
+        before = None
+        if follow_links and filenames:
+            before = directory_identity(directory)
+            hash_directory = os.path.realpath(directory, strict=True)
+            require(directory_identity(hash_directory) == before,
+                    'SDK directory changed during inventory')
         for name in filenames:
-            path = Path(directory) / name
-            require(follow_links or not path.is_symlink(), 'resource file is a symlink')
-            row = digest(path.resolve(strict=True) if follow_links else path)
+            path = os.path.join(directory, name)
+            require(follow_links or not os.path.islink(path), 'resource file is a symlink')
+            hash_path = os.path.join(hash_directory, name)
+            if follow_links and os.path.islink(hash_path):
+                hash_path = os.path.realpath(hash_path, strict=True)
+            row = digest(hash_path)
             total += row['bytes']
             require(total <= 1024**3 and len(rows) < 30000, 'SDK tree exceeds bounded inventory')
-            rows[str(path.relative_to(root))] = row
+            rows[path[len(prefix):]] = row
+        if before is not None:
+            require(directory_identity(directory) == before
+                    and directory_identity(hash_directory) == before,
+                    'SDK directory changed during inventory')
     require(bool(rows), 'empty SDK tree')
     return rows
 

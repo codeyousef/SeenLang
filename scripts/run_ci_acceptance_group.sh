@@ -16,7 +16,7 @@ else
     GROUP=$1
 fi
 case "$GROUP" in
-    core|io-simd|gpu-emitter|gpu-runtime-async) ;;
+    core|io-simd|gpu-emitter|gpu-runtime|async) ;;
     *) fail "unknown acceptance group: $GROUP" ;;
 esac
 [ "${SEEN_CI_CONTAINMENT_IN_SCOPE:-0}" = 1 ] ||

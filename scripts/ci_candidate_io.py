@@ -76,7 +76,7 @@ def entries(fd: int, expected: set[str]) -> None:
 
 
 def read_at(fd: int, name: str, maximum: int, executable: bool = False,
-            virtual: bool = False) -> bytes:
+            virtual: bool = False, *, allow_empty: bool = False) -> bytes:
     if not name or name in {".", ".."} or "/" in name:
         fail("invalid file name")
     file_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
@@ -88,7 +88,8 @@ def read_at(fd: int, name: str, maximum: int, executable: bool = False,
         mode = stat.S_IMODE(before.st_mode)
         if mode & 0o7000 or (executable and not mode & 0o111):
             fail(f"unsafe or non-executable mode: {name}")
-        if (not virtual and before.st_size < 1) or before.st_size > maximum:
+        minimum = 0 if allow_empty else 1
+        if (not virtual and before.st_size < minimum) or before.st_size > maximum:
             fail(f"file size is invalid: {name}")
         chunks = bytearray()
         while len(chunks) <= maximum:
@@ -96,7 +97,7 @@ def read_at(fd: int, name: str, maximum: int, executable: bool = False,
             if not chunk:
                 break
             chunks.extend(chunk)
-        if not 1 <= len(chunks) <= maximum:
+        if not minimum <= len(chunks) <= maximum:
             fail(f"file size is invalid: {name}")
         if snapshot(before) != snapshot(os.fstat(file_fd)):
             fail(f"file changed while reading: {name}")
@@ -108,9 +109,9 @@ def read_at(fd: int, name: str, maximum: int, executable: bool = False,
 
 
 def read_file(path: Path, maximum: int, executable: bool = False,
-              virtual: bool = False) -> bytes:
+              virtual: bool = False, *, allow_empty: bool = False) -> bytes:
     with directory(path.parent) as fd:
-        data = read_at(fd, path.name, maximum, executable, virtual)
+        data = read_at(fd, path.name, maximum, executable, virtual, allow_empty=allow_empty)
         unchanged_directory(path.parent, fd)
         return data
 

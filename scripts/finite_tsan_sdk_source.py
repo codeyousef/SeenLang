@@ -39,9 +39,9 @@ def digest(path, maximum=1024**3):
                 f'unsafe or overlarge file: {path}')
         sha = hashlib.sha256()
         consumed = 0
-        while chunk := stream.read(1024**2):
+        while chunk := stream.read(min(1024**2, before.st_size - consumed + 1)):
             consumed += len(chunk)
-            require(consumed <= maximum, f'growing file: {path}')
+            require(consumed <= before.st_size, f'growing file: {path}')
             sha.update(chunk)
         after = os.fstat(stream.fileno())
         require((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)

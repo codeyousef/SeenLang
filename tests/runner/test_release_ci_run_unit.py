@@ -181,14 +181,12 @@ class Tests(unittest.TestCase):
                 self.assertEqual(release_ci.main(), 1)
 
     def jobs(self):
-        return {
-            "total_count": 6,
-            "jobs": [
-                {"name": name, "run_id": 42, "head_sha": COMMIT,
-                 "status": "completed", "conclusion": "success"}
-                for name in sorted(release_ci.EXPECTED_JOBS)
-            ],
-        }
+        jobs = [
+            {"name": name, "run_id": 42, "head_sha": COMMIT,
+             "status": "completed", "conclusion": "success"}
+            for name in sorted(release_ci.EXPECTED_JOBS)
+        ]
+        return {"total_count": len(jobs), "jobs": jobs}
 
     def artifacts(self, branch="main"):
         return {
@@ -200,10 +198,10 @@ class Tests(unittest.TestCase):
             }],
         }
 
-    def test_all_six_same_source_jobs_are_required(self):
+    def test_all_same_source_jobs_are_required(self):
         jobs = self.jobs()
         release_ci.validate_jobs(json.dumps(jobs).encode(), COMMIT, 42)
-        for index in range(6):
+        for index in range(len(jobs["jobs"])):
             for conclusion in ("failure", "skipped", "cancelled", "timed_out", None):
                 invalid = copy.deepcopy(jobs)
                 invalid["jobs"][index]["conclusion"] = conclusion
@@ -221,12 +219,43 @@ class Tests(unittest.TestCase):
             jobs = self.jobs()
             if change == "missing":
                 jobs["jobs"].pop()
-                jobs["total_count"] = 5
+                jobs["total_count"] = len(jobs["jobs"])
             elif change == "duplicate":
                 jobs["jobs"][0] = jobs["jobs"][1]
             else:
-                jobs["total_count"] = 7
+                jobs["total_count"] += 1
             with self.subTest(change=change), self.assertRaises(release_ci.EvidenceError):
+                release_ci.validate_jobs(json.dumps(jobs).encode(), COMMIT, 42)
+
+    def test_each_split_group_must_complete_on_the_same_source_and_run(self):
+        for group in ("gpu-runtime", "async"):
+            for changes in (
+                None, {"run_id": 43}, {"head_sha": "b" * 40},
+            ):
+                jobs = self.jobs()
+                job = next(job for job in jobs["jobs"]
+                           if job["name"] == f"acceptance ({group})")
+                if changes is None:
+                    jobs["jobs"].remove(job)
+                    jobs["total_count"] = len(jobs["jobs"])
+                else:
+                    job.update(changes)
+                with self.subTest(group=group, changes=changes):
+                    with self.assertRaises(release_ci.EvidenceError):
+                        release_ci.validate_jobs(json.dumps(jobs).encode(), COMMIT, 42)
+
+    def test_obsolete_combined_job_cannot_replace_required_acceptance(self):
+        for replaced in (("gpu-runtime",), ("async",), ("gpu-runtime", "async"),
+                         tuple(release_ci.ACCEPTANCE_GROUPS)):
+            jobs = self.jobs()
+            replaced_names = {f"acceptance ({group})" for group in replaced}
+            obsolete = copy.deepcopy(next(job for job in jobs["jobs"]
+                                          if job["name"] in replaced_names))
+            obsolete["name"] = "acceptance (gpu-runtime-async)"
+            jobs["jobs"] = [job for job in jobs["jobs"] if job["name"] not in replaced_names]
+            jobs["jobs"].append(obsolete)
+            jobs["total_count"] = len(jobs["jobs"])
+            with self.subTest(replaced=replaced), self.assertRaises(release_ci.EvidenceError):
                 release_ci.validate_jobs(json.dumps(jobs).encode(), COMMIT, 42)
 
     def test_only_live_same_run_final_artifact_is_eligible(self):

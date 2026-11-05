@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Finite SDK trust-boundary tests; never impersonate a compiler or build an SDK."""
+import hashlib
 import os
 from pathlib import Path
 import sys
@@ -118,6 +119,72 @@ class FileBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unsafe or overlarge'):
             sdk.inventory(tree)
 
+    def test_followed_nested_aliases_preserve_lexical_keys_and_payloads(self):
+        tree = self.root / 'resource'
+        nested = tree / 'nested'
+        nested.mkdir(parents=True)
+        backing = self.root / 'backing' / 'deeper'
+        backing.mkdir(parents=True)
+        direct = b'ordinary nested payload'
+        directory_payload = b'payload reached through directory alias'
+        file_payload = b'independent payload reached through file alias'
+        (nested / 'direct').write_bytes(direct)
+        (backing / 'payload').write_bytes(directory_payload)
+        target = self.root / 'file-target'
+        target.write_bytes(file_payload)
+        (nested / 'directory-alias').symlink_to(backing.parent, target_is_directory=True)
+        (nested / 'file-alias').symlink_to(target)
+        (backing / 'file-alias').symlink_to(target)
+        payloads = {
+            'nested/direct': direct,
+            'nested/file-alias': file_payload,
+            'nested/directory-alias/deeper/payload': directory_payload,
+            'nested/directory-alias/deeper/file-alias': file_payload,
+        }
+        expected = {
+            key: {'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()}
+            for key, payload in payloads.items()
+        }
+        self.assertEqual(sdk.inventory(tree, follow_links=True), expected)
+
+    def test_rejects_resource_directory_symlink_by_default(self):
+        tree = self.root / 'resource'
+        tree.mkdir()
+        backing = self.root / 'backing'
+        backing.mkdir()
+        (backing / 'payload').write_bytes(b'actual bytes')
+        (tree / 'directory-alias').symlink_to(backing, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            sdk.inventory(tree)
+
+    def test_rejects_followed_directory_retargeted_during_digest(self):
+        tree = self.root / 'resource'
+        tree.mkdir()
+        original = self.root / 'original'
+        replacement = self.root / 'replacement'
+        original.mkdir()
+        replacement.mkdir()
+        (original / 'payload').write_bytes(b'original payload')
+        (replacement / 'payload').write_bytes(b'different replacement payload')
+        alias = tree / 'directory-alias'
+        alias.symlink_to(original, target_is_directory=True)
+        real_fstat = os.fstat
+        retargeted = False
+
+        def retarget_after_stat(fd):
+            nonlocal retargeted
+            status = real_fstat(fd)
+            if not retargeted:
+                retargeted = True
+                alias.unlink()
+                alias.symlink_to(replacement, target_is_directory=True)
+            return status
+
+        with mock.patch.object(source.os, 'fstat', side_effect=retarget_after_stat):
+            with self.assertRaises(ValueError):
+                sdk.inventory(tree, follow_links=True)
+        self.assertTrue(retargeted)
+
     def test_detects_same_size_byte_tampering(self):
         tree = self.root / 'resource'
         tree.mkdir()
@@ -133,6 +200,52 @@ class FileBoundaryTests(unittest.TestCase):
             stream.truncate(1025)
         with self.assertRaisesRegex(ValueError, 'unsafe or overlarge'):
             source.digest(file, 1024)
+
+    def test_hashes_stable_files_at_size_boundaries(self):
+        small = b'stable small payload'
+        exact = b'payload exactly at its ceiling'
+        multichunk = bytes(range(256)) * 8193
+        for name, payload, maximum in (
+            ('zero', b'', 0),
+            ('small', small, 1024),
+            ('exact-limit', exact, len(exact)),
+            ('multichunk', multichunk, len(multichunk) + 1024),
+        ):
+            with self.subTest(name=name):
+                file = self.root / name
+                file.write_bytes(payload)
+                expected = {'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()}
+                self.assertEqual(source.digest(file, maximum), expected)
+
+    def test_rejects_file_mutation_after_initial_stat_before_read(self):
+        payload = b'abcdefgh'
+        real_fstat = os.fstat
+        for mutation in ('growth', 'truncation', 'same-size'):
+            with self.subTest(mutation=mutation):
+                file = self.root / mutation
+                file.write_bytes(payload)
+                mutated = False
+
+                def mutate_after_stat(fd):
+                    nonlocal mutated
+                    status = real_fstat(fd)
+                    if not mutated:
+                        mutated = True
+                        if mutation == 'growth':
+                            with file.open('ab') as stream:
+                                stream.write(b'additional bytes')
+                        elif mutation == 'truncation':
+                            with file.open('r+b') as stream:
+                                stream.truncate(3)
+                        else:
+                            file.write_bytes(b'abcdEfgh')
+                            os.utime(file, ns=(status.st_atime_ns, status.st_mtime_ns + 10**9))
+                    return status
+
+                with mock.patch.object(source.os, 'fstat', side_effect=mutate_after_stat):
+                    with self.assertRaises(ValueError):
+                        source.digest(file, maximum=1024)
+                self.assertTrue(mutated)
 
     def test_missing_explicit_selection_does_not_fall_back(self):
         with self.assertRaises(FileNotFoundError):

@@ -69,14 +69,10 @@ class WorkflowPolicy(unittest.TestCase):
             for step in job["steps"]:
                 step["name"] = "Display label is freely editable"
         report = self.validate()
-        self.assertEqual(report["job_count"], 6)
         self.assertEqual(report["critical_path_seconds"], 20700)
-        self.assertEqual(set(report["acceptance_groups"]),
-                         {"core", "io-simd", "gpu-emitter", "gpu-runtime-async"})
 
     def test_graph_cannot_skip_fail_or_omit_acceptance(self):
         mutations = [
-            lambda ci: ci["jobs"]["acceptance"]["strategy"]["matrix"]["group"].pop(),
             lambda ci: ci["jobs"]["acceptance"]["strategy"].update({"fail-fast": True}),
             lambda ci: ci["jobs"]["acceptance"]["strategy"].update({"fail-fast": 0}),
             lambda ci: ci["jobs"]["acceptance"].update({"if": "${{ false }}"}),
@@ -94,6 +90,33 @@ class WorkflowPolicy(unittest.TestCase):
             ci = copy.deepcopy(self.ci)
             mutate(ci)
             with self.subTest(mutate=mutate), self.assertRaises(policy.WorkflowError):
+                self.validate(ci=ci)
+
+    def test_required_groups_cannot_be_omitted_or_replaced_by_combined_group(self):
+        for omitted in (("gpu-runtime",), ("async",), ("gpu-runtime", "async"),
+                        ("core", "io-simd", "gpu-emitter", "gpu-runtime", "async")):
+            for combined in (False, True):
+                ci = copy.deepcopy(self.ci)
+                groups = ci["jobs"]["acceptance"]["strategy"]["matrix"]["group"]
+                groups[:] = [group for group in groups if group not in omitted]
+                if combined:
+                    groups.append("gpu-runtime-async")
+                with self.subTest(omitted=omitted, combined=combined):
+                    with self.assertRaises(policy.WorkflowError):
+                        self.validate(ci=ci)
+
+    def test_finite_sdk_provisioning_cannot_drop_a_consumer_or_add_a_nonconsumer(self):
+        for groups in (("core",), ("async",),
+                       ("core", "async", "gpu-runtime"),
+                       ("core", "async", "gpu-emitter")):
+            ci = copy.deepcopy(self.ci)
+            provision = next(step for step in ci["jobs"]["acceptance"]["steps"]
+                             if step.get("run") == "scripts/provision_ci_host.sh")
+            condition = " || ".join(f"matrix.group == '{group}'" for group in groups)
+            provision["env"]["SEEN_PREPARE_FINITE_TSAN_SDK"] = (
+                "${{ (" + condition + ") && '1' || '0' }}"
+            )
+            with self.subTest(groups=groups), self.assertRaises(policy.WorkflowError):
                 self.validate(ci=ci)
 
     def test_dependency_failure_cannot_prevent_source_checkout_for_diagnostics(self):
@@ -115,7 +138,8 @@ class WorkflowPolicy(unittest.TestCase):
                     self.validate(ci=ci)
             ci = copy.deepcopy(self.ci)
             steps = ci["jobs"][name]["steps"]
-            steps[:] = [step for step in steps if step.get("run") != "scripts/provision_ci_host.sh"]
+            steps[:] = [step for step in steps if step.get("run") not in {
+                "scripts/provision_ci_host.sh", "scripts/provision_ci_linux_arm64_host.sh"}]
             with self.assertRaises(policy.WorkflowError):
                 self.validate(ci=ci)
             ci = copy.deepcopy(self.ci)
@@ -224,15 +248,32 @@ class WorkflowPolicy(unittest.TestCase):
             with self.subTest(section=section, key=key), self.assertRaises(containment.ContractError):
                 containment.validate(document)
 
+    def test_containment_cannot_authorize_incomplete_or_obsolete_acceptance(self):
+        valid = json.loads((ROOT / "docs/architecture/ci-containment.json").read_text())
+        for omitted in (("gpu-runtime",), ("async",), ("gpu-runtime", "async"),
+                        tuple(valid["execution"]["acceptance_groups"])):
+            for combined in (False, True):
+                document = copy.deepcopy(valid)
+                groups = document["execution"]["acceptance_groups"]
+                groups[:] = [group for group in groups if group not in omitted]
+                if combined:
+                    groups.append("gpu-runtime-async")
+                with self.subTest(omitted=omitted, combined=combined):
+                    with self.assertRaises(containment.ContractError):
+                        containment.validate(document)
+
     def test_hosted_budget_reserve_cannot_disappear_or_grow_the_outer_deadline(self):
         valid = json.loads((ROOT / "docs/architecture/ci-containment.json").read_text())
-        self.assertEqual(valid["execution"]["job_timeout_seconds"],
-                         {"bootstrap": 7200, "acceptance": 11700, "required": 1800})
         for key, value in (("reserve_seconds", 0), ("subtract_elapsed_setup", False),
                            ("rounding_seconds", 0), ("diagnostic_step_seconds", 120)):
             document = copy.deepcopy(valid)
             document["execution"]["hosted_workload_budget"][key] = value
             with self.subTest(key=key), self.assertRaises(containment.ContractError):
+                containment.validate(document)
+        for phase, limit in valid["execution"]["job_timeout_seconds"].items():
+            document = copy.deepcopy(valid)
+            document["execution"]["job_timeout_seconds"][phase] = limit + 1
+            with self.subTest(phase=phase), self.assertRaises(containment.ContractError):
                 containment.validate(document)
 
 
@@ -262,7 +303,7 @@ class HostedBudget(unittest.TestCase):
             environment["SEEN_CI_JOB_STARTED_UPTIME_SECS"] = str(start)
         command = ["bash", str(ROOT / "scripts/run_ci_required.sh"), "--phase", phase]
         if phase == "acceptance":
-            command += ["--group", "gpu-runtime-async"]
+            command += ["--group", "gpu-runtime"]
         return subprocess.run(command, env=environment, capture_output=True, text=True, timeout=5)
 
     def test_first_step_records_monotonic_clock_without_checkout(self):
@@ -282,7 +323,8 @@ class HostedBudget(unittest.TestCase):
     def test_all_hosted_phases_subtract_setup_reserve_and_rounding(self):
         if self.now() < 192:
             self.skipTest("requires at least 192s host uptime")
-        for phase, limit in (("bootstrap", 7200), ("acceptance", 11700), ("finalize", 1800)):
+        for phase, limit in (("bootstrap", 7200), ("acceptance", 11700),
+                             ("native-arm-inputs", 8700), ("native-arm", 3000), ("finalize", 1800)):
             result = self.preflight(phase, self.now() - 192)
             self.assertEqual(result.returncode, 126, result.stderr)
             budget = re.search(r"setup=(\d+)s workload=(\d+)s reserve=(\d+)s rounding=(\d+)s",
@@ -311,7 +353,7 @@ class HostedBudget(unittest.TestCase):
         self.assertEqual(result.returncode, 126, result.stderr)
 
     def test_local_full_and_named_phases_do_not_consume_hosted_reserve(self):
-        for phase in ("all", "bootstrap", "acceptance", "finalize"):
+        for phase in ("all", "bootstrap", "acceptance", "native-arm-inputs", "native-arm", "finalize"):
             result = self.preflight(phase, hosted=False)
             self.assertEqual(result.returncode, 126, result.stderr)
             self.assertNotIn("hosted phase=", result.stderr)

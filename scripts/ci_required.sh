@@ -38,7 +38,24 @@ case "${SEEN_CI_PHASE:-all}" in
         exec "$ROOT_DIR/scripts/run_ci_acceptance_group.sh" \
             "${SEEN_CI_ACCEPTANCE_GROUP:-}"
         ;;
+    native-arm-inputs)
+        exec bash "$ROOT_DIR/scripts/build_linux_arm64_verification_inputs.sh" \
+            --candidate "$ROOT_DIR/target/seen-build/bootstrap-candidate" \
+            --output "$ROOT_DIR/target/seen-build/linux-arm64-inputs.tar.gz"
+        ;;
+    native-arm)
+        mkdir -- "$ROOT_DIR/target/seen-build/linux-arm64-qualification"
+        exec bash "$ROOT_DIR/scripts/verify_linux_arm64_milestone.sh" \
+            --candidate "$ROOT_DIR/target/seen-build/bootstrap-candidate" \
+            --archive "$ROOT_DIR/target/seen-build/linux-arm64-transfer/linux-arm64-inputs.tar.gz" \
+            --report "$ROOT_DIR/target/seen-build/linux-arm64-qualification/report.json"
+        ;;
     finalize)
+        python3 "$ROOT_DIR/scripts/linux_arm64_milestone_report.py" verify-report \
+            --root "$ROOT_DIR" \
+            --candidate "$ROOT_DIR/target/seen-build/bootstrap-candidate" \
+            --archive "$ROOT_DIR/target/seen-build/linux-arm64-transfer/linux-arm64-inputs.tar.gz" \
+            --report "$ROOT_DIR/target/seen-build/linux-arm64-qualification/report.json"
         "$ROOT_DIR/scripts/certify_gate0_clean_checkout.sh" --finalize-candidate
         # Release preparation includes real package/compiler verification.
         # Keep that owned work inside the same bounded scope as finalization.
@@ -53,6 +70,10 @@ esac
 bash -n \
     scripts/run_ci_acceptance_group.sh \
     scripts/provision_ci_host.sh \
+    scripts/provision_ci_linux_arm64_host.sh \
+    scripts/ci_linux_namespace_preflight.sh \
+    scripts/build_linux_arm64_verification_inputs.sh \
+    scripts/verify_linux_arm64_milestone.sh \
     scripts/verify_ci_native_host_inputs.sh \
     scripts/memory_budget.sh \
     scripts/seen_stage1_acceptance.sh \
@@ -269,6 +290,12 @@ python3 -m py_compile \
     tests/misc_root_tests/core_004e_crash_witness_contract.py \
     scripts/ci_bootstrap_candidate.py \
     scripts/ci_candidate_io.py \
+    scripts/ci_linux_arm64_inputs.py \
+    scripts/linux_arm64_milestone_report.py \
+    scripts/linux_arm64_asan_admission.py \
+    tests/runner/test_ci_linux_arm64_inputs_unit.py \
+    tests/runner/test_linux_arm64_milestone_unit.py \
+    tests/runner/test_linux_arm64_asan_admission_unit.py \
     tests/runner/test_ci_bootstrap_candidate_unit.py \
     tests/runner/test_memory_budget_unit.py \
     tests/runner/test_ci_workflow_policy_unit.py \
@@ -291,6 +318,10 @@ python3 tests/gpu_artifacts/metal_certification_contract.py
 python3 tests/gpu_artifacts/metal_toolchain_lifecycle_contract.py
 python3 -m unittest \
     tests.runner.test_ci_bootstrap_candidate_unit \
+    tests.runner.test_ci_linux_arm64_inputs_unit \
+    tests.runner.test_linux_arm64_milestone_unit \
+    tests.runner.test_linux_arm64_asan_admission_unit \
+    tests.runner.test_ci_workflow_policy_unit \
     tests.runner.test_memory_budget_unit \
     tests.runner.test_finite_tsan_sdk_unit \
     tests.runner.test_finite_tsan_sdk_exec_unit \

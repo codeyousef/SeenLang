@@ -509,35 +509,54 @@ memory and rejects any byte-level drift before a pull request can merge.
 ## Required CI contract
 
 The authoritative `.github/workflows/ci.yml` preserves the required check
-`CI / required` while separating hosted work into three dependency phases:
+`CI / required` with a source-bound dependency graph:
 
 1. `bootstrap` (120 minutes) provisions the pinned tools and builds a fresh
    Stage2/Stage3 toolchain with actual smoke checks. It uploads an **unverified**
    Stage3 candidate, not an installed or release-eligible compiler.
 2. `acceptance` (195 minutes per job) runs the exact `core`, `io-simd`,
-   `gpu-emitter`, and `gpu-runtime-async` matrix on separate hosted machines,
+   `gpu-emitter`, `gpu-runtime`, and `async` matrix on separate hosted machines,
    with `fail-fast: false`. Every group downloads the same run's source-SHA-bound
    candidate and verifies its commit/tree, portable x86-64 baseline, file sizes,
    and hashes before execution. A group receipt is uploaded only after success.
-3. `required` (30 minutes) always runs and explicitly rejects unsuccessful,
-   skipped, or missing dependencies. It downloads the candidate and all four
-   receipts, verifies their common identity, and only then installs and certifies
-   the compiler, performs the installed Gate 0 checks, writes the full stamp,
+3. `native-arm-inputs` (145 minutes) cross-builds the unchanged full Linux ARM64
+   compiler and matching package client. Its exact three-member archive is
+   cross-built input, not evidence of native execution.
+4. `native-arm` (50 minutes, `ubuntu-24.04-arm`) verifies those inputs and runs
+   the full native SIMD-C suite with real capability observations, four contract
+   profiles, 60-second fuzz, four cross-object targets and thirty paired samples.
+   Native ASan additionally requires fresh pinned-runtime clean/fault/finite-limit
+   controls under the unchanged finite virtual and aggregate kernel limits.
+5. `required` (30 minutes) always runs and explicitly rejects unsuccessful,
+   skipped, or missing dependencies. It downloads the candidate, all five
+   receipts and the ARM input/qualification bundles, verifies their common
+   source identity and retained native evidence, then installs and certifies
+   the compiler, performs installed Gate 0 checks, writes the full stamp,
    and produces `seen-release-toolchain-${sha}`. No other job produces an eligible
    release toolchain artifact.
 
-The longest configured dependency path is 345 minutes (20,700 seconds), not
-an increased gate deadline. Each build-capable job uses Ubuntu 24.04,
-commit-pinned checkout/Go/artifact actions, exact Go 1.26.5, read-only repository
-permissions, the portable CPU baseline, and pinned host provisioning.
+The longest configured dependency path remains 345 minutes (20,700 seconds):
+the 145+50-minute ARM branch does not exceed the 195-minute acceptance branch.
+Build-capable jobs use Ubuntu 24.04, commit-pinned checkout/Go/artifact actions,
+exact Go 1.26.5, read-only repository permissions and architecture-appropriate
+pinned host provisioning. The portable x86-64 baseline remains required for x64
+candidates; ARM qualification uses native ARM instructions and fresh bindings.
 `scripts/run_ci_required.sh --phase bootstrap`, `--phase acceptance --group GROUP`,
-and `--phase finalize` are the hosted entries; the default invocation still runs
-the complete local CI surface, with its 14,400-second full acceptance timeout.
+`--phase native-arm-inputs`, `--phase native-arm` and `--phase finalize` are the
+hosted entries. The default still runs the complete local CI surface with its
+14,400-second full acceptance timeout.
+Hosted workload deadlines subtract elapsed setup, a 600-second bounded
+drain/publication/diagnostic reserve, and one second for clock rounding from
+the unchanged phase limits. Release-toolchain preparation remains inside the
+finalization hard scope and workload deadline.
 
-Each phase independently derives its aggregate memory cap from live memory
-(the smaller of one quarter of total memory and one half of available memory),
-enters a read-back-verified Linux cgroup v2 scope, and applies zero swap, a
-24-task ceiling, and serial compiler/LLVM work with the 2 GiB optimizer limit.
+Each phase independently derives its aggregate memory cap from live memory:
+at most 60% of total, further bounded by available memory minus a 10%-of-total
+reserve, with the existing half-available fallback if that reserve cannot be met.
+Kernel-page rounding and smaller requested caps remain enforced. The v4 manifest
+corrects stale quarter/half metadata without changing those execution limits.
+Each phase enters a read-back-verified Linux cgroup v2 scope with zero swap,
+a 24-task ceiling, serial compiler/LLVM work and the 2 GiB optimizer limit.
 Scope-bound serializer handles are never artifacts and never cross machines.
 Candidates travel as an exact three-member archive; the candidate helper rejects
 unsafe paths, links, duplicates, excess sizes, and malformed identity before
@@ -546,7 +565,7 @@ publishing extracted files. An environment marker alone is never scope evidence.
 Each phase/group retains separately named, bounded failure-log tails and gate
 evidence, never failed bulk compiler IR. Candidate and receipt artifacts use
 source-SHA-bound names and same-run downloads. Release verification additionally
-requires all six actual jobs to have completed successfully and the live
+requires all nine actual jobs to have completed successfully and the live
 same-run exact-source final toolchain artifact; a workflow-level green conclusion
 or candidate upload alone is not certification.
 

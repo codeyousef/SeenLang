@@ -36,10 +36,12 @@ case "$CI_PHASE" in
     acceptance)
         TIMEOUT_SECS=11700
         case "$CI_GROUP" in
-            core|io-simd|gpu-emitter|gpu-runtime-async) ;;
+            core|io-simd|gpu-emitter|gpu-runtime|async) ;;
             *) fail "acceptance requires one complete named group" ;;
         esac
         ;;
+    native-arm-inputs) TIMEOUT_SECS=8700 ;;
+    native-arm) TIMEOUT_SECS=3000 ;;
     finalize) TIMEOUT_SECS=1800 ;;
     *) fail "unknown required CI phase: $CI_PHASE" ;;
 esac
@@ -75,9 +77,11 @@ if [ "${GITHUB_ACTIONS:-false}" = true ]; then
     fi
     echo "ci-containment: hosted phase=$CI_PHASE setup=${setup_elapsed}s workload=${TIMEOUT_SECS}s reserve=600s rounding=1s" >&2
 fi
-if [ "$CI_PHASE" = acceptance ]; then
-    export SEEN_TIER_TIMEOUT_SECS="$TIMEOUT_SECS"
-fi
+case "$CI_PHASE" in
+    acceptance|native-arm-inputs|native-arm)
+        export SEEN_TIER_TIMEOUT_SECS="$TIMEOUT_SECS"
+        ;;
+esac
 
 [ "$(uname -s)" = "Linux" ] ||
     fail "required CI has no supported hard scope on this platform"

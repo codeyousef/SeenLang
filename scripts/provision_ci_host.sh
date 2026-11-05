@@ -99,26 +99,7 @@ cleanup() {
 trap cleanup EXIT
 
 
-profile="$work_root/usr.bin.bwrap"
-printf '%s\n' \
-    'abi <abi/4.0>,' \
-    '' \
-    'include <tunables/global>' \
-    '' \
-    '/usr/bin/bwrap flags=(default_allow) {' \
-    '  userns,' \
-    '}' > "$profile"
-sudo -n /usr/sbin/apparmor_parser --replace "$profile"
-
-probe_root="$work_root/probe"
-mkdir -p -- "$probe_root"
-host_identity=$(stat -c '%d:%i' "$probe_root")
-mapped_identity=$(/usr/bin/bwrap --die-with-parent --bind / / \
-    --dev-bind /dev /dev --proc /proc --ro-bind /sys /sys \
-    --bind "$probe_root" /tmp -- /usr/bin/stat -c '%d:%i' /tmp) ||
-    fail "Bubblewrap namespace probe failed"
-[ "$mapped_identity" = "$host_identity" ] ||
-    fail "Bubblewrap bind mapping failed read-back"
+bash "$ROOT_DIR/scripts/ci_linux_namespace_preflight.sh" "$work_root"
 
 # SDK compilation and the conditional loader-only bridge must not precede
 # aggregate containment. The platform runner freshly admits this 2 GiB ceiling,
@@ -157,7 +138,7 @@ sudo -n install -m 0755 -- "$validator_root/libSPIRV-Tools-shared.so" \
     /usr/local/lib/libSPIRV-Tools-shared.so
 sudo -n ldconfig
 
-# Only core and gpu-runtime-async opt in; other jobs retain stock resources.
+# Only core and async consume TSan; the non-TSan runtime corpus keeps stock resources.
 if [ "${SEEN_PREPARE_FINITE_TSAN_SDK:-0}" = 1 ]; then
     sdk_output="$work_root/finite-tsan-manifest"
     bash "$ROOT_DIR/scripts/install_finite_tsan_sdk.sh" --output "$sdk_output" ||

@@ -15,23 +15,29 @@ acceptance surface. Hosted CI first exports a fresh portable Stage3 candidate
 after both bootstrap stages and hello checks. This candidate is explicitly
 unverified: it does not install a production compiler or create a release stamp.
 
-The canonical acceptance runner supports four complete groups: `core`,
-`io-simd`, `gpu-emitter` and `gpu-runtime-async`. Its default `--group all`
+The canonical acceptance runner supports five complete groups: `core`,
+`io-simd`, `gpu-emitter`, `gpu-runtime` and `async`. Its default `--group all`
 preserves local full/verify behavior. Hosted workers run these groups on separate
 machines with identical candidate bytes, same-commit source, fresh live kernel
 containment, zero swap and serial compiler workers. No profile, native assertion,
 fuzz duration, coverage threshold or benchmark sample contract is removed.
+`gpu-runtime` runs the complete fifteen-child runtime Gate C aggregate.
+`async` runs the complete existing ten-gate async block independently, so that
+tail cannot be starved by runtime work. Neither block is shortened or reordered.
 
 The final required job rejects missing, failed or skipped dependencies and
-validates all four source/candidate-bound completion receipts before installation.
-It then executes the installed compiler's Gate 0 checks and writes the full
-release stamp. Only this job can produce the exact-commit release toolchain.
+validates all five source/candidate-bound completion receipts plus the same-run
+native Linux ARM64 qualification bundle before installation. It then executes
+the installed compiler's Gate 0 checks and writes the full release stamp.
+Only this job can produce the exact-commit release toolchain.
 Candidate transport is bounded and admitted before publication; archive links,
 traversal, duplicate entries and substituted source or binaries fail closed.
 
 The configured dependency-path budgets are 120 minutes for bootstrap,
-195 minutes for the acceptance matrix and 30 minutes for finalization:
-345 minutes total, matching the existing 20,700-second hard CI bound.
+195 minutes for the acceptance matrix and 30 minutes for finalization.
+The parallel native ARM branch has 145 minutes for input cross-building followed
+by 50 minutes for real ARM execution. Both paths remain 345 minutes total,
+matching the existing 20,700-second hard CI bound.
 
 Hosted budgets include setup and evidence retention, not just compiler execution.
 The first step records Linux monotonic uptime before checkout or provisioning.
@@ -44,6 +50,45 @@ still cancels evidence collection; upload service or kernel stalls are not
 guaranteed recoverable. Finalization's release-toolchain preparation runs inside
 the same hard scope and workload deadline as certification. Local phase deadlines
 remain unchanged; this reserve does not establish that the acceptance corpus fits.
+
+## Native Linux ARM64 qualification
+
+`native-arm-inputs` cross-builds the unchanged full compiler and the matching
+package client from the current source and verified x64 bootstrap candidate.
+Its bounded three-member archive is explicitly `cross-built-unverified`;
+neither ARM ELF headers nor successful cross-linking qualify native execution.
+
+`native-arm` runs on `ubuntu-24.04-arm`, verifies the source/candidate/ELF
+transport before execution, and creates fresh local serializer and kernel
+scope bindings. It executes the complete unchanged `seen_inf_simd_c.sh` suite:
+four native contract profiles, the 60-second seed-1101 capability fuzz,
+all four cross-target object checks, and thirty paired performance samples.
+Native backend selection and the existing 1.05 median ceiling remain required.
+NEON/SVE classifications derive from actual OS/CPU capabilities; unsupported
+SVE is recorded separately and cannot substitute for the native backend.
+Fixtures use the compiler's accepted `--target-cpu=native` option.
+
+Every ARM address-sanitized fixture first runs fresh native pinned LLVM20
+clean, deliberate heap-overflow and insufficient-address-space controls in
+the same aggregate scope, private namespace and existing deadline.
+The unchanged finite ASan allowance is 64 TiB; the negative control uses
+128 MiB. Actual runtime shadow boundaries and kernel mappings must agree.
+Failed controls stop execution; no unlimited allowance, ASLR change,
+sanitizer suppression or architecture-only authorization is accepted.
+
+The finalizer verifies the transported ARM compiler/client manifest, source
+identities, full-suite logs, native compiler version, kernel limits/events,
+sanitizer control executable and raw findings, and paired benchmark telemetry.
+The bundle is qualification evidence, not a production ARM release asset or
+GPU/hardware certification. Both native jobs and all five CPU groups must
+complete successfully; emulation, missing evidence and skipped jobs fail closed.
+
+The v4 containment manifest describes the existing live-memory formula:
+at most 60% of total memory, additionally bounded by available memory minus
+a 10%-of-total reserve, with the existing half-available fallback when that
+reserve cannot be met. Admission rounds down to kernel pages and honors
+smaller explicit caps. This corrects stale declarative quarter/half metadata;
+the execution limits, zero swap, 24-task ceiling and 2 GiB LLVM ceiling do not change.
 
 ## Interrupted runtime Gate C diagnostics
 
@@ -483,7 +528,7 @@ through the selected compiler runner, and uses the reviewed generated-executable
 admission path rather than launching its binary directly. Missing scope,
 refused admission and sanitizer startup failure remain failed tests with nonzero
 exit status. Stock LLVM 20's requirement for unlimited `RLIMIT_AS` is not
-admitted by the finite-address policy. Core and gpu-runtime-async CI provisioning
+admitted by the finite-address policy. `core` and `async` provisioning
 now explicitly builds the finite-address SDK from authenticated LLVM 20.1.2
 sources; other jobs retain stock resources. The producer must pass real clean,
 deliberate-race and insufficient-64-TiB controls before publishing its manifest.
@@ -522,6 +567,15 @@ sealed runtime snapshots over the genuine stock resource tree in a private,
 read-only namespace; cache replacement cannot change already sealed bytes.
 Deterministic compiler execution preserves that explicit selection pair through
 its environment allowlist; wrapper-bound identities remain enforced.
+Every Clang execution still freshly verifies all helper, tool, development-header,
+stock-resource, SDK-resource, source and control-proof identities. Validation is
+not cached across invocations. Within a traversal, followed directory targets
+are normalized once and their device/inode/modification/change identities are
+checked around file hashing. Regular-file reads remain bounded and no-follow,
+with pre/post-`fstat` stability checks; reads use the initially observed remaining
+size plus one byte to detect growth without oversized small-file allocations.
+Helper changes invalidate the SDK identity and require fresh authenticated
+publication and real native controls.
 This path rejects pre-terminator response files, explicit compiler configs and
 `CCC_OVERRIDE_OPTIONS` rather than allowing hidden resource-directory overrides.
 It preserves positional `--` and Clang++ driver selection. Bubblewrap represents

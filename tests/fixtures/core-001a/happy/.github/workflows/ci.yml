@@ -103,7 +103,8 @@ jobs:
           - "core"
           - "io-simd"
           - "gpu-emitter"
-          - "gpu-runtime-async"
+          - "gpu-runtime"
+          - "async"
     steps:
       - name: "Start monotonic hosted job budget"
         if: "${{ !cancelled() }}"
@@ -122,7 +123,7 @@ jobs:
           cache: false
       - name: "Provision required isolation and search tools"
         env:
-          SEEN_PREPARE_FINITE_TSAN_SDK: "${{ (matrix.group == 'core' || matrix.group == 'gpu-runtime-async') && '1' || '0' }}"
+          SEEN_PREPARE_FINITE_TSAN_SDK: "${{ (matrix.group == 'core' || matrix.group == 'async') && '1' || '0' }}"
         run: "scripts/provision_ci_host.sh"
       - name: "Download same-run unverified candidate"
         uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
@@ -180,6 +181,154 @@ jobs:
           compression-level: 6
           include-hidden-files: true
         if: "${{ !cancelled() }}"
+  native-arm-inputs:
+    name: "native-arm-inputs"
+    runs-on: "ubuntu-24.04"
+    timeout-minutes: 145
+    env:
+      GOTOOLCHAIN: "local"
+      SEEN_RELEASE_CPU_BASELINE: "x86-64"
+      SEEN_LINUX_ARM64_SYSROOT: "/usr/aarch64-linux-gnu"
+      SEEN_LINUX_ARM64_GCC_TOOLCHAIN: "/usr"
+    needs: "bootstrap"
+    steps:
+      - if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+        run: |
+          IFS=" " read -r uptime _ < /proc/uptime
+          printf 'SEEN_CI_JOB_STARTED_UPTIME_SECS=%s\n' "${uptime%%.*}" >> "$GITHUB_ENV"
+      - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+        with:
+          ref: "${{ github.sha }}"
+      - uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+        with:
+          go-version: "1.26.5"
+          cache: false
+      - run: "scripts/provision_ci_host.sh"
+      - run: "sudo -n apt-get install --yes --no-install-recommends gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
+      - uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+        with:
+          name: "seen-bootstrap-candidate-${{ github.sha }}"
+          path: "target/seen-build/candidate-transfer/"
+      - run: "python3 scripts/ci_bootstrap_candidate.py unpack --root \"$PWD\" --archive \"$PWD/target/seen-build/candidate-transfer/bootstrap-candidate.tar.gz\" --output \"$PWD/target/seen-build/bootstrap-candidate\""
+      - run: "scripts/run_ci_required.sh --phase native-arm-inputs"
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-linux-arm64-inputs-${{ github.sha }}"
+          path: "target/seen-build/linux-arm64-inputs.tar.gz"
+          if-no-files-found: "error"
+          retention-days: 14
+          compression-level: 0
+        timeout-minutes: 1
+      - if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+        run: "python3 scripts/collect_verification_logs.py"
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-verification-logs-native-arm-inputs-${{ github.sha }}"
+          path: "target/seen-build/verification-logs/"
+          if-no-files-found: "error"
+          retention-days: 7
+          compression-level: 6
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-accelerator-evidence-native-arm-inputs-${{ github.sha }}"
+          path: |
+            .seen/accelerator-gate-evidence/*.tar.gz
+            .seen/accelerator-gate-evidence/index.json
+          if-no-files-found: "ignore"
+          retention-days: 14
+          compression-level: 0
+          include-hidden-files: true
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-io-overlap-native-arm-inputs-${{ github.sha }}"
+          path: ".seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json"
+          if-no-files-found: "ignore"
+          retention-days: 14
+          compression-level: 6
+          include-hidden-files: true
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+  native-arm:
+    name: "native-arm"
+    runs-on: "ubuntu-24.04-arm"
+    timeout-minutes: 50
+    env:
+      GOTOOLCHAIN: "local"
+    needs:
+      - "bootstrap"
+      - "native-arm-inputs"
+    steps:
+      - if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+        run: |
+          IFS=" " read -r uptime _ < /proc/uptime
+          printf 'SEEN_CI_JOB_STARTED_UPTIME_SECS=%s\n' "${uptime%%.*}" >> "$GITHUB_ENV"
+      - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+        with:
+          ref: "${{ github.sha }}"
+      - uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+        with:
+          go-version: "1.26.5"
+          cache: false
+      - run: "scripts/provision_ci_linux_arm64_host.sh"
+      - uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+        with:
+          name: "seen-bootstrap-candidate-${{ github.sha }}"
+          path: "target/seen-build/candidate-transfer/"
+      - run: "python3 scripts/ci_bootstrap_candidate.py unpack --root \"$PWD\" --archive \"$PWD/target/seen-build/candidate-transfer/bootstrap-candidate.tar.gz\" --output \"$PWD/target/seen-build/bootstrap-candidate\""
+      - uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+        with:
+          name: "seen-linux-arm64-inputs-${{ github.sha }}"
+          path: "target/seen-build/linux-arm64-transfer/"
+      - run: "scripts/run_ci_required.sh --phase native-arm"
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-linux-arm64-qualification-${{ github.sha }}"
+          path: "target/seen-build/linux-arm64-qualification/"
+          if-no-files-found: "error"
+          retention-days: 14
+          compression-level: 6
+        timeout-minutes: 1
+      - if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+        run: "python3 scripts/collect_verification_logs.py"
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-verification-logs-native-arm-${{ github.sha }}"
+          path: "target/seen-build/verification-logs/"
+          if-no-files-found: "error"
+          retention-days: 7
+          compression-level: 6
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-accelerator-evidence-native-arm-${{ github.sha }}"
+          path: |
+            .seen/accelerator-gate-evidence/*.tar.gz
+            .seen/accelerator-gate-evidence/index.json
+          if-no-files-found: "ignore"
+          retention-days: 14
+          compression-level: 0
+          include-hidden-files: true
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-io-overlap-native-arm-${{ github.sha }}"
+          path: ".seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json"
+          if-no-files-found: "ignore"
+          retention-days: 14
+          compression-level: 6
+          include-hidden-files: true
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
   required:
     name: "required"
     runs-on: "ubuntu-24.04"
@@ -190,6 +339,8 @@ jobs:
     needs:
       - "bootstrap"
       - "acceptance"
+      - "native-arm-inputs"
+      - "native-arm"
     if: "${{ always() }}"
     steps:
       - name: "Start monotonic hosted job budget"
@@ -207,7 +358,9 @@ jobs:
         env:
           BOOTSTRAP_RESULT: "${{ needs.bootstrap.result }}"
           ACCEPTANCE_RESULT: "${{ needs.acceptance.result }}"
-        run: "[[ \"$BOOTSTRAP_RESULT\" == success && \"$ACCEPTANCE_RESULT\" == success ]]"
+          NATIVE_INPUTS_RESULT: "${{ needs.native-arm-inputs.result }}"
+          NATIVE_RESULT: "${{ needs.native-arm.result }}"
+        run: "[[ \"$BOOTSTRAP_RESULT\" == success && \"$ACCEPTANCE_RESULT\" == success && \"$NATIVE_INPUTS_RESULT\" == success && \"$NATIVE_RESULT\" == success ]]"
       - name: "Set up pinned Go"
         uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
         with:
@@ -228,6 +381,14 @@ jobs:
           pattern: "seen-acceptance-receipt-*-${{ github.sha }}"
           path: "target/seen-build/acceptance-receipts/"
           merge-multiple: true
+      - uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+        with:
+          name: "seen-linux-arm64-inputs-${{ github.sha }}"
+          path: "target/seen-build/linux-arm64-transfer/"
+      - uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+        with:
+          name: "seen-linux-arm64-qualification-${{ github.sha }}"
+          path: "target/seen-build/linux-arm64-qualification/"
       - name: "Finalize all-group certification"
         run: "scripts/run_ci_required.sh --phase finalize"
       - name: "Retain exact-commit release toolchain"
