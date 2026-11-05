@@ -103,6 +103,8 @@ jobs:
           go-version: "1.26.5"
           cache: false
       - name: "Provision required isolation and search tools"
+        env:
+          SEEN_PREPARE_FINITE_TSAN_SDK: "${{ (matrix.group == 'core' || matrix.group == 'gpu-runtime-async') && '1' || '0' }}"
         run: "scripts/provision_ci_host.sh"
       - name: "Download same-run unverified candidate"
         uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
@@ -167,15 +169,16 @@ jobs:
       - "acceptance"
     if: "${{ always() }}"
     steps:
+      - name: "Checkout exact source"
+        if: "${{ !cancelled() }}"
+        uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+        with:
+          ref: "${{ github.sha }}"
       - name: "Require every dependency to succeed"
         env:
           BOOTSTRAP_RESULT: "${{ needs.bootstrap.result }}"
           ACCEPTANCE_RESULT: "${{ needs.acceptance.result }}"
         run: "[[ \"$BOOTSTRAP_RESULT\" == success && \"$ACCEPTANCE_RESULT\" == success ]]"
-      - name: "Checkout exact source"
-        uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
-        with:
-          ref: "${{ github.sha }}"
       - name: "Set up pinned Go"
         uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
         with:

@@ -100,11 +100,14 @@ def ci_policy() -> dict:
                             f"target/seen-build/acceptance-receipts/{MATRIX_GROUP}.json"),
         ] + diagnostics(f"acceptance-{MATRIX_GROUP}"), needs="bootstrap",
         strategy={"fail-fast": False, "matrix": {"group": list(ACCEPTANCE_GROUPS)}})
-    required = hosted_job("required", 30, [
+    required_provision = provision_steps()
+    # Diagnostics still need exact source when an upstream dependency fails.
+    required_provision[0]["if"] = DIAGNOSTIC_IF
+    required = hosted_job("required", 30, required_provision[:1] + [
         {"env": {"BOOTSTRAP_RESULT": "${{ needs.bootstrap.result }}",
                  "ACCEPTANCE_RESULT": "${{ needs.acceptance.result }}"},
          "run": '[[ "$BOOTSTRAP_RESULT" == success && "$ACCEPTANCE_RESULT" == success ]]'},
-    ] + provision_steps() + candidate_steps() + [
+    ] + required_provision[1:] + candidate_steps() + [
         {"uses": DOWNLOAD_ARTIFACT, "with": {
             "pattern": f"seen-acceptance-receipt-*-{SOURCE_SHA}",
             "path": "target/seen-build/acceptance-receipts/", "merge-multiple": True,

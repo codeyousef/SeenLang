@@ -125,7 +125,20 @@ def resource_arguments(arguments):
 def namespace_arguments(stock_resource, runtime_fds, command, driver_argv0=None):
     """Build a private root without placing a mount in a host-renamable cache."""
     root = os.stat('/', follow_symlinks=False)
-    sdk.require(root.st_uid == 0 and root.st_mode & 0o022 == 0,
+    protected_owner = root.st_uid == 0
+    if not protected_owner:
+        with open('/proc/self/uid_map', encoding='ascii') as source:
+            mapping = source.read(16385)
+        with open('/proc/sys/kernel/overflowuid', encoding='ascii') as source:
+            overflow = source.read(32)
+        sdk.require(len(mapping) <= 16384 and len(overflow) < 32,
+                    'user namespace ownership metadata exceeds ceiling')
+        mapped = [tuple(map(int, line.split())) for line in mapping.splitlines()]
+        protected_owner = (root.st_uid == int(overflow) and
+                           not any(start <= root.st_uid < start + count
+                                   for start, parent, count in mapped))
+    sdk.require(protected_owner and root.st_mode & 0o022 == 0
+                and not os.access('/', os.W_OK, effective_ids=True),
                 'host root is not protected against untrusted renames')
     sdk.require(set(runtime_fds) == set(sdk.RUNTIMES), 'runtime snapshot set differs')
     arguments = ['--tmpfs', '/']

@@ -555,6 +555,12 @@ Foundations**.
 
 ### Fixed
 
+- Keep the positive hosted-workflow fixture aligned with explicit finite TSan
+  provisioning, and check out exact source before the final job rejects failed
+  dependencies so bounded failure diagnostics remain available.
+- Admit sealed SDK resource selection inside the established rootless artifact
+  namespace by validating unmapped root ownership and actual write protection,
+  rather than requiring host UID zero to remain numerically visible.
 - Carry the 0.22.11 indexed-loop `continue` fix into milestone bounds-proof
   lowering without losing nested loop targets. Keep range, array, and string
   progress and parameterized cross-zero world-grid coverage in fast and

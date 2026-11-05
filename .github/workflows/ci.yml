@@ -169,15 +169,16 @@ jobs:
       - "acceptance"
     if: "${{ always() }}"
     steps:
+      - name: "Checkout exact source"
+        if: "${{ !cancelled() }}"
+        uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+        with:
+          ref: "${{ github.sha }}"
       - name: "Require every dependency to succeed"
         env:
           BOOTSTRAP_RESULT: "${{ needs.bootstrap.result }}"
           ACCEPTANCE_RESULT: "${{ needs.acceptance.result }}"
         run: "[[ \"$BOOTSTRAP_RESULT\" == success && \"$ACCEPTANCE_RESULT\" == success ]]"
-      - name: "Checkout exact source"
-        uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
-        with:
-          ref: "${{ github.sha }}"
       - name: "Set up pinned Go"
         uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
         with:

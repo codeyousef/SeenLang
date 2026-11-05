@@ -322,6 +322,38 @@ print(json.dumps({'values': values, 'stock': (resource / 'stock-link').read_text
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
         self.assertEqual(result.stdout, b'/usr/bin/clang++')
 
+    def test_argument_construction_inside_rootless_private_tmp_namespace(self):
+        probe = '''
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import finite_tsan_sdk_exec as launch
+import finite_tsan_sdk as sdk
+cache, stock = map(Path, sys.argv[2:4])
+expected = json.loads(sys.argv[4])
+fds = {}
+for name in sdk.RUNTIMES:
+    fds[name] = launch.sealed_runtime(cache / 'lib/linux' / name, expected[name])
+    os.set_inheritable(fds[name], True)
+command = [sys.executable, '-c',
+    "from pathlib import Path;import json;"
+    "r=Path('/seen-finite-tsan-sdk/lib/linux');"
+    "print(json.dumps({'runtime':(r/'libclang_rt.tsan-x86_64.a').read_text(),"
+    "'private_tmp':Path('/tmp/private-tmp-marker').read_text()}))"]
+arguments = launch.namespace_arguments(stock, fds, command)
+os.execv(launch.BWRAP, [launch.BWRAP, *arguments])
+'''
+        expected = {name: row(payload.encode()) for name, payload in self.payloads.items()}
+        result = subprocess.run([
+            sdk_exec.BWRAP, '--die-with-parent', '--bind', '/', '/',
+            '--bind', str(self.root), '/tmp', '--', sys.executable, '-c', probe,
+            str(ROOT / 'scripts'), str(self.cache), str(self.stock), json.dumps(expected),
+        ], capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        observed = json.loads(result.stdout)
+        self.assertEqual(observed['runtime'], self.payloads['libclang_rt.tsan-x86_64.a'])
+        self.assertEqual(observed['private_tmp'], self.marker.read_text())
+
 
 if __name__ == '__main__':
     unittest.main()

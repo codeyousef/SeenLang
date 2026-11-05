@@ -50,7 +50,9 @@ class WorkflowPolicy(unittest.TestCase):
         self.release = policy.parse_workflow((ROOT / policy.RELEASE_WORKFLOW).read_bytes())
 
     def validate(self, ci=None, release=None):
-        with tempfile.TemporaryDirectory() as directory:
+        cache = ROOT / ".seen/workflow-policy-unit-tests"
+        cache.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=cache) as directory:
             root = Path(directory)
             workflows = root / ".github/workflows"
             workflows.mkdir(parents=True)
@@ -78,8 +80,11 @@ class WorkflowPolicy(unittest.TestCase):
             lambda ci: ci["jobs"]["acceptance"].update({"continue-on-error": True}),
             lambda ci: ci["jobs"]["required"].update({"needs": "bootstrap"}),
             lambda ci: ci["jobs"]["required"].pop("if"),
-            lambda ci: ci["jobs"]["required"]["steps"].pop(0),
-            lambda ci: ci["jobs"]["required"]["steps"][0].update({"run": "true"}),
+            lambda ci: ci["jobs"]["required"]["steps"].remove(next(
+                step for step in ci["jobs"]["required"]["steps"]
+                if "BOOTSTRAP_RESULT" in step.get("env", {}))),
+            lambda ci: next(step for step in ci["jobs"]["required"]["steps"]
+                            if "BOOTSTRAP_RESULT" in step.get("env", {})).update({"run": "true"}),
             lambda ci: ci["jobs"].update({"unreviewed": copy.deepcopy(ci["jobs"]["bootstrap"])}),
         ]
         for mutate in mutations:
@@ -87,6 +92,15 @@ class WorkflowPolicy(unittest.TestCase):
             mutate(ci)
             with self.subTest(mutate=mutate), self.assertRaises(policy.WorkflowError):
                 self.validate(ci=ci)
+
+    def test_dependency_failure_cannot_prevent_source_checkout_for_diagnostics(self):
+        ci = copy.deepcopy(self.ci)
+        steps = ci["jobs"]["required"]["steps"]
+        gate = next(step for step in steps if "BOOTSTRAP_RESULT" in step.get("env", {}))
+        steps.remove(gate)
+        steps.insert(0, gate)
+        with self.assertRaises(policy.WorkflowError):
+            self.validate(ci=ci)
 
     def test_every_phase_preserves_scopes_toolchain_and_deadlines(self):
         for name in self.ci["jobs"]:
