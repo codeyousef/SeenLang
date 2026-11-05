@@ -477,12 +477,24 @@ sources; other jobs retain stock resources. The producer must pass real clean,
 deliberate-race and insufficient-64-TiB controls before publishing its manifest.
 The prototype and fresh integrated producer passed those controls. The local
 0.23.0 candidate also passed real CLI `ci`/`sanitizer-thread` execution and
-clean/racy native two-worker controls under canonical finite-limit admission.
-These component results do not replace full required-CI or merged-main gates.
-The worker control keeps the counter reads/stores in Seen and uses separate,
-allocation-free C atomic rendezvous phases only for coordination. This prevents
-Result allocation or handle-registry locks from accidentally ordering the
-deliberately conflicting accesses; its native helper is also TSan-instrumented.
+eight mandatory fresh clean/racy native two-worker pairs under canonical
+finite-limit admission. These component results do not replace full required-CI
+or merged-main gates.
+The control keeps every counter read/store in Seen. Its TSan-instrumented C
+helper records distinct native pthread participants and delegates coordination
+to LLVM 20's `__tsan_testonly_barrier_init`/`__tsan_testonly_barrier_wait`.
+Those upstream test barriers introduce no happens-before edge and avoid the
+trace-history churn of instrumented atomic/yield polling. A helping Seen barrier
+is deliberately unsuitable here: it may execute the sibling job on the same
+worker stack before a non-helpable foreign rendezvous.
+Race mode places one Seen store before the second barrier and the other after
+it, without synchronizing their clocks. This prevents simultaneous single-access
+shadow updates from hiding the conflict; allocator and handle-registry activity
+also stays outside the conflicting interval. Each of the eight pairs must pass:
+clean exit, counter2, two distinct native workers, drained resources, then a real
+TSan report containing two distinct thread IDs accessing the printed counter
+address. A missing report fails immediately; samples are not retries, and no
+sanitizer exclusions, annotations, suppressions, or deadline increases apply.
 
 SDK configuration probes and native controls use the identity-bound LLVM 20
 linker with `--threads=1`; serial Ninja builds alone do not constrain linker

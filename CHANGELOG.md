@@ -19,8 +19,12 @@ Foundations**.
   in a private read-only namespace rather than trusting a mutable cache path.
   Pin configure probes and native-control links to a hash-bound, single-worker
   LLVM linker, and stream bounded failure tails before scratch cleanup.
-  Require real Seen worker races with allocation-free coordination so allocator
-  and handle-registry locks cannot conceal the deliberately conflicting stores.
+  Require eight fresh Seen worker clean/race pairs with distinct native-thread
+  evidence and allocation-free coordination. Use LLVM's invisible test barriers
+  and order conflicting Seen stores without a happens-before edge, avoiding
+  nested helping, polling trace churn, simultaneous shadow-update blind spots,
+  and accidental allocator or handle-registry synchronization. Missing race
+  reports fail immediately; no retries or sanitizer exclusions are introduced.
   Preserve the explicit SDK manifest/digest across deterministic compiler
   execution so SDK-bound tool wrappers keep enforcing the same selection.
   Keep integrated Seen execution and production certification dependent on the

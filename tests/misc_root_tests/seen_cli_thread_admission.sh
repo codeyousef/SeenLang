@@ -68,7 +68,7 @@ TOML
 # Coordination is lock-free and never accesses the counter. Keep it sanitized;
 # Result allocation and the normal handle registry may otherwise order stores.
 timeout --foreground --kill-after=5s 60s clang --no-default-config -std=c11 \
-    -O1 -g -fPIC -fsanitize=thread -fno-omit-frame-pointer \
+    -O1 -g -fPIC -pthread -fsanitize=thread -fno-omit-frame-pointer \
     -Wall -Wextra -Werror -c \
     "$ROOT_DIR/tests/compiler_regressions/tsan_seen_workers_control.c" \
     -o "$WORKER_PROJECT/native/control.o" >"$TMP_DIR/control-compile.log" 2>&1
@@ -78,16 +78,21 @@ bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile \
     "$WORKER_PROJECT/main.seen" "$TMP_DIR/seen-workers" \
     --fast --no-cache --jobs 1 --opt-jobs 1 \
     --sanitize thread >"$TMP_DIR/workers-compile.log" 2>&1
-for mode in clean race; do
-    status=0
-    timeout --foreground --kill-after=5s 30s \
-        bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
-        --sanitizer thread --target-root "$TMP_DIR" \
-        --compile-log "$TMP_DIR/workers-compile.log" -- "$TMP_DIR/seen-workers" "$mode" \
-        >"$TMP_DIR/workers-$mode.log" 2>&1 || status=$?
-    printf '%s\n' "$status" >"$TMP_DIR/workers-$mode.status"
-done
-python3 - "$TMP_DIR" <<'PY'
+# Mandatory fresh-process samples, not retries: any failed pair stops the gate.
+SAMPLES=8
+for ((sample=1; sample<=SAMPLES; sample++)); do
+    SAMPLE_DIR="$TMP_DIR/native-$sample"
+    mkdir "$SAMPLE_DIR"
+    for mode in clean race; do
+        status=0
+        timeout --foreground --kill-after=5s 30s \
+            bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
+            --sanitizer thread --target-root "$TMP_DIR" \
+            --compile-log "$TMP_DIR/workers-compile.log" -- "$TMP_DIR/seen-workers" "$mode" \
+            >"$SAMPLE_DIR/workers-$mode.log" 2>&1 || status=$?
+        printf '%s\n' "$status" >"$SAMPLE_DIR/workers-$mode.status"
+    done
+    python3 - "$SAMPLE_DIR" <<'PY'
 import json, re, sys
 from pathlib import Path
 root = Path(sys.argv[1])
@@ -97,20 +102,36 @@ clean_status = int((root / 'workers-clean.status').read_text())
 race_status = int((root / 'workers-race.status').read_text())
 assert clean_status == 0, (clean_status, clean)
 assert 'WARNING: ThreadSanitizer' not in clean, clean
-for field, expected in [('WORKERS', 2), ('COUNTER', 2), ('DRAINED', 1)]:
+for field, expected in [('WORKERS', 2), ('DISTINCT_NATIVE_WORKERS', 2), ('COUNTER', 2), ('DRAINED', 1)]:
     assert re.search(rf'^TSAN_SEEN_{field}={expected}$', clean, re.M), clean
 assert race_status not in (0, 124, 137), (race_status, race)
 assert 'WARNING: ThreadSanitizer: data race' in race, race
 address = re.search(r'^TSAN_SEEN_COUNTER_ADDRESS=([0-9]+)$', race, re.M)
 assert address, race
 counter = int(address[1])
-accesses = re.findall(r'\b(?:Read|Write|Previous read|Previous write) of size 8 at (0x[0-9a-fA-F]+)', race)
-assert sum(int(value, 16) == counter for value in accesses) >= 2, race
+accesses = re.findall(r'\b(?:Read|Write|Previous read|Previous write) of size 8 at (0x[0-9a-fA-F]+) by thread (T[0-9]+)', race)
+counter_threads = {thread for value, thread in accesses if int(value, 16) == counter}
+assert len(counter_threads) >= 2, race
 (root / 'native-workers.json').write_text(json.dumps({
     'schema': 'seen-tsan-native-workers-v1', 'clean_exit': clean_status,
     'race_exit': race_status, 'counter_address': address[1],
     'clean_workers': 2, 'clean_counter': 2, 'native_resources_drained': True,
+    'distinct_native_workers': 2, 'race_threads': sorted(counter_threads),
     'seen_counter_race_detected': True,
+}, indent=2) + '\n')
+PY
+done
+python3 - "$TMP_DIR" "$SAMPLES" <<'PY'
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+samples = []
+for number in range(1, int(sys.argv[2]) + 1):
+    value = json.loads((root / f'native-{number}/native-workers.json').read_text())
+    del value['schema']
+    samples.append({'sample': number, **value})
+(root / 'native-workers.json').write_text(json.dumps({
+    'schema': 'seen-tsan-native-workers-v2', 'samples': samples,
 }, indent=2) + '\n')
 PY
 printf 'PASS: admitted CLI profiles and real Seen two-worker clean/race controls\n'
