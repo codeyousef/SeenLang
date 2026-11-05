@@ -49,6 +49,10 @@ Foundations**.
   five same-source/candidate receipts and the native ARM qualification bundle
   before installation and release certification, preserving every existing
   profile, case and configured deadline.
+  Keep the full foundation/emitter aggregates in the emitter group and run
+  frontend/reflection, input-ownership, rejection and fixture-harness checks
+  before the full runtime aggregate in the runtime group. Balance the existing
+  jobs without dropping coverage or changing default full-run order or limits.
 - Add non-publishing, same-source Linux ARM64 input transport and required native
   qualification on an ARM runner. Cross-build the full compiler and matching
   package client, then run the unchanged SIMD-C profiles, capability fuzz,
@@ -58,6 +62,9 @@ Foundations**.
   verify native compiler, source, scope, control, log and benchmark identities
   before finalization. Keep the 145+50-minute native branch within the existing
   345-minute critical path; cross-built inputs alone are never qualification.
+  Read the input transport version from the actual workspace `[project]` table,
+  reject missing or malformed project versions, and cover root-level version
+  ambiguity rather than validating only a synthetic manifest shape.
 - Align the v4 containment manifest with the existing 60%-of-total,
   live-available-minus-10%-reserve memory derivation and its existing fallback.
   Correct stale declarative metadata without increasing any execution limit.

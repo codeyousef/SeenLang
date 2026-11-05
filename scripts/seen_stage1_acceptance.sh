@@ -526,6 +526,8 @@ if acceptance_group_enabled gpu-emitter; then
 python3 "$REPO_ROOT/tests/gpu_artifacts/toolchain_memory_contract.py"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_a.sh"
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_b.sh"
+fi
+if acceptance_group_enabled gpu-runtime; then
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_gpu_ir_d.sh"
 COMPILER="$REAL_COMPILER" \
@@ -538,8 +540,6 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_compiled_fixture_metadata_linux_x86_64.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_ir_only_phase_linux_x86_64.sh"
-fi
-if acceptance_group_enabled gpu-runtime; then
 COMPILER="$REAL_COMPILER" bash "$REPO_ROOT/tests/misc_root_tests/seen_p0_accel_gate_c.sh"
 fi
 if acceptance_group_enabled core; then

@@ -21,9 +21,13 @@ preserves local full/verify behavior. Hosted workers run these groups on separat
 machines with identical candidate bytes, same-commit source, fresh live kernel
 containment, zero swap and serial compiler workers. No profile, native assertion,
 fuzz duration, coverage threshold or benchmark sample contract is removed.
-`gpu-runtime` runs the complete fifteen-child runtime Gate C aggregate.
+`gpu-emitter` runs the complete accelerator foundation Gate A and emitter Gate B.
+`gpu-runtime` runs the frontend/reflection, input-ownership, rejection and fixture
+harness gates followed by the complete fifteen-child runtime Gate C aggregate.
+This keeps those independent checks from starving behind the full emitter corpus.
 `async` runs the complete existing ten-gate async block independently, so that
-tail cannot be starved by runtime work. Neither block is shortened or reordered.
+tail cannot be starved by runtime work. No gate is shortened; `--group all`
+preserves the original execution order.
 
 The final required job rejects missing, failed or skipped dependencies and
 validates all five source/candidate-bound completion receipts plus the same-run
@@ -55,6 +59,9 @@ remain unchanged; this reserve does not establish that the acceptance corpus fit
 
 `native-arm-inputs` cross-builds the unchanged full compiler and the matching
 package client from the current source and verified x64 bootstrap candidate.
+The transport version comes from `[project].version` in the workspace `Seen.toml`,
+not an unrelated root-level value; missing or malformed project versions fail
+before cross-building.
 Its bounded three-member archive is explicitly `cross-built-unverified`;
 neither ARM ELF headers nor successful cross-linking qualify native execution.
 

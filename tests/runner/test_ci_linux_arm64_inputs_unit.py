@@ -38,6 +38,40 @@ def elf(machine=183, suffix=b""):
     return bytes(data) + suffix
 
 
+class VersionTests(unittest.TestCase):
+    def setUp(self):
+        cache = ROOT / ".seen/ci-linux-arm64-inputs-tests"
+        cache.mkdir(parents=True, exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=cache)
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def test_workspace_project_version(self):
+        (self.root / "Seen.toml").write_text(
+            'manifest-version = 1\n[project]\nname = "seenlang"\nversion = "0.23.0"\n')
+        self.assertEqual(inputs.source_version(self.root), "0.23.0")
+
+    def test_root_version_does_not_override_project(self):
+        (self.root / "Seen.toml").write_text(
+            'version = "9.9.9"\n[project]\nversion = "0.23.0"\n')
+        self.assertEqual(inputs.source_version(self.root), "0.23.0")
+
+    def test_missing_or_invalid_project_version_is_rejected(self):
+        for content in (
+            'version = "0.23.0"\n',
+            'project = "0.23.0"\n',
+            'project = [0, 23, 0]\n',
+            '[project]\nname = "seenlang"\n',
+            '[project]\nversion = 23\n',
+            '[project]\nversion = false\n',
+            '[project]\nversion = "0.23"\n',
+        ):
+            with self.subTest(content=content):
+                (self.root / "Seen.toml").write_text(content)
+                with self.assertRaises(inputs.ArtifactError):
+                    inputs.source_version(self.root)
+
+
 class Tests(unittest.TestCase):
     def setUp(self):
         cache = ROOT / ".seen/ci-linux-arm64-inputs-tests"
@@ -61,7 +95,7 @@ class Tests(unittest.TestCase):
             digest = hashlib.sha256((self.root / target).read_bytes()).hexdigest()
             (self.root / checksum).write_text(f"{digest}  {target}\n")
         (self.root / ".gitignore").write_text("/target/\n/.work/\n")
-        (self.root / "Seen.toml").write_text('version = "0.0.1"\n')
+        (self.root / "Seen.toml").write_text('[project]\nversion = "0.0.1"\n')
         (self.root / "source.seen").write_text("unchanged source fixture\n")
         git(self.root, "init", "--quiet")
         git(self.root, "add", ".")

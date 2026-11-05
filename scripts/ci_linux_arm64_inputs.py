@@ -56,8 +56,8 @@ def elf(data: bytes, machine: int = 183) -> None:
 
 def source_version(root: Path) -> str:
     try:
-        value = tomllib.loads(read_file(root / "Seen.toml", MANIFEST_MAX).decode("utf-8"))["version"]
-    except (UnicodeDecodeError, tomllib.TOMLDecodeError, KeyError) as error:
+        value = tomllib.loads(read_file(root / "Seen.toml", MANIFEST_MAX).decode("utf-8"))["project"]["version"]
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError, KeyError, TypeError) as error:
         fail(f"invalid source version: {error}")
     if not isinstance(value, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value):
         fail("invalid source version")
