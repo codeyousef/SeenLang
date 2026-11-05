@@ -591,6 +591,12 @@ Foundations**.
 
 ### Fixed
 
+- Avoid repeated path-object construction in ERR-001C contract validation when
+  a path cannot contain a parent component. Preserve full platform checks for
+  dotted inputs and every fresh contract validation; keep the pinned warmups,
+  sample count, baseline and five-percent benchmark ceiling unchanged. Replace
+  source-text/count-only assertions with path-boundary behavior checks while
+  retaining the compiled native migration cases in complete acceptance.
 - Keep the positive hosted-workflow fixture aligned with explicit finite TSan
   provisioning, and check out exact source before the final job rejects failed
   dependencies so bounded failure diagnostics remain available.
