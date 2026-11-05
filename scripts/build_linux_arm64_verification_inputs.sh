@@ -18,7 +18,7 @@ if [ "${SEEN_ARM_INPUTS_INNER:-0}" != 1 ]; then
     [ -n "$CANDIDATE" ] && [ -n "$OUTPUT" ] || fail '--candidate and --output are required'
     case "$(uname -s):$(uname -m)" in Linux:x86_64|Linux:amd64) ;; *) fail 'cross-build requires Linux x64 bootstrap host' ;; esac
     # Do not silently use the compiler fallback's guessed sysroot locations.
-    [[ "${SEEN_LINUX_ARM64_SYSROOT:-}" =~ ^/[a-zA-Z0-9_./-]+$ ]] &&
+    [[ "${SEEN_LINUX_ARM64_SYSROOT:-}" =~ ^/[a-zA-Z0-9_./-]*$ ]] &&
         [ -d "$SEEN_LINUX_ARM64_SYSROOT" ] ||
         fail 'SEEN_LINUX_ARM64_SYSROOT must name an existing absolute shell-safe sysroot'
     if [ -n "${SEEN_LINUX_ARM64_GCC_TOOLCHAIN:-}" ]; then
@@ -101,6 +101,27 @@ publish_json(Path(sys.argv[2]), candidate.live_scope(Path(sys.argv[1])))
 PY
 }
 record_scope "$work/proof/scope-before.json"
+# Ubuntu's GNU cross packages retain absolute /usr/aarch64-linux-gnu library
+# paths. They need a filesystem sysroot, not the target's installation prefix.
+# Exercise C and C++ runtime linking before the unchanged full compiler build;
+# object-only checks cannot discover a malformed libc/libm linker-script root.
+cross_link_args=(--target=aarch64-unknown-linux-gnu "--sysroot=$SEEN_LINUX_ARM64_SYSROOT" -fuse-ld=lld -pthread)
+if [ -n "${SEEN_LINUX_ARM64_GCC_TOOLCHAIN:-}" ]; then
+    cross_link_args+=("--gcc-toolchain=$SEEN_LINUX_ARM64_GCC_TOOLCHAIN")
+fi
+printf '%s\n' '#include <stdio.h>' \
+    'int main(void) { return puts("seen-arm64-link") < 0; }' > "$work/build/link.c"
+printf '%s\n' '#include <string>' \
+    'int main(int argc, char **argv) { (void)argv; return std::to_string(argc).empty(); }' > "$work/build/link.cpp"
+for language in c cpp; do
+    driver=clang
+    if [ "$language" = cpp ]; then driver=clang++; fi
+    "$driver" "${cross_link_args[@]}" "$work/build/link.$language" -o "$work/build/link-$language" \
+        > "$work/proof/link-$language.log" 2>&1 || fail "ARM64 $language runtime cross-link failed"
+    LC_ALL=C readelf --file-header "$work/build/link-$language" > "$work/proof/link-$language.elf"
+    grep -Eq 'Machine:[[:space:]]+AArch64' "$work/proof/link-$language.elf" ||
+        fail "ARM64 $language runtime cross-link produced the wrong architecture"
+done
 version="$(python3 - "$ROOT_DIR" <<'PY'
 import sys
 from pathlib import Path

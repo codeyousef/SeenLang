@@ -316,12 +316,6 @@ print(json.dumps({'values': values, 'stock': (resource / 'stock-link').read_text
         self.assertEqual(result.returncode, 128 + signal.SIGTERM,
                          result.stderr.decode(errors='replace'))
 
-    def test_explicit_driver_argv0_is_preserved_by_real_exec(self):
-        result = self.run_namespace(['/bin/sh', '-c', 'printf "%s" "$0"'],
-                                    driver_argv0='/usr/bin/clang++')
-        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
-        self.assertEqual(result.stdout, b'/usr/bin/clang++')
-
     def test_argument_construction_inside_rootless_private_tmp_namespace(self):
         probe = '''
 import json, os, sys

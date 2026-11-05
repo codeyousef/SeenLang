@@ -58,6 +58,13 @@ package client from the current source and verified x64 bootstrap candidate.
 Its bounded three-member archive is explicitly `cross-built-unverified`;
 neither ARM ELF headers nor successful cross-linking qualify native execution.
 
+On Ubuntu, the installed GNU cross toolchain uses filesystem sysroot `/`
+with GCC toolchain root `/usr`. `/usr/aarch64-linux-gnu` is the target
+installation prefix, not a filesystem sysroot: its libc/libm linker scripts
+retain absolute `/usr/aarch64-linux-gnu` paths. The input producer links real
+C and C++ runtime canaries inside its existing capped scope before building
+the full compiler, so an object-only frontend check cannot hide a broken link.
+
 `native-arm` runs on `ubuntu-24.04-arm`, verifies the source/candidate/ELF
 transport before execution, and creates fresh local serializer and kernel
 scope bindings. It executes the complete unchanged `seen_inf_simd_c.sh` suite:

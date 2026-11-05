@@ -117,7 +117,7 @@ def ci_policy() -> dict:
          "timeout-minutes": 1},
     ] + diagnostics("native-arm-inputs"), needs="bootstrap", env={
         "GOTOOLCHAIN": "local", "SEEN_RELEASE_CPU_BASELINE": "x86-64",
-        "SEEN_LINUX_ARM64_SYSROOT": "/usr/aarch64-linux-gnu",
+        "SEEN_LINUX_ARM64_SYSROOT": "/",
         "SEEN_LINUX_ARM64_GCC_TOOLCHAIN": "/usr",
     })
     native_provision = provision_steps()

@@ -591,6 +591,10 @@ Foundations**.
 
 ### Fixed
 
+- Use the filesystem root for Ubuntu ARM64 cross-linking rather than treating
+  the GNU target installation prefix as a sysroot. Check real C and C++ runtime
+  links before the full compiler input build, preserving SDK linker-script
+  bytes, exact-source transport and the existing memory and job deadlines.
 - Avoid repeated path-object construction in ERR-001C contract validation when
   a path cannot contain a parent component. Preserve full platform checks for
   dotted inputs and every fresh contract validation; keep the pinned warmups,
