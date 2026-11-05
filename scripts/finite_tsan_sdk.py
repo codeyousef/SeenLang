@@ -366,24 +366,30 @@ def build():
             os.rename(stage, published)
             return published / 'manifest.json', published_sha256
         except BaseException:
-            diagnostics = Path(os.environ['SEEN_ARTIFACT_ROOT']) / 'finite-tsan-failure'
-            diagnostics.mkdir(exist_ok=True)
-            remaining = 1024**2
-            for folder in ('logs', 'proof'):
-                for name in ('configure.log', 'build.log', 'control-compile.log',
-                             'clean.out', 'clean.err', 'race.out', 'race.err',
-                             'insufficient.out', 'insufficient.err'):
-                    path = stage / folder / name
-                    if remaining <= 0 or not path.is_file() or path.is_symlink():
-                        continue
-                    with path.open('rb') as source:
-                        count = min(remaining, 128 * 1024)
-                        source.seek(max(0, path.stat().st_size - count))
-                        content = source.read(count)
-                    (diagnostics / (folder + '-' + name)).write_bytes(content)
-                    remaining -= len(content)
-            shutil.rmtree(stage)
-            print('finite TSan SDK bounded diagnostics: ' + str(diagnostics), file=sys.stderr)
+            try:
+                diagnostics = Path(os.environ['SEEN_ARTIFACT_ROOT']) / 'finite-tsan-failure'
+                diagnostics.mkdir(exist_ok=True)
+                remaining = 1024**2
+                for folder in ('logs', 'proof'):
+                    for name in ('configure.log', 'build.log', 'control-compile.log',
+                                 'clean.out', 'clean.err', 'race.out', 'race.err',
+                                 'insufficient.out', 'insufficient.err'):
+                        path = stage / folder / name
+                        if remaining <= 0 or not path.is_file() or path.is_symlink():
+                            continue
+                        with path.open('rb') as source:
+                            count = min(remaining, 128 * 1024)
+                            source.seek(max(0, path.stat().st_size - count))
+                            content = source.read(count)
+                        (diagnostics / (folder + '-' + name)).write_bytes(content)
+                        remaining -= len(content)
+                print('finite TSan SDK bounded diagnostics: ' + str(diagnostics), file=sys.stderr)
+            except OSError as diagnostic_error:
+                print('finite TSan SDK diagnostic retention failed: ' + str(diagnostic_error),
+                      file=sys.stderr)
+            finally:
+                # Even ENOSPC while saving diagnostics must not retain a full build.
+                shutil.rmtree(stage)
             raise
 
 
