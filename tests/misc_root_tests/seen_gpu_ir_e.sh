@@ -14,7 +14,6 @@ run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
 TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/gpu-ir-e.XXXXXX")"
 FIXTURE_ARTIFACT_PREFIX=gpu-ir-e
 source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
-test ! -e "$ROOT_DIR/compiler_seen/src/codegen/glsl_gen.seen"
 for profile in fast release undefined address; do
     compile_case "$profile" nested-inline "$ROOT_DIR/tests/compiler_regressions/nested_inline_field_assignment.seen"
     rg -Fq 'PASS: nested inline fields update original storage preserve copies and neighbors and evaluate receivers once' "$TMP_DIR/nested-inline-$profile.log"

@@ -53,6 +53,8 @@ Foundations**.
   frontend/reflection, input-ownership, rejection and fixture-harness checks
   before the full runtime aggregate in the runtime group. Balance the existing
   jobs without dropping coverage or changing default full-run order or limits.
+  Remove an obsolete source-layout assertion for legacy GLSL while preserving
+  the real CLI diagnostic, failure-status and no-output-artifact checks.
 - Add non-publishing, same-source Linux ARM64 input transport and required native
   qualification on an ARM runner. Cross-build the full compiler and matching
   package client, then run the unchanged SIMD-C profiles, capability fuzz,
