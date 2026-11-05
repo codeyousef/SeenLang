@@ -56,7 +56,7 @@ PY
 done
 bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile \
     "$ROOT_DIR/tests/compiler_regressions/tsan_seen_workers.seen" \
-    "$TMP_DIR/seen-workers" --fast --no-cache --no-fork --jobs 1 --opt-jobs 1 \
+    "$TMP_DIR/seen-workers" --fast --no-cache --jobs 1 --opt-jobs 1 \
     --sanitize thread >"$TMP_DIR/workers-compile.log" 2>&1
 for mode in clean race; do
     status=0
