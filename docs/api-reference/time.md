@@ -80,6 +80,9 @@ When `SEEN_DETERMINISTIC=1`, clock reads require a valid `SOURCE_DATE_EPOCH` and
 return its nanosecond value. This is intended for reproducible build/test
 processes; production services should inject a manual `Clock` where controlled
 time is part of application behavior.
+These process inputs are captured before `main`; changing or removing the
+environment later does not activate or retime the captured clock. The native
+time contract launches its compatibility fixture with explicit startup pins.
 
 The compatibility helpers `nowSeconds`, `nowMillis`, `nowNanos`,
 `parseTimestamp`, and `since` remain available from `time.mod`.

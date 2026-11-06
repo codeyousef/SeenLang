@@ -1,0 +1,63 @@
+/// All pointer expressions stay in Metal's declared address spaces. Launch
+/// counts are host-validated logical element counts, not byte counts or GPU
+/// addresses; the owner must bind at least count * element_stride bytes.
+import codegen.gpu_ir_model.{GpuIrFunction}
+import codegen.gpu.text_buffer.{GpuTextBuffer}
+import codegen.gpu.metal_context.{GpuMetalFunction, GpuMetalResource, metalWord, metalAssignment}
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeLanes, gpuTypeScalar}
+
+fun metalEntryParameters(text: GpuTextBuffer, borrow source: GpuIrFunction) r: Void {
+    var i = 0
+    while i < source.parameterTypes.length() {
+        let kind = gpuTypeResource(source.parameterTypes[i])
+        if kind == 4 { text.literal("constant uint4& ") }
+        else { if kind == 1 { text.literal("const ") }; text.literal("device uint* ") }
+        text.literal("seen_buffer"); text.number(i); text.literal(" [[buffer("); text.number(i); text.literal(")]],\n"); i = i + 1
+    }
+    text.literal("device atomic_uint* seen_fault [[buffer("); text.number(i); text.literal(")]],\n")
+    text.literal("constant uint4* seen_counts [[buffer("); text.number(i + 1); text.literal(")]],\n")
+    text.literal("uint3 seen_gid [[thread_position_in_grid]], uint3 seen_lid [[thread_position_in_threadgroup]],\n")
+    text.literal("uint3 seen_group [[threadgroup_position_in_grid]], uint3 seen_groups [[threadgroups_per_grid]],\n")
+    text.literal("uint3 seen_size [[threads_per_threadgroup]])")
+}
+fun metalLoadEntryResource(function: GpuMetalFunction, typeCode: Int, binding: Int) r: Int {
+    var length = 0; var uniform = 0; let text = function.initializers
+    if gpuTypeResource(typeCode) == 4 {
+        uniform = function.allocate(gpuTypeLanes(typeCode)); var lane = 0
+        while lane < gpuTypeLanes(typeCode) {
+            metalAssignment(text, uniform + lane)
+            if gpuTypeScalar(typeCode) == 1 { text.literal("uint(") }
+            text.literal("seen_buffer"); text.number(binding); text.literal("["); text.number(lane); text.literal("]")
+            if gpuTypeScalar(typeCode) == 1 { text.literal(" != 0u)") }; text.literal(";\n"); lane = lane + 1
+        }
+    } else {
+        length = function.allocate(1); metalAssignment(text, length)
+        text.literal("seen_counts["); text.number(binding); text.literal("].x;\n")
+    }
+    return function.addResource(GpuMetalResource{typeCode: typeCode, binding: binding, length: length, uniformBase: uniform, shared: false})
+}
+fun metalValidateLaunch(text: GpuTextBuffer, borrow source: GpuIrFunction) r: Void {
+    text.literal("if (any(seen_size != uint3("); text.number(source.workgroupX); text.literal("u, ")
+    text.number(source.workgroupY); text.literal("u, "); text.number(source.workgroupZ); text.literal("u)) || any(seen_groups == uint3(0u))")
+    var axis = 0
+    while axis < 3 {
+        text.literal(" || ulong(seen_groups["); text.number(axis); text.literal("]) * ulong(seen_size[")
+        text.number(axis); text.literal("]) > 4294967295ul"); axis = axis + 1
+    }
+    text.literal(") { atomic_fetch_or_explicit(seen_fault, 16u, memory_order_relaxed); return; }\n")
+}
+fun metalBuiltin(function: GpuMetalFunction, code: Int) r: Int {
+    let text = function.body
+    if code == 5 {
+        let result = function.allocate(1); metalAssignment(text, result)
+        text.literal("seen_lid.x + seen_size.x * (seen_lid.y + seen_size.y * seen_lid.z);\n"); return result
+    }
+    var source = ""
+    if code == 1 { source = "seen_gid" }; if code == 2 { source = "seen_lid" }
+    if code == 3 { source = "seen_group" }; if code == 4 { source = "seen_groups" }; if code == 9 { source = "seen_size" }
+    if source == "" { function.error("E_GPU_METAL_CAPABILITY", "Metal builtin requires unavailable subgroup lowering"); return 0 }
+    let result = function.allocate(3); var axis = 0
+    while axis < 3 {
+        metalAssignment(text, result + axis); text.literal(source); text.literal("["); text.number(axis); text.literal("];\n"); axis = axis + 1
+    }; return result
+}

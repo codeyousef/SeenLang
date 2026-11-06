@@ -1,0 +1,92 @@
+/// Structured control lowers to entry-local PTX labels. Helpers inline into
+/// fresh shared frame objects; each call owns its arrays and return register.
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_WHILE, GPU_IR_FOR, GPU_IR_CALL, GPU_IR_CONDITION, GPU_IR_YIELD_VALUE, GPU_IR_BREAK, GPU_IR_CONTINUE, GPU_IR_RETURN}
+import codegen.gpu_emission_frame.{GpuEmissionFrame, createGpuEmissionFrame}
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import codegen.gpu.ptx_values.{ptxLowerValue, ptxCopyValue}
+import codegen.gpu.ptx_matrix_plan.{ptxValueWords}
+fun ptxLowerConditional(borrow module: GpuIrModule, function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let yes = function.allocate(3, 1); let no = function.allocate(3, 1); let merge = function.allocate(3, 1)
+    let predicate = function.allocate(2, 1); var result = 0
+    if op.opcode == GPU_IR_IF_VALUE { result = function.allocate(0, ptxValueWords(op.typeCode)) }
+    function.body.predicate("setp.ne.u32", predicate, frame.registers[op.operands[0]], function.word(0))
+    function.body.conditional(predicate, yes); function.body.branch(no); function.body.defineLabel(yes)
+    ptxLowerRegion(module, function, frame, op.leftBlock, depth + 1); let left = frame.signal
+    if op.opcode == GPU_IR_IF_VALUE and left == 5 { ptxCopyValue(function, result, frame.yielded, op.typeCode) }
+    if left == 0 or left == 5 { function.body.branch(merge) }; frame.signal = 0; function.body.defineLabel(no)
+    if op.rightBlock >= 0 { ptxLowerRegion(module, function, frame, op.rightBlock, depth + 1) }; let right = frame.signal
+    if op.opcode == GPU_IR_IF_VALUE and right == 5 { ptxCopyValue(function, result, frame.yielded, op.typeCode) }
+    if right == 0 or right == 5 { function.body.branch(merge) }; function.body.defineLabel(merge); frame.signal = 0
+    if op.opcode == GPU_IR_IF_VALUE {
+        if left != 5 or right != 5 { function.error("E_GPU_PTX_CONTROL", "PTX value selection lacks two yields"); return }
+        frame.registers[op.result] = result
+    } else if left != 0 and right != 0 { frame.signal = 6 }
+}
+fun ptxLowerLoop(borrow module: GpuIrModule, function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let header = function.allocate(3, 1); let continued = function.allocate(3, 1); let merge = function.allocate(3, 1)
+    let exhausted = function.allocate(3, 1); let counter = function.allocate(0, 1); let predicate = function.allocate(2, 1)
+    function.body.unary("mov.b32", counter, function.word(0)); var induction = 0; var inductionType = 0
+    if op.opcode == GPU_IR_FOR {
+        induction = function.allocate(0, 1); inductionType = frame.registerTypes[op.operands[0]]
+        function.body.unary("mov.b32", induction, frame.registers[op.operands[0]])
+    }
+    function.body.defineLabel(header)
+    if op.opcode == GPU_IR_WHILE {
+        ptxLowerRegion(module, function, frame, op.leftBlock, depth + 1)
+        if frame.signal != 4 { function.error("E_GPU_PTX_CONTROL", "PTX while condition did not yield Bool"); return }
+        function.body.predicate("setp.eq.u32", predicate, frame.condition, function.word(0)); frame.signal = 0
+    } else {
+        var comparison = "setp.ge.u32"; if inductionType == 2 { comparison = "setp.ge.s32" }
+        function.body.predicate(comparison, predicate, induction, frame.registers[op.operands[1]])
+    }
+    function.body.conditional(predicate, merge)
+    function.body.predicate("setp.ge.u32", predicate, counter, function.word(1000000)); function.body.conditional(predicate, exhausted)
+    frame.loopMerges.push(merge); frame.loopContinues.push(continued); frame.inductionPointers.push(induction)
+    var body = op.leftBlock; if op.opcode == GPU_IR_WHILE { body = op.rightBlock }
+    ptxLowerRegion(module, function, frame, body, depth + 1)
+    if frame.signal == 0 { function.body.branch(continued) }
+    frame.loopMerges.pop(); frame.loopContinues.pop(); frame.inductionPointers.pop(); frame.signal = 0
+    function.body.defineLabel(continued); function.body.binary("add.u32", counter, counter, function.word(1))
+    if induction != 0 { function.body.binary("add.u32", induction, induction, function.word(1)) }
+    function.body.branch(header); function.body.defineLabel(exhausted); function.fault(3); function.body.branch(merge); function.body.defineLabel(merge)
+}
+fun ptxLowerCall(borrow module: GpuIrModule, function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
+    while i < op.operands.length() {
+        arguments.push(frame.registers[op.operands[i]]); resources.push(frame.resourceIndices[op.operands[i]]); i = i + 1
+    }
+    let child = createGpuEmissionFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free()
+    child.returnMerge = function.allocate(3, 1)
+    if op.typeCode != 0 {
+        child.returnSlot = function.allocate(0, ptxValueWords(op.typeCode)); var lane = 0
+        while lane < ptxValueWords(op.typeCode) { function.body.unary("mov.b32", child.returnSlot + lane, function.word(0)); lane = lane + 1 }
+    }
+    ptxLowerRegion(module, function, child, 0, depth + 1); function.body.defineLabel(child.returnMerge)
+    if op.result > 0 { frame.registers[op.result] = child.returnSlot }; child.release()
+}
+fun ptxLowerRegion(borrow module: GpuIrModule, function: GpuPtxFunction, frame: GpuEmissionFrame, blockIndex: Int, depth: Int) r: Void {
+    if not function.validation.valid { return }
+    if depth > 128 { function.error("E_GPU_PTX_LIMIT", "PTX expanded region depth ceiling exceeded"); return }
+    let source = module.functions[frame.functionIndex]; let block = source.blocks[blockIndex]; var i = 0
+    while i < block.instructions.length() and function.validation.valid and frame.signal == 0 {
+        let op = block.instructions[i]; function.functionIndex = frame.functionIndex; function.blockIndex = blockIndex; function.instructionIndex = i
+        if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE { ptxLowerConditional(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR { ptxLowerLoop(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_CALL { ptxLowerCall(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_CONDITION { frame.condition = frame.registers[op.operands[0]]; frame.signal = 4 }
+        else if op.opcode == GPU_IR_YIELD_VALUE { frame.yielded = frame.registers[op.operands[0]]; frame.signal = 5 }
+        else if op.opcode == GPU_IR_BREAK or op.opcode == GPU_IR_CONTINUE {
+            if frame.loopMerges.length() == 0 { function.error("E_GPU_PTX_CONTROL", "PTX loop exit lacks an enclosing loop"); return }
+            let index = frame.loopMerges.length() - 1
+            if op.opcode == GPU_IR_BREAK { function.body.branch(frame.loopMerges[index]); frame.signal = 2 }
+            else { function.body.branch(frame.loopContinues[index]); frame.signal = 3 }
+        } else if op.opcode == GPU_IR_RETURN {
+            if frame.returnMerge == 0 { function.body.literal("ret;\n") }
+            else {
+                if frame.returnSlot != 0 { ptxCopyValue(function, frame.returnSlot, frame.registers[op.operands[0]], source.returnType) }
+                function.body.branch(frame.returnMerge)
+            }; frame.signal = 1
+        } else { ptxLowerValue(function, frame, op) }; i = i + 1
+    }
+}

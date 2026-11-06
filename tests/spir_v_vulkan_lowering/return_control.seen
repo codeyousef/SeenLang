@@ -1,0 +1,55 @@
+@device
+fun return_from_both(value: Int32) r: Int32 {
+    if value < 0 { return -value } else { return value + 1 }
+}
+
+@device
+fun return_from_nested_loops(value: Int32) r: Int32 {
+    var outer = 0
+    while outer < 4 {
+        for inner in 0..4 {
+            if inner == value { return outer + inner }
+            if inner == 2 { break }
+        }
+        outer = outer + 1
+    }
+    return -1
+}
+
+@device
+fun return_or_break(value: Int32) r: Int32 {
+    var index = 0
+    while index < 4 {
+        if index == value { return index } else { break }
+    }
+    return -1
+}
+
+@device
+fun return_or_continue(value: Int32) r: Int32 {
+    var index = 0
+    while index < 4 {
+        index = index + 1
+        if index == value { return index } else { continue }
+    }
+    return -1
+}
+
+@device
+fun return_void(output: WriteBuffer<Int32>, value: Int32) {
+    if value < 0 { return }
+    output[4] = value
+}
+
+@compute(1)
+fun helper_return_paths(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>) {
+    let value = input[0]
+    output[0] = return_from_both(value)
+    output[1] = return_from_nested_loops(value)
+    output[2] = return_or_break(value)
+    output[3] = return_or_continue(value)
+    return_void(output, value)
+    output[5] = return_from_both(-value)
+}
+
+fun main() r: Int { return 0 }

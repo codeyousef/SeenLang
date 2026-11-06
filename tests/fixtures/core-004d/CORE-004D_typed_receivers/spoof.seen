@@ -1,0 +1,11 @@
+class UserText {
+    fun length() r: Int {
+        println("user-defined length is not a String intrinsic")
+        return 4
+    }
+}
+
+fun main() r: Int {
+    let value = UserText{}
+    return value.length()
+}

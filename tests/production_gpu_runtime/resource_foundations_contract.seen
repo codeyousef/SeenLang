@@ -1,0 +1,46 @@
+import compute.memory_kind.{GpuMemoryKind, gpuMemoryKindKnown}
+import compute.resource_stats.{GpuStats}
+import compute.limits.{GPU_MAX_MEMORY_BYTES, GPU_MAX_RESOURCES}
+import core.option.{None, Some}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun snapshot() r: GpuStats {
+    return GpuStats{requestedBytes: 17 as UInt64, allocatedBytes: 32 as UInt64,
+        usableBytes: 64 as UInt64, committedBytes: 96 as UInt64, freeBytes: 32 as UInt64,
+        peakReservedBytes: 128 as UInt64, residentBytes: None<UInt64>(), liveBuffers: 1, blocks: 2}
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    let kinds = [GpuMemoryKind.DeviceLocal, GpuMemoryKind.HostVisible, GpuMemoryKind.HostCoherent, GpuMemoryKind.Unified]
+    var index = 0
+    while index < kinds.length() {
+        if not gpuMemoryKindKnown(kinds[index]) { abort("known explicit GPU memory kind rejected") }
+        index = index + 1
+    }
+    kinds.free()
+    let valid = snapshot()
+    if not valid.valid() or valid.residentBytes.isSome() { abort("unknown residency was invented from committed memory") }
+    valid.residentBytes.free(); valid.residentBytes = Some<UInt64>(96 as UInt64)
+    if not valid.valid() { abort("bounded measured residency rejected") }
+    valid.release()
+    index = 0
+    while index < 11 {
+        let invalid = snapshot()
+        if index == 0 { invalid.requestedBytes = 33 as UInt64 }
+        if index == 1 { invalid.allocatedBytes = 65 as UInt64 }
+        if index == 2 { invalid.usableBytes = 97 as UInt64 }
+        if index == 3 { invalid.committedBytes = 129 as UInt64 }
+        if index == 4 { invalid.peakReservedBytes = GPU_MAX_MEMORY_BYTES + (1 as UInt64) }
+        if index == 5 { invalid.freeBytes = 33 as UInt64 }
+        if index == 6 { invalid.liveBuffers = -1 }
+        if index == 7 { invalid.liveBuffers = GPU_MAX_RESOURCES + 1 }
+        if index == 8 { invalid.blocks = -1 }
+        if index == 9 { invalid.blocks = GPU_MAX_RESOURCES + 1 }
+        if index == 10 { invalid.residentBytes.free(); invalid.residentBytes = Some<UInt64>(97 as UInt64) }
+        if invalid.valid() { abort("inconsistent GPU allocation accounting accepted") }
+        invalid.release(); index = index + 1
+    }
+    if seen_memory_used_bytes() != memory { abort("GPU resource accounting snapshots leaked") }
+    println("PASS: GPU-006B explicit memory kinds and distinct committed usable allocated free and resident accounting")
+    return 0
+}

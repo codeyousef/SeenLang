@@ -1,0 +1,54 @@
+import crypto.md5.{md5Hash}
+import codegen.source_coverage_encoding.{coverageAppendUleb, coverageHash,
+    coverageRawText, coverageLlvmBytes, coverageFilenames}
+
+fun main() r: Int {
+    if md5Hash("") != "d41d8cd98f00b204e9800998ecf8427e" { return 2 }
+    if md5Hash("a") != "0cc175b9c0f1b6a831c399e269772661" { return 2 }
+    if md5Hash("abc") != "900150983cd24fb0d6963f7d28e17f72" { return 2 }
+    if md5Hash("message digest") != "f96b697d7cb7938d525a2f31aaf161d0" { return 2 }
+    if md5Hash("abcdefghijklmnopqrstuvwxyz") != "c3fcd3d76192e4007dfb496cca67e13b" { return 2 }
+    if md5Hash("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789") != "d174ab98d277d9f5a5611c2c9f419d9f" { return 2 }
+    if md5Hash("12345678901234567890123456789012345678901234567890123456789012345678901234567890") != "57edf4a22be3c955ac49da2e2107b67a" { return 2 }
+    let lengths = [55, 56, 63, 64, 65, 1000]
+    let digests = ["ef1772b6dff9a122358552954ad0df65", "3b0c8ac703f828b04c6c197006d17218", "b06521f39153d618550606be297466d5", "014842d480b571495a4a0363793f7367", "c743a45e0d2e6a95cb859adae0248435", "cabe45dcc9ae5b66ba86600cca6b8ba8"]
+    var caseIndex = 0
+    while caseIndex < lengths.length() {
+        var text = ""
+        var offset = 0
+        while offset < lengths[caseIndex] { text = text + "a"; offset = offset + 1 }
+        if md5Hash(text) != digests[caseIndex] { return 3 }
+        caseIndex = caseIndex + 1
+    }
+    if coverageHash(coverageRawText("seen-source-probe")) != 5951798666593269261 {
+        println("FAIL: coverage MD5 identity")
+        return 1
+    }
+    let encoded = Array<Int>()
+    coverageAppendUleb(encoded, 0)
+    coverageAppendUleb(encoded, 127)
+    coverageAppendUleb(encoded, 128)
+    coverageAppendUleb(encoded, 16384)
+    if coverageLlvmBytes(encoded) != "\\00\\7F\\80\\01\\80\\80\\01" {
+        println("FAIL: coverage ULEB encoding")
+        return 1
+    }
+    let binary = Array<Int>()
+    var index = 0
+    while index < 256 {
+        binary.push(index)
+        index = index + 1
+    }
+    if coverageHash(binary) != -2756657886910887710 {
+        println("FAIL: coverage binary hash")
+        return 1
+    }
+    let filenames = coverageFilenames("probe.seen")
+    if coverageLlvmBytes(filenames) !=
+        "\\02\\0D\\00\\01\\2E\\0A\\70\\72\\6F\\62\\65\\2E\\73\\65\\65\\6E" {
+        println("FAIL: coverage filename table")
+        return 1
+    }
+    println("PASS: source coverage binary hashes, ULEB boundaries and filenames")
+    return 0
+}

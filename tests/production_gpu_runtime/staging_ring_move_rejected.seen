@@ -1,0 +1,7 @@
+import compute.staging_ring.{GpuStagingRing}
+fun consume(value: GpuStagingRing) r: Void {}
+fun invalid(value: GpuStagingRing) r: Void {
+    consume(value)
+    value.close()
+}
+fun main() r: Int { return 0 }

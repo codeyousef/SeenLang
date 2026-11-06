@@ -8,6 +8,7 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_decl_registry.{getFunctionReturnTypeStateImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
 import codegen.ir_literal_gen.{normalizeDoubleLiteralForLlvmImpl}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 
 class OverloadedBinaryPlan {
     var funcName: String
@@ -304,13 +305,8 @@ fun shouldUseFmaForOperandTypesImpl(leftType: String, rightType: String)
 fun emitFmaOperandPromotionImpl(output: StringBuilder, regBox: Array<Int>,
     valueReg: String, seenType: String) r: String {
 
-    if seenType == "Float" {
-        return valueReg
-    }
-    let promotedReg = getNextRegFn(regBox)
-    output.append("  " + promotedReg + " = sitofp i64 " + valueReg +
-        " to double\n")
-    return promotedReg
+    return coerceValueForLlvmTargetImpl(output, regBox, "double", seenType,
+        mapTypeState(seenType), valueReg)
 }
 
 fun emitFmaCallImpl(output: StringBuilder, regBox: Array<Int>,

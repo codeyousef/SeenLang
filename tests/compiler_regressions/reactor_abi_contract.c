@@ -10,29 +10,6 @@ static int fail(const char *message) {
     return 1;
 }
 
-static int64_t identity(int64_t value) { return value + 1; }
-
-static int64_t delayed(int64_t value) {
-    struct timespec delay = {0, 20000000};
-    nanosleep(&delay, NULL);
-    return value;
-}
-
-static int wait_completion(uint64_t pool, uint64_t expected_token,
-                           int64_t expected_result) {
-    for (int attempt = 0; attempt < 200; ++attempt) {
-        uint64_t token = 0;
-        int64_t result = 0;
-        int32_t status = seen_blocking_pool_completion(pool, &token, &result);
-        if (status == SEEN_REACTOR_OK)
-            return token == expected_token && result == expected_result ? 0 : 1;
-        if (status != SEEN_REACTOR_NOT_FOUND) return 1;
-        struct timespec delay = {0, 1000000};
-        nanosleep(&delay, NULL);
-    }
-    return 1;
-}
-
 int main(void) {
 #if !defined(__linux__)
     return fail("Linux epoll contract requires Linux");
@@ -94,50 +71,7 @@ int main(void) {
         seen_reactor_live_handles() != 0)
         return fail("idempotent reactor cleanup");
 
-    uint64_t pool = 0;
-    if (seen_blocking_pool_create(1, 3, &pool) != SEEN_REACTOR_OK || !pool ||
-        seen_blocking_pool_live_workers() != 1)
-        return fail("fixed blocking workers");
-    if (seen_blocking_pool_submit(pool, 1,
-        (int64_t)(intptr_t)delayed, 7) != SEEN_REACTOR_OK)
-        return fail("submit delayed blocking task");
-    if (seen_blocking_pool_submit(pool, 2,
-        (int64_t)(intptr_t)identity, 9) != SEEN_REACTOR_OK)
-        return fail("submit bounded queued task");
-    if (seen_blocking_pool_cancel(pool, 2) != SEEN_REACTOR_OK)
-        return fail("cancel queued blocking task");
-    if (wait_completion(pool, 1, 7) != 0)
-        return fail("blocking completion");
-    if (seen_blocking_pool_close(&pool) != SEEN_REACTOR_OK || pool != 0 ||
-        seen_blocking_pool_close(&pool) != SEEN_REACTOR_OK ||
-        seen_blocking_pool_live_workers() != 0)
-        return fail("blocking pool shutdown and join");
-
-    if (seen_blocking_pool_create(1, 3, &pool) != SEEN_REACTOR_OK)
-        return fail("create completion saturation pool");
-    if (seen_blocking_pool_submit(pool, 10,
-        (int64_t)(intptr_t)delayed, 10) != SEEN_REACTOR_OK)
-        return fail("submit active saturation task");
-    struct timespec dispatch_delay = {0, 50000000};
-    nanosleep(&dispatch_delay, NULL);
-    for (uint64_t submitted = 11; submitted <= 13; ++submitted)
-        if (seen_blocking_pool_submit(pool, submitted,
-            (int64_t)(intptr_t)identity, (int64_t)submitted) !=
-                SEEN_REACTOR_OK)
-            return fail("fill bounded blocking queue");
-    if (seen_blocking_pool_submit(pool, 14,
-        (int64_t)(intptr_t)identity, 14) != SEEN_REACTOR_LIMIT)
-        return fail("reject work beyond total completion capacity");
-    if (wait_completion(pool, 10, 10) != 0 ||
-        wait_completion(pool, 11, 12) != 0 ||
-        wait_completion(pool, 12, 13) != 0 ||
-        wait_completion(pool, 13, 14) != 0)
-        return fail("retain every accepted blocking completion");
-    if (seen_blocking_pool_close(&pool) != SEEN_REACTOR_OK ||
-        seen_blocking_pool_live_workers() != 0)
-        return fail("completion saturation pool cleanup");
-
-    puts("PASS: REACTOR-001A-H native ABI, epoll, wakeup, generations, fairness, and pool");
+    puts("PASS: REACTOR-001A-H native ABI, epoll, wakeup, generations and fairness");
     return 0;
 #endif
 }

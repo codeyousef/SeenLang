@@ -1,0 +1,11 @@
+class UnknownReceiver {
+    var value: Int
+}
+
+fun main() r: Int {
+    let receiver = UnknownReceiver{value: 1}
+    if receiver.startsWith("unresolved") {
+        return 1
+    }
+    return 0
+}

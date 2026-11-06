@@ -1,0 +1,29 @@
+import compute.backend.{GpuBackend, gpuBackendName, gpuBackendKnown, gpuBackendFromName}
+import core.result.{Result}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    let names = ["none", "vulkan", "cuda", "hip", "metal"]
+    let values = [GpuBackend.CpuOnly, GpuBackend.Vulkan, GpuBackend.Cuda, GpuBackend.Hip, GpuBackend.Metal]
+    var index = 0
+    while index < names.length() {
+        if not gpuBackendKnown(values[index]) or gpuBackendName(values[index]) != names[index] { abort("GPU backend identity mismatch") }
+        let decoded = gpuBackendFromName(names[index])
+        if decoded.isErr() { abort("known GPU backend rejected") }
+        if decoded.unwrap() != values[index] { abort("GPU backend changed during lookup") }
+        decoded.releaseContainer(); index = index + 1
+    }
+    let invalid = ["", "auto", "cpu", "CUDA", "vulkan ", "metal3.2"]
+    index = 0
+    while index < invalid.length() {
+        let decoded = gpuBackendFromName(invalid[index])
+        if decoded.isOkay() { abort("implicit or ambiguous GPU backend accepted") }
+        let error = decoded.unwrapErr(); decoded.releaseContainer()
+        if error.code != "gpu.invalid" or error.retryable { abort("GPU backend error is not stable/permanent") }
+        error.release(); index = index + 1
+    }
+    names.free(); values.free(); invalid.free()
+    if seen_memory_used_bytes() != memory { abort("GPU backend selection leaked allocations") }
+    println("PASS: GPU-006A explicit closed backend identities and ownership")
+    return 0
+}

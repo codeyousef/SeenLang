@@ -1,0 +1,42 @@
+extern "C" fun seen_memory_used_bytes() r: Int64
+@repr(C)
+@trivially_copyable
+class LiteralPair { var left: Int64; var right: Int64 }
+@repr(C)
+@trivially_copyable
+class LiteralWide {
+    var a: Int64; var b: Int64; var c: Int64; var d: Int64
+    var e: Int64; var f: Int64; var g: Int64; var h: Int64
+    var i: Int64; var j: Int64; var k: Int64; var l: Int64
+}
+fun requireLiteralArgument(value: Bool) r: Void {
+    if not value { abort("copied record literal argument value or allocation lifetime changed") }
+}
+fun checkLiteralPairs(first: LiteralPair, second: LiteralPair, baseline: Int64) r: Void {
+    requireLiteralArgument(first.left == (7 as Int64) and first.right == (11 as Int64))
+    requireLiteralArgument(second.left == (13 as Int64) and second.right == (17 as Int64))
+    requireLiteralArgument(seen_memory_used_bytes() == baseline)
+}
+fun checkWideLiteral(value: LiteralWide, baseline: Int64) r: Void {
+    requireLiteralArgument(value.a + value.b + value.c + value.d + value.e + value.f +
+        value.g + value.h + value.i + value.j + value.k + value.l == (78 as Int64))
+    requireLiteralArgument(seen_memory_used_bytes() == baseline)
+}
+fun makeLiteralPair(left: Int64, right: Int64) r: LiteralPair {
+    return LiteralPair{left: left, right: right}
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 1000 {
+        checkLiteralPairs(LiteralPair{left: 7 as Int64, right: 11 as Int64},
+            LiteralPair{left: 13 as Int64, right: 17 as Int64}, baseline)
+        checkLiteralPairs(makeLiteralPair(7 as Int64, 11 as Int64),
+            makeLiteralPair(13 as Int64, 17 as Int64), baseline)
+        checkWideLiteral(LiteralWide{a: 1 as Int64, b: 2 as Int64, c: 3 as Int64, d: 4 as Int64,
+            e: 5 as Int64, f: 6 as Int64, g: 7 as Int64, h: 8 as Int64,
+            i: 9 as Int64, j: 10 as Int64, k: 11 as Int64, l: 12 as Int64}, baseline)
+        requireLiteralArgument(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    println("PASS: by-value repr C literal arguments release pooled and large temporaries before invocation")
+    return 0
+}

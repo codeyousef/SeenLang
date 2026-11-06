@@ -7,10 +7,10 @@ import codegen.ir_receiver_method_emit.{emitOptionMethodImpl}
 
 fun emitPreparedOptionReceiverFastPathImpl(output: StringBuilder,
     regBox: Array<Int>, blockLabelBox: Array<Int>, methodName: String,
-    receiverReg: String, defaultReg: String) r: String {
+    receiverReg: String, receiverType: String, defaultReg: String) r: String {
 
     return emitOptionMethodImpl(output, regBox, blockLabelBox, methodName,
-        receiverReg, defaultReg)
+        receiverReg, receiverType, defaultReg)
 }
 
 fun emitPreparedSmallVecReceiverFastPathImpl(output: StringBuilder,
@@ -47,7 +47,7 @@ fun emitResolvedReceiverFastPathActionImpl(output: StringBuilder,
 
     if action == 1 {
         return emitPreparedOptionReceiverFastPathImpl(output, regBox,
-            blockLabelBox, methodName, receiverReg, optDefaultReg)
+            blockLabelBox, methodName, receiverReg, receiverType, optDefaultReg)
     }
     if action == 2 {
         return emitPreparedSmallVecReceiverFastPathImpl(output, regBox,

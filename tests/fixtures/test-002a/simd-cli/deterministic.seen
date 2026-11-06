@@ -1,0 +1,9 @@
+fun value() r: Int {
+    return 42 + 1
+}
+
+fun main() r: Int {
+    return if value() == 43 { 0 } else { 1 }
+}
+
+main()

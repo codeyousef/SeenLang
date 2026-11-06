@@ -1,0 +1,72 @@
+import vulkan_fixture_support.{put32, put64, metadata}
+import compute.limits.{GpuLimits}
+import compute.vulkan_abi.{GPU_VK_API_VERSION}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let started = seen_time_monotonic_nanos()
+    if started < (0 as Int64) { abort("Vulkan fuzz clock unavailable") }
+    var random = 1100 as UInt64; var cases = 0; var finished = false
+    while not finished {
+        random = random ^ (random << 13); random = random ^ (random >> 7); random = random ^ (random << 17)
+        let value = metadata(); let limits = GpuLimits.bounded(4, 4, 16, 4096 as UInt64)
+        let mode = cases % 13; var expected = "gpu.invalid"
+        if mode == 0 {
+            expected = ""; put32(value, 0, 32, (random % (5 as UInt64)) as UInt32)
+            put32(value, 4, 156, 0 as UInt32); put32(value, 4, 160, 0 as UInt32)
+            put32(value, 2, 20, 0 as UInt32); put32(value, 3, 288, 0 as UInt32); put32(value, 3, 12, 0 as UInt32)
+        }
+        if mode == 1 {
+            let bytes = value.buffers[0]; bytes.data[36] = (1 + (random % (31 as UInt64)) as Int) as UInt8
+        }
+        if mode == 2 {
+            let bytes = value.buffers[0]; bytes.data[36] = (127 + (random % (129 as UInt64)) as Int) as UInt8
+        }
+        if mode == 3 { put32(value, 3, 0, (33 + (random % (1024 as UInt64)) as Int) as UInt32) }
+        if mode == 4 { put32(value, 3, 8, (2 + (random % (1024 as UInt64)) as Int) as UInt32) }
+        if mode == 5 { put32(value, 0, 548, (65536 + (random % (1024 as UInt64)) as Int) as UInt32) }
+        if mode == 6 { put64(value, 3, 264, random | ((1 as UInt64) << 63)) }
+        if mode == 7 { put32(value, 4, 156, (2 + (random % (1024 as UInt64)) as Int) as UInt32) }
+        if mode == 8 {
+            expected = "gpu.unavailable"; let bytes = value.buffers[1]; var index = 0
+            while index < 16 { bytes.data[16 + index] = 0 as UInt8; index = index + 1 }
+        }
+        if mode == 9 {
+            expected = ""; let bytes = value.buffers[1]; var index = 0
+            while index < 16 { bytes.data[16 + index] = (128 + index) as UInt8; index = index + 1 }
+        }
+        if mode == 10 { put32(value, 2, 20, 32 as UInt32); put32(value, 2, 24, 0 as UInt32); expected = "" }
+        if mode == 11 { put32(value, 0, 32, 4294967295 as UInt32) }
+        if mode == 12 {
+            let variant = (1 + (random % (7 as UInt64)) as Int) as UInt32
+            put32(value, 0, 16, (variant << (29 as UInt32)) | GPU_VK_API_VERSION)
+            expected = "gpu.unsupported_capability"
+        }
+        let result = value.decode(0, 1 as UInt64, 7 as UInt32, limits)
+        if expected == "" {
+            if result.isErr() { abort("Vulkan fuzz rejected valid generated SDK metadata") }
+            let report = result.unwrap()
+            if mode == 0 and report.capabilities.totalBytes != (1024 as UInt64) { abort("Vulkan local heap accounting changed") }
+            if mode == 9 and report.identity.uuid != "808182838485868788898a8b8c8d8e8f" { abort("Vulkan unsigned UUID encoding changed") }
+            report.release()
+        } else {
+            if result.isOkay() { abort("Vulkan fuzz accepted malformed SDK metadata") }
+            let error = result.unwrapErr()
+            if error.code != expected or error.retryable { abort("Vulkan fuzz diagnostic changed") }
+            error.release()
+        }
+        result.releaseContainer(); value.release(); limits.release(); cases = cases + 1
+        if cases % 256 == 0 {
+            if seen_memory_used_bytes() != baseline { abort("Vulkan metadata fuzz leaked an owning result") }
+            let now = seen_time_monotonic_nanos()
+            if now < started { abort("Vulkan fuzz clock moved backwards") }
+            finished = now - started >= (60000000000 as Int64)
+        }
+        if cases >= 1000000000 and not finished { abort("Vulkan fuzz exhausted its finite fuel") }
+    }
+    if seen_memory_used_bytes() != baseline { abort("Vulkan fuzz cleanup leaked") }
+    println("PASS: Vulkan SDK metadata fuzz 60s seed=1100 preserves unsigned bounds UUIDs diagnostics and ownership")
+    println(cases)
+    return 0
+}

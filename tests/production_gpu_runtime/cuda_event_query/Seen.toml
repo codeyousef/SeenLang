@@ -1,0 +1,10 @@
+manifest-version = 1
+
+[project]
+name = "cuda_event_query_contract"
+version = "0.23.0"
+language = "en"
+modules = ["src/main.seen"]
+
+[native.dependencies]
+seen_cuda = { bundled = true }

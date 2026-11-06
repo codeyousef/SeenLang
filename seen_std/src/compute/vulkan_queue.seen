@@ -1,0 +1,35 @@
+/// Deterministic bounded compute-family admission. The caller owns the device;
+/// no queue or logical device is created by this query.
+import core.result.{Result, Ok, Err}
+import compute.error.{GpuError, gpuFailure}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop, gpuVkU32, GPU_VK_QUEUE_BYTES, GPU_VK_MAX_QUEUE_FAMILIES}
+import compute.vulkan_native.{vkGetPhysicalDeviceQueueFamilyProperties}
+
+class VulkanQueueFamily { var index: UInt32; var flags: UInt32 }
+
+fun gpuVkComputeFamily(physical: UInt64) r: Result<VulkanQueueFamily, GpuError> {
+    var count = 0 as UInt32
+    vkGetPhysicalDeviceQueueFamilyProperties(physical, &count, null as *UInt8)
+    if count == (0 as UInt32) or count > GPU_VK_MAX_QUEUE_FAMILIES {
+        return Err<VulkanQueueFamily, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.queue", "Vulkan queue-family count is outside its bound"))
+    }
+    let allocated = gpuVkAllocate((count as UInt64) * GPU_VK_QUEUE_BYTES)
+    if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); return Err<VulkanQueueFamily, GpuError>(error) }
+    let buffer = allocated.unwrap(); allocated.releaseContainer(); var written = count
+    vkGetPhysicalDeviceQueueFamilyProperties(physical, &written, buffer.data)
+    if written > count {
+        gpuVkDrop(buffer); return Err<VulkanQueueFamily, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.queue", "Vulkan queue-family output exceeded its capacity"))
+    }
+    var index = 0; var selected = -1; var selectedFlags = 0 as UInt32
+    while index < (written as Int) {
+        let offset = (index as UInt64) * GPU_VK_QUEUE_BYTES
+        let flags = gpuVkU32(buffer, offset)
+        if selected < 0 and (flags & (2 as UInt32)) != (0 as UInt32) and gpuVkU32(buffer, offset + (4 as UInt64)) > (0 as UInt32) {
+            selected = index; selectedFlags = flags
+        }
+        index = index + 1
+    }
+    gpuVkDrop(buffer)
+    if selected < 0 { return Err<VulkanQueueFamily, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.queue", "Vulkan device has no compute queue")) }
+    return Ok<VulkanQueueFamily, GpuError>(VulkanQueueFamily{index: selected as UInt32, flags: selectedFlags})
+}

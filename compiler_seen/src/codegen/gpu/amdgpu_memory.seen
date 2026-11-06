@@ -1,0 +1,82 @@
+/// Invalid indices branch before device pointer formation or access. Loads
+/// return zero and stores do nothing on rejection; the reflected fault bit is
+/// atomically set. Shared storage is padded to a deterministic 16-byte plan.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, GpuAmdResource, amdValue, amdDefinition}
+import codegen.gpu.amdgpu_builtins.{amdBuiltin}
+import codegen.gpu.amdgpu_abi.{amdSharedStorageBytes}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu_ir_facts.{gpuIrElementStride}
+import typechecker.gpu_types.{gpuTypeLanes}
+
+fun amdResourceIndex(function: GpuAmdFunction, frame: GpuEmissionFrame, operand: Int) r: Int {
+    let index = frame.resourceIndices[operand]
+    if index < 0 or index >= function.resources.length() { function.error("E_GPU_AMDGPU_LAYOUT", "AMDGPU resource identity is unavailable"); return -1 }; return index
+}
+fun amdInvalidMemoryIndex(function: GpuAmdFunction, resource: GpuAmdResource, index: Int, indexType: Int) r: Int {
+    var invalid = function.compare("uge", index, resource.length, false)
+    if indexType == 2 {
+        let negative = function.compare("slt", index, function.word(0), false); invalid = function.predicateBinary("or", invalid, negative)
+    }; return invalid
+}
+fun amdMemoryAddress(function: GpuAmdFunction, resource: GpuAmdResource, index: Int) r: Int {
+    let value = function.read(index); let wide = function.value(); amdDefinition(function.body, wide)
+    function.body.literal("zext i32 "); amdValue(function.body, value); function.body.literal(" to i64\n")
+    let offset = function.value(); amdDefinition(function.body, offset); function.body.literal("mul i64 "); amdValue(function.body, wide)
+    function.body.literal(", "); function.body.number(gpuIrElementStride(resource.typeCode)); function.body.literal("\n")
+    let address = function.value(); amdDefinition(function.body, address); function.body.literal("getelementptr i8, ptr addrspace(")
+    if resource.shared { function.body.number(3) } else { function.body.number(1) }; function.body.literal(") ")
+    amdValue(function.body, resource.address); function.body.literal(", i64 "); amdValue(function.body, offset); function.body.literal("\n"); return address
+}
+fun amdMemoryLaneAddress(function: GpuAmdFunction, address: Int, lane: Int, shared: Bool) r: Int {
+    let result = function.value(); amdDefinition(function.body, result); function.body.literal("getelementptr i32, ptr addrspace(")
+    if shared { function.body.number(3) } else { function.body.number(1) }; function.body.literal(") ")
+    amdValue(function.body, address); function.body.literal(", i64 "); function.body.number(lane); function.body.literal("\n"); return result
+}
+fun amdStoreMemoryWord(function: GpuAmdFunction, pointer: Int, value: Int, shared: Bool) r: Void {
+    let source = function.read(value); function.body.literal("  store i32 "); amdValue(function.body, source)
+    function.body.literal(", ptr addrspace("); if shared { function.body.number(3) } else { function.body.number(1) }
+    function.body.literal(") "); amdValue(function.body, pointer); function.body.literal(", align 4\n")
+}
+fun amdCheckedMemory(function: GpuAmdFunction, resourceIndex: Int, index: Int, indexType: Int, value: Int, store: Bool) r: Int {
+    if resourceIndex < 0 or resourceIndex >= function.resources.length() {
+        function.error("E_GPU_AMDGPU_LAYOUT", "AMDGPU access lacks a resource binding"); return 0
+    }
+    let resource = function.resources[resourceIndex]; let lanes = gpuTypeLanes(resource.typeCode); var result = value
+    if not store { result = function.allocate(lanes); function.copy(result, function.word(0), 1); var lane = 1
+        while lane < lanes { function.copy(result + lane, function.word(0), 1); lane = lane + 1 }
+    }
+    let invalid = amdInvalidMemoryIndex(function, resource, index, indexType); let bad = function.label(); let good = function.label(); let merge = function.label()
+    function.conditional(invalid, bad, good); function.defineLabel(good); let address = amdMemoryAddress(function, resource, index); var lane = 0
+    while lane < lanes {
+        let pointer = amdMemoryLaneAddress(function, address, lane, resource.shared)
+        if store { amdStoreMemoryWord(function, pointer, value + lane, resource.shared) }
+        else {
+            let loaded = function.value(); amdDefinition(function.body, loaded); function.body.literal("load i32, ptr addrspace(")
+            if resource.shared { function.body.number(3) } else { function.body.number(1) }; function.body.literal(") ")
+            amdValue(function.body, pointer); function.body.literal(", align 4\n"); function.write(result + lane, loaded)
+        }; lane = lane + 1
+    }
+    function.branch(merge); function.defineLabel(bad); function.fault(1); function.branch(merge); function.defineLabel(merge); return result
+}
+fun amdSharedResource(function: GpuAmdFunction, typeCode: Int, count: Int) r: Int {
+    let bytes = amdSharedStorageBytes(typeCode, count)
+    if bytes < 1 or bytes > 65536 - function.sharedBytes {
+        function.error("E_GPU_AMDGPU_LAYOUT", "AMDGPU static shared storage exceeds 64 KiB"); return -1
+    }
+    function.sharedBytes = function.sharedBytes + bytes; let identity = function.label(); let global = function.globals
+    global.literal("@seen.shared."); global.number(function.entryIndex); global.literal("."); global.number(identity)
+    global.literal(" = internal addrspace(3) global ["); global.number(bytes); global.literal(" x i8] undef, align 16\n")
+    let address = function.value(); let initial = function.initializers; amdDefinition(initial, address)
+    initial.literal("getelementptr i8, ptr addrspace(3) @seen.shared."); initial.number(function.entryIndex); initial.literal("."); initial.number(identity); initial.literal(", i64 0\n")
+    let length = function.word(count); let resource = GpuAmdResource{typeCode: typeCode, address: address, length: length, uniformBase: 0, shared: true}
+    let slot = function.addResource(resource); if slot < 0 { return -1 }
+    let cursor = function.allocate(1); function.copy(cursor, amdBuiltin(function, 5), 1)
+    let header = function.label(); let merge = function.label(); function.branch(header); function.defineLabel(header)
+    function.branchWhen(function.compare("uge", cursor, length, false), merge)
+    let element = amdMemoryAddress(function, resource, cursor); var lane = 0
+    while lane < gpuTypeLanes(typeCode) {
+        let pointer = amdMemoryLaneAddress(function, element, lane, true); amdStoreMemoryWord(function, pointer, function.word(0), true); lane = lane + 1
+    }
+    function.binary("add", cursor, cursor, function.word(function.workgroupX * function.workgroupY * function.workgroupZ))
+    function.branch(header); function.defineLabel(merge); function.body.literal("  call void @llvm.amdgcn.s.barrier()\n"); return slot
+}

@@ -3,11 +3,14 @@
 import core.result.{Result, Ok, Err}
 import str.string.{indexOf}
 import seen_tokenizers.errors.{TokenizerError, tokenizerError}
-import seen_tokenizers.json.{TokenizerSpec}
+import seen_tokenizers.json.{TokenizerSpec, tokenizerReleaseStrings}
 import seen_tokenizers.unicode.{tokenizerCodepointLength, tokenizerByteIndex,
     tokenizerCodepointAt}
 import seen_tokenizers.unicode_tables.{unicodeIsLetter, unicodeIsNumber,
     unicodeIsWhitespace}
+
+extern "C" fun seen_string_clone_owned(text: String) r: String
+extern "C" fun seen_string_release_owned(text: String) r: Void
 
 let SPECIAL_TOKENS_DISALLOW: Int = 0
 let SPECIAL_TOKENS_ALLOW_LISTED: Int = 1
@@ -62,10 +65,13 @@ fun byteBpeEncodePiece(spec: TokenizerSpec, piece: String,
             "tokenizer.output_limit", 0, "piece exceeds the token output bound"))
     }
     let symbols = Array<String>()
+    // Current/next arrays borrow these strings. Keep every encoded character
+    // and merged string alive through the final lookup, then release once.
+    let ownedSymbols = Array<String>()
     var byteIndex = 0
     while byteIndex < piece.length() {
-        symbols.push(String.fromCharCode(byteToBpeCodepoint(
-            piece.byteAt(byteIndex))))
+        let symbol = String.fromCharCode(byteToBpeCodepoint(piece.byteAt(byteIndex)))
+        symbols.push(symbol); ownedSymbols.push(symbol)
         byteIndex = byteIndex + 1
     }
     var current = symbols
@@ -92,7 +98,8 @@ fun byteBpeEncodePiece(spec: TokenizerSpec, piece: String,
                 if index + 1 < current.length() and
                     current[index] == bestLeft and
                     current[index + 1] == bestRight {
-                    next.push(current[index] + current[index + 1])
+                    let joined = current[index] + current[index + 1]
+                    next.push(joined); ownedSymbols.push(joined)
                     index = index + 2
                 } else {
                     next.push(current[index]); index = index + 1
@@ -106,13 +113,13 @@ fun byteBpeEncodePiece(spec: TokenizerSpec, piece: String,
     while index < current.length() {
         let id = spec.tokenId(current[index])
         if id < 0 {
-            current.free(); result.free()
+            current.free(); result.free(); tokenizerReleaseStrings(ownedSymbols)
             return Err<Array<Int>, TokenizerError>(tokenizerError(
                 "tokenizer.unknown_symbol", index,
                 "byte-level symbol is absent from the vocabulary"))
         }
         if result.length() >= maxOutputTokens {
-            current.free(); result.free()
+            current.free(); result.free(); tokenizerReleaseStrings(ownedSymbols)
             return Err<Array<Int>, TokenizerError>(tokenizerError(
                 "tokenizer.output_limit", index,
                 "encoded tokens exceed the caller bound"))
@@ -120,6 +127,7 @@ fun byteBpeEncodePiece(spec: TokenizerSpec, piece: String,
         result.push(id); index = index + 1
     }
     current.free()
+    tokenizerReleaseStrings(ownedSymbols)
     return Ok<Array<Int>, TokenizerError>(result)
 }
 
@@ -145,13 +153,17 @@ fun byteBpeEncodeOrdinary(spec: TokenizerSpec, text: String,
         }
         let startByte = tokenizerByteIndex(text, start)
         let endByte = tokenizerByteIndex(text, end)
-        let encoded = byteBpeEncodePiece(spec,
-            text.substring(startByte, endByte), maxOutputTokens - output.length())
+        let piece = text.substring(startByte, endByte)
+        let encoded = byteBpeEncodePiece(spec, piece,
+            maxOutputTokens - output.length())
+        seen_string_release_owned(piece)
         if encoded.isErr() {
+            let error = encoded.unwrapErr(); encoded.releaseContainer()
             output.free()
-            return Err<Array<Int>, TokenizerError>(encoded.unwrapErr())
+            return Err<Array<Int>, TokenizerError>(error)
         }
-        appendTokenIds(output, encoded.unwrap())
+        let ids = encoded.unwrap(); encoded.releaseContainer()
+        appendTokenIds(output, ids)
         start = end; index = end
     }
     return Ok<Array<Int>, TokenizerError>(output)
@@ -190,40 +202,48 @@ fun byteBpeEncode(spec: TokenizerSpec, text: String, specialPolicy: Int,
     while cursor < text.length() {
         earliestSpecial(spec, text, cursor, matchIndex, matchSpecial)
         if matchIndex[0] < 0 {
-            let tail = byteBpeEncodeOrdinary(spec,
-                text.substring(cursor, text.length()),
+            let tailText = text.substring(cursor, text.length())
+            let tail = byteBpeEncodeOrdinary(spec, tailText,
                 maxOutputTokens - output.length())
+            seen_string_release_owned(tailText)
             if tail.isErr() {
+                let error = tail.unwrapErr(); tail.releaseContainer()
                 output.free(); matchIndex.free(); matchSpecial.free()
-                return Err<Array<Int>, TokenizerError>(tail.unwrapErr())
+                return Err<Array<Int>, TokenizerError>(error)
             }
-            appendTokenIds(output, tail.unwrap()); cursor = text.length()
+            let ids = tail.unwrap(); tail.releaseContainer()
+            appendTokenIds(output, ids); cursor = text.length()
         } else {
+            // Error construction outlives the scratch arrays released below.
+            let specialPosition = matchIndex[0]
             if specialPolicy == SPECIAL_TOKENS_DISALLOW {
                 output.free(); matchIndex.free(); matchSpecial.free()
                 return Err<Array<Int>, TokenizerError>(tokenizerError(
-                    "tokenizer.disallowed_special", matchIndex[0],
+                    "tokenizer.disallowed_special", specialPosition,
                     "input contains a disallowed special token"))
             }
-            if matchIndex[0] > cursor {
-                let ordinary = byteBpeEncodeOrdinary(spec,
-                    text.substring(cursor, matchIndex[0]),
+            if specialPosition > cursor {
+                let prefix = text.substring(cursor, specialPosition)
+                let ordinary = byteBpeEncodeOrdinary(spec, prefix,
                     maxOutputTokens - output.length())
+                seen_string_release_owned(prefix)
                 if ordinary.isErr() {
+                    let error = ordinary.unwrapErr(); ordinary.releaseContainer()
                     output.free(); matchIndex.free(); matchSpecial.free()
-                    return Err<Array<Int>, TokenizerError>(ordinary.unwrapErr())
+                    return Err<Array<Int>, TokenizerError>(error)
                 }
-                appendTokenIds(output, ordinary.unwrap())
+                let ids = ordinary.unwrap(); ordinary.releaseContainer()
+                appendTokenIds(output, ids)
             }
             if output.length() >= maxOutputTokens {
                 output.free(); matchIndex.free(); matchSpecial.free()
                 return Err<Array<Int>, TokenizerError>(tokenizerError(
-                    "tokenizer.output_limit", matchIndex[0],
+                    "tokenizer.output_limit", specialPosition,
                     "encoded tokens exceed the caller bound"))
             }
             let selected = matchSpecial[0]
             output.push(spec.specialIds[selected])
-            cursor = matchIndex[0] + spec.specialTexts[selected].length()
+            cursor = specialPosition + spec.specialTexts[selected].length()
         }
     }
     matchIndex.free(); matchSpecial.free()
@@ -231,7 +251,7 @@ fun byteBpeEncode(spec: TokenizerSpec, text: String, specialPolicy: Int,
 }
 
 fun decodeUtf8TokenBytes(bytes: Array<Int>) r: Result<String, TokenizerError> {
-    var output = ""
+    var output = seen_string_clone_owned("")
     var index = 0
     while index < bytes.length() {
         let first = bytes[index]
@@ -242,6 +262,7 @@ fun decodeUtf8TokenBytes(bytes: Array<Int>) r: Result<String, TokenizerError> {
         else if first >= 224 and first <= 239 { width = 3 }
         else if first >= 240 and first <= 244 { width = 4 }
         if width == 0 or index + width > bytes.length() {
+            seen_string_release_owned(output)
             return Err<String, TokenizerError>(tokenizerError(
                 "tokenizer.decode_utf8", index, "decoded token bytes are not UTF-8"))
         }
@@ -252,6 +273,7 @@ fun decodeUtf8TokenBytes(bytes: Array<Int>) r: Result<String, TokenizerError> {
                 (first == 237 and second > 159) or
                 (first == 240 and second < 144) or
                 (first == 244 and second > 143) {
+                seen_string_release_owned(output)
                 return Err<String, TokenizerError>(tokenizerError(
                     "tokenizer.decode_utf8", index,
                     "decoded token bytes contain an invalid scalar"))
@@ -261,6 +283,7 @@ fun decodeUtf8TokenBytes(bytes: Array<Int>) r: Result<String, TokenizerError> {
         if width >= 3 {
             let third = bytes[index + 2]
             if third < 128 or third > 191 {
+                seen_string_release_owned(output)
                 return Err<String, TokenizerError>(tokenizerError(
                     "tokenizer.decode_utf8", index,
                     "decoded token bytes contain an invalid continuation"))
@@ -273,6 +296,7 @@ fun decodeUtf8TokenBytes(bytes: Array<Int>) r: Result<String, TokenizerError> {
         if width == 4 {
             let fourth = bytes[index + 3]
             if fourth < 128 or fourth > 191 {
+                seen_string_release_owned(output)
                 return Err<String, TokenizerError>(tokenizerError(
                     "tokenizer.decode_utf8", index,
                     "decoded token bytes contain an invalid continuation"))
@@ -281,7 +305,10 @@ fun decodeUtf8TokenBytes(bytes: Array<Int>) r: Result<String, TokenizerError> {
                 ((bytes[index + 1] & 63) << 12) |
                 ((bytes[index + 2] & 63) << 6) | (fourth & 63)
         }
-        output = output + String.fromCharCode(codepoint)
+        let character = String.fromCharCode(codepoint)
+        let next = output + character
+        seen_string_release_owned(output); seen_string_release_owned(character)
+        output = next
         index = index + width
     }
     return Ok<String, TokenizerError>(output)
@@ -290,7 +317,7 @@ fun decodeUtf8TokenBytes(bytes: Array<Int>) r: Result<String, TokenizerError> {
 fun byteBpeDecode(spec: TokenizerSpec, ids: Array<Int>, maxOutputBytes: Int)
     r: Result<String, TokenizerError> {
     var bytes = Array<Int>()
-    var output = ""
+    var output = seen_string_clone_owned("")
     var index = 0
     while index < ids.length() {
         var specialText = ""
@@ -303,14 +330,20 @@ fun byteBpeDecode(spec: TokenizerSpec, ids: Array<Int>, maxOutputBytes: Int)
         }
         if specialText.length() > 0 {
             let decoded = decodeUtf8TokenBytes(bytes)
-            if decoded.isErr() { bytes.free(); return decoded }
-            output = output + decoded.unwrap() + specialText
+            if decoded.isErr() {
+                bytes.free(); seen_string_release_owned(output); return decoded
+            }
+            let chunk = decoded.unwrap(); decoded.releaseContainer()
+            let prefix = output + chunk
+            seen_string_release_owned(output); seen_string_release_owned(chunk)
+            output = prefix + specialText
+            seen_string_release_owned(prefix)
             bytes.free()
             bytes = Array<Int>()
         } else {
             let token = spec.tokenForId(ids[index])
             if token.length() == 0 {
-                bytes.free()
+                bytes.free(); seen_string_release_owned(output)
                 return Err<String, TokenizerError>(tokenizerError(
                     "tokenizer.unknown_id", index,
                     "token identifier is absent from the vocabulary"))
@@ -320,7 +353,7 @@ fun byteBpeDecode(spec: TokenizerSpec, ids: Array<Int>, maxOutputBytes: Int)
             while tokenIndex < count {
                 let byte = bpeCodepointToByte(tokenizerCodepointAt(token, tokenIndex))
                 if byte < 0 or bytes.length() >= maxOutputBytes {
-                    bytes.free()
+                    bytes.free(); seen_string_release_owned(output)
                     return Err<String, TokenizerError>(tokenizerError(
                         "tokenizer.decode_limit", index,
                         "decoded token bytes are invalid or exceed the bound"))
@@ -332,9 +365,13 @@ fun byteBpeDecode(spec: TokenizerSpec, ids: Array<Int>, maxOutputBytes: Int)
     }
     let decoded = decodeUtf8TokenBytes(bytes)
     bytes.free()
-    if decoded.isErr() { return decoded }
-    output = output + decoded.unwrap()
+    if decoded.isErr() { seen_string_release_owned(output); return decoded }
+    let chunk = decoded.unwrap(); decoded.releaseContainer()
+    let complete = output + chunk
+    seen_string_release_owned(output); seen_string_release_owned(chunk)
+    output = complete
     if output.length() > maxOutputBytes {
+        seen_string_release_owned(output)
         return Err<String, TokenizerError>(tokenizerError(
             "tokenizer.decode_limit", ids.length(),
             "decoded text exceeds the caller bound"))

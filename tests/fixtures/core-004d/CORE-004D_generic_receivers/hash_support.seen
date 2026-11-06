@@ -1,0 +1,8 @@
+@nondeterministic
+@type_alias("HashMap<Int,Int>")
+class Danger {}
+
+@nondeterministic
+fun makeDanger() r: Danger {
+    return HashMap<Int,Int>.new() as Danger
+}

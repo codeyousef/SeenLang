@@ -1,0 +1,8 @@
+// Marker text and ordinary Seen function names do not select native GPU code.
+fun seen_gpu_fake() r: Int { return 7 }
+fun main() r: Int {
+    if seen_gpu_fake() != 7 { return 1 }
+    println("@compute Buffer<Float32> Uniform<Float32> seen_gpu_init")
+    println("PASS: GPU-001A CPU marker literals and non-extern names remain CPU-only")
+    return 0
+}

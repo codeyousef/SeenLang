@@ -58,7 +58,7 @@ for fixture in valid_borrow valid_early_return; do
 done
 
 printf 'Z' > "$WORK_DIR/one-byte.bin"
-run_seen compile "$ROOT_DIR/seen_std/tests/memory/uint8_pointer_deref.seen" \
+run_seen compile "$ROOT_DIR/seen_std/tests/memory/uint8_pointer_deref_fixture.seen" \
     "$WORK_DIR/uint8-deref" --release --lto thin --no-cache --no-fork \
     --emit-module-ir-dir "$WORK_DIR/uint8-ir" --target-cpu x86-64 \
     >"$WORK_DIR/uint8.log" 2>&1

@@ -1,0 +1,126 @@
+/// A bounded Seen owner for temporary frontend allocations, including parser
+/// recovery nodes replaced before they become reachable from the final AST.
+/// Native code reports storage events; lookup, limits and lifetime stay here.
+extern "C" fun seen_allocation_observer_install(context: *Void, entry: UInt64) r: Int64
+extern "C" fun seen_allocation_observer_remove(context: *Void) r: Int64
+extern "C" fun seen_pool_free(value: *Void, bytes: Int64) r: Void
+extern "C" fun seen_cstr_free(value: *Void) r: Void
+extern "C" fun seen_memory_release_bytes(bytes: Int64) r: Void
+extern "C" fun seen_aligned_buffer_free(value: *Void, bytes: Int64, alignment: Int64) r: Void
+
+fun allocationOwnerFree(address: UInt64, bytes: Int64, kind: Int) r: Void {
+    if kind < 0 { seen_aligned_buffer_free(address as *Void, bytes, (-kind) as Int64) }
+    else if kind == 1 { seen_pool_free(address as *Void, bytes) }
+    else {
+        seen_cstr_free(address as *Void)
+        if kind == 0 { seen_memory_release_bytes(bytes) }
+    }
+}
+
+class FrontendAllocationOwner {
+    var addresses: Array<UInt64>
+    var sizes: Array<Int64>
+    var kinds: Array<Int>
+    var states: Array<Int>
+    var capacity: Int
+    var count: Int
+    var bytes: Int64
+    var recording: Bool
+    var attached: Bool
+
+    static fun create() r: FrontendAllocationOwner {
+        let capacity = 262144
+        return FrontendAllocationOwner{addresses: Array<UInt64>.withLength(capacity),
+            sizes: Array<Int64>.withLength(capacity), kinds: Array<Int>.withLength(capacity),
+            states: Array<Int>.withLength(capacity), capacity: capacity, count: 0,
+            bytes: 0 as Int64, recording: false, attached: false}
+    }
+    fun bucket(address: UInt64) r: Int {
+        let mixed = (address >> (3 as UInt64)) ^ (address >> (19 as UInt64))
+        return (mixed & ((this.capacity - 1) as UInt64)) as Int
+    }
+    fun find(address: UInt64) r: Int {
+        var slot = this.bucket(address); var probes = 0
+        while probes < this.capacity {
+            if this.states[slot] == 0 { return -1 }
+            if this.states[slot] == 1 and this.addresses[slot] == address { return slot }
+            slot = (slot + 1) & (this.capacity - 1); probes = probes + 1
+        }
+        return -1
+    }
+    fun erase(slot: Int) r: Void {
+        this.bytes = this.bytes - this.sizes[slot]; this.count = this.count - 1
+        this.states[slot] = 2; this.addresses[slot] = 0 as UInt64
+        this.sizes[slot] = 0 as Int64; this.kinds[slot] = 0
+    }
+    fun insertAt(slot: Int, address: UInt64, bytes: Int64, kind: Int) r: Void {
+        if bytes <= (0 as Int64) or bytes > (268435456 as Int64) - this.bytes {
+            abort("E_GPU_FRONTEND_LIMIT: temporary frontend allocation budget exceeded")
+        }
+        this.addresses[slot] = address; this.sizes[slot] = bytes; this.kinds[slot] = kind
+        this.states[slot] = 1; this.bytes = this.bytes + bytes; this.count = this.count + 1
+    }
+    fun record(address: UInt64, bytes: Int64, kind: Int) r: Void {
+        var slot = this.bucket(address); var probes = 0; var tombstone = -1
+        while probes < this.capacity {
+            let state = this.states[slot]
+            if state == 1 and this.addresses[slot] == address {
+                this.erase(slot); this.insertAt(slot, address, bytes, kind); return
+            }
+            if state == 2 and tombstone < 0 { tombstone = slot }
+            if state == 0 {
+                if tombstone >= 0 { slot = tombstone }
+                this.insertAt(slot, address, bytes, kind); return
+            }
+            slot = (slot + 1) & (this.capacity - 1); probes = probes + 1
+        }
+        if tombstone >= 0 { this.insertAt(tombstone, address, bytes, kind); return }
+        abort("E_GPU_FRONTEND_LIMIT: temporary frontend allocation count exceeded")
+    }
+    fun attach() r: Void {
+        if this.attached or seen_allocation_observer_install(this as *Void, frontendAllocationEvent as UInt64) != (1 as Int64) {
+            abort("E_GPU_FRONTEND_OWNER: frontend allocation owner is already active")
+        }
+        this.attached = true; this.recording = true
+    }
+    fun pause() r: Void { this.recording = false }
+    /// Detached records are read-only borrows until release. Their storage must
+    /// not be individually freed or reallocated while notifications are absent.
+    fun detach() r: Void {
+        this.recording = false
+        if this.attached {
+            if seen_allocation_observer_remove(this as *Void) != (1 as Int64) { abort("E_GPU_FRONTEND_OWNER: allocation owner differs") }
+            this.attached = false
+        }
+    }
+    fun release() r: Void {
+        this.detach()
+        var index = 0
+        while index < this.capacity {
+            if this.states[index] == 1 { allocationOwnerFree(this.addresses[index], this.sizes[index], this.kinds[index]) }
+            index = index + 1
+        }
+        this.addresses.free(); this.sizes.free(); this.kinds.free(); this.states.free(); this.free()
+    }
+}
+
+fun frontendAllocationEvent(context: *Void, event: Int64, previous: UInt64,
+    current: UInt64, bytes: Int64, kind: Int64) r: Int64 {
+    let owner = context as FrontendAllocationOwner
+    if event == (1 as Int64) {
+        if owner.recording { owner.record(current, bytes, kind as Int) }; return 0 as Int64
+    }
+    let prior = owner.find(previous)
+    if event == (2 as Int64) {
+        let tracked = prior >= 0
+        if tracked { owner.erase(prior) }
+        if tracked or owner.recording { owner.record(current, bytes, kind as Int) }
+    } else if prior >= 0 {
+        let originalBytes = owner.sizes[prior]; let originalKind = owner.kinds[prior]
+        owner.erase(prior)
+        if event == (4 as Int64) {
+            allocationOwnerFree(previous, originalBytes, originalKind); return 1 as Int64
+        }
+    }
+    return 0 as Int64
+}

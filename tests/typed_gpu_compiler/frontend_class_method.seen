@@ -1,0 +1,5 @@
+class ShaderOwner {
+    @compute(64)
+    fun invalidKernel() { }
+}
+fun main() r: Int { return 0 }

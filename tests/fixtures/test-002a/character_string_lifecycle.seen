@@ -1,0 +1,34 @@
+import memory.allocation.{memoryStats}
+
+extern "C" fun seen_string_release_owned(value: String) r: Void
+
+fun checkCharacter(codepoint: Int, width: Int) r: Int {
+    let before = memoryStats()
+    let text = String.fromCharCode(codepoint)
+    if text.length() != width { return 1 }
+    seen_string_release_owned(text)
+    let after = memoryStats()
+    if after.usedBytes != before.usedBytes {
+        println("character allocation baseline/after=" +
+            before.usedBytes.toString() + "/" + after.usedBytes.toString())
+        return 2
+    }
+    if after.allocationFailures != before.allocationFailures { return 3 }
+    return 0
+}
+
+fun main() r: Int {
+    var cycle = 0
+    while cycle < 100 {
+        if checkCharacter(0, 1) != 0 { return 10 }
+        if checkCharacter(65, 1) != 0 { return 11 }
+        if checkCharacter(233, 2) != 0 { return 12 }
+        if checkCharacter(9601, 3) != 0 { return 13 }
+        if checkCharacter(128512, 4) != 0 { return 14 }
+        cycle = cycle + 1
+    }
+    println("PASS: UTF-8 character strings restore exact live allocation baseline")
+    return 0
+}
+
+main()

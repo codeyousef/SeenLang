@@ -1,0 +1,151 @@
+/// Bounded, integrity-checked persistent cache envelopes. A missing or invalid
+/// requested cache is an error, never an implicit temporary-cache success.
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import compute.error.{GpuError, gpuFailure}
+import compute.vulkan_pipeline_artifact.{gpuVkDigest, gpuVkPipelineOom}
+import fs.types.{Path, OpenOptions, DirectIoPolicy, fsFailure}
+import fs.file.{File, seen_fs_metadata, seen_fs_pread_array_result}
+import compute.vulkan_pipeline_cache_file.{gpuVkAtomicCacheWrite, gpuVkCacheFsFailure}
+import compute.operation.{gpuCheckOperation}
+import json.builder.{seen_string_release_owned}
+import memory.aligned_buffer.{OwnedBuffer}
+import memory.allocation.{allocationBudgetAvailable}
+import compute.vulkan_abi.{gpuVkDrop}
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+let GPU_VULKAN_CACHE_MAX_BYTES: Int = 16777216
+// Array<Int>.push starts at eight slots and doubles. Include both old and new
+// storage at a growth boundary (eight bytes per slot), not just logical bytes.
+// Bound before rounding/multiplying so all admission arithmetic stays in Int.
+private fun gpuVkCacheArrayPeakBytes(count: Int) r: Int {
+    if count < 0 or count > GPU_VULKAN_CACHE_MAX_BYTES + 8192 { return -1 }
+    var capacity = 8
+    while capacity < count { capacity = capacity * 2 }
+    return capacity * 12
+}
+// Fixed headroom covers envelope strings (identity <=4096), SHA state/block/
+// compression/hex rendering, owned-buffer metadata, and typed return owners.
+let GPU_VULKAN_CACHE_SCRATCH_BYTES: Int = 65536
+fun gpuVkCacheDigest(payload: Array<Int>) r: Result<String, GpuError> {
+    let arrayPeak = gpuVkCacheArrayPeakBytes(payload.length())
+    // updateString builds another Array<Int> while the packed OwnedBuffer lives.
+    if arrayPeak < 0 or not allocationBudgetAvailable(arrayPeak + payload.length() + GPU_VULKAN_CACHE_SCRATCH_BYTES) {
+        return Err<String, GpuError>(gpuVkPipelineOom("gpu.vulkan.cache.digest"))
+    }
+    let allocated = OwnedBuffer<UInt8>.allocate(payload.length() as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { allocated.unwrapErr().free(); allocated.releaseContainer(); return Err<String, GpuError>(gpuVkPipelineOom("gpu.vulkan.cache")) }
+    let buffer = allocated.unwrap(); allocated.releaseContainer(); var i = 0
+    while i < payload.length() {
+        if payload[i] < 0 or payload[i] > 255 { gpuVkDrop(buffer); return Err<String, GpuError>(gpuFailure("gpu.cache_invalid", "gpu.vulkan.cache.digest", "cache payload contains a value outside the unsigned byte domain")) }
+        buffer.data[i] = payload[i] as UInt8; i = i + 1
+    }
+    let digest = gpuVkDigest(seen_string_view_bytes(buffer.data as *const UInt8, payload.length() as Int64)); gpuVkDrop(buffer); return digest
+}
+fun gpuVkCacheFailure() r: GpuError { return gpuFailure("gpu.cache_invalid", "gpu.vulkan.cache", "cache identity, integrity, bounds or persistent I/O failed") }
+fun gpuVkCacheEncode(identity: String, payload: Array<Int>) r: Result<Array<Int>, GpuError> {
+    if identity.length() < 1 or identity.length() > 4096 { return Err<Array<Int>, GpuError>(gpuFailure("gpu.cache_invalid", "gpu.vulkan.cache.encode", "cache identity exceeds envelope bounds")) }
+    if payload.length() < 32 or payload.length() > GPU_VULKAN_CACHE_MAX_BYTES { return Err<Array<Int>, GpuError>(gpuFailure("gpu.cache_invalid", "gpu.vulkan.cache.encode", "cache payload exceeds envelope bounds")) }
+    let magic = "seen-vulkan-cache-v1\n"
+    let hashPeak = gpuVkCacheArrayPeakBytes(payload.length())
+    let outputPeak = gpuVkCacheArrayPeakBytes(payload.length() + identity.length() + magic.length() + 66)
+    if not allocationBudgetAvailable(hashPeak + outputPeak + payload.length() + GPU_VULKAN_CACHE_SCRATCH_BYTES) {
+        return Err<Array<Int>, GpuError>(gpuVkPipelineOom("gpu.vulkan.cache.encode"))
+    }
+    let hashed = gpuVkCacheDigest(payload)
+    if hashed.isErr() { let error = hashed.unwrapErr(); hashed.releaseContainer(); return Err<Array<Int>, GpuError>(error) }
+    let digest = hashed.unwrap(); hashed.releaseContainer()
+    let first = magic + identity; let second = first + "\n"; seen_string_release_owned(first)
+    let third = second + digest; seen_string_release_owned(second); let header = third + "\n"; seen_string_release_owned(third)
+    let output = Array<Int>(); var i = 0; while i < header.length() { output.push(header.byteAt(i)); i = i + 1 }
+    i = 0; while i < payload.length() { output.push(payload[i]); i = i + 1 }
+    seen_string_release_owned(header); seen_string_release_owned(digest); return Ok<Array<Int>, GpuError>(output)
+}
+fun gpuVkCacheDecode(identity: String, bytes: Array<Int>) r: Result<Array<Int>, GpuError> {
+    if identity.length() < 1 or identity.length() > 4096 or bytes.length() > GPU_VULKAN_CACHE_MAX_BYTES + 8192 { return Err<Array<Int>, GpuError>(gpuVkCacheFailure()) }
+    if not allocationBudgetAvailable(GPU_VULKAN_CACHE_SCRATCH_BYTES) {
+        return Err<Array<Int>, GpuError>(gpuVkPipelineOom("gpu.vulkan.cache.decode"))
+    }
+    let first = "seen-vulkan-cache-v1\n" + identity; let prefix = first + "\n"; seen_string_release_owned(first); let offset = prefix.length() + 65
+    var valid = identity.length() > 0 and identity.length() <= 4096 and bytes.length() >= offset + 32 and bytes.length() <= offset + GPU_VULKAN_CACHE_MAX_BYTES
+    var i = 0; while i < prefix.length() and valid { if bytes[i] != prefix.byteAt(i) { valid = false }; i = i + 1 }
+    if valid { if bytes[offset - 1] != 10 { valid = false } }
+    if valid {
+        let payloadBytes = bytes.length() - offset
+        // Input bytes remain borrowed; admit the retained decoded copy, SHA's
+        // second Int array, and the packed digest buffer before either grows.
+        let arrayPeak = gpuVkCacheArrayPeakBytes(payloadBytes)
+        if not allocationBudgetAvailable(arrayPeak * 2 + payloadBytes + GPU_VULKAN_CACHE_SCRATCH_BYTES) {
+            seen_string_release_owned(prefix); return Err<Array<Int>, GpuError>(gpuVkPipelineOom("gpu.vulkan.cache.decode"))
+        }
+    }
+    let payload = Array<Int>(); if valid { i = offset; while i < bytes.length() { payload.push(bytes[i]); i = i + 1 } }
+    if valid {
+        let hashed = gpuVkCacheDigest(payload)
+        if hashed.isErr() { let error = hashed.unwrapErr(); hashed.releaseContainer(); payload.free(); seen_string_release_owned(prefix); return Err<Array<Int>, GpuError>(error) }
+        else { let digest = hashed.unwrap(); hashed.releaseContainer(); i = 0
+            while i < 64 { if bytes[prefix.length() + i] != digest.byteAt(i) { valid = false }; i = i + 1 }; seen_string_release_owned(digest)
+        }
+    }
+    seen_string_release_owned(prefix)
+    if not valid { payload.free(); return Err<Array<Int>, GpuError>(gpuVkCacheFailure()) }
+    return Ok<Array<Int>, GpuError>(payload)
+}
+private fun gpuVkReadPipelineCache(borrow file: File, operation: OperationContext) r: Result<Array<Int>, GpuError> {
+    var size = 0 as UInt64; var kind = 0 as Int32; var mode = 0 as UInt64; var modified = 0 as Int64
+    var device = 0 as UInt64; var inode = 0 as UInt64; var links = 0 as UInt64
+    let status = seen_fs_metadata(file.handle, &size, &kind, &mode, &modified, &device, &inode, &links)
+    if status != (0 as Int32) { return Err<Array<Int>, GpuError>(gpuVkCacheFsFailure(fsFailure(status, "metadata"), "gpu.vulkan.cache.read")) }
+    if size < (32 as UInt64) or size > ((GPU_VULKAN_CACHE_MAX_BYTES + 8192) as UInt64) or kind != (1 as Int32) {
+        return Err<Array<Int>, GpuError>(gpuVkCacheFailure())
+    }
+    let countBytes = size as Int
+    // The file array remains live through decode and checksum validation.
+    // Also cover pread's packed scratch and both decode/hash Int arrays.
+    let arrayPeak = gpuVkCacheArrayPeakBytes(countBytes)
+    if not allocationBudgetAvailable(arrayPeak * 3 + countBytes + GPU_VULKAN_CACHE_SCRATCH_BYTES) {
+        return Err<Array<Int>, GpuError>(gpuVkPipelineOom("gpu.vulkan.cache.read"))
+    }
+    let bytes = Array<Int>(); var i = 0
+    while i < size as Int { bytes.push(0); i = i + 1 }; i = 0
+    while i < bytes.length() {
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.cache.read")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); bytes.free(); return Err<Array<Int>, GpuError>(error) }
+        checked.releaseContainer()
+        let count = seen_fs_pread_array_result(file.handle, i as UInt64, bytes, i as Int64, (bytes.length() - i) as Int64)
+        if count < (0 as Int64) { bytes.free(); return Err<Array<Int>, GpuError>(gpuVkCacheFsFailure(fsFailure((-count) as Int32, "read"), "gpu.vulkan.cache.read")) }
+        if count == (0 as Int64) or count > (bytes.length() - i) as Int64 { bytes.free(); return Err<Array<Int>, GpuError>(gpuVkCacheFailure()) }
+        i = i + (count as Int)
+    }
+    return Ok<Array<Int>, GpuError>(bytes)
+}
+fun gpuVkLoadPipelineCache(path: Path, identity: String, operation: OperationContext) r: Result<Array<Int>, GpuError> {
+    let checked = gpuCheckOperation(operation, "gpu.vulkan.cache.read")
+    if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<Array<Int>, GpuError>(error) }
+    checked.releaseContainer()
+    let options = OpenOptions.readOnly(); let opened = File.openNonBlocking(operation, path, options, DirectIoPolicy.Off); options.free()
+    if opened.isErr() { let error = gpuVkCacheFsFailure(opened.unwrapErr(), "gpu.vulkan.cache.open"); opened.releaseContainer(); return Err<Array<Int>, GpuError>(error) }
+    let file = opened.unwrap(); opened.releaseContainer()
+    let read = gpuVkReadPipelineCache(file, operation)
+    let closed = file.close(); file.directIo.free(); file.free()
+    if read.isErr() {
+        if closed.isErr() { read.unwrapErr().causes.push(gpuVkCacheFsFailure(closed.unwrapErr(), "gpu.vulkan.cache.close")) }
+        closed.releaseContainer(); return read
+    }
+    let bytes = read.unwrap(); read.releaseContainer()
+    if closed.isErr() { let error = gpuVkCacheFsFailure(closed.unwrapErr(), "gpu.vulkan.cache.close"); closed.releaseContainer(); bytes.free(); return Err<Array<Int>, GpuError>(error) }
+    closed.releaseContainer()
+    let observed = gpuCheckOperation(operation, "gpu.vulkan.cache.read")
+    if observed.isErr() { let error = observed.unwrapErr(); observed.releaseContainer(); bytes.free(); return Err<Array<Int>, GpuError>(error) }
+    observed.releaseContainer()
+    let decoded = gpuVkCacheDecode(identity, bytes)
+    if decoded.isErr() { let error = decoded.unwrapErr(); decoded.releaseContainer(); bytes.free(); return Err<Array<Int>, GpuError>(error) }
+    decoded.unwrap().free(); decoded.releaseContainer(); return Ok<Array<Int>, GpuError>(bytes)
+}
+fun gpuVkSavePipelineCache(path: Path, identity: String, payload: Array<Int>, operation: OperationContext) r: Result<Bool, GpuError> {
+    let checked = gpuCheckOperation(operation, "gpu.vulkan.cache.save")
+    if checked.isErr() { return checked }; checked.releaseContainer()
+    let encoded = gpuVkCacheEncode(identity, payload)
+    if encoded.isErr() { let error = encoded.unwrapErr(); encoded.releaseContainer(); return Err<Bool, GpuError>(error) }
+    let bytes = encoded.unwrap(); encoded.releaseContainer()
+    let saved = gpuVkAtomicCacheWrite(path, bytes, operation); bytes.free(); return saved
+}

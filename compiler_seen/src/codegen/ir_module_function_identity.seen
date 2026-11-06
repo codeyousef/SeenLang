@@ -1,0 +1,180 @@
+// Native identities are codegen state, never source annotations or AST names.
+// Only the compiler's verified hosted-source graph may select a namespace.
+import parser.real_parser.{FunctionNode}
+import typechecker.semantic_registry.{SemanticDeclarationRegistry, semanticCanonicalDeclaration}
+import str.string.{StringBuilder}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned, seen_string_builder_flatten_owned}
+
+var g_moduleFunctionCanonicalNames: Array<String> = Array<String>()
+var g_moduleFunctionNativeNames: Array<String> = Array<String>()
+var g_moduleFunctionNamespace: String = ""
+var g_moduleFunctionOwner: String = ""
+var g_moduleFunctionBindingsActive = 0
+var g_moduleFunctionBindingRegistry: SemanticDeclarationRegistry = SemanticDeclarationRegistry.new()
+
+fun resetModuleFunctionIdentitiesImpl() r: Void {
+    var i = 0
+    while i < g_moduleFunctionCanonicalNames.length() {
+        seen_string_release_owned(g_moduleFunctionCanonicalNames[i])
+        seen_string_release_owned(g_moduleFunctionNativeNames[i])
+        i = i + 1
+    }
+    g_moduleFunctionCanonicalNames.free()
+    g_moduleFunctionNativeNames.free()
+    g_moduleFunctionCanonicalNames = Array<String>()
+    g_moduleFunctionNativeNames = Array<String>()
+    // Empty state borrows a literal; only nonempty values own pool storage.
+    if g_moduleFunctionNamespace != "" {
+        seen_string_release_owned(g_moduleFunctionNamespace)
+    }
+    if g_moduleFunctionOwner != "" {
+        seen_string_release_owned(g_moduleFunctionOwner)
+    }
+    g_moduleFunctionNamespace = ""
+    g_moduleFunctionOwner = ""
+    g_moduleFunctionBindingsActive = 0
+}
+
+fun moduleFunctionKeepsNativeAbiImpl(fn: FunctionNode) r: Bool {
+    if fn.isExtern { return true }
+    var i = 0
+    while i < fn.decorators.length() {
+        if fn.decorators[i].name == "export" { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fun moduleFunctionNamespaceImpl(identity: String) r: String {
+    if not identity.startsWith("hosted/") { return "" }
+    // Injective byte encoding avoids both punctuation ambiguity and truncated
+    // hash collisions. Archive digests belong here only for source packages:
+    // their verified archive already exists before native compilation begins.
+    let digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+    let result = StringBuilder{parts: Array<String>(), totalLength: 0}
+    result.append("__seen_module_")
+    var i = 0
+    while i < identity.length() {
+        let byte = identity.byteAt(i)
+        let high = byte / 16
+        let low = byte % 16
+        result.append(digits[high])
+        result.append(digits[low])
+        i = i + 1
+    }
+    result.append("_")
+    let ownedPrefix = seen_string_builder_flatten_owned(result.parts,
+        result.totalLength)
+    result.parts.free()
+    result.free()
+    digits.free()
+    return ownedPrefix
+}
+
+fun moduleOwnedGeneratedFunctionSymbolImpl(name: String) r: String {
+    if g_moduleFunctionNamespace == "" { return name }
+    return g_moduleFunctionNamespace + name
+}
+
+fun declaredModuleFreeFunctionSymbolImpl(fn: FunctionNode) r: String {
+    if g_moduleFunctionNamespace == "" or
+        moduleFunctionKeepsNativeAbiImpl(fn) { return fn.name }
+    let canonical = semanticCanonicalDeclaration(g_moduleFunctionOwner,
+        fn.name)
+    var i = 0
+    while i < g_moduleFunctionCanonicalNames.length() {
+        if g_moduleFunctionCanonicalNames[i] == canonical {
+            return g_moduleFunctionNativeNames[i]
+        }
+        i = i + 1
+    }
+    // Synthesized class/static methods pass through the same emitter but are
+    // not top-level free-function declarations in this lexical module.
+    return fn.name
+}
+
+fun prepareModuleFunctionIdentityImpl(ownerModule: String,
+    nativeModuleIdentity: String) r: Void {
+
+    if g_moduleFunctionNamespace != "" {
+        seen_string_release_owned(g_moduleFunctionNamespace)
+    }
+    if g_moduleFunctionOwner != "" {
+        seen_string_release_owned(g_moduleFunctionOwner)
+    }
+    g_moduleFunctionNamespace = moduleFunctionNamespaceImpl(nativeModuleIdentity)
+    g_moduleFunctionOwner = ""
+    if ownerModule != "" {
+        g_moduleFunctionOwner = seen_string_clone_owned(ownerModule)
+    }
+    // Declaration scans cannot resolve lexical imports until every module has
+    // been collected. Declaration identity is independent of those bindings.
+    g_moduleFunctionBindingsActive = 0
+}
+
+fun registerModuleFreeFunctionNativeSymbolImpl(sourceName: String,
+    nativeName: String) r: Void {
+
+    if g_moduleFunctionNamespace == "" or sourceName == nativeName { return }
+    let canonical = semanticCanonicalDeclaration(g_moduleFunctionOwner,
+        sourceName)
+    var i = 0
+    while i < g_moduleFunctionCanonicalNames.length() {
+        if g_moduleFunctionCanonicalNames[i] == canonical {
+            if g_moduleFunctionNativeNames[i] != nativeName {
+                seen_string_release_owned(g_moduleFunctionNativeNames[i])
+                g_moduleFunctionNativeNames[i] = seen_string_clone_owned(nativeName)
+            }
+            return
+        }
+        i = i + 1
+    }
+    g_moduleFunctionCanonicalNames.push(seen_string_clone_owned(canonical))
+    g_moduleFunctionNativeNames.push(seen_string_clone_owned(nativeName))
+}
+
+fun registerModuleFreeFunctionDeclarationImpl(fn: FunctionNode) r: Void {
+    if not moduleFunctionKeepsNativeAbiImpl(fn) {
+        registerModuleFreeFunctionNativeSymbolImpl(fn.name,
+            moduleOwnedGeneratedFunctionSymbolImpl(fn.name))
+    }
+}
+
+fun installModuleFreeFunctionBindingsImpl(registry: SemanticDeclarationRegistry)
+    r: Void {
+
+    g_moduleFunctionBindingRegistry = registry
+    // Qualified imports need declaration resolution even when their target
+    // keeps its root, stdlib, extern, export, or prebuilt ABI spelling.
+    g_moduleFunctionBindingsActive = 1
+}
+
+/// Lexical binding exists independently of whether native hosted names need
+/// rewriting. Builtin dispatch must honor ordinary/root declarations too.
+fun moduleSourceDeclarationOwnerImpl(name: String) r: String {
+    let index = g_moduleFunctionBindingRegistry.lookupIndex(
+        g_moduleFunctionOwner, name)
+    if index < 0 { return "" }
+    return g_moduleFunctionBindingRegistry.canonicalNames[index]
+}
+
+fun resolveModuleFreeFunctionSymbolImpl(name: String) r: String {
+    if g_moduleFunctionBindingsActive == 0 { return name }
+    let index = g_moduleFunctionBindingRegistry.lookupIndex(
+        g_moduleFunctionOwner, name)
+    if index < 0 { return name }
+    if g_moduleFunctionBindingRegistry.kinds[index] != "Function" {
+        return name
+    }
+    let canonical = g_moduleFunctionBindingRegistry.canonicalNames[index]
+    var i = 0
+    while i < g_moduleFunctionCanonicalNames.length() {
+        if g_moduleFunctionCanonicalNames[i] == canonical {
+            return g_moduleFunctionNativeNames[i]
+        }
+        i = i + 1
+    }
+    // Externs, explicit exports, standalone/root modules and prebuilt object
+    // interfaces retain their actual ABI, including through lexical aliases.
+    return g_moduleFunctionBindingRegistry.names[index]
+}

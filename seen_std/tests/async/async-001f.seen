@@ -1,5 +1,5 @@
 import async.mod.{AsyncLimits, CancellationSource, DeterministicExecutor,
-    AsyncWaitGroup, AsyncBarrier, boundedFanOut, selectTaskId,
+    DeterministicWaitGroup, DeterministicBarrier, boundedFanOut, selectTaskId,
     deterministicReduceSum}
 
 fun main() r: Int {
@@ -26,14 +26,14 @@ fun main() r: Int {
         CancellationSource.root(2), 2)
     if not tooMany.isErr() { return 5 }
     if tooMany.unwrapErr().code != "async.limit" { return 5 }
-    let group = AsyncWaitGroup.create(2, 2).unwrap()
+    let group = DeterministicWaitGroup.create(2, 2).unwrap()
     let groupFirst = group.done()
     if groupFirst.isErr() { return 6 }
     if groupFirst.unwrap() { return 6 }
     let groupSecond = group.done()
     if groupSecond.isErr() { return 6 }
     if not groupSecond.unwrap() { return 6 }
-    let barrier = AsyncBarrier.create(2).unwrap()
+    let barrier = DeterministicBarrier.create(2).unwrap()
     if barrier.arrive() { return 7 }
     if not barrier.arrive() { return 7 }
     let reduced = deterministicReduceSum(values, 3)

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-COMPILER="${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}"
+COMPILER="${COMPILER:-${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}}"
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 SCOPE=seen-package-run-preparation
 if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then

@@ -1,0 +1,33 @@
+@compute(workgroup: [3, 2, 8])
+fun groupWords(output: WriteBuffer<UInt32>, requested: Uniform<UInt32>) {
+    let index = localInvocationIndex; let value = subgroupLocalInvocationId + (1 as UInt32)
+    output[index * (5 as UInt32)] = subgroupShuffle(value, requested)
+    output[index * (5 as UInt32) + (1 as UInt32)] = subgroupBroadcast(value, requested)
+    output[index * (5 as UInt32) + (2 as UInt32)] = subgroupAdd(value)
+    output[index * (5 as UInt32) + (3 as UInt32)] = subgroupSize
+    output[index * (5 as UInt32) + (4 as UInt32)] = subgroupId
+    barrier(SubgroupScope, AcquireRelease, StorageMemory)
+}
+
+@device
+fun voteWord(value: Bool) r: UInt32 {
+    var result = 0 as UInt32; if value { result = 1 as UInt32 }; return result
+}
+
+@compute(48)
+fun groupVotes(output: WriteBuffer<UInt32>, threshold: Uniform<UInt32>) {
+    let index = localInvocationIndex; let predicate = subgroupLocalInvocationId < threshold
+    output[index * (3 as UInt32)] = voteWord(subgroupAll(predicate))
+    output[index * (3 as UInt32) + (1 as UInt32)] = voteWord(subgroupAny(predicate))
+    output[index * (3 as UInt32) + (2 as UInt32)] = voteWord(subgroupElect())
+}
+
+@compute(48)
+fun groupFloat(output: WriteBuffer<Float32>, value: Uniform<Float32>) {
+    output[localInvocationIndex] = subgroupAdd(value)
+}
+
+@compute(1)
+fun soleFloat(output: WriteBuffer<Float32>, value: Uniform<Float32>) {
+    output[0] = subgroupAdd(value)
+}

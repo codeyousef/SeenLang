@@ -1,6 +1,7 @@
 // ir_infer_method_leaf_driver.seen - method/call inference leaves.
 
 import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl}
 import trace.{traceGen}
 import codegen.ir_codegen_global_state.{getGlobalCurrentClassNameImpl, getFunctionReturnTypeWithGlobalStateImpl, findStructWithGlobalStateImpl, inferMethodCallBoolSuffixWithGlobalStateImpl}
 import codegen.ir_codegen_feature_state.{isAsyncFunctionWithFeatureStateImpl}
@@ -13,6 +14,7 @@ import codegen.ir_type_tables.{inferMethodCallTypeTable, inferCallTypeTable}
 import codegen.ir_simd_type_helpers.{isSimdVectorTypeImpl, isSimdValueTypeImpl}
 import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState}
 import codegen.ir_string_collect.{getBaseTypeNameImpl}
+import codegen.ir_module_function_identity.{resolveModuleFreeFunctionSymbolImpl}
 
 fun tryInferExplicitThisMethodCallType(expr: ParserExpressionNode) r: String {
     var implicitMethodRetType: String = ""
@@ -30,9 +32,11 @@ fun tryInferBareMethodOrFunctionCallType(expr: ParserExpressionNode) r: String {
         implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)
     }
-    let freeFuncRetType = getFunctionReturnTypeWithGlobalStateImpl(expr.callee)
+    let functionSymbol = resolveModuleFreeFunctionSymbolImpl(
+        stripGenericCalleeNameImpl(expr.callee))
+    let freeFuncRetType = getFunctionReturnTypeWithGlobalStateImpl(functionSymbol)
     var asyncFlag = 0
-    if isAsyncFunctionWithFeatureStateImpl(expr.callee) {
+    if isAsyncFunctionWithFeatureStateImpl(functionSymbol) {
         asyncFlag = 1
     }
     return inferBareMethodOrFunctionCallTypeImpl(expr.literalValue,
@@ -154,9 +158,11 @@ fun tryInferLateMethodCallFallbackType(expr: ParserExpressionNode) r: String {
         implicitMethodRetType = getMethodReturnTypeState(getGlobalCurrentClassNameImpl(),
             expr.callee)
     }
-    let freeFuncRetType = getFunctionReturnTypeWithGlobalStateImpl(expr.callee)
+    let functionSymbol = resolveModuleFreeFunctionSymbolImpl(
+        stripGenericCalleeNameImpl(expr.callee))
+    let freeFuncRetType = getFunctionReturnTypeWithGlobalStateImpl(functionSymbol)
     var asyncFlag = 0
-    if isAsyncFunctionWithFeatureStateImpl(expr.callee) {
+    if isAsyncFunctionWithFeatureStateImpl(functionSymbol) {
         asyncFlag = 1
     }
     let boolSuffixType = inferMethodCallBoolSuffixWithGlobalStateImpl(expr.callee)
@@ -196,9 +202,11 @@ fun tryInferGeneratedCallType(expr: ParserExpressionNode) r: String {
 
 fun tryInferResolvedCallExprType(expr: ParserExpressionNode) r: String {
     let resolvedPlan = planResolvedCallInferenceImpl(getGlobalCurrentClassNameImpl())
-    let userRetType = getFunctionReturnTypeWithGlobalStateImpl(expr.callee)
+    let functionSymbol = resolveModuleFreeFunctionSymbolImpl(
+        stripGenericCalleeNameImpl(expr.callee))
+    let userRetType = getFunctionReturnTypeWithGlobalStateImpl(functionSymbol)
     var asyncFlag = 0
-    if isAsyncFunctionWithFeatureStateImpl(expr.callee) {
+    if isAsyncFunctionWithFeatureStateImpl(functionSymbol) {
         asyncFlag = 1
     }
     let callTable = inferCallTypeTable(expr.callee)

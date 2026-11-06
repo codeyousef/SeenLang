@@ -1,0 +1,82 @@
+/// Closed operation metadata shared by diagnostics, inference and emission.
+import simd.ir_types.{simdBuiltinTypeAt, simdBuiltinLanes, simdMaskLanes}
+
+fun simdOperationPrefix(name: String) r: String {
+    if name.startsWith("simd_unsafe_masked_load_") { return "simd_unsafe_masked_load_" }
+    if name.startsWith("simd_unsafe_masked_store_") { return "simd_unsafe_masked_store_" }
+    if name.startsWith("simd_fma_") { return "simd_fma_" }
+    if name.startsWith("simd_permute_") { return "simd_permute_" }
+    if name.startsWith("simd_unsafe_widen_u8_") { return "simd_unsafe_widen_u8_" }
+    if name.startsWith("simd_unsafe_widen_s8_") { return "simd_unsafe_widen_s8_" }
+    if name.startsWith("simd_unsafe_narrow_u8_") { return "simd_unsafe_narrow_u8_" }
+    if name.startsWith("simd_unsafe_narrow_s8_") { return "simd_unsafe_narrow_s8_" }
+    return ""
+}
+fun simdOperationVector(name: String) r: String {
+    let prefix = simdOperationPrefix(name)
+    if prefix == "" { return "" }
+    var vector = ""; var index = 0
+    var candidate = simdBuiltinTypeAt(index)
+    while candidate != "" {
+        if name.length() == prefix.length() + candidate.length() and name.endsWith(candidate) {
+            vector = candidate
+        }
+        index = index + 1; candidate = simdBuiltinTypeAt(index)
+    }
+    if vector == "" { return "" }
+    if (prefix.startsWith("simd_unsafe_widen_") or prefix.startsWith("simd_unsafe_narrow_")) and
+        not vector.startsWith("i32") { return "" }
+    if prefix == "simd_fma_" and not vector.startsWith("f") { return "" }
+    if prefix == "simd_permute_" and vector == "f64x2" { return "" }
+    return vector
+}
+fun simdPrefetchLocality(name: String) r: Int {
+    if name == "simd_unsafe_prefetch_read_0" { return 0 }
+    if name == "simd_unsafe_prefetch_read_1" { return 1 }
+    if name == "simd_unsafe_prefetch_read_2" { return 2 }
+    if name == "simd_unsafe_prefetch_read_3" { return 3 }
+    return -1
+}
+fun simdOperationArity(name: String) r: Int {
+    if simdPrefetchLocality(name) >= 0 { return 1 }
+    if simdOperationVector(name) == "" { return 0 }
+    if name.startsWith("simd_unsafe_widen_") { return 1 }
+    return 3
+}
+fun simdOperationResult(name: String) r: String {
+    if simdPrefetchLocality(name) >= 0 or name.startsWith("simd_unsafe_masked_store_") or
+        name.startsWith("simd_unsafe_narrow_") {
+        if simdOperationArity(name) > 0 { return "Void" }
+        return ""
+    }
+    return simdOperationVector(name)
+}
+fun simdOperationArgument(name: String, index: Int) r: String {
+    let vector = simdOperationVector(name)
+    if simdPrefetchLocality(name) >= 0 or name.startsWith("simd_unsafe_widen_") { return "address" }
+    if name.startsWith("simd_unsafe_masked_load_") {
+        if index == 0 { return "address" }
+        if index == 1 { return "mask" }
+        return vector
+    }
+    if name.startsWith("simd_unsafe_masked_store_") or name.startsWith("simd_unsafe_narrow_") {
+        if index == 1 { return "address" }
+        if index == 2 { return "mask" }
+        return vector
+    }
+    if name.startsWith("simd_permute_") and index == 2 { return "indices" }
+    return vector
+}
+
+/// Unknown semantic types are deferred by callers; known argument shapes use
+/// one rule in both early diagnostics and the defensive LLVM emission path.
+fun simdOperationArgumentValid(name: String, index: Int, actual: String) r: Bool {
+    let arity = simdOperationArity(name)
+    if index < 0 or index >= arity { return false }
+    let expected = simdOperationArgument(name, index)
+    if expected == "address" { return actual == "Int" or actual == "Int64" or actual == "UInt64" }
+    let vector = simdOperationVector(name)
+    if expected == "mask" { return simdMaskLanes(actual) == simdBuiltinLanes(vector) }
+    if expected == "indices" { return actual.startsWith("i32x") and simdBuiltinLanes(actual) == simdBuiltinLanes(vector) }
+    return actual == expected
+}

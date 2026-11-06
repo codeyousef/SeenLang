@@ -1,0 +1,40 @@
+/// Direct Vulkan 1.2 timeline feature query. The returned, owning feature
+/// chain must outlive logical-device creation; transfer scheduling is separate.
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop, gpuVkU32, gpuVkU64}
+import compute.error.{GpuError, gpuFailure}
+import memory.aligned_buffer.{OwnedBuffer}
+import core.result.{Result, Ok, Err}
+
+extern "C" fun vkGetPhysicalDeviceFeatures2(physical: UInt64, features: *UInt8) r: Void
+
+fun gpuVkTimelineSupported(borrow enabled: OwnedBuffer<UInt8>) r: Result<Bool, GpuError> {
+    if enabled.byteLength != (24 as UInt64) or gpuVkU32(enabled, 0 as UInt64) != (1000207000 as UInt32) or
+        gpuVkU64(enabled, 8 as UInt64) != (0 as UInt64) or gpuVkU32(enabled, 16 as UInt64) > (1 as UInt32) {
+        return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timeline", "Vulkan timeline feature output has invalid storage identity or Boolean"))
+    }
+    return Ok<Bool, GpuError>(gpuVkU32(enabled, 16 as UInt64) == (1 as UInt32))
+}
+fun gpuVkCaptureTimeline(physical: UInt64) r: Result<OwnedBuffer<UInt8>, GpuError> {
+    if physical == (0 as UInt64) {
+        return Err<OwnedBuffer<UInt8>, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timeline", "Vulkan timeline query requires a physical device"))
+    }
+    let prepared = gpuVkAllocate(24 as UInt64)
+    if prepared.isErr() { let error = prepared.unwrapErr(); prepared.releaseContainer(); return Err<OwnedBuffer<UInt8>, GpuError>(error) }
+    let enabled = prepared.unwrap(); prepared.releaseContainer()
+    let allocated = gpuVkAllocate(240 as UInt64)
+    if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); gpuVkDrop(enabled); return Err<OwnedBuffer<UInt8>, GpuError>(error) }
+    let features = allocated.unwrap(); allocated.releaseContainer()
+    let tag = enabled.data as *UInt32; tag[0] = 1000207000 as UInt32
+    let root = features.data as *UInt32; root[0] = 1000059000 as UInt32
+    let chain = features.data as *UInt64; chain[1] = enabled.data as UInt64
+    vkGetPhysicalDeviceFeatures2(physical, features.data)
+    let validRoot = gpuVkU32(features, 0 as UInt64) == (1000059000 as UInt32) and
+        gpuVkU64(features, 8 as UInt64) == (enabled.data as UInt64)
+    gpuVkDrop(features)
+    if not validRoot {
+        gpuVkDrop(enabled); return Err<OwnedBuffer<UInt8>, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timeline", "Vulkan timeline query changed its root feature identity"))
+    }
+    let supported = gpuVkTimelineSupported(enabled)
+    if supported.isErr() { let error = supported.unwrapErr(); supported.releaseContainer(); gpuVkDrop(enabled); return Err<OwnedBuffer<UInt8>, GpuError>(error) }
+    supported.releaseContainer(); return Ok<OwnedBuffer<UInt8>, GpuError>(enabled)
+}

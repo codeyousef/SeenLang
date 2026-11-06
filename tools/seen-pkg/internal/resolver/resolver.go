@@ -208,8 +208,12 @@ func (s *solver) indexLock(lock *model.Lock) error {
 		}
 		s.locked[key] = pkg
 	}
-	// A package identity found under a different origin is never silently used.
+	// Distinct origins may legitimately host the same package identity. Reject
+	// a foreign-origin substitute only when the exact resolution key is absent.
 	for key := range s.constraintsFromRoot() {
+		if _, exists := s.locked[key]; exists {
+			continue
+		}
 		for lockedKey := range s.locked {
 			if lockedKey.Package == key.Package && lockedKey.RegistryOrigin != key.RegistryOrigin {
 				return &Error{Code: "locked_origin_mismatch", Package: key.Package, Detail: "lock origin does not match manifest origin"}

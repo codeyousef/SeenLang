@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This suite deliberately shadows opt and llc to inject optimizer/object
-# failures.  The active capped-regression contract requires the canonical
-# bounded toolchain to remain first in PATH, and no attested derived
-# fault-injection toolchain exists yet.  Refuse before resolving or touching
-# any historical host-temporary or cache path rather than weakening containment.
-echo "RESOURCE STOP: fix regressions require an attested bounded fault-injection toolchain" >&2
-exit 126
-
-ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
 COMPILER="${COMPILER:-$ROOT_DIR/compiler_seen/target/seen}"
-TMP_ROOT="${TMP_ROOT:-/tmp/seen_fix_regressions}"
+CAPPED="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-fix-regressions
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ] ||
+    [ "${SEEN_CAPPED_REGRESSION_SCOPE:-}" != "$SCOPE" ]; then
+    exec bash "$CAPPED" "$SCOPE" --compiler "$COMPILER" -- bash "$0"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED" --verify-active "$SCOPE" --compiler "$COMPILER"
+export SEEN_COMPILER_SOURCE_ROOT="$ROOT_DIR"
+BASE_WORK="$(mktemp -d "$SEEN_ARTIFACT_ROOT/fix-regressions.XXXXXX")"
+TMP_ROOT="$BASE_WORK"
+# Keep every case's outputs and first failure; never delete shared caches.
 
 D15_EMPTY_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/d15_empty_class_import.seen"
 D15_FUNCTION_SRC="$ROOT_DIR/tests/fixtures/seen_fixes/d15_function_only_import.seen"
@@ -48,6 +51,7 @@ BOOL_RETURN_COERCION_SRC="$ROOT_DIR/tests/codegen/test_bool_return_int_coercion_
 BOOL_HELPER_LOGICAL_SRC="$ROOT_DIR/tests/codegen/test_bool_helper_logical_regression.seen"
 STRING_VAR_INIT_CONCAT_SRC="$ROOT_DIR/tests/codegen/test_string_var_initializer_concat_regression.seen"
 FLOAT32_PTR_DEREF_CAST_SRC="$ROOT_DIR/tests/codegen/test_float32_ptr_deref_cast_regression.seen"
+FLOAT_INT64_CAST_SRC="$ROOT_DIR/tests/codegen/test_float_int64_cast_regression.seen"
 NESTED_PROPERTY_RECEIVER_SRC="$ROOT_DIR/tests/codegen/test_nested_property_receiver_regression.seen"
 FEL22_TYPED_STORE_RETURN_SRC="$ROOT_DIR/tests/codegen/test_fel22_typed_store_return_regression.seen"
 PTR_I64_ALIAS_SRC="$ROOT_DIR/tests/codegen/test_ptr_i64_alias_regression.seen"
@@ -60,63 +64,26 @@ FEL67_HOTRELOAD_INLINE_CAST_SRC="$ROOT_DIR/tests/codegen/test_fel67_hotreload_in
 FEL68_STATIC_NEW_HANDLE_SRC="$ROOT_DIR/tests/codegen/test_fel68_static_new_handle_regression.seen"
 FEL646_RESULT_POINTER_PAYLOAD_SRC="$ROOT_DIR/tests/codegen/test_fel646_result_pointer_payload_regression.seen"
 
-cleanup_seen_artifacts() {
-    rm -rf "$ROOT_DIR/.seen_cache" /tmp/seen_ir_cache "$TMP_ROOT"
-    rm -f /tmp/seen_module_*.ll /tmp/seen_module_*.o /tmp/seen_module_*.opt.ll \
-        /tmp/seen_module_*.polly.ll /tmp/seen_module_*.opt.status /tmp/seen_module_*.opt.log
-    rm -rf /tmp/seen_recovery.*
-    mkdir -p "$TMP_ROOT"
+verify_case_workspace() {
+    test -d "$TMP_ROOT"
 }
 
 run_compile() {
-    local source_file="$1"
-    local output_file="$2"
-    local log_file="$3"
-
-    if [[ "$BUILD_CMD" == "build" ]]; then
-        timeout 120 "$COMPILER" build "$source_file" -o "$output_file" --fast >"$log_file" 2>&1
-    else
-        timeout 120 "$COMPILER" compile "$source_file" "$output_file" --fast >"$log_file" 2>&1
-    fi
+    local source_file=$1 output_file=$2 log_file=$3
+    timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" \
+        "$COMPILER" compile "$source_file" "$output_file" --fast --no-cache \
+        --no-fork --emit-llvm >"$log_file" 2>&1
 }
 
 run_compile_in_dir() {
-    local project_dir="$1"
-    local source_file="$2"
-    local output_file="$3"
-    local log_file="$4"
-
-    if [[ "$BUILD_CMD" == "build" ]]; then
-        (
-            cd "$project_dir" &&
-            timeout 120 "$COMPILER" build "$source_file" -o "$output_file" --fast >"$log_file" 2>&1
-        )
-    else
-        (
-            cd "$project_dir" &&
-            timeout 120 "$COMPILER" compile "$source_file" "$output_file" --fast >"$log_file" 2>&1
-        )
-    fi
+    local project_dir=$1 source_file=$2 output_file=$3 log_file=$4
+    (cd "$project_dir" && run_compile "$source_file" "$output_file" "$log_file")
 }
 
 run_check() {
-    local source_file="$1"
-    local log_file="$2"
-
-    timeout 120 "$COMPILER" check "$source_file" --language en >"$log_file" 2>&1
-}
-
-run_compile_with_path_override() {
-    local path_prefix="$1"
-    local source_file="$2"
-    local output_file="$3"
-    local log_file="$4"
-
-    if [[ "$BUILD_CMD" == "build" ]]; then
-        PATH="$path_prefix:$PATH" timeout 120 "$COMPILER" build "$source_file" -o "$output_file" --fast >"$log_file" 2>&1
-    else
-        PATH="$path_prefix:$PATH" timeout 120 "$COMPILER" compile "$source_file" "$output_file" --fast >"$log_file" 2>&1
-    fi
+    local source_file=$1 log_file=$2
+    timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" \
+        "$COMPILER" check "$source_file" --language en >"$log_file" 2>&1
 }
 
 run_success_case() {
@@ -125,14 +92,14 @@ run_success_case() {
     local output_file="$3"
     local log_file="$4"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     if ! run_compile "$source_file" "$output_file" "$log_file"; then
         echo "FAIL: $label compile failed"
         cat "$log_file"
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: $label binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -142,15 +109,7 @@ run_success_case() {
 }
 
 run_compile_no_cache_no_fork() {
-    local source_file="$1"
-    local output_file="$2"
-    local log_file="$3"
-
-    if [[ "$BUILD_CMD" == "build" ]]; then
-        timeout 120 "$COMPILER" build "$source_file" -o "$output_file" --fast --no-cache --no-fork >"$log_file" 2>&1
-    else
-        timeout 120 "$COMPILER" compile "$source_file" "$output_file" --fast --no-cache --no-fork >"$log_file" 2>&1
-    fi
+    run_compile "$@"
 }
 
 run_success_case_with_ir_check() {
@@ -161,32 +120,32 @@ run_success_case_with_ir_check() {
     local expected_ir_pattern="$5"
     local rejected_ir_pattern="$6"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     if ! run_compile_no_cache_no_fork "$source_file" "$output_file" "$log_file"; then
         echo "FAIL: $label compile failed"
         cat "$log_file"
         exit 1
     fi
 
-    if [[ ! -f /tmp/seen_module_0.ll ]]; then
+    if [[ ! -f "${output_file}.module0.ll" ]]; then
         echo "FAIL: $label did not leave LLVM IR to inspect"
         cat "$log_file"
         exit 1
     fi
 
-    if ! grep -Eq "$expected_ir_pattern" /tmp/seen_module_0.ll; then
+    if ! grep -Eq "$expected_ir_pattern" "${output_file}.module0.ll"; then
         echo "FAIL: $label did not emit the expected LLVM IR"
-        grep -n "PropertyRegistry_registerFloat" /tmp/seen_module_0.ll || true
+        grep -n "PropertyRegistry_registerFloat" "${output_file}.module0.ll" || true
         exit 1
     fi
 
-    if [[ -n "$rejected_ir_pattern" ]] && grep -Eq "$rejected_ir_pattern" /tmp/seen_module_0.ll; then
+    if [[ -n "$rejected_ir_pattern" ]] && grep -Eq "$rejected_ir_pattern" "${output_file}.module0.ll"; then
         echo "FAIL: $label emitted rejected LLVM IR"
-        grep -n "PropertyRegistry_registerFloat" /tmp/seen_module_0.ll || true
+        grep -n "PropertyRegistry_registerFloat" "${output_file}.module0.ll" || true
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: $label binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -205,27 +164,15 @@ run_result_pointer_payload_regression_case() {
     local consumer_reification
     local real_opt
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$ir_dir"
 
-    if [[ "$BUILD_CMD" == "build" ]]; then
-        if ! timeout 120 "$COMPILER" build \
-            "$FEL646_RESULT_POINTER_PAYLOAD_SRC" -o "$output_file" --fast \
-            --no-cache --no-fork --jobs 1 --opt-jobs 1 \
-            --emit-module-ir-dir "$ir_dir" >"$log_file" 2>&1; then
-            echo "FAIL: FEL-646 Result pointer payload compile failed"
-            cat "$log_file"
-            exit 1
-        fi
-    else
-        if ! timeout 120 "$COMPILER" compile \
-            "$FEL646_RESULT_POINTER_PAYLOAD_SRC" "$output_file" --fast \
-            --no-cache --no-fork --jobs 1 --opt-jobs 1 \
-            --emit-module-ir-dir "$ir_dir" >"$log_file" 2>&1; then
-            echo "FAIL: FEL-646 Result pointer payload compile failed"
-            cat "$log_file"
-            exit 1
-        fi
+    if ! timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" \
+        "$COMPILER" compile "$FEL646_RESULT_POINTER_PAYLOAD_SRC" "$output_file" --fast \
+        --no-cache --no-fork --emit-module-ir-dir "$ir_dir" >"$log_file" 2>&1; then
+        echo "FAIL: FEL-646 Result pointer payload compile failed"
+        cat "$log_file"
+        exit 1
     fi
 
     result_ir="$(grep -El 'define .*@Result_unwrap\(' "$ir_dir"/*.ll \
@@ -259,12 +206,12 @@ run_result_pointer_payload_regression_case() {
 
     real_opt="$(command -v opt || true)"
     if [[ -z "$real_opt" ]] ||
-        ! "$real_opt" -passes=verify -disable-output "$result_ir"; then
+        ! timeout --foreground --kill-after=5s 60s "$real_opt" -passes=verify -disable-output "$result_ir"; then
         echo "FAIL: FEL-646 Result module IR failed LLVM verification"
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: FEL-646 Result pointer payload binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -278,7 +225,7 @@ run_check_success_case() {
     local source_file="$2"
     local log_file="$3"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     if ! run_check "$source_file" "$log_file"; then
         echo "FAIL: $label check failed"
         cat "$log_file"
@@ -294,7 +241,7 @@ run_check_failure_case() {
     local log_file="$3"
     local expected_pattern="$4"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
 
     set +e
     run_check "$source_file" "$log_file"
@@ -319,56 +266,31 @@ run_check_failure_case() {
 run_c12_case() {
     local output_file="$TMP_ROOT/c12_direct_entry_missing_user_decl"
     local log_file="$TMP_ROOT/c12_direct_entry_missing_user_decl.log"
-    local ir_file="/tmp/seen_module_0.ll"
-
-    cleanup_seen_artifacts
-
-    set +e
-    run_compile "$C12_SRC" "$output_file" "$log_file"
-    local status=$?
-    set -e
-
-    if grep -q "use of undefined value '@unresolvedHelper'" "$log_file"; then
-        echo "FAIL: C12 still fails in opt with an undefined LLVM value"
-        cat "$log_file"
-        exit 1
-    fi
-
-    if [[ ! -f "$ir_file" ]]; then
-        echo "FAIL: C12 did not leave LLVM IR to inspect"
-        cat "$log_file"
-        exit 1
-    fi
-
-    if ! grep -Eq 'declare i64 @"?unresolvedHelper"?\(i64\) nounwind' "$ir_file"; then
-        echo "FAIL: C12 did not emit the late unresolvedHelper declaration"
-        grep -n "unresolvedHelper" "$ir_file" || true
-        exit 1
-    fi
-
-    if [[ "$status" -eq 0 ]]; then
-        echo "PASS: C12 direct-entry compile succeeded with a late user declaration"
-        return
-    fi
-
-    if grep -Eq 'undefined (reference|symbol).*(unresolvedHelper)|Undefined symbols for architecture.*unresolvedHelper|ld\.lld: error: undefined symbol: unresolvedHelper|clang: error: linker command failed' "$log_file"; then
-        echo "PASS: C12 progressed past optimizer failure and reached unresolved-external linking"
-        return
-    fi
-
-    echo "FAIL: C12 failed unexpectedly after the late declare fix"
-    cat "$log_file"
-    exit 1
+    local status=0
+    run_compile "$C12_SRC" "$output_file" "$log_file" || status=$?
+    [ "$status" = 1 ]
+    # This historical codegen case deliberately tests late user declarations,
+    # not frontend unresolved-call validation (covered separately above).
+    grep -Eq 'declare i64 @"?unresolvedHelper"?\(i64\) nounwind' \
+        "${output_file}.module0.ll"
+    timeout --foreground --kill-after=5s 30s opt -passes=verify -disable-output \
+        "${output_file}.module0.ll"
+    grep -Fq 'ld.lld: error: undefined symbol: unresolvedHelper' "$log_file"
+    test ! -e "$output_file"
+    ! grep -Eq 'Build succeeded|expected value token|undefined LLVM value' "$log_file"
+    echo 'PASS: C12 late declaration verifies; absent external rejects at link'
 }
 
 run_recovery_partial_failure_case() {
     local recovery_log="$TMP_ROOT/recovery_partial_failure.log"
+    local source_ir="$TMP_ROOT/recovery-input"
+    mkdir -p "$source_ir"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
 
     local idx=0
     while [[ "$idx" -lt 31 ]]; do
-        cat >"/tmp/seen_module_${idx}.ll" <<EOF
+        cat >"$source_ir/seen_module_${idx}.ll" <<EOF
 source_filename = "seen_module_${idx}"
 target triple = "x86_64-unknown-linux-gnu"
 
@@ -380,7 +302,7 @@ EOF
         idx=$((idx + 1))
     done
 
-    cat >"/tmp/seen_module_31.ll" <<'EOF'
+    cat >"$source_ir/seen_module_31.ll" <<'EOF'
 source_filename = "seen_module_31"
 target triple = "x86_64-unknown-linux-gnu"
 
@@ -392,16 +314,24 @@ entry:
 EOF
 
     set +e
-    bash "$ROOT_DIR/scripts/recovery_opt.sh" "$ROOT_DIR/scripts" "$ROOT_DIR/scripts" --skip-fixups \
+    timeout --foreground --kill-after=5s 180s bash "$ROOT_DIR/scripts/recovery_opt.sh" "$SEEN_BOUNDED_TOOLCHAIN_DIR" "$ROOT_DIR/scripts" "$source_ir" --skip-fixups \
         >"$recovery_log" 2>&1
     local status=$?
     set -e
 
-    if [[ "$status" -eq 0 ]]; then
-        echo "FAIL: recovery_opt.sh accepted a partial object set after optimizer failure"
+    if [[ "$status" -ne 1 ]]; then
+        echo "FAIL: recovery_opt.sh did not reject the partial object set with status1"
         cat "$recovery_log"
         exit 1
     fi
+
+    grep -Fq 'Recovery: processed=31 failed=1' "$recovery_log"
+    grep -Fq 'ERROR: recovery requires a complete object set (31/32 produced)' "$recovery_log"
+    grep -Fq "use of undefined value '@missing'" "$recovery_log" || {
+        echo 'FAIL: recovery did not exercise partial-module rejection'
+        cat "$recovery_log"
+        exit 1
+    }
 
     if grep -q '^RECOVERY_DIR=' "$recovery_log"; then
         echo "FAIL: recovery_opt.sh exposed a recovery directory after partial failure"
@@ -412,109 +342,9 @@ EOF
     echo "PASS: recovery_opt rejects partial object sets"
 }
 
-setup_fake_llvm_dir() {
-    local kind="$1"
-    local fake_dir="$2"
-    local fake_log="$3"
-    local real_opt
-    local real_llc
-    local real_link
-
-    real_opt="$(command -v opt)"
-    real_llc="$(command -v llc)"
-    real_link="$(command -v llvm-link)"
-
-    mkdir -p "$fake_dir"
-    ln -sf "$real_link" "$fake_dir/llvm-link"
-
-    cat >"$fake_dir/opt" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-echo "\$*" >> "$fake_log"
-case "$kind" in
-  opt)
-    if [[ "\$*" == *"/tmp/seen_module_1.ll"* && "\$*" != *"--thinlto-bc"* ]]; then
-      echo "forced opt failure for module 1" >&2
-      exit 1
-    fi
-    ;;
-  object)
-    if [[ "\$*" == *"--thinlto-bc"* && "\$*" == *"/tmp/seen_module_1.opt.ll"* ]]; then
-      echo "forced object emission failure for module 1" >&2
-      exit 1
-    fi
-    ;;
-esac
-exec "$real_opt" "\$@"
-EOF
-    chmod +x "$fake_dir/opt"
-
-    cat >"$fake_dir/llc" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-echo "\$*" >> "$fake_log"
-case "$kind" in
-  object)
-    if [[ "\$*" == *"/tmp/seen_module_1.opt.ll"* ]]; then
-      echo "forced object emission failure for module 1" >&2
-      exit 1
-    fi
-    ;;
-esac
-exec "$real_llc" "\$@"
-EOF
-    chmod +x "$fake_dir/llc"
-}
-
-run_real_compiler_failure_case() {
-    local label="$1"
-    local kind="$2"
-    local expected_driver_error="$3"
-    local expected_forced_error="$4"
-    local output_file="$TMP_ROOT/c13_forced_${kind}_failure"
-    local log_file="$TMP_ROOT/c13_forced_${kind}_failure.log"
-    local fake_dir="$TMP_ROOT/fake_llvm_${kind}"
-    local fake_log="$TMP_ROOT/fake_llvm_${kind}.log"
-
-    cleanup_seen_artifacts
-    setup_fake_llvm_dir "$kind" "$fake_dir" "$fake_log"
-
-    set +e
-    run_compile_with_path_override "$fake_dir" "$C13_ENGINE_SRC" "$output_file" "$log_file"
-    local status=$?
-    set -e
-
-    if [[ "$status" -eq 0 ]]; then
-        echo "FAIL: $label unexpectedly passed"
-        cat "$log_file"
-        exit 1
-    fi
-
-    if [[ -f "$output_file" ]]; then
-        echo "FAIL: $label produced a success-shaped output binary"
-        cat "$log_file"
-        exit 1
-    fi
-
-    if ! grep -q "$expected_driver_error" "$log_file"; then
-        echo "FAIL: $label did not report the expected compiler-side failure"
-        cat "$log_file"
-        exit 1
-    fi
-
-    if ! grep -q "$expected_forced_error" "$log_file"; then
-        echo "FAIL: $label did not surface the injected LLVM failure"
-        cat "$log_file"
-        exit 1
-    fi
-
-    if grep -q 'Build succeeded ->' "$log_file"; then
-        echo "FAIL: $label still printed a success-shaped build message"
-        cat "$log_file"
-        exit 1
-    fi
-
-    echo "PASS: $label"
+run_llvm_driver_failure_cases() {
+    timeout --foreground --kill-after=5s 600s bash \
+        "$ROOT_DIR/tests/misc_root_tests/seen_llvm_failure_probes_linux_x86_64.sh"
 }
 
 run_emit_llvm_object_manifest_case() {
@@ -523,9 +353,9 @@ run_emit_llvm_object_manifest_case() {
     local log_file="$TMP_ROOT/fel66_emit_llvm_manifest.log"
     local emitted_ir="${output_file}.module0.ll"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
 
-    if ! timeout 120 "$COMPILER" compile "$FEL66_EMIT_LLVM_MANIFEST_SRC" "$output_file" \
+    if ! timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile "$FEL66_EMIT_LLVM_MANIFEST_SRC" "$output_file" \
         --pic --no-cache --no-fork --object-manifest "$manifest_file" --emit-llvm \
         >"$log_file" 2>&1; then
         echo "FAIL: FEL-66 emit-llvm object manifest compile failed"
@@ -563,9 +393,9 @@ run_static_new_handle_regression_case() {
     local log_file="$TMP_ROOT/fel68_static_new_handle.log"
     local emitted_ir="${output_file}.module0.ll"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
 
-    if ! timeout 120 "$COMPILER" compile "$FEL68_STATIC_NEW_HANDLE_SRC" "$output_file" \
+    if ! timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile "$FEL68_STATIC_NEW_HANDLE_SRC" "$output_file" \
         --pic --no-cache --no-fork --object-manifest "$manifest_file" --emit-llvm \
         >"$log_file" 2>&1; then
         echo "FAIL: FEL-68 static new handle compile failed"
@@ -599,7 +429,7 @@ run_toml_project_modules_case() {
     local output_file="$project_dir/toml_project_modules"
     local log_file="$project_dir/toml_project_modules.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/engine" "$project_dir/game"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -647,7 +477,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: Seen.toml [project].modules binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -661,7 +491,7 @@ run_large_manifest_scanner_case() {
     local output_file="$project_dir/large_manifest_scanner"
     local log_file="$project_dir/large_manifest_scanner.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/hearton/src/generated"
 
     {
@@ -700,7 +530,7 @@ EOF
 
     (
         cd "$project_dir" &&
-        timeout 120 "$COMPILER" compile "main.seen" "$output_file" --fast --no-cache --no-fork >"$log_file" 2>&1
+        timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile "main.seen" "$output_file" --fast --no-cache --no-fork >"$log_file" 2>&1
     ) || {
         echo "FAIL: large Seen.toml scanner case did not compile"
         cat "$log_file"
@@ -719,7 +549,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: large Seen.toml scanner binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -733,7 +563,7 @@ run_small_manifest_allocator_stability_case() {
     local output_file="$project_dir/small_manifest_allocator_stability"
     local log_file="$project_dir/small_manifest_allocator_stability.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/modules"
 
     {
@@ -787,7 +617,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: small Seen.toml allocator stability binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -801,7 +631,7 @@ run_scalar_get_guard_case() {
     local output_file="$TMP_ROOT/scalar_get_guard"
     local log_file="$TMP_ROOT/scalar_get_guard.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
 
     cat >"$source_file" <<'EOF'
 fun main() r: Int {
@@ -817,14 +647,14 @@ EOF
         exit 1
     fi
 
-    if grep -q '@Int_get' "$log_file" /tmp/seen_module_*.ll 2>/dev/null; then
+    if grep -q '@Int_get' "$log_file" "${output_file}".module*.ll 2>/dev/null; then
         echo "FAIL: scalar get guard still emitted Int_get"
         cat "$log_file"
-        grep -n '@Int_get' /tmp/seen_module_*.ll 2>/dev/null || true
+        grep -n '@Int_get' "${output_file}".module*.ll 2>/dev/null || true
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: scalar get guard binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -840,7 +670,7 @@ run_local_system_dependency_case() {
     local log_file="$TMP_ROOT/local_system_dependency.log"
     local source_file="$project_dir/main.seen"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/native/lib" "$outside_dir"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -861,7 +691,7 @@ int64_t hearton_bonus(int64_t base) {
 }
 EOF
 
-    if ! clang -shared -fPIC "$project_dir/native/hearton_shim.c" -o "$project_dir/native/lib/libhearton_shim.so" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 60s clang -shared -fPIC "$project_dir/native/hearton_shim.c" -o "$project_dir/native/lib/libhearton_shim.so" >/dev/null 2>&1; then
         echo "FAIL: local system dependency shim did not build"
         exit 1
     fi
@@ -878,17 +708,10 @@ fun main() r: Int {
 EOF
 
     set +e
-    if [[ "$BUILD_CMD" == "build" ]]; then
         (
             cd "$outside_dir" &&
-            env -u LIBRARY_PATH -u LD_LIBRARY_PATH timeout 120 "$COMPILER" build "$source_file" -o "$output_file" --fast >"$log_file" 2>&1
+            env -u LIBRARY_PATH -u LD_LIBRARY_PATH timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile "$source_file" "$output_file" --fast --no-cache --no-fork >"$log_file" 2>&1
         )
-    else
-        (
-            cd "$outside_dir" &&
-            env -u LIBRARY_PATH -u LD_LIBRARY_PATH timeout 120 "$COMPILER" compile "$source_file" "$output_file" --fast >"$log_file" 2>&1
-        )
-    fi
     local status=$?
     set -e
 
@@ -898,7 +721,7 @@ EOF
         exit 1
     fi
 
-    if ! env -u LIBRARY_PATH -u LD_LIBRARY_PATH "$output_file" >/dev/null 2>&1; then
+    if ! env -u LIBRARY_PATH -u LD_LIBRARY_PATH timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: local system dependency binary still needs runtime library env overrides"
         cat "$log_file"
         exit 1
@@ -914,7 +737,7 @@ run_c12_abs_path_project_case() {
     local log_file="$TMP_ROOT/c12_abs_path_project.log"
     local source_file="$project_dir/game.seen"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir" "$outside_dir"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -1019,17 +842,10 @@ fun main() r: Int {
 EOF
 
     set +e
-    if [[ "$BUILD_CMD" == "build" ]]; then
         (
             cd "$outside_dir" &&
-            timeout 120 "$COMPILER" build "$source_file" -o "$output_file" >"$log_file" 2>&1
+            timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile "$source_file" "$output_file" --no-cache --no-fork >"$log_file" 2>&1
         )
-    else
-        (
-            cd "$outside_dir" &&
-            timeout 120 "$COMPILER" compile "$source_file" "$output_file" >"$log_file" 2>&1
-        )
-    fi
     local status=$?
     set -e
 
@@ -1045,7 +861,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: C12 absolute-path direct-entry project module binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1061,7 +877,7 @@ run_non_member_abs_path_case() {
     local log_file="$TMP_ROOT/non_member_abs_path.log"
     local source_file="$project_dir/tests/standalone.seen"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/tests" "$outside_dir"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -1081,17 +897,10 @@ fun main() r: Int {
 EOF
 
     set +e
-    if [[ "$BUILD_CMD" == "build" ]]; then
         (
             cd "$outside_dir" &&
-            timeout 120 "$COMPILER" build "$source_file" -o "$output_file" >"$log_file" 2>&1
+            timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile "$source_file" "$output_file" --no-cache --no-fork >"$log_file" 2>&1
         )
-    else
-        (
-            cd "$outside_dir" &&
-            timeout 120 "$COMPILER" compile "$source_file" "$output_file" >"$log_file" 2>&1
-        )
-    fi
     local status=$?
     set -e
 
@@ -1113,7 +922,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: non-member absolute-path binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1127,7 +936,7 @@ run_build_entry_seed_case() {
     local output_file="$project_dir/build_entry_seed"
     local log_file="$project_dir/build_entry_seed.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/engine" "$project_dir/game"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -1170,7 +979,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: Seen.toml [build].entry seeded binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1184,7 +993,7 @@ run_root_main_build_entry_isolation_case() {
     local output_file="$project_dir/root_main_build_entry_isolation"
     local log_file="$project_dir/root_main_build_entry_isolation.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -1231,7 +1040,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: root-level standalone main binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1245,7 +1054,7 @@ run_build_entry_main_fallback_case() {
     local output_file="$project_dir/build_entry_main_fallback"
     local log_file="$project_dir/build_entry_main_fallback.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/game"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -1278,7 +1087,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: Seen.toml [build].entry fallback binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1292,7 +1101,7 @@ run_legacy_whole_module_import_case() {
     local output_file="$project_dir/legacy_whole_module_import"
     local log_file="$project_dir/legacy_whole_module_import.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/resolver_visibility_repro"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -1348,7 +1157,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: legacy whole-module import binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1362,7 +1171,7 @@ run_named_import_control_case() {
     local output_file="$project_dir/named_import_control"
     local log_file="$project_dir/named_import_control.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/resolver_visibility_repro"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -1413,7 +1222,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: explicit named import binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1428,7 +1237,7 @@ run_package_explicit_src_import_case() {
     local output_file="$project_dir/package_explicit_src_import"
     local log_file="$project_dir/package_explicit_src_import.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$package_dir/src" "$project_dir"
 
     cat >"$package_dir/Seen.toml" <<'EOF'
@@ -1482,7 +1291,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: package import with explicit src binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1497,7 +1306,7 @@ run_package_local_dotted_import_case() {
     local output_file="$project_dir/package_local_dotted_import"
     local log_file="$project_dir/package_local_dotted_import.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$package_dir/src/platform/linux" "$project_dir"
 
     cat >"$package_dir/Seen.toml" <<'EOF'
@@ -1554,7 +1363,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: package-local dotted import binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1568,7 +1377,7 @@ run_manifest_sibling_runtime_memory_case() {
     local output_file="$project_dir/manifest_sibling_runtime_memory"
     local log_file="$project_dir/manifest_sibling_runtime_memory.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/seen_runtime/src" "$project_dir/seen_voxel/src"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -1620,7 +1429,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: manifest sibling runtime memory binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1635,7 +1444,7 @@ run_package_whole_module_visibility_case() {
     local output_file="$project_dir/package_whole_module_visibility"
     local log_file="$project_dir/package_whole_module_visibility.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$package_dir/src" "$project_dir"
 
     cat >"$package_dir/Seen.toml" <<'EOF'
@@ -1678,7 +1487,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: whole-module package import binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1693,7 +1502,7 @@ run_manifest_companion_module_visibility_case() {
     local output_file="$project_dir/manifest_companion_module_visibility"
     local log_file="$project_dir/manifest_companion_module_visibility.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$package_dir/src" "$project_dir"
 
     cat >"$package_dir/Seen.toml" <<'EOF'
@@ -1756,7 +1565,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: manifest companion module visibility binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1771,7 +1580,7 @@ run_package_root_manifest_modules_case() {
     local output_file="$project_dir/package_root_manifest_modules"
     local log_file="$project_dir/package_root_manifest_modules.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$package_dir/src" "$project_dir"
 
     cat >"$package_dir/Seen.toml" <<'EOF'
@@ -1831,7 +1640,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: package-root manifest module binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1845,7 +1654,7 @@ run_package_private_visibility_failure_case() {
     local project_dir="$TMP_ROOT/package_private_visibility"
     local log_file="$project_dir/package_private_visibility.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$package_dir/src" "$project_dir"
 
     cat >"$package_dir/Seen.toml" <<'EOF'
@@ -1908,7 +1717,7 @@ run_triple_slash_raw_scanner_case() {
     local output_file="$project_dir/triple_slash_raw_scanner"
     local log_file="$project_dir/triple_slash_raw_scanner.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir"
 
     cat >"$project_dir/main.seen" <<'EOF'
@@ -1934,7 +1743,7 @@ EOF
         exit 1
     fi
 
-    if ! "$output_file" >/dev/null 2>&1; then
+    if ! timeout --foreground --kill-after=5s 30s "$output_file" >/dev/null 2>&1; then
         echo "FAIL: triple-slash raw scanner binary exited non-zero"
         cat "$log_file"
         exit 1
@@ -1952,7 +1761,7 @@ run_prebuilt_artifact_interface_index_case() {
     local prebuild_log="$TMP_ROOT/prebuilt_artifact_prebuild.log"
     local compile_log="$project_dir/prebuilt_artifact_interface_index.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$package_dir/src" "$project_dir"
 
     cat >"$package_dir/Seen.toml" <<'EOF'
@@ -1979,7 +1788,7 @@ fun ArtifactApi() r: Int {
 }
 EOF
 
-    if ! timeout 180 "$COMPILER" pkg prebuild "$package_dir" "$artifact_dir" >"$prebuild_log" 2>&1; then
+    if ! timeout --foreground --kill-after=5s 180s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" pkg prebuild "$package_dir" "$artifact_dir" >"$prebuild_log" 2>&1; then
         echo "FAIL: package prebuild for artifact interface index case failed"
         cat "$prebuild_log"
         exit 1
@@ -2014,7 +1823,7 @@ EOF
 
     if ! (
         cd "$project_dir" &&
-        timeout 180 "$COMPILER" compile main.seen "$output_file" \
+        timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile main.seen "$output_file" \
             --pic --no-cache --no-fork --object-manifest "$manifest_file" \
             >"$compile_log" 2>&1
     ); then
@@ -2050,7 +1859,7 @@ run_prebuilt_package_symbols_case() {
     local prebuild_log="$TMP_ROOT/prebuilt_package_symbols.log"
     local nm_tool
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$package_dir/src"
 
     nm_tool="$(command -v llvm-nm || command -v nm || true)"
@@ -2078,7 +1887,7 @@ fun libx_exported_value() r: Int {
 }
 EOF
 
-    if ! timeout 180 "$COMPILER" pkg prebuild "$package_dir" "$artifact_dir" >"$prebuild_log" 2>&1; then
+    if ! timeout --foreground --kill-after=5s 180s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" pkg prebuild "$package_dir" "$artifact_dir" >"$prebuild_log" 2>&1; then
         echo "FAIL: package prebuild for FEL-205 symbol case failed"
         cat "$prebuild_log"
         exit 1
@@ -2099,12 +1908,12 @@ EOF
         exit 1
     fi
 
-    if ! "$nm_tool" --defined-only "$object_path" | grep -q ' libx_value$'; then
+    if ! timeout --foreground --kill-after=5s 30s "$nm_tool" --defined-only "$object_path" | grep -q ' libx_value$'; then
         echo "FAIL: FEL-205 prebuilt object missing package function symbol"
         "$nm_tool" --defined-only "$object_path" || true
         exit 1
     fi
-    if ! "$nm_tool" --defined-only "$object_path" | grep -q ' libx_exported_value$'; then
+    if ! timeout --foreground --kill-after=5s 30s "$nm_tool" --defined-only "$object_path" | grep -q ' libx_exported_value$'; then
         echo "FAIL: FEL-205 prebuilt object missing @export function symbol"
         "$nm_tool" --defined-only "$object_path" || true
         exit 1
@@ -2118,7 +1927,7 @@ run_missing_import_failure_case() {
     local output_file="$project_dir/missing_import_failure"
     local log_file="$project_dir/missing_import_failure.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir"
 
     cat >"$project_dir/main.seen" <<'EOF'
@@ -2153,7 +1962,7 @@ run_cyclic_import_diagnostic_case() {
     local two_log="$project_dir/two_cycle.log"
     local three_log="$project_dir/three_cycle.log"
 
-    cleanup_seen_artifacts
+    verify_case_workspace
     mkdir -p "$project_dir/two" "$project_dir/three"
 
     cat >"$project_dir/Seen.toml" <<'EOF'
@@ -2224,7 +2033,7 @@ EOF
 
     if (
         cd "$project_dir" &&
-        timeout 120 "$COMPILER" check main.seen >"$two_log" 2>&1
+        timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" check main.seen >"$two_log" 2>&1
     ); then
         echo "FAIL: two-module cyclic import unexpectedly passed"
         cat "$two_log"
@@ -2251,7 +2060,7 @@ EOF
 
     if (
         cd "$project_dir" &&
-        timeout 120 "$COMPILER" check main.seen >"$three_log" 2>&1
+        timeout --foreground --kill-after=5s 120s bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" check main.seen >"$three_log" 2>&1
     ); then
         echo "FAIL: longer cyclic import unexpectedly passed"
         cat "$three_log"
@@ -2276,11 +2085,6 @@ if [[ ! -x "$COMPILER" ]]; then
     exit 1
 fi
 
-CLI_HELP="$("$COMPILER" 2>&1 || true)"
-BUILD_CMD="compile"
-if grep -q 'seen build <' <<< "$CLI_HELP"; then
-    BUILD_CMD="build"
-fi
 
 echo "=== Seen fix regression checks ==="
 
@@ -2298,8 +2102,7 @@ run_success_case "C12 helper global state" "$C12_HELPER_GLOBAL_SRC" "$TMP_ROOT/c
 run_success_case "C12 module-const local bind" "$C12_MODULE_CONST_BIND_SRC" "$TMP_ROOT/c12_module_const_local_bind" "$TMP_ROOT/c12_module_const_local_bind.log"
 run_c12_abs_path_project_case
 run_non_member_abs_path_case
-run_real_compiler_failure_case "C13 real compiler opt failure stops before link" "opt" "Error: optimization failed for module 1" "forced opt failure for module 1"
-run_real_compiler_failure_case "C13 real compiler object failure stops before link" "object" "Error: object emission failed for module 1" "forced object emission failure for module 1"
+run_llvm_driver_failure_cases
 run_check_success_case "effect(FileToken) allows restricted call" "$EFFECT_OK_SRC" "$TMP_ROOT/effect_capability_ok.log"
 run_check_failure_case "effect(NetToken) rejects file capability use" "$CAPABILITY_WRONG_EFFECT_SRC" "$TMP_ROOT/capability_wrong_effect.log" 'Missing capability token for restricted operation|requires @using\(FileToken\)'
 run_check_failure_case "method effect(NetToken) rejects file capability use" "$METHOD_WRONG_EFFECT_SRC" "$TMP_ROOT/method_wrong_effect.log" 'Missing capability token for restricted operation|requires @using\(FileToken\)'
@@ -2322,6 +2125,7 @@ run_success_case "Bool returns coerce Int predicates to i1" "$BOOL_RETURN_COERCI
 run_success_case "Bool helper logical conditions stay verifier-clean" "$BOOL_HELPER_LOGICAL_SRC" "$TMP_ROOT/bool_helper_logical" "$TMP_ROOT/bool_helper_logical.log"
 run_success_case "string local initializer survives nested concat rewrite" "$STRING_VAR_INIT_CONCAT_SRC" "$TMP_ROOT/string_var_init_concat" "$TMP_ROOT/string_var_init_concat.log"
 run_success_case "Float32 pointer deref casts directly to Int" "$FLOAT32_PTR_DEREF_CAST_SRC" "$TMP_ROOT/float32_ptr_deref_cast" "$TMP_ROOT/float32_ptr_deref_cast.log"
+run_success_case "signed-64 aliases preserve floating truncation and typed stores" "$FLOAT_INT64_CAST_SRC" "$TMP_ROOT/float_int64_cast" "$TMP_ROOT/float_int64_cast.log"
 run_success_case_with_ir_check "nested property method receivers preserve object pointer" "$NESTED_PROPERTY_RECEIVER_SRC" "$TMP_ROOT/nested_property_receiver" "$TMP_ROOT/nested_property_receiver.log" 'call void @PropertyRegistry_registerFloat' '= call i64 @PropertyRegistry_registerFloat'
 run_success_case "FEL-22 typed stores and Float returns stay verifier-clean" "$FEL22_TYPED_STORE_RETURN_SRC" "$TMP_ROOT/fel22_typed_store_return" "$TMP_ROOT/fel22_typed_store_return.log"
 run_success_case "ptr_deref_i64 and ptr_store_i64 lower to runtime builtins" "$PTR_I64_ALIAS_SRC" "$TMP_ROOT/ptr_i64_alias" "$TMP_ROOT/ptr_i64_alias.log"
@@ -2358,5 +2162,5 @@ run_prebuilt_package_symbols_case
 run_missing_import_failure_case
 run_cyclic_import_diagnostic_case
 
-cleanup_seen_artifacts
+verify_case_workspace
 echo "=== Seen fix regression checks passed ==="

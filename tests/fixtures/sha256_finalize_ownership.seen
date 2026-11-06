@@ -1,4 +1,4 @@
-import crypto.sha256.{Sha256, sha256, releaseSha256DigestResult}
+import crypto.sha256.{Sha256, sha256, releaseSha256DigestResult, parseSha256Digest, sha256DigestEqual}
 import memory.allocation.{memoryStats}
 
 fun digestOnce() r: Void {
@@ -29,7 +29,93 @@ fun oneShotOnce() r: Void {
     releaseSha256DigestResult(digest)
 }
 
+fun knownDigest(text: String, expected: String) r: Void {
+    let result = sha256(text)
+    if result.isErr() or result.unwrap() != expected { abort("SHA-256 known vector changed") }
+    releaseSha256DigestResult(result)
+}
+fun byteDigest(count: Int, chunkSize: Int, expected: String) r: Void {
+    let state = Sha256.new(); let bytes = Array<Int>(); var index = 0
+    while index < count {
+        bytes.push(index & 255); index = index + 1
+        if bytes.length() == chunkSize or index == count {
+            let updated = state.updateBytes(bytes)
+            if updated.isErr() { abort("SHA-256 split update failed") }
+            updated.releaseContainer(); bytes.clear()
+        }
+    }
+    bytes.free(); let digest = state.finalizeHex()
+    if digest.isErr() or digest.unwrap() != expected { abort("SHA-256 byte vector changed") }
+    releaseSha256DigestResult(digest); state.free()
+}
+fun digestRepresentations() r: Void {
+    let state = Sha256.new()
+    if state.rotateRight(2147483649 as UInt32, 1 as UInt32) != (3221225472 as UInt32) or
+        state.rotateRight(2147483649 as UInt32, 0 as UInt32) != (2147483649 as UInt32) or
+        state.rotateRight(2147483649 as UInt32, 32 as UInt32) != (2147483649 as UInt32) {
+        abort("SHA-256 word rotation changed")
+    }
+    state.state.free(); state.block.free(); state.free()
+    let first = parseSha256Digest("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    let second = parseSha256Digest("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    if first.isErr() or second.isErr() { abort("SHA-256 canonical digest parse failed") }
+    let left = first.unwrap(); let right = second.unwrap()
+    first.releaseContainer(); second.releaseContainer()
+    if not sha256DigestEqual(left, right) { abort("equal SHA-256 bytes differ") }
+    var index = 0
+    while index < 32 {
+        let original = right[index]
+        right[index] = (original as UInt64) ^ (1 as UInt64)
+        if sha256DigestEqual(left, right) { abort("SHA-256 byte difference was ignored") }
+        right[index] = original
+        index = index + 1
+    }
+    left.free(); right.free()
+}
+fun knownVectors() r: Void {
+    knownDigest("", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    knownDigest("abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    knownDigest("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+    byteDigest(1, 1, "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d");
+    byteDigest(1, 17, "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d");
+    byteDigest(1, 64, "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d");
+    byteDigest(55, 1, "463eb28e72f82e0a96c0a4cc53690c571281131f672aa229e0d45ae59b598b59");
+    byteDigest(55, 17, "463eb28e72f82e0a96c0a4cc53690c571281131f672aa229e0d45ae59b598b59");
+    byteDigest(55, 64, "463eb28e72f82e0a96c0a4cc53690c571281131f672aa229e0d45ae59b598b59");
+    byteDigest(56, 1, "da2ae4d6b36748f2a318f23e7ab1dfdf45acdc9d049bd80e59de82a60895f562");
+    byteDigest(56, 17, "da2ae4d6b36748f2a318f23e7ab1dfdf45acdc9d049bd80e59de82a60895f562");
+    byteDigest(56, 64, "da2ae4d6b36748f2a318f23e7ab1dfdf45acdc9d049bd80e59de82a60895f562");
+    byteDigest(63, 1, "29af2686fd53374a36b0846694cc342177e428d1647515f078784d69cdb9e488");
+    byteDigest(63, 17, "29af2686fd53374a36b0846694cc342177e428d1647515f078784d69cdb9e488");
+    byteDigest(63, 64, "29af2686fd53374a36b0846694cc342177e428d1647515f078784d69cdb9e488");
+    byteDigest(64, 1, "fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108");
+    byteDigest(64, 17, "fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108");
+    byteDigest(64, 64, "fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108");
+    byteDigest(65, 1, "4bfd2c8b6f1eec7a2afeb48b934ee4b2694182027e6d0fc075074f2fabb31781");
+    byteDigest(65, 17, "4bfd2c8b6f1eec7a2afeb48b934ee4b2694182027e6d0fc075074f2fabb31781");
+    byteDigest(65, 64, "4bfd2c8b6f1eec7a2afeb48b934ee4b2694182027e6d0fc075074f2fabb31781");
+    byteDigest(119, 1, "da18797ed7c3a777f0847f429724a2d8cd5138e6ed2895c3fa1a6d39d18f7ec6");
+    byteDigest(119, 17, "da18797ed7c3a777f0847f429724a2d8cd5138e6ed2895c3fa1a6d39d18f7ec6");
+    byteDigest(119, 64, "da18797ed7c3a777f0847f429724a2d8cd5138e6ed2895c3fa1a6d39d18f7ec6");
+    byteDigest(120, 1, "f52b23db1fbb6ded89ef42a23ce0c8922c45f25c50b568a93bf1c075420bbb7c");
+    byteDigest(120, 17, "f52b23db1fbb6ded89ef42a23ce0c8922c45f25c50b568a93bf1c075420bbb7c");
+    byteDigest(120, 64, "f52b23db1fbb6ded89ef42a23ce0c8922c45f25c50b568a93bf1c075420bbb7c");
+    byteDigest(127, 1, "92ca0fa6651ee2f97b884b7246a562fa71250fedefe5ebf270d31c546bfea976");
+    byteDigest(127, 17, "92ca0fa6651ee2f97b884b7246a562fa71250fedefe5ebf270d31c546bfea976");
+    byteDigest(127, 64, "92ca0fa6651ee2f97b884b7246a562fa71250fedefe5ebf270d31c546bfea976");
+    byteDigest(128, 1, "471fb943aa23c511f6f72f8d1652d9c880cfa392ad80503120547703e56a2be5");
+    byteDigest(128, 17, "471fb943aa23c511f6f72f8d1652d9c880cfa392ad80503120547703e56a2be5");
+    byteDigest(128, 64, "471fb943aa23c511f6f72f8d1652d9c880cfa392ad80503120547703e56a2be5");
+    byteDigest(256, 1, "40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880");
+    byteDigest(256, 17, "40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880");
+    byteDigest(256, 64, "40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880");
+    byteDigest(513, 1, "2ac6d9e2b50bdd65511fb4dc0f24b7f6a0c1b2e92d1cf6901df565802e380234");
+    byteDigest(513, 17, "2ac6d9e2b50bdd65511fb4dc0f24b7f6a0c1b2e92d1cf6901df565802e380234");
+    byteDigest(513, 64, "2ac6d9e2b50bdd65511fb4dc0f24b7f6a0c1b2e92d1cf6901df565802e380234");
+}
 fun main() r: Int {
+    digestRepresentations()
+    knownVectors()
     var warm = 0
     while warm < 10 {
         digestOnce()

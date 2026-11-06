@@ -5,21 +5,861 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.23.0] - Unreleased
+
+This release contains milestone **00 — Gate 0 Toolchain and Accelerator
+Foundations**.
 
 ### Added
 
-- Added checked Seen x86 Float32, unsigned-byte/signed-byte VNNI and BF16 dot
-  dispatch with explicit scalar fallback, fixed target-function isolation,
-  bounded input geometry, deadline/cancellation progress and owning fixtures.
-  CPU feature discovery now requires OS-enabled AVX register state. Added
-  scalar-control performance observation with optional designated-machine
-  enforcement; hardware certification remains separate.
+- Add explicit finite-address TSan SDK provisioning for core and async CI:
+  authenticate pinned LLVM sources, build serially under the existing hard
+  resource limits, require real clean/race/insufficient-limit controls, and bind
+  a separately published manifest digest. Clang consumes sealed runtime bytes
+  in a private read-only namespace rather than trusting a mutable cache path.
+  Pin configure probes and native-control links to a hash-bound, single-worker
+  LLVM linker, and stream bounded failure tails before scratch cleanup.
+  Require eight fresh Seen worker clean/race pairs with distinct native-thread
+  evidence and allocation-free coordination. Use LLVM's invisible test barriers
+  and order conflicting Seen stores without a happens-before edge, avoiding
+  nested helping, polling trace churn, simultaneous shadow-update blind spots,
+  and accidental allocator or handle-registry synchronization. Missing race
+  reports fail immediately; no retries or sanitizer exclusions are introduced.
+  Preserve the explicit SDK manifest/digest across deterministic compiler
+  execution so SDK-bound tool wrappers keep enforcing the same selection.
+  Reduce repeated directory normalization and small-file buffer allocations
+  without caching validation or dropping any fresh source, helper, tool,
+  resource or control-proof identity checks. Guard followed-directory identities
+  around hashing and reject file growth beyond its initially observed size.
+  Keep integrated Seen execution and production certification dependent on the
+  actual required acceptance results.
+- Preserve bounded CORE-004E native-signal witnesses with exact invocation,
+  source/compiler/program identities, and either a complete ELF or an explicit
+  omission. Validate metadata without duplicate-key ambiguity, publish upload
+  files only after complete writes, and recognize guarded standalone and private
+  rebuild paths. This diagnostic retention does not claim a repair of the
+  previously observed ThinLTO SIGILL.
+- Account for hosted CI setup before starting the bounded workload, reserve
+  time for scope drain and bounded failure diagnostics, and reject invalid job
+  clocks or exhausted budgets before work starts. Keep the existing job and
+  critical-path limits unchanged, retain success-only publication, and run
+  release-toolchain preparation inside finalization's hard scope and deadline.
+- Run the complete fifteen-child runtime gate and complete ten-gate async suite
+  as separate members of the five-group required acceptance matrix. Require all
+  five same-source/candidate receipts and the native ARM qualification bundle
+  before installation and release certification, preserving every existing
+  profile, case and configured deadline.
+  Keep the full foundation/emitter aggregates in the emitter group and run
+  frontend/reflection, input-ownership, rejection and fixture-harness checks
+  before the full runtime aggregate in the runtime group. Balance the existing
+  jobs without dropping coverage or changing default full-run order or limits.
+  Remove an obsolete source-layout assertion for legacy GLSL while preserving
+  the real CLI diagnostic, failure-status and no-output-artifact checks.
+- Add non-publishing, same-source Linux ARM64 input transport and required native
+  qualification on an ARM runner. Cross-build the full compiler and matching
+  package client, then run the unchanged SIMD-C profiles, capability fuzz,
+  cross-object checks and paired performance gate. Require fresh pinned native
+  ASan clean/fault/insufficient-address controls with actual shadow/kernel
+  mapping evidence under the existing finite limits. Retain and independently
+  verify native compiler, source, scope, control, log and benchmark identities
+  before finalization. Keep the 145+50-minute native branch within the existing
+  345-minute critical path; cross-built inputs alone are never qualification.
+  Read the input transport version from the actual workspace `[project]` table,
+  reject missing or malformed project versions, and cover root-level version
+  ambiguity rather than validating only a synthetic manifest shape.
+  Route both cross-building and native qualification through focused admission
+  without an explicit rebuild tier; retain the canonical guard against mixing
+  focused regressions with rebuild-tier, cache-cleanup or preflight options.
+  Expose a bounded native setup-log tail on failure without masking its status.
+  Retain native setup, suite and version diagnostics from their actual artifact
+  scope under the existing shared discovery/file/byte budgets, without following
+  links or traversing transported binaries and nested build output.
+  Read live native cgroup membership through the executing process's numeric
+  proc path, preserving no-follow filesystem traversal instead of weakening it
+  to accept Linux's `self` symlink.
+  Separate plain native release's default full optimization from the Linux-x86-64
+  explicit PGO/LTO selection policy. Keep that explicit policy and full-LTO
+  eligibility checks unchanged, preserve Linux-x86-64 ThinLTO fixture coverage,
+  and use default release for other native hosts instead of requesting an
+  unsupported explicit mode. Add actual default-release native/ARM-IR regression
+  coverage alongside the unchanged explicit ARM ThinLTO rejection.
+  Replace incidental progress/cache-message assertions with semantic execution,
+  verified target IR and observable native-output checks.
+  Admit Linux ARM64 address/undefined sanitizers through the existing target-aware
+  module, runtime and shim instrumentation paths. Preserve platform errors for
+  coverage, thread/memory sanitizers and debug-only ARM builds. Exercise actual
+  ARM sanitizer IR generation and unsupported-mode rejection, plus public-policy
+  allow/deny combinations; retain every native profile and finite ASan control.
+  Retain native ASan admission observations and direct control command/status/
+  stdout/stderr diagnostics under the existing shared bounds. Prioritize failure
+  metadata and stderr, publish bounded escaped failure tails without replacing
+  the original rejection, and distinguish C-control precondition failures.
+  Distinguish verbose leak-check progress from actual LSan errors: require a
+  complete zero-exit clean control with exact limits/mapping, while still
+  rejecting sanitizer findings, fatal diagnostics and summaries. Validate the
+  real retained native control output rather than weakening its finite allowance.
+- Align the v4 containment manifest with the existing 60%-of-total,
+  live-available-minus-10%-reserve memory derivation and its existing fallback.
+  Correct stale declarative metadata without increasing any execution limit.
+- Round newly admitted rebuild and CI memory ceilings down to the host kernel's
+  page size and clamp allocation budgets to the admitted compiler limit. Keep
+  receipt validation strict so page-quantized kernel limits agree with the
+  declared budgets after a complete native acceptance corpus.
+- Require explicit `[native.dependencies] vulkan = {}` for native Vulkan loader
+  calls instead of inferring SDK discovery and link flags from unused foreign
+  declarations or imported module paths. Keep CPU-only imports outside native
+  fixture projects and use ordinary manifest opt-in for native acceptance.
+- Add canonical accelerator foundation gates for CPU SDK isolation, the complete
+  emitter/scalar corpus, runtime lifecycle/trace aggregation and actual paired
+  CUDA/Vulkan RTX 4090 execution. Bind real statuses and raw evidence to source,
+  compiler and cgroup identities; keep software-reference, unsupported and
+  physical-device results distinct. Retain bounded evidence independently of
+  disposable build output and include it in required CI artifacts.
+  Preserve raw-producer file limits while writing larger bounded archives,
+  without raising host hard limits, and retain copied native baseline witnesses
+  after their build scratch is removed.
+  The CUDA canary owns a private context, checks loaded-kernel parameter layout
+  and scalar outputs, records raw timings/process RSS, and rejects malformed
+  reflection before unsafe numeric conversion or borrowed-string release.
+  Native sanitizer failures remain nonzero; none of these development reports
+  claims production or merged-main certification.
+- Add the missing Metal-C integrity and official-toolchain entrypoint. Keep its
+  four-profile CPU byte/ownership proof separate from explicitly unsupported
+  Apple SDK execution; bind official inputs to validated source/reflection
+  hashes and retain native witnesses after scratch cleanup. Bound SDK process
+  lifetime and temporary files without hiding termination or driver failures.
+- Provision Gate B's two repeated native emitter programs once per four-profile
+  matrix: eight real uncached frozen builds, then 40 explicit same-run fixture
+  deliveries across the original ten leaves. Keep all 18 child entrypoints,
+  runtime processes, arguments, sanitizer profiles, goldens and SDK checks.
+  Seal bounded compiler/source/toolchain/environment/scope identity, reject
+  stale or damaged pools without recompiling, retain truthful reuse origins
+  and independently mutable logs, and run real sealed-pool adverse admission
+  checks before children. Standalone leaves still compile fresh; neither reuse
+  nor native admission supplies hardware certification or a measured speedup.
+- Add an explicit persistent mixed CPU/I/O/GPU stress scenario with a manual
+  24-hour RTX 4090 entrypoint, separate from the two-second software-reference
+  discovery smoke. Retain real exactly-once/cancellation, direct-I/O ownership,
+  independent GPU-output and readiness-callback checks across persistent workers.
+  Bound the file, logs, metrics, deadlines and process-group cleanup; preserve
+  actual OS observations and raw samples without claiming TSan, performance,
+  production certification or an unobserved 24-hour result.
+- Resolve qualified enum member constants and their inferred types against the
+  owning enum, not the first same-spelled variant in the module graph. Async
+  `TaskBackend.Vulkan` no longer turns `GpuBackend.Vulkan` into the CPU-only
+  ordinal when both APIs are imported. Cover typed calls and repeated CUDA,
+  Vulkan and Metal spellings with real four-profile native regression checks.
+- Provision the runtime-loadable official SPIR-V validator from the existing
+  pinned Ubuntu package's verified static archive. Link it serially in a
+  read-back-verified hard-memory scope, require real valid/malformed C ABI
+  outcomes before atomic publication, and install through the normal CI loader
+  cache without adding GPU SDK searches to CPU-only startup. Missing or damaged
+  vendor inputs still fail closed; no validator or runtime ABI is substituted.
+- Canonicalize signed-64 aliases in numeric cast lowering, so floating casts to
+  `Int64` and signed-64 casts to floating types emit real conversions instead of
+  reusing an SSA value of the wrong LLVM type.
+- Expose reusable staging foundation acceptance as `seen_gpu_runtime_c.sh`,
+  updating all callers without an obsolete alias, and preserve sticky
+  `gpu.device_lost` for output reads after native staging-loss retirement.
+- Remove the separate bulk failed-frontend CI upload, which could retain
+  gigabytes of compiler executables and generated LLVM IR. Preserve bounded
+  verification-log tails and independently bounded accelerator/I/O evidence;
+  release-toolchain uploads still require successful verification.
+- Enable the existing build trace during clean-checkout certification and retain
+  its bounded tail after interrupted acceptance. Correlate compiler phases with
+  fixture compile/run begin events and actual completion statuses, without
+  recording arguments or changing compiler profiles, coverage or deadlines.
+- Use native assertions and process statuses, not human-readable PASS wording,
+  as the runtime-A metadata, IOCP completion and ARM dispatch functional oracles.
+  Preserve all profiles, fuzz runs, structured platform classifications,
+  coverage thresholds and benchmark sample contracts.
+- Split hosted complete acceptance into four isolated groups using the same
+  source- and hash-bound fresh Stage3 candidate. Keep candidate artifacts
+  unverified and non-release-eligible until every group and final installed
+  compiler checks pass. Preserve all cases and profiles, fresh per-job kernel
+  containment and serial workers, with the configured critical path still
+  bounded to 20,700 seconds. Reject damaged, substituted or incomplete inputs
+  before installation and retain bounded group-specific failure diagnostics.
+- Select the existing reviewed CUDA-compatible ASan shadow mapping for the
+  physical CUDA foundation canary, rather than its default inaccessible gap.
+  Keep heap/UAF/stack/global/poison/leak diagnostics and the existing finite
+  address, aggregate memory and task limits; native-library leaks still fail.
+- Run hosted LLVM dialect, instrumentation-link and ARM object probes, plus the
+  conditional frozen SDL3 loader-bridge build, only inside a verified native
+  platform scope. Keep the 2 GiB ceiling, zero swap, serial workers and task
+  limits; use ignored project-local scratch and preserve SDK/import rejection.
+- Invoke the bounded instrumentation soak through Bash instead of requiring an
+  executable bit on the capped-regression helper, so actual compiler/emitter
+  instrumentation acceptance reaches its native soak checks.
+- Route `seen test --profile sanitizer-thread` through attested compilation and
+  reviewed generated-executable admission with a finite hard virtual-address
+  limit. Propagate admission/startup failures instead of allowing a sanitizer
+  runtime to lift an inherited soft limit and appear to pass.
+- Validate formatter TextEdit JSON by parsed UTF-16 range and replacement
+  values instead of pinning decimal number spellings. Keep equivalent JSON
+  number encodings valid and verify the real LSP JSON-RPC consumer.
 
-- Defined the Seen portable SIMD IR v1 contract with checked vector/mask
-  geometry, packed-operation metadata and explicit x86/ARM/scalar planning.
-- Added 512-bit vector spellings, lane-mask comparisons, checked constructors
-  and machine-readable representation information in `--simd-report`.
+- Lower source generic classes with String/Array arguments through concrete field
+  types and method ABIs, retaining String aggregates and native Array references
+  rather than mismatched erased slots. Preserve runtime-owned container ABIs and
+  ordinary word/class instantiations; reject unsupported aggregate-by-value,
+  open, trait and native method specializations. Cover constructor, getter/setter,
+  overwrite, adjacent fields, aliases, nested demands and function boundaries
+  without introducing aggregate boxes.
+- Apply generic ABI/body checks to inferred descriptor calls as well as explicit
+  type arguments, preserving move/borrow cleanup metadata. Honor lexical
+  intrinsic-name shadowing, emit typed zero defaults and retain null-accepting
+  Array runtime and ordinary source function/method parameter contracts instead
+  of asserting invalid nonnull inputs.
+  Preserve the existing boxed Result-constructor ABI only for its verified
+  standard-library declarations, not same-spelled user functions.
+  Reuse local frontend-node construction and explicit driver String types in
+  frozen-bootstrap-sensitive compiler paths.
+  Substitute generic type operands of `is` without rewriting same-named value
+  bindings, and restrict enum-tag checks to known enum variants.
+- Recognize the verified standard hash-map `__default` declaration through the
+  existing canonical-module, real-source-path and signature checks, retaining
+  typed zeros without granting user or hosted lookalikes intrinsic behavior.
+- Extract async task-group barrier arrays through concrete return signatures
+  instead of unsupported bare generic return slots; preserve job, array, result
+  container and error ownership without weakening the generic ABI guards.
+  Use the same concrete Array boundary in executor Result-inference fixtures,
+  retaining generic scalar/class bit-preservation and repeated cleanup coverage;
+  reject unsupported bare-generic Array erasure before producing a native file.
+  Cover worker-local shutdown rejection and idempotent owner shutdown after
+  close, including preserved completion state and resource baselines.
+- Decode package-map rows into one caller-owned record reused for the complete
+  scan, resetting every field on valid and invalid input and releasing the owner
+  after use. Keep the frozen bootstrap boundary on its reference ABI instead of
+  returning an unsupported cross-module aggregate or allocating state per row.
+- Pass every type-parser argument explicitly in bootstrap-sensitive builtin
+  return-type and generic aggregate analysis, avoiding omitted default String
+  slots in the frozen seed's calls.
+- Correct sanitizer guidance: LLVM 20 ThreadSanitizer requires unlimited virtual
+  address space; a finite shadow allowance is not certified TSan execution and
+  does not authorize changing the host policy.
+- Bind reactor, stream/process/DNS, task-context and async-stress acceptance to
+  the candidate compiler and invoke their Bash entrypoints independently of
+  checkout executable bits. Keep native assertions, rejection cases, sanitizer
+  runs and coverage gates authoritative instead of matching fixture PASS text.
+  Apply the same executable-result authority to quantized SIMD and I/O overlap
+  fixtures while retaining their numeric, code-generation and evidence checks.
+- Add creator-confined native Vulkan streams and retained timeline events with
+  bounded submission slots, nonblocking cross-stream dependencies, retryable OOM
+  admission and ownership-preserving uncertain submission/device-loss handling.
+  Shutdown rejects outstanding work, events and prepared-command borrowers.
+- Decode a quantized store's single active tail lane once while preserving its
+  requested 128/256/512-bit mask and output bounds. Retain all raw paired timing
+  samples across the complete 21-case quantized benchmark matrix, independently
+  validate medians against the unchanged five-percent ceiling, and record
+  allocator peak, actual benchmark-child RSS, source/compiler identity and
+  read-back limits. Drain known benchmark owners before returning a hard
+  performance failure; do not silently drop later measurement cases.
+- Add experimental bounded Vulkan command graphs with explicit dependency/hazard
+  validation, graph-owned intermediate leases, retained pipelines and persistent
+  descriptor/command resources. Record a reusable multi-kernel batch once and
+  preserve checked faults, uncertain-admission progress and partial-owner drain.
+  Add native two-query timestamp profiling with exact unsigned clock wrapping,
+  nonblocking availability and fixed result scratch; unavailable profiling data
+  no longer prevents reuse or shutdown after native work has retired.
+- Add explicit bounded host-mediated transport between distinct native Vulkan
+  devices, with byte-prefix progress, chunked cancellation/deadline checks and
+  independent source/destination shutdown. This route is never chosen implicitly
+  and does not claim peer DMA or physical multi-GPU certification.
+- Add experimental CUDA peer capability/access owners and retained cross-ring
+  device transfers. Native peer transfers require explicit enabled access and
+  caller-declared CUDA runtime linking; same-device copies are not advertised as
+  peer support, and unsupported peer routes never silently fall back to the CPU.
+  Reject malformed native catalog counts and non-Boolean or same-device peer
+  replies while preserving original SDK failure codes.
+  Keep confirmed peer activation separate from uncertain cleanup ownership and
+  revalidate the active route before copy admission.
+- Track Vulkan loss per native context while retaining lifetime-valid cleanup
+  identities. Deny new resource, stream, mapping, graph and pipeline work without
+  dropping pending owners; require real native retirement even after sibling
+  loss or failed observations. Preserve checked shader faults and independent
+  contexts, classify pool/fragmentation exhaustion as OOM and object ceilings as
+  limits, and permit explicit retry after confirmed recoverable OOM rejection.
+- Add a bounded native Vulkan persistent-loop qualification harness with actual
+  cache restore, five warmups, 30 raw timing samples, a 1,024-cycle soak and
+  independent numeric readback. Observe SDK-boundary acquisitions, reject hot
+  resource/cache/descriptor creation and fence/global-idle calls, and require
+  designated negative-guard exits. Retain owner-drain, native memory requests,
+  RSS, transfer/fallback counters and explicit software-reference qualification;
+  do not equate requested memory with measured physical VRAM.
+- Add bounded explicit caller-policy CPU fallback for retired OOM/device-loss
+  operations, preserving original GPU diagnostics and actual CPU failures.
+  Counters distinguish admission, successful/failed outcomes and abandonment;
+  disabled, pending or ineligible work never silently executes on the CPU.
+  Reject aliased borrowed diagnostics without consuming the retained owner.
+- Add experimental reflected Vulkan pipeline and prepared-dispatch owners with
+  entry-specific descriptor validation, official SPIRV-Tools conformance checks,
+  physical shared-storage accounting and explicit application/device API limits.
+  Retain completed shader-fault bits and timeline progress; reject reuse rather
+  than erasing a checked failure. Transfer existing fault-word mapping leases
+  without acquiring a conflicting second buffer borrow.
+  Reject empty-success pipeline, descriptor and command identities before
+  dependent SDK calls; release partial native construction exactly once.
+- Bind native pipeline-cache envelopes to artifact, entry, device and driver
+  identities. Preserve typed cancellation/timeouts, reserve the `.pending`
+  staging namespace and recheck admission immediately before atomic replacement;
+  distinguish pre-publication failure from committed durability failure.
+  Reject nonregular cache inputs through nonblocking descriptor acquisition and
+  pre-admit array-growth, retained-copy and hash scratch budgets before allocation.
+- Release owned nullable JSON lookup boxes while retaining borrowed reflection
+  nodes, preserving exact allocation baselines on valid and malformed artifacts.
+- Preserve finite JSON floating-point values in incremental, compact and pretty
+  serialization with bounded, nearest-even 17-digit Seen formatting. Keep signed
+  zero and out-of-integer-range values; explicitly reject NaN and infinity.
+  Preserve representable native parser subnormals without admitting overflow or
+  nonzero underflow-to-zero.
+- Keep JSON numeric-formatting dependencies reachable through both compiler
+  bootstrap entry imports and curated roots, avoiding undefined formatter
+  symbols at the final link.
+- Emit relaxed SPIR-V atomics without storage-memory semantics bits, preserving
+  source ordering and satisfying Vulkan's non-relaxed storage-semantics rule
+  without strengthening fault-flag atomics unnecessarily.
+  Use implicit Workgroup array layout unless explicit-layout features are enabled,
+  rather than emitting unsupported `ArrayStride` decorations.
+- Keep instrumented module functions and data in individually collectable sections,
+  preserving unused-import SDK isolation under sanitizer builds.
+- Release compiler-created scalar `print`/`println` formatting temporaries after
+  output while preserving borrowed caller Strings and static Boolean text.
+  Keep allocating floating-point formatting out of the read-only ABI class.
+  Reuse width- and signedness-aware conversion for fixed-width integer and
+  floating-point aliases instead of forwarding a numeric register as a String.
+- Keep GPU and Gate 0 acceptance on native values, resource traces, structured
+  errors and coverage rather than fixture PASS wording or source-presence pins.
+- Consume POSIX file-close ownership after one native attempt even on failure,
+  preserving the reported error while clearing and releasing the opaque handle.
+  Prevent close retries from reaching reused descriptors and verify exact
+  allocation cleanup under fast, ThinLTO, UBSan and ASan.
+  Repeated close reports no effect without attempting native close again.
+- Release filesystem context, range and write-all progress Result containers on
+  success and propagated failure while preserving their transferred payloads.
+- Add `File.openNonBlocking` without changing ordinary `File.open` behavior.
+  Retire newly exclusive-created files after post-open metadata or wrapper-allocation
+  failures without removing pre-existing or competing paths.
+- Store repr(C) literals through typed pointers as aggregate values, not their
+  temporary addresses, and release the copied literal storage. Preserve mixed
+  fixed-width fields, adjacent-record canaries and stable live allocation
+  across repeated stores under all four native execution profiles.
+- Emit pointer/64-bit integer casts from physical ABI metadata rather than
+  treating the language `Ptr` spelling as a no-op and generating malformed IR.
+  Keep native `Ptr`/Array/List field projections as pointers while retaining
+  typed `*T` address and class-handle word ABIs.
+- Keep the native command-result aggregate bridge independent of lexical math
+  intrinsic dispatch. Imported process helpers retain success and captured output
+  for successful, failed and empty-output commands during compiler self-hosting.
+- Preserve the element identities of builtin `Array<T>.get` and `String.split`
+  in deterministic effect analysis without granting intrinsic purity to
+  same-spelled user classes or unresolved methods.
+- Keep generated callback IDs and definitions module-owned across recursive
+  lowering. Reserve identities before nested callbacks and parallel bodies;
+  stop recursive snapshots from discarding definitions or rewinding body IDs.
+- Run the reproducibility producer's default/full/ThinLTO matrix as native
+  Linux x86-64 builds and bind the executed mode/package flags to recorded
+  commands and build-input identities, instead of selecting the cross-target
+  path where full LTO is deliberately ineligible.
+- Give native Linux runtime C units stable directory-descriptor input identities
+  without changing the caller working directory or copying source trees.
+  Runtime-object cache schema v5 separates the new identity and caller search
+  context from old physical-path-dependent objects.
+- Preserve Clang's original include, forced-header, macro-file, environment,
+  sysroot and framework search semantics instead of partially reinterpreting
+  its option families; retain native default/full/ThinLTO raw-artifact checks.
+- Shell-quote checkout discovery and runtime-shim availability paths so
+  installations with spaces retain their common TEE, SGX and SEV source shims
+  instead of silently dropping them from native links.
+- Validate baseline repository revisions as Git object IDs rather than binary
+  SHA-256 digests, while retaining SHA-256 for compiler and environment bytes.
+- Capture live baseline inputs for no-argument acceptance, bind nested probes
+  to their own attested compiler scopes, and propagate actual probe failures
+  before publishing evidence instead of hashing failed command output.
+- Replace required-CI source-string wiring assertions with the actual
+  outside-containment rejection contract; keep parsed workflow checks and
+  native acceptance gates authoritative.
+- Make instrumentation fixtures release temporary name arrays, borrowed-success
+  result containers, owned errors, plans and contexts. Require exact live-memory
+  cleanup and retain ASan/LSan checks; add a complete ownership example.
+- Check instrumentation execution counts through validated JSON reports instead
+  of CLI wording, and remove build/test instrumentation source-string pins while
+  retaining validation, fuzz, benchmark, coverage and native execution gates.
+- Validate ownership-trace ASCII identities with a compiled character scan
+  instead of per-character Python generators, preserving length bounds,
+  duplicate-field rejection and typed errors. Keep the pinned hard 5% benchmark
+  threshold unchanged.
+- Borrow bounded immutable launch inputs when constructing deterministic contexts,
+  releasing temporary capture records on success and failure instead of retaining
+  copies of every process argument. Check native snapshot bounds, disabled mode,
+  empty environment values and ambient-mutation isolation, including UBSan.
+- Preserve exact origin-qualified lock nodes when two aliases select the same
+  package identity from different registries; continue rejecting foreign-origin
+  substitution in normal, locked, and frozen modes.
+- Give hosted-source free functions native identities bound to verified origin,
+  archive and source-module ownership. Preserve lexical imports, private helper
+  calls and function addresses across same-named packages, while keeping explicit
+  foreign/export ABIs and local prebuilt object bytes unchanged.
+  Keep module-alias calls and function values qualified through lexical shadowing;
+  resolve async return metadata, initializer registration and intrinsic wrappers
+  to the same native owner. Correct first/middle/last async-registry lookups.
+- Exercise local registry publication and consumption through authenticated
+  loopback HTTPS, signed metadata, quarantined submissions, and real archive
+  integrity checks instead of the removed filesystem publication protocol.
+- Preserve portable transitive object provenance and hash-pinned dependency
+  interface modules in prebuilt packages; check downstream fast/ThinLTO
+  execution and reject malformed provenance, collisions and symlink redirection.
+- Verify read-only installed payloads through freshly bound copied compilers,
+  isolated project-local caches, portable native execution and genuine runtime
+  compiler/cache failure controls without source-tree or stale-object fallbacks.
+- Separate AMDGPU numeric/specialization parity from capability/artifact checks,
+  retaining all four profiles, native instruction validation and seeded fuzzing
+  as mandatory gates within unchanged bounded test deadlines.
+- Test copied compiler-fixture metadata with real native success and failure
+  controls; reject missing logs, malformed or failed statuses and stale binaries
+  before execution instead of trusting an executable filename alone.
+
+- Run line/extension, local native-dependency and package-prerequisite regressions
+  through the selected attested compiler. Audit CPU isolation against that actual
+  binary, with bounded dependency reads even when legacy output paths are absent.
+
+- Bind bundled CUDA, stream-token, checked-allocation and CLI regression gates
+  to the runner-selected attested compiler; replace obsolete role-marker checks
+  with numerical scope readback while retaining native and rejection controls.
+
+- Preserve target-specific C scalar extension attributes across extern
+  declarations, imported aliases, renamed wrappers and call sites without
+  changing the Seen-internal ABI; cover signed narrow callback boundaries.
+
+- Add contained LLVM optimizer/object failure probes with native fast/ThinLTO
+  controls, preserving bounded tool identities and rejecting invalid requests.
+- Migrate the historical compiler regression suite to attested serial execution
+  and private retained artifacts without deleting shared caches or replacing
+  bounded LLVM tools.
+- Keep expected allocator-abort inputs under their dedicated native harness
+  instead of discovering them as exit-zero unit tests.
+- Correct JSON-RPC and nesting-budget fixture brace escapes and assert their
+  decoded input bytes before testing parser behavior.
+- Refresh reproducible-program fixtures with the required source epoch pin and
+  exercise bitwise token kinds, spellings and EOF through the shipped lexer API.
+- Bound shared fixture coverage merging and export to one worker, the optimizer
+  VMEM ceiling and a hard command timeout; retain fail-closed tool errors.
+- Distinguish imported test helpers and harness-driven program inputs from
+  standalone tests in native and host discovery, retaining their owning gates.
+  Keep the large-JSON gate's serial flags compatible with attested execution.
+- Preserve concrete generic receiver return types through method and chained
+  lookup, including String-valued maps, without losing qualified-owner identity
+  or resolving a missing method against an unrelated same-named class.
+- Keep HashSet constructor type arguments explicit and give the basic file-I/O
+  fixture newly owned ignored scratch independent of the package working directory.
+- Launch deterministic time compatibility tests with bounded startup inputs,
+  preserving immutable clock capture and auditing fast and ThinLTO executables
+  before execution through the attested time-contract harness.
+- Lower StringHashMap capacity and load-factor queries against the native map
+  layout without nonexistent source-method declarations. Preserve explicit
+  factory type arguments and cover integer- and String-valued native maps.
+- Preserve concrete Option payload layouts through both default-value call
+  paths, loading only present payloads and merging typed String, scalar and
+  aggregate values instead of eagerly selecting erased integer words.
+- Preserve signed evdev statuses through structured errors, report allocation
+  failures without invented native codes, and explicitly widen Steam app IDs
+  at the reusable helper boundary. Cover native-status width boundaries.
+- Document asynchronous byte-stream ownership, partial progress and explicit
+  cleanup, distinguishing direct-ready memory streams from OS completion I/O.
+- Restore byte-storage, synchronous-stream, bounded-adapter and UTF-8/endian
+  API documentation with ownership, limits and links to compiling examples.
+- Isolate standalone artifact-namespace probes from inherited rebuild roles
+  without changing their real resource limits or production rejection guards.
+- Honor the runner-selected compiler in legacy CLI, allocation, native-dependency
+  and GPU regressions; retain aliases, attested scopes and negative
+  dependency/ABI cases, and bound native fixture execution with hard timeouts.
+  Inspect the selected CPU compiler's dependencies even when default build
+  paths are absent, and keep baseline evidence tied to the same selected binary.
+- Preserve genuine compile logs and statuses when GPU probes are copied into
+  case-specific executables. Reject missing, malformed, failed and stale
+  fixture evidence without bypassing compile-status checks.
+- Split GPU IR input ownership from reflection/CLI acceptance so both mandatory
+  gates retain cold fast, ThinLTO, undefined- and address-sanitized execution
+  within bounded test deadlines, without dropping reflection hashes or fuzzing.
+- Separate Metal numeric/specialization parity from synchronization/artifact
+  acceptance, retaining four compiler profiles and both seeded fuzz gates
+  within the same bounded test deadlines.
+- Separate PTX numeric/specialization and packed fuzz from capability/hardware
+  acceptance, retaining all four compiler profiles, official assembly and
+  designated-device execution without increasing test deadlines.
+- Separate GPU foundation metadata coverage from explicit Vulkan software-
+  reference coverage while retaining all profiles, fault cases and parser fuzz
+  thresholds. Keep the fault-profile merge bounded and single-worker too.
+- Add raw-IR phase regressions for cold/warm caches, SDK-independent cross-
+  target emission, no object/link outputs and retained native-policy rejection.
+- Export raw module IR before optimization and native object emission, including
+  generated test mains; bypass object caches for IR-only requests and defer
+  native SDK discovery without relaxing ordinary cross-compilation policy.
+- Preserve special-token error positions before releasing tokenizer scratch
+  arrays, avoiding use-after-free in disallowed-token and output-limit errors.
+- Pair character strings with their UTF-8-length allocation size, and release
+  BPE symbol, substring, result-container and decode temporaries on success
+  and rejection. Exercise cold/warm exact live-byte and reserve baselines in
+  fast, ThinLTO, undefined- and address-sanitized tokenizer lifecycle tests.
+- Preserve imported callback signatures and opaque pointers through parsing,
+  semantic checking and LLVM mapping; retain source coordinates and reject
+  malformed callback types before code generation. Share fixed-width C
+  function/record mappings and test signed, floating and raw-pointer native
+  roundtrips instead of widening C values into incompatible Seen types.
+- Add experimental pinned CUDA staging owners with fixed byte/ticket ceilings,
+  retained initialization and cleanup failures, source dependencies for
+  asynchronous H2D/D2D/D2H copies, and explicit consumer acknowledgement.
+  Private-stream observation drains uncertain or unqueryable events without
+  waiting, while preserving the error and rejecting poisoned output.
+  Exercise CPU-only imports, cross-ring rejection, late-deadline ownership and
+  measured source coverage; retain native initialization failure diagnostics.
+  Add seeded byte-range reuse, multi-submission completion and stale-ticket
+  regressions with per-cycle live-resource checks and bounded RSS telemetry.
+  Require a bounded 60-second native lifecycle test with exact live cleanup,
+  stable recyclable reserve and a parent-owner survival oracle.
+  Full hardware/sanitizer certification remains separate.
+- Add an explicit CUDA-compatible ASan shadow layout, retaining strict leak and
+  access checks and fixed resource limits. Negative controls verify ordinary and
+  newly shadowed address ranges; native-library leaks remain acceptance failures.
+- Add nonblocking CUDA event observation through the existing opt-in resource
+  ABI and `CudaEvent.poll()`, preserving pending/error ownership without event,
+  stream or device synchronization. Include pinned-byte hardware round trips
+  and deterministic pending/error probes.
+- Add owned, fixed-capacity Vulkan staging rings with synchronous checked host
+  spans, asynchronous byte transfers, retained completion tickets and consumer
+  acknowledgement. Backing and native commands are preallocated; host-coherent
+  storage is explicit and does not claim OS page locking.
+- Add preallocated Vulkan asynchronous byte-copy queues with private timeline
+  completion, retained buffer leases, OOM retry, uncertain-submission quarantine
+  and explicit supported unified-memory access. No per-copy native fence,
+  resource creation, global idle wait or silent fallback is introduced.
+- Add checked, lease-owned Vulkan host mappings over pooled buffers, with
+  coherent sharing, exclusive noncoherent visibility operations and retryable
+  cleanup ownership. Native byte-copy submission remains separate.
+- Add bounded device execution checks for Seen-emitted PTX layout, packed
+  values, integer atomics, subgroups and FP16/BF16 matrices on SM89, with independent value/fault oracles
+  and separate hardware evidence. Add a focused regression entry point that
+  retains exact-version builder admission and scope-attested containment.
+- Add bounded staging reservations, checked buffer byte borrows and validated
+  Vulkan timeline feature admission. Submitted staging metadata retains its
+  range until native completion and consumer acknowledgement, preventing reuse
+  of unread download bytes; native copy submission is a separate API.
+- Add typed pooled GPU buffers, explicit memory kinds and device-wide commitment
+  budgets. Reuse bounded free ranges, report native allocation padding and
+  unknown residency accurately, and retain failed or late cleanup ownership.
+  Vulkan resource creation uses direct FFI with Seen-owned policy and state.
+- Add move-only resource context leases with device-wide quotas, generation
+  validation and shutdown ordering that prevents native context destruction
+  while resource owners remain alive.
+- Add explicit Vulkan 1.2 discovery and owned native device/context creation in
+  Seen, with optional free-memory reports, device kinds, bounded SDK metadata,
+  software-device opt-in and a Mesa software reference acceptance suite.
+- Add Seen compute backend identities, bounded device metadata and discovery
+  catalogs, with independent owning snapshots, explicit provider membership,
+  duplicate/quota rejection and cleanup checks. CPU-default imports require no
+  accelerator SDK; native device/context creation remains separate.
+- Add move-only GPU device/context ownership with explicit provider dispatch,
+  generation-checked quotas, cancellation/deadline admission and retained late
+  cleanup failures. Verify lifecycle behavior with a test-only native-call oracle.
+- Add experimental Seen-to-MSL source emission for macOS 13/14/15, a reflected
+  native Metal buffer ABI, structured helper/loop lowering, checked scalar and
+  vector memory, and bounded threadgroup storage. Add shared scalar CPU witnesses
+  and explicit separation from Apple SDK validation and device execution.
+- Add Metal packed floating/integer word conversions through shared scalar plans,
+  bounded specialization clones and independent CPU numeric witnesses.
+- Add checked Metal integer atomics, bounded strong compare/exchange and native
+  execution barriers, with MSL 3.2 scoped acquire/release and standalone fences.
+  Reject unsupported target/order combinations explicitly.
+- Certify HIP artifact integrity, source relocation and deterministic HSA code
+  objects with the pinned LLVM toolchain and malformed-input fuzzing.
+
+- Add a Seen fixed-worker executor with typed Send admission, bounded queues,
+  worker-assisted nested joins, cancellation, deadlines and deterministic drain.
+  Add task groups, executor-aware wait groups, barriers, typed queues and
+  deterministic checked integer reductions.
+- Add independent CPU/blocking pools with bounded workers and queues, explicit
+  placement snapshots, and narrow affinity/NUMA platform normalization.
+- Add bounded reactor readiness and indexed deadlines; owning asynchronous
+  byte spans, pipe/socket streams, process spawning and reaping, DNS queries,
+  owned task-context captures, redacted diagnostics and monotonic progress.
+- Add bounded completion I/O with explicit Linux io_uring, Windows overlapped
+  and macOS worker backends; cancellation, partial-read and device acknowledgement
+  ownership contracts; and trace-based overlap/resource evidence.
+- Add portable SIMD vectors and masks, checked multiversion planning, 512-bit
+  spellings, masked memory operations, packing, prefetch and SIMD reports.
+  Add x86 AVX2/AVX-512/VNNI/BF16 and ARM NEON/SVE lowering with OS-state checks,
+  explicit scalar fallback and isolated target-specific functions.
+- Add checked quantized decoding and scalar/vector parity fixtures for GGML
+  Q8_0, Q4_0, Q4_K, Q2_K and IQ3_XXS with its E8 codebook, plus MXFP4 and
+  finite E4M3FN layouts. Add bounded tensor-loop proofs and vectorization reports.
+- Add typed GPU frontend validation, structured GPU IR, explicit precision and
+  cooperative-operation rules, reflection manifests and rejection fixtures.
+  Add SPIR-V/Vulkan emission, capability validation and pinned-toolchain checks.
+- Add the experimental CUDA/PTX emitter with shared GPU artifact ownership,
+  scoped atomics, subgroup collectives, packed precision, bounded specialization
+  materialization and checked native FP16/BF16 cooperative matrices. Add
+  seven-target launch/reflection checks and a digest-pinned NVIDIA assembler.
+- Add experimental HIP/AMDGPU LLVM emission for five targets, reflected HSA v5
+  launch arguments, checked scalar/vector memory and structured control flow.
+  Add pinned LLVM code-object validation and independent CPU execution of
+  normalized emitted LLVM for numeric, bounds and launch-geometry checks.
+- Add HIP scoped atomics, packed conversions, bounded specialization, native
+  wave collectives and checked FP16/BF16 cooperative matrices on CDNA targets.
+  Verify native MFMA instructions and independent scalar/addressing goldens.
+- Add execution, cancellation, allocation and resource-lifetime regressions,
+  sanitizer profiles, stress fixtures and machine-readable software evidence.
+
+### Changed
+
+- Queue version-branch CI behind its active run so publishing acceptance fixes
+  preserves the verification already underway. Explicit `[replace-ci]` repair
+  commits can replace a run with a proven obsolete configuration.
+- Share bounded text construction and explicit launch-argument packing between
+  CUDA and AMDGPU. Describe both launch ABIs in the published GPU JSON schemas.
+- Share bounded packed-number conversion plans across PTX, SPIR-V and AMDGPU while
+  independently checking emitted instructions against common numeric goldens.
+- Bind the combined executor, completion I/O, SIMD and GPU foundations to
+  runtime-v15 and standard-library 0.17.0 with complete module checksums.
+  Deterministic contexts require the immutable borrowed argument/environment
+  views; retain the allocation-observer callback ABI introduced in runtime-v14.
+- Replace the untyped C work-stealing pool with Seen scheduling and ownership.
+  Serialize allocator budget transactions, use thread-local runtime errors,
+  and keep native adapters limited to platform operations.
+- Keep unsupported platforms and fallback explicit. Hardware/platform
+  certification and designated-machine performance enforcement remain pending
+  until their separate verification is completed.
+
+### Fixed
+
+- Use the filesystem root for Ubuntu ARM64 cross-linking rather than treating
+  the GNU target installation prefix as a sysroot. Check real C and C++ runtime
+  links before the full compiler input build, preserving SDK linker-script
+  bytes, exact-source transport and the existing memory and job deadlines.
+- Avoid repeated path-object construction in ERR-001C contract validation when
+  a path cannot contain a parent component. Preserve full platform checks for
+  dotted inputs and every fresh contract validation; keep the pinned warmups,
+  sample count, baseline and five-percent benchmark ceiling unchanged. Replace
+  source-text/count-only assertions with path-boundary behavior checks while
+  retaining the compiled native migration cases in complete acceptance.
+- Keep the positive hosted-workflow fixture aligned with explicit finite TSan
+  provisioning and the Ubuntu ARM filesystem root. Check out exact source
+  before the final job rejects failed dependencies so bounded failure
+  diagnostics remain available.
+- Admit sealed SDK resource selection inside the established rootless artifact
+  namespace by validating unmapped root ownership and actual write protection,
+  rather than requiring host UID zero to remain numerically visible.
+- Carry the 0.22.11 indexed-loop `continue` fix into milestone bounds-proof
+  lowering without losing nested loop targets. Keep range, array, and string
+  progress and parameterized cross-zero world-grid coverage in fast and
+  ThinLTO release profiles (FEL-3069, FEL-3070).
+- Bind official Metal tool invocation names separately from pinned resolved
+  executables, supporting Xcode's `metallib` to `air-lld` alias while preserving
+  `argv[0]` and rejecting alias/target replacement. Require explicit version-2
+  policies rather than weakening identity checks or retaining a compatibility
+  path.
+- Apply Darwin DATA limits using XNU's existing-map accounting, matching the
+  unchanged finite AS mapping-growth ceiling instead of rejecting a launcher
+  whose existing mappings exceed the allocation budget. Keep live-derived RSS
+  admission, inherited limits and native process cleanup unchanged.
+- Preserve bounded active-child diagnostics when accelerator runtime Gate C is
+  interrupted before its aggregate report: atomically publish incomplete and
+  actual statuses, prioritize the active child's identity/log/status, and retain
+  allowlisted metadata without copying IR or relaxing any resource limit.
+  Distinguish truncated, changing, incomplete and unavailable evidence from
+  a stable snapshot or successful gate.
+- Carry FEL-3067 signed-range termination coverage from the published 0.22.10
+  hotfix into this milestone: negative literal and folded bounds, signed
+  extremes, nested/empty ranges and collection iteration run in both fast and
+  ThinLTO release profiles. Keep signed induction free of unsigned-no-wrap
+  assumptions and document the exclusive upper bound.
+- Invalidate prebuilt objects using the previous generic record method ABI;
+  advance the live layout identity and verify object and manifest SHA-256
+  digests consistently in the compiler and package client.
+- Keep sanitizer-runner setup diagnostics on stderr so supervised JSON
+  checkpoint streams remain unchanged, with exact stdout regression checks.
+- Preserve generic `@repr(C)` span descriptor fields in local value storage and
+  match aggregate argument types between class methods and their callers.
+
+- Preserve explicitly hash-bound SDK fault libraries in sanitizer fixtures
+  while continuing to reject inherited preloads and unsafe fixture paths.
+- Keep scalar dot controls from auto-vectorizing and retain the candidate's
+  selected variant before the alternating scalar call overwrites progress.
+  Preserve thirty raw timing pairs and assert cold ARM lifecycle cleanup.
+- Store fields of local native ABI values in their original aggregate storage,
+  preserving pointers and layout when Seen constructs native SDK requests.
+- Preserve conditional guards around array/member reads and nested effects.
+  Branchless assignment optimization now requires safe scalar operands, so
+  untaken branches cannot read absent elements or execute hidden calls.
+- Size pooled allocator slabs to available budget and preserve room for error
+  construction. Checked pool exhaustion now exits with a bounded allocation
+  diagnostic instead of returning a null address to generated field stores.
+- Emit dynamic `Void` trait calls without an LLVM result assignment. Exercise
+  mixed return types, receiver arguments and repeated destructor cleanup.
+- Admit bounded GPU validator tools after cached builds by accounting for clean
+  unmapped file cache while preserving the aggregate memory limit.
+- Check Seen streams, process and DNS policies against source coverage gates,
+  including stricter DNS/process-input branch thresholds, CNAME/IPv6 corpus, real
+  loopback UDP, closed-peer progress and retry policy, and unclaimed-child cleanup.
+- Check reactor admission, context snapshots, stale registrations, wake leases,
+  loopback transfer/EOF and deadline ordering against Seen source coverage gates.
+  Assert exact allocation cleanup across the full reactor lifecycle.
+- Resolve methods on generic receiver declarations before diagnosing unrelated
+  extension calls. Capture borrowed executor dispatch before moving process jobs,
+  while continuing to reject use after ownership binding.
+- Express MD5 complements as explicit 32-bit XORs so the pinned frozen frontend
+  can generate the corrected algorithm without undefined LLVM registers.
+- Preserve hyphenated module identities when parsing nested canonical types,
+  so safe callbacks declared in files such as async-002e retain their Send proof.
+- Release filesystem path/open validation containers and I/O stress argument
+  snapshots. Keep readiness callbacks on the explicit typed witness API.
+- Check task-diagnostic redaction, bounded causes, partial-copy cleanup and
+  snapshot lifetimes against Seen source coverage thresholds.
+- Check pool admission, placement snapshot ownership and detailed join cleanup
+  against real Seen source coverage thresholds.
+- Allow nested executor joins to wait for children already running on another
+  worker while preserving the synchronization guard against producer deadlocks.
+  Enforce Seen source coverage thresholds for executor and synchronization APIs,
+  including cancellation, invalid-context and ownership cleanup paths.
+- Exercise the typed SPIR-V emitter in instrumentation probes and remove the
+  obsolete GLSL exception from test orchestration. Build the instrumented host
+  with bounded serial forks so module heaps are reclaimed.
+- Emit Seen source coverage counters and LLVM mappings, with atomic updates
+  for concurrent code and checked mapping budgets. Reject C-only coverage
+  evidence, and correct the Seen MD5 implementation used by profile identities.
+- Run the instrumented compiler and GPU-emitter source-coverage acceptance in
+  verify-tier checks, preserving the guarded build's selected package client
+  instead of requiring an already installed checkout sidecar.
+- Bound coverage reporting and profile merging to one worker in the test CLI
+  and execution acceptance so post-processing respects the aggregate task cap.
+- Re-enter self-wrapping shell regressions with their own verified scope and
+  the test CLI's selected compiler and package client, retaining aggregate
+  containment and serializer proofs.
+- Migrate the legacy sanitizer CLI test to attested, project-local compilation
+  and finite ASan/LSan admission, preserving its address/undefined execution
+  checks without suppressed leaks or checkout-wide cleanup.
+- Run incremental CLI tests with an isolated project cache, verify actual warm
+  source-object hits and uncached execution, and keep the warm cache unchanged
+  during `--no-cache` compilation.
+- Migrate the Linux x86-64 SIMD CLI tests to attested, contained execution with
+  native CPU admission, exact scalar/AVX2/auto comparisons, executable baseline
+  checks, structured report validation, and fail-closed backend rejection.
+  Exercise deterministic compilation with a pure program and require printing
+  to retain its typed nondeterministic-effect rejection.
+- Preserve verified serial linker and auxiliary-tool settings when isolating
+  deterministic compiler environments, rather than failing at ThinLTO linking
+  or losing helper worker limits.
+- Preserve multicall driver names in bounded tool wrappers so canonicalized
+  linker and C++ aliases retain their actual frontend/linker behavior.
+- Instrument Seen LLVM functions for PGO generation and consume their profiles
+  in both per-module and merged optimization. Require actual Seen function
+  counters in the project-local PGO cycle instead of accepting C-runtime-only
+  profiles, and verify profile-use execution in ThinLTO and full-LTO modes.
+- Avoid temporary name/profile strings in instrumentation validation and verify
+  10,000 success/error lifecycle iterations return live allocations to baseline,
+  with bounded recyclable reserve and native sanitizer/coverage checks.
+- Match generic class release to allocator provenance: free malloc-backed
+  native headers normally and reject mismatched pool size classes instead of
+  corrupting freelists or hiding retained headers behind negative live counts.
+- Give test CLI catalogs and reports their own bounded output budget and preserve
+  reporter error codes instead of masking size-limit failures as invalid reports.
+- Retain trait receiver field types and generic function return signatures during
+  inference, and validate lifecycle bounds on static factory type applications.
+  Keep completion ownership fixtures on current canonical declarations.
+- Release atomic ordering-validation result containers on successful and
+  rejected integer operations, preserving returned errors and values.
+- Run the SPIR-V emitter fuzzer for its required wall-clock duration; retain
+  the outer timeout instead of failing early on faster hosts at an iteration cap.
+- Budget four hours for serial acceptance inside a five-hour-forty-five-minute
+  CI scope and a six-hour job. Preserve memory, swap, task and per-case caps.
+  Retain bounded diagnostic log tails separately from large frontend artifacts.
+- Run required CI directly on the 0.23.0 release branch using the existing
+  concurrency rule to queue version-branch runs. Keep the canonical workflow
+  contract and fixture aligned with that trigger.
+- Preserve array pointers in Option payloads so nested synchronization
+  containers retain their typed values and ownership.
+- Restore instantiated pointer and scalar representations after generic method
+  returns, preserving the declared word ABI and typed executor cleanup.
+- Store nested inline aggregate field assignments in their original receiver,
+  preserving adjacent fields and evaluating receiver expressions once.
+- Validate GPU intrinsic and helper calls through shared GPU lowering during
+  `seen check`, while preserving unresolved-call rejection in CPU code.
+- Keep compiler acceptance fixtures on the owning GPU annotation and type
+  mapping APIs so required checks link after module refactoring. Release GPU
+  frontend fixtures through the shared AST owner and verify exact cleanup.
+- Share checked GPU IR fuzz timing and fuel limits so faster compilers still
+  complete the required duration without exhausting a short iteration budget.
+
+- Speed up canonical test-path validation while preserving strict path checks
+  and the existing discovery performance gate.
+
+- Share read/write array bounds guards and derive their labels from unique SSA
+  registers so nested expressions cannot reuse control-flow blocks.
+- Provision and verify an ARM64 libc sysroot for CI cross-target object checks.
+- Preserve scalar floating-point types in mixed-precision comparisons,
+  arithmetic and fused promotion; resolve portable SIMD fixture helpers locally.
+- Normalize `Float64` cast aliases for real widening, narrowing and scalar
+  conversions, including casts around function calls.
+- Lower `Float` array literals through the shared typed scalar storage path and
+  preserve fixed-width element types during array-literal inference.
+- Restore fixed-width integer payload types when unwrapping generic Options.
+- Load borrowed `repr(C)` method receivers before reading aggregate fields.
+- Own boxed aggregate Option payloads across nullable returns, unwrap and cleanup.
+- Release copied aggregate literal storage in arguments, returns and locals.
+- Keep conservative tensor proof scalar classification free of temporary strings.
+- Read and write packed views through typed byte indices with shared null and
+  bit-offset overflow checks.
+- Remove per-lane Option allocation from prevalidated SIMD unpacking while
+  retaining checked packed-view reads for untrusted metadata.
+- Broadcast scalar vector constructors to every lane in SPIR-V, PTX and AMDGPU.
+- Preserve owning Result constructors when repairing frozen bootstrap IR, with
+  bit-preserving scalar payloads and owned string boxing.
+- Keep generic Result error unwrapping on its erased-word ABI during bootstrap.
+- Keep GPU byte access and owned-wrapper cleanup compatible with the frozen
+  bootstrap compiler so the version branch can link during CI rebuilds.
+- Return backend-specific CUDA artifact integrity errors, preserve SPIR-V
+  diagnostics and verify shared ownership/rejection paths. Certify relocated
+  PTX/reflection/hash identity with pinned official assembly and malformed-input
+  rejection; bound artifact snapshots and reject unsafe file types. Run the
+  executable PTX acceptance harnesses with the selected compiler.
+- Keep CUDA capability admission compatible with the frozen bootstrap compiler
+  by checking mask inclusion without unary bitwise complement.
+- Align CI workflow contract fixtures with PTX diagnostics and pinned assembler
+  provisioning so the required regression validates the current workflow.
+- Release temporary GPU frontend allocations through a bounded Seen owner,
+  restore parser scratch registries between calls, and preserve independently
+  owned lowered IR. Reject partial ASTs left by parser recovery. Release old
+  hash-map storage budgets during growth.
+- Own GPU CLI parse snapshots, including inline option values and error paths,
+  and verify argument-container cleanup against exact allocation baselines.
+
+- Add `env.releaseArgs()` to consume owned argument snapshots, including copied
+  strings and their tracked allocation budget. Document the snapshot lifetime
+  and verify repeated cleanup under sanitizers. Share that cleanup across I/O,
+  SIMD benchmark and GPU artifact fixtures.
+- Preserve Boolean array literal values, evaluation order and allocation
+  ownership through the same storage path as Boolean array push.
+- Preserve declared trait methods when free functions share their names.
+  Share receiver-function naming across declarations, definitions and module
+  symbols, and build complete imported/impl-block trait witnesses before boxing.
+- Keep fixed-width filled arrays consistent with typed access, and share
+  assignment conversions with call lowering while preserving LLVM value order.
+- Preserve SHA-256 typed byte/word storage and public signatures across
+  bootstrap generations with masked native-word arithmetic. Cover canonical,
+  binary and split-block vectors, rotations, digest comparison and cleanup.
+- Construct I/O resource checkpoints with the supported JSON builder API and
+  check aligned-buffer cleanup through its Boolean contract.
+- Use the existing array data intrinsic for GPU byte packing, avoiding a
+  duplicate runtime declaration in compiler builds.
+- Preserve borrowed file-error success text and own empty GPU manifest slices,
+  keeping CPU-only project compilation safe across blank lines and comments.
+- Preserve meaningful escaped quotes in already-decoded string literals,
+  including strict GPU manifest table checks.
+- Consume optional statement separators after compound blocks before expression
+  recovery, preserving valid GPU helper and control-flow programs.
+- Keep inlined SPIR-V helper returns inside structured selection and loop exits,
+  preserving return values and skipping work after early returns.
+- Retain the active failing fixture log and emitted LLVM in bounded CI
+  diagnostics so nested gate failures remain visible.
 
 ## [0.22.11] - 2026-11-04
 

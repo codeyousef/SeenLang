@@ -1,0 +1,14 @@
+fun copyFirst<T>(values: Array<T>) r: Array<T> {
+    let output = Array<T>()
+    output.push(values.get(0))
+    return output
+}
+
+fun main() r: Int {
+    let strings = Array<String>()
+    strings.push("aggregate")
+    let copied = copyFirst<String>(strings)
+    copied.free()
+    strings.free()
+    return 0
+}

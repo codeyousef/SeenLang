@@ -1,0 +1,80 @@
+import compute.device.{GpuDevice}
+import compute.allocator.{GpuAllocator}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.resource_stats.{GpuStats}
+import compute.error.{GpuError}
+import core.result.{Result}
+import compute.limits.{GpuLimits}
+import device_fixture_support.{report, operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{newProviderCounts, provider, opened, created, completed}
+import resource_fixture_support.{newResourceCounts, resourceProvider, resourceOpened}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun stats(result: Result<GpuStats, GpuError>) r: GpuStats {
+    if result.isErr() { abort("valid GPU pool accounting unavailable") }
+    let value = result.unwrap(); result.releaseContainer()
+    if not value.valid() { abort("GPU pool published inconsistent statistics") }
+    return value
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let operationContext = operation()
+    let deviceCounts = newProviderCounts(); let limits = GpuLimits.bounded(2, 2, 32, 512 as UInt64)
+    let device = opened(GpuDevice.open(provider(deviceCounts, operationContext), report(), limits))
+    let context = created(device.createContext(operationContext)); let counts = newResourceCounts(context)
+    let allocator = resourceOpened(GpuAllocator.open(context, resourceProvider(counts, operationContext),
+        GpuMemoryKind.DeviceLocal, 64 as UInt64, 4, operationContext))
+    let firstResult = GpuBuffer<UInt32>.allocate(allocator, 2 as UInt64, 4 as UInt64, 4 as UInt64, operationContext)
+    if firstResult.isErr() { abort("first typed buffer allocation failed") }
+    let first = firstResult.unwrap(); firstResult.releaseContainer()
+    let secondResult = GpuBuffer<UInt32>.allocate(allocator, 4 as UInt64, 4 as UInt64, 16 as UInt64, operationContext)
+    if secondResult.isErr() { abort("second typed buffer suballocation failed") }
+    let second = secondResult.unwrap(); secondResult.releaseContainer()
+    let firstOffset = first.byteOffset(); let secondOffset = second.byteOffset()
+    if firstOffset.isErr() or secondOffset.isErr() or firstOffset.unwrap() != (0 as UInt64) or secondOffset.unwrap() != (16 as UInt64) {
+        abort("typed buffer offsets changed deterministic block geometry")
+    }
+    firstOffset.releaseContainer(); secondOffset.releaseContainer()
+    let occupied = stats(allocator.stats())
+    if occupied.requestedBytes != (24 as UInt64) or occupied.allocatedBytes != (32 as UInt64) or
+        occupied.usableBytes != (64 as UInt64) or occupied.committedBytes != (80 as UInt64) or
+        occupied.freeBytes != (32 as UInt64) or occupied.residentBytes.isSome() or
+        occupied.liveBuffers != 2 or occupied.blocks != 1 or counts.creates != 1 {
+        abort("suballocation commitment padding free space or native reuse accounting changed")
+    }
+    occupied.release(); gpuFixtureRejected(allocator.release(), "gpu.busy")
+    gpuFixtureRejected(context.close(), "gpu.busy"); gpuFixtureRejected(device.close(), "gpu.busy")
+    let generation = first.generation; let index = first.slot
+    completed(first.close(), true); completed(first.close(), false)
+    let replacementResult = GpuBuffer<Float32>.allocate(allocator, 2 as UInt64, 4 as UInt64, 16 as UInt64, operationContext)
+    if replacementResult.isErr() { abort("cached GPU range could not be reused") }
+    let replacement = replacementResult.unwrap(); replacementResult.releaseContainer()
+    if replacement.slot != index or replacement.generation == generation or counts.attempts != 1 {
+        abort("GPU range reuse lost its generation or allocated another native block")
+    }
+    replacement.generation = generation; gpuFixtureRejected(replacement.close(), "gpu.invalid")
+    replacement.generation = generation + (1 as UInt64)
+    completed(second.release(), true); completed(replacement.close(), true)
+    let cached = stats(allocator.stats())
+    if cached.requestedBytes != (0 as UInt64) or cached.allocatedBytes != (0 as UInt64) or
+        cached.freeBytes != (64 as UInt64) or cached.committedBytes != (80 as UInt64) or cached.liveBuffers != 0 {
+        abort("GPU buffer destruction lost cached commitment or free-range accounting")
+    }
+    cached.release(); completed(allocator.trim(), true); completed(allocator.trim(), false)
+    let trimmed = stats(allocator.stats())
+    if trimmed.committedBytes != (0 as UInt64) or trimmed.usableBytes != (0 as UInt64) or
+        trimmed.peakReservedBytes != (80 as UInt64) or device.core.resourceCommittedBytes != (0 as UInt64) {
+        abort("GPU trim did not release commitment while preserving its peak")
+    }
+    trimmed.release(); completed(allocator.close(), true); completed(allocator.close(), false)
+    completed(allocator.release(), true); completed(context.release(), true); completed(device.release(), true)
+    // Inactive wrappers must not touch their destroyed allocator or context.
+    completed(first.release(), true); completed(replacement.release(), true)
+    if counts.live != 0 or counts.creates != counts.destroys or counts.releases != 1 {
+        abort("GPU native block or provider ownership did not drain exactly once")
+    }
+    counts.free(); deviceCounts.free(); limits.release(); releaseOperation(operationContext)
+    if seen_memory_used_bytes() != memory { abort("typed GPU suballocation leaked Seen-owned resources") }
+    println("PASS: GPU-006B typed pooled buffers preserve padding accounting generations reuse and deterministic native drain")
+    return 0
+}

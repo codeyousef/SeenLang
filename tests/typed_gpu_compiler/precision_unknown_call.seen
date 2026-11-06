@@ -1,0 +1,5 @@
+@compute(1)
+fun invalid() {
+    let value = unpackFp16Typo(0 as UInt32, 0 as UInt32)
+}
+fun main() r: Int { return 0 }

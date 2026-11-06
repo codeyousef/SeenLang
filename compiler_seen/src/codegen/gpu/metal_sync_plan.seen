@@ -1,0 +1,33 @@
+/// MSL 3.0/3.1 atomics expose relaxed order. MSL 3.2 fences can preserve
+/// acquire/release semantics; sequentially consistent atomic substitution is
+/// deliberately rejected until a native mapping is supported and verified.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_COMPARE, GPU_ORDER_RELAXED, GPU_ORDER_ACQUIRE,
+    GPU_ORDER_RELEASE, GPU_ORDER_ACQ_REL, GPU_ORDER_SEQ_CST, gpuIrAtomicOrderValid,
+    gpuIrCompareFailureOrderValid, GPU_SCOPE_INVOCATION, GPU_SCOPE_SUBGROUP,
+    GPU_SCOPE_WORKGROUP, GPU_SCOPE_DEVICE, GPU_SPACE_STORAGE, GPU_SPACE_WORKGROUP}
+import codegen.gpu.metal_target.{metalTargetValid, metalEffectiveTarget}
+
+fun metalAtomicOrderAdmitted(target: String, borrow op: GpuIrInstruction) r: Bool {
+    if not metalTargetValid(target) or not gpuIrAtomicOrderValid(op.opcode, op.memoryOrder) { return false }
+    if op.opcode == GPU_IR_ATOMIC_COMPARE and not gpuIrCompareFailureOrderValid(op.memoryOrder, op.immediate) { return false }
+    if op.memoryOrder == GPU_ORDER_SEQ_CST { return false }
+    if op.memoryOrder == GPU_ORDER_RELAXED { return true }
+    return metalEffectiveTarget(target) == "macos15"
+}
+fun metalFenceOrderName(order: Int) r: String {
+    if order == GPU_ORDER_ACQUIRE { return "memory_order_acquire" }
+    if order == GPU_ORDER_RELEASE { return "memory_order_release" }
+    if order == GPU_ORDER_ACQ_REL { return "memory_order_acq_rel" }
+    if order == GPU_ORDER_SEQ_CST { return "memory_order_seq_cst" }; return ""
+}
+fun metalScopeName(scope: Int) r: String {
+    if scope == GPU_SCOPE_INVOCATION { return "thread_scope_thread" }; if scope == GPU_SCOPE_SUBGROUP { return "thread_scope_simdgroup" }
+    if scope == GPU_SCOPE_WORKGROUP { return "thread_scope_threadgroup" }; if scope == GPU_SCOPE_DEVICE { return "thread_scope_device" }; return ""
+}
+fun metalMemoryFlags(spaces: Int) r: String {
+    if spaces == GPU_SPACE_STORAGE { return "mem_flags::mem_device" }; if spaces == GPU_SPACE_WORKGROUP { return "mem_flags::mem_threadgroup" }
+    if spaces == (GPU_SPACE_STORAGE | GPU_SPACE_WORKGROUP) { return "mem_flags::mem_device | mem_flags::mem_threadgroup" }; return ""
+}
+fun metalAtomicReleases(order: Int) r: Bool { return order == GPU_ORDER_RELEASE or order == GPU_ORDER_ACQ_REL }
+fun metalAtomicAcquires(order: Int) r: Bool { return order == GPU_ORDER_ACQUIRE or order == GPU_ORDER_ACQ_REL }

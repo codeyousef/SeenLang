@@ -1,0 +1,21 @@
+/// Closed IR-to-SPIR-V arithmetic opcode plans. Type validity is established
+/// by shared IR verification; unsupported plans still fail explicitly.
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+
+fun spirvPredicateType(typeCode: Int) r: Int { return 1 + (gpuTypeLanes(typeCode) - 1) * 16 }
+fun spirvBinaryOpcode(operation: Int, typeCode: Int) r: Int {
+    let scalar = gpuTypeScalar(typeCode); let floating = scalar == 4
+    if operation == 1 { if floating { return 129 }; return 128 }
+    if operation == 2 { if floating { return 131 }; return 130 }
+    if operation == 3 { if floating { return 133 }; return 132 }
+    if operation == 4 { if floating { return 136 }; if scalar == 2 { return 135 }; return 134 }
+    if operation == 5 { if scalar == 2 { return 138 }; return 137 }
+    if operation == 6 { return 199 }; if operation == 7 { return 197 }; if operation == 8 { return 198 }
+    if operation == 9 { return 196 }; if operation == 10 { if scalar == 2 { return 195 }; return 194 }
+    if operation == 11 { if scalar == 1 { return 164 }; if floating { return 180 }; return 170 }
+    if operation == 12 { if scalar == 1 { return 165 }; if floating { return 183 }; return 171 }
+    if operation == 13 { if floating { return 184 }; if scalar == 2 { return 177 }; return 176 }
+    if operation == 14 { if floating { return 188 }; if scalar == 2 { return 179 }; return 178 }
+    if operation == 15 { if floating { return 186 }; if scalar == 2 { return 173 }; return 172 }
+    if operation == 16 { if floating { return 190 }; if scalar == 2 { return 175 }; return 174 }; return 0
+}

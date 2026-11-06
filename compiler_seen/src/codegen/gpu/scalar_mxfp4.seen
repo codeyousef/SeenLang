@@ -1,0 +1,43 @@
+/// E2M1/UE8M0 conversions use integer Float32 bit ordering. Even the smallest
+/// scale and midpoint remain exact without device denormal arithmetic.
+import codegen.gpu.scalar_plan.{GpuScalarPlan}
+import codegen.gpu.scalar_ops.{SCALAR_ADD, SCALAR_BITCAST, SCALAR_BIT_AND, SCALAR_BIT_OR, SCALAR_EQUAL, SCALAR_SHIFT_LEFT, SCALAR_SHIFT_RIGHT, SCALAR_SUBTRACT, SCALAR_UNSIGNED_GREATER, SCALAR_UNSIGNED_GREATER_EQUAL}
+import codegen.gpu.scalar_float_bits.{scalarPositiveFloatBits}
+import codegen.gpu.scalar_packed_float.{scalarFloatIsNan}
+
+fun scalarPackMxfp4(plan: GpuScalarPlan, value: Int, scale: Int) r: Int {
+    let context = plan; let bits = plan.unary(SCALAR_BITCAST, 3, value)
+    let magnitude = plan.binary(SCALAR_BIT_AND, 3, bits, context.constant(3, 2147483647))
+    let exponents = [-2, -1, 0, 0, 1, 1, 2]; let mantissas = [0, 4194304, 2097152, 6291456, 2097152, 6291456, 2097152]
+    let scaleExponent = plan.unary(SCALAR_BITCAST, 2, scale); var payload = context.constant(3, 0); var i = 0
+    while i < exponents.length() {
+        let exponent = plan.binary(SCALAR_ADD, 2, scaleExponent, context.constant(2, exponents[i] & 4294967295))
+        let threshold = scalarPositiveFloatBits(plan, exponent, context.constant(3, mantissas[i]))
+        var compare = SCALAR_UNSIGNED_GREATER; if i % 2 == 1 { compare = SCALAR_UNSIGNED_GREATER_EQUAL }
+        let greater = plan.binary(compare, 1, magnitude, threshold)
+        payload = plan.select(3, greater, context.constant(3, i + 1), payload); i = i + 1
+    }; exponents.free(); mantissas.free()
+    let infinity = plan.binary(SCALAR_EQUAL, 1, magnitude, context.constant(3, 2139095040))
+    payload = plan.select(3, infinity, context.constant(3, 7), payload)
+    let high = plan.binary(SCALAR_SHIFT_RIGHT, 3, bits, context.constant(3, 28))
+    let sign = plan.binary(SCALAR_BIT_AND, 3, high, context.constant(3, 8))
+    let signed = plan.binary(SCALAR_BIT_OR, 3, payload, sign)
+    return plan.select(3, scalarFloatIsNan(plan, bits), context.constant(3, 0), signed)
+}
+fun scalarUnpackMxfp4(plan: GpuScalarPlan, payload: Int, scale: Int) r: Int {
+    let context = plan; let magnitude = plan.binary(SCALAR_BIT_AND, 3, payload, context.constant(3, 7))
+    let high = plan.binary(SCALAR_SHIFT_RIGHT, 3, magnitude, context.constant(3, 1))
+    let exponentDelta = plan.binary(SCALAR_SUBTRACT, 2, plan.unary(SCALAR_BITCAST, 2, high), context.constant(2, 1))
+    let exponent = plan.binary(SCALAR_ADD, 2, plan.unary(SCALAR_BITCAST, 2, scale), exponentDelta)
+    let odd = plan.binary(SCALAR_BIT_AND, 3, magnitude, context.constant(3, 1))
+    let fraction = plan.binary(SCALAR_SHIFT_LEFT, 3, odd, context.constant(3, 22))
+    let hasFraction = plan.binary(SCALAR_UNSIGNED_GREATER_EQUAL, 1, magnitude, context.constant(3, 3))
+    let mantissa = plan.select(3, hasFraction, fraction, context.constant(3, 0))
+    let expanded = scalarPositiveFloatBits(plan, exponent, mantissa)
+    let zero = plan.binary(SCALAR_EQUAL, 1, magnitude, context.constant(3, 0))
+    let bits = plan.select(3, zero, context.constant(3, 0), expanded)
+    let sign = plan.binary(SCALAR_BIT_AND, 3, payload, context.constant(3, 8))
+    let signBits = plan.binary(SCALAR_SHIFT_LEFT, 3, sign, context.constant(3, 28))
+    let signed = plan.binary(SCALAR_BIT_OR, 3, bits, signBits)
+    return plan.unary(SCALAR_BITCAST, 4, signed)
+}

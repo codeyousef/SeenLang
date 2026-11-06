@@ -1,0 +1,100 @@
+import class_repair_support.{DependencyOuter}
+
+@repr(C)
+class Cell<T> {
+    var tag: Int
+    var value: T
+    var sentinel: Int
+}
+
+class Outer<T> {
+    var tag: Int
+    var value: T
+    var sentinel: Int
+
+    fun copy() r: Outer<T> {
+        return Outer<T>{tag: this.tag, value: this.value,
+            sentinel: this.sentinel}
+    }
+}
+
+@repr(C)
+class CallerRecord {
+    type Alias = CallerRecord
+    var value: Int
+}
+
+class PredicateHolder<T> {
+    var value: T
+
+    fun valueMatches(T: Int) r: Bool {
+        // The value binding T remains an integer; the is operand is a type.
+        return this.value is T and T == 41
+    }
+
+    fun valueIsInt() r: Bool { return this.value is Int }
+}
+
+fun main() r: Int {
+    let textBox = PredicateHolder<String>{value: "predicate"}
+    if not textBox.valueMatches(41) or textBox.valueMatches(43) or
+        textBox.valueIsInt() { return 9 }
+    let nestedBox = PredicateHolder<Cell<String>>{value:
+        Cell<String>{tag: 61, value: "nested-predicate", sentinel: 67}}
+    if not nestedBox.valueMatches(41) or nestedBox.valueMatches(43) or
+        nestedBox.valueIsInt() { return 10 }
+    if nestedBox.value.tag != 61 or nestedBox.value.sentinel != 67 or
+        not nestedBox.value.value.endsWith("predicate") { return 11 }
+    nestedBox.free()
+    textBox.free()
+
+    // The copy constructor must retain Cell<String>'s source shape, not try
+    // to rediscover a generated class name as an erased source declaration.
+    let source = Outer<Cell<String>>{tag: 11,
+        value: Cell<String>{tag: 13, value: "nested-concrete", sentinel: 17},
+        sentinel: 19}
+    let copied = source.copy()
+    if copied.tag != 11 or copied.sentinel != 19 { return 1 }
+    if copied.value.tag != 13 or copied.value.sentinel != 17 { return 2 }
+    if not copied.value.value.startsWith("nested-") or
+        not copied.value.value.endsWith("concrete") { return 3 }
+
+    // CallerRecord is deliberately absent from the dependency's imports.
+    // The same actual flows through its copy and a newly demanded Box<T>.
+    // Its associated alias is metadata, never an inline self-owned field.
+    let dependency = DependencyOuter<CallerRecord>{tag: 23,
+        value: CallerRecord{value: 29}, sentinel: 31}
+    let dependencyCopy = dependency.copy()
+    let dependencyBox = dependencyCopy.nested()
+    if dependencyCopy.tag != 23 or dependencyCopy.sentinel != 31 or
+        dependencyCopy.value.value != 29 { return 4 }
+    if dependencyBox.tag != 23 or dependencyBox.sentinel != 31 or
+        dependencyBox.get().value != 29 { return 5 }
+
+    // Nested caller-owned generic arguments keep their lexical identity too.
+    let imported = DependencyOuter<Cell<Cell<String>>>{tag: 37,
+        value: Cell<Cell<String>>{tag: 41,
+            value: Cell<String>{tag: 53, value: "caller-owned", sentinel: 59},
+            sentinel: 43}, sentinel: 47}
+    let importedCopy = imported.copy()
+    let importedBox = importedCopy.nested()
+    if importedCopy.tag != 37 or importedCopy.sentinel != 47 { return 6 }
+    if importedBox.value.tag != 41 or importedBox.value.sentinel != 43 or
+        not importedBox.get().value.value.endsWith("owned") { return 7 }
+    // Both occurrences must start from the original nested type tree.
+    let pair = imported.pair()
+    if pair.sentinel != 47 or pair.left.value.tag != 53 or
+        pair.right.value.sentinel != 59 or
+        not pair.left.value.value.startsWith("caller-") or
+        not pair.right.value.value.endsWith("owned") { return 8 }
+    pair.free()
+    importedBox.free()
+    importedCopy.free()
+    imported.free()
+    dependencyBox.free()
+    dependencyCopy.free()
+    dependency.free()
+    copied.free()
+    source.free()
+    return 0
+}

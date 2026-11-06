@@ -1,0 +1,9 @@
+extern "C" fun seen_async_process_pipe(parentWrite: Int32, readFd: *Int64, writeFd: *Int64) r: Int32
+extern "C" fun seen_async_process_spawn(program: *Void, arguments: *Void, environment: *Void,
+    input: Int64, output: Int64, error: Int64, pid: *Int64) r: Int32
+extern "C" fun seen_async_process_pidfd(pid: Int64, descriptor: *Int64) r: Int32
+extern "C" fun seen_async_process_signal(descriptor: Int64, signal: Int32) r: Int32
+extern "C" fun seen_async_process_kill_unreaped(pid: Int64) r: Int32
+extern "C" fun seen_async_process_wait(pid: Int64, blocking: Int32, done: *Int32,
+    exitCode: *Int32, signal: *Int32) r: Int32
+extern "C" fun seen_async_process_live_children() r: UInt64

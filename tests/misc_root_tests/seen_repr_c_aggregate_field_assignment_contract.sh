@@ -12,48 +12,22 @@ fi
 bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
 COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
-FIXTURE="$ROOT_DIR/tests/fixtures/fel-1574/aggregate_field_assignment.seen"
-WORK_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/repr-c-field.XXXXXX")"
-
-cleanup() {
-    local status=$?
-    case "$WORK_DIR" in
-        "$SEEN_ARTIFACT_ROOT"/repr-c-field.*)
-            if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
-                [ -d "$WORK_DIR" ] && [ ! -L "$WORK_DIR" ] &&
-                    rm -rf -- "$WORK_DIR"
-            else
-                echo "Preserved repr(C) field artifacts: $WORK_DIR" >&2
-            fi
-            ;;
-        *) status=1 ;;
-    esac
-    exit "$status"
-}
-trap cleanup EXIT
-
-run_compiler() {
-    bash "$ATTESTED_SEEN" "$COMPILER" "$@"
-}
-
-for profile in fast release; do
-    output="$WORK_DIR/aggregate-field-$profile"
-    ir_dir="$WORK_DIR/ir-$profile"
-    log="$WORK_DIR/$profile.log"
-    flags=(--no-cache --frozen --target-cpu=x86-64 --jobs 1 --opt-jobs 1
-        --emit-module-ir-dir "$ir_dir")
-    if [ "$profile" = release ]; then
-        flags+=(--release --lto=thin)
-    else
-        flags+=(--fast)
-    fi
-    run_compiler check "$FIXTURE" >"$log" 2>&1
-    run_compiler compile "$FIXTURE" "$output" "${flags[@]}" >>"$log" 2>&1
-    timeout --foreground --kill-after=5s 60s "$output" >>"$log" 2>&1
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/repr-c-field.XXXXXX")"
+FIXTURE_ARTIFACT_PREFIX=repr-c-field
+run_compiler() { bash "$ATTESTED_SEEN" "$COMPILER" "$@"; }
+source "$ROOT_DIR/scripts/compiled_fixture_support.sh"
+aggregate="$ROOT_DIR/tests/fixtures/fel-1574/aggregate_field_assignment.seen"
+local_store="$ROOT_DIR/tests/codegen/test_repr_c_local_field_store.seen"
+run_compiler check "$aggregate" > "$TMP_DIR/check-aggregate.log" 2>&1
+run_compiler check "$local_store" > "$TMP_DIR/check-local.log" 2>&1
+for profile in fast release undefined address; do
+    compile_case "$profile" aggregate "$aggregate"
+    compile_case "$profile" local_store "$local_store"
+    rg -Fq 'PASS: native repr(C) local and nested field stores' "$TMP_DIR/local_store-$profile.log"
 done
 
-IR="$WORK_DIR/aggregate-field.ll"
-find "$WORK_DIR/ir-release" -maxdepth 1 -type f -name '*.ll' -print0 |
+IR="$TMP_DIR/aggregate-field.ll"
+find "$TMP_DIR/aggregate-release-ir" -maxdepth 1 -type f -name '*.ll' -print0 |
     sort -z | xargs -0 cat >"$IR"
 grep -Eq '%AggregateOwner = type \{ %ImportedFieldRecord, %LocalFieldRecord \}' "$IR"
 grep -Eq 'load %ImportedFieldRecord, ptr .* ; inline aggregate literal field assignment' "$IR"

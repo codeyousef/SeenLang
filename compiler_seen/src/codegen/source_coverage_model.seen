@@ -1,0 +1,14 @@
+/// Compiler-owned source locations and physical profiling counters.
+class SourceCoverageRegion {
+    var line: Int
+    var column: Int
+    var counter: Int
+    var otherCounter: Int
+    var branch: Bool
+}
+
+class SourceCoverageFunction {
+    var name: String
+    var counterCount: Int
+    var regions: Array<SourceCoverageRegion>
+}

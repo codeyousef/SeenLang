@@ -1,0 +1,149 @@
+/// Shared bounded dot execution contract. Architecture backends only select
+/// capabilities and compute blocks; ownership, limits and progress stay here.
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import memory.aligned_buffer.{OwnedBuffer, ownedBufferByteRangeValid}
+import simd.ir_types.{SimdIrError, simdIrFailure}
+import simd.dot_clock.{DotClockHandle, seen_pool_free}
+
+enum DotOperation { Float32, UnsignedSignedByte, BFloat16 }
+class DotProgress {
+    var floating: Float32
+    var integer: Int64
+    var completed: UInt64
+    var variant: Int
+    static fun create() r: DotProgress {
+        return DotProgress{floating: 0.0 as Float32, integer: 0 as Int64,
+            completed: 0 as UInt64, variant: 0}
+    }
+}
+fun resetDotProgress(progress: DotProgress, variant: Int) r: Void {
+    progress.floating = 0.0 as Float32; progress.integer = 0 as Int64
+    progress.completed = 0 as UInt64; progress.variant = variant
+}
+fun dotOperationName(operation: DotOperation) r: String {
+    if operation == DotOperation.Float32 { return "dot-f32" }
+    if operation == DotOperation.UnsignedSignedByte { return "dot-u8s8" }
+    return "dot-bf16"
+}
+fun dotLaneBytes(operation: DotOperation) r: UInt64 {
+    if operation == DotOperation.Float32 { return 4 as UInt64 }
+    if operation == DotOperation.UnsignedSignedByte { return 1 as UInt64 }
+    return 2 as UInt64
+}
+fun dotError(target: String, code: String, capability: String, message: String) r: SimdIrError {
+    return simdIrFailure(code, target, capability, "dot", "kernel", message)
+}
+fun dotContextStatus(context: OperationContext, borrow clock: DotClockHandle,
+    previous: *Int64) r: Int {
+    if context.cancellation { return 1 }
+    if context.monotonicDeadline < (0 as Int64) { return 2 }
+    if context.monotonicDeadline != (9223372036854775807 as Int64) {
+        let now = clock.now()
+        if now < (0 as Int64) or now < previous[0] { return 3 }
+        previous[0] = now
+        if now >= context.monotonicDeadline { return 2 }
+    }
+    return 0
+}
+fun dotStatusError(target: String, status: Int) r: SimdIrError {
+    if status == 1 { return dotError(target, "simd.cancelled", "cancellation", "dot operation cancelled") }
+    if status == 2 { return dotError(target, "simd.timeout", "deadline", "dot operation deadline expired") }
+    return dotError(target, "simd.unavailable", "clock", "monotonic clock unavailable")
+}
+fun dotRangeValid(borrow buffer: OwnedBuffer<UInt8>, offset: UInt64,
+    count: UInt64, laneBytes: UInt64) r: Bool {
+    if laneBytes != (1 as UInt64) and laneBytes != (2 as UInt64) and laneBytes != (4 as UInt64) { return false }
+    if count > (4194304 as UInt64) or offset % laneBytes != (0 as UInt64) { return false }
+    if not ownedBufferByteRangeValid(buffer, offset, count * laneBytes) { return false }
+    return ((buffer.data as UInt64) + offset) % laneBytes == (0 as UInt64)
+}
+trait DotBackend {
+    fun target(this: DotBackend) r: String
+    fun select(this: DotBackend, operation: DotOperation, policy: String,
+        allowScalarFallback: Bool, deterministic: Bool) r: Result<Int, SimdIrError>
+    fun floatBlock(this: DotBackend, variant: Int, left: UInt64, right: UInt64,
+        count: UInt64, operation: DotOperation) r: Float32
+    fun integerBlock(this: DotBackend, variant: Int, left: UInt64, right: UInt64,
+        count: UInt64) r: Int64
+}
+// Owns the trait box and exclusively borrows its concrete backend provider.
+// Release this handle before freeing that provider. No policy is erased.
+@move
+class DotBackendHandle {
+    var provider: dyn DotBackend
+    static fun create(provider: dyn DotBackend) r: DotBackendHandle {
+        return DotBackendHandle{provider: provider}
+    }
+    fun target() r: String { return this.provider.target() }
+    fun select(operation: DotOperation, policy: String, allowScalarFallback: Bool,
+        deterministic: Bool) r: Result<Int, SimdIrError> {
+        return this.provider.select(operation, policy, allowScalarFallback, deterministic)
+    }
+    fun floatBlock(variant: Int, left: UInt64, right: UInt64, count: UInt64,
+        operation: DotOperation) r: Float32 {
+        return this.provider.floatBlock(variant, left, right, count, operation)
+    }
+    fun integerBlock(variant: Int, left: UInt64, right: UInt64, count: UInt64) r: Int64 {
+        return this.provider.integerBlock(variant, left, right, count)
+    }
+    fun release() r: Void { seen_pool_free(this.provider as *Void, 16 as Int64); this.free() }
+}
+fun executeDotWithBackend(borrow left: OwnedBuffer<UInt8>,
+    leftOffset: UInt64, borrow right: OwnedBuffer<UInt8>, rightOffset: UInt64,
+    count: UInt64, operation: DotOperation, policy: String, allowScalarFallback: Bool,
+    deterministic: Bool, context: OperationContext, borrow progress: DotProgress,
+    borrow clock: DotClockHandle, borrow backend: DotBackendHandle) r: Result<Bool, SimdIrError> {
+    let reported = backend.target()
+    var target = "portable"
+    if reported == "x86_64" { target = "x86_64" }
+    else if reported == "aarch64" { target = "aarch64" }
+    else {
+        return Err<Bool, SimdIrError>(dotError(target, "simd.invalid_capability",
+            "target", "unsupported dot backend target"))
+    }
+    if operation != DotOperation.Float32 and operation != DotOperation.UnsignedSignedByte and
+        operation != DotOperation.BFloat16 {
+        return Err<Bool, SimdIrError>(dotError(target, "simd.invalid_operation",
+            "operation", "unsupported dot operation"))
+    }
+    // Admission validates before clearing prior results or touching inputs.
+    if count > (4194304 as UInt64) {
+        return Err<Bool, SimdIrError>(dotError(target, "simd.limit", "elements", "dot element ceiling exceeded"))
+    }
+    let laneBytes = dotLaneBytes(operation)
+    if not dotRangeValid(left, leftOffset, count, laneBytes) or
+        not dotRangeValid(right, rightOffset, count, laneBytes) {
+        return Err<Bool, SimdIrError>(dotError(target, "simd.invalid_shape", "range", "invalid dot input range"))
+    }
+    var previous = -1 as Int64
+    var status = dotContextStatus(context, clock, &previous)
+    if status != 0 {
+        resetDotProgress(progress, 0)
+        return Err<Bool, SimdIrError>(dotStatusError(target, status))
+    }
+    let selected = backend.select(operation, policy, allowScalarFallback, deterministic)
+    if selected.isErr() {
+        let error = selected.unwrapErr(); selected.releaseContainer()
+        return Err<Bool, SimdIrError>(error)
+    }
+    let variant = selected.unwrap(); selected.releaseContainer()
+    resetDotProgress(progress, variant)
+    status = dotContextStatus(context, clock, &previous)
+    if status != 0 { return Err<Bool, SimdIrError>(dotStatusError(target, status)) }
+    while progress.completed < count {
+        var block = count - progress.completed
+        if block > (4096 as UInt64) { block = 4096 as UInt64 }
+        let a = (left.data as UInt64) + leftOffset + progress.completed * laneBytes
+        let b = (right.data as UInt64) + rightOffset + progress.completed * laneBytes
+        if operation == DotOperation.UnsignedSignedByte {
+            progress.integer = progress.integer + backend.integerBlock(variant, a, b, block)
+        } else {
+            progress.floating = progress.floating + backend.floatBlock(variant, a, b, block, operation)
+        }
+        progress.completed = progress.completed + block
+        status = dotContextStatus(context, clock, &previous)
+        if status != 0 { return Err<Bool, SimdIrError>(dotStatusError(target, status)) }
+    }
+    return Ok<Bool, SimdIrError>(true)
+}

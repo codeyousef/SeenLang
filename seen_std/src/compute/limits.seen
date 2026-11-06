@@ -1,0 +1,46 @@
+/// Admission ceilings are checked before discovery, snapshots or native calls.
+import core.result.{Result, Ok, Err}
+import compute.error.{GpuError, gpuFailure}
+
+let GPU_MAX_DEVICES: Int = 128
+let GPU_MAX_CONTEXTS: Int = 4096
+let GPU_MAX_RESOURCES: Int = 1048576
+let GPU_MAX_MEMORY_BYTES: UInt64 = 1125899906842624 as UInt64
+
+@move
+class GpuLimits {
+    var maxDevices: Int
+    var maxContexts: Int
+    var maxResources: Int
+    var maxIdentityBytes: Int
+    var maxNameBytes: Int
+    var maxVersionBytes: Int
+    var maxBytes: UInt64
+
+    static fun bounded(devices: Int, contexts: Int, resources: Int, bytes: UInt64) r: GpuLimits {
+        return GpuLimits{maxDevices: devices, maxContexts: contexts, maxResources: resources,
+            maxIdentityBytes: 128, maxNameBytes: 256, maxVersionBytes: 128, maxBytes: bytes}
+    }
+    fun validate() r: Result<Bool, GpuError> {
+        if this.maxDevices <= 0 or this.maxDevices > GPU_MAX_DEVICES or
+            this.maxContexts <= 0 or this.maxContexts > GPU_MAX_CONTEXTS or
+            this.maxResources <= 0 or this.maxResources > GPU_MAX_RESOURCES or
+            this.maxIdentityBytes <= 0 or this.maxIdentityBytes > 128 or
+            this.maxNameBytes <= 0 or this.maxNameBytes > 256 or
+            this.maxVersionBytes <= 0 or this.maxVersionBytes > 128 or
+            this.maxBytes == (0 as UInt64) or this.maxBytes > GPU_MAX_MEMORY_BYTES {
+            return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.limits", "GPU admission limit is outside its supported range"))
+        }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun snapshot() r: Result<GpuLimits, GpuError> {
+        let valid = this.validate()
+        if valid.isErr() { let error = valid.unwrapErr(); valid.releaseContainer(); return Err<GpuLimits, GpuError>(error) }
+        valid.releaseContainer()
+        return Ok<GpuLimits, GpuError>(GpuLimits{maxDevices: this.maxDevices,
+            maxContexts: this.maxContexts, maxResources: this.maxResources,
+            maxIdentityBytes: this.maxIdentityBytes, maxNameBytes: this.maxNameBytes,
+            maxVersionBytes: this.maxVersionBytes, maxBytes: this.maxBytes})
+    }
+    fun release() r: Void { this.free() }
+}

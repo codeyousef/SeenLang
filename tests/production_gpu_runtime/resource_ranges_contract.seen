@@ -1,0 +1,118 @@
+import compute.resource_ranges.{GpuRangeSet, GpuRangeReservation}
+import compute.error.{GpuError}
+import core.result.{Result}
+import provider_fixture_support.{completed}
+import device_fixture_support.{gpuFixtureRejected}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun ranges(capacity: UInt64, maximum: Int) r: GpuRangeSet {
+    let result = GpuRangeSet.create(capacity, maximum)
+    if result.isErr() { abort("bounded free-range owner rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun reserved(result: Result<GpuRangeReservation, GpuError>) r: GpuRangeReservation {
+    if result.isErr() { abort("valid free-range reservation rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun rejected(result: Result<GpuRangeReservation, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid free-range reservation admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.retryable { abort("free-range rejection changed") }
+    error.release()
+}
+fun bitmapFits(bitmap: Array<Bool>, bytes: Int, alignment: Int) r: Bool {
+    var start = 0
+    while start + bytes <= bitmap.length() {
+        if start % alignment == 0 {
+            var index = 0; var free = true
+            while index < bytes { if bitmap[start + index] { free = false }; index = index + 1 }
+            if free { return true }
+        }
+        start = start + 1
+    }
+    return false
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let golden = ranges(64 as UInt64, 4)
+    let first = reserved(golden.reserve(3 as UInt64, 1 as UInt64))
+    let second = reserved(golden.reserve(5 as UInt64, 16 as UInt64))
+    if first.offset != (0 as UInt64) or second.offset != (16 as UInt64) or golden.freeBytes != (56 as UInt64) {
+        abort("GPU aligned split changed fixed offsets or accounting")
+    }
+    gpuFixtureRejected(golden.release(), "gpu.busy")
+    gpuFixtureRejected(golden.recycle(3 as UInt64, 1 as UInt64), "gpu.invalid")
+    gpuFixtureRejected(golden.recycle(64 as UInt64, 1 as UInt64), "gpu.invalid")
+    gpuFixtureRejected(golden.recycle(0 as UInt64, 0 as UInt64), "gpu.invalid")
+    completed(golden.recycle(first.offset, first.bytes), true)
+    completed(golden.recycle(second.offset, second.bytes), true)
+    first.free(); second.free()
+    let joined = reserved(golden.reserve(64 as UInt64, 1 as UInt64))
+    if joined.offset != (0 as UInt64) { abort("GPU adjacent free ranges did not coalesce") }
+    rejected(golden.reserve(1 as UInt64, 1 as UInt64), "gpu.limit")
+    completed(golden.recycle(joined.offset, joined.bytes), true); joined.free()
+    completed(golden.close(), true); completed(golden.close(), false)
+    rejected(golden.reserve(1 as UInt64, 1 as UInt64), "gpu.invalid")
+    gpuFixtureRejected(golden.recycle(0 as UInt64, 1 as UInt64), "gpu.invalid")
+    completed(golden.release(), true)
+
+    // A split requiring another metadata slot must reject without mutating
+    // its original range or accounting.
+    let bounded = ranges(64 as UInt64, 1)
+    let prefix = reserved(bounded.reserve(3 as UInt64, 1 as UInt64))
+    rejected(bounded.reserve(4 as UInt64, 16 as UInt64), "gpu.limit")
+    if bounded.freeBytes != (61 as UInt64) { abort("failed GPU split changed free-byte accounting") }
+    completed(bounded.recycle(prefix.offset, prefix.bytes), true); prefix.free(); completed(bounded.release(), true)
+
+    let owner = ranges(256 as UInt64, 65); let bitmap = Array<Bool>()
+    let slots = Array<GpuRangeReservation>(); var index = 0
+    while index < 256 { bitmap.push(false); index = index + 1 }; index = 0
+    while index < 32 { slots.push(GpuRangeReservation{offset: 0 as UInt64, bytes: 0 as UInt64}); index = index + 1 }
+    var random = 1101 as UInt64; var operation = 0
+    while operation < 20000 {
+        random = random ^ (random << 13); random = random ^ (random >> 7); random = random ^ (random << 17)
+        let selected = (random % (32 as UInt64)) as Int; let slot = slots[selected]
+        if slot.bytes != (0 as UInt64) {
+            index = 0
+            while index < (slot.bytes as Int) {
+                if not bitmap[(slot.offset as Int) + index] { abort("GPU free range aliases unowned storage") }
+                bitmap[(slot.offset as Int) + index] = false; index = index + 1
+            }
+            completed(owner.recycle(slot.offset, slot.bytes), true); slot.bytes = 0 as UInt64
+        } else {
+            let bytes = 1 + (((random >> 16) % (16 as UInt64)) as Int)
+            let alignment = 1 << (((random >> 32) % (5 as UInt64)) as Int)
+            let expected = bitmapFits(bitmap, bytes, alignment)
+            let result = owner.reserve(bytes as UInt64, alignment as UInt64)
+            if result.isOkay() != expected { abort("GPU range admission disagreed with independent byte bitmap") }
+            if expected {
+                let value = result.unwrap()
+                if value.offset % (alignment as UInt64) != (0 as UInt64) or value.bytes != (bytes as UInt64) or
+                    value.offset > (256 as UInt64) - value.bytes { abort("GPU reservation escaped alignment or byte bounds") }
+                index = 0
+                while index < bytes {
+                    if bitmap[(value.offset as Int) + index] { abort("GPU suballocations overlap") }
+                    bitmap[(value.offset as Int) + index] = true; index = index + 1
+                }
+                slot.offset = value.offset; slot.bytes = value.bytes; value.free()
+            } else { let error = result.unwrapErr(); if error.code != "gpu.limit" { abort("GPU saturation diagnostic changed") }; error.release() }
+            result.releaseContainer()
+        }
+        var free = 0; index = 0
+        while index < bitmap.length() { if not bitmap[index] { free = free + 1 }; index = index + 1 }
+        if owner.freeBytes != (free as UInt64) { abort("GPU free accounting disagreed with byte bitmap") }
+        operation = operation + 1
+    }
+    index = 0
+    while index < slots.length() {
+        let slot = slots[index]
+        if slot.bytes != (0 as UInt64) { completed(owner.recycle(slot.offset, slot.bytes), true) }
+        slot.free(); index = index + 1
+    }
+    slots.free(); bitmap.free()
+    let all = reserved(owner.reserve(256 as UInt64, 256 as UInt64))
+    completed(owner.recycle(all.offset, all.bytes), true); all.free(); completed(owner.release(), true)
+    if seen_memory_used_bytes() != baseline { abort("GPU free-range reuse or rejection leaked ownership") }
+    println("PASS: GPU-006B bounded split coalescing and 20000-operation byte bitmap oracle preserve disjoint ranges and accounting")
+    return 0
+}

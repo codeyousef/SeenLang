@@ -1,0 +1,111 @@
+/// Region exit masks: fallthrough=1, return=2, break=4, continue=8,
+/// loop-condition=16, value-yield=32. Loops may execute zero iterations.
+import codegen.gpu_ir_model.{GpuIrFunction, GpuIrInstruction, GpuIrValidation}
+import codegen.gpu_ir_facts.{GpuIrFacts, gpuIrElementStride}
+import codegen.gpu_ir_value_rules.{gpuIrOperandType}
+import codegen.gpu_ir_ops.{GPU_IR_PARAM, GPU_IR_SHARED, GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_WHILE,
+    GPU_IR_FOR, GPU_IR_INDUCTION, GPU_IR_CONDITION, GPU_IR_BREAK, GPU_IR_CONTINUE, GPU_IR_RETURN, GPU_IR_YIELD_VALUE}
+
+fun gpuIrEnclosingLoop(borrow function: GpuIrFunction, blockIndex: Int) r: Bool {
+    var index = blockIndex
+    while index > 0 {
+        let block = function.blocks[index]
+        let owner = function.blocks[block.parent].instructions[block.parentInstruction]
+        if owner.opcode == GPU_IR_IF_VALUE { return false }
+        if owner.opcode == GPU_IR_FOR { return true }
+        if owner.opcode == GPU_IR_WHILE { return owner.rightBlock == index }
+        index = block.parent
+    }
+    return false
+}
+fun gpuIrSpecialTerminatorValid(borrow function: GpuIrFunction, borrow facts: GpuIrFacts,
+    blockIndex: Int, opIndex: Int, borrow op: GpuIrInstruction) r: Bool {
+    if op.opcode == GPU_IR_BREAK or op.opcode == GPU_IR_CONTINUE { return gpuIrEnclosingLoop(function, blockIndex) }
+    if op.opcode != GPU_IR_CONDITION and op.opcode != GPU_IR_YIELD_VALUE and op.opcode != GPU_IR_INDUCTION { return true }
+    if blockIndex == 0 { return false }
+    let block = function.blocks[blockIndex]
+    let owner = function.blocks[block.parent].instructions[block.parentInstruction]
+    if op.opcode == GPU_IR_CONDITION { return owner.opcode == GPU_IR_WHILE and owner.leftBlock == blockIndex }
+    if op.opcode == GPU_IR_YIELD_VALUE {
+        return owner.opcode == GPU_IR_IF_VALUE and gpuIrOperandType(op, facts, 0) == owner.typeCode and op.operands[0] < owner.result
+    }
+    return owner.opcode == GPU_IR_FOR and opIndex == 0 and op.typeCode == gpuIrOperandType(owner, facts, 0)
+}
+fun gpuIrRegionExits(borrow function: GpuIrFunction, borrow facts: GpuIrFacts, validation: GpuIrValidation,
+    functionIndex: Int, blockIndex: Int) r: Int {
+    let block = function.blocks[blockIndex]; var exits = 1; var opIndex = 0
+    while opIndex < block.instructions.length() {
+        let op = block.instructions[opIndex]
+        if (exits & 1) == 0 {
+            validation.reject("E_GPU_IR_TERMINATOR", "GPU instruction follows a region that cannot fall through", functionIndex, blockIndex, opIndex); return 0
+        }
+        if not gpuIrSpecialTerminatorValid(function, facts, blockIndex, opIndex, op) {
+            validation.reject("E_GPU_IR_CONTROL", "GPU loop or value-region operation has an invalid enclosing context", functionIndex, blockIndex, opIndex); return 0
+        }
+        var operationExits = 1
+        if op.opcode == GPU_IR_RETURN { operationExits = 2 }
+        if op.opcode == GPU_IR_BREAK { operationExits = 4 }
+        if op.opcode == GPU_IR_CONTINUE { operationExits = 8 }
+        if op.opcode == GPU_IR_CONDITION { operationExits = 16 }
+        if op.opcode == GPU_IR_YIELD_VALUE { operationExits = 32 }
+        if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE or op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR {
+            let left = gpuIrRegionExits(function, facts, validation, functionIndex, op.leftBlock)
+            if left == 0 { return 0 }
+            var right = 1
+            if op.opcode != GPU_IR_FOR {
+                right = gpuIrRegionExits(function, facts, validation, functionIndex, op.rightBlock)
+                if right == 0 { return 0 }
+            }
+            if op.opcode == GPU_IR_IF {
+                if left > 15 or right > 15 {
+                    validation.reject("E_GPU_IR_CONTROL", "ordinary GPU branch cannot yield a loop condition or value", functionIndex, blockIndex, opIndex); return 0
+                }
+                operationExits = left | right
+            } else if op.opcode == GPU_IR_IF_VALUE {
+                if left != 32 or right != 32 {
+                    validation.reject("E_GPU_IR_CONTROL", "both GPU value regions must yield exactly one value", functionIndex, blockIndex, opIndex); return 0
+                }
+            } else {
+                var bodyExits = left
+                if op.opcode == GPU_IR_WHILE {
+                    if left != 16 {
+                        validation.reject("E_GPU_IR_CONTROL", "GPU loop condition region must finish with its Boolean condition", functionIndex, blockIndex, opIndex); return 0
+                    }
+                    bodyExits = right
+                } else {
+                    let body = function.blocks[op.leftBlock]
+                    if body.instructions.length() == 0 or body.instructions[0].opcode != GPU_IR_INDUCTION {
+                        validation.reject("E_GPU_IR_CONTROL", "counted GPU loop requires an induction definition", functionIndex, blockIndex, opIndex); return 0
+                    }
+                }
+                if bodyExits > 15 {
+                    validation.reject("E_GPU_IR_CONTROL", "GPU loop body yields outside its owning region", functionIndex, blockIndex, opIndex); return 0
+                }
+                operationExits = 1 | (bodyExits & 2)
+            }
+        }
+        exits = (exits & 62) | operationExits
+        opIndex = opIndex + 1
+    }
+    return exits
+}
+fun gpuIrFunctionSharedBytes(borrow function: GpuIrFunction, validation: GpuIrValidation, functionIndex: Int) r: Int {
+    var total = 0; var prologue = true; var blockIndex = 0
+    while blockIndex < function.blocks.length() {
+        let block = function.blocks[blockIndex]; var opIndex = 0
+        while opIndex < block.instructions.length() {
+            let op = block.instructions[opIndex]
+            if op.opcode == GPU_IR_SHARED {
+                let stride = gpuIrElementStride(op.typeCode)
+                if blockIndex != 0 or not prologue or not function.kernel or stride < 1 or
+                    op.immediate < 1 or op.immediate > (65536 - total) / stride {
+                    validation.reject("E_GPU_IR_SHARED", "GPU shared allocation must be a bounded entry-prologue declaration", functionIndex, blockIndex, opIndex); return -1
+                }
+                total = total + op.immediate * stride
+            } else if blockIndex == 0 and op.opcode != GPU_IR_PARAM { prologue = false }
+            opIndex = opIndex + 1
+        }
+        blockIndex = blockIndex + 1
+    }
+    return total
+}

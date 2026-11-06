@@ -1,0 +1,35 @@
+import codegen.gpu_source.{lowerGpuSource}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun require(value: Bool, message: String) r: Void {
+    if not value { abort(message) }
+}
+fun requireBaseline(expected: Int64, message: String) r: Void {
+    let actual = seen_memory_used_bytes()
+    if actual != expected {
+        println((expected as Int).toString()); println((actual as Int).toString())
+        abort(message)
+    }
+}
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 30 {
+        let loaded = lowerGpuSource("@compute(workgroup: [8, 1, 1]) fun copy(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>) { let index = globalInvocationId.x; if index < input.length { output[index] = input[index] } }", "owned-frontend.seen")
+        require(loaded.isOkay(), "owned GPU source acceptance"); let module = loaded.unwrap(); loaded.releaseContainer()
+        require(module.functions.length() == 1 and module.functions[0].name == "copy", "owned GPU IR independence")
+        module.release(); requireBaseline(baseline, "owned GPU success allocation baseline")
+        let rejected = lowerGpuSource("@compute(1) fun invalid(input: ReadBuffer<Int32>) { input[0] = 7 }", "owned-rejection.seen")
+        require(rejected.isErr(), "owned GPU invalid access rejection"); let validation = rejected.unwrapErr(); rejected.releaseContainer()
+        require(validation.diagnostics.length() > 0 and validation.diagnostics[0].code == "E_GPU_ACCESS", "owned GPU rejection diagnostic")
+        validation.release(); requireBaseline(baseline, "owned GPU rejection allocation baseline")
+        let malformed = lowerGpuSource("@compute(1) fun broken( {", "owned-malformed.seen")
+        require(malformed.isErr(), "owned GPU malformed source rejection")
+        let malformedError = malformed.unwrapErr(); malformed.releaseContainer()
+        require(malformedError.diagnostics.length() > 0 and malformedError.diagnostics[0].code == "E_GPU_SOURCE", "owned GPU malformed source diagnostic")
+        malformedError.release(); requireBaseline(baseline, "owned GPU malformed source allocation baseline")
+        iteration = iteration + 1
+    }
+    println("PASS: owned GPU frontend success rejection scratch restoration and exact cleanup")
+    return 0
+}

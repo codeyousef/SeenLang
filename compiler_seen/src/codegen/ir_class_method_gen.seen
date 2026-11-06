@@ -9,7 +9,7 @@ import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_inline_heuristics.{selfCallCheck}
 import codegen.ir_type_mapping.{normalizeSeenTypeNameImpl,
     normalizeDeclaredTypeNodeImpl}
-import codegen.ir_codegen_type_state.{isDataTypeState, mapTypeForParameterState, mapStorageTypeForParameterState}
+import codegen.ir_codegen_type_state.{isDataTypeState, isReprCDataTypeState, mapTypeForParameterState, mapStorageTypeForParameterState}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_function_signature_emit.{emitDefaultReturnValueImpl}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl, findActiveVariableIndexImpl}
@@ -240,7 +240,10 @@ fun emitClassMethodParameterBindingsStateImpl(output: StringBuilder,
         if isExplicitReceiver == 0 {
             let seenTypeName = normalizedMethodParamTypes[paramIdx]
             let semanticSeenTypeName = normalizeSeenTypeNameImpl(seenTypeName)
-            if isDataTypeState(semanticSeenTypeName) {
+            // Only legacy inline data parameters borrow their incoming address.
+            // repr(C) parameters arrive as values and need a local value slot,
+            // just like the ordinary function parameter path.
+            if isDataTypeState(semanticSeenTypeName) and not isReprCDataTypeState(semanticSeenTypeName) {
                 nextActiveVarCount = storeActiveVariableBindingImpl(varNames,
                     varRegs, varTypes, nextActiveVarCount, param.name,
                     "%" + quotedMethodArgNames[paramIdx],

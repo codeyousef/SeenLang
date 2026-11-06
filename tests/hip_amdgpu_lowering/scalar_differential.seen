@@ -1,0 +1,42 @@
+@device fun choose(value: Int32) r: Int32 {
+    if value < 0 { return -value }
+    var index = 0
+    while index < 4 { if index == value { return index + 7 }; index = index + 1 }
+    return value + 11
+}
+@compute(1)
+fun bounded(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>) {
+    var total = 0
+    for index in 0..8 { if index == 2 { continue }; if index == 7 { break }; total = total + index }
+    output[0] = abs(input[0]); output[1] = input[1] / input[2]; output[2] = input[0] / input[6]
+    output[3] = input[7] << input[5]; output[4] = input[7] >> input[5]; output[5] = input[1] >> input[4]
+    output[6] = input[8] + 1; output[7] = total; output[8] = choose(input[0]); output[9] = choose(input[7])
+    output[10] = input[-1]; output[11] = input[9]; output[12] = input.length as Int32; output[99] = 7
+}
+@compute(1)
+fun budgeted(output: WriteBuffer<Int32>) {
+    var index = 0
+    while index >= 0 { index = index + 1 }
+    output[0] = index
+}
+@compute(1)
+fun short_circuit(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>) {
+    let no = false and input[99] == 1
+    let yes = true or input[99] == 1
+    var first = 0; var second = 0
+    if no { first = 1 }; if yes { second = 1 }
+    output[0] = first; output[1] = second
+}
+@compute(1)
+fun casts(input: ReadBuffer<Float32>, output: WriteBuffer<Int32>, unsigned_output: WriteBuffer<UInt32>, rounded: WriteBuffer<Float32>) {
+    for index in 0..10 { output[index] = input[index] as Int32; unsigned_output[index] = input[index] as UInt32 }
+    rounded[0] = (2147483647 as Int32) as Float32; rounded[1] = (4294967295 as UInt32) as Float32
+    rounded[2] = (-2147483648) as Float32; rounded[3] = input[0] + input[0]
+    rounded[4] = min(input[0], 0.0); rounded[5] = max(0.0, input[0]); rounded[6] = min(input[6], 1.0)
+    rounded[7] = max(1.0, input[6]); rounded[8] = sqrt(4.0); rounded[9] = clamp(input[1], -1.0, 1.0)
+    rounded[10] = input[1] / input[0]; rounded[11] = -input[0]; rounded[12] = abs(input[0]); rounded[13] = input[8] + input[8]
+}
+@compute(1)
+fun vectors(input: ReadBuffer<f32x3>, output: WriteBuffer<f32x3>, factor: Uniform<f32x3>) {
+    output[0] = input[0] + factor; output[1] = min(input[0], factor); output[2] = max(input[0], factor)
+}

@@ -432,45 +432,29 @@ targets = ["native"]
 TOML
 
 cat >"$TMP_DIR/gpu_probe/src/main.seen" <<'SEEN'
-@compute(workgroup: 64)
-fun vectorAdd(a: Buffer<Float>, b: Buffer<Float>, result: Buffer<Float>) {
+@compute(64)
+fun vectorAdd(a: ReadBuffer<Float32>, b: ReadBuffer<Float32>, result: WriteBuffer<Float32>) {
     let idx = globalInvocationId.x
     result[idx] = a[idx] + b[idx]
 }
-
-fun main() r: Int {
-    println("probe")
-    return 0
-}
 SEEN
-
+mkdir -p "$TMP_DIR/gpu_probe/target"
 (
     cd "$TMP_DIR/gpu_probe"
-    if ! bash "$ATTESTED_SEEN" "$COMPILER" compile \
-        src/main.seen target/probe --fast --no-cache \
-        --emit-glsl \
+    if ! bash "$ATTESTED_SEEN" "$COMPILER" gpu emit src/main.seen \
+        --gpu-backend spirv --gpu-target vulkan1.3 --module-id trainer-regression \
+        --output target/probe.spv --reflection target/probe.json \
         >"$TMP_DIR/gpu_probe.compile.log" 2>&1; then
-        echo "FAIL: gpu_probe did not compile"
+        echo "FAIL: gpu_probe typed emission failed"
         cat "$TMP_DIR/gpu_probe.compile.log"
         exit 1
     fi
 )
-
-if [ ! -f "$TMP_DIR/gpu_probe/target/probe.shaders/vectorAdd.comp.glsl" ]; then
-    echo "FAIL: gpu_probe did not emit GLSL"
-    find "$TMP_DIR/gpu_probe" -maxdepth 4 -type f | sort
+if [ ! -s "$TMP_DIR/gpu_probe/target/probe.spv" ] ||
+    [ ! -s "$TMP_DIR/gpu_probe/target/probe.json" ]; then
+    echo "FAIL: gpu_probe did not emit SPIR-V and reflection"
     exit 1
 fi
-if [ ! -f "$TMP_DIR/gpu_probe/target/probe.shaders/vectorAdd.reflect.json" ]; then
-    echo "FAIL: gpu_probe did not emit reflection JSON"
-    find "$TMP_DIR/gpu_probe" -maxdepth 4 -type f | sort
-    exit 1
-fi
-if command -v glslc >/dev/null 2>&1 &&
-    [ ! -f "$TMP_DIR/gpu_probe/target/probe.shaders/vectorAdd.comp.spv" ]; then
-    echo "FAIL: gpu_probe did not emit SPIR-V even though glslc is available"
-    find "$TMP_DIR/gpu_probe" -maxdepth 4 -type f | sort
-    exit 1
-fi
+rg -Fq vectorAdd "$TMP_DIR/gpu_probe/target/probe.json"
 
 echo "PASS: trainer blocker regressions"

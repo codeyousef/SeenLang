@@ -168,7 +168,7 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
 
     if unionTypes != "" and unionTypes.contains(receiverType + "|") {
         var unionValueReg = coerceOptionStoreValueCoreImpl(output, regBox,
-            fieldTypes[1], valueSeenType, valueReg, structNames)
+            fieldTypes[1], valueSeenType, valueReg, valueKind, structNames)
         var unionValueSeenType = valueSeenType
         if unionValueReg != valueReg {
             unionValueSeenType = fieldTypes[1]
@@ -202,20 +202,21 @@ fun emitResolvedMemberAssignmentStoreImpl(output: StringBuilder,
         valueIsStructLit = 1
     }
     var isDataField = 0
-    if isDataTypeImpl(fieldTypes[1]) == 1 {
+    if not fieldTypes[1].endsWith("?") and isDataTypeImpl(fieldTypes[1]) == 1 {
         isDataField = 1
     }
     let fieldBaseType = getBaseTypeNameImpl(fieldTypes[1])
-    if reprCClassNames != "" and
+    if not fieldTypes[1].endsWith("?") and reprCClassNames != "" and
         reprCClassNames.contains(fieldBaseType + "|") {
 
         isDataField = 1
     }
     var coercedValueReg = coerceOptionStoreValueCoreImpl(output, regBox,
-        fieldTypes[1], valueSeenType, valueReg, structNames)
+        fieldTypes[1], valueSeenType, valueReg, valueKind, structNames)
     var coercedValueSeenType = valueSeenType
     if coercedValueReg != valueReg {
         coercedValueSeenType = fieldTypes[1]
+        valueIsStructLit = 0
     }
     coercedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
         fieldTypes[0], coercedValueSeenType, coercedValueReg, structNames)
@@ -360,30 +361,6 @@ fun emitImplicitThisMemberAssignmentImpl(output: StringBuilder,
         bitfieldCount, bitfieldKeys, bitfieldWidths)
 }
 
-fun emitIndexAssignmentBoundsCheckImpl(output: StringBuilder, regBox: Array<Int>,
-    arrayReg: String, indexReg: String, failLabel: String, okLabel: String) r: Void {
-
-    let lenPtrReg = getNextRegFn(regBox)
-    output.append("  " + lenPtrReg + " = getelementptr inbounds %SeenArray, ptr " + arrayReg + ", i32 0, i32 0\n")
-    let lenReg = getNextRegFn(regBox)
-    output.append("  " + lenReg + " = load i64, ptr " + lenPtrReg + "\n")
-    let oobReg = getNextRegFn(regBox)
-    output.append("  " + oobReg + " = icmp uge i64 " + indexReg + ", " + lenReg + "\n")
-    output.append("  br i1 " + oobReg + ", label %" + failLabel + ", label %" + okLabel + "\n")
-    output.append(failLabel + ":\n")
-    output.append("  call void @seen_bounds_check(i64 " + indexReg + ", i64 " + lenReg + ")\n")
-    output.append("  unreachable\n")
-    output.append(okLabel + ":\n")
-}
-
-fun emitPreparedIndexAssignmentBoundsCheckImpl(output: StringBuilder,
-    regBox: Array<Int>, arrayReg: String, indexReg: String,
-    failLabel: String, okLabel: String) r: Void {
-
-    emitIndexAssignmentBoundsCheckImpl(output, regBox, arrayReg, indexReg,
-        failLabel, okLabel)
-}
-
 fun emitPrimitiveIndexAssignmentStoreImpl(output: StringBuilder,
     regBox: Array<Int>, arrayReg: String, indexReg: String, valueReg: String,
     elementType: String, valueSeenType: String, structNames: Array<String>)
@@ -438,39 +415,24 @@ fun emitGenericIndexAssignmentStoreImpl(output: StringBuilder, regBox: Array<Int
     output.append("  " + stackMarkerReg +
         " = call ptr @llvm.stacksave()\n")
     var valuePtrReg = ""
+    var storageType = llvmElementType
+    let isDataElement = isDataTypeImpl(elementType) == 1
     if isClassTypeImpl(elementType, structNames) == 1 or
         isClassHandleLikeTypeImpl(elementType, structNames) == 1 {
-        let tmpReg = getNextRegFn(regBox)
-        let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
-            "i64", valueSeenType, valueReg, structNames)
-        output.append("  " + tmpReg + " = alloca i64\n")
-        output.append("  store i64 " + storedValueReg + ", ptr " + tmpReg + "\n")
-        valuePtrReg = tmpReg
-    } else if isDataTypeImpl(elementType) == 1 {
-        if valueIsStructLiteral == 1 {
-            valuePtrReg = valueReg
-        } else {
-            let tmpReg = getNextRegFn(regBox)
-            let storedValueReg = coerceAssignmentStoreValueCoreImpl(output,
-                regBox, "%" + elementType, valueSeenType, valueReg,
-                structNames)
-            output.append("  " + tmpReg + " = alloca %" + elementType + "\n")
-            output.append("  store %" + elementType + " " + storedValueReg + ", ptr " + tmpReg + "\n")
-            valuePtrReg = tmpReg
-        }
-    } else if llvmElementType == "ptr" {
-        let tmpReg = getNextRegFn(regBox)
-        var storedValue = coerceAssignmentStoreValueCoreImpl(output, regBox,
-            "ptr", valueSeenType, valueReg, structNames)
-        output.append("  " + tmpReg + " = alloca ptr\n")
-        output.append("  store ptr " + storedValue + ", ptr " + tmpReg + "\n")
-        valuePtrReg = tmpReg
+        storageType = "i64"
+    } else if isDataElement {
+        storageType = "%" + elementType
+    }
+    if isDataElement and valueIsStructLiteral == 1 {
+        valuePtrReg = valueReg
     } else {
-        let tmpReg = getNextRegFn(regBox)
+        // Coercion emits registers. Reserve the alloca only afterwards so
+        // numbered LLVM values remain in their definition order.
         let storedValueReg = coerceAssignmentStoreValueCoreImpl(output, regBox,
-            llvmElementType, valueSeenType, valueReg, structNames)
-        output.append("  " + tmpReg + " = alloca " + llvmElementType + "\n")
-        output.append("  store " + llvmElementType + " " + storedValueReg + ", ptr " + tmpReg + "\n")
+            storageType, valueSeenType, valueReg, structNames)
+        let tmpReg = getNextRegFn(regBox)
+        output.append("  " + tmpReg + " = alloca " + storageType + "\n")
+        output.append("  store " + storageType + " " + storedValueReg + ", ptr " + tmpReg + "\n")
         valuePtrReg = tmpReg
     }
     output.append("  call void @Array_set(ptr " + arrayReg + ", i64 " + indexReg + ", ptr " + valuePtrReg + ")\n")

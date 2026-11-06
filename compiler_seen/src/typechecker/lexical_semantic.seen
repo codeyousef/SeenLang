@@ -1,3 +1,5 @@
+import json.builder.{releaseJsonText}
+import simd.operation_types.{simdOperationArity, simdOperationArgumentValid, simdOperationPrefix}
 ///
 Stage-2 lexical semantic foundation executed after parsing and before LLVM
 lowering. It establishes shared identities, declaration metadata, and proved
@@ -12,7 +14,7 @@ import parser.real_parser.{ParserExpressionNode, TypeNode, AnnotationNode}
 import parser.real_parser.{ParamNode}
 import simd.ir_types.{simdBuiltinLanes, simdMaskLanes,
     simdComparisonMaskName, simdIsComparisonOperator, simdConstructorLaneSupported,
-    simdX86DotType, simdX86TargetFeatures}
+    simdX86DotType, simdKnownTarget, simdArmBlockArity}
 import parser.real_parser.{genericParameterCount, genericParameterNameAt}
 import parser.real_parser.{genericParameterModifierAt}
 import typechecker.type_ref.{TypeRef, parseTypeRef}
@@ -25,6 +27,8 @@ import typechecker.semantic_registry.{semanticBuiltinGenericArity}
 import typechecker.semantic_registry.{semanticFoundationThreadProperty}
 import typechecker.semantic_registry.{semanticFoundationTypeBase}
 import typechecker.semantic_registry.{semanticNormalizeModuleIdentity}
+import typechecker.gpu_annotations.{gpuFunctionStage}
+import typechecker.gpu_module_frontend.{gpuCheckModule}
 
 class LexicalSemanticResult {
     var success: Bool
@@ -760,19 +764,83 @@ fun semanticConsumeSimpleMove(result: LexicalSemanticResult,
 }
 
 fun semanticCallArgumentTransfersOwnership(result: LexicalSemanticResult,
-    moduleName: String, callee: String, argumentIndex: Int) r: Bool {
+    moduleName: String, expression: ParserExpressionNode, bindings: ScopedBindings,
+    argumentIndex: Int) r: Bool {
 
-    let ownership = result.registry.callParameterOwnership(moduleName,
-        callee, argumentIndex)
+    var callee = expression.callee; var owned = false
+    if expression.kind == "MethodCall" {
+        var receiver = ""
+        if expression.operands.length() > 0 {
+            receiver = semanticExpressionBindingIdentity(result, expression.operands[0], bindings, moduleName)
+        } else if expression.literalValue != "" {
+            receiver = bindings.lookup(expression.literalValue)
+            if receiver == "" { receiver = expression.literalValue }
+        }
+        if receiver != "" and receiver != "Unknown" {
+            let valueType = semanticDefaultParameterType(receiver)
+            let prefix = valueType + "."
+            callee = prefix + expression.callee; owned = true
+            releaseJsonText(prefix)
+            if valueType != receiver { releaseJsonText(valueType) }
+        }
+    }
+    let ownership = result.registry.callParameterOwnership(moduleName, callee, argumentIndex)
+    if owned { releaseJsonText(callee) }
     return ownership != "borrow" and ownership != "ref"
+}
+
+fun semanticSimdShuffleIndexValid(expression: ParserExpressionNode, lanes: Int) r: Bool {
+    if expression.kind != "Literal" or expression.literalType != "Int" or
+        expression.literalValue.length() == 0 or expression.literalValue.length() > 2 { return false }
+    var value = 0; var i = 0
+    while i < expression.literalValue.length() {
+        let digit = expression.literalValue.charAt(i)
+        if digit < '0' or digit > '9' { return false }
+        value = value * 10 + digit.toInt() - '0'.toInt(); i = i + 1
+    }
+    return value < lanes * 2
 }
 
 fun semanticCheckExpression(result: LexicalSemanticResult,
     expression: ParserExpressionNode, bindings: ScopedBindings,
     moduleName: String, file: String, line: Int, column: Int,
-    ownerType: String) r: Void {
+    ownerType: String, genericOwner: String, genericNames: Array<String>) r: Void {
 
+    // A static factory receiver is a type application even when its result
+    // binding has no explicit annotation. Reuse declaration-bound validation.
+    if expression.kind == "MethodCall" and expression.operands.length() == 0 and
+        expression.literalValue.contains("<") {
+        let factoryType = parseTypeRef(expression.literalValue, line, column, file)
+        let _ = resolveSemanticTypeRef(result, factoryType, moduleName,
+            genericOwner, genericNames, false)
+    }
     if expression.kind == "Call" {
+        let operationArity = simdOperationArity(expression.callee)
+        if operationArity == 0 and (simdOperationPrefix(expression.callee) != "" or
+            expression.callee.startsWith("simd_unsafe_prefetch_read_")) {
+            result.addError("E_SIMD_OPERATION", "unsupported portable SIMD operation spelling", file, line, column)
+        }
+        if operationArity > 0 {
+            if expression.arguments.length() != operationArity {
+                result.addError("E_SIMD_ARITY", "portable SIMD operation has incorrect arity", file, line, column)
+            } else {
+                var argument = 0
+                while argument < operationArity {
+                    let actual = semanticExpressionBindingIdentity(result,
+                        expression.arguments[argument], bindings, moduleName)
+                    if actual != "" and actual != "Unknown" {
+                        if not simdOperationArgumentValid(expression.callee, argument, actual) {
+                            result.addError("E_SIMD_LANE", "portable SIMD operation has incompatible argument shape", file, line, column)
+                        }
+                    }
+                    argument = argument + 1
+                }
+            }
+        }
+        let armArity = simdArmBlockArity(expression.callee)
+        if armArity > 0 and expression.arguments.length() != armArity {
+            result.addError("E_SIMD_ARITY", "ARM block requires exact pointer/count arguments", file, line, column)
+        }
         let dotType = simdX86DotType(expression.callee)
         if dotType != "" {
             if expression.arguments.length() != 3 {
@@ -815,6 +883,30 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
                 laneIndex = laneIndex + 1
             }
         }
+        if expression.callee == "simd_shuffle" {
+            if expression.arguments.length() < 3 {
+                result.addError("E_SIMD_ARITY", "shuffle requires two vectors and literal lane indices", file, line, column)
+            } else {
+                let first = semanticExpressionBindingIdentity(result, expression.arguments[0], bindings, moduleName)
+                let second = semanticExpressionBindingIdentity(result, expression.arguments[1], bindings, moduleName)
+                let lanes = simdBuiltinLanes(first)
+                if lanes > 0 {
+                    if expression.arguments.length() != lanes + 2 {
+                        result.addError("E_SIMD_ARITY", "shuffle requires exactly one index per output lane", file, line, column)
+                    }
+                    if second != "" and second != "Unknown" and first != second {
+                        result.addError("E_SIMD_LANE", "shuffle inputs must have identical lane types", file, line, column)
+                    }
+                    var i = 2
+                    while i < expression.arguments.length() {
+                        if not semanticSimdShuffleIndexValid(expression.arguments[i], lanes) {
+                            result.addError("E_SIMD_INDEX", "shuffle index must be an in-range decimal integer literal", file, line, column)
+                        }
+                        i = i + 1
+                    }
+                }
+            }
+        }
         if expression.callee == "simd_select" {
             if expression.arguments.length() != 3 {
                 result.addError("E_SIMD_ARITY", "simd_select requires mask, true and false vectors",
@@ -852,7 +944,7 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
         var bodyIndex = 0
         while bodyIndex < expression.operands.length() {
             semanticCheckExpression(result, expression.operands[bodyIndex],
-                bindings, moduleName, file, line, column, ownerType)
+                bindings, moduleName, file, line, column, ownerType, genericOwner, genericNames)
             bodyIndex = bodyIndex + 1
         }
         bindings.endScope()
@@ -864,7 +956,7 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
         // available, avoiding false unknown-binding errors in arm results.
         if expression.operands.length() > 0 {
             semanticCheckExpression(result, expression.operands[0], bindings,
-                moduleName, file, line, column, ownerType)
+                moduleName, file, line, column, ownerType, genericOwner, genericNames)
         }
         return
     }
@@ -922,15 +1014,15 @@ fun semanticCheckExpression(result: LexicalSemanticResult,
     var i = 0
     while i < expression.operands.length() {
         semanticCheckExpression(result, expression.operands[i], bindings,
-            moduleName, file, line, column, ownerType)
+            moduleName, file, line, column, ownerType, genericOwner, genericNames)
         i = i + 1
     }
     i = 0
     while i < expression.arguments.length() {
         semanticCheckExpression(result, expression.arguments[i], bindings,
-            moduleName, file, line, column, ownerType)
+            moduleName, file, line, column, ownerType, genericOwner, genericNames)
         if semanticCallArgumentTransfersOwnership(result, moduleName,
-            expression.callee, i) {
+            expression, bindings, i) {
 
             semanticConsumeSimpleMove(result, expression.arguments[i],
                 bindings)
@@ -1147,7 +1239,7 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
         if statement.kind == "Let" or statement.kind == "Var" or
             statement.kind == "UiState" or statement.kind == "UiComputed" {
             semanticCheckExpression(result, statement.initializer, bindings,
-                moduleName, file, statement.line, statement.column, ownerType)
+                moduleName, file, statement.line, statement.column, ownerType, genericOwner, genericNames)
             var typeName = statement.variableType.typeName
             let hasExplicitType = typeName != "" and typeName != "Unknown"
             if not hasExplicitType { typeName = statement.initializer.literalType }
@@ -1186,10 +1278,10 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
             }
         } else if statement.kind == "Return" {
             semanticCheckExpression(result, statement.returnValue, bindings,
-                moduleName, file, statement.line, statement.column, ownerType)
+                moduleName, file, statement.line, statement.column, ownerType, genericOwner, genericNames)
         } else if statement.kind == "If" {
             semanticCheckExpression(result, statement.condition, bindings,
-                moduleName, file, statement.line, statement.column, ownerType)
+                moduleName, file, statement.line, statement.column, ownerType, genericOwner, genericNames)
             let beforeMoves = bindings.copyMoveStates()
             semanticCheckBlock(result, statement.thenBranch, bindings,
                 moduleName, file, ownerType, genericOwner, genericNames)
@@ -1214,7 +1306,7 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
             }
         } else if statement.kind == "While" {
             semanticCheckExpression(result, statement.loopCondition, bindings,
-                moduleName, file, statement.line, statement.column, ownerType)
+                moduleName, file, statement.line, statement.column, ownerType, genericOwner, genericNames)
             let beforeMoves = bindings.copyMoveStates()
             semanticCheckBlock(result, statement.loopBody, bindings,
                 moduleName, file, ownerType, genericOwner, genericNames)
@@ -1226,7 +1318,7 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
             statement.kind == "ParallelFor" {
 
             semanticCheckExpression(result, statement.expression, bindings,
-                moduleName, file, statement.line, statement.column, ownerType)
+                moduleName, file, statement.line, statement.column, ownerType, genericOwner, genericNames)
             if statement.kind == "ParallelFor" {
                 semanticValidateParallelForCaptures(result, statement,
                     bindings, moduleName, ownerType, genericOwner, file)
@@ -1252,7 +1344,7 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
             statement.kind == "Throw" or statement.kind == "Expression" {
 
             semanticCheckExpression(result, statement.expression, bindings,
-                moduleName, file, statement.line, statement.column, ownerType)
+                moduleName, file, statement.line, statement.column, ownerType, genericOwner, genericNames)
             semanticCheckBlock(result, statement.thenBranch, bindings,
                 moduleName, file, ownerType, genericOwner, genericNames)
         } else if statement.kind == "Region" or statement.kind == "Unsafe" or
@@ -1263,16 +1355,16 @@ fun semanticCheckBlock(result: LexicalSemanticResult, block: BlockNode,
             statement.kind == "IfLet" {
 
             semanticCheckExpression(result, statement.expression, bindings,
-                moduleName, file, statement.line, statement.column, ownerType)
+                moduleName, file, statement.line, statement.column, ownerType, genericOwner, genericNames)
             semanticCheckExpression(result, statement.condition, bindings,
-                moduleName, file, statement.line, statement.column, ownerType)
+                moduleName, file, statement.line, statement.column, ownerType, genericOwner, genericNames)
             semanticCheckBlock(result, statement.thenBranch, bindings,
                 moduleName, file, ownerType, genericOwner, genericNames)
             semanticCheckBlock(result, statement.elseBranch, bindings,
                 moduleName, file, ownerType, genericOwner, genericNames)
         } else {
             semanticCheckExpression(result, statement.expression, bindings,
-                moduleName, file, statement.line, statement.column, ownerType)
+                moduleName, file, statement.line, statement.column, ownerType, genericOwner, genericNames)
         }
         i = i + 1
     }
@@ -1469,6 +1561,8 @@ fun semanticCheckFunction(result: LexicalSemanticResult,
     function: FunctionNode, moduleName: String, file: String,
     ownerType: String, genericNames: Array<String>) r: Void {
 
+    if gpuFunctionStage(function) != 0 { return }
+
     var targetCount = 0; var targetIndex = 0
     while targetIndex < function.decorators.length() {
         let decorator = function.decorators[targetIndex]
@@ -1477,7 +1571,7 @@ fun semanticCheckFunction(result: LexicalSemanticResult,
             if targetCount > 1 or decorator.arguments.length() != 1 {
                 result.addError("E_SIMD_TARGET", "exactly one explicit SIMD target is required",
                     file, function.line, function.column)
-            } else if simdX86TargetFeatures(decorator.arguments[0]) == "" {
+            } else if not simdKnownTarget(decorator.arguments[0]) {
                 result.addError("E_SIMD_TARGET", "unsupported explicit SIMD target",
                     file, function.line, function.column)
             }
@@ -1629,12 +1723,18 @@ fun checkSemanticDeclarations(result: LexicalSemanticResult,
     program: ProgramNode, moduleName: String, file: String,
     genericNames: Array<String>) r: Void {
 
+    let gpuDiagnostics = gpuCheckModule(program, file)
+    var gpuDiagnosticIndex = 0
+    while gpuDiagnosticIndex < gpuDiagnostics.length() {
+        result.diagnostics.push(gpuDiagnostics[gpuDiagnosticIndex]); result.success = false
+        gpuDiagnosticIndex = gpuDiagnosticIndex + 1
+    }
+    gpuDiagnostics.free()
     var i = 0
     while i < program.items.length() {
         let item = program.items[i]
         if item.itemType == "Function" {
-            semanticCheckFunction(result, item.function, moduleName, file, "",
-                genericNames)
+            semanticCheckFunction(result, item.function, moduleName, file, "", genericNames)
         } else if item.itemType == "Class" {
             let ownerType = semanticCanonicalDeclaration(moduleName,
                 item.classNode.name)

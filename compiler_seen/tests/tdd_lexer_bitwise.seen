@@ -1,57 +1,34 @@
-// TDD Test for Bitwise Operators in Lexer
-
+// Exercise the shipped lexer API, including token spelling and EOF.
 import lexer.lexer.{SeenLexer}
-import lexer.interfaces.{TokenType, LexerError}
+import lexer.token_type.{SeenTokenType}
 
-fun main() -> Int {
-    println("Testing Bitwise Operators...")
-
-    let source = "& | ^ ~ << >>"
-    let lexer = SeenLexer.new(source, 1, "en")
-
-    try {
-        let tokens = lexer.tokenize()
-
-        ///
-        Expected tokens:
-        0: BitwiseAnd "&"
-        1: BitwiseOr "|"
-        2: BitwiseXor "^"
-        3: BitwiseNot "~"
-        4: LeftShift "<<"
-        5: RightShift ">>"
-        6: EndOfFile
-        ///
-
-        if tokens.length() != 7 {
-            println("❌ Expected 7 tokens, got {tokens.length()}")
-            return 1
-        }
-
-        ///
-        Check types (using string representation for now if enum variants don't exist,
-        but for TDD we should try to use the variants)
-        ///
-
-        // Note: This will fail to compile until we add the variants to TokenType
-        let t0 = tokens[0].tokenType == TokenType.BitwiseAnd
-        let t1 = tokens[1].tokenType == TokenType.BitwiseOr
-        let t2 = tokens[2].tokenType == TokenType.BitwiseXor
-        let t3 = tokens[3].tokenType == TokenType.BitwiseNot
-        let t4 = tokens[4].tokenType == TokenType.LeftShift
-        let t5 = tokens[5].tokenType == TokenType.RightShift
-
-        if t0 and t1 and t2 and t3 and t4 and t5 {
-            println("✅ Bitwise operators recognized correctly")
-            return 0
-        } else {
-            println("❌ Incorrect token types")
-            return 1
-        }
-
-    } catch (e: LexerError) {
-        println("❌ Exception during tokenization: {e.message}")
+fun main() r: Int {
+    let lexer = SeenLexer.new("& | ^ ~ << >>", 1, "en")
+    let tokens = lexer.tokenize()
+    if tokens.length() != 7 {
+        println("FAIL: expected six bitwise tokens and EOF")
         return 1
     }
+    if tokens[0].tokenType != SeenTokenType.BitwiseAnd or
+        tokens[1].tokenType != SeenTokenType.BitwiseOr or
+        tokens[2].tokenType != SeenTokenType.BitwiseXor or
+        tokens[3].tokenType != SeenTokenType.BitwiseNot or
+        tokens[4].tokenType != SeenTokenType.LeftShift or
+        tokens[5].tokenType != SeenTokenType.RightShift or
+        tokens[6].tokenType != SeenTokenType.EndOfFile {
+
+        println("FAIL: incorrect bitwise token kinds or EOF")
+        return 2
+    }
+    if tokens[0].value != "&" or tokens[1].value != "|" or
+        tokens[2].value != "^" or tokens[3].value != "~" or
+        tokens[4].value != "<<" or tokens[5].value != ">>" {
+
+        println("FAIL: incorrect bitwise token spelling")
+        return 3
+    }
+    println("PASS: bitwise lexer kinds, spellings and EOF")
+    return 0
 }
-main();
+
+main()

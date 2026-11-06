@@ -1,0 +1,5 @@
+@compute(64)
+fun native_bfloat(input: ReadBuffer<UInt32>) {
+    let value = coopLoadA(input, 0 as UInt32, 8 as UInt32, BF16, Tile16x16x16, RowMajor)
+}
+fun main() r: Int { return 0 }

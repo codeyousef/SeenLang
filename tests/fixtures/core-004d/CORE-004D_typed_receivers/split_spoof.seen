@@ -1,0 +1,17 @@
+class UserText {
+    fun split(delimiter: String) r: Array<String> {
+        println("user-defined split is not a String intrinsic")
+        let parts = Array<String>()
+        parts.push(delimiter)
+        return parts
+    }
+}
+
+fun main() r: Int {
+    let text = UserText{}
+    let parts = text.split(",")
+    let count = parts.length()
+    parts.free()
+    text.free()
+    return count
+}

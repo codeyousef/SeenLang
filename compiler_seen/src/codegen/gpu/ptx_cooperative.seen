@@ -1,0 +1,105 @@
+/// Warp-uniform, bounds/alignment-checked native WMMA. Input strides are UInt32
+/// words; WMMA consumes element strides. Invalid loads yield a zero fragment,
+/// invalid stores are skipped, and both set the reflected bounds fault bit.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL, GPU_IR_COOP_MMA}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.ptx_context.{GpuPtxFunction, GpuPtxResource}
+import codegen.gpu.ptx_memory.{ptxResourceIndex, ptxMemoryAddress}
+import codegen.gpu.ptx_matrix_plan.{ptxValueWords, ptxMatrixTargetValid}
+import codegen.gpu_matrix_types.{gpuMatrixRole, gpuMatrixFormat}
+import codegen.gpu_precision_formats.{GPU_FORMAT_FP16, GPU_FORMAT_BF16, GPU_FORMAT_FP32}
+
+fun ptxMatrixRegisters(function: GpuPtxFunction, base: Int, count: Int) r: Void {
+    function.body.literal("{"); var i = 0
+    while i < count {
+        if i > 0 { function.body.literal(", ") }; function.body.reg("r", base + i); i = i + 1
+    }; function.body.literal("}")
+}
+fun ptxMatrixInvalid(function: GpuPtxFunction, resource: GpuPtxResource, offset: Int, stride: Int, bits: Int, alignment: Int, store: Bool) r: Int {
+    let bad = function.allocate(2, 1); let check = function.allocate(2, 1)
+    let available = function.allocate(0, 1); let remainder = function.allocate(0, 1); let maximum = function.allocate(0, 1)
+    let rowWords = function.word(16 * bits / 32)
+    function.body.predicate("setp.gt.u32", bad, offset, resource.length)
+    function.body.binary("sub.u32", available, resource.length, offset)
+    function.body.predicate("setp.lt.u32", check, available, rowWords); function.body.logical("or.pred", bad, bad, check)
+    function.body.binary("sub.u32", remainder, available, rowWords)
+    function.body.binary("div.u32", maximum, remainder, function.word(15))
+    function.body.predicate("setp.gt.u32", check, stride, maximum); function.body.logical("or.pred", bad, bad, check)
+    if store {
+        function.body.predicate("setp.lt.u32", check, stride, rowWords); function.body.logical("or.pred", bad, bad, check)
+    }
+    // Each leading dimension is aligned to its fragment's byte size. FP16
+    // and FP32 fragments use 32 bytes; BF16 multiplicands use 16 bytes.
+    let alignmentWords = alignment / 4; let masked = function.allocate(0, 1)
+    function.body.binary("and.b32", masked, offset, function.word(alignmentWords - 1))
+    function.body.predicate("setp.ne.u32", check, masked, function.word(0)); function.body.logical("or.pred", bad, bad, check)
+    function.body.binary("and.b32", masked, stride, function.word(alignmentWords - 1))
+    function.body.predicate("setp.ne.u32", check, masked, function.word(0)); function.body.logical("or.pred", bad, bad, check)
+    let base = function.allocate(1, 1)
+    function.body.literal("and.b64 "); function.body.reg("a", base); function.body.literal(", ")
+    function.body.reg("a", resource.address); function.body.literal(", "); function.body.number(alignment - 1); function.body.literal(";\n")
+    function.body.literal("setp.ne.u64 "); function.body.reg("p", check); function.body.literal(", ")
+    function.body.reg("a", base); function.body.literal(", 0;\n"); function.body.logical("or.pred", bad, bad, check)
+    return bad
+}
+fun ptxMatrixMemory(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let load = op.opcode == GPU_IR_COOP_LOAD; var resourceOperand = 0; var offsetOperand = 1; var strideOperand = 2; var typeCode = op.typeCode
+    if not load { resourceOperand = 1; offsetOperand = 2; strideOperand = 3; typeCode = frame.registerTypes[op.operands[0]] }
+    let role = gpuMatrixRole(typeCode); let format = gpuMatrixFormat(typeCode)
+    if load and ((role == 0 and op.immediate != 1) or (role == 1 and op.immediate != 2)) {
+        function.error("E_GPU_PTX_CAPABILITY", "PTX WMMA inputs require row-major A and column-major B"); return 0
+    }
+    let resourceIndex = ptxResourceIndex(function, frame, op.operands[resourceOperand]); if resourceIndex < 0 { return 0 }
+    let resource = function.resources[resourceIndex]; let offset = frame.registers[op.operands[offsetOperand]]
+    let stride = frame.registers[op.operands[strideOperand]]; var bits = 16; if format == GPU_FORMAT_FP32 { bits = 32 }
+    var result = 0; let count = ptxValueWords(typeCode)
+    if load {
+        result = function.allocate(0, count); var i = 0
+        while i < count { function.body.unary("mov.b32", result + i, function.word(0)); i = i + 1 }
+    }
+    let bad = function.allocate(3, 1); let merge = function.allocate(3, 1)
+    var alignment = 32; if format == GPU_FORMAT_BF16 { alignment = 16 }
+    let invalid = ptxMatrixInvalid(function, resource, offset, stride, bits, alignment, not load)
+    function.body.conditional(invalid, bad)
+    let address = ptxMemoryAddress(function, resource, offset); let elementStride = function.allocate(0, 1)
+    function.body.binary("mul.lo.u32", elementStride, stride, function.word(32 / bits))
+    if load { function.body.literal("wmma.load."); if role == 0 { function.body.literal("a") } else { function.body.literal("b") } }
+    else { function.body.literal("wmma.store.d") }
+    function.body.literal(".sync.aligned."); if op.immediate == 1 { function.body.literal("row") } else { function.body.literal("col") }
+    function.body.literal(".m16n16k16."); if resource.shared { function.body.literal("shared") } else { function.body.literal("global") }
+    if format == GPU_FORMAT_FP16 { function.body.literal(".f16 ") }
+    else if format == GPU_FORMAT_BF16 { function.body.literal(".bf16 ") }
+    else { function.body.literal(".f32 ") }
+    if load { ptxMatrixRegisters(function, result, count); function.body.literal(", [") }
+    else { function.body.literal("[") }
+    function.body.reg("a", address); function.body.literal("]")
+    if not load { function.body.literal(", "); ptxMatrixRegisters(function, frame.registers[op.operands[0]], count) }
+    function.body.literal(", "); function.body.reg("r", elementStride); function.body.literal(";\n")
+    function.body.branch(merge); function.body.defineLabel(bad); function.fault(1); function.body.defineLabel(merge); return result
+}
+fun ptxCooperative(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    var typeCode = op.typeCode
+    if typeCode == 0 { typeCode = frame.registerTypes[op.operands[0]] }
+    if not ptxMatrixTargetValid(typeCode, function.target) or (function.workgroupX * function.workgroupY * function.workgroupZ) % 32 != 0 {
+        function.error("E_GPU_PTX_CAPABILITY", "PTX WMMA requires supported 16x16x16 precision and complete warps at this target"); return 0
+    }
+    if op.opcode == GPU_IR_COOP_LOAD or (op.opcode != GPU_IR_COOP_FILL and op.opcode != GPU_IR_COOP_MMA) {
+        return ptxMatrixMemory(function, frame, op)
+    }
+    let result = function.allocate(0, ptxValueWords(typeCode))
+    if op.opcode == GPU_IR_COOP_FILL {
+        var i = 0; while i < ptxValueWords(typeCode) { function.body.unary("mov.b32", result + i, frame.registers[op.operands[0]]); i = i + 1 }; return result
+    }
+    let inputType = frame.registerTypes[op.operands[0]]
+    if not ptxMatrixTargetValid(inputType, function.target) {
+        function.error("E_GPU_PTX_CAPABILITY", "PTX WMMA multiplicand precision is unavailable at this target"); return 0
+    }
+    function.body.literal("wmma.mma.sync.aligned.row.col.m16n16k16.f32.")
+    if gpuMatrixFormat(inputType) == GPU_FORMAT_BF16 { function.body.literal("bf16.bf16.f32 ") } else { function.body.literal("f32 ") }
+    ptxMatrixRegisters(function, result, 8); var operand = 0
+    while operand < 3 {
+        let source = op.operands[operand]; function.body.literal(", ")
+        ptxMatrixRegisters(function, frame.registers[source], ptxValueWords(frame.registerTypes[source])); operand = operand + 1
+    }; function.body.literal(";\n"); return result
+}

@@ -1,0 +1,19 @@
+fun require(value: Bool) r: Void {
+    if not value { abort("escaped literal quote preservation failed") }
+}
+
+fun main() r: Int {
+    let quoted = "\"gpu\""
+    require(quoted.length() == 5 and quoted.byteAt(0) == 34 and quoted.byteAt(4) == 34)
+    require(quoted.byteAt(1) == 103 and quoted.byteAt(2) == 112 and quoted.byteAt(3) == 117)
+    let doubled = "\"\"gpu\"\""
+    require(doubled.length() == 7 and doubled.byteAt(1) == 34 and doubled.byteAt(5) == 34)
+    let emptyQuotes = "\"\""
+    require(emptyQuotes.length() == 2 and emptyQuotes.byteAt(0) == 34 and emptyQuotes.byteAt(1) == 34)
+    let leading = "\"gpu"; let trailing = "gpu\""; let single = "\""
+    require(leading.length() == 4 and leading.byteAt(0) == 34)
+    require(trailing.length() == 4 and trailing.byteAt(3) == 34)
+    require(single.length() == 1 and single.byteAt(0) == 34)
+    println("PASS: decoded string literals preserve meaningful quote bytes")
+    return 0
+}

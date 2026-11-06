@@ -1,0 +1,57 @@
+/// Aggregate Options own one pool-allocated payload box and their ordinary
+/// 24-byte container. Unwrap borrows a value copy; free releases only the boxes.
+import str.string.{StringBuilder}
+import codegen.ir_optimization.{getNextRegFn}
+import codegen.ir_declarations.{emitSomeConstructorImpl}
+
+fun optionAggregateBytesImpl(bytes: Int) r: Int {
+    if bytes < 0 or bytes > 16777216 { abort("Error: [E_OPTION_LAYOUT] aggregate Option payload exceeds its bounded layout") }
+    if bytes == 0 { return 1 }; return bytes
+}
+
+fun emitOptionAggregateConstructorImpl(output: StringBuilder, regBox: Array<Int>,
+    value: String, llvmType: String, payloadBytes: Int, literalAddress: Bool) r: String {
+    let bytes = optionAggregateBytesImpl(payloadBytes); var pointer = value
+    if not literalAddress {
+        pointer = getNextRegFn(regBox)
+        output.append("  " + pointer + " = call ptr @seen_pool_alloc(i64 " + bytes.toString() + ")\n")
+        output.append("  store " + llvmType + " " + value + ", ptr " + pointer + "\n")
+    }
+    let word = getNextRegFn(regBox)
+    output.append("  " + word + " = ptrtoint ptr " + pointer + " to i64\n")
+    return emitSomeConstructorImpl(output, regBox, word, "Int", 0)
+}
+
+fun emitOptionAggregateUnwrapImpl(output: StringBuilder, regBox: Array<Int>,
+    receiver: String, llvmType: String) r: String {
+    // The existing generic unwrap validates Some before returning its word.
+    let word = getNextRegFn(regBox)
+    output.append("  " + word + " = call i64 @Option_unwrap(ptr " + receiver + ")\n")
+    let pointer = getNextRegFn(regBox)
+    output.append("  " + pointer + " = inttoptr i64 " + word + " to ptr\n")
+    let value = getNextRegFn(regBox)
+    output.append("  " + value + " = load " + llvmType + ", ptr " + pointer + "\n")
+    return value
+}
+
+fun emitOptionAggregateDropImpl(output: StringBuilder, regBox: Array<Int>,
+    receiverWord: String, payloadBytes: Int) r: Void {
+    let bytes = optionAggregateBytesImpl(payloadBytes); let suffix = regBox[0].toString()
+    let check = "option.aggregate.check." + suffix; let drop = "option.aggregate.drop." + suffix
+    let done = "option.aggregate.done." + suffix; let empty = getNextRegFn(regBox)
+    output.append("  " + empty + " = icmp eq i64 " + receiverWord + ", 0\n")
+    output.append("  br i1 " + empty + ", label %" + done + ", label %" + check + "\n" + check + ":\n")
+    let receiver = getNextRegFn(regBox)
+    output.append("  " + receiver + " = inttoptr i64 " + receiverWord + " to ptr\n")
+    let present = getNextRegFn(regBox)
+    output.append("  " + present + " = load i1, ptr " + receiver + "\n")
+    output.append("  br i1 " + present + ", label %" + drop + ", label %" + done + "\n" + drop + ":\n")
+    let slot = getNextRegFn(regBox)
+    output.append("  " + slot + " = getelementptr i8, ptr " + receiver + ", i64 8\n")
+    let word = getNextRegFn(regBox)
+    output.append("  " + word + " = load i64, ptr " + slot + "\n")
+    let pointer = getNextRegFn(regBox)
+    output.append("  " + pointer + " = inttoptr i64 " + word + " to ptr\n")
+    output.append("  call void @seen_pool_free(ptr " + pointer + ", i64 " + bytes.toString() + ")\n")
+    output.append("  store i64 0, ptr " + slot + "\n  br label %" + done + "\n" + done + ":\n")
+}

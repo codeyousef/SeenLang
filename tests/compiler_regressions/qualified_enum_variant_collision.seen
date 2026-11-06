@@ -1,0 +1,27 @@
+// Async diagnostics and GPU discovery intentionally reuse backend spellings.
+// A qualified variant must use its owning enum's tag, not the first spelling.
+import async.task_diagnostics.{TaskBackend}
+import compute.backend.{GpuBackend, gpuBackendName}
+
+fun gpuIdentity(value: GpuBackend) r: GpuBackend { return value }
+fun taskIdentity(value: TaskBackend) r: TaskBackend { return value }
+
+fun main() r: Int {
+    let gpu = GpuBackend.Vulkan
+    let task = TaskBackend.Vulkan
+    if (gpu as Int) != 1 or (task as Int) != 7 {
+        abort("qualified Vulkan variants selected another enum's tag")
+    }
+    if gpuIdentity(gpu) != GpuBackend.Vulkan or taskIdentity(task) != TaskBackend.Vulkan {
+        abort("qualified enum identity changed across typed call boundary")
+    }
+    if gpuBackendName(gpu) != "vulkan" or gpu == GpuBackend.CpuOnly {
+        abort("GPU Vulkan identity became CPU-only after importing async diagnostics")
+    }
+    if (GpuBackend.Cuda as Int) != 2 or (TaskBackend.Cuda as Int) != 6 or
+        (GpuBackend.Metal as Int) != 4 or (TaskBackend.Metal as Int) != 8 {
+        abort("other repeated qualified backend variants changed their own ordinal")
+    }
+    println("PASS: qualified enum backend collisions preserve owning tags and typed calls")
+    return 0
+}

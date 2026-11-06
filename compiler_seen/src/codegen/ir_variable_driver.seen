@@ -12,6 +12,7 @@ import codegen.ir_member_access_driver.{tryGenerateImplicitThisFieldVariableStat
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_module_constants.{narrowModuleConstantLoadIfNeededImpl}
 import codegen.ir_variable_gen.{emitComptimeVariableLoadImpl, emitFunctionPointerInteropLoadImpl, emitLocalVariableLoadImpl, emitModuleConstantLoadImpl, emitMovedVariableUseTrapImpl}
+import codegen.ir_module_function_identity.{resolveModuleFreeFunctionSymbolImpl}
 
 fun tryEmitMovedVariableReadState(output: StringBuilder, varName: String)
     r: Int {
@@ -59,10 +60,11 @@ fun tryGenerateFallbackVariableState(output: StringBuilder,
         return implicitThisReg
     }
 
-    let fpRetType = getFunctionReturnTypeWithGlobalStateImpl(varName)
+    let functionSymbol = resolveModuleFreeFunctionSymbolImpl(varName)
+    let fpRetType = getFunctionReturnTypeWithGlobalStateImpl(functionSymbol)
     if fpRetType != "" {
         return emitFunctionPointerInteropLoadImpl(output, getFeatureRegBoxImpl(),
-            "@" + quoteIdentIfNeededImpl(varName))
+            "@" + quoteIdentIfNeededImpl(functionSymbol))
     }
     return ""
 }

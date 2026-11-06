@@ -453,7 +453,7 @@ func materializeResolution(ctx context.Context, projectRoot string, shared *cach
 				return nil, downloadErr
 			}
 		}
-		view, err := shared.CreateProjectView(ctx, key, projectRoot)
+		view, err := shared.CreateProjectView(ctx, key, projectRoot, pkg.RegistryOrigin)
 		if err != nil {
 			return nil, err
 		}
@@ -476,12 +476,27 @@ func candidateFromLocked(pkg model.LockedPackage) model.Candidate {
 
 func packageMapRows(projectRoot string, resolution *model.Resolution, views map[model.PackageKey]string) ([]PackageMapRow, error) {
 	var rows []PackageMapRow
+	identities := make(map[model.PackageKey]string, len(resolution.Packages))
+	for _, pkg := range resolution.Packages {
+		if _, err := cacheKey(pkg); err != nil {
+			return nil, err
+		}
+		if err := model.ValidateRegistryOrigin(pkg.RegistryOrigin); err != nil {
+			return nil, err
+		}
+		identities[pkg.Key()] = "hosted/" + originDigest(pkg.RegistryOrigin) + "/" +
+			pkg.Package + "/" + pkg.Version + "/" + pkg.ArchiveSHA256
+	}
 	for _, edge := range resolution.Root.Dependencies {
 		dependencyRoot, ok := views[edge.Key()]
 		if !ok {
 			return nil, fmt.Errorf("root edge %s has no project view", edge.Alias)
 		}
-		rows = append(rows, PackageMapRow{RequesterRoot: projectRoot, Alias: edge.Alias, DependencyRoot: dependencyRoot})
+		moduleIdentity, ok := identities[edge.Key()]
+		if !ok {
+			return nil, fmt.Errorf("root edge %s has no resolved module identity", edge.Alias)
+		}
+		rows = append(rows, PackageMapRow{RequesterRoot: projectRoot, Alias: edge.Alias, DependencyRoot: dependencyRoot, ModuleIdentity: moduleIdentity})
 	}
 	for _, pkg := range resolution.Packages {
 		requester := views[pkg.Key()]
@@ -490,7 +505,11 @@ func packageMapRows(projectRoot string, resolution *model.Resolution, views map[
 			if !ok {
 				return nil, fmt.Errorf("%s edge %s has no project view", pkg.Package, edge.Alias)
 			}
-			rows = append(rows, PackageMapRow{RequesterRoot: requester, Alias: edge.Alias, DependencyRoot: dependencyRoot})
+			moduleIdentity, ok := identities[edge.Key()]
+			if !ok {
+				return nil, fmt.Errorf("%s edge %s has no resolved module identity", pkg.Package, edge.Alias)
+			}
+			rows = append(rows, PackageMapRow{RequesterRoot: requester, Alias: edge.Alias, DependencyRoot: dependencyRoot, ModuleIdentity: moduleIdentity})
 		}
 	}
 	return rows, nil

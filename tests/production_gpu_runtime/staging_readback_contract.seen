@@ -1,0 +1,48 @@
+import staging_fixture_support.{ring, claimed, rejected}
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let op = operation()
+    // Spare metadata slots must not make completed, unread bytes reusable.
+    let owner = ring(32 as UInt64, 4)
+    let first = claimed(owner.reserve(16 as UInt64, 1 as UInt64, op))
+    let second = claimed(owner.reserve(16 as UInt64, 1 as UInt64, op))
+    completed(first.submitted(1 as UInt64), true)
+    completed(second.submitted(2 as UInt64), true)
+    completed(owner.complete(2 as UInt64), true)
+    if not first.isComplete() or not second.isComplete() or owner.core.inFlight != 0 {
+        abort("observed completion did not retire native work")
+    }
+    if owner.core.occupiedBytes != (32 as UInt64) {
+        abort("native completion recycled unread staging bytes")
+    }
+    rejected(owner.reserve(1 as UInt64, 1 as UInt64, op), "gpu.limit")
+    gpuFixtureRejected(owner.close(), "gpu.busy")
+    // Consumers may acknowledge out of order without releasing a neighbour.
+    let releasedOffset = second.offset
+    completed(second.close(), true); completed(second.close(), false)
+    if owner.core.occupiedBytes != (16 as UInt64) or not first.isComplete() {
+        abort("consumer acknowledgement released another ticket's range")
+    }
+    let replacement = claimed(owner.reserve(16 as UInt64, 1 as UInt64, op))
+    if replacement.offset != releasedOffset or replacement.offset == first.offset {
+        abort("staging reuse overwrote an unacknowledged readback")
+    }
+    completed(replacement.submitted(3 as UInt64), true)
+    gpuFixtureRejected(replacement.close(), "gpu.busy")
+    completed(first.release(), true)
+    if owner.core.occupiedBytes != (16 as UInt64) or owner.core.inFlight != 1 {
+        abort("completed consumer release affected pending native ownership")
+    }
+    completed(owner.complete(3 as UInt64), true)
+    completed(owner.complete(3 as UInt64), false)
+    rejected(owner.reserve(17 as UInt64, 1 as UInt64, op), "gpu.limit")
+    completed(replacement.release(), true); completed(second.release(), true)
+    if owner.core.occupiedBytes != (0 as UInt64) { abort("acknowledged staging bytes remained occupied") }
+    completed(owner.release(), true); releaseOperation(op)
+    if seen_memory_used_bytes() != baseline { abort("readback acknowledgement leaked staging owners") }
+    println("PASS: GPU-006C completed readback retains bytes until consumer acknowledgement")
+    return 0
+}

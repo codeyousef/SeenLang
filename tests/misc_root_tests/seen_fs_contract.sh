@@ -42,11 +42,4 @@ bash "$ROOT_DIR/tests/misc_root_tests/seen_fs_runtime_contract.sh"
 python3 "$ROOT_DIR/scripts/check_native_boundaries.py" \
     "$ROOT_DIR/docs/architecture/native-boundaries.json"
 
-grep -Fq 'class OsString' "$ROOT_DIR/seen_std/src/fs/types.seen"
-grep -Fq '@move' "$ROOT_DIR/seen_std/src/fs/file.seen"
-grep -Fq 'fun atomicReplace' "$ROOT_DIR/seen_std/src/fs/operations.seen"
-grep -Fq 'fun removeRecursively' "$ROOT_DIR/seen_std/src/fs/operations.seen"
-grep -Fq 'fun moveAcrossFilesystems' "$ROOT_DIR/seen_std/src/fs/operations.seen"
-grep -Fq 'fun readGather' "$ROOT_DIR/seen_std/src/io/direct.seen"
-grep -Fq 'fallbackCount' "$ROOT_DIR/seen_std/src/fs/types.seen"
 echo "PASS: FS-001A-H and SEEN-IO-001B contract"

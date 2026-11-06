@@ -1,0 +1,48 @@
+import compute.error.{GpuError, gpuFailure, GPU_ERROR_MAX_MESSAGE_BYTES, GPU_ERROR_MAX_CAUSES}
+import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    if GPU_ERROR_MAX_MESSAGE_BYTES != 4096 or GPU_ERROR_MAX_CAUSES != 8 { abort("GPU diagnostic limits changed") }
+    let created = OwnedBuffer<UInt8>.allocate(4097 as UInt64, 1 as UInt64, 16 as UInt64)
+    if created.isErr() { abort("GPU error fixture allocation failed") }
+    let storage = created.unwrap(); created.releaseContainer(); var index = 0
+    while index < 4097 { storage.data[index] = 120 as UInt8; index = index + 1 }
+    let maximum = seen_string_view_bytes(storage.data as *const UInt8, 4096 as Int64)
+    let error = gpuFailure("gpu.unavailable", "gpu.discover", maximum)
+    if error.code != "gpu.unavailable" or error.message.length() != 4096 or
+        error.retryable or error.nativeCode.isSome() or error.progress != (0 as UInt64) {
+        abort("GPU permanent diagnostic changed")
+    }
+    storage.data[0] = 121 as UInt8
+    if error.message.byteAt(0) != 120 { abort("GPU error borrowed caller message storage") }
+    error.release()
+    let oversized = seen_string_view_bytes(storage.data as *const UInt8, 4097 as Int64)
+    let limited = gpuFailure("gpu.unavailable", "gpu.discover", oversized)
+    if limited.code != "gpu.invalid" or limited.operation != "gpu.error" or
+        limited.message != "invalid GPU error metadata" { abort("oversized GPU diagnostic escaped its bound") }
+    limited.release(); storage.close(); storage.free()
+    let codes = ["other.invalid", "GPU.invalid", "gpu.bad code", "gpu.", "gpu..invalid"]
+    index = 0
+    while index < codes.length() {
+        let rejected = gpuFailure(codes[index], "gpu.discover", "detail")
+        if rejected.code != "gpu.invalid" or rejected.operation != "gpu.error" { abort("invalid GPU error identity accepted") }
+        rejected.release(); index = index + 1
+    }
+    codes.free()
+    let badOperation = gpuFailure("gpu.invalid", "bad operation", "detail")
+    if badOperation.operation != "gpu.error" { abort("invalid GPU operation identity accepted") }
+    badOperation.release()
+    let parent = gpuFailure("gpu.unavailable", "gpu.context", "failed discovery")
+    index = 0
+    while index < 8 {
+        parent.causes.push(gpuFailure("gpu.unsupported_platform", "gpu.backend", "backend unavailable"))
+        index = index + 1
+    }
+    parent.release()
+    if seen_memory_used_bytes() != memory { abort("GPU diagnostic ownership leaked allocations") }
+    println("PASS: GPU-006A bounded owned diagnostics and independent message snapshots")
+    return 0
+}

@@ -1,0 +1,7 @@
+class Text {
+    var value: Int
+
+    fun read() r: Int {
+        return this.value
+    }
+}

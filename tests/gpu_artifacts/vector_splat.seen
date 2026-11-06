@@ -1,0 +1,9 @@
+@compute(1)
+fun constantSplat(output: WriteBuffer<f32x3>) {
+    output[0] = f32x3(2.0)
+}
+
+@compute(1)
+fun variableSplat(input: ReadBuffer<Float32>, output: WriteBuffer<f32x3>) {
+    output[0] = f32x3(input[0])
+}

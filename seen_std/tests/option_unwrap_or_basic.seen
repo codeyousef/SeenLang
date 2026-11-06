@@ -1,0 +1,50 @@
+import core.option.{Option, Some, None}
+import collections.string_hash_map.{StringHashMap}
+
+fun expectOptionDefault(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+@repr(C)
+@trivially_copyable
+class OptionalPair {
+    var count: Int64
+    var ordinal: Int32
+}
+
+fun main() r: Int {
+    let present = Some<String>("present")
+    let absent = None<String>()
+    expectOptionDefault(present.unwrapOr("fallback") == "present", "String Some payload")
+    expectOptionDefault(absent.unwrapOr("fallback") == "fallback", "String None fallback")
+    let map = StringHashMap<String>.new()
+    map.insert("key", "native")
+    expectOptionDefault(map.get("key").unwrapOr("fallback") == "native", "native String Some")
+    expectOptionDefault(map.get("missing").unwrapOr("fallback") == "fallback", "native String None")
+    let flag = Some<Bool>(true)
+    let missingFlag = None<Bool>()
+    expectOptionDefault(flag.unwrapOr(false), "Bool Some payload")
+    expectOptionDefault(not missingFlag.unwrapOr(false), "Bool None fallback")
+    let number = Some<Float>(1.5)
+    let missingNumber = None<Float>()
+    expectOptionDefault(number.unwrapOr(2.5) == 1.5, "Float Some payload")
+    expectOptionDefault(missingNumber.unwrapOr(2.5) == 2.5, "Float None fallback")
+    let narrow = Some<Int32>(-7 as Int32)
+    let missingNarrow = None<Int32>()
+    expectOptionDefault(narrow.unwrapOr(9 as Int32) == (-7 as Int32), "narrow Some payload")
+    expectOptionDefault(missingNarrow.unwrapOr(9 as Int32) == (9 as Int32), "narrow None fallback")
+    let pair = OptionalPair{count: 64 as Int64, ordinal: 3 as Int32}
+    let other = OptionalPair{count: 32 as Int64, ordinal: 5 as Int32}
+    let pairOption = Some<OptionalPair>(pair)
+    let missingPair = None<OptionalPair>()
+    let unwrappedPair = pairOption.unwrapOr(other)
+    let defaultPair = missingPair.unwrapOr(other)
+    expectOptionDefault(unwrappedPair.count == (64 as Int64), "aggregate Some payload")
+    expectOptionDefault(unwrappedPair.ordinal == (3 as Int32), "aggregate Some field")
+    expectOptionDefault(defaultPair.count == (32 as Int64), "aggregate None fallback")
+    expectOptionDefault(defaultPair.ordinal == (5 as Int32), "aggregate None field")
+    println("PASS: typed Option defaults")
+    return 0
+}
+
+main()

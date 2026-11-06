@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/codeyousef/seen/tools/seen-pkg/internal/archive"
+	"github.com/codeyousef/seen/tools/seen-pkg/internal/model"
 )
 
 var (
@@ -26,8 +27,8 @@ var (
 	versionPattern   = regexp.MustCompile(`^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 )
 
-// Key is the full cache identity. Registry aliases are intentionally absent:
-// the lock has already bound a canonical origin, version, and archive digest.
+// Key identifies shared immutable package content. Origin remains part of the
+// resolved graph and project view, not the deduplicated verified blob cache.
 type Key struct {
 	Owner   string
 	Name    string
@@ -363,10 +364,14 @@ func (c *Cache) lookupWithExpected(ctx context.Context, key Key, expected integr
 	return source, nil
 }
 
-// ProjectViewPath is the deterministic project-local source-view location.
-func ProjectViewPath(projectRoot string, key Key) (string, error) {
+// ProjectViewPath separates hosted resolution identities even when their
+// verified archive bytes are identical. The origin hash is relocation-stable.
+func ProjectViewPath(projectRoot string, key Key, registryOrigin string) (string, error) {
 	if err := key.Validate(); err != nil {
 		return "", failure("cache_key_invalid", err)
+	}
+	if err := model.ValidateRegistryOrigin(registryOrigin); err != nil {
+		return "", failure("cache_view_origin_invalid", err)
 	}
 	abs, err := filepath.Abs(projectRoot)
 	if err != nil {
@@ -380,17 +385,18 @@ func ProjectViewPath(projectRoot string, key Key) (string, error) {
 	if err != nil {
 		return "", failure("cache_view_root_invalid", err)
 	}
-	return filepath.Join(real, ".seen", "views", key.Owner, key.Name, key.Version, key.SHA256), nil
+	originDigest := sha256.Sum256([]byte(registryOrigin))
+	return filepath.Join(real, ".seen", "views", key.Owner, key.Name, key.Version, hex.EncodeToString(originDigest[:]), key.SHA256), nil
 }
 
 // CreateProjectView atomically copies a verified source tree beneath the
 // project. Copies isolate shared cache inodes from project-local chmod/write.
-func (c *Cache) CreateProjectView(ctx context.Context, key Key, projectRoot string) (string, error) {
-	cacheSource, meta, err := c.lookupVerified(ctx, key)
+func (c *Cache) CreateProjectView(ctx context.Context, key Key, projectRoot, registryOrigin string) (string, error) {
+	final, err := ProjectViewPath(projectRoot, key, registryOrigin)
 	if err != nil {
 		return "", err
 	}
-	final, err := ProjectViewPath(projectRoot, key)
+	cacheSource, meta, err := c.lookupVerified(ctx, key)
 	if err != nil {
 		return "", err
 	}

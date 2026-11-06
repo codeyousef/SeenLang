@@ -1,0 +1,55 @@
+/// Per-kernel bounded bindings and diagnostics. Names and source location are
+/// borrowed from the parsed module and never survive that module's validation.
+import typechecker.semantic_registry.{SemanticDiagnostic}
+
+class GpuCheckContext {
+    var names: Array<String>
+    var types: Array<Int>
+    var mutable: Array<Bool>
+    var scopeStart: Int
+    var nodes: Int
+    var line: Int
+    var column: Int
+    var file: String
+    var diagnostics: Array<SemanticDiagnostic>
+    static fun create(file: String, line: Int, column: Int) r: GpuCheckContext {
+        return GpuCheckContext{names: Array<String>(), types: Array<Int>(), mutable: Array<Bool>(),
+            scopeStart: 0, nodes: 0, line: line, column: column, file: file, diagnostics: Array<SemanticDiagnostic>()}
+    }
+    fun error(code: String, message: String) r: Void {
+        if this.diagnostics.length() < 64 {
+            this.diagnostics.push(SemanticDiagnostic.new(code, message, this.file, this.line, this.column))
+        }
+    }
+    fun visit(depth: Int) r: Bool {
+        if depth >= 128 or this.nodes >= 65536 {
+            this.error("E_GPU_LIMIT", "GPU body exceeds the node or nesting ceiling"); return false
+        }
+        this.nodes = this.nodes + 1; return true
+    }
+    fun find(name: String) r: Int {
+        var i = this.names.length() - 1
+        while i >= 0 { if this.names[i] == name { return i }; i = i - 1 }
+        return -1
+    }
+    fun define(name: String, typeCode: Int, mutable: Bool) r: Void {
+        if this.names.length() >= 4096 or name.length() == 0 or name.length() > 256 {
+            this.error("E_GPU_LIMIT", "GPU binding count or identifier length exceeds its ceiling"); return
+        }
+        if name == "globalInvocationId" or name == "localInvocationId" or name == "workgroupId" or
+            name == "numWorkgroups" or name == "workgroupSize" {
+            this.error("E_GPU_BINDING", "GPU builtin identities cannot be shadowed"); return
+        }
+        let previous = this.find(name)
+        if previous >= this.scopeStart {
+            this.error("E_GPU_BINDING", "duplicate GPU binding in the same scope"); return
+        }
+        this.names.push(name); this.types.push(typeCode); this.mutable.push(mutable)
+    }
+    fun restoreBindings(length: Int) r: Void {
+        while this.names.length() > length { this.names.pop(); this.types.pop(); this.mutable.pop() }
+    }
+    fun takeDiagnostics() r: Array<SemanticDiagnostic> {
+        let result = this.diagnostics; this.names.free(); this.types.free(); this.mutable.free(); this.free(); return result
+    }
+}

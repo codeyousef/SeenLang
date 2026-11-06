@@ -1,9 +1,25 @@
 // ir_member_assignment_driver.seen - prepared member assignment leaves.
 
 import str.string.{StringBuilder}
-import codegen.ir_assignment_gen.{emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl}
+import codegen.ir_assignment_gen.{emitValueReceiverMemberAssignmentImpl, emitVariableReceiverMemberAssignmentImpl, emitImplicitThisMemberAssignmentImpl, emitResolvedMemberAssignmentStoreImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureReprCClassNamesImpl, getFeatureUnionTypesImpl, getFeatureTypeAliasNamesImpl, getFeatureTypeAliasTargetsImpl, getFeatureTypeAliasCountImpl, getFeatureEnumTypeNamesImpl, getFeatureBitfieldCountImpl, getFeatureBitfieldKeysImpl, getFeatureBitfieldWidthsImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, getGlobalStructNamesImpl, getGlobalStructLayoutsImpl, getGlobalStructFieldNamesImpl, getGlobalStructFieldTypesImpl, getGlobalStructLlvmFieldTypesImpl}
+
+/// The caller borrows original receiver storage; never spill a value copy.
+fun emitAddressReceiverMemberAssignmentState(output: StringBuilder,
+    receiverPtr: String, receiverType: String, fieldName: String,
+    valueReg: String, valueKind: String, valueSeenType: String) r: Int {
+
+    return emitResolvedMemberAssignmentStoreImpl(output, getFeatureRegBoxImpl(),
+        receiverPtr, receiverType, fieldName, valueReg, valueKind, valueSeenType, 1,
+        getGlobalStructNamesImpl(), getGlobalStructLayoutsImpl(),
+        getGlobalStructFieldNamesImpl(), getGlobalStructFieldTypesImpl(),
+        getGlobalStructLlvmFieldTypesImpl(), getFeatureReprCClassNamesImpl(),
+        getFeatureTypeAliasNamesImpl(), getFeatureTypeAliasTargetsImpl(),
+        getFeatureTypeAliasCountImpl(), getFeatureEnumTypeNamesImpl(),
+        getFeatureUnionTypesImpl(), getFeatureBitfieldCountImpl(),
+        getFeatureBitfieldKeysImpl(), getFeatureBitfieldWidthsImpl())
+}
 
 fun emitValueReceiverMemberAssignmentState(output: StringBuilder,
     receiverReg: String, receiverType: String, fieldName: String,

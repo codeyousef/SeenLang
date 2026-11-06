@@ -80,6 +80,15 @@ New bootstrap helper modules must be reachable from `main_compiler.seen`
 imports as well as from the embedded compiler-module list. That keeps older
 bootstrap compilers from treating new helper calls as external declarations with
 the wrong ABI during self-hosted rebuilds.
+Package-map framing uses one caller-owned reference record for an entire scan.
+The decoder borrows it exclusively, overwrites all offsets and validity for each
+row, retains no input, and performs no per-row state allocation. Both driver
+consumers release the record after scanning. This avoids the immutable seed's
+unsupported cross-module aggregate-return ABI without rewriting source or IR.
+
+Bootstrap-sensitive `parseTypeRef` calls supply text, line, column and file
+explicitly; the immutable seed must not be relied on to fill an empty String
+default across that call boundary.
 
 ### Deterministic CLI policy
 
@@ -117,6 +126,11 @@ canonical owning declaration, bounded effect path, facility identity, and remedi
 edge, direct-effect, propagation-round, path-length, and diagnostic limits are
 explicit; exhaustion produces `core.004d.limit` rather than partial approval.
 
+Builtin method effects require resolved receiver identity. For example,
+`Array<T>.get` is a deterministic collection read whose result retains `T`;
+user classes named `Array`, aliases to those classes and unrelated methods do
+not acquire that intrinsic contract.
+
 ### Deterministic execution context
 
 CORE-004E defines `seen-deterministic-context-v1`. Deterministic compile and
@@ -144,6 +158,37 @@ inputs, builder identities, exact artifact bytes, cleanup, cancellation, and
 bounded diagnostics. Required CI validates these contracts before bootstrap;
 release-toolchain preparation revalidates them without starting a second full
 compiler/package build.
+
+The measured native matrix requires a Linux x86-64 host and pins the CPU
+baseline to `x86-64`. It does not request cross-target compilation, which has
+separate full-LTO eligibility rules. One flag authority supplies actual
+invocations, recorded commands and build-input digests, including release/LTO
+mode and frozen-package flags.
+
+Native runtime C compilation retains the caller's working directory, original
+`pkg-config` arguments and include environment. Clang remains the authority for
+forced-header lookup, system/framework paths, sysroots and search precedence;
+the compiler does not parse or rebase those option families.
+
+On native Linux, each Clang command opens the runtime directory as descriptor 3
+and reads `/proc/self/fd/3/<unit>.c`. This command-scoped, zero-copy input identity
+is stable across checkout/install roots while runtime-local quoted headers still
+resolve through the same descriptor. It neither changes the working directory
+nor creates shared source aliases. Failure to open or use that input fails the
+compile rather than falling back to a physical-path-dependent identity.
+Other native hosts use their physical runtime source paths without changing
+the caller directory. Cross-target, JIT, platform-shim and bundled CUDA paths
+retain their separate compilation contracts.
+
+Runtime-object cache schema `runtime-object-v5` excludes earlier path-dependent
+objects. Cache identity also binds the caller directory and the unset/empty/value
+states of `CPATH`, `C_INCLUDE_PATH`, `CPLUS_INCLUDE_PATH` and `OBJC_INCLUDE_PATH`,
+without interpreting or rewriting them.
+Checkout-root discovery and common TEE/SGX/SEV source-availability probes
+shell-quote their paths, including roots with spaces. Native consumer checks
+exercise retained common-shim linkage and outside-enclave state; they do not
+certify physical enclave hardware.
+
 
 ### Two-builder reproducibility
 
@@ -365,6 +410,57 @@ Package artifacts participate in code generation through interface indexes and
 object manifests: dependency declarations are scanned, provided modules are
 skipped for codegen, and prebuilt objects are linked into the final binary.
 
+Native runtime ABI bridges are selected by the resolved foreign symbol, not by
+the eligibility of a source declaration for intrinsic optimization.
+`__ExecuteCommand` returns a native pointer to a command-result record; the
+dedicated command bridge loads its `%CommandResult` aggregate before ordinary
+source return lowering. Lexical math-name shadowing cannot bypass that bridge.
+
+### Concrete aggregate generic layouts
+
+Semantic and effect checks consume the original program. Before final native
+declaration registration, `prepareGenericAggregateClasses` closes the demands
+for source generic classes with closed aggregate/array arguments. Demand identity
+includes the lexical declaration owner and resolved type arguments. Each
+instantiation starts from a fresh parsed template, so rewriting one lowering AST
+cannot mutate another shape or the ordinary word-erased template.
+
+The `ir_generic_aggregate`, `_visit` and `_layout` modules reuse the ordinary
+class layout, method ABI and cleanup paths. Inline aggregate and inherited-layout
+dependencies are registered before enclosing layouts. String aggregates and
+Array references retain their native field and call types across getters/setters
+and function boundaries; runtime-owned containers keep their existing ABI.
+
+The function ABI/body checks are separate from class specialization. A type
+argument alone does not prove an ABI change: fixed container signatures may
+remain valid, but dependent value storage or materialization must also be safe.
+Inferred direct calls bind the existing source argument types and enter the same
+proof queue before argument emission. Analysis retains move/borrow qualifiers so
+implicit cleanup cannot select an incompatible runtime family. Compiler-owned
+defaults use the common typed-zero authority. Null-capable Ptr and Array source
+parameters, including methods, do not acquire contradictory `nonnull`
+attributes; null-accepting Array runtime entrypoints retain the same guarantee.
+The standard-library `Ok`/`Err` declarations retain their existing boxed Result
+payload ABI, including an uninferred inactive label. That exception requires
+the canonical source module, trusted file and constructor signature; a
+same-spelled user function does not acquire it.
+Unsupported aggregate-by-value free-function and method-own generic paths are
+rejected rather than repaired with boxes, casts or an LLVM rewrite. This pass
+changes lowering ASTs, not source files or post-emission production IR.
+
+Field storage and expression ABIs are distinct. Opaque `Ptr` and Array/List
+expressions retain LLVM `ptr`; typed `*T` addresses and class handles retain
+their existing `i64` expression ABI even when a field stores a native pointer.
+Field projection and pointer/word casts use `mapTypeState` as the expression
+authority, avoiding both erased native pointers and duplicate conversions.
+
+Generated callback identities and function definitions belong to the module,
+not recursive expression/statement snapshots. Lowering reserves an identity
+before entering a callback or parallel body and appends its definition after
+restoring function-local scratch. Recursive lowering cannot discard inner
+definitions or rewind either module-owned identity counter.
+This does not add capture semantics to named callback blocks.
+
 ### Refactored Codegen Layout
 
 The refactor intentionally leaves `llvm_ir_gen.seen` boring. It owns the
@@ -412,29 +508,66 @@ memory and rejects any byte-level drift before a pull request can merge.
 
 ## Required CI contract
 
-Gate 0 has one active workflow and one required job: `.github/workflows/ci.yml`
-publishes `CI / required` from an Ubuntu 24.04 runner. It uses commit-pinned
-checkout and Go setup actions, exact Go 1.26.5, read-only repository
-permissions, a 210-minute job timeout, and the fail-closed
-`scripts/run_ci_required.sh` entry point. That outer entry point
-derives the aggregate cap from live system memory, enters a Linux cgroup v2
-user-systemd scope, and applies zero swap, serial workers, a 24-task ceiling,
-per-process virtual-memory limits, and a 10,800-second child timeout. The inner
-`scripts/ci_required.sh` gate re-reads the live kernel scope before running the
-deterministic policy and containment regressions. It then invokes
-`scripts/certify_gate0_clean_checkout.sh`, which refuses a dirty checkout,
-hash-verifies the frozen compiler and compatibility record, performs the full
-serial rebuild and Stage-1 acceptance surface, fuzz-smokes the bounded evidence
-parser with seed 1101, packages the same source package twice, and records
-canonical `seen-gate0-certification-v1` evidence. An environment marker alone
-is never accepted as evidence.
+The authoritative `.github/workflows/ci.yml` preserves the required check
+`CI / required` with a source-bound dependency graph:
 
-The aggregate and main-compiler limits are the smaller of 60% of total memory
-and currently available memory after retaining a 10%-of-total system reserve.
-They have no fixed byte ceiling; this keeps a bounded host fraction while
-allowing LLVM linking to use the capacity of larger development machines.
-Caller-supplied limits are accepted only when they are no larger than the
-freshly derived value.
+1. `bootstrap` (120 minutes) provisions the pinned tools and builds a fresh
+   Stage2/Stage3 toolchain with actual smoke checks. It uploads an **unverified**
+   Stage3 candidate, not an installed or release-eligible compiler.
+2. `acceptance` (195 minutes per job) runs the exact `core`, `io-simd`,
+   `gpu-emitter`, `gpu-runtime`, and `async` matrix on separate hosted machines,
+   with `fail-fast: false`. Every group downloads the same run's source-SHA-bound
+   candidate and verifies its commit/tree, portable x86-64 baseline, file sizes,
+   and hashes before execution. A group receipt is uploaded only after success.
+3. `native-arm-inputs` (145 minutes) cross-builds the unchanged full Linux ARM64
+   compiler and matching package client. Its exact three-member archive is
+   cross-built input, not evidence of native execution.
+4. `native-arm` (50 minutes, `ubuntu-24.04-arm`) verifies those inputs and runs
+   the full native SIMD-C suite with real capability observations, four contract
+   profiles, 60-second fuzz, four cross-object targets and thirty paired samples.
+   Native ASan additionally requires fresh pinned-runtime clean/fault/finite-limit
+   controls under the unchanged finite virtual and aggregate kernel limits.
+5. `required` (30 minutes) always runs and explicitly rejects unsuccessful,
+   skipped, or missing dependencies. It downloads the candidate, all five
+   receipts and the ARM input/qualification bundles, verifies their common
+   source identity and retained native evidence, then installs and certifies
+   the compiler, performs installed Gate 0 checks, writes the full stamp,
+   and produces `seen-release-toolchain-${sha}`. No other job produces an eligible
+   release toolchain artifact.
+
+The longest configured dependency path remains 345 minutes (20,700 seconds):
+the 145+50-minute ARM branch does not exceed the 195-minute acceptance branch.
+Build-capable jobs use Ubuntu 24.04, commit-pinned checkout/Go/artifact actions,
+exact Go 1.26.5, read-only repository permissions and architecture-appropriate
+pinned host provisioning. The portable x86-64 baseline remains required for x64
+candidates; ARM qualification uses native ARM instructions and fresh bindings.
+`scripts/run_ci_required.sh --phase bootstrap`, `--phase acceptance --group GROUP`,
+`--phase native-arm-inputs`, `--phase native-arm` and `--phase finalize` are the
+hosted entries. The default still runs the complete local CI surface with its
+14,400-second full acceptance timeout.
+Hosted workload deadlines subtract elapsed setup, a 600-second bounded
+drain/publication/diagnostic reserve, and one second for clock rounding from
+the unchanged phase limits. Release-toolchain preparation remains inside the
+finalization hard scope and workload deadline.
+
+Each phase independently derives its aggregate memory cap from live memory:
+at most 60% of total, further bounded by available memory minus a 10%-of-total
+reserve, with the existing half-available fallback if that reserve cannot be met.
+Kernel-page rounding and smaller requested caps remain enforced. The v4 manifest
+corrects stale quarter/half metadata without changing those execution limits.
+Each phase enters a read-back-verified Linux cgroup v2 scope with zero swap,
+a 24-task ceiling, serial compiler/LLVM work and the 2 GiB optimizer limit.
+Scope-bound serializer handles are never artifacts and never cross machines.
+Candidates travel as an exact three-member archive; the candidate helper rejects
+unsafe paths, links, duplicates, excess sizes, and malformed identity before
+publishing extracted files. An environment marker alone is never scope evidence.
+
+Each phase/group retains separately named, bounded failure-log tails and gate
+evidence, never failed bulk compiler IR. Candidate and receipt artifacts use
+source-SHA-bound names and same-run downloads. Release verification additionally
+requires all nine actual jobs to have completed successfully and the live
+same-run exact-source final toolchain artifact; a workflow-level green conclusion
+or candidate upload alone is not certification.
 
 The exact reviewed limits and platform support are versioned in
 [`architecture/ci-containment.json`](architecture/ci-containment.json), with
@@ -447,8 +580,11 @@ until an equivalent read-back-verified aggregate boundary exists.
 Obsolete disabled workflows are not retained as fallbacks: they referenced
 unsupported compiler commands and paths and bypassed current containment
 policy. `scripts/check_ci_workflows.py` scans `.github` with explicit file and
-byte bounds, rejects links and retired workflow paths, and compares the active
-workflow byte-for-byte with the reviewed contract. Run
+byte bounds, rejects links and retired workflow paths, and validates the reviewed
+YAML semantics, including the graph, commands, action pins, permissions, and
+release authorization. Display-step labels, comments, and formatting are not
+authorization. Its bounded, dependency-free YAML subset rejects aliases, tags,
+duplicate keys, and unsupported syntax rather than interpreting them loosely. Run
 `tests/misc_root_tests/seen_ci_workflow_contract.sh` and
 `tests/misc_root_tests/seen_ci_containment_contract.sh` after any CI-policy
 change.
@@ -516,6 +652,12 @@ bytes reach compilation without a rewrite transform.
 every Seen LLVM module, retained runtime object, and compiled ledgered ABI shim.
 Unsupported targets and malformed or excessive report paths fail with stable
 `core.rel.002.*` errors; instrumentation is never silently dropped.
+Linux ARM64 accepts address and undefined-behavior sanitizers, optionally with
+debug information, through the same module/runtime/shim instrumentation path.
+Coverage, thread/memory sanitizers, and debug-only instrumentation remain
+Linux-x86-64-only. ARM sanitizer admission does not certify native execution;
+the native qualification gate still requires all profiles and fresh finite-limit
+ASan controls.
 
 `--instrumentation-report <relative-path>` writes canonical
 `seen-build-instrumentation-evidence-v1` JSON after a successful link. Its
@@ -526,7 +668,10 @@ contract is bound by `seen-object-cache-abi-v3`.
 
 ### PGO and explicit LTO modes
 
-Release compilation normalizes to the native `ReleaseOptimizationPolicy`.
+PGO and explicit LTO requests normalize to `ReleaseOptimizationPolicy` and remain
+restricted to Linux x86-64. Plain native `--release` separately defaults to full
+merged optimization on eligible targets; it does not request the platform-specific
+selection policy. Existing full-LTO eligibility and toolchain checks still apply.
 `--lto=full` requires a complete merged-IR path; `--lto=thin` retains bounded
 per-module ThinLTO. Missing tools, partial IR, or optimizer/object failures are
 typed `core.rel.003.*` errors and never switch modes implicitly.
@@ -535,6 +680,15 @@ typed `core.rel.003.*` errors and never switch modes implicitly.
 canonical relative `.profdata` path, rejects raw profiles, and keys compiler,
 runtime, and merged-LTO caches by the profile bytes. PGO flags cover Seen
 modules, retained runtime objects, and compiled ABI shims.
+Seen IR generation runs `pgo-instr-gen,instrprof` before optimization; profile
+use runs `pgo-instr-use` at the matching pipeline point. This applies to both
+per-module and full-LTO merged IR. Runtime/link driver flags alone do not
+establish Seen function coverage. Release
+acceptance checks actual Seen entry/helper counters in the collected profile.
+PGO ThinLTO bitcode uses LLVM's pre-link pipeline so post-link call-graph
+profile metadata is produced once, by the LTO backend.
+Full-LTO merged IR, and the single-module full-LTO case, emit native objects
+instead of handing already optimized post-link profile metadata to ThinLTO.
 
 ## Incremental and Parallel Compilation
 
@@ -588,6 +742,12 @@ discovery unless `SEEN_ENABLE_CUDA=ON` is supplied to its isolated build.
 Consequently the default compiler, runtime, and standard-library build remains
 CPU-only and has no CUDA/cuBLAS linkage.
 
+Raw Vulkan declarations and imported module names do not select native linker
+libraries. A project that calls the Vulkan loader declares `vulkan = {}` under
+`[native.dependencies]`; importing Vulkan types alone requires neither that
+declaration nor a Vulkan SDK probe. Native fixture projects use the same manifest
+boundary rather than compiler-only automatic link inference.
+
 The `seen_cuda_*` resource ABI is versioned separately from compiler lowering.
 Native Linux x86-64 projects opt in with
 `seen_cuda = { bundled = true }` under `[native.dependencies]`. The compiler
@@ -610,7 +770,7 @@ short-lived view of `cudaStream_t`. The token transfers no ownership and is
 invalidated by stream close. Borrowing has no allocation, CUDA synchronization,
 fallback, or scheduling policy. Capture is supported explicitly and reported in
 the token flags. The optional CUDA ABI remains outside CPU-only discovery and is
-bound by the release manifest's `runtime-v4` compatibility identity.
+bound by the release manifest's `runtime-v15` compatibility identity.
 
 ## Key Source Areas
 

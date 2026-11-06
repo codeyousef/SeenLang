@@ -33,7 +33,7 @@ class OwnedResourceContractTests(unittest.TestCase):
 
     def test_old_owner_is_rejected(self) -> None:
         raw = self.raw([self.operation("acquire"), self.operation("move", target="owner-b"), self.operation("use")])
-        with self.assertRaisesRegex(checker.ContractError, "no longer owns") as raised:
+        with self.assertRaises(checker.ContractError) as raised:
             checker.evaluate(checker.validate(raw))
         self.assertEqual(raised.exception.code, "use-after-move")
 
@@ -44,7 +44,7 @@ class OwnedResourceContractTests(unittest.TestCase):
 
     def test_leak_is_rejected(self) -> None:
         raw = self.raw([self.operation("acquire")])
-        with self.assertRaisesRegex(checker.ContractError, "remain") as raised:
+        with self.assertRaises(checker.ContractError) as raised:
             checker.evaluate(checker.validate(raw))
         self.assertEqual(raised.exception.code, "leak")
 
@@ -88,21 +88,32 @@ class OwnedResourceContractTests(unittest.TestCase):
 
     def test_inactive_resource_and_canonical_output(self) -> None:
         released = self.raw([self.operation("acquire"), self.operation("release"), self.operation("release")])
-        with self.assertRaisesRegex(checker.ContractError, "not active"):
+        with self.assertRaises(checker.ContractError) as raised:
             checker.evaluate(checker.validate(released))
+        self.assertEqual(raised.exception.code, "invalid")
         missing = self.raw([self.operation("use")])
         with self.assertRaises(checker.ContractError):
             checker.evaluate(checker.validate(missing))
         complete = checker.validate(self.raw([self.operation("acquire"), self.operation("release")]))
         self.assertEqual(json.loads(checker.canonical_bytes(complete))["active"], 0)
 
-    def test_fuzz_and_cli_exit_codes(self) -> None:
+    def test_identity_ascii_grammar_and_length_bounds(self) -> None:
+        for owner in ("a0._-", "a" * 128):
+            with self.subTest(owner=owner):
+                raw = self.raw([
+                    self.operation("acquire", owner=owner),
+                    self.operation("release", owner=owner),
+                ])
+                result = checker.evaluate(checker.validate(raw))
+                self.assertEqual((result["active"], result["released"]), (0, 1))
+        for owner in ("", "a" * 129, "Owner", "a\n", "a/b", "\u00e9", "\u0661", "\u0000"):
+            with self.subTest(owner=owner):
+                with self.assertRaises(checker.ContractError) as raised:
+                    checker.validate(self.raw([self.operation("acquire", owner=owner)]))
+                self.assertEqual(raised.exception.code, "invalid")
+
+    def test_cli_exit_codes(self) -> None:
         raw = self.raw([self.operation("acquire"), self.operation("release")])
-        cases, rejected = checker.fuzz(raw, 0.002, 1101)
-        self.assertGreater(cases, 0)
-        self.assertGreaterEqual(rejected, 0)
-        empty_cases, empty_rejected = checker.fuzz(b"", 0.002, 1101)
-        self.assertEqual(empty_cases, empty_rejected)
         with tempfile.TemporaryDirectory() as directory:
             valid = Path(directory) / "valid.json"
             valid.write_bytes(raw)

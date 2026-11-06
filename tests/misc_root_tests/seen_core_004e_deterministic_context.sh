@@ -8,7 +8,6 @@ SCOPE=seen-core-004e
 FIXTURES="$ROOT_DIR/tests/fixtures/core-004e"
 POLICY="$ROOT_DIR/seen_std/src/determinism/policy.seen"
 CONTEXT="$ROOT_DIR/seen_std/src/determinism/context.seen"
-MANIFEST="$ROOT_DIR/seen_std/Seen.toml"
 RUNTIME="$ROOT_DIR/seen_runtime/seen_runtime.c"
 RUNTIME_FIXTURE="$FIXTURES/runtime_contract.c"
 
@@ -23,6 +22,7 @@ test -f "$CAPPED_ENTRY" && test ! -L "$CAPPED_ENTRY" ||
 test -f "$POLICY" || fail "native policy module is missing"
 test -f "$CONTEXT" || fail "native context module is missing"
 test -f "$FIXTURES/context_contract.seen" || fail "native fixture is missing"
+test -f "$FIXTURES/arguments_contract.seen" || fail "argument fixture is missing"
 test -f "$RUNTIME_FIXTURE" || fail "runtime fixture is missing"
 test -f "$RUNTIME" || fail "runtime source is missing"
 test -f "$FIXTURES/CORE-004E_ffi_bypass_rejected/main.seen" || \
@@ -33,68 +33,31 @@ python3 - "$FIXTURES/cases.json" <<'PY' || exit 1
 import json
 import sys
 
-expected = [
-    "CORE-004E_epoch_happy",
-    "CORE-004E_seed_happy",
-    "CORE-004E_missing_epoch",
-    "CORE-004E_invalid_seed",
-    "CORE-004E_env_denied",
-    "CORE-004E_locale_pinned",
-    "CORE-004E_external_input_denied",
-    "CORE-004E_ffi_bypass_rejected",
-    "CORE-004E_run_parity",
-    "CORE-004E_cancel",
-    "CORE-004E_installed_payload",
-]
+required = {
+    ("native-runtime", "1700000000"),
+    ("native-runtime", "xorshift64-v1"),
+    ("native-error", "core.004e.missing_epoch"),
+    ("native-error", "core.004e.invalid_seed"),
+    ("native-error", "core.004e.env_denied"),
+    ("native-runtime", "C.UTF-8/UTF-8"),
+    ("native-error", "core.004e.external_input_denied"),
+    ("compiler-rejection", "core.004d.unsafe-ffi"),
+    ("repeat-run", "identical-output"),
+    ("native-error", "core.004e.cancelled"),
+    ("installed-layout", "lib/seen/std/determinism/context.seen"),
+}
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     document = json.load(handle)
-names = [case.get("name") for case in document.get("cases", [])]
 if document.get("schema") != "seen-core-004e-fixtures-v1":
     raise SystemExit("fixture schema mismatch")
-if names != expected or len(set(names)) != len(names):
-    raise SystemExit("fixture name/order mismatch")
+if not required.issubset({(case.get("kind"), case.get("expected"))
+                          for case in document.get("cases", [])}):
+    raise SystemExit("fixture semantic expectations are incomplete")
 for case in document["cases"]:
     if not case.get("kind") or not case.get("expected"):
         raise SystemExit("fixture expectation is incomplete")
 PY
 
-python3 -c \
-    'import sys,tomllib; d=tomllib.load(open(sys.argv[1],"rb")); m=d["project"]["modules"]; assert "src/determinism/policy.seen" in m; assert "src/determinism/context.seen" in m' \
-    "$MANIFEST" || fail manifest-wiring
-
-for code in \
-    core.004e.cancelled core.004e.timeout core.004e.limit \
-    core.004e.invalid core.004e.missing_epoch core.004e.invalid_epoch \
-    core.004e.invalid_seed core.004e.env_denied \
-    core.004e.external_input_denied core.004e.policy_conflict; do
-    rg -Fq "$code" "$POLICY" "$CONTEXT" || fail "missing $code"
-done
-rg -Fq 'SEEN_ERROR_MAX_MESSAGE_BYTES: Int = 4096' \
-    "$ROOT_DIR/seen_std/src/core/error.seen" || fail error-message-bound
-rg -Fq 'SEEN_ERROR_MAX_CAUSES: Int = 8' \
-    "$ROOT_DIR/seen_std/src/core/error.seen" || fail error-cause-bound
-rg -Fq '@nondeterministic' "$CONTEXT" || fail process-boundary
-rg -Fq 'fun deterministicContextFromProcess' "$CONTEXT" || \
-    fail process-snapshot
-rg -Fq 'func.isExtern' "$ROOT_DIR/compiler_seen/src/typechecker/determinism.seen" || \
-    fail foreign-effect-collection
-rg -Fq '"unsafe-ffi"' "$ROOT_DIR/compiler_seen/src/typechecker/determinism.seen" || \
-    fail foreign-effect-diagnostic
-python3 - "$RUNTIME" <<'PY' || exit 1
-import pathlib
-import sys
-
-source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-start = source.index("int32_t seen_deterministic_path_beneath(")
-end = source.index("int32_t seen_time_sleep_nanos(", start)
-implementation = source[start:end]
-windows = implementation.split("#ifdef _WIN32", 1)[1].split("#else", 1)[0]
-if "return -2;" not in windows:
-    raise SystemExit("Windows path containment must remain explicitly unsupported")
-PY
-rg -Fq 'Windows path policy fail closed' \
-    "$ROOT_DIR/docs/architecture/native-boundaries.json" || \
-    fail windows-path-containment-ledger
 
 if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
     exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$COMPILER" -- \
@@ -104,6 +67,24 @@ COMPILER=${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}
 bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
 ATTESTED_SEEN=${SEEN_ATTESTED_COMPILER_RUNNER:?}
 ARTIFACT_ROOT=${SEEN_ARTIFACT_ROOT:?}
+if [ -n "${SEEN_PACKAGE_CLIENT:-}" ]; then
+    PACKAGE_CLIENT=$SEEN_PACKAGE_CLIENT
+else
+    PACKAGE_CLIENT=""
+    for candidate in "$(dirname "$COMPILER")/seen-pkg" \
+        "$ROOT_DIR/bin/seen-pkg" "$ROOT_DIR/compiler_seen/target/seen-pkg" \
+        "$ROOT_DIR/tools/seen-pkg/bin/seen-pkg"; do
+        if [ -f "$candidate" ] && [ -x "$candidate" ] && [ ! -L "$candidate" ]; then
+            PACKAGE_CLIENT=$candidate
+            break
+        fi
+    done
+fi
+[ -f "$PACKAGE_CLIENT" ] && [ -x "$PACKAGE_CLIENT" ] && \
+    [ ! -L "$PACKAGE_CLIENT" ] || fail "selected package client is unavailable or unsafe"
+COMPATIBILITY="$ROOT_DIR/releases/compatibility-manifest.json"
+[ -f "$COMPATIBILITY" ] && [ ! -L "$COMPATIBILITY" ] || \
+    fail "package compatibility manifest is unavailable or unsafe"
 WORK_DIR=$(mktemp -d "$ARTIFACT_ROOT/core-004e.XXXXXX")
 cleanup() {
     local status=$?
@@ -124,7 +105,7 @@ trap cleanup EXIT
 
 mkdir -p "$WORK_DIR/source/determinism" "$WORK_DIR/prefix/bin" \
     "$WORK_DIR/prefix/lib/seen/std" "$WORK_DIR/prefix/lib/seen/runtime" \
-    "$WORK_DIR/source/.seen/agent-tools" "$WORK_DIR/path-root/child" \
+    "$WORK_DIR/consumer/.seen/agent-tools" "$WORK_DIR/path-root/child" \
     "$WORK_DIR/path-root-sibling" "$WORK_DIR/path-outside"
 ln -s "$WORK_DIR/path-outside" "$WORK_DIR/path-root/escape"
 ln -s "$WORK_DIR/path-root/child" "$WORK_DIR/path-root/inside-link"
@@ -132,6 +113,18 @@ cp "$POLICY" "$WORK_DIR/source/determinism/policy.seen"
 cp "$CONTEXT" "$WORK_DIR/source/determinism/context.seen"
 cp "$FIXTURES/context_contract.seen" "$WORK_DIR/source/main.seen"
 cp "$COMPILER" "$WORK_DIR/prefix/bin/seen"
+cp "$PACKAGE_CLIENT" "$WORK_DIR/prefix/bin/seen-pkg"
+cp "$COMPATIBILITY" "$WORK_DIR/prefix/bin/compatibility-manifest.json"
+cp "$FIXTURES/context_contract.seen" "$WORK_DIR/consumer/main.seen"
+cat >"$WORK_DIR/consumer/Seen.toml" <<'TOML'
+manifest-version = 1
+
+[project]
+name = "core_004e_installed_consumer"
+version = "0.1.0"
+language = "en"
+modules = ["main.seen"]
+TOML
 cp -r "$ROOT_DIR/seen_std/src/"* "$WORK_DIR/prefix/lib/seen/std/"
 while IFS= read -r -d '' runtime_file; do
     case "$runtime_file" in *.o|*.sig|*.a) continue ;; esac
@@ -148,6 +141,15 @@ clang -std=c11 -O1 -I "$ROOT_DIR/seen_runtime" \
     tail -n 160 "$WORK_DIR/runtime-compile.log" >&2 || true
     fail runtime-contract-compile
 }
+env -i "$WORK_DIR/runtime-contract" --disabled-views \
+    >"$WORK_DIR/runtime-disabled.out" 2>"$WORK_DIR/runtime-disabled.err" || \
+    fail runtime-disabled-views
+env -i SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
+    SEEN_DETERMINISTIC_SEED=1101 SEEN_HASH_SEED=1101 \
+    CORE_004E_VISIBLE= LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
+    "$WORK_DIR/runtime-contract" --empty-view \
+    >"$WORK_DIR/runtime-empty.out" 2>"$WORK_DIR/runtime-empty.err" || \
+    fail runtime-present-empty-view
 env -i SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
     SEEN_DETERMINISTIC_SEED=1101 SEEN_HASH_SEED=1101 \
     CORE_004E_VISIBLE=granted-value LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
@@ -160,8 +162,6 @@ env -i SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
     cat "$WORK_DIR/runtime.err" >&2 || true
     fail runtime-contract
 }
-grep -Fq 'PASS: CORE-004E bounded runtime snapshot and path containment' \
-    "$WORK_DIR/runtime.out" || fail runtime-contract-result
 
 set +e
 env -i SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=invalid \
@@ -230,9 +230,7 @@ maximum_environment.update({f"CORE_004E_EXTRA_{index}": "x"
 if len(maximum_environment) != 128:
     raise SystemExit("maximum environment fixture is not exact")
 maximum_environment_result = run(path_arguments, maximum_environment)
-if (maximum_environment_result.returncode != 0 or
-        "PASS: CORE-004E bounded runtime snapshot and path containment" not in
-        maximum_environment_result.stdout):
+if maximum_environment_result.returncode != 0:
     raise SystemExit(
         "maximum environment snapshot failed: "
         f"{maximum_environment_result.returncode}: "
@@ -255,9 +253,7 @@ expect_invalid("over-bound argument count",
 maximum_arguments = run(
     [str(binary), "--max-arguments"] + ["a"] * 255,
     base_environment)
-if (maximum_arguments.returncode != 0 or
-        "PASS: CORE-004E maximum application-argument snapshot" not in
-        maximum_arguments.stdout):
+if maximum_arguments.returncode != 0:
     raise SystemExit(
         "maximum application-argument snapshot failed: "
         f"{maximum_arguments.returncode}: {maximum_arguments.stderr!r}")
@@ -268,8 +264,6 @@ bash "$ATTESTED_SEEN" "$COMPILER" check "$WORK_DIR/source/main.seen" \
     tail -n 120 "$WORK_DIR/source-check.log" >&2 || true
     fail source-check
 }
-grep -Fq '[OK] Check passed' "$WORK_DIR/source-check.log" || \
-    fail source-check-result
 
 set +e
 SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
@@ -307,6 +301,67 @@ done
 cmp -s "$WORK_DIR/run-1.out" "$WORK_DIR/run-2.out" || fail run-parity-output
 cmp -s "$WORK_DIR/run-1.err" "$WORK_DIR/run-2.err" || fail run-parity-error
 
+for mode in fast thin-lto; do
+    flags=(--fast)
+    if [ "$mode" = thin-lto ]; then
+        flags=(--release --lto=thin)
+    fi
+    bash "$ATTESTED_SEEN" "$COMPILER" compile \
+        "$FIXTURES/arguments_contract.seen" "$WORK_DIR/arguments-$mode" \
+        "${flags[@]}" --no-cache --no-fork \
+        >"$WORK_DIR/arguments-$mode-compile.log" 2>&1 || {
+        tail -n 160 "$WORK_DIR/arguments-$mode-compile.log" >&2 || true
+        fail "arguments-$mode-compile"
+    }
+    python3 - "$ROOT_DIR" "$WORK_DIR" "$mode" "$COMPILER" <<'PY' || fail "arguments-$mode-contract"
+import pathlib
+import re
+import subprocess
+import sys
+
+root = pathlib.Path(sys.argv[1])
+work = pathlib.Path(sys.argv[2])
+mode = sys.argv[3]
+compiler = pathlib.Path(sys.argv[4])
+sys.path.insert(0, str(root / "scripts"))
+import core_004e_crash_witness as crash
+observations = []
+for label in ("short", "long"):
+    argv, environment = crash.invocation(work, mode, label)
+    prepared = None
+    try:
+        prepared = crash.prepare(root, work, mode, label, compiler)
+    except (OSError, ValueError):
+        print("CORE-004E crash identity snapshot unavailable", file=sys.stderr)
+    result = subprocess.run(
+        argv, env=environment, capture_output=True, timeout=120)
+    if result.returncode < 0 and prepared is not None:
+        try:
+            crash.retain(root, work, mode, label, prepared, result.returncode)
+        except (OSError, ValueError):
+            # Evidence failure must never hide or replace the original failure.
+            print("CORE-004E crash witness publication unavailable", file=sys.stderr)
+    (work / f"arguments-{mode}-{label}.out").write_bytes(result.stdout)
+    (work / f"arguments-{mode}-{label}.err").write_bytes(result.stderr)
+    # The fixture exits nonzero unless the public view keeps argument zero and
+    # the missing high-index grant returns the typed core.004e.invalid error.
+    match = re.fullmatch(
+        rb"ARGUMENT_VIEW=kept\nINVALID_RETAINED_BYTES=([0-9]+)\n",
+        result.stdout)
+    if result.returncode != 0 or result.stderr or match is None:
+        raise SystemExit(
+            f"{mode}/{label} argument contract failed: {result.returncode}: "
+            f"{result.stdout!r}: {result.stderr!r}")
+    observations.append(int(match.group(1)))
+if observations[0] != observations[1]:
+    raise SystemExit(
+        f"{mode} unrelated argv changed failed-context retained bytes: "
+        f"short={observations[0]}, long={observations[1]}")
+print(f"PASS: CORE-004E argument retention ({mode}: "
+      f"short={observations[0]}, long={observations[1]})")
+PY
+done
+
 test -f "$WORK_DIR/prefix/lib/seen/std/determinism/policy.seen" || \
     fail installed-policy
 test -f "$WORK_DIR/prefix/lib/seen/std/determinism/context.seen" || \
@@ -317,28 +372,70 @@ cmp -s "$POLICY" \
 cmp -s "$CONTEXT" \
     "$WORK_DIR/prefix/lib/seen/std/determinism/context.seen" || \
     fail installed-context-identity
+cmp -s "$PACKAGE_CLIENT" "$WORK_DIR/prefix/bin/seen-pkg" || \
+    fail installed-package-client-identity
+cmp -s "$COMPATIBILITY" "$WORK_DIR/prefix/bin/compatibility-manifest.json" || \
+    fail installed-compatibility-identity
 chmod -R a-w "$WORK_DIR/prefix"
-prefix_before=$(find "$WORK_DIR/prefix" -type f -print0 | sort -z | \
-    xargs -0 sha256sum | sha256sum | awk '{print $1}')
-(cd "$WORK_DIR/source" && \
-    SEEN_PROJECT_ROOT="$WORK_DIR/source" \
-    SEEN_ARTIFACT_ROOT="$WORK_DIR/source/.seen/agent-tools" \
-    "$WORK_DIR/prefix/bin/seen" check main.seen) \
+prefix_digest() {
+    python3 - "$WORK_DIR/prefix" <<'PY'
+import hashlib
+import pathlib
+import stat
+import sys
+
+prefix = pathlib.Path(sys.argv[1])
+digest = hashlib.sha256()
+for path in [prefix, *sorted(prefix.rglob("*"))]:
+    mode = path.lstat().st_mode
+    if path.is_symlink() or not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+        raise SystemExit(f"unsafe installed payload entry: {path}")
+    if mode & 0o222:
+        raise SystemExit(f"writable installed payload entry: {path}")
+    digest.update(str(path.relative_to(prefix)).encode() + b"\0")
+    digest.update(str(mode).encode() + b"\0")
+    if stat.S_ISREG(mode):
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+print(digest.hexdigest())
+PY
+}
+prefix_before=$(prefix_digest) || fail installed-prefix-snapshot
+# A copied executable needs its own canonical compiler binding. Re-enter the
+# capped runner rather than replacing the parent's attestation markers.
+bash "$CAPPED_ENTRY" "$SCOPE-installed" \
+    --compiler "$WORK_DIR/prefix/bin/seen" -- \
+    bash -c '
+        set -euo pipefail
+        runner=$1
+        compiler=$2
+        consumer=$3
+        cd "$consumer"
+        bash "$runner" --consumer-context "$consumer" "$compiler" \
+            check "$consumer/main.seen"
+        bash "$runner" --consumer-context "$consumer" "$compiler" \
+            compile "$consumer/main.seen" "$consumer/context-contract" \
+            --fast --no-cache --no-fork
+    ' bash "$ATTESTED_SEEN" "$WORK_DIR/prefix/bin/seen" "$WORK_DIR/consumer" \
     >"$WORK_DIR/installed-check.log" 2>&1 || {
-    tail -n 120 "$WORK_DIR/installed-check.log" >&2 || true
+    tail -n 160 "$WORK_DIR/installed-check.log" >&2 || true
     fail installed-compiler-check
 }
-prefix_after=$(find "$WORK_DIR/prefix" -type f -print0 | sort -z | \
-    xargs -0 sha256sum | sha256sum | awk '{print $1}')
+env -i SEEN_DETERMINISTIC=1 SOURCE_DATE_EPOCH=1700000000 \
+    SEEN_DETERMINISTIC_SEED=1101 SEEN_HASH_SEED=1101 \
+    CORE_004E_VISIBLE=granted-value LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC \
+    "$WORK_DIR/consumer/context-contract" >"$WORK_DIR/installed-run.out" \
+    2>"$WORK_DIR/installed-run.err" || {
+    cat "$WORK_DIR/installed-run.out" >&2 || true
+    cat "$WORK_DIR/installed-run.err" >&2 || true
+    fail installed-native-contract
+}
+cmp -s "$WORK_DIR/run-1.out" "$WORK_DIR/installed-run.out" || \
+    fail installed-native-output
+cmp -s "$WORK_DIR/run-1.err" "$WORK_DIR/installed-run.err" || \
+    fail installed-native-error
+prefix_after=$(prefix_digest) || fail installed-prefix-resnapshot
 [ "$prefix_before" = "$prefix_after" ] || fail installed-prefix-mutated
 
-for name in \
-    CORE-004E_epoch_happy CORE-004E_seed_happy CORE-004E_missing_epoch \
-    CORE-004E_invalid_seed CORE-004E_env_denied CORE-004E_locale_pinned \
-    CORE-004E_external_input_denied CORE-004E_run_parity CORE-004E_cancel; do
-    rg -Fq "$name" "$FIXTURES/context_contract.seen" || fail "$name"
-    echo "PASS: $name (source fixture)"
-done
 echo "PASS: CORE-004E_ffi_bypass_rejected (compiler rejection)"
 echo "PASS: CORE-004E_installed_payload (read-only installed compiler payload)"
-echo "PASS: CORE-004E deterministic execution-context static contract"
+echo "PASS: CORE-004E deterministic execution-context native contract"

@@ -155,3 +155,89 @@ func TestLockedOfflineAndYankedPolicies(t *testing.T) {
 		t.Fatalf("mode = %v", err)
 	}
 }
+
+func TestLockPreservesSameIdentityAtDistinctOrigins(t *testing.T) {
+	t.Parallel()
+	primary := candidate("alice/mathx", "1.0.0", 'a')
+	alternate := candidate("alice/mathx", "1.0.0", 'b')
+	alternate.RegistryOrigin = "https://alternate.example/packages"
+	primaryEdge := edge("calc", primary.Package, "1.0.0")
+	alternateEdge := edge("calc_alt", alternate.Package, "1.0.0")
+	alternateEdge.RegistryOrigin = alternate.RegistryOrigin
+	root := model.Root{
+		Name: "app", Version: "1.0.0",
+		Dependencies: []model.Edge{primaryEdge, alternateEdge},
+		Grants:       map[string][]model.Capability{},
+	}
+	repo := repository(primary, alternate)
+	initial, err := Resolve(context.Background(), root, repo, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initial.Packages) != 2 {
+		t.Fatalf("initial packages = %#v", initial.Packages)
+	}
+	for _, reverse := range []bool{false, true} {
+		for _, mode := range []string{"normal", "locked", "frozen"} {
+			packages := append([]model.LockedPackage(nil), initial.Packages...)
+			if reverse {
+				packages[0], packages[1] = packages[1], packages[0]
+			}
+			lock := &model.Lock{Version: 2, Root: initial.Root, Packages: packages}
+			options := Options{Lock: lock, Locked: mode == "locked", Frozen: mode == "frozen"}
+			result, err := Resolve(context.Background(), root, repo, options)
+			if err != nil {
+				t.Fatalf("mode=%s reverse=%v: %v", mode, reverse, err)
+			}
+			if !result.UsedLock || len(result.Packages) != 2 {
+				t.Fatalf("mode=%s reverse=%v: result=%#v", mode, reverse, result)
+			}
+			expected := map[model.PackageKey]string{
+				primary.Key():   primary.ArchiveSHA256,
+				alternate.Key(): alternate.ArchiveSHA256,
+			}
+			for _, pkg := range result.Packages {
+				if digest, exists := expected[pkg.Key()]; !exists || pkg.ArchiveSHA256 != digest {
+					t.Fatalf("mode=%s reverse=%v: unexpected package=%#v", mode, reverse, pkg)
+				}
+				delete(expected, pkg.Key())
+			}
+			if len(expected) != 0 {
+				t.Fatalf("mode=%s reverse=%v: missing origins=%v", mode, reverse, expected)
+			}
+			for _, dependency := range result.Root.Dependencies {
+				want := primary.ArchiveSHA256
+				if dependency.Alias == alternateEdge.Alias {
+					want = alternate.ArchiveSHA256
+				}
+				if dependency.ResolvedArchiveSHA256 != want {
+					t.Fatalf("mode=%s reverse=%v: alias bound to wrong origin: %#v", mode, reverse, dependency)
+				}
+			}
+		}
+	}
+}
+
+func TestLockRejectsForeignOriginWhenExactKeyIsMissing(t *testing.T) {
+	t.Parallel()
+	item := candidate("alice/mathx", "1.0.0", 'a')
+	root := model.Root{
+		Name: "app", Version: "1.0.0",
+		Dependencies: []model.Edge{edge("calc", item.Package, "1.0.0")},
+		Grants:       map[string][]model.Capability{},
+	}
+	foreign := model.LockedPackage{
+		Package: item.Package, Version: item.Version, Source: "hosted-registry",
+		RegistryOrigin: "https://alternate.example/packages",
+		ArchiveSHA256:  item.ArchiveSHA256, TargetPath: item.TargetPath, MetadataVersion: 1,
+	}
+	lock := &model.Lock{Version: 2, Root: root, Packages: []model.LockedPackage{foreign}}
+	for _, mode := range []string{"normal", "locked", "frozen"} {
+		options := Options{Lock: lock, Locked: mode == "locked", Frozen: mode == "frozen"}
+		_, err := Resolve(context.Background(), root, repository(item), options)
+		resolutionError, ok := err.(*Error)
+		if !ok || resolutionError.Code != "locked_origin_mismatch" {
+			t.Fatalf("mode=%s: expected origin mismatch, got %v", mode, err)
+		}
+	}
+}

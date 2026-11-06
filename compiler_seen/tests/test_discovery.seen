@@ -1,5 +1,5 @@
 import testing.discovery.{TestDiscoveryCandidate, discoverTestsChecked,
-    renderTestDiscoveryManifest}
+    renderTestDiscoveryManifest, testDiscoveryExpectedCategory}
 import core.error.{AsciiString}
 import core.operation_context.{OperationLimits, OperationContext}
 import testing.categories.{TestPrimaryCategory, TestPlatformCategory}
@@ -67,6 +67,32 @@ fun main() r: Int {
         return 1
     }
     println("PASS: TEST-001A_invalid")
+
+    if testDiscoveryExpectedCategory("seen_std/tests/example_support.seen") != "" or
+        testDiscoveryExpectedCategory("compiler_seen/tests/example_fixture.seen") != "" or
+        testDiscoveryExpectedCategory("tests/fixtures/external_package/tests/example_fixture.seen") != "" or
+        testDiscoveryExpectedCategory("seen_std/tests/example_support_test.seen") != "unit" or
+        testDiscoveryExpectedCategory("compiler_seen/tests/example_fixture_test.seen") != "unit" {
+        println("FAIL: TEST-001A_program_roles")
+        return 1
+    }
+    let helperEntries = Array<TestDiscoveryCandidate>()
+    helperEntries.push(candidate("seen_std/tests/example_support.seen",
+        TestPrimaryCategory.Unit, false, false, TestPlatformCategory.All, false))
+    let helper = discoverTestsChecked(helperEntries, testContext())
+    if helper.success or helper.errors[0].code.value != "test.001a.invalid" {
+        println("FAIL: TEST-001A_helper_descriptor")
+        return 1
+    }
+    let fixtureEntries = Array<TestDiscoveryCandidate>()
+    fixtureEntries.push(candidate("compiler_seen/tests/example_fixture.seen",
+        TestPrimaryCategory.Unit, false, false, TestPlatformCategory.All, false))
+    let fixture = discoverTestsChecked(fixtureEntries, testContext())
+    if fixture.success or fixture.errors[0].code.value != "test.001a.invalid" {
+        println("FAIL: TEST-001A_fixture_descriptor")
+        return 1
+    }
+    println("PASS: TEST-001A_program_roles")
 
     var limitContext = testContext()
     limitContext.limits.maxGraphModules = 1

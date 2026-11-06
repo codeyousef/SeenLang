@@ -1,0 +1,52 @@
+import bootstrap.owned_frontend.{runOwnedFrontendCompat}
+
+fun checkCallbackType(source: String, expected: String, valid: Bool) r: Bool {
+    let frontend = runOwnedFrontendCompat(source, "callback-parser.seen", "en")
+    var okay = frontend.result.success == valid
+    if valid and okay {
+        let program = frontend.result.program
+        okay = program.items.length() == 1
+        if okay {
+            let item = program.items[0]
+            okay = item.itemType == "Class" and item.name == "Callback" and
+                item.line == 1 and item.column == 6
+            if okay {
+                okay = item.classNode.decorators.length() == 1
+                if okay {
+                    let annotation = item.classNode.decorators[0]
+                    okay = annotation.name == "type_alias" and
+                        annotation.arguments.length() == 1
+                    if okay { okay = annotation.arguments[0] == expected }
+                }
+            }
+        }
+    }
+    if not okay { println("callback parser mismatch: " + source) }
+    frontend.release()
+    return okay
+}
+
+fun main() r: Int {
+    if not checkCallbackType("type Callback = fn(UInt32, *Void) -> Int32",
+        "(UInt32,*Void) -> Int32", true) { return 1 }
+    if not checkCallbackType("type Callback = (UInt32,*Void) -> Int32",
+        "(UInt32,*Void) -> Int32", true) { return 2 }
+    if not checkCallbackType("type Callback = fn() -> Void",
+        "() -> Void", true) { return 3 }
+    if not checkCallbackType("type Callback = fn(fn(Int32) -> Int32, Ptr) -> Void",
+        "((Int32) -> Int32,Ptr) -> Void", true) { return 4 }
+    if not checkCallbackType("type Callback = fn(Int32) -> String?",
+        "(Int32) -> Option<String>", true) { return 5 }
+    if not checkCallbackType("type Callback = fn(UInt32,) -> Int32", "", false) { return 6 }
+    if not checkCallbackType("type Callback = fn(UInt32) Int32", "", false) { return 7 }
+    if not checkCallbackType("type Callback = fn(UInt32 -> Int32", "", false) { return 8 }
+    if not checkCallbackType("type Callback = fn(UInt32) ->", "", false) { return 9 }
+    if not checkCallbackType("type Callback = fn UInt32) -> Int32", "", false) { return 10 }
+    // A rejected parse must not poison the next frontend session.
+    if not checkCallbackType("type Callback = fn() -> Void",
+        "() -> Void", true) { return 11 }
+    println("PASS: callback AST signatures, return nullability, source positions and recovery")
+    return 0
+}
+
+main()

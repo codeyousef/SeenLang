@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SEEN_BIN="${SEEN_BIN:-$ROOT/compiler_seen/target/seen}"
+SEEN_BIN="${COMPILER:-${SEEN_BIN:-$ROOT/compiler_seen/target/seen}}"
 CAPPED_ENTRY="$ROOT/scripts/run_capped_regression.sh"
 SCOPE=seen-checked-allocation-codegen
 if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then

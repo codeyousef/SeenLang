@@ -1,0 +1,82 @@
+/// Closed scalar/vector arithmetic. Exceptional operations branch before the
+/// native instruction, return zero, and set the same portable fault bits.
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+fun ptxBinaryOpcode(operation: Int, scalar: Int) r: String {
+    if operation == 1 { if scalar == 4 { return "add.rn.f32" }; return "add.u32" }
+    if operation == 2 { if scalar == 4 { return "sub.rn.f32" }; return "sub.u32" }
+    if operation == 3 { if scalar == 4 { return "mul.rn.f32" }; return "mul.lo.u32" }
+    if operation == 4 { if scalar == 4 { return "div.rn.f32" }; if scalar == 2 { return "div.s32" }; return "div.u32" }
+    if operation == 5 { if scalar == 2 { return "rem.s32" }; return "rem.u32" }
+    if operation == 6 { return "and.b32" }; if operation == 7 { return "or.b32" }; if operation == 8 { return "xor.b32" }
+    if operation == 9 { return "shl.b32" }; if operation == 10 { if scalar == 2 { return "shr.s32" }; return "shr.u32" }; return ""
+}
+fun ptxCompareOpcode(operation: Int, scalar: Int) r: String {
+    if scalar == 4 {
+        if operation == 11 { return "setp.eq.f32" }; if operation == 12 { return "setp.neu.f32" }
+        if operation == 13 { return "setp.lt.f32" }; if operation == 14 { return "setp.le.f32" }
+        if operation == 15 { return "setp.gt.f32" }; if operation == 16 { return "setp.ge.f32" }
+    } else if scalar == 2 {
+        if operation == 11 { return "setp.eq.s32" }; if operation == 12 { return "setp.ne.s32" }
+        if operation == 13 { return "setp.lt.s32" }; if operation == 14 { return "setp.le.s32" }
+        if operation == 15 { return "setp.gt.s32" }; if operation == 16 { return "setp.ge.s32" }
+    } else {
+        if operation == 11 { return "setp.eq.u32" }; if operation == 12 { return "setp.ne.u32" }
+        if operation == 13 { return "setp.lt.u32" }; if operation == 14 { return "setp.le.u32" }
+        if operation == 15 { return "setp.gt.u32" }; if operation == 16 { return "setp.ge.u32" }
+    }; return ""
+}
+fun ptxPredicateCombine(function: GpuPtxFunction, opcode: String, left: Int, right: Int) r: Int {
+    let result = function.allocate(2, 1); let text = function.body
+    text.literal(opcode); text.literal(" "); text.reg("p", result); text.literal(", "); text.reg("p", left)
+    text.literal(", "); text.reg("p", right); text.literal(";\n"); return result
+}
+fun ptxCheckedArithmetic(function: GpuPtxFunction, operation: Int, scalar: Int, destination: Int, left: Int, right: Int) r: Void {
+    let zero = function.word(0); let invalid = function.allocate(2, 1)
+    if operation == 9 or operation == 10 { function.body.predicate("setp.ge.u32", invalid, right, function.word(32)) }
+    else {
+        var divisor = right
+        if scalar == 4 { divisor = function.allocate(0, 1); function.body.binary("and.b32", divisor, right, function.word(2147483647)) }
+        function.body.predicate("setp.eq.u32", invalid, divisor, zero)
+        if scalar == 2 {
+            let minimum = function.allocate(2, 1); let minusOne = function.allocate(2, 1)
+            function.body.predicate("setp.eq.u32", minimum, left, function.word(2147483648))
+            function.body.predicate("setp.eq.u32", minusOne, right, function.word(4294967295))
+            let overflow = ptxPredicateCombine(function, "and.pred", minimum, minusOne)
+            let combined = ptxPredicateCombine(function, "or.pred", invalid, overflow)
+            function.body.literal("mov.pred "); function.body.reg("p", invalid); function.body.literal(", "); function.body.reg("p", combined); function.body.literal(";\n")
+        }
+    }
+    let bad = function.allocate(3, 1); let merge = function.allocate(3, 1)
+    function.body.unary("mov.b32", destination, zero); function.body.conditional(invalid, bad)
+    function.body.binary(ptxBinaryOpcode(operation, scalar), destination, left, right); function.body.branch(merge)
+    function.body.defineLabel(bad); function.fault(2); function.body.defineLabel(merge)
+}
+fun ptxBinary(function: GpuPtxFunction, operation: Int, typeCode: Int, left: Int, right: Int) r: Int {
+    let scalar = gpuTypeScalar(typeCode); let lanes = gpuTypeLanes(typeCode)
+    if operation >= 11 {
+        let opcode = ptxCompareOpcode(operation, scalar)
+        if opcode == "" or lanes != 1 { function.error("E_GPU_PTX_TYPE", "PTX comparison lacks a scalar plan"); return 0 }
+        let predicate = function.allocate(2, 1); let result = function.allocate(0, 1)
+        function.body.predicate(opcode, predicate, left, right); function.body.select(result, function.word(1), function.word(0), predicate); return result
+    }
+    let opcode = ptxBinaryOpcode(operation, scalar)
+    if opcode == "" { function.error("E_GPU_PTX_TYPE", "PTX arithmetic identity is unsupported"); return 0 }
+    let result = function.allocate(0, lanes); var lane = 0
+    while lane < lanes {
+        if operation == 4 or operation == 5 or operation == 9 or operation == 10 {
+            ptxCheckedArithmetic(function, operation, scalar, result + lane, left + lane, right + lane)
+        } else { function.body.binary(opcode, result + lane, left + lane, right + lane) }; lane = lane + 1
+    }; return result
+}
+fun ptxUnary(function: GpuPtxFunction, operation: Int, typeCode: Int, value: Int) r: Int {
+    let result = function.allocate(0, gpuTypeLanes(typeCode)); var lane = 0
+    while lane < gpuTypeLanes(typeCode) {
+        if operation == 1 {
+            if gpuTypeScalar(typeCode) == 4 { function.body.binary("xor.b32", result + lane, value + lane, function.word(2147483648)) }
+            else { function.body.unary("neg.s32", result + lane, value + lane) }
+        } else if operation == 2 { function.body.binary("xor.b32", result + lane, value + lane, function.word(1)) }
+        else if operation == 3 { function.body.unary("not.b32", result + lane, value + lane) }
+        else { function.error("E_GPU_PTX_TYPE", "PTX unary identity is unsupported"); return 0 }; lane = lane + 1
+    }; return result
+}

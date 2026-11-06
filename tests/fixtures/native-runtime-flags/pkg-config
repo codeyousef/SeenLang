@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+: "${FEL748_REAL_PKG_CONFIG:?}" "${FEL748_CFLAGS_FILE:?}"
+if [ "$#" -eq 2 ] && [ "$1" = --cflags ] && [ "$2" = vulkan ]; then
+    # Never pretend a package exists: preserve its real cflags as well.
+    real_flags=$("$FEL748_REAL_PKG_CONFIG" "$@")
+    printf '%s ' "$real_flags"
+    cat -- "$FEL748_CFLAGS_FILE"
+else
+    exec "$FEL748_REAL_PKG_CONFIG" "$@"
+fi

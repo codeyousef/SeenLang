@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{sourceCoverageActive, coverSourceBranch}
 // ir_if_statement_driver.seen - if/if-let statement lowering.
 
 import parser.real_parser.{StatementNode}
@@ -28,6 +29,7 @@ fun tryEmitConstantIfStatementState(ctx: CodegenLoweringContext,
     output: StringBuilder, stmt: StatementNode, branchesEliminated: Int)
     r: IfStatementDriverResult {
 
+    if sourceCoverageActive() { return IfStatementDriverResult.new(branchesEliminated) }
     let constantIfAction = planFunctionBodyConstantIfImpl(stmt.condition)
     if constantIfAction == 0 {
         return IfStatementDriverResult.new(branchesEliminated)
@@ -131,6 +133,7 @@ fun tryEmitSelectOptimizedIfStatementState(ctx: CodegenLoweringContext,
     varRegs: Array<String>, varTypes: Array<String>,
     branchesEliminated: Int) r: IfStatementDriverResult {
 
+    if sourceCoverageActive() { return IfStatementDriverResult.new(branchesEliminated) }
     let pairedResult = tryEmitPairedAssignmentSelectIfStatementState(ctx,
         output, stmt, varNames, varRegs, varTypes, branchesEliminated)
     if pairedResult.branchesEliminated != branchesEliminated {
@@ -160,6 +163,7 @@ fun generateIfStatementState(ctx: CodegenLoweringContext,
     let condType = inferLoweredExpressionType(ctx, stmt.condition)
     let condBool = emitConditionToI1Impl(output, getFeatureRegBoxImpl(),
         condReg, condType)
+    coverSourceBranch(output, condBool)
     let branching = emitFunctionBodyIfBranchingImpl(output,
         getFeatureBlockBoxImpl(), condBool,
         computeIfBranchWeightMetadataForStatementImpl(stmt))
@@ -209,6 +213,7 @@ fun generateIfLetStatementState(ctx: CodegenLoweringContext,
     varRegs: Array<String>, varTypes: Array<String>) r: Void {
 
     let condReg = lowerExpression(ctx, stmt.condition)
+    coverSourceBranch(output, condReg)
     let branching = emitFunctionBodyIfBranchingImpl(output,
         getFeatureBlockBoxImpl(), condReg, "")
     let savedIfLetVarCount =

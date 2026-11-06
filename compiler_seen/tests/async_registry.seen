@@ -1,0 +1,22 @@
+import codegen.ir_async_registry.{getAsyncDeclaredRetTypeImpl}
+
+fun requireAsyncReturn(name: String, expected: String) r: Void {
+    let actual = getAsyncDeclaredRetTypeImpl(name,
+        "module.alpha|module.alpha_extra|module.omega", "Float|Bool|String", 3)
+    if actual != expected { abort("async function return metadata lost its ordinal") }
+}
+
+fun main() r: Int {
+    requireAsyncReturn("module.alpha", "Float")
+    requireAsyncReturn("module.alpha_extra", "Bool")
+    requireAsyncReturn("module.omega", "String")
+    requireAsyncReturn("module.alph", "")
+    requireAsyncReturn("missing", "")
+    if getAsyncDeclaredRetTypeImpl("missing", "", "", 0) != "" {
+        abort("empty async registry invented return metadata")
+    }
+    if getAsyncDeclaredRetTypeImpl("only", "only", "Bool", 1) != "Bool" {
+        abort("single async function return metadata changed")
+    }
+    return 0
+}

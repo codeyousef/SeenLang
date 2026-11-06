@@ -1,0 +1,33 @@
+/// Ordered lane visits seed from the first participating value. This preserves
+/// signed zero for floating reductions without a synthetic positive-zero seed.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction}
+import codegen.gpu.amdgpu_subgroup_layout.{amdShuffleWord}
+import codegen.gpu.amdgpu_target.{amdWavefrontSize}
+import typechecker.gpu_types.{gpuTypeLanes, gpuTypeScalar}
+fun amdSubgroupReduce(function: GpuAmdFunction, typeCode: Int, value: Int, count: Int) r: Int {
+    let lanes = gpuTypeLanes(typeCode); let result = function.allocate(lanes); let zero = function.word(0); var component = 0
+    while component < lanes { function.copy(result + component, zero, 1); component = component + 1 }
+    var seen = function.compare("ne", zero, zero, false); var lane = 0
+    while lane < amdWavefrontSize(function.target) {
+        let active = function.compare("ult", function.word(lane), count, false); component = 0
+        while component < lanes {
+            let source = amdShuffleWord(function, value + component, function.word(lane))
+            let sum = function.allocate(1); let candidate = function.allocate(1)
+            if gpuTypeScalar(typeCode) == 4 { function.floatBinary("fadd", sum, result + component, source) }
+            else { function.binary("add", sum, result + component, source) }
+            function.select(candidate, sum, source, seen); function.select(result + component, candidate, result + component, active)
+            component = component + 1
+        }; seen = function.predicateBinary("or", seen, active); lane = lane + 1
+    }; return result
+}
+fun amdSubgroupVote(function: GpuAmdFunction, value: Int, count: Int, all: Bool) r: Int {
+    let result = function.allocate(1); var initial = 0; if all { initial = 1 }; function.copy(result, function.word(initial), 1)
+    var lane = 0
+    while lane < amdWavefrontSize(function.target) {
+        let source = amdShuffleWord(function, value, function.word(lane)); let normalized = function.allocate(1)
+        function.boolean(normalized, function.compare("ne", source, function.word(0), false))
+        let combined = function.allocate(1); var operation = "or"; if all { operation = "and" }
+        function.binary(operation, combined, result, normalized)
+        function.select(result, combined, result, function.compare("ult", function.word(lane), count, false)); lane = lane + 1
+    }; return result
+}

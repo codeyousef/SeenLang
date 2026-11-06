@@ -1,0 +1,50 @@
+/// Bounds checks precede every address expression. Invalid loads produce zero,
+/// stores are skipped, and the shared fault word records the rejection.
+import codegen.gpu.metal_context.{GpuMetalFunction, GpuMetalResource, metalWord, metalTypedWord, metalAssignment}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu_ir_facts.{gpuIrElementStride}
+import codegen.gpu.metal_abi.{METAL_SHARED_BYTE_CEILING}
+import typechecker.gpu_types.{gpuTypeLanes}
+
+fun metalResourceIndex(function: GpuMetalFunction, frame: GpuEmissionFrame, operand: Int) r: Int {
+    let index = frame.resourceIndices[operand]
+    if index < 0 or index >= function.resources.length() { function.error("E_GPU_METAL_LAYOUT", "Metal resource identity is unavailable"); return -1 }; return index
+}
+fun metalResourceName(function: GpuMetalFunction, resource: GpuMetalResource) r: Void {
+    if resource.shared { function.body.literal("seen_shared") } else { function.body.literal("seen_buffer") }
+    function.body.number(resource.binding)
+}
+fun metalMemoryLane(function: GpuMetalFunction, resource: GpuMetalResource, index: Int, lane: Int) r: Void {
+    metalResourceName(function, resource); function.body.literal("[ulong("); metalWord(function.body, index)
+    function.body.literal(") * "); function.body.number(gpuIrElementStride(resource.typeCode) / 4)
+    function.body.literal("ul + "); function.body.number(lane); function.body.literal("ul]")
+}
+fun metalCheckedMemory(function: GpuMetalFunction, resourceIndex: Int, index: Int, indexType: Int, value: Int, store: Bool) r: Int {
+    let resource = function.resources[resourceIndex]; let lanes = gpuTypeLanes(resource.typeCode); var result = value
+    if not store { result = function.allocate(lanes) }
+    let text = function.body; text.literal("if ("); metalWord(text, index); text.literal(" < "); metalWord(text, resource.length)
+    if indexType == 2 { text.literal(" && "); metalTypedWord(text, index, 2); text.literal(" >= 0") }; text.literal(") {\n")
+    var lane = 0
+    while lane < lanes {
+        if store { metalMemoryLane(function, resource, index, lane); text.literal(" = "); metalWord(text, value + lane) }
+        else { metalAssignment(text, result + lane); metalMemoryLane(function, resource, index, lane) }
+        text.literal(";\n"); lane = lane + 1
+    }
+    text.literal("} else {\n"); function.fault(1)
+    if not store { lane = 0; while lane < lanes { function.set(result + lane, 0); lane = lane + 1 } }
+    text.literal("}\n"); return result
+}
+fun metalSharedResource(function: GpuMetalFunction, typeCode: Int, count: Int) r: Int {
+    let bytes = ((count * gpuIrElementStride(typeCode) + 15) / 16) * 16
+    if bytes < 1 or bytes > METAL_SHARED_BYTE_CEILING - function.sharedBytes {
+        function.error("E_GPU_METAL_LAYOUT", "Metal static threadgroup storage exceeds its 32 KiB ceiling"); return -1
+    }
+    function.sharedBytes = function.sharedBytes + bytes; let identity = function.resources.length(); let text = function.declarations
+    text.literal("alignas(16) threadgroup uint seen_shared"); text.number(identity); text.literal("["); text.number(bytes / 4); text.literal("];\n")
+    let length = function.word(count)
+    let result = function.addResource(GpuMetalResource{typeCode: typeCode, binding: identity, length: length, uniformBase: 0, shared: true})
+    function.body.literal("for (uint seen_zero = seen_lid.x + seen_size.x * (seen_lid.y + seen_size.y * seen_lid.z); seen_zero < ")
+    function.body.number(bytes / 4); function.body.literal("u; seen_zero += "); function.body.number(function.workgroupX * function.workgroupY * function.workgroupZ)
+    function.body.literal("u) { seen_shared"); function.body.number(identity); function.body.literal("[seen_zero] = 0u; }\nthreadgroup_barrier(mem_flags::mem_threadgroup);\n")
+    return result
+}

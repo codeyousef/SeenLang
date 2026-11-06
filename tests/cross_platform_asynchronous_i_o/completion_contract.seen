@@ -1,0 +1,97 @@
+import core.option.{Option}
+import io.completion_types.{IoQueueLimits, IoRequest, IoRegistration, IoRejectedSubmission, IoCompletion, IoSubmissionView}
+import io.completion_queue.{IoQueue}
+import async.structured.{AsyncOperationContext}
+import async.executor_core.{executorReleaseContext}
+import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioFixtureRequest, ioTake, ioRejectAndRelease}
+import contract_scenarios.{ioRound}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun main() r: Int {
+    let context = ioContext()
+    let invalid = IoQueueLimits{depth: 0, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 128 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    ioRequire(ioErrorIs(IoQueue.create(invalid), "async.limit")); invalid.free()
+    ioRound(context)
+    println("PASS: IO-002A capacity ownership partial exactly-once and stale generation")
+    let limits = IoQueueLimits{depth: 1, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 64 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let queue: IoQueue = ioMust(IoQueue.create(limits)); limits.free()
+    let overflowing: IoRequest = ioFixtureRequest(context)
+    overflowing.fileOffset = 9223372036854775807 as Int64
+    ioRejectAndRelease(queue.reserve(overflowing), "async.invalid")
+    let oversized: IoRequest = ioFixtureRequest(context); oversized.bytes = 18446744073709551615 as UInt64
+    ioRejectAndRelease(queue.reserve(oversized), "async.invalid")
+    let zero: IoRequest = ioFixtureRequest(context); zero.bytes = 0 as UInt64
+    ioRejectAndRelease(queue.reserve(zero), "async.invalid")
+    let negative: IoRequest = ioFixtureRequest(context); negative.fileOffset = -1 as Int64
+    ioRejectAndRelease(queue.reserve(negative), "async.invalid")
+    context.operation.cancellation = true
+    ioRejectAndRelease(queue.reserve(ioFixtureRequest(context)), "async.cancelled")
+    context.operation.cancellation = false
+    context.operation.monotonicDeadline = 0 as Int64
+    ioRejectAndRelease(queue.reserve(ioFixtureRequest(context)), "async.timeout")
+    context.operation.monotonicDeadline = 9223372036854775807 as Int64
+    let prepared: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    let view: IoSubmissionView = ioMust(queue.submission(prepared.token)); view.free()
+    ioMust(queue.cancel(prepared.token))
+    ioRequire(ioErrorIs(queue.close(), "async.limit"))
+    ioRequire(queue.active == 1 and queue.ownedBytes == (64 as UInt64))
+    ioMust(queue.rejectSubmission(prepared.token, 9 as Int32, 0 as Int64))
+    let cancelled = ioTake(queue); ioRequire(ioErrorIs(cancelled.outcome(), "async.cancelled")); ioMust(cancelled.release())
+    prepared.free(); ioMust(queue.close()); ioMust(queue.close()); ioMust(queue.release())
+    println("PASS: IO-002A preparing cancellation drain and idempotent close")
+    let budget = IoQueueLimits{depth: 2, maxTransferBytes: 16 as UInt64, maxOwnedBytes: 64 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let bounded: IoQueue = ioMust(IoQueue.create(budget)); budget.free()
+    let accepted: IoRegistration = ioMust(bounded.reserve(ioFixtureRequest(context)))
+    let aliased: IoRequest = ioFixtureRequest(context)
+    let original = aliased.resources.buffer.data
+    aliased.resources.buffer.data = bounded.entries[bounded.slot(accepted.token)].unwrap().resources.buffer.data
+    let aliasResult = bounded.reserve(aliased); ioRequire(aliasResult.isErr())
+    let aliasOwner: IoRejectedSubmission = aliasResult.unwrapErr(); aliasResult.releaseContainer()
+    ioRequire(aliasOwner.error.code == "async.invalid" and aliasOwner.error.operation == "io.queue.alias")
+    aliasOwner.request.resources.buffer.data = original; ioMust(aliasOwner.release())
+    let duplicate: IoRequest = ioFixtureRequest(context)
+    let originalHandle = duplicate.resources.descriptor.native
+    duplicate.resources.descriptor.native = bounded.entries[bounded.slot(accepted.token)].unwrap().resources.descriptor.native
+    let duplicateResult = bounded.reserve(duplicate); ioRequire(duplicateResult.isErr())
+    let duplicateOwner: IoRejectedSubmission = duplicateResult.unwrapErr(); duplicateResult.releaseContainer()
+    ioRequire(duplicateOwner.error.operation == "io.queue.alias")
+    duplicateOwner.request.resources.descriptor.native = originalHandle; ioMust(duplicateOwner.release())
+    let denied = bounded.reserve(ioFixtureRequest(context)); ioRequire(denied.isErr())
+    let returned: IoRejectedSubmission = denied.unwrapErr(); denied.releaseContainer()
+    ioRequire(returned.error.code == "async.limit"); ioMust(returned.release())
+    ioMust(bounded.cancel(accepted.token)); let complete = ioTake(bounded); ioMust(complete.release())
+    accepted.free(); ioMust(bounded.release())
+    println("PASS: IO-002A aggregate byte budget rejection returns owners")
+    let metadataLimits = IoQueueLimits{depth: 1, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 64 as UInt64, maxMetadataBytes: 1 as UInt64}
+    let metadataQueue: IoQueue = ioMust(IoQueue.create(metadataLimits)); metadataLimits.free()
+    let metadataRejected = metadataQueue.reserve(ioFixtureRequest(context)); ioRequire(metadataRejected.isErr())
+    let metadataOwner: IoRejectedSubmission = metadataRejected.unwrapErr(); metadataRejected.releaseContainer()
+    ioRequire(metadataOwner.error.code == "async.limit"); ioMust(metadataOwner.release()); ioMust(metadataQueue.release())
+    let expiryLimits = IoQueueLimits{depth: 1, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 64 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let expiry: IoQueue = ioMust(IoQueue.create(expiryLimits)); expiryLimits.free()
+    let timed: IoRegistration = ioMust(expiry.reserve(ioFixtureRequest(context)))
+    let issued: IoSubmissionView = ioMust(expiry.submission(timed.token)); issued.free(); ioMust(expiry.submitted(timed.token))
+    expiry.entries[expiry.slot(timed.token)].unwrap().context.operation.monotonicDeadline = 0 as Int64
+    let timedAction = expiry.nextCancellation(); ioRequire(timedAction.isSome()); timedAction.unwrap().free(); timedAction.free()
+    ioMust(expiry.cancel(timed.token))
+    ioMust(expiry.complete(timed.token, 5 as UInt64, 0 as Int32, 0 as Int64))
+    let timeout = ioTake(expiry); let timeoutResult = timeout.outcome(); ioRequire(timeoutResult.isErr())
+    let timeoutError = timeoutResult.unwrapErr(); timeoutResult.releaseContainer()
+    ioRequire(timeoutError.code == "async.timeout" and timeoutError.progress == (5 as UInt64))
+    timeoutError.free(); ioMust(timeout.release()); timed.free(); ioMust(expiry.release())
+    let retiredLimits = IoQueueLimits{depth: 1, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 64 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let retired: IoQueue = ioMust(IoQueue.create(retiredLimits)); retiredLimits.free()
+    retired.generations[0] = 4294967294 as UInt64
+    let last: IoRegistration = ioMust(retired.reserve(ioFixtureRequest(context)))
+    ioMust(retired.cancel(last.token)); let exhausted = ioTake(retired); ioMust(exhausted.release()); last.free()
+    ioRequire(retired.freeCount == 0 and retired.active == 0)
+    let noWrap = retired.reserve(ioFixtureRequest(context)); ioRequire(noWrap.isErr())
+    let noWrapOwner: IoRejectedSubmission = noWrap.unwrapErr(); noWrap.releaseContainer()
+    ioRequire(noWrapOwner.error.code == "async.limit"); ioMust(noWrapOwner.release()); ioMust(retired.release())
+    println("PASS: IO-002A deadline progress and generation exhaustion fail closed")
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 1000 { ioRound(context); ioRequire(seen_memory_used_bytes() == baseline); i = i + 1 }
+    executorReleaseContext(context)
+    println("PASS: IO-002A deterministic cleanup live-allocation baseline")
+    println("{\"schema\":\"seen-io-contract-v1\",\"backend\":\"simulated\",\"classification\":\"verified\",\"scope\":\"coordinator-contract\",\"max_submitted\":2,\"native_overlap_verified\":false}")
+    return 0
+}

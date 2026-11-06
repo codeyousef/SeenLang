@@ -1,0 +1,10 @@
+import helper.{compute}
+
+fun main() r: Int {
+    let result = compute(1000)
+    if result != 499500 { return 1 }
+    println(result)
+    return 0
+}
+
+main()

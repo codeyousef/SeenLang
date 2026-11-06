@@ -1,0 +1,65 @@
+import device_fixture_support.{report, gpuFixtureRejected}
+import compute.backend.{GpuBackend}
+import compute.discovery.{GpuDeviceCatalog}
+import compute.device_info.{GpuDeviceInfo}
+import compute.error.{GpuError}
+import compute.limits.{GpuLimits}
+import core.result.{Result}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun device(ordinal: Int, uuid: String) r: GpuDeviceInfo {
+    let value = report(); value.identity.ordinal = ordinal
+    seen_string_release_owned(value.identity.uuid); value.identity.uuid = seen_string_clone_owned(uuid)
+    return value
+}
+fun admitted(result: Result<Bool, GpuError>) r: Void {
+    if result.isErr() { abort("valid discovery report rejected") }
+    if not result.unwrap() { abort("discovery admission returned false") }
+    result.releaseContainer()
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    let limits = GpuLimits.bounded(2, 4, 16, 4096 as UInt64)
+    let invalid = GpuDeviceCatalog.create(GpuBackend.CpuOnly, 1 as UInt64, limits)
+    if invalid.isOkay() { abort("CPU default performed accelerator discovery") }
+    invalid.unwrapErr().release(); invalid.releaseContainer()
+    let zero = GpuDeviceCatalog.create(GpuBackend.Vulkan, 0 as UInt64, limits)
+    if zero.isOkay() { abort("anonymous discovery provider accepted") }
+    zero.unwrapErr().release(); zero.releaseContainer()
+    let created = GpuDeviceCatalog.create(GpuBackend.Vulkan, 1 as UInt64, limits)
+    if created.isErr() { abort("discovery construction failed") }
+    let catalog = created.unwrap(); created.releaseContainer()
+    limits.maxDevices = 0; limits.release()
+    admitted(catalog.admit(device(0, "device-0")))
+    gpuFixtureRejected(catalog.admit(device(0, "another-uuid")), "gpu.invalid")
+    gpuFixtureRejected(catalog.admit(device(1, "device-0")), "gpu.invalid")
+    let other = device(1, "other-provider"); other.identity.providerId = 2 as UInt64
+    gpuFixtureRejected(catalog.admit(other), "gpu.invalid")
+    let backend = device(1, "other-backend"); backend.identity.backend = GpuBackend.Cuda
+    gpuFixtureRejected(catalog.admit(backend), "gpu.invalid")
+    let malformed = device(1, "bad-metadata"); malformed.capabilities.maxThreads = 0 as UInt64
+    gpuFixtureRejected(catalog.admit(malformed), "gpu.invalid")
+    admitted(catalog.admit(device(1, "device-1")))
+    gpuFixtureRejected(catalog.admit(device(2, "device-2")), "gpu.limit")
+    let negative = catalog.snapshot(-1)
+    if negative.isOkay() { abort("negative discovery index accepted") }
+    negative.unwrapErr().release(); negative.releaseContainer()
+    let outside = catalog.snapshot(2)
+    if outside.isOkay() { abort("discovery index beyond count accepted") }
+    outside.unwrapErr().release(); outside.releaseContainer()
+    let copied = catalog.snapshot(1)
+    if copied.isErr() { abort("admitted device could not be snapshotted") }
+    let owned = copied.unwrap(); copied.releaseContainer()
+    if not catalog.close() or catalog.close() { abort("discovery close is not idempotent") }
+    gpuFixtureRejected(catalog.admit(device(2, "closed-report")), "gpu.invalid")
+    let closed = catalog.snapshot(0)
+    if closed.isOkay() { abort("closed discovery report accepted snapshot") }
+    closed.unwrapErr().release(); closed.releaseContainer(); catalog.release()
+    if owned.identity.uuid != "device-1" or owned.name != "Fixture Device" or
+        owned.capabilities.totalBytes != (1024 as UInt64) { abort("snapshot outlived discovery storage incorrectly") }
+    owned.release()
+    if seen_memory_used_bytes() != memory { abort("discovery success or rejection leaked metadata") }
+    println("PASS: GPU-006A bounded discovery identity, admission, snapshots and cleanup")
+    return 0
+}

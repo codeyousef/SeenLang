@@ -1,0 +1,6 @@
+@compute(1)
+fun unrelatedGpuEntry() { }
+fun main() r: Int {
+    let value = unpackFp16(0 as UInt32, 0 as UInt32)
+    return 0
+}

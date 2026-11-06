@@ -1,0 +1,79 @@
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError}
+import async.executor_core.{executorFailure}
+
+// Fixed-capacity indexed min-heap. Cancellation removes one slot in O(log N);
+// peeking the next deadline and mapping a ready slot never scan dormant work.
+class AsyncDeadlineHeap {
+    var slots: Array<Int>
+    var positions: Array<Int>
+    var deadlines: Array<Int64>
+    var count: Int
+    var capacity: Int
+
+    static fun create(capacity: Int) r: Result<AsyncDeadlineHeap, AsyncError> {
+        if capacity <= 0 or capacity > 1048576 {
+            return Err<AsyncDeadlineHeap, AsyncError>(executorFailure(2 as Int32, "io.heap", 0 as UInt64))
+        }
+        let slots = Array<Int>(); let positions = Array<Int>(); let deadlines = Array<Int64>()
+        var i = 0
+        while i < capacity {
+            slots.push(0); positions.push(-1); deadlines.push(0 as Int64)
+            i = i + 1
+        }
+        return Ok<AsyncDeadlineHeap, AsyncError>(AsyncDeadlineHeap{slots: slots, positions: positions,
+            deadlines: deadlines, count: 0, capacity: capacity})
+    }
+    fun before(left: Int, right: Int) r: Bool {
+        return this.deadlines[left] < this.deadlines[right] or
+            (this.deadlines[left] == this.deadlines[right] and left < right)
+    }
+    fun swap(left: Int, right: Int) r: Void {
+        let a = this.slots[left]; let b = this.slots[right]
+        this.slots[left] = b; this.slots[right] = a
+        this.positions[a] = right; this.positions[b] = left
+    }
+    fun rise(index: Int) r: Void {
+        var at = index
+        while at > 0 {
+            let parent = (at - 1) / 2
+            if not this.before(this.slots[at], this.slots[parent]) { return }
+            this.swap(at, parent); at = parent
+        }
+    }
+    fun sink(index: Int) r: Void {
+        var at = index
+        while at * 2 + 1 < this.count {
+            var child = at * 2 + 1
+            if child + 1 < this.count and this.before(this.slots[child + 1], this.slots[child]) {
+                child = child + 1
+            }
+            if not this.before(this.slots[child], this.slots[at]) { return }
+            this.swap(at, child); at = child
+        }
+    }
+    fun insert(slot: Int, deadline: Int64) r: Bool {
+        if slot < 0 or slot >= this.capacity or this.positions[slot] != -1 or
+            this.count >= this.capacity or deadline < (0 as Int64) { return false }
+        this.deadlines[slot] = deadline; this.positions[slot] = this.count
+        this.slots[this.count] = slot; this.count = this.count + 1
+        this.rise(this.count - 1); return true
+    }
+    fun remove(slot: Int) r: Bool {
+        if slot < 0 or slot >= this.capacity or this.positions[slot] < 0 { return false }
+        let at = this.positions[slot]; this.count = this.count - 1
+        if at != this.count {
+            let moved = this.slots[this.count]
+            this.slots[at] = moved; this.positions[moved] = at
+            this.rise(at); this.sink(this.positions[moved])
+        }
+        this.positions[slot] = -1; return true
+    }
+    fun first() r: Int {
+        if this.count == 0 { return -1 }
+        return this.slots[0]
+    }
+    fun release() r: Void {
+        this.slots.free(); this.positions.free(); this.deadlines.free(); this.free()
+    }
+}

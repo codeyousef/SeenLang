@@ -1,0 +1,22 @@
+import core.option.{None}
+import io.completion_queue.{IoQueue}
+import io.completion_types.{IoQueueLimits, IoRegistration, IoSubmissionView}
+import io.windows_iocp.{WindowsIocpQueue}
+import io.iocp_layout.{iocpEncodeOverlapped}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{OwnedHandle}
+import fixture_support.{ioMust}
+
+fun iocpFixture() r: WindowsIocpQueue {
+    let limits = IoQueueLimits{depth: 2, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 128 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let core: IoQueue = ioMust(IoQueue.create(limits)); limits.free()
+    let records: OwnedBuffer<UInt8> = ioMust(OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 16 as UInt64))
+    return WindowsIocpQueue{core: core, port: OwnedHandle{native: -1 as Int64, owned: true, valid: false},
+        records: records, pendingCancellation: None<IoRegistration>(), lastNativeResult: 0 as UInt32,
+        lastCancellationResult: 0 as UInt32, poisoned: false, closed: false}
+}
+fun iocpMockSubmit(borrow queue: WindowsIocpQueue, token: UInt64) r: Void {
+    let view: IoSubmissionView = ioMust(queue.core.submission(token))
+    iocpEncodeOverlapped(queue.record(queue.core.slot(token)), view.fileOffset); view.free()
+    ioMust(queue.core.submitted(token))
+}

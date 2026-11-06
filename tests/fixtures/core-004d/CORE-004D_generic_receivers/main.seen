@@ -1,0 +1,17 @@
+import support.{Holder, makeHolder}
+import caller_types.{Text}
+
+fun main() r: Int {
+    let holder = makeHolder<Text>(Text{value: 7})
+    let fieldValue = holder.value
+    let methodValue = holder.get()
+    if fieldValue.read() != 7 or methodValue.read() != 7 {
+        return 1
+    }
+    let direct = Holder<String>()
+    direct.value = "generic"
+    if not direct.value.startsWith("gen") or not direct.get().endsWith("ric") {
+        return 2
+    }
+    return 0
+}

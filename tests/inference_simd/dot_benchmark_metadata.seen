@@ -1,0 +1,24 @@
+// Test-only dispatcher: proves measurement ownership, not SIMD performance.
+import core.result.{Result, Ok}
+import simd.ir_types.{SimdIrError}
+import simd.dot_contract.{DotOperation, DotBackendHandle}
+import dot_benchmark_support.{runDotBenchmark}
+
+class BenchmarkMetadataProbe {
+    var reserved: Int
+    fun target() r: String { return "aarch64" }
+    fun select(operation: DotOperation, policy: String, allowScalarFallback: Bool,
+        deterministic: Bool) r: Result<Int, SimdIrError> {
+        if policy == "scalar" { return Ok<Int, SimdIrError>(0) }
+        return Ok<Int, SimdIrError>(1)
+    }
+    fun floatBlock(variant: Int, left: UInt64, right: UInt64, count: UInt64,
+        operation: DotOperation) r: Float32 { return (count as Float32) * (2.0 as Float32) }
+    fun integerBlock(variant: Int, left: UInt64, right: UInt64, count: UInt64) r: Int64 { return 0 as Int64 }
+}
+fun main() r: Int {
+    let provider = BenchmarkMetadataProbe{reserved: 0}; let backend = DotBackendHandle.create(provider)
+    let result = runDotBenchmark(backend)
+    backend.release(); provider.free()
+    return result
+}

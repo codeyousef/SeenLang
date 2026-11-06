@@ -1,0 +1,16 @@
+/// The GPU IR owns its strings and containers independently of frontend scratch.
+import bootstrap.owned_frontend.{runOwnedFrontendCompat}
+import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrValidation}
+import core.result.{Result, Err}
+
+fun lowerGpuSource(source: String, identity: String) r: Result<GpuIrModule, GpuIrValidation> {
+    let frontend = runOwnedFrontendCompat(source, identity, "en")
+    if not frontend.result.success {
+        let error = GpuIrValidation.create()
+        error.reject("E_GPU_SOURCE", "GPU source did not parse", -1, -1, -1)
+        frontend.release(); return Err<GpuIrModule, GpuIrValidation>(error)
+    }
+    let lowered = lowerGpuProgram(frontend.result.program, identity)
+    frontend.release(); return lowered
+}

@@ -1,0 +1,76 @@
+/// Structured regions use private slots for mutable values and fresh frames
+/// for inlined helpers. Every loop has an independent million-iteration budget.
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_IF, GPU_IR_IF_VALUE, GPU_IR_WHILE, GPU_IR_FOR, GPU_IR_CALL, GPU_IR_CONDITION, GPU_IR_YIELD_VALUE, GPU_IR_BREAK, GPU_IR_CONTINUE, GPU_IR_RETURN}
+import codegen.gpu_emission_frame.{GpuEmissionFrame, createGpuEmissionFrame}
+import codegen.gpu.amdgpu_context.{GpuAmdFunction}
+import codegen.gpu.amdgpu_values.{amdLowerValue}
+import codegen.gpu.amdgpu_matrix_plan.{amdValueWords}
+
+fun amdLowerConditional(borrow module: GpuIrModule, function: GpuAmdFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let yes = function.label(); let no = function.label(); let merge = function.label(); var result = 0
+    if op.opcode == GPU_IR_IF_VALUE { result = function.allocate(amdValueWords(op.typeCode)) }
+    let predicate = function.compare("ne", frame.registers[op.operands[0]], function.word(0), false)
+    function.conditional(predicate, yes, no); function.defineLabel(yes)
+    amdLowerRegion(module, function, frame, op.leftBlock, depth + 1); let left = frame.signal
+    if op.opcode == GPU_IR_IF_VALUE and left == 5 { function.copy(result, frame.yielded, amdValueWords(op.typeCode)) }
+    if left == 0 or left == 5 { function.branch(merge) }; frame.signal = 0; function.defineLabel(no)
+    if op.rightBlock >= 0 { amdLowerRegion(module, function, frame, op.rightBlock, depth + 1) }; let right = frame.signal
+    if op.opcode == GPU_IR_IF_VALUE and right == 5 { function.copy(result, frame.yielded, amdValueWords(op.typeCode)) }
+    if right == 0 or right == 5 { function.branch(merge) }; function.defineLabel(merge); frame.signal = 0
+    if op.result > 0 { frame.registers[op.result] = result }
+}
+fun amdLowerLoop(borrow module: GpuIrModule, function: GpuAmdFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let header = function.label(); let continued = function.label(); let exhausted = function.label(); let merge = function.label()
+    let counter = function.allocate(1); function.copy(counter, function.word(0), 1); var induction = 0; var inductionType = 0
+    if op.opcode == GPU_IR_FOR {
+        induction = function.allocate(1); function.copy(induction, frame.registers[op.operands[0]], 1); inductionType = frame.registerTypes[op.operands[0]]
+    }
+    function.branch(header); function.defineLabel(header)
+    if op.opcode == GPU_IR_WHILE {
+        amdLowerRegion(module, function, frame, op.leftBlock, depth + 1)
+        if frame.signal != 4 { function.error("E_GPU_AMDGPU_CONTROL", "AMDGPU while condition did not yield Bool"); return }
+        function.branchWhen(function.compare("eq", frame.condition, function.word(0), false), merge); frame.signal = 0
+    } else {
+        var predicate = "uge"; if inductionType == 2 { predicate = "sge" }
+        function.branchWhen(function.compare(predicate, induction, frame.registers[op.operands[1]], false), merge)
+    }
+    function.branchWhen(function.compare("uge", counter, function.word(1000000), false), exhausted)
+    frame.loopMerges.push(merge); frame.loopContinues.push(continued); frame.inductionPointers.push(induction)
+    var body = op.leftBlock; if op.opcode == GPU_IR_WHILE { body = op.rightBlock }
+    amdLowerRegion(module, function, frame, body, depth + 1)
+    if frame.signal == 0 { function.branch(continued) }
+    frame.loopMerges.pop(); frame.loopContinues.pop(); frame.inductionPointers.pop(); frame.signal = 0; function.defineLabel(continued)
+    function.binary("add", counter, counter, function.word(1)); if induction != 0 { function.binary("add", induction, induction, function.word(1)) }
+    function.branch(header); function.defineLabel(exhausted); function.fault(3); function.branch(merge); function.defineLabel(merge)
+}
+fun amdLowerCall(borrow module: GpuIrModule, function: GpuAmdFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    let arguments = Array<Int>(); let resources = Array<Int>(); var i = 0
+    while i < op.operands.length() { arguments.push(frame.registers[op.operands[i]]); resources.push(frame.resourceIndices[op.operands[i]]); i = i + 1 }
+    let child = createGpuEmissionFrame(module, op.immediate, arguments, resources); arguments.free(); resources.free(); child.returnMerge = function.label()
+    if op.typeCode != 0 { child.returnSlot = function.allocate(amdValueWords(op.typeCode)) }
+    amdLowerRegion(module, function, child, 0, depth + 1); function.defineLabel(child.returnMerge)
+    if op.result > 0 { frame.registers[op.result] = child.returnSlot }; child.release()
+}
+fun amdLowerRegion(borrow module: GpuIrModule, function: GpuAmdFunction, frame: GpuEmissionFrame, blockIndex: Int, depth: Int) r: Void {
+    if not function.validation.valid { return }
+    if depth > 128 { function.error("E_GPU_AMDGPU_LIMIT", "AMDGPU expanded region depth ceiling exceeded"); return }
+    let source = module.functions[frame.functionIndex]; let block = source.blocks[blockIndex]; var i = 0
+    while i < block.instructions.length() and function.validation.valid and frame.signal == 0 {
+        let op = block.instructions[i]; function.functionIndex = frame.functionIndex; function.blockIndex = blockIndex; function.instructionIndex = i
+        if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE { amdLowerConditional(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR { amdLowerLoop(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_CALL { amdLowerCall(module, function, frame, op, depth) }
+        else if op.opcode == GPU_IR_CONDITION { frame.condition = frame.registers[op.operands[0]]; frame.signal = 4 }
+        else if op.opcode == GPU_IR_YIELD_VALUE { frame.yielded = frame.registers[op.operands[0]]; frame.signal = 5 }
+        else if op.opcode == GPU_IR_BREAK or op.opcode == GPU_IR_CONTINUE {
+            if frame.loopMerges.length() == 0 { function.error("E_GPU_AMDGPU_CONTROL", "AMDGPU loop exit lacks an enclosing loop"); return }
+            let index = frame.loopMerges.length() - 1
+            if op.opcode == GPU_IR_BREAK { function.branch(frame.loopMerges[index]); frame.signal = 2 }
+            else { function.branch(frame.loopContinues[index]); frame.signal = 3 }
+        } else if op.opcode == GPU_IR_RETURN {
+            if frame.returnSlot != 0 { function.copy(frame.returnSlot, frame.registers[op.operands[0]], amdValueWords(source.returnType)) }
+            function.branch(frame.returnMerge); frame.signal = 1
+        } else { amdLowerValue(function, frame, op) }; i = i + 1
+    }
+}

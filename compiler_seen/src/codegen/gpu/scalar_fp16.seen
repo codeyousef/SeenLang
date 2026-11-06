@@ -1,0 +1,63 @@
+/// Binary16 conversion uses integer significands, including all subnormals.
+/// Finite overflow saturates; infinities and canonical NaN are handled by the
+/// shared short-float policy after this nearest-even magnitude conversion.
+import codegen.gpu.scalar_plan.{GpuScalarPlan}
+import codegen.gpu.scalar_ops.{SCALAR_ADD, SCALAR_BITCAST, SCALAR_BIT_AND, SCALAR_BIT_OR, SCALAR_BOOL_AND, SCALAR_BOOL_OR, SCALAR_EQUAL, SCALAR_NOT_EQUAL, SCALAR_SHIFT_LEFT, SCALAR_SHIFT_RIGHT, SCALAR_SUBTRACT, SCALAR_UNSIGNED_GREATER, SCALAR_UNSIGNED_GREATER_EQUAL, SCALAR_UNSIGNED_LESS}
+import codegen.gpu.scalar_float_bits.{scalarRoundRightEven}
+
+fun scalarPackFp16Magnitude(plan: GpuScalarPlan, magnitude: Int) r: Int {
+    let context = plan; let rounded = scalarRoundRightEven(plan, magnitude, 13)
+    let normal = plan.binary(SCALAR_SUBTRACT, 3, rounded, context.constant(3, 114688))
+    let exponent = plan.binary(SCALAR_SHIFT_RIGHT, 3, magnitude, context.constant(3, 23))
+    let rawShift = plan.binary(SCALAR_SUBTRACT, 3, context.constant(3, 126), exponent)
+    let largeEnough = plan.binary(SCALAR_UNSIGNED_GREATER_EQUAL, 1, exponent, context.constant(3, 102))
+    let smallEnough = plan.binary(SCALAR_UNSIGNED_LESS, 1, exponent, context.constant(3, 113))
+    let inRange = plan.binary(SCALAR_BOOL_AND, 1, largeEnough, smallEnough)
+    let shift = plan.select(3, inRange, rawShift, context.constant(3, 24))
+    let mantissa = plan.binary(SCALAR_BIT_AND, 3, magnitude, context.constant(3, 8388607))
+    let significand = plan.binary(SCALAR_BIT_OR, 3, mantissa, context.constant(3, 8388608))
+    let retained = plan.binary(SCALAR_SHIFT_RIGHT, 3, significand, shift)
+    let range = plan.binary(SCALAR_SHIFT_LEFT, 3, context.constant(3, 1), shift)
+    let mask = plan.binary(SCALAR_SUBTRACT, 3, range, context.constant(3, 1))
+    let remainder = plan.binary(SCALAR_BIT_AND, 3, significand, mask)
+    let half = plan.binary(SCALAR_SHIFT_RIGHT, 3, range, context.constant(3, 1))
+    let greater = plan.binary(SCALAR_UNSIGNED_GREATER, 1, remainder, half)
+    let equal = plan.binary(SCALAR_EQUAL, 1, remainder, half)
+    let odd = plan.binary(SCALAR_BIT_AND, 3, retained, context.constant(3, 1))
+    let oddBit = plan.binary(SCALAR_NOT_EQUAL, 1, odd, context.constant(3, 0))
+    let tie = plan.binary(SCALAR_BOOL_AND, 1, equal, oddBit)
+    let increment = plan.select(3, plan.binary(SCALAR_BOOL_OR, 1, greater, tie), context.constant(3, 1), context.constant(3, 0))
+    let subnormal = plan.binary(SCALAR_ADD, 3, retained, increment)
+    let underflowed = plan.select(3, largeEnough, subnormal, context.constant(3, 0))
+    return plan.select(3, smallEnough, underflowed, normal)
+}
+fun scalarUnpackFp16(plan: GpuScalarPlan, payload: Int) r: Int {
+    let context = plan; let high = plan.binary(SCALAR_SHIFT_RIGHT, 3, payload, context.constant(3, 10))
+    let exponent = plan.binary(SCALAR_BIT_AND, 3, high, context.constant(3, 31))
+    let mantissa = plan.binary(SCALAR_BIT_AND, 3, payload, context.constant(3, 1023))
+    let fraction = plan.binary(SCALAR_SHIFT_LEFT, 3, mantissa, context.constant(3, 13))
+    let biased = plan.binary(SCALAR_ADD, 3, exponent, context.constant(3, 112))
+    let exponentBits = plan.binary(SCALAR_SHIFT_LEFT, 3, biased, context.constant(3, 23))
+    let normal = plan.binary(SCALAR_BIT_OR, 3, exponentBits, fraction)
+    var highest = context.constant(3, 0); var i = 1
+    while i < 10 {
+        let active = plan.binary(SCALAR_UNSIGNED_GREATER_EQUAL, 1, mantissa, context.constant(3, 1 << i))
+        highest = plan.select(3, active, context.constant(3, i), highest); i = i + 1
+    }
+    let smallExponent = plan.binary(SCALAR_ADD, 3, highest, context.constant(3, 103))
+    let smallHigh = plan.binary(SCALAR_SHIFT_LEFT, 3, smallExponent, context.constant(3, 23))
+    let shift = plan.binary(SCALAR_SUBTRACT, 3, context.constant(3, 23), highest)
+    let expanded = plan.binary(SCALAR_SHIFT_LEFT, 3, mantissa, shift)
+    let smallFraction = plan.binary(SCALAR_BIT_AND, 3, expanded, context.constant(3, 8388607))
+    let small = plan.binary(SCALAR_BIT_OR, 3, smallHigh, smallFraction)
+    let zero = plan.binary(SCALAR_EQUAL, 1, mantissa, context.constant(3, 0))
+    let subnormal = plan.select(3, zero, context.constant(3, 0), small)
+    let isSubnormal = plan.binary(SCALAR_EQUAL, 1, exponent, context.constant(3, 0))
+    var bits = plan.select(3, isSubnormal, subnormal, normal)
+    let special = plan.binary(SCALAR_EQUAL, 1, exponent, context.constant(3, 31))
+    let specialBits = plan.binary(SCALAR_BIT_OR, 3, context.constant(3, 2139095040), fraction)
+    bits = plan.select(3, special, specialBits, bits)
+    let sign = plan.binary(SCALAR_BIT_AND, 3, payload, context.constant(3, 32768))
+    let signBits = plan.binary(SCALAR_SHIFT_LEFT, 3, sign, context.constant(3, 16))
+    return plan.unary(SCALAR_BITCAST, 4, plan.binary(SCALAR_BIT_OR, 3, bits, signBits))
+}

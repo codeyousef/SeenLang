@@ -1,0 +1,66 @@
+import io.completion_types.{IoRegistration}
+import io.completion_bytes.{completionRead64}
+import io.iocp_layout.{iocpStatus}
+import async.executor_core.{executorReleaseContext}
+import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioFixtureRequest, ioTake}
+import iocp_fixture_support.{iocpFixture, iocpMockSubmit}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun iocpRound() r: Void {
+    let context = ioContext(); let queue = iocpFixture()
+    let request = ioFixtureRequest(context); request.fileOffset = 4294967303 as Int64
+    let first: IoRegistration = ioMust(queue.core.reserve(request))
+    let second: IoRegistration = ioMust(queue.core.reserve(ioFixtureRequest(context)))
+    iocpMockSubmit(queue, first.token); iocpMockSubmit(queue, second.token)
+    let firstAddress = queue.record(queue.core.slot(first.token)) as UInt64
+    let secondAddress = queue.record(queue.core.slot(second.token)) as UInt64
+    ioRequire(firstAddress != secondAddress and firstAddress % (8 as UInt64) == (0 as UInt64))
+    ioRequire(completionRead64(firstAddress as *UInt8, 16) == (4294967303 as UInt64))
+    ioRequire(completionRead64(firstAddress as *UInt8, 24) == (0 as UInt64))
+    ioMust(queue.cancel(second.token)); ioRequire(queue.core.nativeActive == 2)
+    ioMust(queue.acceptCompletion(first.token, firstAddress, 4 as UInt64, 0 as UInt32))
+    ioMust(queue.acceptCompletion(second.token, secondAddress, 2 as UInt64, 995 as UInt32))
+    let completed = ioTake(queue.core); ioRequire(completed.token == first.token)
+    ioRequire(ioMust(completed.outcome()) == (4 as UInt64)); ioMust(completed.release())
+    let cancelled = ioTake(queue.core); ioRequire(cancelled.token == second.token)
+    ioRequire(ioErrorIs(cancelled.outcome(), "async.cancelled")); ioMust(cancelled.release())
+    let reused: IoRegistration = ioMust(queue.core.reserve(ioFixtureRequest(context))); iocpMockSubmit(queue, reused.token)
+    let reusedAddress = queue.record(queue.core.slot(reused.token)) as UInt64
+    ioRequire(reusedAddress == secondAddress)
+    ioRequire(ioErrorIs(queue.acceptCompletion(second.token, reusedAddress, 0 as UInt64, 0 as UInt32), "async.unavailable"))
+    ioRequire(queue.poisoned and queue.core.nativeActive == 1 and queue.core.ownedBytes == (64 as UInt64))
+    ioRequire(ioErrorIs(queue.close(), "async.limit"))
+    // The mock now explicitly acknowledges its borrow, without clearing the
+    // production poison flag or pretending a stale packet was valid.
+    ioMust(queue.core.complete(reused.token, 0 as UInt64, 9 as Int32, 995 as Int64))
+    let drained = ioTake(queue.core); ioMust(drained.release())
+    first.free(); second.free(); reused.free(); ioMust(queue.release()); executorReleaseContext(context)
+}
+fun main() r: Int {
+    ioRequire(iocpStatus(50 as UInt32) == (4 as Int32) and iocpStatus(995 as UInt32) == (9 as Int32))
+    ioRequire(iocpStatus(38 as UInt32) == (0 as Int32) and iocpStatus(997 as UInt32) != (0 as Int32))
+    iocpRound()
+    println("PASS: IO-002C offset encoding completion identity cancellation and stale generations")
+    let context = ioContext(); let queue = iocpFixture()
+    let registration: IoRegistration = ioMust(queue.core.reserve(ioFixtureRequest(context))); iocpMockSubmit(queue, registration.token)
+    let pointer = queue.record(queue.core.slot(registration.token)) as UInt64
+    ioRequire(ioErrorIs(queue.acceptCompletion(registration.token, pointer, 17 as UInt64, 0 as UInt32), "async.unavailable"))
+    ioRequire(queue.poisoned and queue.core.nativeActive == 1)
+    ioMust(queue.core.complete(registration.token, 0 as UInt64, 9 as Int32, 995 as Int64))
+    let completion = ioTake(queue.core); ioMust(completion.release())
+    registration.free(); ioMust(queue.release()); executorReleaseContext(context)
+    println("PASS: IO-002C malformed progress retains record and buffer ownership")
+    let timedContext = ioContext(); let timedQueue = iocpFixture()
+    let timed: IoRegistration = ioMust(timedQueue.core.reserve(ioFixtureRequest(timedContext))); iocpMockSubmit(timedQueue, timed.token)
+    let slot = timedQueue.core.slot(timed.token)
+    timedQueue.core.entries[slot].unwrap().context.operation.monotonicDeadline = 0 as Int64
+    let action = timedQueue.core.nextCancellation(); ioRequire(action.isSome()); action.unwrap().free(); action.free()
+    ioMust(timedQueue.acceptCompletion(timed.token, timedQueue.record(slot) as UInt64, 3 as UInt64, 995 as UInt32))
+    let expired = ioTake(timedQueue.core); let outcome = expired.outcome(); ioRequire(outcome.isErr())
+    ioRequire(outcome.unwrapErr().code == "async.timeout" and outcome.unwrapErr().progress == (3 as UInt64))
+    outcome.unwrapErr().free(); outcome.releaseContainer(); ioMust(expired.release()); timed.free()
+    ioMust(timedQueue.release()); executorReleaseContext(timedContext)
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 1000 { iocpRound(); ioRequire(seen_memory_used_bytes() == baseline); i = i + 1 }
+    println("PASS: IO-002C repeated lifecycle allocation baseline")
+    return 0
+}

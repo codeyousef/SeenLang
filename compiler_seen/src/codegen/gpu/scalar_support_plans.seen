@@ -1,0 +1,19 @@
+/// Small independently renderable plans retained for low-level conversion
+/// witnesses and bootstrap-compatible backend entry points.
+import codegen.gpu.scalar_plan.{GpuScalarPlan}
+import codegen.gpu.scalar_float_bits.{scalarRoundRightEven, scalarPositiveFloatBits}
+import codegen.gpu.scalar_fp16.{scalarPackFp16Magnitude}
+import codegen.gpu.scalar_packed_float.{scalarFloatIsNan}
+
+fun scalarRoundPlan(bits: Int, shift: Int) r: GpuScalarPlan {
+    let plan = GpuScalarPlan.create(); plan.result = scalarRoundRightEven(plan, plan.input(3, bits), shift); return plan
+}
+fun scalarPositiveBitsPlan(exponent: Int, mantissa: Int) r: GpuScalarPlan {
+    let plan = GpuScalarPlan.create(); plan.result = scalarPositiveFloatBits(plan, plan.input(2, exponent), plan.input(3, mantissa)); return plan
+}
+fun scalarFp16MagnitudePlan(magnitude: Int) r: GpuScalarPlan {
+    let plan = GpuScalarPlan.create(); plan.result = scalarPackFp16Magnitude(plan, plan.input(3, magnitude)); return plan
+}
+fun scalarNanPlan(bits: Int) r: GpuScalarPlan {
+    let plan = GpuScalarPlan.create(); plan.result = scalarFloatIsNan(plan, plan.input(3, bits)); return plan
+}

@@ -1,0 +1,11 @@
+/// Bootstrap-compatible entry points delegate to the shared scalar policy.
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_scalar_plan.{spirvScalarPlanValue}
+import codegen.gpu.scalar_support_plans.{scalarRoundPlan, scalarPositiveBitsPlan}
+
+fun spirvRoundRightEven(function: GpuSpirvFunction, bits: Int, shift: Int) r: Int {
+    return spirvScalarPlanValue(function, scalarRoundPlan(bits, shift))
+}
+fun spirvPositiveFloatBits(function: GpuSpirvFunction, exponent: Int, mantissa: Int) r: Int {
+    return spirvScalarPlanValue(function, scalarPositiveBitsPlan(exponent, mantissa))
+}

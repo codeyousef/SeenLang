@@ -1,0 +1,13 @@
+import async.multithread.{MultithreadExecutor}
+import async.executor_core.{ExecutorJob, ExecutorTaskContext}
+
+class UnsafeJob { var borrowed: *Int }
+
+impl ExecutorJob for UnsafeJob {
+    fun run(this: UnsafeJob, context: ExecutorTaskContext) r: Bool { return true }
+    fun release(this: UnsafeJob) r: Bool { this.free(); return true }
+}
+
+// A borrowed raw pointer must not satisfy the public Send admission bound.
+fun reject(pool: MultithreadExecutor<UnsafeJob>) r: Int { return 0 }
+fun main() r: Int { return 0 }

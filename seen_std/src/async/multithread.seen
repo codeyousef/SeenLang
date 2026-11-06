@@ -1,0 +1,289 @@
+/// Typed ownership boundary for the fixed-worker executor.
+/// The core owns scheduling; the native module owns only OS ABI declarations.
+
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import sync.contracts.{Send}
+import async.join_report.{ExecutorJoinReport}
+import async.executor_core.{ExecutorLimits, ExecutorJob, ExecutorOwnedJob, ExecutorTaskContext,
+    ExecutorCore, ExecutorTicket, executorFailure, executorCopyContext, executorDropWitness,
+    executorContextFailure, executorReleaseContext, executorReleaseSnapshot, executorWorkerEntry,
+    EXECUTOR_FOREVER}
+import async.executor_native.{seen_sync_mutex_create, seen_sync_mutex_lock_until, seen_sync_mutex_unlock,
+    seen_sync_mutex_destroy, seen_sync_condition_create, seen_sync_condition_wait_until,
+    seen_sync_condition_notify_all, seen_sync_condition_destroy, seen_executor_thread_create,
+    seen_executor_thread_join, seen_executor_current_owner, seen_executor_current_task,
+    seen_executor_swap_task, seen_executor_live_threads, seen_pool_free}
+
+@move
+class ExecutorJoinHandle<T: Send + ExecutorJob> {
+    var core: ExecutorCore
+    var task: ExecutorOwnedJob<T>
+    var slot: Int
+    var id: Int
+    var depth: Int
+    var active: Bool
+
+    fun cancel() r: Result<Bool, AsyncError> {
+        if not this.active {
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32,
+                "executor.cancel", 0 as UInt64))
+        }
+        let status = this.core.cancel(this.slot, this.id)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status,
+                "executor.cancel", 0 as UInt64))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun isTerminal() r: Result<Bool, AsyncError> {
+        if not this.active { return Err<Bool, AsyncError>(executorFailure(1 as Int32, "executor.ready", 0 as UInt64)) }
+        return this.core.isTerminal(this.slot, this.id)
+    }
+
+    fun waitForTerminal(context: AsyncOperationContext) r: Result<Int32, AsyncError> {
+        if not this.active {
+            return Err<Int32, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
+        }
+        let valid = validateAsyncContext(context, "executor.await", this.core.taskProgress(this.slot, this.id))
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer(); return Err<Int32, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        let status = this.core.wait(this.slot, this.id, context, this.depth)
+        if status != (0 as Int32) and status < (100 as Int32) {
+            return Err<Int32, AsyncError>(executorContextFailure(status, "executor.await",
+                this.core.taskProgress(this.slot, this.id), context))
+        }
+        return Ok<Int32, AsyncError>(status)
+    }
+
+    fun join(context: AsyncOperationContext) r: Result<T, AsyncError> {
+        let joined = this.joinOwned(context)
+        if joined.isErr() { let error = joined.unwrapErr(); joined.releaseContainer(); return Err<T, AsyncError>(error) }
+        let owner = joined.unwrap(); joined.releaseContainer(); return Ok<T, AsyncError>(owner.take())
+    }
+
+    fun joinOwned(context: AsyncOperationContext) r: Result<ExecutorOwnedJob<T>, AsyncError> {
+        let waited = this.waitForTerminal(context)
+        if waited.isErr() {
+            let error = waited.unwrapErr(); waited.releaseContainer(); return Err<ExecutorOwnedJob<T>, AsyncError>(error)
+        }
+        let status = waited.unwrap(); waited.releaseContainer()
+        if status == (0 as Int32) {
+            if not this.core.reap(this.slot, this.id, false) {
+                return Err<ExecutorOwnedJob<T>, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
+            }
+            this.active = false; return Ok<ExecutorOwnedJob<T>, AsyncError>(this.task)
+        }
+        let observed = this.core.observe(this.slot, this.id, false)
+        if observed.isErr() {
+            let error = observed.unwrapErr(); observed.releaseContainer(); return Err<ExecutorOwnedJob<T>, AsyncError>(error)
+        }
+        let observation = observed.unwrap(); observed.releaseContainer()
+        let error = executorContextFailure(status - (100 as Int32), "executor.await", observation.progress, context)
+        error.retryable = error.code == "async.unavailable" and observation.retryable
+        observation.release()
+        if this.core.reap(this.slot, this.id, true) { this.active = false }
+        return Err<ExecutorOwnedJob<T>, AsyncError>(error)
+    }
+
+    fun joinDetailed(context: AsyncOperationContext) r: Result<ExecutorJoinReport<T>, AsyncError> {
+        let waited = this.waitForTerminal(context)
+        if waited.isErr() {
+            let error = waited.unwrapErr(); waited.releaseContainer()
+            return Err<ExecutorJoinReport<T>, AsyncError>(error)
+        }
+        let status = waited.unwrap(); waited.releaseContainer()
+        let observed = this.core.observe(this.slot, this.id, true)
+        if observed.isErr() {
+            let error = observed.unwrapErr(); observed.releaseContainer()
+            return Err<ExecutorJoinReport<T>, AsyncError>(error)
+        }
+        let observation = observed.unwrap(); observed.releaseContainer()
+        if not this.core.reap(this.slot, this.id, status != (0 as Int32)) {
+            observation.release()
+            return Err<ExecutorJoinReport<T>, AsyncError>(executorFailure(1 as Int32, "executor.await", 0 as UInt64))
+        }
+        this.active = false
+        var task = None<ExecutorOwnedJob<T>>(); var error = None<AsyncError>()
+        if status == (0 as Int32) { task.free(); task = Some<ExecutorOwnedJob<T>>(this.task) }
+        else {
+            let failure = executorContextFailure(status - (100 as Int32), "executor.await", observation.progress, context)
+            failure.retryable = failure.code == "async.unavailable" and observation.retryable
+            error.free(); error = Some<AsyncError>(failure)
+        }
+        let report = ExecutorJoinReport<T>{task: task, error: error, diagnostic: observation.diagnostic,
+            fallback: observation.fallback, progress: observation.progress}
+        observation.free()
+        return Ok<ExecutorJoinReport<T>, AsyncError>(report)
+    }
+
+}
+
+fun executorSubmit<T: Send + ExecutorJob>(core: ExecutorCore, task: ExecutorOwnedJob<T>,
+    context: AsyncOperationContext, depth: Int)
+    r: Result<ExecutorJoinHandle<T>, AsyncError> {
+    let valid = validateAsyncContext(context, "executor.spawn", 0 as UInt64)
+    if valid.isErr() {
+        let error = valid.unwrapErr()
+        valid.releaseContainer()
+        return Err<ExecutorJoinHandle<T>, AsyncError>(error)
+    }
+    valid.releaseContainer()
+    let snapshot = executorCopyContext(context)
+    let admitted = core.admit(task, snapshot)
+    if admitted.isErr() {
+        let error = admitted.unwrapErr()
+        admitted.releaseContainer()
+        executorReleaseSnapshot(snapshot)
+        return Err<ExecutorJoinHandle<T>, AsyncError>(error)
+    }
+    let slot = admitted.unwrap()
+    admitted.releaseContainer()
+    // The terminal task cannot be reaped before this handle is published.
+    let id = core.tickets[slot].unwrap().id
+    return Ok<ExecutorJoinHandle<T>, AsyncError>(ExecutorJoinHandle<T>{
+        core: core, task: task, slot: slot, id: id, depth: depth, active: true})
+}
+
+fun spawnExecutorTask<T: Send + ExecutorJob>(context: ExecutorTaskContext,
+    task: ExecutorOwnedJob<T>) r: Result<ExecutorJoinHandle<T>, AsyncError> {
+    if context.isCancelled() {
+        return Err<ExecutorJoinHandle<T>, AsyncError>(executorFailure(
+            9 as Int32, "executor.spawn", 0 as UInt64))
+    }
+    return executorSubmit<T>(context.core, task, context.operation,
+        context.depth)
+}
+
+
+
+fun spawnExecutorTaskWitness<T: Send + ExecutorJob>(context: ExecutorTaskContext,
+    task: T, witness: dyn ExecutorJob) r: Result<ExecutorJoinHandle<T>, AsyncError> {
+    if context.isCancelled() {
+        executorDropWitness(witness)
+        return Err<ExecutorJoinHandle<T>, AsyncError>(executorFailure(9 as Int32, "executor.spawn", 0 as UInt64))
+    }
+    return executorSubmitWitness<T>(context.core, task, witness, context.operation, context.depth)
+}
+
+/// Explicit witness capture keeps failed admission ownership with the caller.
+fun executorSubmitWitness<T: Send + ExecutorJob>(core: ExecutorCore, task: T,
+    witness: dyn ExecutorJob, context: AsyncOperationContext, depth: Int)
+    r: Result<ExecutorJoinHandle<T>, AsyncError> {
+    let bound = ExecutorOwnedJob<T>.bind(task, witness)
+    if bound.isErr() { let error = bound.unwrapErr(); bound.releaseContainer(); return Err<ExecutorJoinHandle<T>, AsyncError>(error) }
+    let owner = bound.unwrap(); bound.releaseContainer()
+    let submitted = executorSubmit<T>(core, owner, context, depth)
+    if submitted.isErr() { owner.take() }
+    return submitted
+}
+
+@move
+class MultithreadExecutor<T: Send + ExecutorJob> {
+    var core: ExecutorCore
+
+    static fun create(limits: ExecutorLimits)
+        r: Result<MultithreadExecutor<T>, AsyncError> {
+        if not limits.valid() {
+            return Err<MultithreadExecutor<T>, AsyncError>(executorFailure(
+                2 as Int32, "executor.create", 0 as UInt64))
+        }
+        let tickets = Array<Option<ExecutorTicket>>()
+        let freeSlots = Array<Int>()
+        let queue = Array<Int>()
+        var i = 0
+        while i < limits.tasks {
+            tickets.push(None<ExecutorTicket>())
+            freeSlots.push(limits.tasks - i - 1)
+            i = i + 1
+        }
+        i = 0
+        while i < limits.queued { queue.push(0); i = i + 1 }
+        let ownedLimits = ExecutorLimits{workers: limits.workers,
+            tasks: limits.tasks, queued: limits.queued,
+            helpDepth: limits.helpDepth, stackBytes: limits.stackBytes}
+        let core = ExecutorCore{limits: ownedLimits, mutex: 0 as UInt64,
+            changed: 0 as UInt64, threads: Array<UInt64>(), tickets: tickets,
+            freeSlots: freeSlots, freeCount: limits.tasks,
+            queue: queue, head: 0, tail: 0, queued: 0, outstanding: 0,
+            running: 0, nextId: 1, completed: 0 as UInt64,
+            stopping: false, stopped: false, closed: false,
+            syncOwners: 0, syncWaiters: 0}
+        var mutex = 0 as UInt64
+        var changed = 0 as UInt64
+        var status = seen_sync_mutex_create(&mutex)
+        if status == (0 as Int32) {
+            core.mutex = mutex
+            status = seen_sync_condition_create(&changed)
+            core.changed = changed
+        }
+        if status == (0 as Int32) {
+            i = 0
+            while i < limits.workers and status == (0 as Int32) {
+                var handle = 0 as UInt64
+                status = seen_executor_thread_create(executorWorkerEntry,
+                    core as Int, limits.stackBytes, &handle)
+                if status == (0 as Int32) { core.threads.push(handle) }
+                i = i + 1
+            }
+        }
+        if status != (0 as Int32) {
+            // The shared close path unwinds every successfully acquired
+            // prefix, joining workers before releasing their borrowed core.
+            if core.close() != (0 as Int32) {
+                abort("executor partial construction cannot be released")
+            }
+            ownedLimits.free()
+            core.free()
+            return Err<MultithreadExecutor<T>, AsyncError>(executorFailure(
+                status, "executor.create", 0 as UInt64))
+        }
+        return Ok<MultithreadExecutor<T>, AsyncError>(MultithreadExecutor<T>{core: core})
+    }
+
+    fun spawn(task: T, witness: dyn ExecutorJob, context: AsyncOperationContext)
+        r: Result<ExecutorJoinHandle<T>, AsyncError> {
+        return executorSubmitWitness<T>(this.core, task, witness, context, 0)
+    }
+
+    fun spawnOwned(task: ExecutorOwnedJob<T>, context: AsyncOperationContext)
+        r: Result<ExecutorJoinHandle<T>, AsyncError> {
+        return executorSubmit<T>(this.core, task, context, 0)
+    }
+
+    fun shutdown(cancelPending: Bool) r: Result<Bool, AsyncError> {
+        let status = this.core.shutdown(cancelPending)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status,
+                "executor.shutdown", 0 as UInt64))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun close() r: Result<Bool, AsyncError> {
+        let status = this.core.close()
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status,
+                "executor.close", 0 as UInt64))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    /// Final owner destruction after all external users have stopped. close
+    /// remains idempotent until this method consumes the executor object.
+    fun release() r: Result<Bool, AsyncError> {
+        let status = this.core.close()
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status,
+                "executor.release", 0 as UInt64))
+        }
+        this.core.limits.free()
+        this.core.free()
+        this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

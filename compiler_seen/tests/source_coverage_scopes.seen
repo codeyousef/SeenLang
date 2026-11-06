@@ -1,0 +1,32 @@
+import str.string.{StringBuilder}
+import codegen.source_coverage_state.{beginSourceCoverageModule, sourceCoverageValid,
+    sourceCoverageActive, beginSourceCoverageFunction, beginSourceCoverageClosure,
+    coverSourceStatement, coverSourceBranch, endSourceCoverageFunction, finishSourceCoverageModule}
+
+fun main() r: Int {
+    let output = StringBuilder.new()
+    beginSourceCoverageModule("", false)
+    beginSourceCoverageFunction(output, "disabled", 0, 0)
+    coverSourceStatement(output, 1, 1); coverSourceBranch(output, "true")
+    endSourceCoverageFunction(); finishSourceCoverageModule(output)
+    if sourceCoverageActive() or not sourceCoverageValid() or output.toString() != "" { return 1 }
+    let invalid = ["", "bad\npath.seen", "bad\tpath.seen", "bad\rpath.seen"]
+    var index = 0
+    while index < invalid.length() {
+        beginSourceCoverageModule(invalid[index], true)
+        if sourceCoverageActive() or sourceCoverageValid() { return 2 }
+        index = index + 1
+    }
+    beginSourceCoverageModule("valid.seen", true)
+    coverSourceBranch(output, "true"); coverSourceStatement(output, 0, 0)
+    beginSourceCoverageFunction(output, "entry", 0, 0)
+    beginSourceCoverageClosure(output, "nested")
+    coverSourceStatement(output, 2, 0); coverSourceBranch(output, "true")
+    endSourceCoverageFunction(); endSourceCoverageFunction(); endSourceCoverageFunction()
+    finishSourceCoverageModule(output)
+    let ir = output.toString()
+    if not sourceCoverageValid() or not ir.contains("atomicrmw add") or not ir.contains("__llvm_covmap") { return 3 }
+    invalid.free()
+    println("PASS: source coverage rejects malformed paths and preserves disabled and nested scopes")
+    return 0
+}

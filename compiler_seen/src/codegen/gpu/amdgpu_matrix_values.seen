@@ -1,0 +1,29 @@
+/// Pack raw register words into the exact native MFMA vector operands. BF16
+/// uses i16 payload bits and is never interpreted as, or narrowed to, FP16.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, amdValue, amdDefinition}
+import codegen.gpu_precision_formats.{GPU_FORMAT_BF16}
+fun amdFragmentVector(function: GpuAmdFunction, first: Int, count: Int, floating: Bool) r: Int {
+    var vector = 0; var element = 0
+    while element < count {
+        var value = 0; if floating { value = function.asFloat(first + element) } else { value = function.read(first + element) }
+        let next = function.value(); amdDefinition(function.body, next); function.body.literal("insertelement <"); function.body.number(count)
+        if floating { function.body.literal(" x float> ") } else { function.body.literal(" x i32> ") }
+        if element == 0 { function.body.literal("poison") } else { amdValue(function.body, vector) }
+        if floating { function.body.literal(", float ") } else { function.body.literal(", i32 ") }
+        amdValue(function.body, value); function.body.literal(", i32 "); function.body.number(element); function.body.literal("\n")
+        vector = next; element = element + 1
+    }; return vector
+}
+fun amdMatrixInput(function: GpuAmdFunction, first: Int, format: Int) r: Int {
+    let words = amdFragmentVector(function, first, 2, false); let packed = function.value(); amdDefinition(function.body, packed)
+    function.body.literal("bitcast <2 x i32> "); amdValue(function.body, words); function.body.literal(" to <4 x ")
+    if format == GPU_FORMAT_BF16 { function.body.literal("i16>\n") } else { function.body.literal("half>\n") }; return packed
+}
+fun amdMatrixResult(function: GpuAmdFunction, destination: Int, vector: Int) r: Void {
+    var element = 0
+    while element < 4 {
+        let value = function.value(); amdDefinition(function.body, value); function.body.literal("extractelement <4 x float> ")
+        amdValue(function.body, vector); function.body.literal(", i32 "); function.body.number(element); function.body.literal("\n")
+        function.writeFloat(destination + element, value); element = element + 1
+    }
+}

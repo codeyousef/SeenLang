@@ -1,0 +1,95 @@
+import stress_fixture_support.{must, context, errorHasProgress}
+import async.structured.{AsyncError, AsyncOperationContext}
+import async.executor_core.{executorReleaseContext}
+import async.sockets.{AsyncTcpSocket, SocketAddress, SocketProgress}
+import core.result.{Result}
+import memory.aligned_buffer.{OwnedBuffer}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun expectError<T>(value: Result<T, AsyncError>, code: String, progress: UInt64) r: Void {
+    if not errorHasProgress<T>(value, code, progress) { abort("socket error code/progress mismatch") }
+}
+fun acceptPeer(listener: AsyncTcpSocket, ctx: AsyncOperationContext) r: AsyncTcpSocket {
+    var attempt = 0
+    while attempt < 10000 {
+        let result = listener.accept(ctx)
+        if result.isOkay() {
+            let peer = result.unwrap(); result.releaseContainer(); return peer
+        }
+        expectError(result, "async.unavailable", 0 as UInt64); attempt = attempt + 1
+    }
+    abort("loopback accept did not become ready")
+}
+fun readReady(socket: AsyncTcpSocket, buffer: OwnedBuffer<UInt8>, ctx: AsyncOperationContext) r: SocketProgress {
+    var attempt = 0
+    while attempt < 10000 {
+        let result = socket.read(buffer, 1 as UInt64, ctx)
+        if result.isOkay() {
+            let progress = result.unwrap(); result.releaseContainer(); return progress
+        }
+        expectError(result, "async.unavailable", 0 as UInt64); attempt = attempt + 1
+    }
+    abort("loopback read did not become ready")
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    let ctx = context(); let cancelled = context(); cancelled.operation.cancellation = true
+    let bytes = [127, 0, 0, 1]
+    expectError(SocketAddress.fromBytes(bytes, -1), "async.invalid", 0 as UInt64)
+    expectError(SocketAddress.fromBytes(bytes, 65536), "async.invalid", 0 as UInt64)
+    bytes[2] = -1; expectError(SocketAddress.fromBytes(bytes, 0), "async.invalid", 2 as UInt64)
+    bytes[2] = 256; expectError(SocketAddress.fromBytes(bytes, 0), "async.invalid", 2 as UInt64)
+    bytes[2] = 0
+    let short = [127]; expectError(SocketAddress.fromBytes(short, 0), "async.invalid", 0 as UInt64); short.free()
+    let ipv6 = Array<Int>(); var index = 0
+    while index < 16 { ipv6.push(0); index = index + 1 }
+    ipv6[15] = 1; let address6 = must(SocketAddress.fromBytes(ipv6, 65535)); address6.release(); ipv6.free()
+    let address = must(SocketAddress.fromBytes(bytes, 0)); bytes.free()
+    expectError(AsyncTcpSocket.create(3, 4 as UInt64), "async.limit", 0 as UInt64)
+    expectError(AsyncTcpSocket.create(4, 0 as UInt64), "async.limit", 0 as UInt64)
+    expectError(AsyncTcpSocket.create(4, 16777217 as UInt64), "async.limit", 0 as UInt64)
+    let listener = must(AsyncTcpSocket.create(4, 4 as UInt64))
+    expectError(listener.bind(address, cancelled), "async.cancelled", 0 as UInt64)
+    must(listener.bind(address, ctx))
+    expectError(listener.listen(0), "async.invalid", 0 as UInt64)
+    expectError(listener.listen(1025), "async.invalid", 0 as UInt64)
+    must(listener.listen(2)); address.port = must(listener.boundPort()) as UInt16
+    expectError(listener.accept(cancelled), "async.cancelled", 0 as UInt64)
+    expectError(listener.accept(ctx), "async.unavailable", 0 as UInt64)
+    let client = must(AsyncTcpSocket.create(4, 4 as UInt64))
+    expectError(client.beginConnect(address, cancelled), "async.cancelled", 0 as UInt64)
+    must(client.beginConnect(address, ctx))
+    let peer = acceptPeer(listener, ctx); must(client.finishConnect())
+    let buffer = must(OwnedBuffer<UInt8>.allocate(8 as UInt64, 1 as UInt64, 16 as UInt64))
+    expectError(client.write(buffer, 1 as UInt64, cancelled), "async.cancelled", 0 as UInt64)
+    expectError(client.write(buffer, 0 as UInt64, ctx), "async.limit", 0 as UInt64)
+    expectError(client.write(buffer, 9 as UInt64, ctx), "async.limit", 0 as UInt64)
+    expectError(client.write(buffer, 5 as UInt64, ctx), "async.limit", 0 as UInt64)
+    expectError(peer.read(buffer, 1 as UInt64, ctx), "async.unavailable", 0 as UInt64)
+    buffer.data[0] = 93 as UInt8
+    let written = must(client.write(buffer, 1 as UInt64, ctx))
+    if written.bytes != (1 as UInt64) or written.eof { abort("socket write lost progress") }
+    written.free()
+    let read = readReady(peer, buffer, ctx)
+    if read.bytes != (1 as UInt64) or read.eof or buffer.data[0] != (93 as UInt8) {
+        abort("socket loopback payload/progress mismatch")
+    }
+    read.free(); must(client.descriptor.close())
+    let eof = readReady(peer, buffer, ctx)
+    if eof.bytes != (0 as UInt64) or not eof.eof { abort("socket EOF lost") }
+    eof.free()
+    expectError(client.bind(address, ctx), "async.invalid", 0 as UInt64)
+    expectError(client.listen(1), "async.invalid", 0 as UInt64)
+    expectError(client.accept(ctx), "async.invalid", 0 as UInt64)
+    expectError(client.beginConnect(address, ctx), "async.invalid", 0 as UInt64)
+    expectError(client.finishConnect(), "async.invalid", 0 as UInt64)
+    expectError(client.boundPort(), "async.invalid", 0 as UInt64)
+    expectError(client.read(buffer, 1 as UInt64, ctx), "async.limit", 0 as UInt64)
+    must(client.release()); must(listener.release())
+    let handle = peer.intoHandle(); must(handle.close()); handle.free()
+    buffer.close(); buffer.free(); address.release()
+    executorReleaseContext(ctx); executorReleaseContext(cancelled)
+    if seen_memory_used_bytes() != memory { abort("socket paths leaked allocations") }
+    println("PASS: ASYNC-002D loopback socket progress, EOF, limits and cancellation")
+    return 0
+}

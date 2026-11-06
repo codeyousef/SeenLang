@@ -1,0 +1,192 @@
+/// Serialized Windows completion coordinator. No worker or blocking fallback.
+import core.result.{Result, Ok, Err}
+import core.option.{Option, None}
+import async.structured.{AsyncError, AsyncOperationContext}
+import reactor.reactor.{OwnedHandle}
+import fs.types.{OpenOptions}
+import memory.aligned_buffer.{OwnedBuffer}
+import io.completion_queue.{IoQueue, ioQueuePreflight}
+import io.completion_types.{IO_DEVICE_REMOVED_STATUS, IoQueueLimits, IoRequest, IoRegistration, IoRejectedSubmission, IoCompletion, IoOperation, IoSubmissionView, ioQueueFailure}
+import io.completion_bytes.{completionByteAddress}
+import io.iocp_layout.{iocpStatus, iocpEncodeOverlapped}
+import io.iocp_file.{iocpOpenHandle, IocpOpenFailure}
+import io.iocp_native.{seen_iocp_create, seen_iocp_associate, seen_iocp_transfer, seen_iocp_cancel, seen_iocp_dequeue}
+
+class IocpCreateFailure {
+    var error: AsyncError
+    var nativeResult: UInt32
+    fun release() r: Void { this.error.free(); this.free() }
+}
+fun iocpCreateRejected(error: AsyncError, nativeResult: UInt32) r: Result<WindowsIocpQueue, IocpCreateFailure> {
+    return Err<WindowsIocpQueue, IocpCreateFailure>(IocpCreateFailure{error: error, nativeResult: nativeResult})
+}
+@move
+class WindowsIocpQueue {
+    var core: IoQueue
+    var port: OwnedHandle
+    var records: OwnedBuffer<UInt8>
+    var pendingCancellation: Option<IoRegistration>
+    var lastNativeResult: UInt32
+    var lastCancellationResult: UInt32
+    var poisoned: Bool
+    var closed: Bool
+
+    static fun create(borrow limits: IoQueueLimits, maxOverlappedBytes: UInt64) r: Result<WindowsIocpQueue, IocpCreateFailure> {
+        if not limits.valid() or maxOverlappedBytes > (2097152 as UInt64) or
+            (limits.depth as UInt64) * (32 as UInt64) > maxOverlappedBytes {
+            return iocpCreateRejected(ioQueueFailure(2 as Int32, "io.iocp.create.limit", 0 as UInt64), 0 as UInt32)
+        }
+        let created = IoQueue.create(limits)
+        if created.isErr() { let error = created.unwrapErr(); created.releaseContainer(); return iocpCreateRejected(error, 0 as UInt32) }
+        let core: IoQueue = created.unwrap(); created.releaseContainer()
+        let allocation = OwnedBuffer<UInt8>.allocate((limits.depth as UInt64) * (32 as UInt64), 1 as UInt64, 16 as UInt64)
+        if allocation.isErr() {
+            allocation.unwrapErr().free(); allocation.releaseContainer(); let released = core.release(); released.releaseContainer()
+            return iocpCreateRejected(ioQueueFailure(2 as Int32, "io.iocp.create.records", 0 as UInt64), 8 as UInt32)
+        }
+        let records: OwnedBuffer<UInt8> = allocation.unwrap(); allocation.releaseContainer()
+        var port = -1 as Int64; let status = seen_iocp_create(1 as UInt32, &port)
+        if status != (0 as UInt32) {
+            records.close(); records.free(); let released = core.release(); released.releaseContainer()
+            return iocpCreateRejected(ioQueueFailure(iocpStatus(status), "io.iocp.create.native", 0 as UInt64), status)
+        }
+        return Ok<WindowsIocpQueue, IocpCreateFailure>(WindowsIocpQueue{core: core,
+            port: OwnedHandle{native: port, owned: true, valid: true}, records: records,
+            pendingCancellation: None<IoRegistration>(), lastNativeResult: 0 as UInt32,
+            lastCancellationResult: 0 as UInt32, poisoned: false, closed: false})
+    }
+    fun available() r: Bool { return not this.closed and not this.poisoned }
+    fun record(slot: Int) r: *UInt8 {
+        if this.closed or this.records.data == (null as *UInt8) or slot < 0 or slot >= this.core.capacity or
+            this.records.byteLength < ((slot + 1) as UInt64) * (32 as UInt64) { return null as *UInt8 }
+        return completionByteAddress(this.records.data, (slot as UInt64) * (32 as UInt64))
+    }
+    fun rejectBuffer(buffer: OwnedBuffer<UInt8>, operation: IoOperation, offset: Int64, bytes: UInt64,
+        context: AsyncOperationContext, error: AsyncError) r: Result<IoRegistration, IoRejectedSubmission> {
+        let descriptor = OwnedHandle{native: -1 as Int64, owned: true, valid: false}
+        return this.core.reject(IoRequest.create(descriptor, buffer, operation, offset, bytes, context), error)
+    }
+    // Only fresh CreateFileW file objects enter this backend. DuplicateHandle
+    // aliases would inherit an immutable IOCP key and cannot represent a new
+    // request generation safely, so arbitrary raw handles are not admitted.
+    fun reserveFile(path: String, borrow options: OpenOptions, buffer: OwnedBuffer<UInt8>,
+        operation: IoOperation, offset: Int64, bytes: UInt64, context: AsyncOperationContext) r: Result<IoRegistration, IoRejectedSubmission> {
+        if this.core.deviceLost {
+            return this.rejectBuffer(buffer, operation, offset, bytes, context, ioQueueFailure(IO_DEVICE_REMOVED_STATUS, "io.iocp.reserve.device", 0 as UInt64))
+        }
+        if not this.available() {
+            return this.rejectBuffer(buffer, operation, offset, bytes, context, ioQueueFailure(3 as Int32, "io.iocp.reserve", 0 as UInt64))
+        }
+        // File creation/truncation is an explicit separate operation. Admission
+        // must not alter filesystem contents before the request is accepted.
+        if options.create or options.truncate {
+            return this.rejectBuffer(buffer, operation, offset, bytes, context, ioQueueFailure(1 as Int32, "io.iocp.reserve.open-existing", 0 as UInt64))
+        }
+        let validation = ioQueuePreflight(this.core, buffer, operation, offset, bytes, context, -1 as Int64)
+        if validation.isErr() {
+            let error = validation.unwrapErr(); validation.releaseContainer()
+            return this.rejectBuffer(buffer, operation, offset, bytes, context, error)
+        }
+        validation.releaseContainer()
+        let opened = iocpOpenHandle(path, options, operation)
+        if opened.isErr() {
+            let failure: IocpOpenFailure = opened.unwrapErr(); opened.releaseContainer()
+            let error = failure.error; this.lastNativeResult = failure.nativeResult; failure.free()
+            return this.rejectBuffer(buffer, operation, offset, bytes, context, error)
+        }
+        let descriptor: OwnedHandle = opened.unwrap(); opened.releaseContainer()
+        return this.core.reserve(IoRequest.create(descriptor, buffer, operation, offset, bytes, context))
+    }
+    fun submit(token: UInt64) r: Result<Bool, AsyncError> {
+        if not this.available() { return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.iocp.submit", 0 as UInt64)) }
+        let result = this.core.submission(token)
+        if result.isErr() { let error = result.unwrapErr(); result.releaseContainer(); return Err<Bool, AsyncError>(error) }
+        let view: IoSubmissionView = result.unwrap(); result.releaseContainer()
+        let slot = this.core.slot(token); let record = this.record(slot)
+        iocpEncodeOverlapped(record, view.fileOffset)
+        let associated = seen_iocp_associate(this.port.native, view.descriptor, token); this.lastNativeResult = associated
+        if associated != (0 as UInt32) {
+            view.free(); let rejected = this.core.rejectSubmission(token, iocpStatus(associated), associated as Int64); rejected.releaseContainer()
+            return Err<Bool, AsyncError>(ioQueueFailure(iocpStatus(associated), "io.iocp.associate", 0 as UInt64))
+        }
+        let submitted = this.core.submitted(token)
+        if submitted.isErr() { view.free(); return submitted }; submitted.releaseContainer()
+        var write = 0 as UInt32; if view.operation == IoOperation.Write { write = 1 as UInt32 }
+        let status = seen_iocp_transfer(view.descriptor, view.buffer, view.bytes as UInt32, record, 32 as UInt64, write)
+        this.lastNativeResult = status; view.free()
+        // Both immediate success and IO_PENDING enqueue exactly one packet.
+        if status == (0 as UInt32) or status == (997 as UInt32) or status == (234 as UInt32) { return Ok<Bool, AsyncError>(true) }
+        let completed = this.core.complete(token, 0 as UInt64, iocpStatus(status), status as Int64); completed.releaseContainer()
+        if status == (38 as UInt32) { return Ok<Bool, AsyncError>(true) }
+        return Err<Bool, AsyncError>(ioQueueFailure(iocpStatus(status), "io.iocp.submit.native", 0 as UInt64))
+    }
+    fun fault(operation: String) r: AsyncError {
+        this.poisoned = true; return ioQueueFailure(3 as Int32, operation, 0 as UInt64)
+    }
+    fun acceptCompletion(token: UInt64, overlapped: UInt64, bytes: UInt64, nativeStatus: UInt32) r: Result<Bool, AsyncError> {
+        if not this.available() { return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.iocp.complete", 0 as UInt64)) }
+        let slot = this.core.slot(token)
+        if slot < 0 or this.core.states[slot] != 2 or overlapped == (0 as UInt64) or overlapped != (this.record(slot) as UInt64) or nativeStatus == (997 as UInt32) or nativeStatus == (258 as UInt32) {
+            return Err<Bool, AsyncError>(this.fault("io.iocp.complete.identity"))
+        }
+        let completed = this.core.complete(token, bytes, iocpStatus(nativeStatus), nativeStatus as Int64)
+        if completed.isErr() {
+            completed.unwrapErr().free(); completed.releaseContainer()
+            return Err<Bool, AsyncError>(this.fault("io.iocp.complete.progress"))
+        }
+        completed.releaseContainer(); return Ok<Bool, AsyncError>(true)
+    }
+    fun reap(maximum: Int) r: Result<UInt64, AsyncError> {
+        if not this.available() or maximum <= 0 or maximum > this.core.capacity {
+            return Err<UInt64, AsyncError>(ioQueueFailure(1 as Int32, "io.iocp.reap", 0 as UInt64))
+        }
+        var count = 0 as UInt64
+        while count < (maximum as UInt64) {
+            var bytes = 0 as UInt32; var key = 0 as UInt64; var overlapped = 0 as UInt64
+            let status = seen_iocp_dequeue(this.port.native, &bytes, &key, &overlapped); this.lastNativeResult = status
+            if overlapped == (0 as UInt64) {
+                if status == (258 as UInt32) { return Ok<UInt64, AsyncError>(count) }
+                if status == (0 as UInt32) { return Err<UInt64, AsyncError>(this.fault("io.iocp.packet.empty")) }
+                return Err<UInt64, AsyncError>(ioQueueFailure(iocpStatus(status), "io.iocp.dequeue", 0 as UInt64))
+            }
+            let accepted = this.acceptCompletion(key, overlapped, bytes as UInt64, status)
+            if accepted.isErr() { let error = accepted.unwrapErr(); accepted.releaseContainer(); return Err<UInt64, AsyncError>(error) }
+            accepted.releaseContainer(); count = count + (1 as UInt64)
+        }
+        return Ok<UInt64, AsyncError>(count)
+    }
+    fun deviceRemoved(nativeResult: Int64) r: UInt64 { return this.core.deviceRemoved(nativeResult) }
+    fun cancel(token: UInt64) r: Result<Bool, AsyncError> { return this.core.cancel(token) }
+    fun publishCancellation() r: Result<Bool, AsyncError> {
+        if not this.available() { return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.iocp.cancel", 0 as UInt64)) }
+        if this.pendingCancellation.isNone() {
+            this.pendingCancellation.free(); this.pendingCancellation = this.core.nextCancellation()
+        }
+        if this.pendingCancellation.isNone() { return Ok<Bool, AsyncError>(false) }
+        let registration = this.pendingCancellation.unwrap(); let slot = this.core.slot(registration.token)
+        if slot >= 0 and this.core.states[slot] == 2 {
+            let descriptor = this.core.entries[slot].unwrap().resources.descriptor.native
+            let status = seen_iocp_cancel(descriptor, this.record(slot)); this.lastCancellationResult = status
+            if status != (0 as UInt32) and status != (1168 as UInt32) {
+                return Err<Bool, AsyncError>(ioQueueFailure(iocpStatus(status), "io.iocp.cancel.native", 0 as UInt64))
+            }
+        }
+        registration.free(); this.pendingCancellation.free(); this.pendingCancellation = None<IoRegistration>()
+        return Ok<Bool, AsyncError>(true)
+    }
+    fun poll() r: Option<IoCompletion> { return this.core.poll() }
+    fun shutdown() r: Void { this.core.shutdown() }
+    fun close() r: Result<Bool, AsyncError> {
+        if this.closed { return Ok<Bool, AsyncError>(true) }; this.shutdown()
+        if this.core.active != 0 { return Err<Bool, AsyncError>(ioQueueFailure(2 as Int32, "io.iocp.close.busy", 0 as UInt64)) }
+        let closed = this.port.close()
+        if closed.isErr() { closed.unwrapErr().free(); closed.releaseContainer(); return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.iocp.close.port", 0 as UInt64)) }
+        closed.releaseContainer(); this.records.close(); this.closed = true; return Ok<Bool, AsyncError>(true)
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer()
+        let released = this.core.release(); released.releaseContainer()
+        if this.pendingCancellation.isSome() { this.pendingCancellation.unwrap().free() }; this.pendingCancellation.free()
+        this.records.free(); this.port.free(); this.free(); return Ok<Bool, AsyncError>(true)
+    }
+}

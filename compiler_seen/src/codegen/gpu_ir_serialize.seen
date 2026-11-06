@@ -1,0 +1,60 @@
+/// Canonical, data-only IR export. Validation runs immediately before export;
+/// keys and arrays have fixed order, numbers are integers, and text is escaped.
+/// The caller owns the returned JSON string and releases it with releaseJsonText.
+import core.result.{Result, Ok, Err}
+import json.builder.{JsonBuilder, JsonBuilder_new, destroyJsonBuilder}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrInstruction, GpuIrValidation}
+import codegen.gpu_ir_verify.{verifyGpuIr}
+import codegen.gpu_ir_ops.{GPU_IR_MAX_LOOP_ITERATIONS, GPU_IR_MAX_ARTIFACT_BYTES}
+
+fun gpuIrWriteInstruction(builder: JsonBuilder, borrow op: GpuIrInstruction) r: Void {
+    builder.startObject(); builder.intProp("opcode", op.opcode); builder.intProp("result", op.result)
+    builder.intProp("type", op.typeCode); builder.key("operands"); builder.startArray(); var i = 0
+    while i < op.operands.length() { builder.number(op.operands[i]); i = i + 1 }; builder.endArray()
+    builder.intProp("immediate", op.immediate); builder.intProp("left_block", op.leftBlock); builder.intProp("right_block", op.rightBlock)
+    builder.stringProp("text", op.text); builder.intProp("memory_scope", op.memoryScope)
+    builder.intProp("memory_order", op.memoryOrder); builder.intProp("memory_spaces", op.memorySpaces)
+    builder.intProp("line", op.line); builder.intProp("column", op.column); builder.endObject()
+}
+fun gpuIrWriteFunction(builder: JsonBuilder, borrow function: GpuIrFunction) r: Bool {
+    builder.startObject(); builder.stringProp("name", function.name)
+    var kernel = 0; if function.kernel { kernel = 1 }; builder.boolProp("kernel", kernel)
+    builder.intProp("return_type", function.returnType); builder.key("parameter_types"); builder.startArray(); var i = 0
+    while i < function.parameterTypes.length() { builder.number(function.parameterTypes[i]); i = i + 1 }; builder.endArray()
+    builder.key("workgroup"); builder.startArray(); builder.number(function.workgroupX); builder.number(function.workgroupY)
+    builder.number(function.workgroupZ); builder.endArray(); builder.intProp("register_count", function.registerCount)
+    builder.intProp("local_count", function.localCount); builder.intProp("line", function.line)
+    builder.key("blocks"); builder.startArray(); i = 0
+    while i < function.blocks.length() {
+        let block = function.blocks[i]; builder.startObject(); builder.intProp("parent", block.parent)
+        builder.intProp("parent_instruction", block.parentInstruction); builder.key("instructions"); builder.startArray(); var j = 0
+        while j < block.instructions.length() {
+            gpuIrWriteInstruction(builder, block.instructions[j])
+            if builder.buffer.totalLength > GPU_IR_MAX_ARTIFACT_BYTES { return false }; j = j + 1
+        }
+        builder.endArray(); builder.endObject(); i = i + 1
+    }
+    builder.endArray(); builder.endObject(); return builder.buffer.totalLength <= GPU_IR_MAX_ARTIFACT_BYTES
+}
+fun serializeGpuIr(borrow module: GpuIrModule) r: Result<String, GpuIrValidation> {
+    let validation = verifyGpuIr(module)
+    if not validation.valid { return Err<String, GpuIrValidation>(validation) }
+    let builder = JsonBuilder_new(); builder.startObject(); builder.stringProp("schema", "seen-gpu-ir-v1")
+    builder.stringProp("module", module.name); builder.intProp("required_capabilities", module.requiredCapabilities as Int)
+    builder.intProp("shared_bytes", module.sharedBytes as Int)
+    var faultBuffer = 0; if module.requiresFaultBuffer { faultBuffer = 1 }; builder.boolProp("requires_fault_buffer", faultBuffer)
+    builder.intProp("max_loop_iterations", GPU_IR_MAX_LOOP_ITERATIONS); builder.key("functions"); builder.startArray(); var i = 0
+    while i < module.functions.length() {
+        if not gpuIrWriteFunction(builder, module.functions[i]) {
+            destroyJsonBuilder(builder); validation.reject("E_GPU_IR_LIMIT", "GPU serialized artifact exceeds its 32 MiB ceiling", i, -1, -1)
+            return Err<String, GpuIrValidation>(validation)
+        }
+        i = i + 1
+    }
+    builder.endArray(); builder.endObject()
+    if builder.buffer.totalLength > GPU_IR_MAX_ARTIFACT_BYTES {
+        destroyJsonBuilder(builder); validation.reject("E_GPU_IR_LIMIT", "GPU serialized artifact exceeds its 32 MiB ceiling", -1, -1, -1)
+        return Err<String, GpuIrValidation>(validation)
+    }
+    let text = builder.build(); destroyJsonBuilder(builder); validation.release(); return Ok<String, GpuIrValidation>(text)
+}

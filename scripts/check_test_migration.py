@@ -131,7 +131,8 @@ def discover(repo_root: Path, *, max_tests: int = MAX_TESTS,
         for candidate in tests_root.rglob("*"):
             if candidate.is_symlink():
                 fail("invalid", f"test tree contains symlink: {candidate.relative_to(repo_root)}")
-            if candidate.is_file() and candidate.suffix == ".seen":
+            if (candidate.is_file() and candidate.suffix == ".seen"
+                    and not candidate.name.endswith(("_support.seen", "_fixture.seen"))):
                 tests.append(candidate)
         count = len(tests)
         if count < 1 or total > max_tests - count:

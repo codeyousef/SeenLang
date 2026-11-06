@@ -1,0 +1,30 @@
+import codegen.gpu_bytes.{consumeGpuBytes}
+import json.builder.{releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun require(value: Bool) r: Void { if not value { abort("GPU byte text ownership contract failed") } }
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); var round = 0
+    while round < 100 {
+        let bytes = Array<Int>(); var i = 0
+        while i < 256 { bytes.push(i); i = i + 1 }
+        let result = consumeGpuBytes(bytes); require(result.isOkay()); let text = result.unwrap(); result.releaseContainer()
+        require(text.length() == 256); i = 0
+        while i < 256 { require(text.byteAt(i) == i); i = i + 1 }; releaseJsonText(text)
+        var length = 1
+        while length <= 17 {
+            let partial = Array<Int>(); i = 0
+            while i < length { partial.push(255 - i % 3); i = i + 1 }
+            let packed = consumeGpuBytes(partial); require(packed.isOkay()); let value = packed.unwrap(); packed.releaseContainer()
+            require(value.length() == length); i = 0
+            while i < length { require(value.byteAt(i) == 255 - i % 3); i = i + 1 }
+            releaseJsonText(value); length = length + 1
+        }
+        let empty = consumeGpuBytes(Array<Int>()); require(empty.isOkay())
+        let emptyText = empty.unwrap(); empty.releaseContainer(); require(emptyText.length() == 0); releaseJsonText(emptyText)
+        let low = consumeGpuBytes([-1]); let high = consumeGpuBytes([256]); require(low.isErr() and high.isErr())
+        let lowError = low.unwrapErr(); low.releaseContainer(); let highError = high.unwrapErr(); high.releaseContainer()
+        require(lowError.code == "E_GPU_INPUT" and highError.code == "E_GPU_INPUT"); lowError.free(); highError.free()
+        require(seen_memory_used_bytes() == baseline); round = round + 1
+    }
+    println("PASS: GPU-001D byte text round trip all octets empty rejection and ownership"); return 0
+}

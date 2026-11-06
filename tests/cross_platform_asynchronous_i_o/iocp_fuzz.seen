@@ -1,0 +1,39 @@
+import io.completion_types.{IoRegistration}
+import async.executor_core.{executorReleaseContext}
+import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioFixtureRequest, ioTake}
+import iocp_fixture_support.{iocpFixture, iocpMockSubmit}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun main() r: Int {
+    let start = seen_time_monotonic_nanos()
+    if start < (0 as Int64) or start > (9223371976854775807 as Int64) { return 1 }
+    let deadline = start + (60000000000 as Int64); let baseline = seen_memory_used_bytes()
+    var now = start; var seed = 1103; var iterations = 0
+    while now < deadline {
+        seed = (seed * 1103515245 + 12345) % 2147483647
+        let context = ioContext(); let queue = iocpFixture()
+        let registration: IoRegistration = ioMust(queue.core.reserve(ioFixtureRequest(context))); iocpMockSubmit(queue, registration.token)
+        let pointer = queue.record(queue.core.slot(registration.token)) as UInt64
+        let mode = seed % 6
+        if mode == 0 { ioMust(queue.acceptCompletion(registration.token, pointer, (seed % 17) as UInt64, 0 as UInt32)) }
+        if mode == 1 { ioMust(queue.cancel(registration.token)); ioMust(queue.acceptCompletion(registration.token, pointer, (seed % 17) as UInt64, 995 as UInt32)) }
+        if mode >= 2 {
+            var token = registration.token; var address = pointer; var bytes = 0 as UInt64; var status = 0 as UInt32
+            if mode == 2 { token = token + (4294967296 as UInt64) }
+            if mode == 3 { address = address + (1 as UInt64) }
+            if mode == 4 { bytes = 18446744073709551615 as UInt64 }
+            if mode == 5 { status = 997 as UInt32 }
+            ioRequire(ioErrorIs(queue.acceptCompletion(token, address, bytes, status), "async.unavailable"))
+            ioRequire(queue.poisoned and queue.core.nativeActive == 1 and queue.core.ownedBytes == (64 as UInt64))
+            // Mock-only acknowledgement; no production driver recovery claim.
+            ioMust(queue.core.complete(registration.token, 0 as UInt64, 9 as Int32, 995 as Int64))
+        }
+        let completion = ioTake(queue.core); ioMust(completion.release())
+        registration.free(); ioMust(queue.release()); executorReleaseContext(context)
+        ioRequire(seen_memory_used_bytes() == baseline); iterations = iterations + 1
+        if iterations % 256 == 0 { let next = seen_time_monotonic_nanos(); if next < now { return 2 }; now = next }
+    }
+    ioRequire(iterations >= 256)
+    println("PASS: IO-002C completion fuzz 60s seed=1103 identity progress and ownership")
+    return 0
+}

@@ -10,7 +10,7 @@ locks, and certification gates; the model engine itself is not part of 0.14.
 `Float16`, `BFloat16`, `Float8E4M3`, and `Float8E5M2`, plus checked 64-bit
 tensor geometry. The existing fixed-width integer names remain canonical.
 `inference/span` provides checked borrowed spans and bounded 2/3/4/8-bit
-packed views. `memory/aligned_buffer` owns 16–256-byte-aligned storage and
+packed views. `memory/aligned_buffer` owns 16–4096-byte-aligned storage and
 closes idempotently. The matching public C declarations are in
 `seen_runtime/seen_inference.h`.
 
@@ -72,6 +72,19 @@ Benchmark evidence requires at least 30 measured samples, correctness and
 quality state, host and VRAM usage, transfers, effective bandwidth, qualified
 hardware conditions, and the shared five-percent kernel regression gate.
 Generated model assets and machine evidence remain outside Git.
+
+Baseline evidence records `seen_commit` as the repository's full lowercase Git
+object ID (40 hexadecimal characters for SHA-1 repositories or 64 for SHA-256
+repositories). `compiler_sha256`, `environment_sha256`, and probe evidence
+digests remain exactly 64-character SHA-256 identities; a Git object ID is not
+the digest of a compiler or evidence file.
+
+The baseline gate accepts either no arguments or an existing environment lock
+and output path. With no arguments it captures live environment evidence in
+ignored project-local scratch, then runs the baseline probes against the selected
+attested compiler. Both forms require a clean checkout and verified serial
+containment. Child probes establish their own attested bindings; any failed
+probe propagates its status and prevents publication of a successful baseline.
 
 ## Certification
 

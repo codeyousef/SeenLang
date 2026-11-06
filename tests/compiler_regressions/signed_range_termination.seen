@@ -23,7 +23,6 @@ fun variableWorldGridChecksum(minX: Int, maxX: Int,
     if visits != 169 { return -2 }
     return checksum
 }
-
 fun main() {
     var count = 0
     var sum = 0

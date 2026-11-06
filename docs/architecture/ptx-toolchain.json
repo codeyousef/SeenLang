@@ -1,0 +1,17 @@
+{
+  "schema": "seen-ptx-toolchain-v1",
+  "profiles": {
+    "linux-x86_64": {
+      "package": "nvidia-cuda-nvcc-cu12",
+      "package_version": "12.8.93",
+      "package_url": "https://files.pythonhosted.org/packages/86/0a/962e9c861541b08d62ee38a9e9776a46f75b979c75e7236fa7e09b024470/nvidia_cuda_nvcc_cu12-12.8.93-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl",
+      "package_sha256": "2d6dc36fb7cb5ac9c0b8825bc13d193c35487a315664007287d0126531238011",
+      "package_member": "nvidia/cuda_nvcc/bin/ptxas",
+      "version_line": "Cuda compilation tools, release 12.8, V12.8.93",
+      "targets": ["sm_70", "sm_75", "sm_80", "sm_86", "sm_89", "sm_90", "sm_100"],
+      "tools": {
+        "ptxas": {"sha256": "c960a4f238b17d5c5d3c01ad2bbc1ebd2c5aecc459cb4d223bff10b45f9b8fca"}
+      }
+    }
+  }
+}

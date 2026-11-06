@@ -57,6 +57,15 @@ use `FsFile` or the checked text-read carrier, both of which expose
 cannot grow silently; replacing that frozen ABI requires a bootstrap migration,
 not a deprecated public bridge.
 
+The migration validator parses and checks every supplied contract afresh.
+Its bounded module-path checks preserve platform parent-component semantics;
+paths without a literal `..` cannot contain a parent component and avoid
+constructing a path object. Dotted filenames still receive the ordinary
+component check when needed. The pinned 5-warmup/30-sample/5-percent benchmark
+measures this contract validator against JSON parsing, not native error-runtime
+throughput. Compiled native migration cases remain in Stage1 acceptance;
+bootstrap source-text presence checks are not behavioral evidence.
+
 ## Redaction-safe secret values
 
 P0-SECRET-001 defines `seen-secret-marker-v1`. `SecretString` and

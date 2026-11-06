@@ -1,0 +1,10 @@
+class Sample {
+    var title: String
+    var values: Array<String>
+}
+
+fun makeSample() r: Sample {
+    let values = Array<String>()
+    values.push("value")
+    return Sample{title: "seen", values: values}
+}

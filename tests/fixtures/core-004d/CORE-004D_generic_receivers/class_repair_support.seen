@@ -1,0 +1,34 @@
+class DependencyBox<T> {
+    var tag: Int
+    var value: T
+    var sentinel: Int
+
+    fun get() r: T { return this.value }
+}
+
+class DependencyPair<L, R> {
+    var left: L
+    var right: R
+    var sentinel: Int
+}
+
+class DependencyOuter<T> {
+    var tag: Int
+    var value: T
+    var sentinel: Int
+
+    fun copy() r: DependencyOuter<T> {
+        return DependencyOuter<T>{tag: this.tag, value: this.value,
+            sentinel: this.sentinel}
+    }
+
+    fun nested() r: DependencyBox<T> {
+        return DependencyBox<T>{tag: this.tag, value: this.value,
+            sentinel: this.sentinel}
+    }
+
+    fun pair() r: DependencyPair<T, T> {
+        return DependencyPair<T, T>{left: this.value, right: this.value,
+            sentinel: this.sentinel}
+    }
+}

@@ -1,0 +1,38 @@
+/// Native Metal buffer slots, rather than CUDA/HSA pointer-packed kernargs.
+/// Each source parameter owns slot i; a fault word and constant launch-count
+/// buffer follow. Each count occupies the x word of an independent uint4.
+import json.builder.{JsonBuilder}
+import codegen.gpu_ir_model.{GpuIrFunction}
+import codegen.gpu.text_buffer.{GpuTextBuffer}
+import codegen.gpu.metal_target.{metalLanguageVersion}
+import codegen.gpu_options.{gpuEntryNameValid}
+import typechecker.gpu_types.{gpuTypeResource}
+
+let METAL_BUFFER_SLOT_CEILING: Int = 31
+let METAL_SOURCE_PARAMETER_CEILING: Int = METAL_BUFFER_SLOT_CEILING - 2
+let METAL_SHARED_BYTE_CEILING: Int = 32768
+
+fun metalEntryLayoutAdmitted(borrow source: GpuIrFunction, sharedBytes: UInt64) r: Bool {
+    return gpuEntryNameValid(source.name) and source.parameterTypes.length() <= METAL_SOURCE_PARAMETER_CEILING and
+        sharedBytes <= (METAL_SHARED_BYTE_CEILING as UInt64)
+}
+fun metalEntryName(text: GpuTextBuffer, name: String) r: Void { text.literal("seen_metal_entry_"); text.literal(name) }
+fun metalLaunchBytes(borrow source: GpuIrFunction) r: Int {
+    if source.parameterTypes.length() == 0 { return 16 }; return source.parameterTypes.length() * 16
+}
+fun metalReflectionEntryAbi(builder: JsonBuilder, borrow source: GpuIrFunction, target: String) r: Void {
+    builder.stringProp("parameter_abi", "seen-metal-kernel-v1"); builder.stringProp("msl_version", metalLanguageVersion(target))
+    var apple = 0; if target == "macos15" { apple = 1 }; builder.boolProp("requires_apple_silicon", apple)
+    builder.intProp("buffer_slot_ceiling", METAL_BUFFER_SLOT_CEILING); builder.intProp("source_parameter_ceiling", METAL_SOURCE_PARAMETER_CEILING)
+    builder.intProp("buffer_offset_alignment", 256); builder.intProp("fault_buffer_bytes", 4)
+    builder.intProp("launch_binding", source.parameterTypes.length() + 1); builder.intProp("launch_bytes", metalLaunchBytes(source))
+    builder.intProp("launch_alignment", 16); builder.intProp("launch_fault_mask", 16)
+    builder.stringProp("entry_name_prefix", "seen_metal_entry_")
+    builder.key("launch_counts"); builder.startArray(); var i = 0
+    while i < source.parameterTypes.length() {
+        if gpuTypeResource(source.parameterTypes[i]) != 4 {
+            builder.startObject(); builder.intProp("binding", i); builder.intProp("offset", i * 16)
+            builder.intProp("bytes", 4); builder.stringProp("unit", "elements"); builder.endObject()
+        }; i = i + 1
+    }; builder.endArray()
+}

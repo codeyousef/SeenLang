@@ -1,0 +1,21 @@
+/// Closed offline targets; these labels prove no device availability. The
+/// common table admits non-cooperative word capabilities on every listed target.
+import codegen.gpu_precision_formats.{GPU_CAP_NON_COOPERATIVE, GPU_CAP_COOPERATIVE, GPU_CAP_COOP_FP16, GPU_CAP_COOP_BF16}
+fun amdTargetValid(target: String) r: Bool {
+    return target == "" or target == "gfx90a" or target == "gfx942" or target == "gfx1100" or target == "gfx1101" or target == "gfx1200"
+}
+fun amdWavefrontSize(target: String) r: Int {
+    if target == "gfx1100" or target == "gfx1101" or target == "gfx1200" { return 32 }; return 64
+}
+fun amdCoreCapabilities() r: UInt64 { return GPU_CAP_NON_COOPERATIVE }
+fun amdTargetSupportsMfma(target: String) r: Bool { return target == "gfx90a" or target == "gfx942" }
+fun amdSupportedCapabilities(target: String) r: UInt64 {
+    var capabilities = amdCoreCapabilities()
+    if amdTargetSupportsMfma(target) { capabilities = capabilities | GPU_CAP_COOPERATIVE | GPU_CAP_COOP_FP16 | GPU_CAP_COOP_BF16 }
+    return capabilities
+}
+fun amdTargetAttribute(target: String) r: String {
+    if target == "gfx90a" { return "\"target-cpu\"=\"gfx90a\"" }; if target == "gfx942" { return "\"target-cpu\"=\"gfx942\"" }
+    if target == "gfx1100" { return "\"target-cpu\"=\"gfx1100\"" }; if target == "gfx1101" { return "\"target-cpu\"=\"gfx1101\"" }
+    if target == "gfx1200" { return "\"target-cpu\"=\"gfx1200\"" }; return ""
+}

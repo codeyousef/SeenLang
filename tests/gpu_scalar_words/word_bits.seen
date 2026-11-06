@@ -1,0 +1,28 @@
+/// Independent host Float32 word interpretation for numeric witnesses.
+fun witnessFloat(bits: Int) r: Float32 {
+    var word: UInt32 = bits as UInt32; return *((&word) as *Float32)
+}
+fun witnessBits(value: Float32) r: Int {
+    var number: Float32 = value; return (*((&number) as *UInt32)) as Int
+}
+fun witnessSigned(value: Int) r: Int { if value >= 2147483648 { return value - 4294967296 }; return value }
+fun witnessRoundEven(bits: Int) r: Int {
+    if bits < 0 or bits > 1090519040 { abort("scalar rounding witness input is outside its bounded domain") }
+    let number = witnessFloat(bits); var rounded = number as UInt32
+    let remainder: Float32 = number - (rounded as Float32)
+    if remainder > (0.5 as Float32) or (remainder == (0.5 as Float32) and (rounded & (1 as UInt32)) != (0 as UInt32)) {
+        rounded = rounded + (1 as UInt32)
+    }
+    return witnessBits(rounded as Float32)
+}
+fun witnessExtract(base: Int, offset: Int, bits: Int, signed: Bool) r: Int {
+    if offset < 0 or bits < 1 or bits > 32 or offset > 32 - bits { abort("scalar extraction witness geometry is invalid") }
+    let mask = (1 << bits) - 1; var value = (base >> offset) & mask
+    if signed and (value & (1 << (bits - 1))) != 0 { value = (value - (1 << bits)) & 4294967295 }
+    return value
+}
+fun witnessInsert(base: Int, payload: Int, offset: Int, bits: Int) r: Int {
+    if offset < 0 or bits < 1 or bits > 32 or offset > 32 - bits { abort("scalar insertion witness geometry is invalid") }
+    let mask = (1 << bits) - 1
+    return ((base & (~(mask << offset))) | ((payload & mask) << offset)) & 4294967295
+}

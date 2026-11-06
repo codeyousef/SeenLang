@@ -1,0 +1,4 @@
+fun main() r: Int {
+    panic("public unhandled task panic fixture")
+    return 0
+}

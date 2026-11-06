@@ -1,0 +1,62 @@
+/// One packed-word policy for every backend: exact payload conversion, checked
+/// lanes/scales, preserved neighboring fields, and explicit fault predicates.
+import codegen.gpu.scalar_plan.{GpuScalarPlan}
+import codegen.gpu.scalar_ops.{SCALAR_BITCAST, SCALAR_UNSIGNED_LESS, SCALAR_MULTIPLY, SCALAR_BOOL_AND}
+import codegen.gpu.scalar_packed_float.{scalarFloatIsNan, scalarPackShortFloat, scalarUnpackShortFloat}
+import codegen.gpu.scalar_fp8.{scalarPackFp8, scalarUnpackFp8}
+import codegen.gpu.scalar_mxfp4.{scalarPackMxfp4, scalarUnpackMxfp4}
+import codegen.gpu_precision_formats.{gpuPrecisionValueType, gpuPrecisionBits, gpuPrecisionWordLanes,
+    GPU_FORMAT_FP32, GPU_FORMAT_FP16, GPU_FORMAT_BF16, GPU_FORMAT_FP8_E4M3FN, GPU_FORMAT_MXFP4}
+
+fun scalarPackedPayload(plan: GpuScalarPlan, format: Int, value: Int, scale: Int, insert: Bool) r: Int {
+    let valueType = gpuPrecisionValueType(format)
+    if valueType == 2 {
+        if insert { return plan.unary(SCALAR_BITCAST, 3, value) }
+        let signed = plan.unary(SCALAR_BITCAST, 2, value)
+        return plan.extract(2, signed, plan.constant(3, 0), plan.constant(3, gpuPrecisionBits(format)))
+    }
+    if valueType == 3 { return value }
+    if format == GPU_FORMAT_FP32 {
+        if not insert { return plan.unary(SCALAR_BITCAST, 4, value) }
+        let bits = plan.unary(SCALAR_BITCAST, 3, value)
+        return plan.select(3, scalarFloatIsNan(plan, bits), plan.constant(3, 2143289344), bits)
+    }
+    if format == GPU_FORMAT_FP16 or format == GPU_FORMAT_BF16 {
+        if insert { return scalarPackShortFloat(plan, format, value) }; return scalarUnpackShortFloat(plan, format, value)
+    }
+    if format == GPU_FORMAT_FP8_E4M3FN {
+        if insert { return scalarPackFp8(plan, value) }; return scalarUnpackFp8(plan, value)
+    }
+    if format == GPU_FORMAT_MXFP4 {
+        if insert { return scalarPackMxfp4(plan, value, scale) }; return scalarUnpackMxfp4(plan, value, scale)
+    }
+    plan.reject("packed precision is unsupported"); return 0
+}
+fun scalarPayloadPlan(format: Int, value: Int, scale: Int, insert: Bool) r: GpuScalarPlan {
+    let plan = GpuScalarPlan.create(); var typeCode = 3
+    if insert { typeCode = gpuPrecisionValueType(format) }
+    let input = plan.input(typeCode, value); var scaleId = plan.constant(3, 127)
+    if format == GPU_FORMAT_MXFP4 { scaleId = plan.input(3, scale) }
+    plan.result = scalarPackedPayload(plan, format, input, scaleId, insert); return plan
+}
+fun scalarPackedPlan(format: Int, insert: Bool, word: Int, lane: Int, value: Int, scale: Int) r: GpuScalarPlan {
+    let plan = GpuScalarPlan.create(); let wordId = plan.input(3, word); let laneId = plan.input(3, lane)
+    let laneValid = plan.binary(SCALAR_UNSIGNED_LESS, 1, laneId, plan.constant(3, gpuPrecisionWordLanes(format)))
+    let safeLane = plan.select(3, laneValid, laneId, plan.constant(3, 0))
+    let bits = plan.constant(3, gpuPrecisionBits(format)); let offset = plan.binary(SCALAR_MULTIPLY, 3, safeLane, bits)
+    var scaleId = plan.constant(3, 127); var scaleValid = plan.constant(1, 1); var valid = laneValid
+    if format == GPU_FORMAT_MXFP4 {
+        let raw = plan.input(3, scale); scaleValid = plan.binary(SCALAR_UNSIGNED_LESS, 1, raw, plan.constant(3, 255))
+        scaleId = plan.select(3, scaleValid, raw, plan.constant(3, 127)); valid = plan.binary(SCALAR_BOOL_AND, 1, laneValid, scaleValid)
+    }
+    var native = 0; var resultType = gpuPrecisionValueType(format)
+    if insert {
+        let input = plan.input(resultType, value); let payload = scalarPackedPayload(plan, format, input, scaleId, true)
+        native = plan.insert(wordId, payload, offset, bits); resultType = 3
+    } else {
+        let payload = plan.extract(3, wordId, offset, bits); native = scalarPackedPayload(plan, format, payload, scaleId, false)
+    }
+    var fallback = plan.constant(resultType, 0); if insert { fallback = wordId }
+    plan.result = plan.select(resultType, valid, native, fallback); plan.laneValid = laneValid; plan.scaleValid = scaleValid
+    return plan
+}

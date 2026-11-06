@@ -1,0 +1,29 @@
+import compute.vulkan_properties.{VulkanMetadata}
+import compute.vulkan_abi.{GPU_VK_API_VERSION}
+
+fun put32(borrow metadata: VulkanMetadata, buffer: Int, offset: Int, value: UInt32) r: Void {
+    let storage = metadata.buffers[buffer]; let words = storage.data as *UInt32; words[offset / 4] = value
+}
+fun put64(borrow metadata: VulkanMetadata, buffer: Int, offset: Int, value: UInt64) r: Void {
+    let storage = metadata.buffers[buffer]; let words = storage.data as *UInt64; words[offset / 8] = value
+}
+fun metadata() r: VulkanMetadata {
+    let allocated = VulkanMetadata.create()
+    if allocated.isErr() { abort("Vulkan metadata fixture allocation failed") }
+    let value = allocated.unwrap(); allocated.releaseContainer()
+    put32(value, 0, 16, GPU_VK_API_VERSION); put32(value, 0, 20, 33 as UInt32)
+    put32(value, 0, 32, 2 as UInt32)
+    let name = "Reference"; var index = 0; let properties = value.buffers[0]
+    while index < name.length() { properties.data[36 + index] = name.byteAt(index) as UInt8; index = index + 1 }
+    put32(value, 0, 528, 32768 as UInt32); put32(value, 0, 544, 256 as UInt32)
+    put32(value, 0, 548, 256 as UInt32); put32(value, 0, 552, 256 as UInt32); put32(value, 0, 556, 64 as UInt32)
+    let identity = value.buffers[1]; index = 0
+    while index < 16 { identity.data[16 + index] = (index + 1) as UInt8; index = index + 1 }
+    put32(value, 2, 16, 32 as UInt32); put32(value, 2, 20, 32 as UInt32); put32(value, 2, 24, 63 as UInt32)
+    put32(value, 3, 0, 2 as UInt32); put32(value, 3, 4, 7 as UInt32); put32(value, 3, 8, 0 as UInt32)
+    put32(value, 3, 12, 1 as UInt32); put32(value, 3, 16, 1 as UInt32); put32(value, 3, 260, 2 as UInt32)
+    put64(value, 3, 264, 1024 as UInt64); put32(value, 3, 272, 1 as UInt32)
+    put64(value, 3, 280, 2048 as UInt64); put32(value, 3, 288, 1 as UInt32)
+    put32(value, 4, 0, 1 as UInt32); put32(value, 4, 156, 1 as UInt32); put32(value, 4, 160, 1 as UInt32)
+    return value
+}

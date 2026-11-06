@@ -6,7 +6,7 @@ import codegen.ir_decl_pass_driver.{finishDeclarationRegistrationPassImpl}
 import codegen.ir_decl_state_driver.{beginDeclarationRegistrationWithGlobalState, captureDeclarationPassState, createDeclarationItemContextFromOwnerState, applyDeclarationPassState}
 import codegen.ir_return_type_driver.{resolveMethodReturnTypeFromListState, resolveFunctionReturnTypeState}
 import codegen.ir_struct_layout_state.{registerStructLayoutState}
-import codegen.ir_codegen_feature_state.{preRegisterClassAbiDecoratorsWithFeatureStateImpl}
+import codegen.ir_codegen_feature_state.{preRegisterClassAbiDecoratorsWithFeatureStateImpl, registerTopLevelTypeAliasWithFeatureStateImpl}
 
 fun collectClassMethodDeclarationReturnTypesState(classNode: ClassNode,
     varNames: Array<String>, varTypes: Array<String>,
@@ -68,6 +68,18 @@ fun preRegisterProgramAbiDecoratorsState(program: ProgramNode) r: Void {
         let item = program.items[itemIdx]
         if item.itemType == "Class" {
             preRegisterClassAbiDecoratorsWithFeatureStateImpl(item.classNode)
+            // Aliases are ABI metadata too. Register before declaration
+            // snapshots and before any streamed declaration AST is released,
+            // not only when the alias's class stub is eventually emitted.
+            var decoratorIdx = 0
+            while decoratorIdx < item.classNode.decorators.length() {
+                let decorator = item.classNode.decorators[decoratorIdx]
+                if decorator.name == "type_alias" and decorator.arguments.length() == 1 {
+                    registerTopLevelTypeAliasWithFeatureStateImpl(
+                        item.classNode.name, decorator.arguments[0])
+                }
+                decoratorIdx = decoratorIdx + 1
+            }
         }
         itemIdx = itemIdx + 1
     }

@@ -1,9 +1,40 @@
-import core.error.{AsciiString}
+import core.error.{AsciiString, SeenError}
+import core.result.{Result}
 import core.operation_context.{OperationLimits, OperationContext}
+import memory.allocation.{memoryStats, memoryReservedBytes}
 import testing.instrumentation.{TestInstrumentationComponent,
     TestInstrumentationPlan, validateTestInstrumentation}
 
+fun test002aReleaseChecked(checked: Result<TestInstrumentationPlan, SeenError>) r: Void {
+    if checked.isErr() {
+        let error = checked.unwrapErr()
+        error.code.free()
+        error.subsystem.free()
+        error.operation.free()
+        // test002aError owns an empty native Vec: there is no backing buffer.
+        error.causes.free()
+        error.nativeCode.free()
+        error.free()
+    }
+    // A successful payload borrows plan; release only Result's storage.
+    checked.releaseContainer()
+}
+
+fun test002aLifecycleCase(plan: TestInstrumentationPlan,
+    context: OperationContext, expected: String) r: Bool {
+    let checked = validateTestInstrumentation(plan, context)
+    var passed = false
+    if expected == "" {
+        passed = not checked.isErr()
+    } else if checked.isErr() {
+        passed = checked.unwrapErr().code.value == expected
+    }
+    test002aReleaseChecked(checked)
+    return passed
+}
+
 fun main() r: Int {
+    let initial = memoryStats()
     let context = OperationContext{cancellation: false,
         monotonicDeadline: 1,
         limits: OperationLimits{maxTargets: 8, maxIdentityBytes: 128,
@@ -11,21 +42,101 @@ fun main() r: Int {
             maxPathBytes: 4096, maxGraphModules: 5,
             maxGraphEdges: 64, maxGraphDepth: 16},
         traceId: AsciiString{ value: "test-002a-soak" }}
+    let components = Array<TestInstrumentationComponent>()
+    var componentIndex = 0
+    while componentIndex < 5 {
+        var name = "compiler-host"
+        if componentIndex == 1 { name = "gpu-emitters" }
+        if componentIndex == 2 { name = "seen-modules" }
+        if componentIndex == 3 { name = "native-runtime" }
+        if componentIndex == 4 { name = "abi-shims" }
+        components.push(TestInstrumentationComponent{name: name,
+            compiled: true, softwareExecuted: true, hardwareExecuted: false})
+        componentIndex = componentIndex + 1
+    }
+    let plan = TestInstrumentationPlan{profile: "coverage", coverage: true,
+        sanitizer: "", target: "linux-x86_64", components: components}
+    let prepared = memoryStats()
+    var warmReserve = 0
     var iteration = 0
     while iteration < 10000 {
-        let components = Array<TestInstrumentationComponent>()
-        for name in ["compiler-host", "gpu-emitters", "seen-modules",
-            "native-runtime", "abi-shims"] {
-            components.push(TestInstrumentationComponent{name: name,
-                compiled: true, softwareExecuted: true,
-                hardwareExecuted: false})
+        if not test002aLifecycleCase(plan, context, "") { return 1 }
+        plan.profile = "sanitizer-undefined"
+        plan.coverage = false
+        plan.sanitizer = "undefined"
+        if not test002aLifecycleCase(plan, context, "") { return 2 }
+        plan.profile = "sanitizer-thread"
+        plan.sanitizer = "thread"
+        if not test002aLifecycleCase(plan, context, "") { return 3 }
+        plan.sanitizer = "undefined"
+        if not test002aLifecycleCase(plan, context, "test.002a.invalid") { return 4 }
+        plan.profile = "coverage"
+        plan.coverage = true
+        plan.sanitizer = ""
+        let component = components[4]
+        component.name = "compiler-host"
+        if not test002aLifecycleCase(plan, context, "test.002a.invalid") { return 5 }
+        component.name = "abi-shims"
+        component.hardwareExecuted = true
+        if not test002aLifecycleCase(plan, context, "test.002a.invalid") { return 6 }
+        component.hardwareExecuted = false
+        component.compiled = false
+        if not test002aLifecycleCase(plan, context, "test.002a.invalid") { return 14 }
+        component.compiled = true
+        component.softwareExecuted = false
+        if not test002aLifecycleCase(plan, context, "test.002a.invalid") { return 15 }
+        component.softwareExecuted = true
+        component.name = "unknown"
+        if not test002aLifecycleCase(plan, context, "test.002a.invalid") { return 16 }
+        component.name = "abi-shims"
+        plan.profile = "unknown"
+        if not test002aLifecycleCase(plan, context, "test.002a.invalid") { return 17 }
+        plan.profile = "coverage"
+        plan.coverage = false
+        if not test002aLifecycleCase(plan, context, "test.002a.invalid") { return 18 }
+        plan.coverage = true
+        plan.sanitizer = "undefined"
+        if not test002aLifecycleCase(plan, context, "test.002a.invalid") { return 19 }
+        plan.sanitizer = ""
+        context.limits.maxGraphModules = 4
+        if not test002aLifecycleCase(plan, context, "test.002a.limit") { return 7 }
+        context.limits.maxGraphModules = 5
+        context.cancellation = true
+        if not test002aLifecycleCase(plan, context, "test.002a.cancelled") { return 8 }
+        context.cancellation = false
+        context.monotonicDeadline = -1
+        if not test002aLifecycleCase(plan, context, "test.002a.cancelled") { return 20 }
+        context.monotonicDeadline = 1
+        plan.target = "macos"
+        if not test002aLifecycleCase(plan, context, "test.002a.platform") { return 9 }
+        plan.target = "linux-x86_64"
+        if memoryStats().usedBytes != prepared.usedBytes { return 10 }
+        if iteration == 0 { warmReserve = memoryReservedBytes() }
+        else if memoryReservedBytes() != warmReserve {
+            println("FAIL: TEST-002A reserve iteration/baseline/after")
+            println(iteration)
+            println(warmReserve)
+            println(memoryReservedBytes())
+            return 13
         }
-        let checked = validateTestInstrumentation(TestInstrumentationPlan{
-            profile: "coverage", coverage: true, sanitizer: "",
-            target: "linux-x86_64", components: components}, context)
-        if checked.isErr() { return 1 }
         iteration = iteration + 1
     }
+    componentIndex = 0
+    while componentIndex < components.length() {
+        let component = components[componentIndex]
+        component.free()
+        componentIndex = componentIndex + 1
+    }
+    components.free()
+    plan.free()
+    context.traceId.free()
+    context.limits.free()
+    context.free()
+    let closed = memoryStats()
+    if closed.usedBytes != initial.usedBytes or
+        closed.allocationFailures != initial.allocationFailures { return 11 }
+    // Pool reserve is recyclable storage, not live owner usage.
+    if memoryReservedBytes() < 0 { return 12 }
     println("PASS: TEST-002A_soak")
     return 0
 }

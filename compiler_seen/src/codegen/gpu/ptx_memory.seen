@@ -1,0 +1,77 @@
+/// Bounds are proved by a branch before address arithmetic or a memory access.
+/// Invalid loads return zero; invalid stores do nothing; both set fault bit 1.
+import codegen.gpu.ptx_context.{GpuPtxFunction, GpuPtxResource}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.ptx_builtins.{ptxBuiltin}
+import codegen.gpu_ir_facts.{gpuIrElementStride}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+fun ptxResourceIndex(function: GpuPtxFunction, frame: GpuEmissionFrame, operand: Int) r: Int {
+    let index = frame.resourceIndices[operand]
+    if index < 0 or index >= function.resources.length() { function.error("E_GPU_PTX_LAYOUT", "PTX resource identity is unavailable"); return -1 }; return index
+}
+fun ptxInvalidMemoryIndex(function: GpuPtxFunction, resource: GpuPtxResource, index: Int, indexType: Int) r: Int {
+    let predicate = function.allocate(2, 1)
+    function.body.predicate("setp.ge.u32", predicate, index, resource.length)
+    if indexType == 2 {
+        let negative = function.allocate(2, 1); function.body.predicate("setp.lt.s32", negative, index, function.word(0))
+        function.body.logical("or.pred", predicate, predicate, negative)
+    }
+    return predicate
+}
+fun ptxMemoryAddress(function: GpuPtxFunction, resource: GpuPtxResource, index: Int) r: Int {
+    let offset = function.allocate(1, 1); let address = function.allocate(1, 1)
+    function.body.literal("mul.wide.u32 "); function.body.reg("a", offset); function.body.literal(", ")
+    function.body.reg("r", index); function.body.literal(", "); function.body.number(gpuIrElementStride(resource.typeCode)); function.body.literal(";\n")
+    function.body.literal("add.u64 "); function.body.reg("a", address); function.body.literal(", ")
+    function.body.reg("a", resource.address); function.body.literal(", "); function.body.reg("a", offset); function.body.literal(";\n"); return address
+}
+fun ptxCheckedMemory(function: GpuPtxFunction, resourceIndex: Int, index: Int, indexType: Int, value: Int, store: Bool) r: Int {
+    if resourceIndex < 0 or resourceIndex >= function.resources.length() {
+        function.error("E_GPU_PTX_LAYOUT", "PTX access lacks a resource binding"); return 0
+    }
+    let resource = function.resources[resourceIndex]; let lanes = gpuTypeLanes(resource.typeCode); var result = value
+    if not store {
+        result = function.allocate(0, lanes); var lane = 0
+        while lane < lanes { function.body.unary("mov.b32", result + lane, function.word(0)); lane = lane + 1 }
+    }
+    let bad = function.allocate(3, 1); let merge = function.allocate(3, 1)
+    let predicate = ptxInvalidMemoryIndex(function, resource, index, indexType)
+    function.body.conditional(predicate, bad); let address = ptxMemoryAddress(function, resource, index); var lane = 0
+    while lane < lanes {
+        if store { if resource.shared { function.body.literal("st.shared.u32 [") } else { function.body.literal("st.global.u32 [") } }
+        else {
+            if resource.shared { function.body.literal("ld.shared.u32 ") } else { function.body.literal("ld.global.u32 ") }
+            function.body.reg("r", result + lane); function.body.literal(", [")
+        }
+        function.body.reg("a", address); function.body.literal("+"); function.body.number(lane * 4); function.body.literal("]")
+        if store { function.body.literal(", "); function.body.reg("r", value + lane) }; function.body.literal(";\n"); lane = lane + 1
+    }
+    function.body.branch(merge); function.body.defineLabel(bad); function.fault(1); function.body.defineLabel(merge); return result
+}
+fun ptxSharedResource(function: GpuPtxFunction, typeCode: Int, count: Int) r: Int {
+    let bytes = count * gpuIrElementStride(typeCode)
+    if bytes < 1 or bytes > 49152 - function.sharedBytes {
+        function.error("E_GPU_PTX_LAYOUT", "PTX static shared memory exceeds its 48 KiB portable limit"); return -1
+    }
+    let identity = function.allocate(3, 1); function.sharedBytes = function.sharedBytes + bytes
+    let declaration = function.sharedDeclarations; declaration.literal(".shared .align 16 .b8 $seen_shared")
+    declaration.number(identity); declaration.literal("["); declaration.number(bytes); declaration.literal("];\n")
+    let address = function.allocate(1, 1); let length = function.word(count)
+    function.initializers.literal("mov.u64 "); function.initializers.reg("a", address); function.initializers.literal(", $seen_shared")
+    function.initializers.number(identity); function.initializers.literal(";\n")
+    let resource = GpuPtxResource{typeCode: typeCode, address: address, length: length, uniformBase: 0, shared: true}
+    let slot = function.addResource(resource); if slot < 0 { return -1 }
+    // IR permits shared declarations only in the entry prologue. Every lane
+    // reaches this disjoint strided zeroing loop and its join barrier.
+    let cursor = function.allocate(0, 1); let header = function.allocate(3, 1); let merge = function.allocate(3, 1)
+    let predicate = function.allocate(2, 1); let step = function.word(function.workgroupX * function.workgroupY * function.workgroupZ)
+    function.body.unary("mov.b32", cursor, ptxBuiltin(function, 5)); function.body.defineLabel(header)
+    function.body.predicate("setp.ge.u32", predicate, cursor, length); function.body.conditional(predicate, merge)
+    let element = ptxMemoryAddress(function, resource, cursor); var lane = 0
+    while lane < gpuTypeLanes(typeCode) {
+        function.body.literal("st.shared.u32 ["); function.body.reg("a", element); function.body.literal("+")
+        function.body.number(lane * 4); function.body.literal("], 0;\n"); lane = lane + 1
+    }
+    function.body.binary("add.u32", cursor, cursor, step); function.body.branch(header); function.body.defineLabel(merge)
+    function.body.literal("bar.sync 0;\n"); return slot
+}

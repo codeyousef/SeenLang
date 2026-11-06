@@ -1,0 +1,7 @@
+import compute.device.{GpuDevice}
+fun consume(value: GpuDevice) r: Void {}
+fun invalid(value: GpuDevice) r: Void {
+    consume(value)
+    value.close()
+}
+fun main() r: Int { return 0 }

@@ -10,6 +10,7 @@ Each impl function returns a result register string, or "" for fallthrough.
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_simd_type_helpers.{simdScalarTypeImpl, simdLlvmSuffixImpl, isSimdVectorTypeImpl, simdLaneCountImpl}
 import codegen.ir_type_mapping.{getFixedWidthScalarLlvmTypeImpl}
+import codegen.ir_value_coercion.{reifyErasedWordImpl}
 import str.string.{StringBuilder}
 
 // Simple LLVM type mapping for common Seen types (no struct registry needed)
@@ -229,6 +230,10 @@ fun emitDynTraitVtableCallImpl(output: StringBuilder, regBox: Array<Int>, receiv
         rSearchPos = rNextPipe + 1
     }
     // Indirect call through vtable
+    if dynRetType == "void" {
+        output.append("  call void " + fnPtrReg + "(" + argStr + ") ; dyn " + dynTraitName + "." + methodName + "\n")
+        return "0"
+    }
     let resultReg = getNextRegFn(regBox)
     output.append("  " + resultReg + " = call " + dynRetType + " " + fnPtrReg + "(" + argStr + ") ; dyn " + dynTraitName + "." + methodName + "\n")
     return resultReg
@@ -447,6 +452,13 @@ fun emitOptionUnwrapSpecializedImpl(output: StringBuilder, regBox: Array<Int>, i
     if innerType == "Float" {
         output.append("  " + resultReg + " = call double @Option_unwrap_float(" + receiverLlvmType + " " + receiverReg + ")\n")
         return resultReg
+    }
+    let scalarType = getFixedWidthScalarLlvmTypeImpl(innerType)
+    if scalarType == "i8" or scalarType == "i16" or scalarType == "i32" {
+        // Generic Option storage returns an erased word; recover payload bits
+        // before any caller assignment, argument, arithmetic or pointer store.
+        output.append("  " + resultReg + " = call i64 @Option_unwrap(" + receiverLlvmType + " " + receiverReg + ")\n")
+        return reifyErasedWordImpl(output, regBox, scalarType, resultReg)
     }
     if isClassInner == 1 {
         output.append("  " + resultReg + " = call i64 @Option_unwrap_boxed(" + receiverLlvmType + " " + receiverReg + ")\n")

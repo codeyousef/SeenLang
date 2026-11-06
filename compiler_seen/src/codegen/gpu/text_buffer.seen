@@ -1,0 +1,43 @@
+/// Owned bounded text shared by offline GPU backends. Validation is borrowed;
+/// literal fragments are borrowed and owned fragments are consumed on admission
+/// or rejection. Finish returns an independent owned snapshot.
+import str.string.{StringBuilder}
+import json.builder.{jsonAppendBorrowedPart, jsonAppendOwnedPart, jsonAppendInt, jsonAppendHexDigit, jsonFlattenOwned, jsonReleaseOwnedParts, releaseJsonText}
+import codegen.gpu_ir_model.{GpuIrValidation}
+
+class GpuTextBuffer {
+    var buffer: StringBuilder
+    var ownership: Array<Bool>
+    var validation: GpuIrValidation
+    var limitCode: String
+    static fun create(validation: GpuIrValidation, limitCode: String) r: GpuTextBuffer {
+        return GpuTextBuffer{buffer: StringBuilder.new(), ownership: Array<Bool>(), validation: validation, limitCode: limitCode}
+    }
+    fun reserve(bytes: Int, parts: Int) r: Bool {
+        if not this.validation.valid { return false }
+        if bytes < 0 or bytes > 33554432 - this.buffer.totalLength or parts < 0 or parts > 1048576 - this.buffer.parts.length() {
+            this.validation.reject(this.limitCode, "GPU text or fragment ceiling exceeded", -1, -1, -1); return false
+        }; return true
+    }
+    fun literal(text: String) r: Void {
+        if this.reserve(text.length(), 1) { jsonAppendBorrowedPart(this.buffer, this.ownership, text) }
+    }
+    fun owned(text: String) r: Void {
+        if this.reserve(text.length(), 1) { jsonAppendOwnedPart(this.buffer, this.ownership, text) }
+        else { releaseJsonText(text) }
+    }
+    fun number(value: Int) r: Void {
+        if this.reserve(20, 20) { jsonAppendInt(this.buffer, this.ownership, value) }
+    }
+    fun hex32(value: Int) r: Void {
+        this.literal("0x"); var shift = 28
+        while shift >= 0 and this.validation.valid {
+            if this.reserve(1, 1) { jsonAppendHexDigit(this.buffer, this.ownership, (value >> shift) & 15) }; shift = shift - 4
+        }
+    }
+    fun finish() r: String { return jsonFlattenOwned(this.buffer, this.ownership) }
+    fun release() r: Void {
+        let buffer: StringBuilder = this.buffer
+        jsonReleaseOwnedParts(buffer, this.ownership); this.ownership.free(); buffer.parts.free(); buffer.free(); this.free()
+    }
+}

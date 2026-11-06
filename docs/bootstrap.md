@@ -76,6 +76,11 @@ compiler VMEM and allocation limits equal that live-derived cap; a caller may
 request a smaller value but never a larger one. The optimizer's secondary
 per-process limit is the minimum of 10% of total memory, half the aggregate
 cap, and 2 GiB.
+New scope admission rounds aggregate and compiler VMEM ceilings down to whole
+host kernel pages before exporting allocation budgets. Caller-supplied limits
+remain upper bounds; the allocator budget is clamped to the admitted main limit,
+and no limit is rounded upward to make a receipt pass. Existing scopes retain
+their actual kernel limits and are verified rather than rewritten.
 The rebuild also forces `SEEN_JOBS=1`, `SEEN_OPT_JOBS=1`, and `TasksMax` no
 greater than 24. `ulimit -v` and the userspace RSS observer run inside that
 scope as early-warning and per-process defenses; neither replaces the cgroup.
@@ -93,10 +98,10 @@ containment and an unverified environment marker are not supported fallbacks.
 This section defines the required policy; the read-back reported by each run is
 the evidence that the particular checkout and host enforced it.
 
-Source rebuilds of Seen 0.10 also require Go 1.26 or newer to build the
+Current 0.23.0 source rebuilds also require Go 1.26 or newer to build the
 version-matched `seen-pkg` helper. Set `SEEN_GO` when that executable is not the
-default `go` on `PATH`. Binary releases already include the helper beside the
-compiler and do not require Go.
+default `go` on `PATH`. Published binary releases already include the helper
+beside the compiler and do not require Go.
 
 Use the guarded rebuild entry point and spell the tier explicitly:
 
@@ -115,23 +120,37 @@ The verify/full paths run their required prebuild gates inside the same hard
 scope before expensive compiler work. Do not disable them for a routine
 rebuild.
 
-Required CI uses the same boundary through
-`scripts/run_ci_required.sh`. The wrapper derives a cap from current memory,
-creates a project-local artifact directory, enters the hard scope with a
-10,800-second deadline, and then invokes `scripts/ci_required.sh`. The inner gate
-must successfully run `scripts/run_in_hard_memory_scope.sh --verify-only`
-before any required checks proceed. The final required gate performs the
-clean-checkout full rebuild, canonical Seen test, fuzz smoke, and deterministic
-package certification described by `seen-gate0-certification-v1`. Its versioned contract is
-`docs/architecture/ci-containment.json`; unsupported hosts fail before running
-the gate.
+Hosted provisioning installs the namespace prerequisites before compiler probes.
+`scripts/verify_ci_native_host_inputs.sh` runs the LLVM dialect, instrumentation
+link, ARM libc object and conditional frozen SDL3 loader-bridge checks through
+the verified platform runner, with a 2 GiB ceiling, zero swap, serial workers and
+at most 24 tasks. Compiler temporaries and compatibility output remain in ignored
+project-local directories. The bridge is allowed only for seeds with an unused
+SDL3 loader dependency and no imported SDL symbols; these checks do not claim
+ARM execution, GPU execution or bootstrap certification.
 
-Hosted provisioning also runs its LLVM dialect/instrumentation compiler probes
-and conditional frozen-loader bridge through
-`scripts/verify_ci_native_host_inputs.sh`. Its platform runner admits a fresh
-aggregate cap no greater than 2 GiB, zero swap, and at most 24 tasks before
-compilation. Probe scratch and compatibility outputs remain project-local;
-installing host packages does not authorize an uncontained compiler invocation.
+Required hosted CI uses the same boundary through `scripts/run_ci_required.sh`.
+Its explicit phases are `--phase bootstrap`, `--phase acceptance --group GROUP`,
+and `--phase finalize`; the default invocation remains the complete local gate.
+Hosted bootstrap receives 7,200 seconds, each of the four independent acceptance
+groups receives 11,700 seconds, and finalization receives 1,800 seconds. Their
+longest dependency path remains 20,700 seconds. Local full acceptance retains its
+14,400-second timeout.
+
+Every machine derives its own current-memory cap and re-verifies its real hard
+scope, zero swap, serial compiler/LLVM limits, and 24-task ceiling. Only the
+source/tree/baseline/hash-bound Stage3 candidate and success receipts cross jobs;
+scope-bound serializer handles do not. The candidate is not installed or certified
+until finalization has verified **all four** receipts and installed Gate 0 checks.
+Candidate archives are safely unpacked by `scripts/ci_bootstrap_candidate.py`,
+not blindly extracted. The versioned execution and containment contract is
+`docs/architecture/ci-containment.json`; unsupported hosts fail closed.
+
+The inner gate must successfully run
+`scripts/run_in_hard_memory_scope.sh --verify-only` before required checks
+proceed. Finalization retains the clean-checkout certification, canonical Seen
+test, fuzz smoke and deterministic package checks required by
+`seen-gate0-certification-v1`; staged transport does not waive certification.
 
 All rebuild scratch files default to the Git-ignored
 `.seen/agent-tools/safe-rebuild/` directory in the checkout. Set
@@ -244,6 +263,15 @@ The prebuild gate catches failures that used to appear late in Stage 2/Stage 3:
 The verify and full rebuild tiers run the gate inside their aggregate hard
 scope. Do not run `scripts/seen_prebuild_gates.sh` directly until it has a
 standalone entry point with the same read-back-verified containment.
+
+Compiler self-build discovery uses a curated module list rather than recursively
+including every standard-library import. A new standard-library implementation
+dependency reachable from the compiler must appear in both the entry module's
+bootstrap imports and its curated list. This includes `json.float_format` and
+`math.math` for JSON numeric serialization. Frozen builders inspect the entry
+imports before applying their embedded list; omitting a dependency can therefore
+produce valid module IR but fail the final link. Verify such changes with an
+actual guarded compiler build and executable CLI smoke, not source-presence pins.
 
 ## Package Artifacts During Bootstrap
 

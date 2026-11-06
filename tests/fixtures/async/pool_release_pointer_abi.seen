@@ -1,0 +1,20 @@
+extern "C" fun seen_pool_free(value: *Void, bytes: Int64) r: Void
+extern "C" fun seen_memory_used_bytes() r: Int64
+class RawPoolBox {
+    var first: Int
+    var second: Int
+}
+fun main() r: Int {
+    let warm = RawPoolBox{first: 1, second: 2}
+    seen_pool_free(warm as *Void, 16 as Int64)
+    let baseline = seen_memory_used_bytes()
+    var i = 0
+    while i < 1000 {
+        let box = RawPoolBox{first: i, second: i + 1}
+        if box.second != i + 1 { return 1 }
+        seen_pool_free(box as *Void, 16 as Int64)
+        i = i + 1
+    }
+    if seen_memory_used_bytes() != baseline { return 2 }
+    return 0
+}

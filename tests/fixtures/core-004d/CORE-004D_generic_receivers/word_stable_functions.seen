@@ -1,0 +1,34 @@
+fun fixedMessage<T>(value: Int) r: String {
+    if value == 0 { return "zero" }
+    return "word-stable"
+}
+
+fun countLabels<T>(values: Array<T>) r: Int {
+    return values.length()
+}
+
+fun __default<T>() r: String {
+    return "user-default"
+}
+
+fun transmute<T>(value: Int) r: Int {
+    return value + 1
+}
+
+fun stackAlloc<T>(value: Int) r: Int {
+    return value + 2
+}
+
+fun main() r: Int {
+    if not fixedMessage<String>(1).startsWith("word-") { return 1 }
+    let labels = Array<String>()
+    labels.push("first")
+    labels.push("second")
+    let count = countLabels<String>(labels)
+    labels.free()
+    if count != 2 { return 2 }
+    if not __default<String>().startsWith("user-") { return 3 }
+    if transmute<String>(41) != 42 { return 4 }
+    if stackAlloc<String>(40) != 42 { return 5 }
+    return 0
+}

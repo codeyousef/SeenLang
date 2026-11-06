@@ -1,0 +1,7 @@
+import compute.allocator.{GpuAllocator}
+fun consume(value: GpuAllocator) r: Void {}
+fun invalid(value: GpuAllocator) r: Void {
+    consume(value)
+    value.close()
+}
+fun main() r: Int { return 0 }

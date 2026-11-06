@@ -1,0 +1,24 @@
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError}
+import async.executor_core.{executorFailure}
+import async.io_lease.{AsyncIoLease}
+import async.readiness_native.{seen_async_readiness_wakeup}
+
+@send
+class AsyncIoWakeHandle {
+    var lease: AsyncIoLease
+
+    fun wakeup() r: Result<Bool, AsyncError> {
+        if not this.lease.active {
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "io.wakeup", 0 as UInt64))
+        }
+        let status = seen_async_readiness_wakeup(this.lease.native as Int64)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "io.wakeup", 0 as UInt64))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+    fun release() r: Bool {
+        let released = this.lease.release(); this.free(); return released
+    }
+}

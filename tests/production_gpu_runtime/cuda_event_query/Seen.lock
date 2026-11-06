@@ -1,0 +1,7 @@
+version = 2
+manifest_sha256 = "1a24bfe12d7f5b812c3271e8c88c218365f5f01b2b6ff3e4313be85d120176f2"
+
+[root]
+name = "cuda_event_query_contract"
+version = "0.23.0"
+dependencies = []

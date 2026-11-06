@@ -1,0 +1,31 @@
+/// Explicit comparisons preserve the first operand on equal values and NaNs;
+/// native min/max instructions do not share that signed-zero/NaN contract.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, amdValue, amdDefinition}
+import codegen.gpu.amdgpu_math.{amdComparePredicate}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+fun amdSelectExtremum(function: GpuAmdFunction, destination: Int, left: Int, right: Int, typeCode: Int, maximum: Bool) r: Void {
+    var operation = 13; if maximum { operation = 15 }
+    let predicate = function.compare(amdComparePredicate(operation, gpuTypeScalar(typeCode)), right, left, gpuTypeScalar(typeCode) == 4)
+    function.select(destination, right, left, predicate)
+}
+fun amdIntrinsic(function: GpuAmdFunction, operation: Int, typeCode: Int, arguments: Array<Int>) r: Int {
+    let lanes = gpuTypeLanes(typeCode); let scalar = gpuTypeScalar(typeCode); let result = function.allocate(lanes); var lane = 0
+    while lane < lanes {
+        if operation == 1 or operation == 2 { amdSelectExtremum(function, result + lane, arguments[0] + lane, arguments[1] + lane, typeCode, operation == 2) }
+        else if operation == 3 {
+            let lower = function.allocate(1); amdSelectExtremum(function, lower, arguments[0] + lane, arguments[1] + lane, typeCode, true)
+            amdSelectExtremum(function, result + lane, lower, arguments[2] + lane, typeCode, false)
+        } else if operation == 4 {
+            if scalar == 4 { function.binary("and", result + lane, arguments[0] + lane, function.word(2147483647)) }
+            else if scalar == 3 { function.copy(result + lane, arguments[0] + lane, 1) }
+            else {
+                let opposite = function.allocate(1); function.binary("sub", opposite, function.word(0), arguments[0] + lane)
+                let negative = function.compare("slt", arguments[0] + lane, function.word(0), false)
+                function.select(result + lane, opposite, arguments[0] + lane, negative)
+            }
+        } else if operation == 5 {
+            let value = function.asFloat(arguments[0] + lane); let root = function.value(); amdDefinition(function.body, root)
+            function.body.literal("call float @llvm.sqrt.f32(float "); amdValue(function.body, value); function.body.literal(")\n"); function.writeFloat(result + lane, root)
+        } else { function.error("E_GPU_AMDGPU_CAPABILITY", "AMDGPU intrinsic identity is unsupported"); return 0 }; lane = lane + 1
+    }; return result
+}

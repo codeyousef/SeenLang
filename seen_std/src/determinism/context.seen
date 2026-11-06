@@ -3,8 +3,7 @@
 import core.result.{Result, Ok, Err}
 import core.error.{SeenError}
 import core.operation_context.{OperationContext}
-import env.env.{args, tryGet}
-import determinism.policy.{CORE_004E_MAX_ARGUMENT_BYTES,
+import determinism.policy.{CORE_004E_MAX_ARGUMENTS, CORE_004E_MAX_ARGUMENT_BYTES,
     CORE_004E_MAX_ENVIRONMENT_VALUE_BYTES, CORE_004E_MAX_TOTAL_CAPTURE_BYTES,
     CORE_004E_MAX_EPOCH_SECONDS, DeterministicLocaleIdentity,
     DeterministicPlatformPolicy, DeterministicCapabilityPolicy,
@@ -18,6 +17,19 @@ import determinism.policy.{CORE_004E_MAX_ARGUMENT_BYTES,
 let DETERMINISTIC_CONTEXT_SCHEMA: String = "seen-deterministic-context-v1"
 let DETERMINISTIC_PRNG_ALGORITHM: String = "xorshift64-v1"
 
+// These views borrow the immutable runtime-owned launch snapshot. They never
+// allocate copies of unrelated argv/environment entries or read later changes.
+@nondeterministic
+extern "C" fun seen_deterministic_runtime_status() r: Int32
+@nondeterministic
+extern "C" fun seen_deterministic_argument_view(index: Int64, status: *Int32)
+    r: String
+@nondeterministic
+extern "C" fun seen_deterministic_environment_view(name: String, status: *Int32)
+    r: String
+
+// Resolving symlinks beneath a root observes the host filesystem.
+@nondeterministic
 extern "C" fun seen_deterministic_path_beneath(root: String, path: String)
     r: Int32
 
@@ -319,8 +331,30 @@ fun createDeterministicExecutionContext(inputs: DeterministicContextInputs,
             environment: deterministicEnvironmentCopy(inputs.environment)})
 }
 
-/// Process launch adapter. It is the only ambient constructor: control inputs,
-/// argv, and granted environment names are captured before user code starts.
+fun releaseDeterministicArgumentRecords(values: Array<DeterministicArgumentValue>)
+    r: Void {
+
+    var index = 0
+    while index < values.length() {
+        values[index].free()
+        index = index + 1
+    }
+    values.free()
+}
+
+fun releaseDeterministicEnvironmentRecords(
+    values: Array<DeterministicEnvironmentValue>) r: Void {
+
+    var index = 0
+    while index < values.length() {
+        values[index].free()
+        index = index + 1
+    }
+    values.free()
+}
+
+/// The only process constructor. Captured strings borrow the runtime's bounded
+/// immutable launch snapshot, which remains alive for the process lifetime.
 @nondeterministic
 fun deterministicContextFromProcess(request: DeterministicContextRequest,
     operationContext: OperationContext)
@@ -330,62 +364,94 @@ fun deterministicContextFromProcess(request: DeterministicContextRequest,
     let checkedOperation = validateDeterministicOperation(operationContext,
         operation)
     if checkedOperation.isErr() {
-        return Err<DeterministicExecutionContext, SeenError>(
-            checkedOperation.unwrapErr())
+        let error = checkedOperation.unwrapErr()
+        checkedOperation.releaseContainer()
+        return Err<DeterministicExecutionContext, SeenError>(error)
     }
+    checkedOperation.releaseContainer()
     let checkedPolicy = validateDeterministicCapabilityPolicy(request.policy,
         operationContext, operation)
     if checkedPolicy.isErr() {
-        return Err<DeterministicExecutionContext, SeenError>(
-            checkedPolicy.unwrapErr())
+        let error = checkedPolicy.unwrapErr()
+        checkedPolicy.releaseContainer()
+        return Err<DeterministicExecutionContext, SeenError>(error)
     }
-    let enabledValue = tryGet("SEEN_DETERMINISTIC")
-    var enabled = false
-    if enabledValue.isSome() { enabled = enabledValue.unwrap() == "1" }
-    var epoch = ""
-    let epochValue = tryGet("SOURCE_DATE_EPOCH")
-    if epochValue.isSome() { epoch = epochValue.unwrap() }
-    var seed = ""
-    let seedValue = tryGet("SEEN_DETERMINISTIC_SEED")
-    if seedValue.isSome() { seed = seedValue.unwrap() }
+    let policyCopy = checkedPolicy.unwrap()
+    checkedPolicy.releaseContainer()
+    policyCopy.argumentIndexes.free()
+    policyCopy.environmentNames.free()
+    policyCopy.filesystemRoots.free()
+    policyCopy.processStates.free()
+    policyCopy.networkStates.free()
+    policyCopy.hostCapabilities.free()
+    policyCopy.free()
+    if seen_deterministic_runtime_status() != (1 as Int32) {
+        return core004eFailure<DeterministicExecutionContext>(
+            "core.004e.invalid", operation,
+            "deterministic launch snapshot is unavailable", false)
+    }
+    var status: Int32 = 0 as Int32
+    let epoch = seen_deterministic_environment_view("SOURCE_DATE_EPOCH", &status)
+    if status < (0 as Int32) {
+        return core004eFailure<DeterministicExecutionContext>(
+            "core.004e.invalid", operation,
+            "deterministic launch snapshot is invalid", false)
+    }
+    let seed = seen_deterministic_environment_view("SEEN_DETERMINISTIC_SEED", &status)
+    if status < (0 as Int32) {
+        return core004eFailure<DeterministicExecutionContext>(
+            "core.004e.invalid", operation,
+            "deterministic launch snapshot is invalid", false)
+    }
 
     let capturedArguments = Array<DeterministicArgumentValue>()
-    if request.policy.argumentIndexes.length() > 0 {
-        let processArguments = args()
-        var index = 0
-        while index < request.policy.argumentIndexes.length() {
-            let requested = request.policy.argumentIndexes[index]
-            let rawIndex = requested + 1
-            if rawIndex < 1 or rawIndex >= processArguments.length() {
-                return core004eFailure<DeterministicExecutionContext>(
-                    "core.004e.invalid", operation,
-                    "granted application argument is missing", true)
-            }
-            capturedArguments.push(DeterministicArgumentValue{
-                index: requested, value: processArguments[rawIndex]})
-            index = index + 1
+    var index = 0
+    while index < request.policy.argumentIndexes.length() {
+        let requested = request.policy.argumentIndexes[index]
+        if requested < 0 or requested >= CORE_004E_MAX_ARGUMENTS {
+            releaseDeterministicArgumentRecords(capturedArguments)
+            return core004eFailure<DeterministicExecutionContext>(
+                "core.004e.invalid", operation,
+                "granted application argument is missing", true)
         }
+        let value = seen_deterministic_argument_view((requested + 1) as Int64,
+            &status)
+        if status != (0 as Int32) {
+            releaseDeterministicArgumentRecords(capturedArguments)
+            return core004eFailure<DeterministicExecutionContext>(
+                "core.004e.invalid", operation,
+                "granted application argument is missing", true)
+        }
+        capturedArguments.push(DeterministicArgumentValue{
+            index: requested, value: value})
+        index = index + 1
     }
 
     let capturedEnvironment = Array<DeterministicEnvironmentValue>()
-    var index = 0
+    index = 0
     while index < request.policy.environmentNames.length() {
         let name = request.policy.environmentNames[index]
-        let ambient = tryGet(name)
-        if ambient.isSome() {
-            capturedEnvironment.push(DeterministicEnvironmentValue{name: name,
-                present: true, value: ambient.unwrap()})
-        } else {
-            capturedEnvironment.push(DeterministicEnvironmentValue{name: name,
-                present: false, value: ""})
+        let value = seen_deterministic_environment_view(name, &status)
+        if status < (0 as Int32) {
+            releaseDeterministicArgumentRecords(capturedArguments)
+            releaseDeterministicEnvironmentRecords(capturedEnvironment)
+            return core004eFailure<DeterministicExecutionContext>(
+                "core.004e.invalid", operation,
+                "captured environment name is invalid", true)
         }
+        capturedEnvironment.push(DeterministicEnvironmentValue{name: name,
+            present: status == (0 as Int32), value: value})
         index = index + 1
     }
-    return createDeterministicExecutionContext(DeterministicContextInputs{
-        deterministic: enabled, sourceDateEpoch: epoch, seed: seed,
-        locale: request.locale, platform: request.platform,
-        policy: request.policy, arguments: capturedArguments,
-        environment: capturedEnvironment}, operationContext)
+    let inputs = DeterministicContextInputs{deterministic: true,
+        sourceDateEpoch: epoch, seed: seed, locale: request.locale,
+        platform: request.platform, policy: request.policy,
+        arguments: capturedArguments, environment: capturedEnvironment}
+    let result = createDeterministicExecutionContext(inputs, operationContext)
+    inputs.free()
+    releaseDeterministicArgumentRecords(capturedArguments)
+    releaseDeterministicEnvironmentRecords(capturedEnvironment)
+    return result
 }
 
 fun deterministicEpochSeconds(context: DeterministicExecutionContext,

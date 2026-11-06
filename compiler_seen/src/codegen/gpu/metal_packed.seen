@@ -1,0 +1,18 @@
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_PACK}
+import codegen.gpu_precision_formats.{GPU_FORMAT_MXFP4}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.metal_context.{GpuMetalFunction}
+import codegen.gpu.scalar_packed.{scalarPackedPlan}
+import codegen.gpu.metal_scalar_plan.{emitMetalScalarPlan}
+fun metalPacked(function: GpuMetalFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let insert = op.opcode == GPU_IR_PACK; var value = 0; var scale = 0
+    if insert { value = frame.registers[op.operands[2]] }
+    if op.immediate == GPU_FORMAT_MXFP4 { var index = 2; if insert { index = 3 }; scale = frame.registers[op.operands[index]] }
+    let plan = scalarPackedPlan(op.immediate, insert, frame.registers[op.operands[0]], frame.registers[op.operands[1]], value, scale)
+    let output = emitMetalScalarPlan(function, plan); let result = output.value
+    if function.validation.valid {
+        function.beginGuard(output.laneValid, 0); function.fault(1); function.body.literal("}\n")
+        if op.immediate == GPU_FORMAT_MXFP4 { function.beginGuard(output.scaleValid, 0); function.fault(4); function.body.literal("}\n") }
+    }; output.free(); return result
+}

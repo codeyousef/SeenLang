@@ -1,0 +1,891 @@
+/// Prove word-erased generic bodies against their actual uses. All type refs
+/// below are analysis-owned; the retained parser AST is borrowed and never edited.
+import parser.real_parser.{BlockNode, ParserExpressionNode, FunctionNode, genericParameterCount, genericParameterNameAt}
+import typechecker.type_ref.{TypeRef, parseTypeRef}
+import codegen.ir_generic_aggregate.{GenericAggregateFunctionDefinition, GenericAggregateFunctionUse, g_genericAggregateFunctions, g_genericAggregateFunctionUses, g_genericAggregateClassDefinitions, g_genericAggregateClassOwners, genericAggregateRegistryImpl, recordGenericAggregateFunctionUseImpl, genericAggregateValueTypeImpl, genericAggregateRuntimeTypeImpl, genericAggregateTrustedDefaultImpl, genericAggregateTrustedBoxedResultImpl, genericAggregateResolveTypeImpl}
+import codegen.ir_generic_aggregate_function_abi.{genericAggregateFunctionBeforeTypeImpl, genericAggregateFunctionAfterTypeImpl, genericAggregateFunctionValueAbiImpl, genericAggregateFunctionValueCompatibleImpl, validateGenericAggregateFunctionAbiImpl}
+import codegen.ir_method_call_type_table.{inferMethodCallTypeTableImpl}
+import codegen.ir_call_type_table.{inferCallTypeTableImpl}
+import codegen.ir_method_return_type_collections.{getCollectionMethodReturnTypeImpl}
+import codegen.ir_type_layout.{getLlvmTypeSizeImpl, getLlvmTypeAlignImpl}
+import codegen.ir_vec_dispatch.{vecSuffixImpl}
+import codegen.ir_generic_call_type.{bindGenericCallTypeImpl}
+
+/// The call driver supplies authoritative expression types before lowering any
+/// arguments. Descriptor parameters still require a concrete body proof even
+/// when their root ABI is unchanged and there is no bare word-erased slot.
+fun validateGenericAggregateInferredCallImpl(owner: String,
+    moduleName: String, actualTypes: Array<String>) r: Bool {
+    var index = 0
+    while index < g_genericAggregateFunctions.length() {
+        if g_genericAggregateFunctions[index].owner == owner { break }
+        index = index + 1
+    }
+    if index >= g_genericAggregateFunctions.length() { return true }
+    let definition = g_genericAggregateFunctions[index]
+    // Result constructors already box their live payload before the erased
+    // call. Their result-only label need not be inferred from an argument.
+    if genericAggregateTrustedBoxedResultImpl(definition) { return true }
+    let count = genericParameterCount(definition.declaration.decorators)
+    if count == 0 { return true }
+    let names = Array<String>()
+    let values = Array<TypeRef>()
+    var p = 0
+    while p < count {
+        names.push(genericParameterNameAt(definition.declaration.decorators, p))
+        values.push(TypeRef.new())
+        p = p + 1
+    }
+    let visited = [0]
+    var matched = true
+    p = 0
+    while p < actualTypes.length() and p < definition.declaration.params.length() and matched {
+        let formal = genericAggregateFunctionBeforeTypeImpl(definition,
+            definition.declaration.params[p].paramType.typeName)
+        let actual = parseTypeRef(actualTypes[p], 0, 0, "")
+        genericAggregateResolveTypeImpl(actual, moduleName, 0)
+        matched = bindGenericCallTypeImpl(formal, actual, names, values, 0, visited)
+        p = p + 1
+    }
+    var aggregateUse = false
+    p = 0
+    while p < values.length() {
+        if genericAggregateValueTypeImpl(values[p], moduleName, 0) { aggregateUse = true }
+        p = p + 1
+    }
+    if aggregateUse {
+        p = 0
+        while p < values.length() {
+            if values[p].base == "Unknown" { matched = false }
+            p = p + 1
+        }
+        if not matched {
+            println("Error: [E_GENERIC_AGGREGATE] cannot prove inferred generic function arguments: " + owner)
+            names.free(); values.free(); visited.free()
+            return false
+        }
+        let reference = TypeRef.new()
+        reference.base = definition.declaration.name
+        reference.identityBase = owner
+        reference.arguments = values
+        recordGenericAggregateFunctionUseImpl(reference, definition.moduleName)
+    }
+    names.free(); values.free(); visited.free()
+    if aggregateUse { return validateGenericAggregateFunctionUsesImpl() }
+    return true
+}
+
+class GenericAggregateBodyType {
+    var before: TypeRef
+    var after: TypeRef
+}
+
+class GenericAggregateBodyProof {
+    var definition: GenericAggregateFunctionDefinition
+    var use: GenericAggregateFunctionUse
+    var names: Array<String>
+    var types: Array<GenericAggregateBodyType>
+    var work: Int
+    var requiresBody: Bool
+    var valid: Bool
+}
+
+fun genericAggregateBodyFailImpl(proof: GenericAggregateBodyProof,
+    detail: String) r: Void {
+    if proof.valid {
+        println("Error: [E_GENERIC_AGGREGATE] generic function body requires unsupported aggregate specialization: " + proof.definition.owner + ": " + detail)
+    }
+    proof.valid = false
+}
+
+fun genericAggregateBodyStepImpl(proof: GenericAggregateBodyProof,
+    depth: Int) r: Void {
+    proof.work = proof.work + 1
+    if depth > 128 or proof.work > 65536 {
+        genericAggregateBodyFailImpl(proof, "erasure-safety analysis limit exceeded")
+    }
+}
+
+fun genericAggregateBodyUnknownImpl() r: GenericAggregateBodyType {
+    return GenericAggregateBodyType{before: TypeRef.new(), after: TypeRef.new()}
+}
+
+fun genericAggregateBodyKnownImpl(value: GenericAggregateBodyType) r: Bool {
+    return value.before.valid and value.after.valid and
+        value.before.base != "Unknown" and value.after.base != "Unknown"
+}
+
+fun genericAggregateBodyTypeImpl(proof: GenericAggregateBodyProof,
+    spelling: String) r: GenericAggregateBodyType {
+    if spelling == "" or spelling == "Unknown" {
+        return genericAggregateBodyUnknownImpl()
+    }
+    return GenericAggregateBodyType{
+        before: genericAggregateFunctionBeforeTypeImpl(proof.definition, spelling),
+        after: genericAggregateFunctionAfterTypeImpl(proof.definition, proof.use, spelling)}
+}
+
+fun genericAggregateBodyCheckImpl(proof: GenericAggregateBodyProof,
+    value: GenericAggregateBodyType, detail: String) r: Void {
+    if not genericAggregateBodyKnownImpl(value) { return }
+    if not genericAggregateFunctionValueCompatibleImpl(value.before, value.after,
+        proof.definition.moduleName) {
+        genericAggregateBodyFailImpl(proof, detail)
+    }
+}
+
+fun genericAggregateBodyStorageValueImpl(proof: GenericAggregateBodyProof,
+    value: GenericAggregateBodyType, detail: String) r: Void {
+    if not genericAggregateBodyKnownImpl(value) { return }
+    if genericAggregateFunctionValueAbiImpl(value.before, proof.definition.moduleName, 0) !=
+        genericAggregateFunctionValueAbiImpl(value.after, proof.definition.moduleName, 0) {
+        genericAggregateBodyFailImpl(proof, detail)
+    }
+}
+
+fun genericAggregateBodyLayoutQueryImpl(proof: GenericAggregateBodyProof,
+    value: GenericAggregateBodyType, detail: String) r: Void {
+    if not genericAggregateBodyKnownImpl(value) { return }
+    var before = genericAggregateFunctionValueAbiImpl(value.before, proof.definition.moduleName, 0)
+    var after = genericAggregateFunctionValueAbiImpl(value.after, proof.definition.moduleName, 0)
+    if before == after { return }
+    if before == "descriptor:ptr" { before = "%SeenArray" }
+    if after == "descriptor:ptr" { after = "%SeenArray" }
+    if value.before.kind == "function" { before = "ptr" }
+    if value.after.kind == "function" { after = "ptr" }
+    let names = Array<String>(); let layouts = Array<String>(); let sizes = Array<Int>()
+    let beforeSize = getLlvmTypeSizeImpl(before, names, layouts, sizes)
+    let afterSize = getLlvmTypeSizeImpl(after, names, layouts, sizes)
+    let beforeAlign = getLlvmTypeAlignImpl(before, names, layouts, sizes)
+    let afterAlign = getLlvmTypeAlignImpl(after, names, layouts, sizes)
+    names.free(); layouts.free(); sizes.free()
+    if beforeSize <= 0 or afterSize <= 0 or beforeSize != afterSize or beforeAlign != afterAlign {
+        genericAggregateBodyFailImpl(proof, detail)
+    }
+}
+
+fun genericAggregateBodyChangedImpl(value: GenericAggregateBodyType) r: Bool {
+    return genericAggregateBodyKnownImpl(value) and
+        value.before.canonicalIdentity() != value.after.canonicalIdentity()
+}
+
+fun genericAggregateBodyRuntimeFamilyImpl(proof: GenericAggregateBodyProof,
+    receiver: GenericAggregateBodyType) r: Void {
+    if not genericAggregateBodyChangedImpl(receiver) or
+        not genericAggregateRuntimeTypeImpl(receiver.before.base) { return }
+    // These descriptors/handles have one container-only cleanup family.
+    if receiver.before.base == "Array" or receiver.before.base == "List" or
+        receiver.before.base == "Option" or receiver.before.base == "Optional" or
+        receiver.before.base == "Result" { return }
+    if receiver.before.base == "Vec" {
+        let before = receiver.before.canonical()
+        let after = receiver.after.canonical()
+        if vecSuffixImpl(before.contains("<String>"), before.contains("<Float>")) !=
+            vecSuffixImpl(after.contains("<String>"), after.contains("<Float>")) {
+            genericAggregateBodyFailImpl(proof, "dependent Vec native dispatch/cleanup family")
+        }
+    }
+    var i = 0
+    while i < receiver.before.arguments.length() and i < receiver.after.arguments.length() {
+        if genericAggregateValueTypeImpl(receiver.after.arguments[i], proof.definition.moduleName, 0) {
+            genericAggregateBodyStorageValueImpl(proof,
+                genericAggregateBodyArgumentImpl(receiver, i), "dependent opaque runtime payload ABI")
+        }
+        i = i + 1
+    }
+}
+
+fun genericAggregateBodyLookupImpl(proof: GenericAggregateBodyProof,
+    name: String) r: GenericAggregateBodyType {
+    var i = proof.names.length() - 1
+    while i >= 0 {
+        if proof.names[i] == name { return proof.types[i] }
+        i = i - 1
+    }
+    return genericAggregateBodyUnknownImpl()
+}
+
+fun genericAggregateBodyBindImpl(proof: GenericAggregateBodyProof,
+    name: String, value: GenericAggregateBodyType) r: Void {
+    if value.before.ownership == "move" or value.before.ownership == "own" {
+        genericAggregateBodyRuntimeFamilyImpl(proof, value)
+    }
+    if proof.names.length() >= 4096 {
+        genericAggregateBodyFailImpl(proof, "local binding limit exceeded")
+        return
+    }
+    proof.names.push(name)
+    proof.types.push(value)
+}
+
+fun genericAggregateBodyUnbindImpl(proof: GenericAggregateBodyProof,
+    start: Int) r: Void {
+    while proof.names.length() > start { proof.names.pop(); proof.types.pop() }
+}
+
+fun genericAggregateBodyArgumentImpl(value: GenericAggregateBodyType,
+    index: Int) r: GenericAggregateBodyType {
+    if index < 0 or index >= value.before.arguments.length() or
+        index >= value.after.arguments.length() { return genericAggregateBodyUnknownImpl() }
+    return GenericAggregateBodyType{before: value.before.arguments[index],
+        after: value.after.arguments[index]}
+}
+
+/// Storage is checked at the live payload boundary, not by searching type text.
+/// A descriptor may be forwarded unchanged; constructing it also needs an
+/// unchanged element ABI. Phantom variant labels are handled by the caller.
+fun genericAggregateBodyStorageImpl(proof: GenericAggregateBodyProof,
+    value: GenericAggregateBodyType, detail: String) r: Void {
+    genericAggregateBodyStorageValueImpl(proof, value, detail)
+    if value.before.kind == "pointer" or value.before.kind == "const_pointer" or
+        value.before.nullable { return }
+    let classIndex = genericAggregateBodyClassIndexImpl(value.before)
+    if classIndex >= 0 and not genericAggregateRuntimeTypeImpl(value.before.base) {
+        if g_genericAggregateClassDefinitions[classIndex].hasDecorator("type_alias") and
+            genericAggregateBodyChangedImpl(value) {
+            genericAggregateBodyFailImpl(proof, "dependent alias construction cannot prove storage layout")
+        }
+        // Ordinary class fields retain their word-erased representation for
+        // scalar arguments. Aggregate arguments already changed the root key.
+        return
+    }
+    var i = 0
+    while i < value.before.arguments.length() and i < value.after.arguments.length() {
+        genericAggregateBodyStorageValueImpl(proof, genericAggregateBodyArgumentImpl(value, i), detail)
+        i = i + 1
+    }
+}
+
+fun genericAggregateBodyFunctionIndexImpl(reference: TypeRef,
+    moduleName: String) r: Int {
+    let registry = genericAggregateRegistryImpl()
+    var index = registry.findCanonical(reference.identityBase)
+    if reference.identityBase == "" { index = registry.lookupIndex(moduleName, reference.base) }
+    if index < 0 or registry.kinds[index] != "Function" { return -1 }
+    var i = 0
+    while i < g_genericAggregateFunctions.length() {
+        if g_genericAggregateFunctions[i].owner == registry.canonicalNames[index] { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fun genericAggregateBodyClassIndexImpl(reference: TypeRef) r: Int {
+    var i = 0
+    while i < g_genericAggregateClassOwners.length() {
+        if reference.identityBase != "" and
+            g_genericAggregateClassOwners[i] == reference.identityBase { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+/// Class member signatures are interpreted under class generics, not under the
+/// caller's same-spelled parameters. Only fresh analysis metadata is populated.
+fun genericAggregateBodyMemberTypeImpl(proof: GenericAggregateBodyProof,
+    receiver: GenericAggregateBodyType, member: String, method: Bool) r: GenericAggregateBodyType {
+    let index = genericAggregateBodyClassIndexImpl(receiver.before)
+    if index < 0 { return genericAggregateBodyUnknownImpl() }
+    let declaration = g_genericAggregateClassDefinitions[index]
+    let registry = genericAggregateRegistryImpl()
+    let owner = g_genericAggregateClassOwners[index]
+    let registryIndex = registry.findCanonical(owner)
+    if registryIndex < 0 { return genericAggregateBodyUnknownImpl() }
+    var spelling = ""
+    if method {
+        var m = 0
+        while m < declaration.methods.length() {
+            if declaration.methods[m].name == member {
+                if genericParameterCount(declaration.methods[m].decorators) > 0 {
+                    if genericAggregateBodyChangedImpl(receiver) {
+                        genericAggregateBodyFailImpl(proof, "generic member requires an unavailable specialization proof: " + member)
+                    }
+                }
+                spelling = declaration.methods[m].returnType.typeName
+                if declaration.methods[m].returnType.isNullable { spelling = spelling + "?" }
+            }
+            m = m + 1
+        }
+    } else {
+        var f = 0
+        while f < declaration.fields.length() {
+            if declaration.fields[f].name == member {
+                spelling = declaration.fields[f].paramType.typeName
+                if declaration.fields[f].paramType.isNullable { spelling = spelling + "?" }
+            }
+            f = f + 1
+        }
+    }
+    if spelling == "" { return genericAggregateBodyUnknownImpl() }
+    let signature = FunctionNode.new()
+    signature.decorators = declaration.decorators
+    let definition = GenericAggregateFunctionDefinition{owner: owner,
+        moduleName: registry.modules[registryIndex], declaration: signature, hasBody: false}
+    let beforeUse = GenericAggregateFunctionUse{key: "", definition: -1, arguments: receiver.before.arguments, validated: false}
+    let afterUse = GenericAggregateFunctionUse{key: "", definition: -1, arguments: receiver.after.arguments, validated: false}
+    return GenericAggregateBodyType{
+        before: genericAggregateFunctionAfterTypeImpl(definition, beforeUse, spelling),
+        after: genericAggregateFunctionAfterTypeImpl(definition, afterUse, spelling)}
+}
+
+fun genericAggregateBodyElementImpl(proof: GenericAggregateBodyProof,
+    receiver: GenericAggregateBodyType, detail: String) r: GenericAggregateBodyType {
+    var result = genericAggregateBodyUnknownImpl()
+    if receiver.before.base == "String" { result = genericAggregateBodyTypeImpl(proof, "Char") }
+    if receiver.before.base == "Array" or receiver.before.base == "List" or
+        receiver.before.kind == "fixed_array" or receiver.before.kind == "pointer" or
+        receiver.before.kind == "const_pointer" or receiver.before.base == "Option" or
+        receiver.before.base == "Optional" or receiver.before.base == "Result" {
+        result = genericAggregateBodyArgumentImpl(receiver, 0)
+    }
+    if receiver.before.base == "Array" or receiver.before.base == "List" or
+        receiver.before.kind == "fixed_array" or receiver.before.kind == "pointer" or
+        receiver.before.kind == "const_pointer" {
+        genericAggregateBodyStorageValueImpl(proof, result, detail)
+    } else {
+        genericAggregateBodyCheckImpl(proof, result, detail)
+    }
+    return result
+}
+
+/// Infer generic arguments structurally. No spelling rewrite of source AST is
+/// involved, and conflicting bindings fail rather than choosing a first match.
+fun genericAggregateBodyInferImpl(proof: GenericAggregateBodyProof,
+    pattern: TypeRef, actual: TypeRef, names: Array<String>, values: Array<TypeRef>,
+    depth: Int) r: Void {
+    genericAggregateBodyStepImpl(proof, depth)
+    if not proof.valid { return }
+    var p = 0
+    while p < names.length() {
+        if pattern.identityBase == "generic:" + names[p] and pattern.arguments.length() == 0 {
+            if values[p].base == "Unknown" { values[p] = actual }
+            else if values[p].canonicalIdentity() != actual.canonicalIdentity() {
+                genericAggregateBodyFailImpl(proof, "conflicting inferred generic argument: " + names[p])
+            }
+            return
+        }
+        p = p + 1
+    }
+    if pattern.base != actual.base or pattern.arguments.length() != actual.arguments.length() { return }
+    p = 0
+    while p < pattern.arguments.length() {
+        genericAggregateBodyInferImpl(proof, pattern.arguments[p], actual.arguments[p], names, values, depth + 1)
+        p = p + 1
+    }
+}
+
+fun genericAggregateBodyCallImpl(proof: GenericAggregateBodyProof,
+    reference: GenericAggregateBodyType, arguments: Array<GenericAggregateBodyType>,
+    depth: Int) r: GenericAggregateBodyType {
+    let index = genericAggregateBodyFunctionIndexImpl(reference.before, proof.definition.moduleName)
+    if index < 0 { return genericAggregateBodyUnknownImpl() }
+    let definition = g_genericAggregateFunctions[index]
+    let count = genericParameterCount(definition.declaration.decorators)
+    if count == 0 {
+        var spelling = definition.declaration.returnType.typeName
+        if definition.declaration.returnType.isNullable { spelling = spelling + "?" }
+        let result = genericAggregateFunctionBeforeTypeImpl(definition, spelling)
+        return GenericAggregateBodyType{before: result, after: result}
+    }
+    let names = Array<String>()
+    let beforeArguments = Array<TypeRef>()
+    let afterArguments = Array<TypeRef>()
+    var p = 0
+    while p < count {
+        names.push(genericParameterNameAt(definition.declaration.decorators, p))
+        beforeArguments.push(TypeRef.new()); afterArguments.push(TypeRef.new())
+        if p < reference.before.arguments.length() and p < reference.after.arguments.length() {
+            beforeArguments[p] = reference.before.arguments[p]
+            afterArguments[p] = reference.after.arguments[p]
+        }
+        p = p + 1
+    }
+    p = 0
+    while reference.before.arguments.length() == 0 and
+        p < definition.declaration.params.length() and p < arguments.length() {
+        let formal = genericAggregateFunctionBeforeTypeImpl(definition,
+            definition.declaration.params[p].paramType.typeName)
+        if genericAggregateBodyKnownImpl(arguments[p]) {
+            genericAggregateBodyInferImpl(proof, formal, arguments[p].before, names, beforeArguments, depth + 1)
+            genericAggregateBodyInferImpl(proof, formal, arguments[p].after, names, afterArguments, depth + 1)
+        }
+        p = p + 1
+    }
+    p = 0
+    while p < count {
+        if beforeArguments[p].base == "Unknown" or afterArguments[p].base == "Unknown" {
+            genericAggregateBodyFailImpl(proof, "cannot infer forwarded generic argument for " + definition.owner)
+            return genericAggregateBodyUnknownImpl()
+        }
+        p = p + 1
+    }
+    let beforeUse = GenericAggregateFunctionUse{key: "", definition: index, arguments: beforeArguments, validated: false}
+    let afterUse = GenericAggregateFunctionUse{key: "", definition: index, arguments: afterArguments, validated: false}
+    // Scalar/handle uses retain the existing bit-preserving word adapters.
+    // Only a transitive aggregate argument needs the additional erasure proof.
+    var aggregateUse = false
+    p = 0
+    while p < afterArguments.length() {
+        if genericAggregateValueTypeImpl(afterArguments[p], definition.moduleName, 0) {
+            aggregateUse = true
+        }
+        p = p + 1
+    }
+    if aggregateUse {
+        let forwarded = TypeRef.new()
+        forwarded.base = definition.declaration.name
+        forwarded.identityBase = definition.owner
+        forwarded.arguments = afterArguments
+        recordGenericAggregateFunctionUseImpl(forwarded, definition.moduleName)
+        // Also check the open forwarding boundary immediately. The queued
+        // concrete use later proves the transitive body, including recursion.
+        if not validateGenericAggregateFunctionAbiImpl(definition, beforeUse) or
+            not validateGenericAggregateFunctionAbiImpl(definition, afterUse) {
+            proof.valid = false
+            return genericAggregateBodyUnknownImpl()
+        }
+    }
+    var spelling = definition.declaration.returnType.typeName
+    if definition.declaration.returnType.isNullable { spelling = spelling + "?" }
+    let result = GenericAggregateBodyType{
+        before: genericAggregateFunctionAfterTypeImpl(definition, beforeUse, spelling),
+        after: genericAggregateFunctionAfterTypeImpl(definition, afterUse, spelling)}
+    names.free(); beforeArguments.free(); afterArguments.free()
+    beforeUse.free(); afterUse.free()
+    return result
+}
+
+fun genericAggregateBodyConstructorImpl(proof: GenericAggregateBodyProof,
+    reference: GenericAggregateBodyType, expected: GenericAggregateBodyType,
+    arguments: Array<GenericAggregateBodyType>) r: GenericAggregateBodyType {
+    let name = reference.before.base
+    if name == "Err" or name == "Ok" or name == "Some" or name == "None" {
+        var payload = genericAggregateBodyUnknownImpl()
+        if name == "Err" { payload = genericAggregateBodyArgumentImpl(reference, 1) }
+        if name == "Ok" or name == "Some" { payload = genericAggregateBodyArgumentImpl(reference, 0) }
+        if name != "None" and not genericAggregateBodyKnownImpl(payload) {
+            var payloadIndex = 0
+            if name == "Err" { payloadIndex = 1 }
+            payload = genericAggregateBodyArgumentImpl(expected, payloadIndex)
+            if not genericAggregateBodyKnownImpl(payload) and arguments.length() > 0 {
+                payload = arguments[0]
+            }
+        }
+        if name != "None" {
+            if not genericAggregateBodyKnownImpl(payload) {
+                genericAggregateBodyFailImpl(proof, "cannot determine live constructor payload: " + name)
+                return genericAggregateBodyUnknownImpl()
+            }
+            genericAggregateBodyCheckImpl(proof, payload, "live " + name + " payload changes representation")
+        }
+        // The runtime variant has the enclosing handle's ABI. Only its live
+        // payload is stored; Err's Ok label and None's payload label are dead.
+        if genericAggregateBodyKnownImpl(expected) { return expected }
+        let before = TypeRef.new(); let after = TypeRef.new()
+        before.base = "Option"; after.base = "Option"
+        if name == "Err" or name == "Ok" { before.base = "Result"; after.base = "Result" }
+        var count = 1
+        if name == "Err" or name == "Ok" { count = 2 }
+        var p = 0
+        while p < count {
+            var label = genericAggregateBodyArgumentImpl(reference, p)
+            if not genericAggregateBodyKnownImpl(label) and
+                ((p == 1 and name == "Err") or (p == 0 and (name == "Ok" or name == "Some"))) {
+                label = payload
+            }
+            before.arguments.push(label.before); after.arguments.push(label.after)
+            p = p + 1
+        }
+        return GenericAggregateBodyType{before: before, after: after}
+    }
+    genericAggregateBodyStorageImpl(proof, reference, "dependent constructor storage: " + name)
+    return reference
+}
+
+fun genericAggregateBodyWhenImpl(proof: GenericAggregateBodyProof,
+    expression: ParserExpressionNode, expected: GenericAggregateBodyType,
+    depth: Int) r: GenericAggregateBodyType {
+    genericAggregateBodyStepImpl(proof, depth)
+    if not proof.valid { return genericAggregateBodyUnknownImpl() }
+    var subject = genericAggregateBodyUnknownImpl()
+    if expression.operands.length() > 0 {
+        subject = genericAggregateBodyExpressionImpl(proof, expression.operands[0],
+            genericAggregateBodyUnknownImpl(), depth + 1)
+    }
+    var result = genericAggregateBodyUnknownImpl()
+    var a = 0
+    while a < expression.arguments.length() {
+        genericAggregateBodyStepImpl(proof, depth)
+        if not proof.valid { return genericAggregateBodyUnknownImpl() }
+        let arm = expression.arguments[a]
+        let scopeStart = proof.names.length()
+        if arm.kind != "PatternArm" or arm.operands.length() < 2 {
+            genericAggregateBodyFailImpl(proof, "incomplete pattern arm metadata")
+            return genericAggregateBodyUnknownImpl()
+        }
+        let pattern = arm.operands[0]
+        if pattern.variableName == "Variable" {
+            genericAggregateBodyBindImpl(proof, pattern.callee, subject)
+        }
+        var f = 0
+        while f < pattern.operands.length() {
+            genericAggregateBodyStepImpl(proof, depth)
+            if not proof.valid { return genericAggregateBodyUnknownImpl() }
+            let field = pattern.operands[f]
+            var value = genericAggregateBodyUnknownImpl()
+            if pattern.literalValue == "Some" or pattern.literalValue == "Ok" {
+                value = genericAggregateBodyArgumentImpl(subject, 0)
+            } else if pattern.literalValue == "Err" {
+                value = genericAggregateBodyArgumentImpl(subject, 1)
+            } else {
+                value = genericAggregateBodyMemberTypeImpl(proof, subject, field.variableName, false)
+            }
+            if not genericAggregateBodyKnownImpl(value) and genericAggregateBodyChangedImpl(subject) {
+                genericAggregateBodyFailImpl(proof, "cannot prove destructured payload: " + pattern.literalValue)
+            }
+            genericAggregateBodyCheckImpl(proof, value, "destructured payload changes representation")
+            genericAggregateBodyBindImpl(proof, field.literalValue, value)
+            f = f + 1
+        }
+        var o = 2
+        while o < arm.operands.length() {
+            genericAggregateBodyExpressionImpl(proof, arm.operands[o],
+                genericAggregateBodyUnknownImpl(), depth + 1)
+            o = o + 1
+        }
+        let branch = genericAggregateBodyExpressionImpl(proof, arm.operands[1], expected, depth + 1)
+        if not genericAggregateBodyKnownImpl(result) { result = branch }
+        genericAggregateBodyUnbindImpl(proof, scopeStart)
+        a = a + 1
+    }
+    return result
+}
+
+fun genericAggregateBodyExpressionImpl(proof: GenericAggregateBodyProof,
+    expression: ParserExpressionNode, expected: GenericAggregateBodyType,
+    depth: Int) r: GenericAggregateBodyType {
+    genericAggregateBodyStepImpl(proof, depth)
+    if not proof.valid { return genericAggregateBodyUnknownImpl() }
+    let kind = expression.kind
+    if kind == "None" or kind == "Sentinel" { return genericAggregateBodyUnknownImpl() }
+    if (kind == "Closure" or kind == "UiCallback") and proof.requiresBody {
+        genericAggregateBodyFailImpl(proof, "closure parameter/body metadata cannot prove aggregate erasure safety")
+        return genericAggregateBodyUnknownImpl()
+    }
+    if kind == "WhenExpression" {
+        return genericAggregateBodyWhenImpl(proof, expression, expected, depth + 1)
+    }
+    let operands = Array<GenericAggregateBodyType>()
+    let arguments = Array<GenericAggregateBodyType>()
+    var i = 0
+    while i < expression.operands.length() {
+        var operandExpected = genericAggregateBodyUnknownImpl()
+        if kind == "ReturnExpr" or kind == "Elvis" or kind == "NullCoalesce" or
+            (kind == "IfExpression" and i > 0) { operandExpected = expected }
+        operands.push(genericAggregateBodyExpressionImpl(proof, expression.operands[i],
+            operandExpected, depth + 1))
+        i = i + 1
+    }
+    i = 0
+    while i < expression.arguments.length() {
+        arguments.push(genericAggregateBodyExpressionImpl(proof, expression.arguments[i],
+            genericAggregateBodyUnknownImpl(), depth + 1))
+        i = i + 1
+    }
+    var result = genericAggregateBodyUnknownImpl()
+    if kind == "Literal" { result = genericAggregateBodyTypeImpl(proof, expression.literalType) }
+    else if kind == "Variable" or kind == "VarExpr" {
+        result = genericAggregateBodyLookupImpl(proof, expression.variableName)
+        if not genericAggregateBodyKnownImpl(result) {
+            result = genericAggregateBodyTypeImpl(proof, expression.variableName)
+        }
+    } else if kind == "Cast" or kind == "IsExpression" {
+        let target = genericAggregateBodyTypeImpl(proof, expression.literalValue)
+        genericAggregateBodyStorageImpl(proof, target, "dependent cast/type materialization")
+        result = target
+        if kind == "IsExpression" { result = genericAggregateBodyTypeImpl(proof, "Bool") }
+    } else if kind == "StructLiteral" {
+        result = genericAggregateBodyTypeImpl(proof, expression.literalType)
+        genericAggregateBodyStorageImpl(proof, result, "dependent struct materialization")
+    } else if kind == "ArrayLiteral" {
+        result = expected
+        if not genericAggregateBodyKnownImpl(result) and arguments.length() > 0 {
+            let before = TypeRef.new(); let after = TypeRef.new()
+            before.base = "Array"; after.base = "Array"
+            before.arguments.push(arguments[0].before); after.arguments.push(arguments[0].after)
+            result = GenericAggregateBodyType{before: before, after: after}
+        }
+        genericAggregateBodyStorageImpl(proof, result, "dependent array literal storage")
+    } else if kind == "IndexAccess" and operands.length() > 0 {
+        result = genericAggregateBodyElementImpl(proof, operands[0], "indexed value changes representation")
+    } else if kind == "TryPropagate" and operands.length() > 0 {
+        result = genericAggregateBodyElementImpl(proof, operands[0], "propagated payload changes representation")
+    } else if kind == "Call" {
+        let reference = genericAggregateBodyTypeImpl(proof, expression.callee)
+        let functionIndex = genericAggregateBodyFunctionIndexImpl(reference.before, proof.definition.moduleName)
+        // Native constructors intercept these declarations before ordinary
+        // generic calls. Their source fallbacks contain dead-branch storage
+        // that is not part of the emitted runtime constructor implementation.
+        let callable = genericAggregateBodyLookupImpl(proof, expression.callee)
+        if genericAggregateBodyKnownImpl(callable) and callable.before.kind == "function" and
+            callable.after.kind == "function" and callable.before.arguments.length() > 0 and
+            callable.after.arguments.length() > 0 {
+            genericAggregateBodyCheckImpl(proof, callable, "callback invocation changes its native signature")
+            result = GenericAggregateBodyType{
+                before: callable.before.arguments[callable.before.arguments.length() - 1],
+                after: callable.after.arguments[callable.after.arguments.length() - 1]}
+        } else if genericAggregateBodyKnownImpl(callable) and genericAggregateBodyChangedImpl(callable) {
+            genericAggregateBodyFailImpl(proof, "dependent callable lacks an erased invocation signature")
+        } else if reference.before.base == "Err" or reference.before.base == "Ok" or
+            reference.before.base == "Some" or reference.before.base == "None" {
+            result = genericAggregateBodyConstructorImpl(proof, reference, expected, arguments)
+        } else if genericAggregateTrustedDefaultImpl(reference.before, proof.definition.moduleName) {
+            result = genericAggregateBodyArgumentImpl(reference, 0)
+            if not genericAggregateBodyKnownImpl(result) { result = expected }
+            genericAggregateBodyCheckImpl(proof, result, "dependent compiler default value ABI")
+        } else if functionIndex >= 0 {
+            result = genericAggregateBodyCallImpl(proof, reference, arguments, depth + 1)
+        } else if reference.before.base == "__default" or reference.before.base == "transmute" {
+            result = genericAggregateBodyArgumentImpl(reference, 0)
+            if not genericAggregateBodyKnownImpl(result) { result = expected }
+            genericAggregateBodyCheckImpl(proof, result, "dependent default/meta value ABI")
+        } else if reference.before.base == "stackAlloc" {
+            let stored = genericAggregateBodyArgumentImpl(reference, 0)
+            genericAggregateBodyLayoutQueryImpl(proof, stored, "dependent stack allocation layout")
+            let before = TypeRef.new(); let after = TypeRef.new()
+            before.kind = "pointer"; after.kind = "pointer"
+            before.arguments.push(stored.before); after.arguments.push(stored.after)
+            result = GenericAggregateBodyType{before: before, after: after}
+        } else if reference.before.base == "sizeof" or reference.before.base == "alignof" or
+            reference.before.base == "offsetof" {
+            // These builtins consume a type expression, rather than a value.
+            i = 0
+            while i < arguments.length() {
+                genericAggregateBodyLayoutQueryImpl(proof, arguments[i], "dependent layout query")
+                i = i + 1
+            }
+            i = 0
+            while i < reference.before.arguments.length() and i < reference.after.arguments.length() {
+                genericAggregateBodyLayoutQueryImpl(proof,
+                    genericAggregateBodyArgumentImpl(reference, i), "dependent layout query")
+                i = i + 1
+            }
+            result = genericAggregateBodyTypeImpl(proof, "Int")
+        } else if genericAggregateBodyClassIndexImpl(reference.before) >= 0 or
+            reference.before.arguments.length() > 0 or reference.before.base == "None" or
+            reference.before.base == "Some" or reference.before.base == "Ok" or reference.before.base == "Err" {
+            result = genericAggregateBodyConstructorImpl(proof, reference, expected, arguments)
+        } else {
+            result = genericAggregateBodyTypeImpl(proof, inferCallTypeTableImpl(expression.callee))
+            i = 0
+            while i < arguments.length() {
+                if genericAggregateBodyChangedImpl(arguments[i]) {
+                    genericAggregateBodyFailImpl(proof, "unresolved dependent call: " + expression.callee)
+                }
+                i = i + 1
+            }
+        }
+    } else if kind == "MethodCall" or kind == "MemberAccess" or kind == "SafeNavigation" {
+        var receiver = genericAggregateBodyUnknownImpl()
+        if operands.length() > 0 { receiver = operands[0] }
+        else {
+            receiver = genericAggregateBodyLookupImpl(proof, expression.literalValue)
+            if not genericAggregateBodyKnownImpl(receiver) {
+                receiver = genericAggregateBodyTypeImpl(proof, expression.literalValue)
+            }
+        }
+        var member = expression.variableName
+        if kind == "MethodCall" { member = expression.callee }
+        let memberRef = parseTypeRef(member, 0, 0, "")
+        if memberRef.valid { member = memberRef.base }
+        let runtime = receiver.before.base == "Array" or receiver.before.base == "List" or
+            receiver.before.base == "Option" or receiver.before.base == "Optional" or receiver.before.base == "Result"
+        let descriptorOnly = (receiver.before.base == "Array" or receiver.before.base == "List") and
+            (member == "free" or member == "clear" or member == "data" or member == "dataPtr")
+        let containerOnly = receiver.before.base == "Result" and
+            (member == "releaseContainer" or member == "free")
+        genericAggregateBodyRuntimeFamilyImpl(proof, receiver)
+        if kind == "MethodCall" and member == "new" {
+            result = genericAggregateBodyConstructorImpl(proof, receiver, expected, arguments)
+        } else if runtime and (member == "length" or member == "len" or member == "size" or member == "count") {
+            result = genericAggregateBodyTypeImpl(proof, "Int")
+        } else if runtime and (member == "isEmpty" or member == "isSome" or member == "isNone" or
+            member == "isOk" or member == "isOkay" or member == "isErr") {
+            result = genericAggregateBodyTypeImpl(proof, "Bool")
+        } else if descriptorOnly or containerOnly {
+            if member == "data" or member == "dataPtr" {
+                result = genericAggregateBodyTypeImpl(proof,
+                    getCollectionMethodReturnTypeImpl(receiver.before.canonical(), member))
+            } else {
+                result = genericAggregateBodyTypeImpl(proof, "Void")
+            }
+        } else if runtime and (member == "unwrap" or member == "expect" or member == "get" or
+            member == "getAt" or member == "first" or member == "last" or member == "pop" or member == "value") {
+            result = genericAggregateBodyElementImpl(proof, receiver, "collection/payload read changes representation")
+        } else if receiver.before.base == "Result" and (member == "unwrapErr" or member == "error") {
+            result = genericAggregateBodyArgumentImpl(receiver, 1)
+        } else if runtime and (member == "push" or member == "append" or member == "insert" or member == "set") {
+            genericAggregateBodyStorageValueImpl(proof, genericAggregateBodyArgumentImpl(receiver, 0),
+                "collection element write changes representation")
+            result = genericAggregateBodyTypeImpl(proof, "Void")
+        } else {
+            result = genericAggregateBodyMemberTypeImpl(proof, receiver, member, kind == "MethodCall")
+            if not genericAggregateBodyKnownImpl(result) and kind == "MethodCall" {
+                result = genericAggregateBodyTypeImpl(proof, inferMethodCallTypeTableImpl(member))
+            }
+            if not genericAggregateBodyKnownImpl(result) and genericAggregateBodyChangedImpl(receiver) {
+                genericAggregateBodyFailImpl(proof, "cannot prove dependent member access: " + member)
+            }
+        }
+        // A method may use dependent element layout even with a fixed result.
+        // Descriptor-only observations/forwarding do not inspect that payload.
+        if runtime and genericAggregateBodyChangedImpl(receiver) and kind == "MethodCall" and
+            not descriptorOnly and not containerOnly and
+            member != "length" and member != "len" and member != "size" and member != "count" and member != "isEmpty" and
+            member != "isSome" and member != "isNone" and member != "isOk" and member != "isOkay" and
+            member != "isErr" and member != "new" {
+            var payloadIndex = 0
+            if member == "unwrapErr" or member == "error" { payloadIndex = 1 }
+            genericAggregateBodyCheckImpl(proof, genericAggregateBodyArgumentImpl(receiver, payloadIndex),
+                "dependent runtime method payload: " + member)
+        }
+    } else if kind == "Assignment" {
+        result = genericAggregateBodyLookupImpl(proof, expression.variableName)
+        genericAggregateBodyCheckImpl(proof, result, "assignment target changes representation")
+        if not genericAggregateBodyKnownImpl(result) and operands.length() > 0 { result = operands[0] }
+    } else if kind == "Binary" {
+        i = 0
+        while i < operands.length() {
+            genericAggregateBodyStorageValueImpl(proof, operands[i],
+                "dependent operator requires concrete value semantics")
+            i = i + 1
+        }
+        if operands.length() > 0 { result = operands[0] }
+        if expression.operator == "==" or expression.operator == "!=" or expression.operator == "<" or
+            expression.operator == ">" or expression.operator == "<=" or expression.operator == ">=" or
+            expression.operator == "and" or expression.operator == "or" { result = genericAggregateBodyTypeImpl(proof, "Bool") }
+    } else if kind == "StringInterpolation" { result = genericAggregateBodyTypeImpl(proof, "String") }
+    else if kind == "Range" { result = genericAggregateBodyTypeImpl(proof, "Int") }
+    else if kind == "Unary" or kind == "Await" or kind == "ReturnExpr" or kind == "StructField" {
+        if kind == "Unary" {
+            i = 0
+            while i < operands.length() {
+                genericAggregateBodyStorageValueImpl(proof, operands[i],
+                    "dependent unary operator requires concrete value semantics")
+                i = i + 1
+            }
+        }
+        if operands.length() > 0 { result = operands[0] }
+    } else if kind == "IfExpression" and operands.length() > 1 { result = operands[1] }
+    else if kind == "Elvis" or kind == "NullCoalesce" {
+        if operands.length() > 0 { result = operands[0] }
+    }
+    genericAggregateBodyCheckImpl(proof, result, "expression value changes representation: " + kind)
+    operands.free(); arguments.free()
+    return result
+}
+
+fun genericAggregateBodyBlockImpl(proof: GenericAggregateBodyProof,
+    block: BlockNode, depth: Int) r: Void {
+    genericAggregateBodyStepImpl(proof, depth)
+    if not proof.valid { return }
+    let scopeStart = proof.names.length()
+    var i = 0
+    while i < block.statements.length() {
+        genericAggregateBodyStepImpl(proof, depth)
+        if not proof.valid { genericAggregateBodyUnbindImpl(proof, scopeStart); return }
+        let statement = block.statements[i]
+        if statement.kind == "DeclarationBody" {
+            genericAggregateBodyFailImpl(proof, "source body is unavailable")
+        }
+        var spelling = statement.variableType.typeName
+        if statement.variableType.isNullable { spelling = spelling + "?" }
+        let declared = genericAggregateBodyTypeImpl(proof, spelling)
+        let initializer = genericAggregateBodyExpressionImpl(proof, statement.initializer, declared, depth + 1)
+        if statement.kind == "Let" or statement.kind == "Var" or statement.kind == "Assignment" {
+            genericAggregateBodyCheckImpl(proof, declared, "typed local changes representation: " + statement.variableName)
+            var local = declared
+            if not genericAggregateBodyKnownImpl(local) { local = initializer }
+            genericAggregateBodyBindImpl(proof, statement.variableName, local)
+        }
+        var returnSpelling = proof.definition.declaration.returnType.typeName
+        if proof.definition.declaration.returnType.isNullable { returnSpelling = returnSpelling + "?" }
+        genericAggregateBodyExpressionImpl(proof, statement.returnValue,
+            genericAggregateBodyTypeImpl(proof, returnSpelling), depth + 1)
+        let iterable = genericAggregateBodyExpressionImpl(proof, statement.expression,
+            genericAggregateBodyUnknownImpl(), depth + 1)
+        let condition = genericAggregateBodyExpressionImpl(proof, statement.condition,
+            genericAggregateBodyUnknownImpl(), depth + 1)
+        genericAggregateBodyExpressionImpl(proof, statement.loopCondition,
+            genericAggregateBodyUnknownImpl(), depth + 1)
+        let branchStart = proof.names.length()
+        if statement.kind == "IfLet" {
+            genericAggregateBodyBindImpl(proof, statement.variableName,
+                genericAggregateBodyElementImpl(proof, condition, "if-let payload changes representation"))
+        }
+        genericAggregateBodyBlockImpl(proof, statement.thenBranch, depth + 1)
+        genericAggregateBodyUnbindImpl(proof, branchStart)
+        genericAggregateBodyBlockImpl(proof, statement.elseBranch, depth + 1)
+        if statement.kind == "ForIn" or statement.kind == "ParallelFor" {
+            genericAggregateBodyBindImpl(proof, statement.variableName,
+                genericAggregateBodyElementImpl(proof, iterable, "loop element changes representation"))
+        }
+        genericAggregateBodyBlockImpl(proof, statement.loopBody, depth + 1)
+        genericAggregateBodyUnbindImpl(proof, branchStart)
+        i = i + 1
+    }
+    genericAggregateBodyUnbindImpl(proof, scopeStart)
+}
+
+fun validateGenericAggregateFunctionUsesImpl() r: Bool {
+    var index = 0
+    var totalWork = 0
+    // Calls discovered while proving a body append to this same bounded queue.
+    // Never capture its descriptor/length before walking the transitive closure.
+    while index < g_genericAggregateFunctionUses.length() {
+        if index >= 4096 {
+            println("Error: [E_GENERIC_AGGREGATE] generic function proof worklist limit exceeded")
+            return false
+        }
+        let use = g_genericAggregateFunctionUses[index]
+        if use.validated { index = index + 1; continue }
+        if use.definition < 0 or use.definition >= g_genericAggregateFunctions.length() {
+            abort("Error: [E_GENERIC_AGGREGATE] invalid generic function use metadata")
+        }
+        let definition = g_genericAggregateFunctions[use.definition]
+        if not validateGenericAggregateFunctionAbiImpl(definition, use) { return false }
+        let proof = GenericAggregateBodyProof{definition: definition, use: use,
+            names: Array<String>(), types: Array<GenericAggregateBodyType>(), work: 0, requiresBody: false, valid: true}
+        var needsBody = false
+        var p = 0
+        while p < genericParameterCount(definition.declaration.decorators) and p < use.arguments.length() {
+            let before = genericAggregateFunctionBeforeTypeImpl(definition,
+                genericParameterNameAt(definition.declaration.decorators, p))
+            if genericAggregateFunctionValueAbiImpl(before, definition.moduleName, 0) !=
+                genericAggregateFunctionValueAbiImpl(use.arguments[p], definition.moduleName, 0) { needsBody = true }
+            p = p + 1
+        }
+        proof.requiresBody = needsBody
+        if not definition.hasBody {
+            if needsBody { genericAggregateBodyFailImpl(proof, "source body is unavailable") }
+        } else {
+            p = 0
+            while p < definition.declaration.params.length() {
+                let parameter = definition.declaration.params[p]
+                var spelling = parameter.paramType.typeName
+                if parameter.paramType.isNullable { spelling = spelling + "?" }
+                genericAggregateBodyBindImpl(proof, parameter.name, genericAggregateBodyTypeImpl(proof, spelling))
+                p = p + 1
+            }
+            genericAggregateBodyBlockImpl(proof, definition.declaration.body, 0)
+        }
+        totalWork = totalWork + proof.work
+        if totalWork > 1048576 { genericAggregateBodyFailImpl(proof, "total erasure-safety work limit exceeded") }
+        let valid = proof.valid
+        if valid { use.validated = true }
+        proof.names.free(); proof.types.free(); proof.free()
+        if not valid { return false }
+        index = index + 1
+    }
+    return true
+}

@@ -1,5 +1,413 @@
 # Testing
 
+## Fixture execution oracles
+
+The runtime-A metadata, IOCP completion and ARM dispatch harnesses use native
+assertions and exact process statuses as their functional oracles, rather than
+matching human-readable PASS sentences. Stable diagnostic codes, structured
+capability classifications, coverage thresholds and benchmark sample contracts
+remain checked separately.
+
+## Complete hosted acceptance
+
+Ordinary `scripts/run_ci_required.sh` and full rebuilds still execute the complete
+acceptance surface. Hosted CI first exports a fresh portable Stage3 candidate
+after both bootstrap stages and hello checks. This candidate is explicitly
+unverified: it does not install a production compiler or create a release stamp.
+
+The canonical acceptance runner supports five complete groups: `core`,
+`io-simd`, `gpu-emitter`, `gpu-runtime` and `async`. Its default `--group all`
+preserves local full/verify behavior. Hosted workers run these groups on separate
+machines with identical candidate bytes, same-commit source, fresh live kernel
+containment, zero swap and serial compiler workers. No profile, native assertion,
+fuzz duration, coverage threshold or benchmark sample contract is removed.
+`gpu-emitter` runs the complete accelerator foundation Gate A and emitter Gate B.
+`gpu-runtime` runs the frontend/reflection, input-ownership, rejection and fixture
+harness gates followed by the complete fifteen-child runtime Gate C aggregate.
+This keeps those independent checks from starving behind the full emitter corpus.
+`async` runs the complete existing ten-gate async block independently, so that
+tail cannot be starved by runtime work. No gate is shortened; `--group all`
+preserves the original execution order.
+
+The final required job rejects missing, failed or skipped dependencies and
+validates all five source/candidate-bound completion receipts plus the same-run
+native Linux ARM64 qualification bundle before installation. It then executes
+the installed compiler's Gate 0 checks and writes the full release stamp.
+Only this job can produce the exact-commit release toolchain.
+Candidate transport is bounded and admitted before publication; archive links,
+traversal, duplicate entries and substituted source or binaries fail closed.
+
+The configured dependency-path budgets are 120 minutes for bootstrap,
+195 minutes for the acceptance matrix and 30 minutes for finalization.
+The parallel native ARM branch has 145 minutes for input cross-building followed
+by 50 minutes for real ARM execution. Both paths remain 345 minutes total,
+matching the existing 20,700-second hard CI bound.
+
+Hosted budgets include setup and evidence retention, not just compiler execution.
+The first step records Linux monotonic uptime before checkout or provisioning.
+The workload receives the phase budget minus elapsed setup, a fixed 600-second
+startup/drain/publication/diagnostic reserve, and one second for clock rounding.
+Exhausted setup exits 124 before owned work starts; missing, malformed or future
+clocks fail closed. Diagnostic and post-gate publication steps each have a
+one-minute bound, and success artifacts remain success-only. External cancellation
+still cancels evidence collection; upload service or kernel stalls are not
+guaranteed recoverable. Finalization's release-toolchain preparation runs inside
+the same hard scope and workload deadline as certification. Local phase deadlines
+remain unchanged; this reserve does not establish that the acceptance corpus fits.
+
+## Native Linux ARM64 qualification
+
+`native-arm-inputs` cross-builds the unchanged full compiler and the matching
+package client from the current source and verified x64 bootstrap candidate.
+The transport version comes from `[project].version` in the workspace `Seen.toml`,
+not an unrelated root-level value; missing or malformed project versions fail
+before cross-building.
+Its bounded three-member archive is explicitly `cross-built-unverified`;
+neither ARM ELF headers nor successful cross-linking qualify native execution.
+Both ARM entrypoints use the canonical focused-regression route without selecting
+a rebuild tier. That route derives its own quick setup; explicit tier selection,
+cache cleanup and artifact-preflight flags remain forbidden for focused runs.
+Scope membership is read through `/proc/<current-pid>/cgroup`, matching the
+receipt validator. The secure reader still refuses symlink traversal; Linux's
+`/proc/self` alias is not passed through that no-follow boundary.
+All four native SIMD profiles remain mandatory. Shared release fixtures request
+explicit ThinLTO only on Linux x86-64; other hosts use plain native `--release`
+with the compiler's default full merged optimization and unchanged eligibility
+checks. Explicit PGO/LTO platform restrictions are not relaxed. Maintained CLI
+regressions execute native default-release semantics, verify raw default-release
+ARM IR and retain the explicit ARM ThinLTO rejection.
+ARM address/undefined sanitizer profiles use the same module/runtime/shim path
+as x64, optionally with debug information but never coverage. The public-policy
+fixture checks both accepted modes and coverage/thread/memory/debug-only
+rejections. Maintained CLI regressions verify ARM sanitizer IR and typed
+unsupported-mode failures before any IR or executable publication. These
+cross-target checks do not replace native execution or finite ASan controls.
+On native failure, the wrapper prints at most 32 KiB from the setup log and
+preserves the original exit status. Diagnostic collection also retains direct
+`setup.log`, `suite.log` and `native-version.log` tails from the native artifact
+scope, even when no safe-rebuild scope was created. These logs share the existing
+discovery, 128-file and 32 MiB aggregate bounds, with at most 1 MiB per log.
+Transported binaries, unrelated files and nested artifact directories are not
+traversed; symlinks and nonregular selected logs fail closed.
+The same budgets cover direct native ASan admission observations and the explicit
+compile/clean/heap/insufficient command, status, stdout and stderr files.
+Admission metadata, child statuses and stderr precede unrelated bulk logs.
+Failed controls print escaped 2 KiB status/stdout/stderr tails and retain their
+actual status before rejection; C-control preconditions distinguish failed limit
+and personality queries from disabled ASLR. Diagnostics never authorize execution
+or turn a failed control into native qualification.
+
+On Ubuntu, the installed GNU cross toolchain uses filesystem sysroot `/`
+with GCC toolchain root `/usr`. `/usr/aarch64-linux-gnu` is the target
+installation prefix, not a filesystem sysroot: its libc/libm linker scripts
+retain absolute `/usr/aarch64-linux-gnu` paths. The input producer links real
+C and C++ runtime canaries inside its existing capped scope before building
+the full compiler, so an object-only frontend check cannot hide a broken link.
+
+`native-arm` runs on `ubuntu-24.04-arm`, verifies the source/candidate/ELF
+transport before execution, and creates fresh local serializer and kernel
+scope bindings. It executes the complete unchanged `seen_inf_simd_c.sh` suite:
+four native contract profiles, the 60-second seed-1101 capability fuzz,
+all four cross-target object checks, and thirty paired performance samples.
+Native backend selection and the existing 1.05 median ceiling remain required.
+NEON/SVE classifications derive from actual OS/CPU capabilities; unsupported
+SVE is recorded separately and cannot substitute for the native backend.
+Fixtures use the compiler's accepted `--target-cpu=native` option.
+
+Every ARM address-sanitized fixture first runs fresh native pinned LLVM20
+clean, deliberate heap-overflow and insufficient-address-space controls in
+the same aggregate scope, private namespace and existing deadline.
+The unchanged finite ASan allowance is 64 TiB; the negative control uses
+128 MiB. Actual runtime shadow boundaries and kernel mappings must agree.
+Failed controls stop execution; no unlimited allowance, ASLR change,
+sanitizer suppression or architecture-only authorization is accepted.
+Verbose `LeakSanitizer: checking for leaks` is an informational observation, not a
+finding. Clean admission still requires exit zero, exact limits/mapping markers,
+completion, and no ASan/LSan error, fatal diagnostic or finding summary.
+
+The finalizer verifies the transported ARM compiler/client manifest, source
+identities, full-suite logs, native compiler version, kernel limits/events,
+sanitizer control executable and raw findings, and paired benchmark telemetry.
+The bundle is qualification evidence, not a production ARM release asset or
+GPU/hardware certification. Both native jobs and all five CPU groups must
+complete successfully; emulation, missing evidence and skipped jobs fail closed.
+
+The v4 containment manifest describes the existing live-memory formula:
+at most 60% of total memory, additionally bounded by available memory minus
+a 10%-of-total reserve, with the existing half-available fallback when that
+reserve cannot be met. Admission rounds down to kernel pages and honors
+smaller explicit caps. This corrects stale declarative quarter/half metadata;
+the execution limits, zero swap, 24-task ceiling and 2 GiB LLVM ceiling do not change.
+
+## Interrupted runtime Gate C diagnostics
+
+`seen_p0_accel_gate_c.sh` publishes `active-child.json` before snapshot,
+execution and observation work, with the child name, stage, shell-elapsed
+seconds and nullable actual child exit status. The parent log also records
+each transition and its shell-elapsed time, so cumulative suite cost can be
+distinguished from a child that stops progressing.
+Child and observation status files begin as `incomplete`;
+only completed processes replace them with numeric statuses. Marker, status
+and checks updates are atomic publications, not power-loss durability claims.
+An aggregate killed before its EXIT trap still leaves these breadcrumbs.
+
+Clean-checkout certification enables the existing build trace for its full
+rebuild. `safe_rebuild.sh` rebases the trace into its ignored work directory as
+`safe-rebuild.trace.jsonl`; it does not create a file named `1` in the checkout.
+Compiled fixture helpers add compile/run begin events and completion events
+with the actual exit status, fixture name and profile, alongside compiler phase
+events. These use Unix wall-clock milliseconds, not benchmark-quality monotonic
+timings. A begin without a completion identifies unfinished work, not its cause.
+Fixture events record no command arguments, environment dumps, IR or native payloads.
+
+`scripts/collect_verification_logs.py` retains these fixed-depth, allowlisted
+diagnostics from unfinished `p0-accel-c.*` directories. Active child identity,
+log and status outrank older build tails; checks and snapshot/observation
+metadata follow within the unchanged 128-file, 1 MiB-per-file, 32 MiB-total
+and 16,384-discovery-entry bounds. It never descends into child artifacts or
+copies IR/native binaries. Directory and file opens reject symlinks; nonregular
+files cannot block collection. The index marks truncation, observed mutation,
+incomplete JSON and sources that disappear before reading.
+
+The same bounded collector retains `safe-rebuild.trace.jsonl` with the top-level
+build tails. Its final JSONL record may be partial after interruption or tail
+truncation; a missing completion must not be interpreted as a successful compile.
+
+Retained files are independent tails, not an atomic gate snapshot or proof of
+success. A missing or malformed marker cannot identify an active child.
+Timeouts and sanitizer failures remain failures; neither diagnostic retention
+nor an earlier successful child certifies an unfinished aggregate.
+
+## Gate B native emitter fixture provisioning
+
+`tests/misc_root_tests/seen_p0_accel_gate_b.sh` owns a private pool below its
+current attested artifact directory. The producer uses the unchanged generic
+`compile_fixture` path with `--no-cache --frozen`: `text_layout_contract.seen`
+and `integrity_contract.seen`, each in `fast`, `release` (ThinLTO), `undefined`
+and `address`, for eight actual builds. The original 18 children still enter
+their own attested scopes. Exactly the six PTX/AMDGPU/Metal A/B text-program
+calls and four SPIR-V/PTX/AMDGPU/Metal C integrity-program calls use the pool
+(40 profile deliveries). All runtime loops, backend/case arguments, goldens,
+typed rejections, SDK checks and other source builds remain independent.
+Without the pool selector, the ten leaves use their original fresh compilation.
+
+The internal `scripts/emitter_fixture_support.sh` API is
+`prepare_emitter_fixture_pool POOL`, `compile_emitter_fixture PROFILE NAME SOURCE`
+and `compile_emitter_case PROFILE NAME SOURCE [runtime args...]`. Sourcing it
+installs no trap; leaves source it after the generic fixture helper. Only B
+provisions and exports `SEEN_EMITTER_FIXTURE_POOL`, after a valid seal.
+The Python helper provides `fingerprint`, `seal` and `clone`, all taking
+`--root`, `--compiler`, `--pool`; `clone` additionally requires `--source`,
+`--profile`, `--destination` (the executable prefix).
+
+The seal binds the actual compiler path/bytes, existing bounded HEAD/dirty
+source identity, compiler-source/standard-library/runtime/language dependency bytes, exact
+program/profile/flags/default x86-64 CPU, selected native tool and bounded-wrapper
+bytes, artifact-root/pool ownership, cgroup and mount namespace identity.
+The global mount table is not a compilation input: unrelated mount churn must
+not invalidate unchanged SDK/source bytes or the owned artifact bindings.
+Semantic environment values are hashed, not published; only leaf scope,
+`SHLVL`, `_` and the pool selector are omitted, and duplicate PATH components
+are removed without changing search order. A changed dependency or context
+rejects the pool; it never silently falls back to recompilation or cross-run
+reuse. B retains producer and adverse logs/statuses plus the sealed manifest.
+These are build/admission evidence, not physical GPU certification.
+Compiler-owned runtime object/signature caches are derived outputs, not stable
+source identities: the catalog excludes only the named legacy runtime object
+outputs and normal generated cache/target directories, while binding their
+authoritative source/header/toolchain/profile inputs. Unrecognized native
+dependency files are not blanket-excluded by extension.
+System SDK directories are not assumed immutable merely because the mount
+namespace is unchanged. Each admission discovers C/C++ search roots using the
+selected bounded Clang wrappers with empty preprocessing, resource-directory
+and startup/support-file queries. It streams the actual include, Clang
+resource/sanitizer and selected startup/support bytes, plus resolved native-tool
+shared dependencies and loader obtained with trusted `ldd`. Explicit include
+and library environment roots are included. Canonical aliases and directory
+cycles are bounded; missing required libraries, unsupported dependency records
+or catalog overflow reject admission. Only aggregate hashes/counts enter the
+manifest: at most 100,000 unique SDK files, 200,000 traversal entries, 4 GiB
+total bytes and 512 MiB per file, using 1 MiB streaming reads. Discovery output
+is capped at 256 KiB per 30-second tool call. No SDK tree is copied, mounted
+differently or presumed safe after an unobserved mutation.
+Inspector admission checks protected paths and effective write permissions,
+not host UID numbers that a user namespace may remap. Relocatable startup
+objects are hashed without asking the dynamic loader to inspect them. Loader
+stdout records and stderr diagnostics stay separate; diagnostics are retained
+in the SDK identity with a 32 KiB aggregate ceiling, not discarded or treated
+as dependency records. Unexpected failures or unresolved dynamic inspection reject.
+
+Every clone validates all eight slots and writes the producer's actual
+successful compile status last. Executables are read-only same-filesystem
+hardlinks; `.compile.log`, `.log`, `.compile.status` and
+`.compile.origin.json` are independent consumer metadata, explicitly identifying
+same-run reuse rather than a new compilation. The pool is limited to eight
+native blobs, 128 MiB each and 512 MiB total, 8 MiB per producer log and 256 KiB
+per context/manifest. Only successful producer-owned module-IR directories are
+removed; failed diagnostics remain. Publication guarantees atomic visibility,
+not power-loss durability. No memory/task/deadline policy is relaxed.
+
+Before children, `emitter_fixture_pool_contract.py` uses the real sealed pool
+for stale-context, source/compiler/profile, ownership, completeness and damage
+refusals. Its two temporary successful clone controls are separate from the
+40 leaf deliveries and do not execute a fixture or Seen compiler/build; native
+SDK identity probes still run. Measure actual
+baseline/aggregate wall time separately; no speedup follows from build-count
+reduction alone.
+
+## Official SPIR-V runtime validator
+
+The pinned Ubuntu `spirv-tools` package includes the command-line tools and
+`libSPIRV-Tools.a`, but not the shared C ABI required by runtime artifact
+validation. `scripts/install_gpu_spirv_validator.py` verifies the archive hash
+in `docs/architecture/spirv-toolchain.json` and links only those official vendor
+bytes. It requires the platform-only capped entrypoint; the linker is serial
+and has a finite process-group deadline. The installer assembles a real Vulkan
+1.2 compute module and requires the loaded vendor C ABI to accept it and reject
+a corrupted magic word, destroying both contexts and diagnostics.
+
+With the pinned package installed, a non-root local installation is:
+
+```sh
+mkdir -p .seen/toolchains/spirv-validator
+SEEN_MEMORY_GUARD_RSS_KB=2097152 \
+  bash scripts/run_capped_regression.sh --platform seen-spirv-validator-sdk -- \
+  python3 scripts/install_gpu_spirv_validator.py \
+  "$PWD/.seen/toolchains/spirv-validator/libSPIRV-Tools-shared.so"
+```
+
+The wrapper refuses a cap above the live-memory-derived ceiling and enforces
+zero swap and bounded tasks. `--archive PATH` accepts only an exact matching
+archive, not a different validator implementation. Output is limited to an
+8 MiB archive and 8 MiB shared image. Archive, linker and validation refusals
+leave the previous destination unchanged. Publication is atomic, not
+power-loss durable.
+
+Applications must expose the installed directory through their normal dynamic
+loader configuration (or a command-scoped `LD_LIBRARY_PATH`). Required CI
+installs the library through the system loader cache instead of exporting an
+SDK search directory into every CPU-only process. CPU-only import/build paths
+still never call this validator. The installer proves vendor C ABI admission,
+not GPU execution; runtime E–H retain their independent native correctness,
+sanitizer, ownership and failure checks.
+
+## Persistent async mixed-workload soak
+
+The manual `scripts/run_async_stress_soak.sh` defaults to exactly 86,400 seconds
+on a discovered NVIDIA RTX 4090. It is not an automatically discovered test.
+`tests/misc_root_tests/seen_async_stress_soak_slow.sh` instead performs a real
+two-second software-reference smoke plus malformed/range/device-class cases.
+Selecting slow tests must never accidentally start the 24-hour scenario.
+
+For the manual run, select the verified current compiler through the normal
+rebuild workflow, derive a finite physical-memory cap from live RAM and
+containing cgroup headroom, and supply a separate finite long-run scope budget:
+
+```bash
+: "${SEEN_GUARD_RSS_KB:?Set a finite current-memory-derived cap in KiB}"
+export SEEN_GUARD_RSS_KB
+SEEN_GUARD_TASKS_MAX=24 SEEN_JOBS=1 SEEN_OPT_JOBS=1 \
+SEEN_MEMORY_GUARD_TIMEOUT_SECS=87000 SEEN_TIER_TIMEOUT_SECS=87000 \
+  bash scripts/safe_rebuild.sh \
+    --regression-script scripts/run_async_stress_soak.sh
+```
+
+This leaves ordinary CI, one-hour `seen test` and short-fixture deadlines
+unchanged. The manual shell/native CLI accepts `--seconds N` / positional
+`SECONDS` only in `1..86400`, with explicit `rtx4090` or `software-reference`
+device class. Long runs require a caller budget covering duration plus bounded
+preparation/drain. No hardware fallback is implicit. Hardware execution rejects
+inherited loader/fault-layer interposition, selects the actual NVIDIA ICD and
+checks device kind, vendor, name and matching discovery/capture/open UUIDs.
+
+The native program is
+`tests/production_gpu_runtime/async_stress_soak_contract.seen`; its five operands
+are `SECONDS IO_PATH SHADER_SPV REFLECTION_JSON DEVICE_CLASS`. It keeps two CPU
+and two readiness workers, the direct-I/O queue/file, and creator-confined GPU
+device/context/allocator/stream/pipeline/buffers alive through five complete
+mixed warmups, thirty actual raw samples, and the requested monotonic interval.
+Every completed round checks 39 CPU executions and 47 destructors including
+nested and cancelled work; two successful I/O completions; a real two-kernel GPU
+graph with all 37 intermediate/output wrap-u32 oracle values; and a post-oracle
+GPU-to-CPU readiness callback. No GPU handle is sent to worker tasks. Retired
+graph owners close before oracle mapping; persistent GPU owners remain live.
+
+The reused direct-I/O file stays exactly 8 KiB. Managed allocation, reserved
+storage, workers, synchronization and readiness handles are checked against
+warmed baselines each round, then resources drain to the original baseline.
+Only the independently measured UUID/sample/report owner remains during the
+final report; its release is also checked before successful exit.
+
+`scripts/monitor_async_stress_soak.py` observes the exact native argv without a
+shell, validates duplicate-free bounded `seen-async-stress-soak-v1` records,
+counter relationships, monotonic duration and actual native exit, and owns
+finite TERM/KILL/reap cleanup of its child process group. Native minute
+heartbeats accompany real `/proc` descriptor/thread/child/RSS/HWM observations.
+Baseline/peak/last are observed values; no post-reap zeroes are invented.
+Logs and metrics each stop at 2 MiB, with 4 KiB records and one artifact
+directory rather than per-iteration files. Successful compiler IR scratch is
+removed before timing; failed compile diagnostics remain. The printed artifact
+directory contains native `.log`, `.metrics.jsonl`, compile/run statuses,
+shader/reflection evidence and bounded `build-inputs.json` / `build-receipt.json`.
+The receipts reuse the gate's source/compiler/cgroup identity, reject source
+or compiler changes during preparation, and bind actual native/shader/reflection
+hashes before runtime. Remove owned executables/projects after retaining the
+bounded evidence required for review.
+
+The monitor reports `physical_24h_observed:true` only after an actual successful
+86,400-second RTX 4090 run. Short hardware runs and software-reference runs do
+not establish that result. Neither this component scenario nor its raw samples
+prove a designated performance regression threshold, scaling, TSan startup,
+production GPU certification, green required CI or merged-main acceptance.
+The original five-profile short stress contract remains separately required.
+
+An actual 24-hour hardware soak has passed. That result closes the physical
+duration observation only; the independent sanitizer, platform and complete
+milestone acceptance requirements above remain nonwaived.
+
+## Seen source coverage
+
+On Linux x86-64 with LLVM 20, `seen test . --filter <case> --profile coverage
+--jobs 1` emits counters and source mappings for Seen function entries and
+executable statements, alongside linked native runtime coverage. Structured
+conditionals, match patterns and guards, loop tests and short-circuit decisions record both outcomes.
+Counters use atomic updates so concurrent executor work contributes without
+lost increments. Anonymous callbacks inherit their containing statement's
+source location. Coverage maps refer to source locations, not GPU device
+execution; running a compiler or GPU source emitter does not execute a kernel.
+
+The compiler owns LLVM profile identities and mappings in Seen. It uses bounded
+function, region, counter and filename budgets and rejects malformed filenames
+or exhausted budgets. Native LLVM tools merge profiles and render reports.
+The module cache includes the selected compiler and coverage mode.
+Use matching LLVM profile producers and consumers: an incompatible raw-profile
+format is an infrastructure failure, not a coverage result. The shared fixture
+export helper merges and exports serially, with the optimizer VMEM ceiling and
+a hard command timeout in addition to the calling harness's aggregate scope.
+
+`run_test_instrumentation_acceptance.sh` retains text and JSON coverage exports.
+The instrumented host exercises the typed SPIR-V CLI, and the native GPU probe
+executes the Seen frontend and emitter directly. The probe checks cleanup and
+retains a SPIR-V artifact with its reflection; no GPU execution is claimed.
+The evidence checker requires executed Seen compiler-host and GPU-emitter source
+rows, an executed Seen test row, and executed native runtime rows. A C-only
+report or a `TOTAL` marker cannot satisfy Seen coverage acceptance. Percentage
+gates must select the issue's applicable source files explicitly; the aggregate
+of every linked library module is not a measure of a single leaf's tests.
+
+The executor, pool, reactor, streams/process/DNS, task-policy and synchronization contracts enforce aggregate 90%
+line and 80% branch coverage over their declared implementation files. Their
+adverse tests assert exact error codes, partial progress, retained ownership
+on failed admission, and allocation and native-handle cleanup.
+The reactor also checks loopback byte transfer and EOF, context snapshot isolation,
+stale registrations, bounded wake leases, and indexed deadline ordering against
+an independent reference model over 20,000 insertion/removal operations.
+The streams/process/DNS contract separately requires 90% branch coverage for
+the DNS wire parser and process argument validators. A structured CNAME/IPv6 corpus supplements the seed-1101
+60-second mutation fuzzer. The DNS integration test exchanges real loopback UDP
+datagrams using the existing socket ABI; query/answer policy stays in Seen.
+Process tests own, terminate and reap every child, including unclaimed spawn jobs.
+
 ## Leak and soak resource providers
 
 TEST-002D defines `seen-test-leak-soak-v1`. A canonical snapshot registers
@@ -73,23 +481,170 @@ The compiling example is
 
 ## Sanitizer and coverage profiles
 
-TEST-002A defines the `seen-test-instrumentation-v1` contract with `default`,
-`ci`, `coverage`, `sanitizer-undefined`, and `sanitizer-thread` profiles. The
-current unreleased compiler exposes these through `seen test <path> --profile
-<profile>`; the published 0.22.11 compiler does not include that command.
-Maintained acceptance harnesses include
+TEST-002A defines `seen-test-instrumentation-v1`. The current unreleased 0.23.0
+compiler exposes `default`, `ci`, `coverage`, `sanitizer-undefined`, and
+`sanitizer-thread` through `seen test <path> --profile <profile>`; published
+0.22.11 does not include that command. Maintained acceptance harnesses include
 `tests/misc_root_tests/seen_test_instrumentation_contract.sh` and
 `tests/misc_root_tests/seen_test_runner_contract.sh`. Compiler-capable invocations
 must use the verified containment described in [bootstrap.md](bootstrap.md).
+Seen test
+sources are compiled with the matching compiler instrumentation, execute under
+the existing per-test timeout and the serialized `--no-fork` compiler path,
+and keep reports and raw coverage profiles below
+`.seen_cache/test/run`. Coverage mode also merges every raw profile with
+`llvm-profdata` and emits a text report with `llvm-cov`; missing post-processing
+tools are an infrastructure failure, never an implicit downgrade.
+Coverage export/report and profile merge explicitly use one worker, including
+the compiler/GPU execution acceptance, so post-processing stays within the same
+aggregate task ceiling as compilation and execution.
+On LLD targets, no-fork mode also pins the linker and ThinLTO backend to one
+worker so the compilation remains valid inside the aggregate task cap.
+Shell regressions receive the selected compiler, source root and package
+client. Their stale caller-specific active-scope markers are cleared so each
+self-wrapping harness re-enters and verifies its own binding. Kernel limits,
+serial worker settings, project namespace and serializer proof remain inherited;
+the shell test cannot substitute a different binding or skip verification.
 
-The source runner compiles Seen tests with the selected instrumentation,
-per-test timeout, and serialized compiler path. Reports and raw coverage
-profiles stay below `.seen_cache/test/run`. Coverage post-processing requires
-`llvm-profdata` and `llvm-cov`; missing tools are infrastructure failures, not an
-implicit downgrade. On LLD targets, no-fork mode also bounds linker and ThinLTO
-workers. AddressSanitizer and MemorySanitizer compiler flags do not imply
-runnable source-runner profiles; unsupported profile execution fails closed
-rather than weakening the mandatory memory limits.
+Installed-layout regression workers first establish a fresh capped binding for
+the copied compiler. The attested runner's `--consumer-context <project>` mode
+verifies the original namespace, numeric limits and serializer before passing a
+canonical nested project/cache directory to that compiler. It admits only
+`check` and `compile`, requires contained canonical source/output paths, rejects
+symlinks and control characters, and clears checkout source/client/data overrides.
+It does not relocate attestation records or relax memory, task or timeout limits.
+The payload gate hides checkout library/runtime sources, verifies a read-only
+prefix, exercises cold/warm fast and ThinLTO execution with CPU-baseline auditing,
+and tests real runtime-source compilation and blocked-cache failures. Compiler
+stand-ins and stale installed-object fallbacks cannot satisfy those controls.
+
+The incremental CLI regression uses a disposable project below the verified
+artifact root. It exercises cold, warm and `--no-cache` compilation/execution,
+requires actual warm source-cache hits and checks that uncached compilation
+does not alter the warm cache. It never clears the checkout's shared cache.
+
+The PGO CLI regression collects and merges profiles serially in its own artifact
+directory. ThinLTO and full-LTO cycles must contain counters for the Seen entry
+and imported helper functions, then execute the profile-use binary with identical
+results. C-runtime-only profiles, missing profiles and unavailable merge tools
+are failures, not successful skips.
+
+The SIMD CLI tests declare `linux-x86_64` in discovery through their filename
+markers. They verify native x86-64-v3 CPU/OS support before running AVX2/v3
+executables, check scalar/deterministic executable baselines, and compare exact
+Float64 math results across scalar, AVX2 and auto modes. Structured frontend and
+LLVM reports must parse and must not claim hardware certification. The
+deterministic success input is pure; a separate printing input must fail with
+the typed nondeterministic-effect error. Unsupported backends must return an
+error without producing an executable or claiming build success.
+The separate Linux x86-64 toolchain-driver-alias regression executes the bounded
+ELF linker alias and compiles/links/runs a C++ allocation witness. It protects
+multicall-driver identity after resolving symlinks, not just version output.
+
+The Linux LLVM failure-probe regression exercises real optimizer and object
+emission failures in fast and ThinLTO compilation. The explicit attested-runner
+option `--llvm-failure-probe opt|object` admits only the fixed two-module fixture,
+uncached serial compilation, a fresh private output and the verified reserved
+scope. Bounded tool wrappers retain their real executable identities and limits;
+the probe can only return a failure at the selected phase, never create or repair
+IR, objects or executables. Ordinary invocations clear ambient probe settings.
+The regression requires successful native baseline execution and rejection of
+wrong scopes, sources, output paths, stages and arguments.
+
+The historical fix-regression suite retains its import, manifest, ABI, semantic,
+package and recovery cases under the same attested execution contract. It uses
+unique project-private workspaces and explicit per-output LLVM exports instead
+of deleting shared caches or inspecting global temporary files. LLVM phase
+failure cases delegate to the fixed failure-probe regression. Its separate C12
+late-declaration negative requires LLVM verification followed by the expected
+missing-symbol linker failure; that result is not successful native execution.
+
+Allocator expected-abort source inputs live in `tests/compiler_regressions/`,
+not the automatically executed `compiler_seen/tests/` root. The discovered
+`seen_allocator_oom_exit.sh` harness compiles all three, requires exit134 and
+their specific checked-allocation diagnostics, and also executes the positive
+small-budget case. They are tested negative inputs, not ignored unit tests.
+
+The compiler accepts AddressSanitizer and MemorySanitizer build flags, but they
+are not general runnable `seen test` profiles under the normal finite VMEM
+ceiling. The runner rejects those profile names instead of silently relaxing
+limits. Reviewed ASan contracts, including `test_sanitizers.sh`, use the separate
+generated-executable runner: its finite shadow allowance is read back while
+kernel RAM, zero-swap, task and timeout containment remain enforced. That narrow
+ASan admission does not qualify MemorySanitizer or ThreadSanitizer execution.
+The CLI `sanitizer-thread` profile enters an attested capped binding, compiles
+through the selected compiler runner, and uses the reviewed generated-executable
+admission path rather than launching its binary directly. Missing scope,
+refused admission and sanitizer startup failure remain failed tests with nonzero
+exit status. Stock LLVM 20's requirement for unlimited `RLIMIT_AS` is not
+admitted by the finite-address policy. `core` and `async` provisioning
+now explicitly builds the finite-address SDK from authenticated LLVM 20.1.2
+sources; other jobs retain stock resources. The producer must pass real clean,
+deliberate-race and insufficient-64-TiB controls before publishing its manifest.
+The prototype and fresh integrated producer passed those controls. The local
+0.23.0 candidate also passed real CLI `ci`/`sanitizer-thread` execution and
+eight mandatory fresh clean/racy native two-worker pairs under canonical
+finite-limit admission. These component results do not replace full required-CI
+or merged-main gates.
+The control keeps every counter read/store in Seen. Its TSan-instrumented C
+helper records distinct native pthread participants and delegates coordination
+to LLVM 20's `__tsan_testonly_barrier_init`/`__tsan_testonly_barrier_wait`.
+Those upstream test barriers introduce no happens-before edge and avoid the
+trace-history churn of instrumented atomic/yield polling. A helping Seen barrier
+is deliberately unsuitable here: it may execute the sibling job on the same
+worker stack before a non-helpable foreign rendezvous.
+Race mode places one Seen store before the second barrier and the other after
+it, without synchronizing their clocks. This prevents simultaneous single-access
+shadow updates from hiding the conflict; allocator and handle-registry activity
+also stays outside the conflicting interval. Each of the eight pairs must pass:
+clean exit, counter2, two distinct native workers, drained resources, then a real
+TSan report containing two distinct thread IDs accessing the printed counter
+address. A missing report fails immediately; samples are not retries, and no
+sanitizer exclusions, annotations, suppressions, or deadline increases apply.
+
+SDK configuration probes and native controls use the identity-bound LLVM 20
+linker with `--threads=1`; serial Ninja builds alone do not constrain linker
+threads. The existing 2-GiB aggregate and 24-task limits remain unchanged.
+Failed builds stream at most the retained bounded log tails before deleting
+their staging tree, so private namespace cleanup does not erase CI diagnostics.
+
+SDK selection requires both `SEEN_TSAN_SDK_MANIFEST` and the independently
+published `SEEN_TSAN_SDK_MANIFEST_SHA256`. Internally consistent cache hashes
+alone cannot authorize reuse: provisioning builds fresh and publishes a digest
+outside the cached payload. Clang wrappers verify the selected inputs and consume
+sealed runtime snapshots over the genuine stock resource tree in a private,
+read-only namespace; cache replacement cannot change already sealed bytes.
+Deterministic compiler execution preserves that explicit selection pair through
+its environment allowlist; wrapper-bound identities remain enforced.
+Every Clang execution still freshly verifies all helper, tool, development-header,
+stock-resource, SDK-resource, source and control-proof identities. Validation is
+not cached across invocations. Within a traversal, followed directory targets
+are normalized once and their device/inode/modification/change identities are
+checked around file hashing. Regular-file reads remain bounded and no-follow,
+with pre/post-`fstat` stability checks; reads use the initially observed remaining
+size plus one byte to detect growth without oversized small-file allocations.
+Helper changes invalidate the SDK identity and require fresh authenticated
+publication and real native controls.
+This path rejects pre-terminator response files, explicit compiler configs and
+`CCC_OVERRIDE_OPTIONS` rather than allowing hidden resource-directory overrides.
+It preserves positional `--` and Clang++ driver selection. Bubblewrap represents
+a signaled tool as shell status `128 + signal`, not raw waitpid signal identity.
+No source/IR rewrite, ASLR change, unlimited address space, sanitizer suppression,
+aggregate-cap increase or success fallback is admitted.
+
+CORE-004E signal failures retain only allowlisted invocation metadata and bounded
+source/compiler/program identities, plus a complete ELF up to 24 MiB or an
+explicit omission. The collector rejects duplicate JSON keys and changed,
+unsafe or mismatched files; complete upload files are published from staging
+outside the upload directory. Discovery includes guarded standalone scopes and
+private-`/tmp` rebuild compiler aliases verified against their project-backed
+mount. Crash payloads share the existing 32 MiB / 128-file upload budget,
+including the index reservation. This is diagnostic evidence, not a reproduction
+or repair claim for the previously observed ThinLTO SIGILL.
+
+Strict vendor-only CUDA/Vulkan LSan findings remain on unchanged driver
+615.78.08; no suppressions are admitted. A passing component soak or SDK-only
+TSan prototype does not close those findings or certify production hardware.
 
 Acceptance evidence names compiler host code, GPU emitters, Seen modules, the
 native runtime, and ledgered ABI shims separately. Each must be compiled and
@@ -99,6 +654,21 @@ produces hardware evidence. Compile-only evidence cannot close TEST-002A.
 The capped execution acceptance therefore builds and runs an instrumented
 compiler, exercises the software GPU emitter, then runs the instrumented Seen
 fixture before deriving the five-component evidence document.
+The native validators borrow their input plans and contexts. A successful
+`Result` borrows the original plan too: release the result container separately
+from caller-owned component arrays, components, plans and contexts. Validation
+errors own their marker/container storage and must be released by the caller.
+The ownership example is `compiler_seen/examples/test_instrumentation.seen`;
+it validates supplied records without claiming actual hardware execution.
+The named native cases also require exact return to their initial live-allocation
+baseline rather than merely printing a cleanup marker.
+Its measured lifecycle soak checks 10,000 iterations of accepted and rejected
+plans, cancellation and unsupported targets. Result containers, owned errors,
+components and contexts are explicitly released; live usage must return to the
+initial baseline, allocation-failure counts must stay unchanged, and recyclable
+reserve must remain stable after the first iteration. The soak runs in fast,
+release/ThinLTO, UBSan, ASan/LSan and source-coverage modes. Sanitizer shadow
+admission retains the enclosing kernel memory, zero-swap and task ceilings.
 
 ## Deterministic test discovery
 
@@ -116,6 +686,16 @@ The maintained roots and primary categories are:
 | `seen_std/tests/` | `.seen` | `unit` |
 | `tests/fixtures/external_package/tests/` | `.seen` | `integration` |
 | `tests/misc_root_tests/` | `.sh`, `_unit.py`, `_test.seen` | `integration` |
+
+Within the three package test roots, `*_support.seen` files are imported helper
+modules and `*_fixture.seen` files are programs requiring their runnable
+harness's launch context, such as arguments or captured startup environment.
+Neither is a standalone test or an ignored test. The native
+runner and host migration/discovery oracles exclude these exact suffixes and
+reject injected test descriptors for them. Names such as
+`example_support_test.seen` remain runnable. Harness inputs retain their owning
+tests, arguments and assertions; moving an input into this role does not waive
+its execution requirement.
 
 Names may add orthogonal `ignored`, `slow`, or `privileged` markers using a
 matching directory or underscore-delimited filename segment. Platform markers
@@ -139,9 +719,10 @@ with `--validate <manifest>` and never repairs input.
 
 ## Canonical test runner
 
-The canonical `seen test <path>` command consumes that native inventory through
-the `seen-test-run-v1` policy. Selection is deterministic and supports a filter,
-the `default` and `ci` profiles, explicit ignored/slow/privileged opt-ins, one
+The current unreleased 0.23.0 compiler's canonical `seen test <path>` command
+consumes that native inventory through the `seen-test-run-v1` policy. Published
+0.22.11 has no `test` command. Selection is deterministic and supports a filter,
+the five profiles described above, explicit ignored/slow/privileged opt-ins, one
 bounded worker, and a timeout of at most one hour. Its contract executes Seen,
 shell, and Python test shapes through a narrow process boundary while retaining
 per-test logs below `.seen_cache/test/run/`.
@@ -155,7 +736,7 @@ transactionally with repeatable `--report json:<path>` and
 `.seen/` and may not traverse symlinks or parent segments.
 
 The legacy `scripts/run_all_tests.sh` continues to record and validate the same
-discovery inventory while migration to the shipped runner proceeds.
+discovery inventory while migration to the canonical source runner proceeds.
 
 ## Package-owned test migration
 
@@ -218,3 +799,16 @@ identity, cancellation, and output bounds are validated before rendering.
 Human output is the canonical CLI display; JSON and JUnit are written only to
 the safe transactional report paths documented above. XML declarations and
 entities are rejected by the host oracle, and all formats end deterministically.
+
+## Formatter protocol acceptance
+
+`compiler_seen/tests/lsp_formatter.seen` parses serialized TextEdit JSON and
+checks the UTF-16 range and replacement string. Equivalent JSON number
+representations must not fail an assertion about decimal spelling, whitespace,
+or object member order.
+
+`tests/lsp_formatter_jsonrpc.py` drives a real server and applies returned edits
+to documents across the supported languages, including surrogate pairs and
+percent-encoded file URIs. These protocol checks validate consumer-visible
+formatting, not serializer presentation.
+

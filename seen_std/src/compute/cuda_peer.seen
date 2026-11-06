@@ -1,0 +1,114 @@
+/// Explicit creator-confined CUDA peer capability and peer-access ownership.
+/// Direct CUDA runtime FFI; importing this module never selects a GPU or route.
+import core.result.{Result, Ok, Err}
+import core.option.{Some}
+import core.operation_context.{OperationContext}
+import compute.error.{GpuError, gpuFailure}
+import compute.operation.{gpuCheckOperation}
+import accelerator.cuda.mod.{seen_cuda_set_device}
+import accelerator.cuda.error.{cudaSucceeded}
+import compute.cuda_staging.{gpuCudaStagingFailure}
+import memory.allocation.{allocationBudgetAvailable}
+
+extern "C" fun cudaGetDeviceCount(count: *Int32) r: Int32
+extern "C" fun cudaDeviceCanAccessPeer(access: *Int32, device: Int32, peer: Int32) r: Int32
+extern "C" fun cudaDeviceEnablePeerAccess(peer: Int32, flags: UInt32) r: Int32
+extern "C" fun cudaDeviceDisablePeerAccess(peer: Int32) r: Int32
+extern "C" fun cudaMemcpyPeerAsync(destination: *Void, destinationDevice: Int32,
+    source: *const Void, sourceDevice: Int32, bytes: UInt64, stream: *Void) r: Int32
+
+fun gpuCudaPeerFailure(native: Int32, operation: String, progress: UInt64) r: GpuError {
+    var code = "gpu.unavailable"
+    if native == (1 as Int32) or native == (17 as Int32) or native == (101 as Int32) { code = "gpu.invalid" }
+    if native == (2 as Int32) { code = "gpu.out_of_memory" }
+    if native == (35 as Int32) or native == (100 as Int32) or native == (217 as Int32) { code = "gpu.unsupported_capability" }
+    if native == (704 as Int32) { code = "gpu.busy" }
+    if native == (700 as Int32) or native == (709 as Int32) or native == (710 as Int32) or native == (719 as Int32) { code = "gpu.device_lost" }
+    let error = gpuFailure(code, operation, "explicit CUDA peer SDK operation failed; no route fallback")
+    error.nativeCode.free(); error.nativeCode = Some<Int64>(native as Int64); error.progress = progress; return error
+}
+
+@move
+class GpuCudaPeerCapability {
+    var sourceDevice: Int32
+    var destinationDevice: Int32
+    var nativeDeviceCount: Int32
+    var sameDevice: Bool
+    var canAccessPeer: Bool
+    /// Direction is destination access to source. Same-device memory is NOT
+    /// advertised as peer capability. A false result is native capability data,
+    /// not a request to silently perform a host-mediated transfer.
+    static fun query(source: Int32, destination: Int32, operation: OperationContext) r: Result<GpuCudaPeerCapability, GpuError> {
+        if source < (0 as Int32) or destination < (0 as Int32) { return Err<GpuCudaPeerCapability, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.peer.query", "negative peer device ordinal")) }
+        let checked = gpuCheckOperation(operation, "gpu.cuda.peer.query")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<GpuCudaPeerCapability, GpuError>(error) }; checked.releaseContainer()
+        var count = 0 as Int32; let counted = cudaGetDeviceCount(&count)
+        if counted != (0 as Int32) { return Err<GpuCudaPeerCapability, GpuError>(gpuCudaPeerFailure(counted, "gpu.cuda.peer.query", 0 as UInt64)) }
+        if count < (0 as Int32) { return Err<GpuCudaPeerCapability, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.peer.query", "native device count is negative")) }
+        if count == (0 as Int32) { return Err<GpuCudaPeerCapability, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.cuda.peer.query", "no CUDA devices are available")) }
+        if count > (128 as Int32) or not allocationBudgetAvailable(4096) { return Err<GpuCudaPeerCapability, GpuError>(gpuFailure("gpu.limit", "gpu.cuda.peer.query", "peer catalog or result metadata ceiling exceeded")) }
+        if source >= count or destination >= count { return Err<GpuCudaPeerCapability, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.peer.query", "peer ordinal is outside the native device catalog")) }
+        var access = 0 as Int32; let queried = cudaDeviceCanAccessPeer(&access, destination, source)
+        if queried != (0 as Int32) { return Err<GpuCudaPeerCapability, GpuError>(gpuCudaPeerFailure(queried, "gpu.cuda.peer.query", 0 as UInt64)) }
+        if access != (0 as Int32) and access != (1 as Int32) { return Err<GpuCudaPeerCapability, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.peer.query", "native peer capability is not Boolean")) }
+        if source == destination and access != (0 as Int32) { return Err<GpuCudaPeerCapability, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.peer.query", "native driver advertised a same-device peer route")) }
+        let observed = gpuCheckOperation(operation, "gpu.cuda.peer.query")
+        if observed.isErr() { let error = observed.unwrapErr(); observed.releaseContainer(); return Err<GpuCudaPeerCapability, GpuError>(error) }; observed.releaseContainer()
+        return Ok<GpuCudaPeerCapability, GpuError>(GpuCudaPeerCapability{sourceDevice: source, destinationDevice: destination, nativeDeviceCount: count, sameDevice: source == destination, canAccessPeer: access == (1 as Int32)})
+    }
+}
+
+@move
+class GpuCudaPeerLink {
+    var sourceDevice: Int32
+    var destinationDevice: Int32
+    var borrowers: Int
+    var started: Bool
+    /// Admission proof is separate from ownership of a possibly active route.
+    var enabled: Bool
+    var cleanupRequired: Bool
+    var closed: Bool
+    /// Two-phase acquisition preserves a cleanup owner if enable or a later
+    /// cancellation reports uncertain side effects. Caller releases capability
+    /// independently; this owner stores only its validated device ordinals.
+    static fun prepare(borrow capability: GpuCudaPeerCapability) r: Result<GpuCudaPeerLink, GpuError> {
+        if capability.sameDevice or not capability.canAccessPeer or capability.sourceDevice == capability.destinationDevice {
+            return Err<GpuCudaPeerLink, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.cuda.peer.prepare", "native peer access between distinct devices is required"))
+        }
+        if not allocationBudgetAvailable(4096) { return Err<GpuCudaPeerLink, GpuError>(gpuFailure("gpu.limit", "gpu.cuda.peer.prepare", "peer owner metadata ceiling exceeded")) }
+        return Ok<GpuCudaPeerLink, GpuError>(GpuCudaPeerLink{sourceDevice: capability.sourceDevice, destinationDevice: capability.destinationDevice, borrowers: 0, started: false, enabled: false, cleanupRequired: false, closed: false})
+    }
+    fun open(operation: OperationContext) r: Result<Bool, GpuError> {
+        if this.closed or this.started { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.peer.open", "peer access owner is closed or already started")) }
+        let checked = gpuCheckOperation(operation, "gpu.cuda.peer.open"); if checked.isErr() { return checked }; checked.releaseContainer()
+        let selected = seen_cuda_set_device(this.destinationDevice)
+        if not cudaSucceeded(selected) { return Err<Bool, GpuError>(gpuCudaStagingFailure(selected, "gpu.cuda.peer.open", 0 as UInt64)) }
+        this.started = true; this.cleanupRequired = true
+        let enabled = cudaDeviceEnablePeerAccess(this.sourceDevice, 0 as UInt32)
+        if enabled == (704 as Int32) {
+            // Another owner already enabled this device pair: never disable it.
+            this.cleanupRequired = false; return Err<Bool, GpuError>(gpuCudaPeerFailure(enabled, "gpu.cuda.peer.open", 0 as UInt64))
+        }
+        if enabled != (0 as Int32) { return Err<Bool, GpuError>(gpuCudaPeerFailure(enabled, "gpu.cuda.peer.open", 0 as UInt64)) }
+        let observed = gpuCheckOperation(operation, "gpu.cuda.peer.open")
+        if observed.isErr() { return observed }
+        this.enabled = true; return observed
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.borrowers != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.cuda.peer.close", "peer transfers still retain access")) }
+        if this.cleanupRequired {
+            let selected = seen_cuda_set_device(this.destinationDevice)
+            if not cudaSucceeded(selected) { return Err<Bool, GpuError>(gpuCudaStagingFailure(selected, "gpu.cuda.peer.close", 0 as UInt64)) }
+            // Disable can report an error after taking effect: retire admission
+            // before the call, but retain cleanup ownership until 0 or 705.
+            this.enabled = false
+            let disabled = cudaDeviceDisablePeerAccess(this.sourceDevice)
+            // Native NOT_ENABLED proves an uncertain enable left no active access.
+            if disabled != (0 as Int32) and disabled != (705 as Int32) { return Err<Bool, GpuError>(gpuCudaPeerFailure(disabled, "gpu.cuda.peer.close", 0 as UInt64)) }
+            this.cleanupRequired = false
+        }
+        this.closed = true; return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> { let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true) }
+}

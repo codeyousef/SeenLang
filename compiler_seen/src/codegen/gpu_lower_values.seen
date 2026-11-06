@@ -1,0 +1,217 @@
+/// Parsed expression lowering preserves evaluation order. Logical and/or own
+/// lazy result regions, so a skipped operand cannot read memory or run atomics.
+import parser.real_parser.{ParserExpressionNode}
+import codegen.gpu_lower_context.{GpuLowerContext}
+import codegen.gpu_lower_call_plan.{gpuPlanCall, gpuPlanResourceArgument}
+import codegen.gpu_call_plan_model.{gpuLowerName}
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL, GPU_IR_BUILTIN, GPU_IR_UNIFORM,
+    GPU_IR_EXTRACT, GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_STORE, GPU_IR_LOCAL_STORE, GPU_IR_CAST,
+    GPU_IR_UNARY, GPU_IR_BINARY, GPU_IR_IF_VALUE, GPU_IR_YIELD_VALUE, GPU_IR_INTRINSIC, GPU_IR_SUBGROUP,
+    GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER,
+    GPU_IR_UNPACK, GPU_IR_PACK, GPU_IR_COOP_MMA}
+import codegen.gpu_precision_formats.{gpuPrecisionValueType}
+import codegen.gpu_ir_value_rules.{gpuIrBuiltinCode, gpuIrIntegerLiteralValid, gpuIrFloatLiteralValid,
+    gpuIrUnaryCode, gpuIrUnaryType, gpuIrBinaryCode, gpuIrBinaryType}
+import codegen.gpu_ir_facts.{gpuIrBufferResource, gpuIrResourceReadable, gpuIrResourceWritable}
+import codegen.gpu_ir_instruction_types.{gpuIrNumericCastValid, gpuIrIndexType}
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeValue, gpuTypeScalar, gpuTypeLanes, gpuValueType}
+import json.builder.{seen_string_release_owned}
+
+fun gpuLowerLiteral(context: GpuLowerContext, opcode: Int, typeCode: Int, text: String) r: Int {
+    var valid = false
+    if opcode == GPU_IR_INT { valid = gpuIrIntegerLiteralValid(text, typeCode) }
+    if opcode == GPU_IR_FLOAT { valid = gpuIrFloatLiteralValid(text) }
+    if opcode == GPU_IR_BOOL { valid = text == "true" or text == "false" }
+    if not valid { context.error("E_GPU_LITERAL", "GPU literal is outside its fixed-width finite range"); return 0 }
+    let op = context.operation(opcode, typeCode)
+    if not op.setText(text) { context.error("E_GPU_LIMIT", "GPU literal exceeds its byte ceiling") }
+    return context.emit(op)
+}
+fun gpuLowerVariable(context: GpuLowerContext, name: String) r: Int {
+    let builtin = gpuIrBuiltinCode(name)
+    if builtin != 0 {
+        var typeCode = 3; if builtin <= 4 or builtin == 9 { typeCode = 35 }
+        let op = context.operation(GPU_IR_BUILTIN, typeCode); op.immediate = builtin; return context.emit(op)
+    }
+    let register = context.binding(context.find(name)); if not context.validation.valid { return 0 }
+    let typeCode = context.typeOf(register)
+    if gpuTypeResource(typeCode) == 4 {
+        let op = context.operation(GPU_IR_UNIFORM, gpuTypeValue(typeCode)); op.operands.push(register); return context.emit(op)
+    }
+    return register
+}
+fun gpuLowerResource(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int) r: Int {
+    if not context.visit(depth) { return 0 }
+    if expression.kind != "Variable" and expression.kind != "VarExpr" {
+        context.error("E_GPU_RESOURCE", "GPU resource arguments require a declared resource identity"); return 0
+    }
+    let index = context.find(gpuLowerName(expression))
+    if index < 0 { context.error("E_GPU_BINDING", "unbound GPU resource"); return 0 }
+    let register = context.registers[index]
+    if gpuTypeResource(context.typeOf(register)) == 0 or context.slots[index] >= 0 {
+        context.error("E_GPU_RESOURCE", "GPU resource identities cannot alias mutable values"); return 0
+    }
+    return register
+}
+fun gpuLowerIndexOperands(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int, write: Bool) r: Array<Int> {
+    let result = Array<Int>()
+    if expression.kind != "IndexAccess" or expression.operands.length() != 2 {
+        context.error("E_GPU_EXPRESSION", "malformed GPU index expression"); return result
+    }
+    let resource = gpuLowerResource(context, expression.operands[0], depth + 1)
+    if not context.validation.valid { return result }
+    let typeCode = context.typeOf(resource)
+    if not gpuIrBufferResource(typeCode) or (write and not gpuIrResourceWritable(typeCode)) or
+        (not write and not gpuIrResourceReadable(typeCode)) {
+        context.error("E_GPU_ACCESS", "GPU resource access violates its declared mode"); return result
+    }
+    let index = gpuLowerExpression(context, expression.operands[1], depth + 1)
+    if not context.validation.valid { return result }
+    if not gpuIrIndexType(context.typeOf(index)) { context.error("E_GPU_TYPE", "GPU indices require Int32 or UInt32"); return result }
+    result.push(resource); result.push(index); return result
+}
+fun gpuLowerAssignment(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int) r: Int {
+    if expression.kind == "Assignment" and expression.operands.length() == 1 {
+        let index = context.find(expression.variableName)
+        if index < 0 or context.slots[index] < 0 { context.error("E_GPU_ACCESS", "GPU assignment requires a mutable local"); return 0 }
+        let value = gpuLowerExpression(context, expression.operands[0], depth + 1)
+        if not context.validation.valid { return 0 }
+        if context.typeOf(value) != context.typeOf(context.registers[index]) { context.error("E_GPU_TYPE", "GPU assignment changes a local's type"); return 0 }
+        let op = context.operation(GPU_IR_LOCAL_STORE, 0); op.immediate = context.slots[index]; op.operands.push(value)
+        context.emit(op); return 0
+    }
+    if expression.kind == "IndexAssignment" and expression.operands.length() == 2 {
+        let address = gpuLowerIndexOperands(context, expression.operands[0], depth + 1, true)
+        if address.length() != 2 { address.free(); return 0 }
+        let value = gpuLowerExpression(context, expression.operands[1], depth + 1)
+        if not context.validation.valid { address.free(); return 0 }
+        if context.typeOf(value) != gpuTypeValue(context.typeOf(address[0])) {
+            context.error("E_GPU_TYPE", "GPU store value differs from the resource element"); address.free(); return 0
+        }
+        let op = context.operation(GPU_IR_STORE, 0); op.operands.push(address[0]); op.operands.push(address[1]); op.operands.push(value)
+        address.free(); context.emit(op); return 0
+    }
+    context.error("E_GPU_ACCESS", "unsupported GPU assignment target"); return 0
+}
+fun gpuLowerLogical(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int) r: Int {
+    let condition = gpuLowerExpression(context, expression.operands[0], depth + 1)
+    if not context.validation.valid { return 0 }
+    if context.typeOf(condition) != 1 { context.error("E_GPU_TYPE", "GPU logical operands require Bool"); return 0 }
+    let parent = context.blockIndex; let position = context.function.blocks[parent].instructions.length()
+    let branch = GpuIrInstruction.create(GPU_IR_IF_VALUE, 0, 1); branch.operands.push(condition)
+    branch.leftBlock = context.childBlock(parent, position); branch.rightBlock = context.childBlock(parent, position)
+    if not context.validation.valid { branch.release(); return 0 }
+    var arm = 0
+    while arm < 2 and context.validation.valid {
+        context.blockIndex = branch.leftBlock; if arm == 1 { context.blockIndex = branch.rightBlock }
+        let conjunction = expression.operator == "and" or expression.operator == "&&"
+        var value = 0
+        if (conjunction and arm == 0) or (not conjunction and arm == 1) {
+            value = gpuLowerExpression(context, expression.operands[1], depth + 1)
+            if context.validation.valid and context.typeOf(value) != 1 { context.error("E_GPU_TYPE", "GPU logical operands require Bool") }
+        } else {
+            var text = "true"; if conjunction { text = "false" }; value = gpuLowerLiteral(context, GPU_IR_BOOL, 1, text)
+        }
+        let yield = context.operation(GPU_IR_YIELD_VALUE, 0); yield.operands.push(value); context.emit(yield); arm = arm + 1
+    }
+    context.blockIndex = parent
+    if not context.validation.valid { branch.release(); return 0 }
+    branch.result = context.nextRegister(1); return context.emit(branch)
+}
+fun gpuLowerMember(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int) r: Int {
+    var owner = 0
+    if expression.operands.length() == 1 { owner = gpuLowerExpression(context, expression.operands[0], depth + 1) }
+    else if expression.operands.length() == 0 { owner = gpuLowerVariable(context, expression.literalValue) }
+    else { context.error("E_GPU_EXPRESSION", "malformed GPU member expression"); return 0 }
+    if not context.validation.valid { return 0 }
+    let typeCode = context.typeOf(owner)
+    if expression.variableName == "length" and gpuIrBufferResource(typeCode) {
+        let op = context.operation(GPU_IR_LENGTH, 3); op.operands.push(owner); return context.emit(op)
+    }
+    var lane = -1
+    if expression.variableName == "x" { lane = 0 }; if expression.variableName == "y" { lane = 1 }
+    if expression.variableName == "z" { lane = 2 }; if expression.variableName == "w" { lane = 3 }
+    if gpuTypeResource(typeCode) != 0 or gpuTypeLanes(typeCode) < 2 or lane < 0 or lane >= gpuTypeLanes(typeCode) {
+        context.error("E_GPU_TYPE", "unsupported GPU vector component or resource member"); return 0
+    }
+    let op = context.operation(GPU_IR_EXTRACT, gpuTypeScalar(typeCode)); op.immediate = lane; op.operands.push(owner); return context.emit(op)
+}
+fun gpuLowerExpression(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int) r: Int {
+    if not context.visit(depth) { return 0 }
+    let kind = expression.kind
+    if kind == "Variable" or kind == "VarExpr" { return gpuLowerVariable(context, gpuLowerName(expression)) }
+    if kind == "Literal" {
+        if expression.literalType == "Int" { return gpuLowerLiteral(context, GPU_IR_INT, 2, expression.literalValue) }
+        if expression.literalType == "Float" { return gpuLowerLiteral(context, GPU_IR_FLOAT, 4, expression.literalValue) }
+        if expression.literalType == "Bool" { return gpuLowerLiteral(context, GPU_IR_BOOL, 1, expression.literalValue) }
+    }
+    if kind == "IndexAccess" {
+        let address = gpuLowerIndexOperands(context, expression, depth, false)
+        if address.length() != 2 { address.free(); return 0 }
+        let op = context.operation(GPU_IR_LOAD, gpuTypeValue(context.typeOf(address[0])))
+        op.operands.push(address[0]); op.operands.push(address[1]); address.free(); return context.emit(op)
+    }
+    if kind == "Assignment" or kind == "IndexAssignment" or kind == "MemberAssignment" { return gpuLowerAssignment(context, expression, depth) }
+    if kind == "MemberAccess" { return gpuLowerMember(context, expression, depth) }
+    if kind == "Cast" and expression.operands.length() == 1 {
+        let target = gpuValueType(expression.literalValue); let inner = expression.operands[0]
+        if target == 3 and inner.kind == "Literal" and inner.literalType == "Int" {
+            if not context.visit(depth + 1) { return 0 }
+            return gpuLowerLiteral(context, GPU_IR_INT, 3, inner.literalValue)
+        }
+        let source = gpuLowerExpression(context, inner, depth + 1)
+        if not context.validation.valid { return 0 }
+        if not gpuIrNumericCastValid(context.typeOf(source), target) { context.error("E_GPU_TYPE", "unsupported GPU numeric cast"); return 0 }
+        let op = context.operation(GPU_IR_CAST, target); op.operands.push(source); return context.emit(op)
+    }
+    if kind == "Unary" and expression.operands.length() == 1 {
+        let inner = expression.operands[0]
+        if expression.operator == "-" and inner.kind == "Literal" and inner.literalType == "Int" {
+            if not context.visit(depth + 1) { return 0 }
+            let text = "-" + inner.literalValue; let value = gpuLowerLiteral(context, GPU_IR_INT, 2, text)
+            seen_string_release_owned(text); return value
+        }
+        let operand = gpuLowerExpression(context, inner, depth + 1); if not context.validation.valid { return 0 }
+        let operation = gpuIrUnaryCode(expression.operator); let typeCode = gpuIrUnaryType(operation, context.typeOf(operand))
+        if typeCode == 0 { context.error("E_GPU_TYPE", "unsupported GPU unary operand"); return 0 }
+        let op = context.operation(GPU_IR_UNARY, typeCode); op.immediate = operation; op.operands.push(operand); return context.emit(op)
+    }
+    if kind == "Binary" and expression.operands.length() == 2 {
+        if expression.operator == "and" or expression.operator == "or" or expression.operator == "&&" or expression.operator == "||" {
+            return gpuLowerLogical(context, expression, depth)
+        }
+        let left = gpuLowerExpression(context, expression.operands[0], depth + 1)
+        let right = gpuLowerExpression(context, expression.operands[1], depth + 1); if not context.validation.valid { return 0 }
+        let operation = gpuIrBinaryCode(expression.operator); let typeCode = gpuIrBinaryType(operation, context.typeOf(left), context.typeOf(right))
+        if typeCode == 0 { context.error("E_GPU_TYPE", "GPU binary operands or operation are incompatible"); return 0 }
+        let op = context.operation(GPU_IR_BINARY, typeCode); op.immediate = operation; op.operands.push(left); op.operands.push(right); return context.emit(op)
+    }
+    if kind == "Call" or kind == "CallExpr" { return gpuLowerCall(context, expression, depth) }
+    context.error("E_GPU_UNSUPPORTED", "unsupported GPU expression or host effect"); return 0
+}
+fun gpuLowerCall(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int) r: Int {
+    let plan = gpuPlanCall(context, expression, depth)
+    if not context.validation.valid { plan.free(); return 0 }
+    let operands = Array<Int>(); var i = 0
+    while i < plan.dataOperands and context.validation.valid {
+        if gpuPlanResourceArgument(context, plan, i) { operands.push(gpuLowerResource(context, expression.arguments[i + plan.dataOffset], depth + 1)) }
+        else { operands.push(gpuLowerExpression(context, expression.arguments[i + plan.dataOffset], depth + 1)) }; i = i + 1
+    }
+    if not context.validation.valid { operands.free(); plan.free(); return 0 }
+    var typeCode = plan.typeCode
+    if plan.opcode == GPU_IR_UNPACK { typeCode = gpuPrecisionValueType(plan.immediate) }
+    if plan.opcode == GPU_IR_PACK { typeCode = 3 }
+    if plan.opcode == GPU_IR_COOP_MMA { typeCode = context.typeOf(operands[2]) }
+    if plan.opcode == GPU_IR_INTRINSIC or (plan.opcode == GPU_IR_SUBGROUP and plan.immediate > 3) { typeCode = context.typeOf(operands[0]) }
+    if plan.opcode >= GPU_IR_ATOMIC_LOAD and plan.opcode <= GPU_IR_ATOMIC_COMPARE and plan.opcode != GPU_IR_ATOMIC_STORE {
+        typeCode = gpuTypeValue(context.typeOf(operands[0]))
+    }
+    let op = context.operation(plan.opcode, typeCode); op.immediate = plan.immediate
+    op.memoryScope = plan.memoryScope; op.memoryOrder = plan.memoryOrder; op.memorySpaces = plan.memorySpaces
+    if plan.opcode >= GPU_IR_ATOMIC_LOAD and plan.opcode <= GPU_IR_ATOMIC_COMPARE {
+        op.memorySpaces = 1; if gpuTypeResource(context.typeOf(operands[0])) == 5 { op.memorySpaces = 2 }
+    }
+    i = 0
+    while i < operands.length() { op.operands.push(operands[i]); i = i + 1 }; operands.free(); plan.free(); return context.emit(op)
+}

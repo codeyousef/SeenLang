@@ -4,6 +4,7 @@ Builds JSON strings from JsonValue objects or incrementally
 ///
 
 import json.value.{JsonValue}
+import json.float_format.{formatJsonFloat}
 import str.string.{StringBuilder}
 
 extern "C" fun seen_string_builder_flatten_owned(parts: Array<String>,
@@ -174,7 +175,8 @@ fun jsonAppendEscapedString(builder: StringBuilder,
 ///
 Fluent JSON builder for constructing JSON strings incrementally.
 build returns an independent owned string; reset and destroyJsonBuilder
-release all temporary escaped-string parts retained by the builder.
+release all temporary owned parts retained by the builder. numberFloat requires
+a finite value and aborts on NaN or infinity; negative zero retains its sign.
 ///
 class JsonBuilder {
     var buffer: StringBuilder
@@ -247,7 +249,8 @@ class JsonBuilder {
 
     fun numberFloat(value: Float) r: JsonBuilder {
         this.maybeComma()
-        jsonAppendInt(this.buffer, this.partOwnership, value.toInt())
+        jsonAppendOwnedPart(this.buffer, this.partOwnership,
+            formatJsonFloat(value))
         this.needsComma = 1
         return this
     }
@@ -347,7 +350,8 @@ fun jsonAppendValue(builder: StringBuilder, partOwnership: Array<Bool>,
         return
     }
     if value.isNumber() {
-        jsonAppendInt(builder, partOwnership, value.getNumber().toInt())
+        jsonAppendOwnedPart(builder, partOwnership,
+            formatJsonFloat(value.getNumber()))
         return
     }
     if value.isString() {
@@ -395,8 +399,9 @@ fun jsonAppendValue(builder: StringBuilder, partOwnership: Array<Bool>,
 }
 
 ///
-Convert a JsonValue to one independent owned JSON string. The caller releases
-the result with releaseJsonText.
+Convert a borrowed JsonValue to one independent owned JSON string. All numeric
+values must be finite (NaN/infinity abort); negative zero retains its sign.
+The caller releases the result with releaseJsonText.
 ///
 fun jsonToString(value: JsonValue) r: String {
     let builder = StringBuilder.new()
@@ -433,7 +438,8 @@ fun jsonAppendPrettyValue(builder: StringBuilder,
         return
     }
     if value.isNumber() {
-        jsonAppendInt(builder, partOwnership, value.getNumber().toInt())
+        jsonAppendOwnedPart(builder, partOwnership,
+            formatJsonFloat(value.getNumber()))
         return
     }
     if value.isString() {
@@ -495,6 +501,7 @@ fun jsonAppendPrettyValue(builder: StringBuilder,
     jsonAppendBorrowedPart(builder, partOwnership, "null")
 }
 
+/// Like jsonToString, requires finite numeric values and preserves negative zero.
 fun toJsonPretty(value: JsonValue, indent: Int) r: String {
     return toJsonPrettyHelper(value, indent, 0)
 }

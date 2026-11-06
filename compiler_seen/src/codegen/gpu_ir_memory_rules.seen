@@ -1,0 +1,44 @@
+/// Memory operations retain access, address space, scope and ordering. A
+/// resource's type determines the only legal memory-space mask for its atomics.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_facts.{GpuIrFacts, gpuIrBufferResource, gpuIrResourceReadable, gpuIrResourceWritable, gpuIrValueTypeValid}
+import codegen.gpu_ir_value_rules.{gpuIrOperandType}
+import codegen.gpu_ir_instruction_types.{gpuIrIndexType}
+import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_RMW, GPU_IR_ATOMIC_COMPARE,
+    GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER, GPU_IR_SUBGROUP, gpuIrAtomicOrderValid, gpuIrCompareFailureOrderValid}
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeValue, gpuTypeScalar}
+
+fun gpuIrMemoryTypesValid(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if op.opcode == GPU_IR_BARRIER or op.opcode == GPU_IR_MEMORY_BARRIER {
+        if op.immediate != 0 or op.memoryOrder < 2 { return false }
+        if op.opcode == GPU_IR_BARRIER and (op.memoryScope < 2 or op.memoryScope > 3) { return false }
+        // Workgroup storage is never synchronized across device workgroups.
+        return op.memoryScope != 4 or op.memorySpaces == 1
+    }
+    if op.opcode < GPU_IR_ATOMIC_LOAD or op.opcode > GPU_IR_ATOMIC_COMPARE { return false }
+    let resource = gpuIrOperandType(op, facts, 0); let element = gpuTypeValue(resource)
+    if not gpuIrBufferResource(resource) or (element != 2 and element != 3) or
+        not gpuIrIndexType(gpuIrOperandType(op, facts, 1)) or not gpuIrAtomicOrderValid(op.opcode, op.memoryOrder) { return false }
+    var space = 1
+    if gpuTypeResource(resource) == 5 { space = 2 }
+    if op.memorySpaces != space or (space == 2 and op.memoryScope > 3) { return false }
+    if op.opcode == GPU_IR_ATOMIC_LOAD { return op.immediate == 0 and gpuIrResourceReadable(resource) and op.typeCode == element }
+    if not gpuIrResourceWritable(resource) or gpuIrOperandType(op, facts, 2) != element { return false }
+    if op.opcode == GPU_IR_ATOMIC_STORE { return op.immediate == 0 }
+    if not gpuIrResourceReadable(resource) or op.typeCode != element { return false }
+    if op.opcode == GPU_IR_ATOMIC_RMW { return op.immediate >= 1 and op.immediate <= 8 }
+    return gpuIrOperandType(op, facts, 3) == element and gpuIrCompareFailureOrderValid(op.memoryOrder, op.immediate)
+}
+fun gpuIrSubgroupTypesValid(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if op.opcode != GPU_IR_SUBGROUP { return false }
+    if op.immediate == 1 { return op.operands.length() == 0 and op.typeCode == 1 }
+    if op.immediate == 2 or op.immediate == 3 {
+        return op.operands.length() == 1 and op.typeCode == 1 and gpuIrOperandType(op, facts, 0) == 1
+    }
+    if op.immediate == 4 or op.immediate == 5 {
+        return op.operands.length() == 2 and gpuIrValueTypeValid(op.typeCode) and
+            gpuIrOperandType(op, facts, 0) == op.typeCode and gpuIrOperandType(op, facts, 1) == 3
+    }
+    return op.immediate == 6 and op.operands.length() == 1 and gpuIrValueTypeValid(op.typeCode) and
+        gpuTypeScalar(op.typeCode) != 1 and gpuIrOperandType(op, facts, 0) == op.typeCode
+}

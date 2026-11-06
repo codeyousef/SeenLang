@@ -1,0 +1,20 @@
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun requireFloatingArray(value: Bool) r: Void {
+    if not value { abort("floating array literal layout values or cleanup changed") }
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 1000 {
+        let inferred = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0]
+        let wide = [1.25 as Float64, -2.5 as Float64]
+        let single = [1.25 as Float32, -2.5 as Float32]
+        requireFloatingArray(inferred.length() == 8 and wide.length() == 2 and single.length() == 2)
+        requireFloatingArray(inferred[0] == 0.0 and inferred[1] == 0.5 and inferred[7] == 6.0)
+        requireFloatingArray(wide[0] == (1.25 as Float64) and wide[1] == (-2.5 as Float64))
+        requireFloatingArray(single[0] == (1.25 as Float32) and single[1] == (-2.5 as Float32))
+        inferred.free(); wide.free(); single.free()
+        requireFloatingArray(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    println("PASS: Float Float64 Float32 array literals retain typed storage values and exact cleanup")
+    return 0
+}

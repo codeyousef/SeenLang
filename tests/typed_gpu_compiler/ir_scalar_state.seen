@@ -1,0 +1,100 @@
+/// Test-only scalar semantic witness. It owns its buffers and numeric tables.
+/// It models one invocation, never GPU execution or inter-invocation ordering.
+import codegen.gpu_ir_model.{GpuIrFunction}
+
+class IrScalarState {
+    var buffers: Array<Array<Int>>
+    var remaining: Int
+    var faults: Int
+    var barriers: Int
+    var fences: Int
+    var valid: Bool
+    var code: String
+    static fun create() r: IrScalarState {
+        return IrScalarState{buffers: Array<Array<Int>>(), remaining: 1000000, faults: 0, barriers: 0,
+            fences: 0, valid: true, code: ""}
+    }
+    fun fail(code: String) r: Void { this.valid = false; this.code = code }
+    fun step() r: Bool {
+        if not this.valid { return false }
+        if this.remaining <= 0 { this.fail("witness.limit"); return false }
+        this.remaining = this.remaining - 1; return true
+    }
+    fun addBuffer(buffer: Array<Int>) r: Int {
+        if this.buffers.length() >= 32 or buffer.length() > 4096 { this.fail("witness.limit"); buffer.free(); return -1 }
+        let identity = this.buffers.length(); this.buffers.push(buffer); return identity
+    }
+    fun read(resource: Int, index: Int) r: Int {
+        if resource < 0 or resource >= this.buffers.length() { this.fail("witness.binding"); return 0 }
+        let buffer = this.buffers[resource]
+        if index < 0 or index >= buffer.length() { this.faults = this.faults + 1; return 0 }; return buffer[index]
+    }
+    fun write(resource: Int, index: Int, value: Int) r: Void {
+        if resource < 0 or resource >= this.buffers.length() { this.fail("witness.binding"); return }
+        let buffer = this.buffers[resource]
+        if index < 0 or index >= buffer.length() { this.faults = this.faults + 1; return }; buffer[index] = value
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.buffers.length() { this.buffers[i].free(); i = i + 1 }; this.buffers.free(); this.free()
+    }
+}
+class IrScalarFrame {
+    var functionIndex: Int
+    var registers: Array<Int>
+    var types: Array<Int>
+    var locals: Array<Int>
+    var arguments: Array<Int>
+    var signal: Int
+    var transferred: Int
+    static fun create(borrow function: GpuIrFunction, functionIndex: Int, arguments: Array<Int>) r: IrScalarFrame {
+        let registers = Array<Int>(); let types = Array<Int>(); let locals = Array<Int>(); let copied = Array<Int>(); var i = 0
+        while i < (function.registerCount + 1) * 4 { registers.push(0); i = i + 1 }; i = 0
+        while i <= function.registerCount { types.push(0); i = i + 1 }; i = 0
+        while i < function.blocks.length() {
+            let block = function.blocks[i]; var j = 0
+            while j < block.instructions.length() {
+                let op = block.instructions[j]; if op.result != 0 { types[op.result] = op.typeCode }; j = j + 1
+            }
+            i = i + 1
+        }
+        i = 0
+        while i < function.localCount { locals.push(0); i = i + 1 }; i = 0
+        while i < arguments.length() { copied.push(arguments[i]); i = i + 1 }
+        return IrScalarFrame{functionIndex: functionIndex, registers: registers, types: types, locals: locals, arguments: copied, signal: 0, transferred: 0}
+    }
+    fun value(identity: Int) r: Int { return this.registers[identity * 4] }
+    fun put(identity: Int, value: Int) r: Void { if identity != 0 { this.registers[identity * 4] = value } }
+    fun release() r: Void { this.registers.free(); this.types.free(); this.locals.free(); this.arguments.free(); this.free() }
+}
+fun irScalarNormalize(value: Int, typeCode: Int) r: Int {
+    if typeCode != 2 and typeCode != 3 { return value }
+    let bits = value & 4294967295
+    if typeCode == 2 and bits >= 2147483648 { return bits - 4294967296 }; return bits
+}
+fun irScalarBinary(state: IrScalarState, operation: Int, left: Int, right: Int, typeCode: Int) r: Int {
+    let a = irScalarNormalize(left, typeCode); let b = irScalarNormalize(right, typeCode)
+    if operation == 1 { return irScalarNormalize(a + b, typeCode) }
+    if operation == 2 { return irScalarNormalize(a - b, typeCode) }
+    if operation == 3 {
+        let low = (a & 65535) * (b & 65535)
+        let cross = (((a >> 16) & 65535) * (b & 65535) + (a & 65535) * ((b >> 16) & 65535)) & 65535
+        return irScalarNormalize(low + cross * 65536, typeCode)
+    }
+    if operation == 4 or operation == 5 {
+        if b == 0 or (typeCode == 2 and a == -2147483648 and b == -1) { state.faults = state.faults + 1; return 0 }
+        if operation == 4 { return irScalarNormalize(a / b, typeCode) }; return irScalarNormalize(a % b, typeCode)
+    }
+    if operation == 6 { return irScalarNormalize(a & b, typeCode) }
+    if operation == 7 { return irScalarNormalize(a | b, typeCode) }
+    if operation == 8 { return irScalarNormalize(a ^ b, typeCode) }
+    if operation == 9 or operation == 10 {
+        if b < 0 or b >= 32 { state.faults = state.faults + 1; return 0 }
+        if operation == 9 { return irScalarNormalize(a << b, typeCode) }; return irScalarNormalize(a >> b, typeCode)
+    }
+    var result = false
+    if operation == 11 { result = a == b }; if operation == 12 { result = a != b }
+    if operation == 13 { result = a < b }; if operation == 14 { result = a <= b }
+    if operation == 15 { result = a > b }; if operation == 16 { result = a >= b }
+    if result { return 1 }; return 0
+}

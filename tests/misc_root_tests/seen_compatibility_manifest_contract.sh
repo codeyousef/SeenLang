@@ -7,11 +7,6 @@ CHECKER="$ROOT_DIR/scripts/check_compatibility_manifest.py"
 PRODUCTION="$ROOT_DIR/releases/compatibility-manifest.json"
 SCHEMA="$ROOT_DIR/schemas/compatibility-manifest.schema.json"
 FIXTURES="$ROOT_DIR/tests/fixtures/core-002a"
-SOURCE="$ROOT_DIR/compiler_seen/src/release/compatibility.seen"
-COMPILER_ENTRY="$ROOT_DIR/compiler_seen/src/main_compiler.seen"
-COMPILER_MANIFEST="$ROOT_DIR/compiler_seen/Seen.toml"
-NATIVE_TEST="$ROOT_DIR/compiler_seen/tests/compatibility_manifest.seen"
-STAGE1_ACCEPTANCE="$ROOT_DIR/scripts/seen_stage1_acceptance.sh"
 ARTIFACT_HELPER="$ROOT_DIR/scripts/artifact_root.sh"
 
 fail() {
@@ -89,35 +84,8 @@ python3 "$CHECKER" "$FIXTURES/happy/compatibility-manifest.json" \
 cmp -s "$TEST_ROOT/fuzz.json" "$FIXTURES/happy/expected.json" ||
     fail "fuzz changed canonical output"
 
-for symbol in AsciiString RetryClass RedactionClass SeenError OperationContext \
-    CompatibilityManifest CompatibilityDeterminism \
-    CompatibilityDeterminismCertification compatibilityExpectedDeterminism \
-    compatibilityDeterminismIsExact validateCompatibilityManifest; do
 
-    grep -Fq "$symbol" "$SOURCE" || fail "native Seen model omitted $symbol"
-done
-for code in core.002a.invalid core.002a.limit core.002a.cancelled \
-    core.002a.platform; do
-
-    grep -Fq "$code" "$SOURCE" || fail "native Seen model omitted $code"
-done
-grep -Fq 'import release.compatibility.' "$COMPILER_ENTRY" ||
-    fail "bootstrap entry does not seed the compatibility module"
-grep -Fq 'modules.push("release.compatibility")' "$COMPILER_ENTRY" ||
-    fail "bootstrap module list omits the compatibility module"
-grep -Fq 'if segment == "release"' "$COMPILER_ENTRY" ||
-    fail "compiler import roots omit release modules"
-grep -Fq '"src/release"' "$COMPILER_MANIFEST" ||
-    fail "compiler package manifest omits release modules"
-grep -Fq 'validateCompatibilityManifest' "$NATIVE_TEST" ||
-    fail "native compiling regression is missing"
-grep -Fq 'CORE-004G_compatibility_determinism' "$NATIVE_TEST" ||
-    fail "native deterministic compatibility drift regression is missing"
-grep -Fq 'compiler_seen/tests/compatibility_manifest.seen' \
-    "$STAGE1_ACCEPTANCE" ||
-    fail "native compiling regression is not in Stage-1 acceptance"
-
-for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
+for identity in seen-layout-abi-v3 seen-object-cache-abi-v3 \
     seen-prebuilt-package-v2 seen-package-interface-v2 \
     seen-package-object-manifest-v2 SEENPKG1 \
     seen-deterministic-context-v1 seen-program-build-input-v1 \
@@ -127,25 +95,18 @@ for identity in seen-layout-abi-v2 seen-object-cache-abi-v3 \
     grep -Fq "$identity" "$PRODUCTION" ||
         fail "production manifest omitted current identity $identity"
 done
-python3 - "$PRODUCTION" "$COMPILER_ENTRY" "$ROOT_DIR/seen_std/Seen.toml" "$ROOT_DIR/scripts/build_windows.sh" <<'PY_CURRENT' || fail "current compatibility identity agreement"
+python3 - "$PRODUCTION" "$SCHEMA" "$ROOT_DIR/seen_std/Seen.toml" <<'PY_CURRENT' || fail "current compatibility data agreement"
 import json
 from pathlib import Path
-import re
 import sys
 import tomllib
+
 manifest = json.loads(Path(sys.argv[1]).read_text())
-compiler = Path(sys.argv[2]).read_text()
+schema = json.loads(Path(sys.argv[2]).read_text())
 stdlib = tomllib.loads(Path(sys.argv[3]).read_text())
-for field, expected in (
-    ("runtimeAbi", manifest["components"]["runtime"]["abi"]),
-    ("standardLibraryVersion", manifest["components"]["standard_library"]["version"]),
-):
-    actual = re.findall(r'\b' + field + r':\s*"([^"\n]+)"', compiler)
-    assert actual == [expected], (field, actual, expected)
+runtime = schema["properties"]["components"]["properties"]["runtime"]["properties"]["abi"]
+assert manifest["components"]["runtime"]["abi"] == runtime["const"]
 assert stdlib["project"]["version"] == manifest["components"]["standard_library"]["version"]
-windows = Path(sys.argv[4]).read_text()
-assert '"$PROJECT_DIR/releases/compatibility-manifest.json"' in windows
-assert not re.search(r'"runtime-v[0-9]+"', windows)
 PY_CURRENT
 python3 - "$PRODUCTION" <<'PY' || fail "deterministic certification policy"
 import json

@@ -1,0 +1,21 @@
+/// Native WMMA fragments have a target-specific register shape. Keep that
+/// representation separate from portable vector lanes and matrix semantics.
+import codegen.gpu_matrix_types.{gpuMatrixTypeValid, gpuMatrixShape, gpuMatrixRole, gpuMatrixFormat}
+import codegen.gpu_precision_formats.{GPU_FORMAT_FP16, GPU_FORMAT_BF16, GPU_FORMAT_FP32, GPU_CAP_NON_COOPERATIVE, GPU_CAP_COOPERATIVE, GPU_CAP_COOP_FP16, GPU_CAP_COOP_BF16}
+import typechecker.gpu_types.{gpuTypeLanes}
+
+fun ptxSupportedCapabilities() r: UInt64 {
+    return GPU_CAP_NON_COOPERATIVE | GPU_CAP_COOPERATIVE | GPU_CAP_COOP_FP16 | GPU_CAP_COOP_BF16
+}
+fun ptxValueWords(typeCode: Int) r: Int {
+    if not gpuMatrixTypeValid(typeCode) { return gpuTypeLanes(typeCode) }
+    if gpuMatrixShape(typeCode) != 0 { return 0 }
+    let format = gpuMatrixFormat(typeCode)
+    if gpuMatrixRole(typeCode) == 2 { if format == GPU_FORMAT_FP32 { return 8 }; return 0 }
+    if format == GPU_FORMAT_FP16 { return 8 }; if format == GPU_FORMAT_BF16 { return 4 }; return 0
+}
+fun ptxMatrixTargetValid(typeCode: Int, target: String) r: Bool {
+    if ptxValueWords(typeCode) == 0 { return false }
+    if gpuMatrixFormat(typeCode) == GPU_FORMAT_BF16 and (target == "sm_70" or target == "sm_75") { return false }
+    return true
+}

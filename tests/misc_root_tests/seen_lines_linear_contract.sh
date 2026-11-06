@@ -2,7 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-SEEN_BIN=${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}
+SEEN_BIN=${COMPILER:-${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}}
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-lines-linear-contract
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ]; then
+    exec bash "$CAPPED_ENTRY" "$SCOPE" --compiler "$SEEN_BIN" -- bash "$0" "$@"
+fi
+SEEN_BIN="${SEEN_CAPPED_REGRESSION_COMPILER:-$SEEN_BIN}"
+bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$SEEN_BIN"
+ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
 RELEASE_TARGET_CPU=${SEEN_RELEASE_CPU_BASELINE:-x86-64}
 case "$RELEASE_TARGET_CPU" in
     x86-64|x86-64-v3) ;;
@@ -11,31 +19,36 @@ case "$RELEASE_TARGET_CPU" in
         exit 2
         ;;
 esac
-RUNNER="$ROOT_DIR/scripts/run_with_project_artifacts.sh"
 BASELINE_CHECKER="$ROOT_DIR/scripts/check_x86_executable_baseline.sh"
 SOURCE="$ROOT_DIR/tests/fixtures/fel-1536/lines_contract.seen"
-mkdir -p "$ROOT_DIR/.seen/agent-tools/fel-1536"
-WORK_DIR=$(mktemp -d "$ROOT_DIR/.seen/agent-tools/fel-1536/run.XXXXXX")
+WORK_DIR=$(mktemp -d "$SEEN_ARTIFACT_ROOT/lines-linear-contract.XXXXXX")
 cleanup() {
-    status=$?
-    if [ "$status" -eq 0 ]; then rm -rf "$WORK_DIR"
+    local status=$?
+    if [ "$status" -eq 0 ]; then
+        case "$WORK_DIR" in
+            "$SEEN_ARTIFACT_ROOT"/lines-linear-contract.*)
+                [ -d "$WORK_DIR" ] && [ ! -L "$WORK_DIR" ] &&
+                    [ "$(dirname -- "$WORK_DIR")" = "$SEEN_ARTIFACT_ROOT" ] || return 1
+                rm -rf -- "$WORK_DIR" ;;
+            *) return 1 ;;
+        esac
     else echo "Preserved failed FEL-1536 artifacts: $WORK_DIR" >&2; fi
 }
 trap cleanup EXIT
 
-run_seen() { "$RUNNER" fel-1536 --keep-on-failure -- "$SEEN_BIN" "$@"; }
+run_seen() { bash "$ATTESTED_SEEN" "$SEEN_BIN" "$@"; }
 
 run_seen check "$SOURCE" >"$WORK_DIR/check.log" 2>&1
 run_seen compile "$SOURCE" "$WORK_DIR/fast" --fast --no-cache --no-fork \
-    --target-cpu "$RELEASE_TARGET_CPU" --jobs 1 --opt-jobs 1 \
+    --target-cpu "$RELEASE_TARGET_CPU" \
     >"$WORK_DIR/fast.log" 2>&1
 run_seen compile "$SOURCE" "$WORK_DIR/release" --release --lto thin --no-fork \
-    --no-cache --target-cpu "$RELEASE_TARGET_CPU" --jobs 1 --opt-jobs 1 \
+    --no-cache --target-cpu "$RELEASE_TARGET_CPU" \
     >"$WORK_DIR/release.log" 2>&1
 
 bash "$BASELINE_CHECKER" "$RELEASE_TARGET_CPU" "$WORK_DIR/fast"
 bash "$BASELINE_CHECKER" "$RELEASE_TARGET_CPU" "$WORK_DIR/release"
-"$WORK_DIR/fast"
+timeout --kill-after=5s 120s bash -c 'ulimit -S -s 8192; exec "$@"' bash "$WORK_DIR/fast"
 
 counts=(61897 123794 247587)
 times=()

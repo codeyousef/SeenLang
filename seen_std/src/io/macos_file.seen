@@ -1,0 +1,73 @@
+/// Explicit fresh-file cache policy; F_NOCACHE never changes a borrowed File.
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError}
+import reactor.reactor.{OwnedHandle}
+import fs.types.{OpenOptions}
+import memory.aligned_buffer.{OwnedBuffer}
+import io.completion_types.{IO_DEVICE_REMOVED_STATUS, IoOperation, ioQueueFailure}
+import io.macos_native.{seen_macos_io_open, seen_macos_io_mode, seen_macos_io_cache}
+
+enum MacCachePolicy { Cached, UncachedRequired }
+fun macosIoStatus(result: Int64) r: Int32 {
+    if result >= (0 as Int64) { return 0 as Int32 }
+    if result == (-19 as Int64) or result == (-6 as Int64) { return IO_DEVICE_REMOVED_STATUS }
+    if result == (-78 as Int64) or result == (-45 as Int64) { return 4 as Int32 }
+    if result == (-35 as Int64) or result == (-12 as Int64) or result == (-23 as Int64) or result == (-24 as Int64) { return 2 as Int32 }
+    if result == (-4 as Int64) { return 5 as Int32 }
+    if result == (-89 as Int64) { return 9 as Int32 }
+    if result == (-60 as Int64) { return 7 as Int32 }
+    if result == (-9 as Int64) or result == (-14 as Int64) or result == (-22 as Int64) { return 1 as Int32 }
+    return 3 as Int32
+}
+@move
+class MacOpenFailure {
+    var descriptor: OwnedHandle
+    var error: AsyncError
+    var nativeResult: Int64
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.descriptor.close()
+        if closed.isErr() { closed.unwrapErr().free(); closed.releaseContainer(); return Err<Bool, AsyncError>(ioQueueFailure(3 as Int32, "io.macos.open.cleanup", 0 as UInt64)) }
+        closed.releaseContainer(); this.descriptor.free(); this.error.free(); this.free(); return Ok<Bool, AsyncError>(true)
+    }
+}
+fun macosOpenRejected(descriptor: OwnedHandle, result: Int64, operation: String) r: Result<OwnedHandle, MacOpenFailure> {
+    return Err<OwnedHandle, MacOpenFailure>(MacOpenFailure{descriptor: descriptor,
+        error: ioQueueFailure(macosIoStatus(result), operation, 0 as UInt64), nativeResult: result})
+}
+fun macosOpenHandle(path: String, borrow options: OpenOptions, operation: IoOperation,
+    policy: MacCachePolicy) r: Result<OwnedHandle, MacOpenFailure> {
+    let descriptor = OwnedHandle{native: -1 as Int64, owned: true, valid: false}
+    if path.length() <= 0 or path.length() > 4095 or options.directory or options.append or
+        (not options.read and not options.write) or (options.exclusive and not options.create) or
+        (options.truncate and not options.write) or
+        (operation == IoOperation.Read and not options.read) or (operation == IoOperation.Write and not options.write) or
+        (policy != MacCachePolicy.Cached and policy != MacCachePolicy.UncachedRequired) {
+        return macosOpenRejected(descriptor, -22 as Int64, "io.macos.open.options")
+    }
+    var index = 0
+    while index < path.length() {
+        if path.byteAt(index) == 0 { return macosOpenRejected(descriptor, -22 as Int64, "io.macos.open.path") }; index = index + 1
+    }
+    let allocated = OwnedBuffer<UInt8>.allocate((path.length() + 1) as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { allocated.unwrapErr().free(); allocated.releaseContainer(); return macosOpenRejected(descriptor, -12 as Int64, "io.macos.open.allocate") }
+    let bytes: OwnedBuffer<UInt8> = allocated.unwrap(); allocated.releaseContainer(); index = 0
+    while index < path.length() { bytes.data[index] = path.byteAt(index) as UInt8; index = index + 1 }; bytes.data[index] = 0 as UInt8
+    // Darwin flags: CLOEXEC | NONBLOCK plus explicit access/creation policy.
+    var flags = 16777220 as UInt32
+    if options.write { flags = flags | (1 as UInt32); if options.read { flags = (flags & (4294967292 as UInt32)) | (2 as UInt32) } }
+    if options.create { flags = flags | (512 as UInt32) }
+    if options.truncate { flags = flags | (1024 as UInt32) }
+    if options.exclusive { flags = flags | (2048 as UInt32) }
+    if options.noFollow { flags = flags | (256 as UInt32) }
+    let native = seen_macos_io_open(bytes.data, flags, 438 as UInt32); bytes.close(); bytes.free()
+    if native < (0 as Int64) { return macosOpenRejected(descriptor, native, "io.macos.open.native") }
+    descriptor.native = native; descriptor.valid = true
+    let mode = seen_macos_io_mode(native)
+    if mode < (0 as Int64) { return macosOpenRejected(descriptor, mode, "io.macos.open.mode") }
+    if ((mode as UInt64) & (61440 as UInt64)) != (32768 as UInt64) { return macosOpenRejected(descriptor, -45 as Int64, "io.macos.open.regular-file") }
+    if policy == MacCachePolicy.UncachedRequired {
+        let configured = seen_macos_io_cache(native, 1 as UInt32)
+        if configured < (0 as Int64) { return macosOpenRejected(descriptor, configured, "io.macos.open.nocache-required") }
+    }
+    return Ok<OwnedHandle, MacOpenFailure>(descriptor)
+}

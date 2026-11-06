@@ -1,70 +1,52 @@
 #!/usr/bin/env bash
-# Test incremental compilation caching
-# Historical direct-entry fixture. It mutates the checkout-wide cache and has
-# not yet been migrated to the attested compiler runner.
-echo "RESOURCE STOP: legacy incremental fixture is disabled until capped migration" >&2
-exit 126
+# Cold/warm/no-cache behavior in a disposable project, never the checkout cache.
+set -euo pipefail
 
-set -e
-cd "$(dirname "$0")/../.."
+ROOT="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
+COMPILER="${COMPILER:-$ROOT/compiler_seen/target/seen}"
+CAPPED="$ROOT/scripts/run_capped_regression.sh"
+SCOPE=incremental-cli
+if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != 1 ] ||
+    [ "${SEEN_CAPPED_REGRESSION_SCOPE:-}" != "$SCOPE" ]; then
+    exec bash "$CAPPED" "$SCOPE" --compiler "$COMPILER" -- bash "$0"
+fi
+COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
+bash "$CAPPED" --verify-active "$SCOPE" --compiler "$COMPILER"
+export SEEN_COMPILER_SOURCE_ROOT="$ROOT"
+WORK="$(mktemp -d "$SEEN_ARTIFACT_ROOT/incremental-cli.XXXXXX")"
+cp -- "$ROOT/tests/fixtures/test-002a/incremental_cli.seen" "$WORK/main.seen"
+cd -- "$WORK"
 
-COMPILER=./compiler_seen/target/seen
-TEST_SRC=tests/misc_root_tests/test_hello.seen
-TEST_OUT=/tmp/test_incr_hello
+compile_and_run() {
+    local mode=$1
+    shift
+    timeout --foreground --kill-after=5s 600s \
+        bash "$SEEN_ATTESTED_COMPILER_RUNNER" "$COMPILER" compile \
+        "$WORK/main.seen" "$WORK/$mode" --fast --no-fork "$@" \
+        >"$WORK/$mode.compile.log" 2>&1
+    timeout --foreground --kill-after=5s 30s "$WORK/$mode" \
+        >"$WORK/$mode.run.log" 2>&1
+    grep -Fxq 'Incremental CLI: 43' "$WORK/$mode.run.log"
+}
 
-echo "=== Incremental Compilation Test ==="
-
-# First build (no cache)
-rm -rf .seen_cache/
-echo "--- First build (cold cache) ---"
-$COMPILER compile $TEST_SRC $TEST_OUT 2>&1 | tee /tmp/incr_output.txt
-
-# Verify output works
-OUTPUT=$($TEST_OUT)
-echo "$OUTPUT" | grep -q "Hello World" && echo "PASS: output correct after first build"
-
-# Verify cache dir exists
-test -d .seen_cache/ && echo "PASS: cache directory created"
-test -f .seen_cache/registry.hash && echo "PASS: registry hash cached"
-
-# Count cached .o files
-CACHED_O=$(find .seen_cache/ -name "*.o" | wc -l)
-echo "PASS: $CACHED_O object files cached"
-
-# Second build (fully cached — should be fast)
-echo ""
-echo "--- Second build (warm cache) ---"
-$COMPILER compile $TEST_SRC $TEST_OUT 2>&1 | tee /tmp/incr_output.txt
-
-# Verify "Cached:" appears in output
-CACHED_LINES=$(grep -c "Cached:" /tmp/incr_output.txt || true)
-if [ "$CACHED_LINES" -gt 0 ]; then
-    echo "PASS: $CACHED_LINES modules served from cache"
-else
-    echo "FAIL: no modules served from cache"
+compile_and_run cold
+test -s .seen_cache/registry.hash
+objects=(.seen_cache/*.o)
+test -f "${objects[0]}"
+if grep -Fq 'source cache hit' "$WORK/cold.compile.log"; then
+    echo 'FAIL: cold project unexpectedly reused a source object' >&2
     exit 1
 fi
+compile_and_run warm
+grep -Fq 'source cache hit' "$WORK/warm.compile.log"
 
-# Verify output still works after cached build
-OUTPUT=$($TEST_OUT)
-echo "$OUTPUT" | grep -q "Hello World" && echo "PASS: output correct after cached build"
-
-# Test --no-cache flag
-echo ""
-echo "--- Third build (--no-cache) ---"
-$COMPILER compile --no-cache $TEST_SRC $TEST_OUT 2>&1 | tee /tmp/incr_output2.txt
-
-CACHED_LINES2=$(grep -c "Cached:" /tmp/incr_output2.txt || true)
-if [ "$CACHED_LINES2" -eq 0 ]; then
-    echo "PASS: --no-cache skipped cache"
-else
-    echo "FAIL: --no-cache still used cache"
+# --no-cache must neither consume nor alter the already validated warm cache.
+sha256sum .seen_cache/* >"$WORK/cache.before.sha256"
+compile_and_run uncached --no-cache
+if grep -Eq 'source cache hit|IR cache hit' "$WORK/uncached.compile.log"; then
+    echo 'FAIL: --no-cache reused an object' >&2
     exit 1
 fi
-
-# Cleanup
-rm -rf .seen_cache/
-rm -f /tmp/incr_output.txt /tmp/incr_output2.txt
-
-echo ""
-echo "All incremental compilation tests passed"
+sha256sum .seen_cache/* >"$WORK/cache.after.sha256"
+cmp -- "$WORK/cache.before.sha256" "$WORK/cache.after.sha256"
+echo 'PASS: isolated incremental cold/warm/no-cache compilation and execution'

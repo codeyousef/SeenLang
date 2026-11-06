@@ -1,0 +1,93 @@
+import compute.vulkan_staging.{GpuVulkanStagingRing, GpuVulkanStagingTicket, gpuVkStagingUpload, gpuVkStagingDownload}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import inference.span.{Span, MutableSpan}
+import memory.aligned_buffer.{OwnedBuffer}
+import vulkan_mapping_fixture_support.{mappingWorld}
+import device_fixture_support.{gpuFixtureRejected}
+import core.result.{Result}
+import compute.error.{GpuError}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun stagingCompleted(result: Result<Bool, GpuError>, expected: Bool) r: Void {
+    if result.isErr() {
+        let error = result.unwrapErr(); println(error.operation); println(error.code); println(error.message)
+        abort("staging operation unexpectedly failed")
+    }
+    if result.unwrap() != expected { abort("staging operation progress changed") }
+    result.releaseContainer()
+}
+
+fun waitReady(borrow ticket: GpuVulkanStagingTicket) r: Void {
+    var polls = 0
+    while polls < 100000 {
+        let result = ticket.poll()
+        if result.isErr() { abort("staging completion failed") }
+        let ready = result.unwrap(); result.releaseContainer()
+        if ready { return }
+        polls = polls + 1
+    }
+    abort("staging completion exceeded bounded fuel")
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let world = mappingWorld(GpuMemoryKind.DeviceLocal); let op = world.operation
+    let opened = GpuVulkanStagingRing.open(world.context, 1024 as UInt64, 64 as UInt64, 2, op)
+    if opened.isErr() { abort("owned Vulkan staging ring unavailable") }
+    let ring = opened.unwrap(); opened.releaseContainer()
+    let allocated = GpuBuffer<UInt8>.allocate(world.allocator, 128 as UInt64, 1 as UInt64, 256 as UInt64, op)
+    if allocated.isErr() { abort("staging device destination unavailable") }
+    let device = allocated.unwrap(); allocated.releaseContainer()
+    let hostResult = OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64)
+    if hostResult.isErr() { abort("staging host bytes unavailable") }
+    let host = hostResult.unwrap(); hostResult.releaseContainer(); var i = 0 as UInt64
+    while i < (64 as UInt64) { host.data[i] = ((255 as UInt64) - i) as UInt8; i = i + (1 as UInt64) }
+    let source = Span<UInt8>{data: host.data as *const UInt8, length: 29 as UInt64}
+    let target = MutableSpan<UInt8>{data: host.data, length: 29 as UInt64}
+    if source.length != (29 as UInt64) or source.data != host.data as *const UInt8 {
+        abort("staging source span layout changed")
+    }
+    var cycle = 0
+    while cycle < 50 {
+        let a = ring.reserve(29 as UInt64, op); let b = ring.reserve(29 as UInt64, op)
+        if a.isErr() or b.isErr() { abort("staging capacity rejected valid tickets") }
+        let upload = a.unwrap(); a.releaseContainer(); let download = b.unwrap(); b.releaseContainer()
+        let saturated = ring.reserve(1 as UInt64, op)
+        if saturated.isOkay() { abort("staging grew beyond its ticket bound") }
+        let full = saturated.unwrapErr(); saturated.releaseContainer(); full.release()
+        gpuFixtureRejected(ring.close(), "gpu.busy")
+        gpuFixtureRejected(gpuVkStagingUpload(upload, device, 3 as UInt64, op), "gpu.invalid")
+        if not upload.valid() or not upload.reserved() or upload.bytes != (29 as UInt64) or upload.initialized != (0 as UInt64) {
+            abort("staging reserved ticket geometry changed")
+        }
+        stagingCompleted(upload.write(source, 0 as UInt64, op), true)
+        stagingCompleted(gpuVkStagingUpload(upload, device, 3 as UInt64, op), true)
+        gpuFixtureRejected(upload.close(), "gpu.busy")
+        waitReady(upload)
+        stagingCompleted(gpuVkStagingDownload(download, device, 3 as UInt64, op), true)
+        waitReady(download)
+        op.cancellation = true
+        stagingCompleted(upload.release(), true)
+        op.cancellation = false
+        stagingCompleted(download.read(target, 0 as UInt64, op), true)
+        i = 0 as UInt64
+        while i < (29 as UInt64) {
+            if host.data[i] != ((255 as UInt64) - i) as UInt8 { abort("staging changed high-bit partial-byte payload") }
+            i = i + (1 as UInt64)
+        }
+        // Completion must not free unread bytes while another ticket reuses its neighbour.
+        let replacement = ring.reserve(29 as UInt64, op)
+        if replacement.isErr() { abort("acknowledged staging slot was not reusable") }
+        let next = replacement.unwrap(); replacement.releaseContainer()
+        stagingCompleted(next.write(source, 0 as UInt64, op), true)
+        stagingCompleted(download.read(target, 0 as UInt64, op), true)
+        stagingCompleted(next.release(), true); stagingCompleted(download.release(), true)
+        cycle = cycle + 1
+    }
+    stagingCompleted(ring.close(), true); stagingCompleted(ring.close(), false)
+    stagingCompleted(ring.release(), true); stagingCompleted(device.release(), true)
+    host.close(); host.free(); world.release()
+    if seen_memory_used_bytes() != baseline { abort("owned staging lifecycle leaked live allocation") }
+    println("PASS: GPU-006C owned staging bulk bytes bounded reuse native completion consumer acknowledgement and cold cleanup")
+    return 0
+}

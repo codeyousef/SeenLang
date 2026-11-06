@@ -47,7 +47,7 @@ Example:
 ```toml
 [project]
 name = "seen_compiler"
-version = "0.22.11"
+version = "0.23.0"
 language = "en"
 visibility = "caps"
 description = "Self-hosted Seen compiler"
@@ -77,9 +77,9 @@ modules = [
 
 ## [dependencies] Section
 
-Seen 0.22.11 uses package aliases from `[dependencies]` as local import roots.
-Registry identity, registry origin, version requirement, and import alias remain
-separate values.
+Seen 0.23.0 development (unreleased) uses package aliases from `[dependencies]`
+as local import roots. Registry identity, registry origin, version requirement,
+and import alias remain separate values.
 
 ```toml
 manifest-version = 1
@@ -220,6 +220,11 @@ containing the library file. The path is resolved relative to the nearest
 `Seen.toml`. Seen adds `-L<resolved-path>` during linking, and on native
 Linux/macOS builds it also records that directory as a runtime search path so
 the output can run without extra `LIBRARY_PATH` or `LD_LIBRARY_PATH` wrappers.
+
+Declare `vulkan = {}` when a native executable actually calls the Vulkan loader.
+The compiler does not infer this dependency from `vk*` foreign declarations or
+imported Vulkan modules. CPU-only users may import their types without probing
+or linking the Vulkan SDK.
 
 Legacy `system = true` entries inside `[dependencies]` are still accepted for
 backward compatibility, but new manifests should prefer `[native.dependencies]`.

@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{coverSourceBranch}
 ///
 ir_when_arm_gen.seen -- Shared when-arm emission helpers
 Extracted from llvm_ir_gen.seen to keep when-arm lowering thin.
@@ -22,6 +23,7 @@ fun emitWhenArmGuardImpl(output: StringBuilder, regBox: Array<Int>,
             ", 0\n")
     }
     let guardedLabel = armBodyLabel + ".guarded"
+    coverSourceBranch(output, guardCond)
     output.append("  br i1 " + guardCond + ", label %" + guardedLabel +
         ", label %" + nextCheckLabel + "\n")
     output.append(guardedLabel + ":\n")

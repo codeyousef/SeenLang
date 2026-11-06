@@ -1,0 +1,36 @@
+/// Scoped proof application. Global state follows the existing per-process
+/// codegen model; saved scopes never escape a lowering call or cross a fork.
+import parser.real_parser.{ParserExpressionNode}
+import codegen.ir_bounds_proof.{BoundsProofPlan, boundsProofPairMatches}
+
+var g_provedArrayName: String = ""
+var g_provedIndexName: String = ""
+var g_provedAccessCount: Int = 0
+class BoundsProofScope {
+    var plan: BoundsProofPlan
+    var savedArray: String
+    var savedIndex: String
+    var savedAccessCount: Int
+}
+fun enterBoundsProof(plan: BoundsProofPlan) r: BoundsProofScope {
+    let scope = BoundsProofScope{plan: plan, savedArray: g_provedArrayName,
+        savedIndex: g_provedIndexName, savedAccessCount: g_provedAccessCount}
+    g_provedArrayName = ""; g_provedIndexName = ""; g_provedAccessCount = 0
+    if plan.reason == "canonical-zero-to-stable-length" {
+        g_provedArrayName = plan.arrayName; g_provedIndexName = plan.indexName
+    }
+    return scope
+}
+fun consumeBoundsProof(borrow array: ParserExpressionNode, borrow index: ParserExpressionNode) r: Bool {
+    // Both read and write drivers use this same exact source identity rule.
+    if not boundsProofPairMatches(array, index, g_provedArrayName, g_provedIndexName) { return false }
+    g_provedAccessCount = g_provedAccessCount + 1
+    return true
+}
+fun boundsProofAccessCount() r: Int { return g_provedAccessCount }
+fun leaveBoundsProof(scope: BoundsProofScope) r: Void {
+    g_provedArrayName = scope.savedArray; g_provedIndexName = scope.savedIndex
+    g_provedAccessCount = scope.savedAccessCount
+    let plan: BoundsProofPlan = scope.plan
+    plan.free(); scope.free()
+}

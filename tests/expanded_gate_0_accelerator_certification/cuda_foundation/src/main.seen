@@ -1,0 +1,233 @@
+/// Actual hardware canary; the shell owner supplies official ptxas cubin + reflection.
+import env.env.{args, releaseArgs}
+import io.file.{size, __OpenFile, __FileSize, __FileError, __CloseFile}
+import memory.aligned_buffer.{OwnedBuffer}
+import json.builder.{seen_string_release_owned}
+import reflection.{admitReflection}
+import driver.{FoundationDriver, seen_time_monotonic_nanos}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_cstr_free(value: *Void) r: Void
+extern "C" fun fread(destination: *UInt8, elementBytes: UInt64, count: UInt64, file: *Void) r: UInt64
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+extern "C" fun getrusage(who: Int32, usage: *Void) r: Int32
+
+/// One bounded owned byte buffer; the parser borrows it until admission ends.
+fun admitReflectionFile(path: String) r: Bool {
+    let file = __OpenFile(path, "rb")
+    if file < 0 { return false }
+    let length = __FileSize(file)
+    if length < 1 or length > 4194304 { let _ = __CloseFile(file); return false }
+    let allocated = OwnedBuffer<UInt8>.allocate(length as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() {
+        let error = allocated.unwrapErr(); allocated.releaseContainer(); error.free()
+        let _ = __CloseFile(file); return false
+    }
+    let buffer = allocated.unwrap(); allocated.releaseContainer()
+    let count = fread(buffer.data, 1 as UInt64, length as UInt64, file as *Void)
+    var extra = 0 as UInt8
+    let trailing = fread(&extra, 1 as UInt64, 1 as UInt64, file as *Void)
+    let failure = __FileError(file); let failed = failure != ""
+    if failed { seen_string_release_owned(failure) }
+    let closed = __CloseFile(file)
+    var admitted = false
+    if count == (length as UInt64) and trailing == (0 as UInt64) and not failed and closed == 0 {
+        admitted = admitReflection(seen_string_view_bytes(buffer.data as *const UInt8, length as Int64))
+    }
+    buffer.close(); buffer.free()
+    return admitted
+}
+
+fun cpuReference(driver: FoundationDriver) r: Bool {
+    let input = driver.words(288); let output = driver.words(608); var i = 0
+    while i < 37 { output[i] = input[i] * (7 as UInt32) + (i as UInt32); i = i + 1 }
+    return true
+}
+fun cpuValid(driver: FoundationDriver) r: Bool {
+    let output = driver.words(608); var i = 0
+    while i < 37 { if output[i] != ((8 * i + 7) as UInt32) { return false }; i = i + 1 }; return true
+}
+// Literal-only output keeps reporting allocation-free AFTER exact owner drain.
+fun digit(value: Int) r: Void {
+    if value == 0 { print("0"); return }; if value == 1 { print("1"); return }
+    if value == 2 { print("2"); return }; if value == 3 { print("3"); return }
+    if value == 4 { print("4"); return }; if value == 5 { print("5"); return }
+    if value == 6 { print("6"); return }; if value == 7 { print("7"); return }
+    if value == 8 { print("8"); return }; if value == 9 { print("9"); return }
+    if value == 10 { print("a"); return }; if value == 11 { print("b"); return }
+    if value == 12 { print("c"); return }; if value == 13 { print("d"); return }
+    if value == 14 { print("e"); return }; print("f")
+}
+fun natural(value: Int64) r: Void {
+    if value >= (10 as Int64) { natural(value / (10 as Int64)) }; digit((value % (10 as Int64)) as Int)
+}
+fun uuidHalf(value: UInt64) r: Void {
+    var i = 0
+    while i < 8 {
+        let byte = ((value >> (i * 8)) & (255 as UInt64)) as Int
+        digit(byte / 16); digit(byte % 16); i = i + 1
+    }
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    if arguments.length() != 3 { releaseArgs(arguments); println("requires foundation.cubin and matching reflection.json"); return 1 }
+    if size(arguments[1]) < 20 or size(arguments[1]) > 33554432 {
+        releaseArgs(arguments); println("CUDA artifact size bounds rejected"); return 1
+    }
+    let admitted = admitReflectionFile(arguments[2])
+    if not admitted {
+        releaseArgs(arguments)
+        if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("reflection rejection retained owners") }
+        println("CUDA foundation reflection read/ABI/digest rejected"); return 1
+    }
+    let filename = arguments[1].toCString(); let entry = "foundation".toCString(); let driver = FoundationDriver.prepare()
+    var success = false
+    if filename != null and entry != null { success = driver.open(filename as *const UInt8, entry as *const UInt8) }
+    seen_cstr_free(filename as *Void); seen_cstr_free(entry as *Void); releaseArgs(arguments)
+    let steady = seen_memory_used_bytes(); let steadyAtomics = seen_sync_live_atomics(); var cycle = 0
+    while success and cycle < 1059 {
+        success = driver.launch()
+        if success and cycle < 35 {
+            let started = seen_time_monotonic_nanos(); cpuReference(driver); let finished = seen_time_monotonic_nanos()
+            if started < (0 as Int64) or finished < started or not cpuValid(driver) { success = false }
+            if success and cycle >= 5 {
+                driver.samples(864)[cycle - 5] = ((driver.milliseconds as Float) * 1000000.0) as Int64
+                driver.samples(1104)[cycle - 5] = finished - started
+            }
+        }
+        if seen_memory_used_bytes() != steady or seen_sync_live_atomics() != steadyAtomics { success = false }
+        if success { cycle = cycle + 1 }
+    }
+    if success { success = driver.readback() }
+    let closed = driver.close()
+    if not success or not closed or cycle != 1059 or driver.cycles != 1059 or driver.uploaded != 300 or driver.downloaded != 152 {
+        driver.releaseHost(); println("CUDA foundation failed; no hardware evidence emitted"); return 1
+    }
+    // The SDK oracle fixes rusage=144 bytes and ru_maxrss=32 for Linux LP64.
+    // Reuse cold scratch above all parameter/sample slots; no new owner.
+    let rssStatus = getrusage(0 as Int32, driver.address(1536) as *Void)
+    let rssKiB = driver.samples(1568)[0]
+    if rssStatus != (0 as Int32) or rssKiB <= (0 as Int64) or rssKiB > (9007199254740991 as Int64) {
+        driver.releaseHost(); println("CUDA process RSS observation failed"); return 1
+    }
+    // Scalars, not retained heap reporting owners, survive the exact drain.
+    // Keeping these explicit avoids hiding an evidence JSON allocation in the
+    // baseline or printing allocations_drained before its proof.
+    let version = driver.version; let major = driver.major; let minor = driver.minor
+    let cycles = driver.cycles; let queries = driver.queries; let uploaded = driver.uploaded; let downloaded = driver.downloaded
+    let uuidLow = (driver.address(256) as *UInt64)[0]; let uuidHigh = (driver.address(264) as *UInt64)[0]
+    let gpu0 = driver.samples(864)[0]; let cpu0 = driver.samples(1104)[0]
+    let gpu1 = driver.samples(864)[1]; let cpu1 = driver.samples(1104)[1]
+    let gpu2 = driver.samples(864)[2]; let cpu2 = driver.samples(1104)[2]
+    let gpu3 = driver.samples(864)[3]; let cpu3 = driver.samples(1104)[3]
+    let gpu4 = driver.samples(864)[4]; let cpu4 = driver.samples(1104)[4]
+    let gpu5 = driver.samples(864)[5]; let cpu5 = driver.samples(1104)[5]
+    let gpu6 = driver.samples(864)[6]; let cpu6 = driver.samples(1104)[6]
+    let gpu7 = driver.samples(864)[7]; let cpu7 = driver.samples(1104)[7]
+    let gpu8 = driver.samples(864)[8]; let cpu8 = driver.samples(1104)[8]
+    let gpu9 = driver.samples(864)[9]; let cpu9 = driver.samples(1104)[9]
+    let gpu10 = driver.samples(864)[10]; let cpu10 = driver.samples(1104)[10]
+    let gpu11 = driver.samples(864)[11]; let cpu11 = driver.samples(1104)[11]
+    let gpu12 = driver.samples(864)[12]; let cpu12 = driver.samples(1104)[12]
+    let gpu13 = driver.samples(864)[13]; let cpu13 = driver.samples(1104)[13]
+    let gpu14 = driver.samples(864)[14]; let cpu14 = driver.samples(1104)[14]
+    let gpu15 = driver.samples(864)[15]; let cpu15 = driver.samples(1104)[15]
+    let gpu16 = driver.samples(864)[16]; let cpu16 = driver.samples(1104)[16]
+    let gpu17 = driver.samples(864)[17]; let cpu17 = driver.samples(1104)[17]
+    let gpu18 = driver.samples(864)[18]; let cpu18 = driver.samples(1104)[18]
+    let gpu19 = driver.samples(864)[19]; let cpu19 = driver.samples(1104)[19]
+    let gpu20 = driver.samples(864)[20]; let cpu20 = driver.samples(1104)[20]
+    let gpu21 = driver.samples(864)[21]; let cpu21 = driver.samples(1104)[21]
+    let gpu22 = driver.samples(864)[22]; let cpu22 = driver.samples(1104)[22]
+    let gpu23 = driver.samples(864)[23]; let cpu23 = driver.samples(1104)[23]
+    let gpu24 = driver.samples(864)[24]; let cpu24 = driver.samples(1104)[24]
+    let gpu25 = driver.samples(864)[25]; let cpu25 = driver.samples(1104)[25]
+    let gpu26 = driver.samples(864)[26]; let cpu26 = driver.samples(1104)[26]
+    let gpu27 = driver.samples(864)[27]; let cpu27 = driver.samples(1104)[27]
+    let gpu28 = driver.samples(864)[28]; let cpu28 = driver.samples(1104)[28]
+    let gpu29 = driver.samples(864)[29]; let cpu29 = driver.samples(1104)[29]
+    driver.releaseHost()
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics {
+        println("CUDA foundation Seen byte/atomic baseline did not drain"); return 1
+    }
+    print("GPU_FOUNDATION_CUDA_EVIDENCE {\"backend\":\"cuda\",\"native_execution\":true,\"target\":\"rtx4090\",\"device_name\":\"NVIDIA GeForce RTX 4090\",\"device_uuid\":\"")
+    uuidHalf(uuidLow); uuidHalf(uuidHigh)
+    print("\",\"driver_version\":"); natural(version as Int64)
+    print(",\"compute_capability\":["); natural(major as Int64); print(","); natural(minor as Int64)
+    print("],\"warmup_count\":5,\"measured_count\":30,\"gpu_nanoseconds\":[")
+    natural(gpu0)
+    print(","); natural(gpu1)
+    print(","); natural(gpu2)
+    print(","); natural(gpu3)
+    print(","); natural(gpu4)
+    print(","); natural(gpu5)
+    print(","); natural(gpu6)
+    print(","); natural(gpu7)
+    print(","); natural(gpu8)
+    print(","); natural(gpu9)
+    print(","); natural(gpu10)
+    print(","); natural(gpu11)
+    print(","); natural(gpu12)
+    print(","); natural(gpu13)
+    print(","); natural(gpu14)
+    print(","); natural(gpu15)
+    print(","); natural(gpu16)
+    print(","); natural(gpu17)
+    print(","); natural(gpu18)
+    print(","); natural(gpu19)
+    print(","); natural(gpu20)
+    print(","); natural(gpu21)
+    print(","); natural(gpu22)
+    print(","); natural(gpu23)
+    print(","); natural(gpu24)
+    print(","); natural(gpu25)
+    print(","); natural(gpu26)
+    print(","); natural(gpu27)
+    print(","); natural(gpu28)
+    print(","); natural(gpu29)
+    print("],\"cpu_nanoseconds\":[")
+    natural(cpu0)
+    print(","); natural(cpu1)
+    print(","); natural(cpu2)
+    print(","); natural(cpu3)
+    print(","); natural(cpu4)
+    print(","); natural(cpu5)
+    print(","); natural(cpu6)
+    print(","); natural(cpu7)
+    print(","); natural(cpu8)
+    print(","); natural(cpu9)
+    print(","); natural(cpu10)
+    print(","); natural(cpu11)
+    print(","); natural(cpu12)
+    print(","); natural(cpu13)
+    print(","); natural(cpu14)
+    print(","); natural(cpu15)
+    print(","); natural(cpu16)
+    print(","); natural(cpu17)
+    print(","); natural(cpu18)
+    print(","); natural(cpu19)
+    print(","); natural(cpu20)
+    print(","); natural(cpu21)
+    print(","); natural(cpu22)
+    print(","); natural(cpu23)
+    print(","); natural(cpu24)
+    print(","); natural(cpu25)
+    print(","); natural(cpu26)
+    print(","); natural(cpu27)
+    print(","); natural(cpu28)
+    print(","); natural(cpu29)
+    print("],\"soak_count\":1024,\"successful_hot_cycles\":"); natural(cycles as Int64)
+    print(",\"native_query_count\":"); natural(queries as Int64)
+    print(",\"transfer\":{\"cold_upload_bytes\":"); natural(uploaded as Int64)
+    print(",\"final_readback_bytes\":"); natural(downloaded as Int64)
+    print(",\"hot_upload_bytes\":0,\"hot_readback_bytes\":0,\"uniform_argument_bytes_per_launch\":16}")
+    print(",\"fallback_count\":0,\"cpu_fallback_count\":0,\"fallback_attempt_count\":0,\"fallback_policy\":\"error\"")
+    print(",\"resources_drained\":true,\"allocations_drained\":true,\"atomics_drained\":true,\"physical_vram_bytes\":null,\"physical_vram_status\":\"unmeasured\"")
+    print(",\"device_allocation_bytes\":300,\"host_arena_bytes\":2048,\"native_status\":0,\"checked_fault\":0,\"validated_elements\":37")
+    print(",\"self_peak_rss_kib\":"); natural(rssKiB)
+    print(",\"rss_scope\":\"native-process-rusage-self\"")
+    print(",\"timing\":{\"gpu_source\":\"cuda-event-milliseconds-f32\",\"gpu_resolution_nanoseconds\":500,\"gpu_conversion\":\"truncate-ms-times-1000000\",\"cpu_source\":\"monotonic-clock-reference-loop\"}")
+    println(",\"classification\":\"experimental-hardware\"}")
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { return 1 }
+    return 0
+}

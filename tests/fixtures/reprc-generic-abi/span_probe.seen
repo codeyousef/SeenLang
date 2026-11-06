@@ -1,0 +1,8 @@
+import inference.span.{Span, MutableSpan}
+
+class GenericSpanProbe {
+    var bias: UInt64
+    fun lengthOf(value: Span<UInt8>) r: UInt64 { return value.length + this.bias }
+    fun mutableLengthOf(value: MutableSpan<UInt8>) r: UInt64 { return value.length + this.bias }
+}
+fun directSpanLength(value: Span<UInt8>) r: UInt64 { return value.length }

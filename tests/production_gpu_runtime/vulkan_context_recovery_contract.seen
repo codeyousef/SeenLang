@@ -1,0 +1,282 @@
+/// Real Vulkan recovery contract. Requires the canonical G direct-SDK driver.
+/// argv: foundation SPIR-V, reflection, explicit device class, mode, native status.
+/// Fault modes are armed ONLY after setup; no native success is synthesized.
+import compute.device.{GpuDevice, GpuContext}
+import compute.context_lease.{GpuContextLease}
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice}
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_pipeline_dispatch.{GpuVulkanDispatch}
+import compute.vulkan_graph.{GpuVulkanGraphNode, GpuVulkanCommandGraph}
+import compute.vulkan_timestamps.{GpuVulkanTimestampPool}
+import compute.vulkan_stream.{GpuVulkanStream}
+import compute.vulkan_transfer.{GpuVulkanCopyQueue, gpuVkCopy}
+import compute.vulkan_staging.{GpuVulkanStagingRing}
+import compute.vulkan_mapping.{GpuVulkanMappedRegion, gpuVkMapBuffer}
+import compute.vulkan_host_transfer.{gpuVkHostTransfer}
+import compute.buffer.{GpuBuffer}
+import compute.buffer_region.{GpuBufferRegion}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import compute.error.{GpuError}
+import core.operation_context.{OperationContext}
+import core.result.{Result}
+import core.option.{Some}
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{completed}
+import env.env.{args, releaseArgs, set}
+import io.file.{readText, size}
+import json.builder.{seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun recoveryTake<T>(result: Result<T, GpuError>) r: T {
+    if result.isErr() { println(result.unwrapErr().code); println(result.unwrapErr().operation); abort("native recovery setup or healthy operation failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun recoveryReject<T>(result: Result<T, GpuError>, code: String, native: Int64, progress: UInt64) r: Void {
+    if result.isOkay() { abort("native recovery rejection became success") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.progress != progress or error.nativeCode.isNone() { println(error.code); println(error.operation); abort("native recovery lost typed diagnostics or submitted progress") }
+    if error.nativeCode.unwrap() != native { abort("native recovery changed the SDK status or checked-fault bits") }
+    error.release()
+}
+fun recoveryFault(mode: String) r: Void { if not set("SEEN_VULKAN_FIXTURE_FAULT", mode) { abort("cannot arm explicit native recovery fault") } }
+fun recoveryWord(borrow mapping: GpuVulkanMappedRegion, index: Int) r: UInt32 {
+    var word = 0 as UInt32; var b = 0
+    while b < 4 { let byte = recoveryTake<UInt8>(mapping.readByte((index * 4 + b) as UInt64)); word = word | ((byte as UInt32) << ((b * 8) as UInt32)); b = b + 1 }; return word
+}
+fun recoveryPut(borrow mapping: GpuVulkanMappedRegion, index: Int, word: UInt32) r: Void {
+    var b = 0; while b < 4 { completed(mapping.writeByte((index * 4 + b) as UInt64, ((word >> ((b * 8) as UInt32)) & (255 as UInt32)) as UInt8), true); b = b + 1 }
+}
+fun recoveryPipeline(borrow allocator: GpuAllocator, borrow stream: GpuVulkanStream, borrow physical: GpuVulkanPipelineDevice, binary: String, reflection: String, entry: String, op: OperationContext) r: Result<GpuVulkanPipeline, GpuError> {
+    let artifact = recoveryTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, entry)); let empty = Array<Int>()
+    let result = GpuVulkanPipeline.open(allocator, stream, physical, artifact, empty, op); empty.free(); return result
+}
+
+class GRecoveryWork {
+    var stream: GpuVulkanStream
+    var pipeline: GpuVulkanPipeline
+    var dispatch: GpuVulkanDispatch
+    var input: GpuBuffer<UInt32>
+    var output: GpuBuffer<UInt32>
+    var scale: GpuBuffer<UInt32>
+    var fault: GpuBuffer<UInt32>
+    static fun open(borrow allocator: GpuAllocator, borrow physical: GpuVulkanPipelineDevice, binary: String, reflection: String, entry: String, op: OperationContext) r: GRecoveryWork {
+        let stream = recoveryTake<GpuVulkanStream>(GpuVulkanStream.open(allocator, 4, op))
+        let pipeline = recoveryTake<GpuVulkanPipeline>(recoveryPipeline(allocator, stream, physical, binary, reflection, entry, op))
+        let input = recoveryTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        let output = recoveryTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        let scale = recoveryTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 4 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        let fault = recoveryTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 1 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        let a = recoveryTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(input, 0 as UInt64, 148 as UInt64, true, op))
+        let b = recoveryTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(scale, 0 as UInt64, 16 as UInt64, true, op)); var i = 0
+        while i < 37 { recoveryPut(a, i, (i + 1) as UInt32); i = i + 1 }; recoveryPut(b, 0, 7 as UInt32)
+        completed(a.release(), true); completed(b.release(), true)
+        let regions = Array<GpuBufferRegion>()
+        regions.push(recoveryTake<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op)))
+        regions.push(recoveryTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, true, op)))
+        regions.push(recoveryTake<GpuBufferRegion>(scale.region(0 as UInt64, 16 as UInt64, false, op)))
+        regions.push(recoveryTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op)))
+        let dispatch = recoveryTake<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, regions, op))
+        return GRecoveryWork{stream: stream, pipeline: pipeline, dispatch: dispatch, input: input, output: output, scale: scale, fault: fault}
+    }
+    fun regions(op: OperationContext) r: Array<GpuBufferRegion> {
+        let values = Array<GpuBufferRegion>()
+        values.push(recoveryTake<GpuBufferRegion>(this.input.region(0 as UInt64, 148 as UInt64, false, op)))
+        values.push(recoveryTake<GpuBufferRegion>(this.output.region(0 as UInt64, 148 as UInt64, true, op)))
+        values.push(recoveryTake<GpuBufferRegion>(this.scale.region(0 as UInt64, 16 as UInt64, false, op)))
+        values.push(recoveryTake<GpuBufferRegion>(this.fault.region(0 as UInt64, 4 as UInt64, true, op))); return values
+    }
+    fun run(op: OperationContext) r: Void {
+        let sequence = recoveryTake<UInt64>(this.dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op)); var fuel = 0; var done = false
+        while fuel < 1000000 and not done { done = recoveryTake<Bool>(this.dispatch.poll()); fuel = fuel + 1 }
+        if not done or sequence == (0 as UInt64) { abort("healthy independent dispatch never completed") }
+        completed(this.dispatch.close(), true)
+        let output = recoveryTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(this.output, 0 as UInt64, 148 as UInt64, false, op)); var i = 0
+        while i < 37 { if recoveryWord(output, i) != ((i + 1) * 7 + i) as UInt32 { abort("healthy native pipeline differs from independent CPU oracle") }; i = i + 1 }
+        completed(output.release(), true)
+    }
+    fun release() r: Void {
+        completed(this.dispatch.release(), true); completed(this.pipeline.release(), true); completed(this.stream.release(), true)
+        completed(this.input.release(), true); completed(this.output.release(), true); completed(this.scale.release(), true); completed(this.fault.release(), true); this.free()
+    }
+}
+
+fun recoveryLostDrain(result: Result<Bool, GpuError>, sequence: UInt64) r: Bool {
+    if result.isErr() { recoveryReject<Bool>(result, "gpu.device_lost", -4 as Int64, sequence); return true }
+    let done = result.unwrap(); result.releaseContainer(); if done { abort("lost context validated successful native output") }; return false
+}
+
+fun recoveryShared(borrow device: GpuDevice, borrow context: GpuContext, borrow allocator: GpuAllocator, borrow physical: GpuVulkanPipelineDevice, binary: String, reflection: String, op: OperationContext) r: Void {
+    let work = GRecoveryWork.open(allocator, physical, binary, reflection, "foundation", op)
+    let checked = GRecoveryWork.open(allocator, physical, binary, reflection, "checkedFault", op)
+    let checkedSequence = recoveryTake<UInt64>(checked.dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op)); var fuel = 0; var faulted = false
+    while fuel < 1000000 and not faulted {
+        let result = checked.dispatch.poll()
+        if result.isErr() { recoveryReject<Bool>(result, "gpu.kernel_fault", 1 as Int64, checkedSequence); faulted = true } else { if result.unwrap() { abort("unchecked bounds shader did not fault") }; result.releaseContainer() }; fuel = fuel + 1
+    }
+    if not faulted { abort("checked native fault never retired") }
+    let graphWork = GRecoveryWork.open(allocator, physical, binary, reflection, "foundation", op)
+    completed(graphWork.dispatch.close(), true)
+    let clock = recoveryTake<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, graphWork.stream, physical, op))
+    let bindings = Array<Int>(); bindings.push(0); bindings.push(1); bindings.push(2); bindings.push(3)
+    let nodes = Array<GpuVulkanGraphNode>()
+    nodes.push(recoveryTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(graphWork.pipeline, bindings, Array<Int>(), 5 as UInt64, 1 as UInt64, 1 as UInt64, op)))
+    let graph = recoveryTake<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(graphWork.stream, graphWork.regions(op), nodes, Some<GpuVulkanTimestampPool>(clock), op))
+    let sibling = recoveryTake<GpuVulkanStream>(GpuVulkanStream.open(allocator, 2, op))
+    let copy = recoveryTake<GpuVulkanCopyQueue>(GpuVulkanCopyQueue.open(allocator, 2, op))
+    let source = recoveryTake<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(allocator, 32 as UInt64, 1 as UInt64, 256 as UInt64, op))
+    let destination = recoveryTake<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(allocator, 32 as UInt64, 1 as UInt64, 256 as UInt64, op))
+    let held = recoveryTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(source, 0 as UInt64, 32 as UInt64, false, op))
+    let trigger = recoveryTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 4, op))
+    let independent = recoveryTake<GpuContext>(device.createContext(op))
+    let healthyAllocator = recoveryTake<GpuAllocator>(GpuAllocator.create(independent, GpuMemoryKind.HostCoherent, 4096 as UInt64, 8, op))
+    let healthy = GRecoveryWork.open(healthyAllocator, physical, binary, reflection, "foundation", op)
+    let bridgeLost = recoveryTake<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(allocator, 4 as UInt64, 1 as UInt64, 256 as UInt64, op))
+    let bridgeHealthy = recoveryTake<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(healthyAllocator, 4 as UInt64, 1 as UInt64, 256 as UInt64, op))
+    let bridgeLostMap = recoveryTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(bridgeLost, 0 as UInt64, 4 as UInt64, true, op))
+    let bridgeHealthyMap = recoveryTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(bridgeHealthy, 0 as UInt64, 4 as UInt64, true, op))
+    completed(bridgeLostMap.writeByte(0 as UInt64, 42 as UInt8), true); completed(bridgeHealthyMap.writeByte(0 as UInt64, 173 as UInt8), true)
+    let sequence = recoveryTake<UInt64>(work.dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op))
+    let siblingSequence = recoveryTake<UInt64>(sibling.signal(op))
+    let copySequence = recoveryTake<UInt64>(gpuVkCopy(copy, source, 0 as UInt64, destination, 0 as UInt64, 32 as UInt64, op))
+    let graphSequence = recoveryTake<UInt64>(graph.submit(op))
+    let oldNative = recoveryTake<UInt64>(allocator.core.lease.native())
+    recoveryFault("bind-status")
+    recoveryReject<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(trigger, 32 as UInt64, 1 as UInt64, 256 as UInt64, op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryFault("")
+    if not context.valid() or not allocator.core.lease.valid() or allocator.core.lease.ready() or recoveryTake<UInt64>(allocator.core.lease.native()) != oldNative { abort("native loss erased ownership identity or failed shared admission") }
+    recoveryReject<UInt64>(sibling.signal(op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryReject<UInt64>(work.dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryReject<GpuContextLease>(GpuContextLease.acquire(context, op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryReject<GpuContextLease>(allocator.core.lease.borrow(op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryReject<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(allocator, 1 as UInt64, 1 as UInt64, 256 as UInt64, op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryReject<GpuVulkanPipeline>(recoveryPipeline(allocator, sibling, physical, binary, reflection, "foundation", op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, sibling, physical, op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    let nodeBindings = Array<Int>(); nodeBindings.push(0); nodeBindings.push(1); nodeBindings.push(2); nodeBindings.push(3)
+    recoveryReject<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(work.pipeline, nodeBindings, Array<Int>(), 1 as UInt64, 1 as UInt64, 1 as UInt64, op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryReject<UInt8>(held.readByte(0 as UInt64), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryReject<UInt64>(gpuVkHostTransfer(bridgeHealthyMap, 0 as UInt64, bridgeLostMap, 0 as UInt64, 4 as UInt64, op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    recoveryReject<UInt64>(gpuVkHostTransfer(bridgeLostMap, 0 as UInt64, bridgeHealthyMap, 0 as UInt64, 4 as UInt64, op), "gpu.device_lost", -4 as Int64, 0 as UInt64)
+    if recoveryTake<UInt8>(bridgeHealthyMap.readByte(0 as UInt64)) != (173 as UInt8) { abort("lost host transport modified an independent destination") }
+    recoveryReject<Bool>(checked.dispatch.poll(), "gpu.kernel_fault", 1 as Int64, checkedSequence)
+    recoveryReject<UInt64>(checked.dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op), "gpu.kernel_fault", 1 as Int64, checkedSequence)
+    recoveryFault("g-retire-timeout")
+    completed(work.dispatch.poll(), false); completed(sibling.poll(siblingSequence), false); completed(copy.poll(copySequence), false)
+    completed(graph.poll(), false)
+    recoveryFault("g-retire-failed")
+    recoveryReject<Bool>(work.dispatch.poll(), "gpu.unavailable", -13 as Int64, 0 as UInt64)
+    recoveryReject<Bool>(sibling.poll(siblingSequence), "gpu.unavailable", -13 as Int64, 0 as UInt64)
+    recoveryReject<Bool>(copy.poll(copySequence), "gpu.unavailable", -13 as Int64, 0 as UInt64)
+    recoveryReject<Bool>(graph.poll(), "gpu.unavailable", -13 as Int64, graphSequence)
+    if not graph.pending or not clock.pending or graphWork.stream.core.inFlight != 1 { abort("failed shared-loss graph observation discarded graph or timestamp owners") }
+    gpuFixtureRejected(graph.close(), "gpu.busy"); gpuFixtureRejected(clock.close(), "gpu.busy")
+    if not work.dispatch.pending or work.stream.core.inFlight != 1 or sibling.core.inFlight != 1 or copy.inFlight != 1 { abort("shared loss or failed native observations discarded pending ownership") }
+    gpuFixtureRejected(work.dispatch.close(), "gpu.busy"); gpuFixtureRejected(sibling.close(), "gpu.busy"); gpuFixtureRejected(copy.close(), "gpu.busy"); gpuFixtureRejected(context.close(), "gpu.busy")
+    recoveryFault(""); op.cancellation = true
+    fuel = 0; var a = false; var b = false; var c = false; var d = false
+    while fuel < 1000000 and (not a or not b or not c or not d or clock.pending) {
+        if not a { a = recoveryLostDrain(work.dispatch.poll(), sequence) }
+        if not b { b = recoveryLostDrain(sibling.poll(siblingSequence), siblingSequence) }
+        if not c { c = recoveryLostDrain(copy.poll(copySequence), copySequence) }
+        if not d or clock.pending { d = recoveryLostDrain(graph.poll(), graphSequence) }; fuel = fuel + 1
+    }
+    op.cancellation = false
+    if not a or not b or not c or work.dispatch.pending or work.stream.core.inFlight != 0 or sibling.core.inFlight != 0 or copy.inFlight != 0 { abort("lost sibling owners did not retire through actual nonblocking SDK observations") }
+    if not d or graph.pending or clock.pending or graphWork.stream.core.inFlight != 0 or graph.sample.ready { abort("lost timed graph did not retire its native command and timestamp owners") }
+    if work.stream.core.lastCompleted >= sequence or copy.lastCompleted >= copySequence { abort("lost retirement validated lastCompleted as successful data") }
+    healthy.run(op)
+    completed(held.close(), true); completed(held.close(), false); completed(held.release(), true)
+    completed(copy.close(), true); completed(copy.close(), false); completed(copy.release(), true)
+    completed(sibling.close(), true); completed(sibling.close(), false); completed(sibling.release(), true)
+    completed(graph.release(), true); completed(clock.release(), true); graphWork.release()
+    completed(bridgeLostMap.release(), true); completed(bridgeHealthyMap.release(), true)
+    completed(bridgeLost.release(), true); completed(bridgeHealthy.release(), true)
+    work.release(); checked.release(); completed(source.release(), true); completed(destination.release(), true); completed(trigger.release(), true)
+    healthy.release(); completed(healthyAllocator.release(), true); completed(independent.release(), true)
+}
+
+/// Recovery modes use exact native status expectations supplied by the G runner:
+/// g-memory-oom (-2), g-pipeline-partial-oom (-1), g-descriptor-pool-oom
+/// (-12/-1000069000/-1000161000), g-descriptor-set-oom (-1000069000),
+/// g-object-limit (-10), and g-staging-second-memory (-2).
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    if arguments.length() != 6 { abort("requires real SPIR-V reflection explicit-device mode and native status") }
+    if size(arguments[1]) < 20 or size(arguments[1]) > 33554432 or size(arguments[2]) < 1 or size(arguments[2]) > 4194304 { abort("recovery artifact extent is invalid") }
+    let hardware = arguments[3] == "rtx4090"
+    if not hardware and arguments[3] != "software-reference" { abort("recovery device class must be explicit") }
+    let mode = arguments[4]; var expectedNative = 0 as Int64
+    if arguments[5] == "-1" { expectedNative = -1 as Int64 }
+    else if arguments[5] == "-2" { expectedNative = -2 as Int64 }
+    else if arguments[5] == "-4" { expectedNative = -4 as Int64 }
+    else if arguments[5] == "-10" { expectedNative = -10 as Int64 }
+    else if arguments[5] == "-12" { expectedNative = -12 as Int64 }
+    else if arguments[5] == "-1000069000" { expectedNative = -1000069000 as Int64 }
+    else if arguments[5] == "-1000161000" { expectedNative = -1000161000 as Int64 }
+    else { abort("native recovery requires an explicit supported SDK status") }
+    if not set("SEEN_VULKAN_FIXTURE_G_STATUS", arguments[5]) { abort("cannot select exact native recovery status") }
+    if mode != "shared-loss" and mode != "g-memory-oom" and mode != "g-pipeline-partial-oom" and mode != "g-descriptor-pool-oom" and mode != "g-descriptor-set-oom" and mode != "g-object-limit" and mode != "g-staging-second-memory" { abort("unknown native recovery mode") }
+    let binary = readText(arguments[1]); let reflection = readText(arguments[2]); recoveryFault("")
+    let op = operation(); let limits = GpuLimits.bounded(8, 4, 256, 1048576 as UInt64)
+    let provider = recoveryTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, not hardware)); var selected = -1; var i = 0
+    while i < provider.catalog.devices.length() { let info = provider.catalog.devices[i]
+        if hardware { if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") { selected = i } } else if info.kind == GpuDeviceKind.Software { selected = i }; i = i + 1
+    }
+    if selected < 0 { abort("explicit native recovery device unavailable; no fallback") }
+    let physical = recoveryTake<GpuVulkanPipelineDevice>(GpuVulkanPipelineDevice.capture(provider, selected))
+    let device = recoveryTake<GpuDevice>(openVulkanDevice(provider, selected, op)); let context = recoveryTake<GpuContext>(device.createContext(op))
+    let allocator = recoveryTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 16, op))
+    if mode == "shared-loss" { recoveryShared(device, context, allocator, physical, binary, reflection, op) }
+    else if mode == "g-staging-second-memory" {
+        let before = seen_memory_used_bytes(); let borrowers = device.core.resourceBorrowers
+        recoveryFault(mode)
+        recoveryReject<GpuVulkanStagingRing>(GpuVulkanStagingRing.open(context, 4096 as UInt64, 4096 as UInt64, 3, op), "gpu.out_of_memory", expectedNative as Int64, 0 as UInt64)
+        recoveryFault("")
+        if seen_memory_used_bytes() != before or device.core.resourceBorrowers != borrowers or device.core.resourceCommittedBytes != (0 as UInt64) { abort("partial staging constructor did not own and drain its buffer/queue prefix") }
+        let retried = recoveryTake<GpuVulkanStagingRing>(GpuVulkanStagingRing.open(context, 4096 as UInt64, 4096 as UInt64, 3, op)); completed(retried.release(), true)
+        let work = GRecoveryWork.open(allocator, physical, binary, reflection, "foundation", op); work.run(op); work.release()
+    } else {
+        let work = GRecoveryWork.open(allocator, physical, binary, reflection, "foundation", op)
+        var code = "gpu.out_of_memory"; if mode == "g-object-limit" { code = "gpu.limit" }
+        if mode == "g-memory-oom" {
+            let fresh = recoveryTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 4, op)); let before = seen_memory_used_bytes()
+            recoveryFault(mode)
+            recoveryReject<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(fresh, 32 as UInt64, 1 as UInt64, 256 as UInt64, op), code, expectedNative as Int64, 0 as UInt64)
+            recoveryFault("")
+            if not fresh.core.lease.ready() or fresh.core.liveBlocks != 0 or fresh.core.liveBuffers != 0 or seen_memory_used_bytes() != before { abort("recoverable memory OOM poisoned context or retained construction prefix") }
+            let retried = recoveryTake<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(fresh, 32 as UInt64, 1 as UInt64, 256 as UInt64, op)); completed(retried.release(), true); completed(fresh.release(), true)
+        } else if mode == "g-pipeline-partial-oom" {
+            let before = seen_memory_used_bytes(); let borrowers = work.stream.core.borrowers
+            recoveryFault(mode)
+            recoveryReject<GpuVulkanPipeline>(recoveryPipeline(allocator, work.stream, physical, binary, reflection, "foundation", op), code, expectedNative as Int64, 0 as UInt64)
+            recoveryFault("")
+            if not allocator.core.lease.ready() or work.stream.core.borrowers != borrowers or seen_memory_used_bytes() != before { abort("partial native pipeline OOM lost a prefix owner") }
+            let retried = recoveryTake<GpuVulkanPipeline>(recoveryPipeline(allocator, work.stream, physical, binary, reflection, "foundation", op)); completed(retried.release(), true)
+        } else {
+            completed(work.dispatch.close(), true); let before = seen_memory_used_bytes(); let borrowers = work.pipeline.borrowers
+            recoveryFault(mode)
+            recoveryReject<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(work.pipeline, work.regions(op), op), code, expectedNative as Int64, 0 as UInt64)
+            recoveryFault("")
+            if not allocator.core.lease.ready() or work.pipeline.borrowers != borrowers or seen_memory_used_bytes() != before { abort("descriptor OOM/object limit poisoned context or retained constructor prefix") }
+            completed(work.dispatch.release(), true); work.dispatch = recoveryTake<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(work.pipeline, work.regions(op), op))
+        }
+        work.run(op); work.release()
+    }
+    completed(allocator.release(), true)
+    if device.core.resourceBorrowers != 0 or device.core.resourceCommittedBytes != (0 as UInt64) { abort("native recovery retained resource leases or commitment") }
+    completed(context.close(), true); completed(context.close(), false); completed(context.release(), true)
+    // Fresh slot reuse resets operational loss, but never resurrects old leases.
+    let fresh = recoveryTake<GpuContext>(device.createContext(op)); let freshAllocator = recoveryTake<GpuAllocator>(GpuAllocator.create(fresh, GpuMemoryKind.HostCoherent, 4096 as UInt64, 4, op))
+    let signal = recoveryTake<GpuVulkanStream>(GpuVulkanStream.open(freshAllocator, 2, op)); let sequence = recoveryTake<UInt64>(signal.signal(op)); var fuel = 0; var done = false
+    while fuel < 1000000 and not done { done = recoveryTake<Bool>(signal.poll(sequence)); fuel = fuel + 1 }; if not done { abort("fresh context identity inherited stale loss") }
+    completed(signal.release(), true); completed(freshAllocator.release(), true); completed(fresh.release(), true); completed(device.release(), true)
+    physical.release(); limits.release(); releaseOperation(op); seen_string_release_owned(binary); seen_string_release_owned(reflection); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("native recovery retained Seen allocation or atomic owners") }
+    println("PASS: native context-scoped loss isolation retirement explicit OOM retry and prefix cleanup")
+    return 0
+}

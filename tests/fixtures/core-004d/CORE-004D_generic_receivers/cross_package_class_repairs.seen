@@ -1,0 +1,29 @@
+import provider.class_repair_support.{DependencyOuter}
+
+@repr(C)
+class CallerRecord {
+    var value: Int
+    var label: String
+}
+
+fun main() r: Int {
+    let source = DependencyOuter<CallerRecord>{tag: 5,
+        value: CallerRecord{value: 7, label: "caller-origin"}, sentinel: 11}
+    let copied = source.copy()
+    let boxed = copied.nested()
+    let pair = copied.pair()
+    if copied.tag != 5 or copied.sentinel != 11 or copied.value.value != 7 {
+        return 1
+    }
+    if not copied.value.label.endsWith("origin") { return 2 }
+    if boxed.tag != 5 or boxed.sentinel != 11 or boxed.get().value != 7 or
+        not boxed.get().label.startsWith("caller-") { return 3 }
+    if pair.sentinel != 11 or pair.left.value != 7 or pair.right.value != 7 or
+        not pair.left.label.startsWith("caller-") or
+        not pair.right.label.endsWith("origin") { return 4 }
+    pair.free()
+    boxed.free()
+    copied.free()
+    source.free()
+    return 0
+}

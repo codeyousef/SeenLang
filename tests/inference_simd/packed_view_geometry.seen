@@ -1,0 +1,54 @@
+import inference.span.{PackedView, MutablePackedView, packedView, packedGet, packedSet}
+import memory.aligned_buffer.{OwnedBuffer}
+import dot_fixture_support.{must}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun requirePackedGeometry(value: Bool) r: Void {
+    if not value { abort("packed view geometry or byte preservation changed") }
+}
+fun expectPackedByte(view: PackedView, index: UInt64, expected: UInt8) r: Void {
+    let value = packedGet(view, index)
+    requirePackedGeometry(value.isSome())
+    requirePackedGeometry(value.unwrap() == expected); value.free()
+}
+fun rejectPackedGeometry(data: *UInt8, count: UInt64, bytes: UInt64,
+    bits: UInt8, index: UInt64) r: Void {
+    let view = PackedView{data: data as *const UInt8, elementCount: count,
+        byteCount: bytes, bitsPerElement: bits}
+    let value = packedGet(view, index)
+    requirePackedGeometry(value.isNone()); value.free()
+    requirePackedGeometry(not packedSet(MutablePackedView{data: data,
+        elementCount: count, byteCount: bytes, bitsPerElement: bits}, index, 0 as UInt8))
+}
+fun main() r: Int {
+    let buffer: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64))
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 100 {
+        buffer.data[0] = 228 as UInt8; buffer.data[1] = 165 as UInt8
+        let checked = packedView(buffer.data as *const UInt8, 4 as UInt64, 1 as UInt64, 2 as UInt8)
+        requirePackedGeometry(checked.isSome()); let view = checked.unwrap()
+        var lane = 0
+        while lane < 4 { expectPackedByte(view, lane as UInt64, lane as UInt8); lane = lane + 1 }
+        requirePackedGeometry(packedSet(MutablePackedView{data: buffer.data, elementCount: 4 as UInt64,
+            byteCount: 1 as UInt64, bitsPerElement: 2 as UInt8}, 1 as UInt64, 3 as UInt8))
+        requirePackedGeometry(buffer.data[0] == (236 as UInt8) and buffer.data[1] == (165 as UInt8)); checked.free()
+        buffer.data[0] = 214 as UInt8; buffer.data[1] = 2 as UInt8; buffer.data[2] = 165 as UInt8
+        let crossing = packedView(buffer.data as *const UInt8, 3 as UInt64, 2 as UInt64, 3 as UInt8)
+        requirePackedGeometry(crossing.isSome()); expectPackedByte(crossing.unwrap(), 2 as UInt64, 3 as UInt8)
+        requirePackedGeometry(packedSet(MutablePackedView{data: buffer.data, elementCount: 3 as UInt64,
+            byteCount: 2 as UInt64, bitsPerElement: 3 as UInt8}, 2 as UInt64, 5 as UInt8))
+        requirePackedGeometry(buffer.data[0] == (86 as UInt8) and buffer.data[1] == (3 as UInt8)); crossing.free()
+        rejectPackedGeometry(null as *UInt8, 1 as UInt64, 1 as UInt64, 2 as UInt8, 0 as UInt64)
+        rejectPackedGeometry(buffer.data, 0xFFFFFFFFFFFFFFFF as UInt64, 64 as UInt64, 3 as UInt8, 0x4000000000000000 as UInt64)
+        rejectPackedGeometry(buffer.data, 3 as UInt64, 1 as UInt64, 3 as UInt8, 2 as UInt64)
+        rejectPackedGeometry(buffer.data, 3 as UInt64, 2 as UInt64, 1 as UInt8, 0 as UInt64)
+        rejectPackedGeometry(buffer.data, 3 as UInt64, 2 as UInt64, 3 as UInt8, 3 as UInt64)
+        requirePackedGeometry(buffer.data[0] == (86 as UInt8) and buffer.data[1] == (3 as UInt8) and buffer.data[2] == (165 as UInt8))
+        let empty = packedView(null as *const UInt8, 0 as UInt64, 0 as UInt64, 2 as UInt8)
+        requirePackedGeometry(empty.isSome()); let emptyView = empty.unwrap()
+        requirePackedGeometry(emptyView.elementCount == (0 as UInt64) and emptyView.byteCount == (0 as UInt64)); empty.free()
+        requirePackedGeometry(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    requirePackedGeometry(buffer.close()); buffer.free()
+    println("PASS: packed views preserve cross-byte values reject null overflow and truncation and release Options")
+    return 0
+}

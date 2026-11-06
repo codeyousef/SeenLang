@@ -1,0 +1,280 @@
+/// Pure policy/ownership tests with actual Seen CPU array work. GPU errors in
+/// this fixture are diagnostic inputs, NOT claims of native GPU execution.
+/// The separate native G consumer supplies actual producer-retirement proof.
+import compute.fallback.{GpuFallbackPolicy, GpuFallbackStats, GpuFallbackAttempt}
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GPU_MAX_RESOURCES}
+import compute.operation.{gpuCheckOperation}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+import core.option.{Some}
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+extern "C" fun seen_memory_limit_bytes() r: Int64
+extern "C" fun seen_memory_set_limit_bytes(bytes: Int64) r: Void
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun fallbackTakeStats(result: Result<GpuFallbackStats, GpuError>) r: GpuFallbackStats {
+    if result.isErr() { abort("fallback statistics creation failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun fallbackTakeAttempt(result: Result<GpuFallbackAttempt, GpuError>) r: GpuFallbackAttempt {
+    if result.isErr() { abort("explicit eligible fallback was rejected") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun fallbackCompleted(result: Result<Bool, GpuError>, expected: Bool) r: Void {
+    if result.isErr() or result.unwrap() != expected { abort("fallback outcome or close result changed") }
+    result.releaseContainer()
+}
+fun fallbackGpuError(code: String) r: GpuError {
+    let error = gpuFailure(code, "gpu.fixture.producer", "original GPU diagnostic")
+    error.nativeCode.free(); error.nativeCode = Some<Int64>(-917 as Int64)
+    error.progress = 23 as UInt64; error.retryable = true; error.redacted = false
+    return error
+}
+fun fallbackCheckOriginal(borrow error: GpuError, code: String) r: Void {
+    if error.code != code or error.subsystem != "gpu" or error.operation != "gpu.fixture.producer" or
+        error.message != "original GPU diagnostic" or error.nativeCode.isNone() or
+        error.nativeCode.unwrap() != (-917 as Int64) or error.progress != (23 as UInt64) or
+        not error.retryable or error.redacted or error.causes.length() != 0 {
+        abort("fallback changed the original GPU diagnostic")
+    }
+}
+fun fallbackRejected(result: Result<GpuFallbackAttempt, GpuError>, originalCode: String,
+    wrapperCode: String) r: Void {
+    if result.isOkay() { abort("ineligible fallback was admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if wrapperCode == "" { fallbackCheckOriginal(error, originalCode) }
+    else {
+        if error.code != wrapperCode or error.retryable or error.causes.length() != 1 {
+            abort("fallback admission failure lost its original cause")
+        }
+        fallbackCheckOriginal(error.causes[0], originalCode)
+    }
+    error.release()
+}
+fun fallbackRejectedStats(result: Result<GpuFallbackStats, GpuError>) r: Void {
+    if result.isOkay() { abort("unbounded fallback counters were admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != "gpu.limit" or error.retryable { abort("fallback ceiling diagnostic changed") }
+    error.release()
+}
+
+/// A real CPU operation with its own context and bounded output capacity.
+/// It builds retained inputs, computes every output, and independently checks
+/// output[i] = 92*i+35. A short destination fails AFTER actual prefix work;
+/// expectedLast only selects a valid true/false observation of completed data.
+fun fallbackCpuWork(context: OperationContext, capacity: Int, expectedLast: Int) r: Result<Bool, GpuError> {
+    let checked = gpuCheckOperation(context, "gpu.fixture.cpu")
+    if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<Bool, GpuError>(error) }
+    checked.releaseContainer()
+    let inputs = Array<Int>(); let outputs = Array<Int>(); var index = 0
+    while index < 37 { inputs.push(index * 13 + 5); index = index + 1 }
+    index = 0
+    while index < inputs.length() {
+        let admitted = gpuCheckOperation(context, "gpu.fixture.cpu")
+        if admitted.isErr() {
+            let error = admitted.unwrapErr(); admitted.releaseContainer()
+            error.progress = index as UInt64; inputs.free(); outputs.free()
+            return Err<Bool, GpuError>(error)
+        }
+        admitted.releaseContainer()
+        if index >= capacity {
+            let error = gpuFailure("gpu.limit", "gpu.fixture.cpu", "CPU destination capacity exhausted after computed prefix")
+            error.progress = index as UInt64
+            if outputs.length() != 17 or outputs[16] != 1507 { abort("CPU failure did not retain the actual computed prefix") }
+            inputs.free(); outputs.free(); return Err<Bool, GpuError>(error)
+        }
+        outputs.push(inputs[index] * 7 + index)
+        if outputs[index] != index * 92 + 35 { abort("CPU fallback output differs from independent oracle") }
+        index = index + 1
+    }
+    if outputs.length() != 37 { abort("CPU fallback failed to produce all outputs") }
+    let value = outputs[36] == expectedLast
+    inputs.free(); outputs.free(); return Ok<Bool, GpuError>(value)
+}
+
+fun fallbackPolicyTable(context: OperationContext) r: Void {
+    let stats = fallbackTakeStats(GpuFallbackStats.create(64, 1))
+    let policies = [GpuFallbackPolicy.Disabled, GpuFallbackPolicy.OutOfMemory,
+        GpuFallbackPolicy.DeviceLost, GpuFallbackPolicy.Either]
+    let codes = ["gpu.out_of_memory", "gpu.device_lost", "gpu.invalid", "gpu.unsupported_abi",
+        "gpu.cancelled", "gpu.timeout", "gpu.kernel_fault", "gpu.unavailable", "gpu.limit", "gpu.unsupported_capability"]
+    var policyIndex = 0; var admitted = 0
+    while policyIndex < policies.length() {
+        var codeIndex = 0
+        while codeIndex < codes.length() {
+            var retiredIndex = 0
+            while retiredIndex < 2 {
+                let retired = retiredIndex == 1
+                let result = GpuFallbackAttempt.begin(stats, policies[policyIndex], fallbackGpuError(codes[codeIndex]), retired, context)
+                let eligible = retired and ((codeIndex == 0 and (policyIndex == 1 or policyIndex == 3)) or
+                    (codeIndex == 1 and (policyIndex == 2 or policyIndex == 3)))
+                if eligible {
+                    let attempt = fallbackTakeAttempt(result); admitted = admitted + 1
+                    fallbackCheckOriginal(attempt.original.unwrap(), codes[codeIndex])
+                    if stats.admitted != admitted or stats.succeeded != 0 or stats.pendingAttempts != 1 { abort("begin counted unexecuted CPU success") }
+                    fallbackCompleted(attempt.release(), true)
+                } else { fallbackRejected(result, codes[codeIndex], "") }
+                if not stats.valid() or stats.liveAttempts != 0 or stats.pendingAttempts != 0 or
+                    stats.admitted != admitted or stats.abandoned != admitted or stats.succeeded != 0 or stats.failed != 0 {
+                    abort("fallback policy table changed counters or retained borrowers")
+                }
+                retiredIndex = retiredIndex + 1
+            }
+            codeIndex = codeIndex + 1
+        }
+        policyIndex = policyIndex + 1
+    }
+    codes.free(); policies.free(); fallbackCompleted(stats.release(), true)
+}
+
+fun fallbackContextAdmission(context: OperationContext) r: Void {
+    let stats = fallbackTakeStats(GpuFallbackStats.create(8, 1))
+    context.cancellation = true
+    fallbackRejected(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.out_of_memory"), true, context), "gpu.out_of_memory", "gpu.cancelled")
+    context.monotonicDeadline = -1 as Int64
+    fallbackRejected(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.device_lost"), true, context), "gpu.device_lost", "gpu.cancelled")
+    context.cancellation = false
+    fallbackRejected(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.device_lost"), true, context), "gpu.device_lost", "gpu.timeout")
+    context.monotonicDeadline = 1 as Int64
+    fallbackRejected(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.out_of_memory"), true, context), "gpu.out_of_memory", "gpu.timeout")
+    context.monotonicDeadline = 9223372036854775807 as Int64
+    context.limits.maxTargets = 0
+    fallbackRejected(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.out_of_memory"), true, context), "gpu.out_of_memory", "gpu.limit")
+    context.limits.maxTargets = 8
+    if not stats.valid() or stats.admitted != 0 { abort("failed context admission counted a fallback") }
+    fallbackCompleted(stats.release(), true)
+}
+
+fun fallbackActualOutcomes(context: OperationContext) r: Void {
+    let stats = fallbackTakeStats(GpuFallbackStats.create(8, 2))
+    let success = fallbackTakeAttempt(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.OutOfMemory, fallbackGpuError("gpu.out_of_memory"), true, context))
+    gpuFixtureRejected(stats.close(), "gpu.busy"); gpuFixtureRejected(stats.release(), "gpu.busy")
+    if stats.succeeded != 0 or stats.admitted != 1 or stats.pendingAttempts != 1 { abort("unexecuted fallback counted success") }
+    // Cancellation AFTER CPU completion cannot replace an already observed
+    // success with an unrelated cancellation snapshot in finish.
+    let computed = fallbackCpuWork(context, 37, 3347); context.cancellation = true
+    fallbackCompleted(success.finish(computed), true); context.cancellation = false
+    fallbackCheckOriginal(success.original.unwrap(), "gpu.out_of_memory")
+    if stats.succeeded != 1 or stats.outOfMemorySucceeded != 1 or stats.pendingAttempts != 0 or stats.liveAttempts != 1 { abort("actual CPU success was not counted exactly once") }
+    gpuFixtureRejected(stats.close(), "gpu.busy")
+    // Both kinds of repeated finish consume the incoming real CPU Result,
+    // including an owned error with a computed prefix.
+    gpuFixtureRejected(success.finish(fallbackCpuWork(context, 37, 3347)), "gpu.invalid")
+    gpuFixtureRejected(success.finish(fallbackCpuWork(context, 17, 3347)), "gpu.invalid")
+    fallbackCompleted(success.close(), true); fallbackCompleted(success.close(), false)
+    if success.original.isSome() { abort("closed fallback retained its original diagnostic") }
+    gpuFixtureRejected(success.finish(fallbackCpuWork(context, 37, 3347)), "gpu.invalid")
+    fallbackCompleted(success.release(), true)
+
+    let falseResult = fallbackTakeAttempt(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.DeviceLost, fallbackGpuError("gpu.device_lost"), true, context))
+    fallbackCompleted(falseResult.finish(fallbackCpuWork(context, 37, 0)), false)
+    fallbackCheckOriginal(falseResult.original.unwrap(), "gpu.device_lost")
+    fallbackCompleted(falseResult.release(), true)
+    if stats.succeeded != 2 or stats.deviceLostSucceeded != 1 or stats.outOfMemorySucceeded != 1 { abort("valid false CPU result was treated as failure") }
+
+    let failed = fallbackTakeAttempt(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.device_lost"), true, context))
+    let cpuFailed = failed.finish(fallbackCpuWork(context, 17, 3347))
+    if cpuFailed.isOkay() { abort("real CPU capacity failure became fallback success") }
+    let error = cpuFailed.unwrapErr(); cpuFailed.releaseContainer()
+    if error.code != "gpu.fallback_failed" or error.retryable or error.causes.length() != 2 { abort("CPU failure lost its two owned diagnostics") }
+    fallbackCheckOriginal(error.causes[0], "gpu.device_lost")
+    if error.causes[1].code != "gpu.limit" or error.causes[1].operation != "gpu.fixture.cpu" or
+        error.causes[1].progress != (17 as UInt64) or
+        error.causes[1].message != "CPU destination capacity exhausted after computed prefix" {
+        abort("fallback did not preserve actual CPU failure metadata")
+    }
+    if failed.original.isSome() { abort("CPU failure aliased the transferred GPU cause") }
+    // The result exclusively owns both errors, surviving attempt destruction.
+    fallbackCompleted(failed.release(), true)
+    fallbackCheckOriginal(error.causes[0], "gpu.device_lost"); error.release()
+
+    let cancelled = fallbackTakeAttempt(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.out_of_memory"), true, context))
+    context.cancellation = true
+    let cancelledResult = cancelled.finish(fallbackCpuWork(context, 37, 3347)); context.cancellation = false
+    if cancelledResult.isOkay() { abort("CPU cancellation was hidden") }
+    let cancelledError = cancelledResult.unwrapErr(); cancelledResult.releaseContainer()
+    if cancelledError.code != "gpu.fallback_failed" or cancelledError.causes.length() != 2 or
+        cancelledError.causes[1].code != "gpu.cancelled" { abort("CPU cancellation did not retain both causes") }
+    fallbackCheckOriginal(cancelledError.causes[0], "gpu.out_of_memory")
+    cancelledError.release(); fallbackCompleted(cancelled.release(), true)
+
+    let abandoned = fallbackTakeAttempt(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.out_of_memory"), true, context))
+    fallbackCompleted(abandoned.close(), true); fallbackCompleted(abandoned.close(), false)
+    fallbackCompleted(abandoned.release(), true)
+    if not stats.valid() or stats.admitted != 5 or stats.succeeded != 2 or stats.failed != 2 or
+        stats.abandoned != 1 or stats.liveAttempts != 0 or stats.pendingAttempts != 0 {
+        abort("fallback actual outcomes did not partition bounded admissions")
+    }
+    fallbackCompleted(stats.close(), true); fallbackCompleted(stats.close(), false)
+    fallbackRejected(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.out_of_memory"), true, context), "gpu.out_of_memory", "gpu.invalid")
+    fallbackCompleted(stats.release(), true)
+}
+
+fun fallbackCounterBounds(context: OperationContext) r: Void {
+    fallbackRejectedStats(GpuFallbackStats.create(0, 1))
+    fallbackRejectedStats(GpuFallbackStats.create(-1, 1))
+    fallbackRejectedStats(GpuFallbackStats.create(GPU_MAX_RESOURCES + 1, 1))
+    fallbackRejectedStats(GpuFallbackStats.create(1, 0))
+    fallbackRejectedStats(GpuFallbackStats.create(1, 2))
+    let maximum = fallbackTakeStats(GpuFallbackStats.create(GPU_MAX_RESOURCES, GPU_MAX_RESOURCES))
+    if not maximum.valid() { abort("finite maximum fallback ceilings were rejected") }
+    fallbackCompleted(maximum.release(), true)
+    let stats = fallbackTakeStats(GpuFallbackStats.create(2, 1))
+    let first = fallbackTakeAttempt(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.out_of_memory"), true, context))
+    fallbackRejected(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.device_lost"), true, context), "gpu.device_lost", "gpu.limit")
+    fallbackCompleted(first.finish(fallbackCpuWork(context, 37, 3347)), true)
+    // A finished attempt is still a statistics borrower.
+    fallbackRejected(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.device_lost"), true, context), "gpu.device_lost", "gpu.limit")
+    fallbackCompleted(first.release(), true)
+    let second = fallbackTakeAttempt(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.device_lost"), true, context))
+    fallbackCompleted(second.release(), true)
+    fallbackRejected(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.out_of_memory"), true, context), "gpu.out_of_memory", "gpu.limit")
+    if not stats.valid() or stats.admitted != 2 or stats.succeeded != 1 or stats.abandoned != 1 { abort("fallback counters exceeded or reset their finite ceiling") }
+    fallbackCompleted(stats.release(), true)
+
+    let limit = seen_memory_limit_bytes()
+    seen_memory_set_limit_bytes(seen_memory_used_bytes() + seen_memory_reserved_bytes() + (4095 as Int64))
+    let exhaustedStats = GpuFallbackStats.create(1, 1)
+    seen_memory_set_limit_bytes(limit); fallbackRejectedStats(exhaustedStats)
+    let budgetStats = fallbackTakeStats(GpuFallbackStats.create(1, 1))
+    let gpuError = fallbackGpuError("gpu.out_of_memory")
+    seen_memory_set_limit_bytes(seen_memory_used_bytes() + seen_memory_reserved_bytes() + (4095 as Int64))
+    let exhaustedAttempt = GpuFallbackAttempt.begin(budgetStats, GpuFallbackPolicy.Either, gpuError, true, context)
+    seen_memory_set_limit_bytes(limit); fallbackRejected(exhaustedAttempt, "gpu.out_of_memory", "gpu.limit")
+    if budgetStats.admitted != 0 or not budgetStats.valid() { abort("metadata failure consumed a fallback counter") }
+    fallbackCompleted(budgetStats.release(), true)
+}
+
+fun fallbackAliasOwnership(context: OperationContext) r: Void {
+    let stats = fallbackTakeStats(GpuFallbackStats.create(4, 1))
+    let attempt = fallbackTakeAttempt(GpuFallbackAttempt.begin(stats, GpuFallbackPolicy.Either, fallbackGpuError("gpu.out_of_memory"), true, context))
+    // Borrowed diagnostic access must not create two owned aliases in causes.
+    gpuFixtureRejected(attempt.finish(Err<Bool, GpuError>(attempt.original.unwrap())), "gpu.invalid")
+    if attempt.original.isNone() or stats.failed != 0 or stats.succeeded != 0 or stats.pendingAttempts != 1 { abort("aliased CPU error consumed the GPU owner or fabricated an outcome") }
+    fallbackCheckOriginal(attempt.original.unwrap(), "gpu.out_of_memory")
+    fallbackCompleted(attempt.finish(fallbackCpuWork(context, 37, 3347)), true)
+    // The repeated-finish rejection must not free that retained borrowed error.
+    gpuFixtureRejected(attempt.finish(Err<Bool, GpuError>(attempt.original.unwrap())), "gpu.invalid")
+    fallbackCheckOriginal(attempt.original.unwrap(), "gpu.out_of_memory")
+    fallbackCompleted(attempt.release(), true); fallbackCompleted(stats.release(), true)
+}
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let context = operation(); let steady = seen_memory_used_bytes()
+    fallbackPolicyTable(context)
+    if seen_memory_used_bytes() != steady or seen_sync_live_atomics() != atomics { abort("fallback policy rejection or abandonment retained owners") }
+    fallbackContextAdmission(context)
+    if seen_memory_used_bytes() != steady or seen_sync_live_atomics() != atomics { abort("fallback cancellation or deadline retained owners") }
+    fallbackActualOutcomes(context)
+    if seen_memory_used_bytes() != steady or seen_sync_live_atomics() != atomics { abort("fallback CPU outcomes or repeated finish retained owners") }
+    fallbackAliasOwnership(context)
+    if seen_memory_used_bytes() != steady or seen_sync_live_atomics() != atomics { abort("aliased fallback error rejection retained or released the wrong owner") }
+    fallbackCounterBounds(context); releaseOperation(context)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("fallback counter limits or metadata failures retained owners") }
+    println("PASS: explicit fallback policy actual Seen CPU outputs owned dual failure causes bounded counters and exact drain")
+    return 0
+}

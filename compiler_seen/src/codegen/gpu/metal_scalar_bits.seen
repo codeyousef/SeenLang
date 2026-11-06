@@ -1,0 +1,20 @@
+/// Word-only PTX-compatible bitfields. Clamp widths before shifts and preserve
+/// the base on out-of-range inserts; no native shift count can reach 32.
+import codegen.gpu.metal_context.{GpuMetalFunction, metalWord, metalAssignment}
+
+fun metalScalarField(function: GpuMetalFunction, word: Int, payload: Int, offset: Int, bits: Int, signed: Bool, insert: Bool) r: Int {
+    let text = function.body; let result = function.allocate(1)
+    text.literal("{ const uint seen_offset = "); metalWord(text, offset); text.literal(" & 31u;\nconst uint seen_width = min(")
+    metalWord(text, bits); text.literal(", 32u - seen_offset);\nconst uint seen_mask = seen_width == 0u ? 0u : 4294967295u >> ((32u - seen_width) & 31u);\n")
+    metalAssignment(text, result); metalWord(text, offset); text.literal(" < 32u ? ")
+    if insert {
+        text.literal("(("); metalWord(text, word); text.literal(" & ~(seen_mask << seen_offset)) | ((")
+        metalWord(text, payload); text.literal(" << seen_offset) & (seen_mask << seen_offset))) : "); metalWord(text, word)
+    } else {
+        text.literal("(("); metalWord(text, word); text.literal(" >> seen_offset) & seen_mask) : 0u")
+    }; text.literal(";\n")
+    if signed {
+        text.literal("const uint seen_shift = (32u - seen_width) & 31u;\n"); metalAssignment(text, result)
+        text.literal("uint(as_type<int>("); metalWord(text, result); text.literal(" << seen_shift) >> seen_shift);\n")
+    }; text.literal("}\n"); return result
+}

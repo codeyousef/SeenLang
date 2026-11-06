@@ -1,0 +1,115 @@
+import codegen.gpu.ptx_abi.{ptxReflectionEntryAbi}
+import codegen.gpu.amdgpu_abi.{amdReflectionEntryAbi}
+import codegen.gpu.metal_abi.{metalReflectionEntryAbi, metalEntryLayoutAdmitted}
+import codegen.gpu.metal_target.{metalEffectiveTarget}
+/// Deterministic multi-entry reflection. Hashes identify canonical IR and ABI
+/// data; neither a hash nor a selected backend establishes device execution.
+import core.result.{Result, Ok, Err}
+import json.builder.{JsonBuilder, JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+import crypto.sha256.{sha256}
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrDiagnostic, GpuIrValidation, gpuIrDiagnostic}
+import codegen.gpu_ir_serialize.{serializeGpuIr}
+import codegen.gpu_options.{GpuOptions, validateGpuOptions}
+import codegen.gpu_specialization.{collectGpuSpecializations, releaseGpuSpecializations}
+import codegen.gpu_reflection_layout.{gpuBackendEntryRequirements, gpuReflectionEntryAbi}
+
+fun gpuReflectionHash(text: String) r: Result<String, GpuIrDiagnostic> {
+    if text.length() > 33554432 { return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_REFLECTION_LIMIT", "GPU digest input exceeds its 32 MiB byte ceiling")) }
+    let result = sha256(text)
+    if result.isErr() {
+        let error = result.unwrapErr(); error.free(); result.releaseContainer()
+        return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_REFLECTION_HASH", "GPU reflection digest computation failed"))
+    }
+    let digest = result.unwrap(); result.releaseContainer(); return Ok<String, GpuIrDiagnostic>(digest)
+}
+fun gpuReflectionSelection(borrow module: GpuIrModule, borrow options: GpuOptions) r: Result<Array<Int>, GpuIrDiagnostic> {
+    let selected = Array<Int>(); var i = 0
+    while i < options.entries.length() {
+        var found = false; var j = 0
+        while j < module.functions.length() {
+            if module.functions[j].kernel and module.functions[j].name == options.entries[i] { found = true }; j = j + 1
+        }
+        if not found { selected.free(); return Err<Array<Int>, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_ENTRY", "selected GPU entry does not name a kernel")) }; i = i + 1
+    }
+    i = 0
+    while i < module.functions.length() {
+        if module.functions[i].kernel {
+            var include = options.entries.length() == 0; var j = 0
+            while j < options.entries.length() { if options.entries[j] == module.functions[i].name { include = true }; j = j + 1 }
+            if include { selected.push(i) }
+        }
+        i = i + 1
+    }
+    if selected.length() == 0 { selected.free(); return Err<Array<Int>, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_ENTRY", "GPU reflection requires at least one compute entry")) }
+    return Ok<Array<Int>, GpuIrDiagnostic>(selected)
+}
+fun gpuReflectionSpecializations(builder: JsonBuilder, borrow module: GpuIrModule) r: Void {
+    // The module is immutable and was verified immediately before this call.
+    let result = collectGpuSpecializations(module)
+    if result.isErr() { abort("verified GPU specialization collection changed") }
+    let records = result.unwrap(); result.releaseContainer(); builder.key("specializations"); builder.startArray(); var i = 0
+    while i < records.length() {
+        let record = records[i]; builder.startObject(); builder.intProp("id", record.id); builder.intProp("type", record.typeCode)
+        builder.intProp("default", record.defaultValue); builder.intProp("minimum", record.minimum); builder.intProp("maximum", record.maximum)
+        builder.intProp("function", record.functionIndex); builder.endObject(); i = i + 1
+    }
+    builder.endArray(); releaseGpuSpecializations(records)
+}
+fun gpuWriteReflectionEntries(builder: JsonBuilder, borrow module: GpuIrModule, selected: Array<Int>, validation: GpuIrValidation, backend: String, target: String) r: Bool {
+    builder.key("entries"); builder.startArray(); var i = 0
+    while i < selected.length() {
+        let index = selected[i]; let function = module.functions[index]; let requirements = gpuBackendEntryRequirements(module, index, backend)
+        if backend == "metal" and not metalEntryLayoutAdmitted(function, requirements.sharedBytes) {
+            validation.reject("E_GPU_METAL_LAYOUT", "Metal reflection exceeds its entry layout ceiling", index, -1, -1); requirements.free(); return false
+        }
+        let abi = JsonBuilder_new(); abi.startObject(); gpuReflectionEntryAbi(abi, function, requirements)
+        if backend == "cuda" { ptxReflectionEntryAbi(abi, function, requirements.faultBuffer) }
+        if backend == "hip" { amdReflectionEntryAbi(abi, function, requirements.faultBuffer, target) }
+        if backend == "metal" { metalReflectionEntryAbi(abi, function, target) }
+        gpuReflectionSpecializations(abi, module); abi.endObject()
+        let abiText = abi.build(); destroyJsonBuilder(abi); let hashed = gpuReflectionHash(abiText); releaseJsonText(abiText)
+        if hashed.isErr() {
+            let error = hashed.unwrapErr(); validation.reject(error.code, error.message, index, -1, -1); error.free(); hashed.releaseContainer(); requirements.free(); return false
+        }
+        let digest = hashed.unwrap(); hashed.releaseContainer()
+        builder.startObject(); builder.stringProp("name", function.name); builder.intProp("function", index)
+        builder.stringProp("abi_sha256", digest); releaseJsonText(digest); gpuReflectionEntryAbi(builder, function, requirements)
+        if backend == "cuda" { ptxReflectionEntryAbi(builder, function, requirements.faultBuffer) }
+        if backend == "hip" { amdReflectionEntryAbi(builder, function, requirements.faultBuffer, target) }
+        if backend == "metal" { metalReflectionEntryAbi(builder, function, target) }
+        builder.endObject(); requirements.free(); i = i + 1
+    }
+    builder.endArray(); return true
+}
+fun reflectGpuModule(borrow module: GpuIrModule, borrow options: GpuOptions) r: Result<String, GpuIrValidation> {
+    let validation = GpuIrValidation.create(); let policy = validateGpuOptions(options)
+    if policy.code != "" {
+        validation.reject(policy.code, policy.message, -1, -1, -1); policy.free(); return Err<String, GpuIrValidation>(validation)
+    }
+    policy.free(); let serialized = serializeGpuIr(module)
+    if serialized.isErr() {
+        let error = serialized.unwrapErr(); serialized.releaseContainer(); validation.release(); return Err<String, GpuIrValidation>(error)
+    }
+    let canonical = serialized.unwrap(); serialized.releaseContainer(); let hashed = gpuReflectionHash(canonical); releaseJsonText(canonical)
+    if hashed.isErr() {
+        let error = hashed.unwrapErr(); validation.reject(error.code, error.message, -1, -1, -1); error.free(); hashed.releaseContainer(); return Err<String, GpuIrValidation>(validation)
+    }
+    let digest = hashed.unwrap(); hashed.releaseContainer(); let selection = gpuReflectionSelection(module, options)
+    if selection.isErr() {
+        let error = selection.unwrapErr(); validation.reject(error.code, error.message, -1, -1, -1); error.free(); selection.releaseContainer(); releaseJsonText(digest)
+        return Err<String, GpuIrValidation>(validation)
+    }
+    let selected = selection.unwrap(); selection.releaseContainer(); let builder = JsonBuilder_new()
+    builder.startObject(); builder.stringProp("schema", "seen-gpu-reflection-v1"); builder.stringProp("module", module.name)
+    builder.stringProp("ir_schema", "seen-gpu-ir-v1"); builder.stringProp("ir_sha256", digest); releaseJsonText(digest)
+    var target = options.target; if options.backend == "metal" { target = metalEffectiveTarget(target) }
+    builder.stringProp("backend", options.backend); builder.stringProp("target", target); builder.stringProp("fallback", options.fallback)
+    builder.boolProp("hardware_verified", 0); builder.boolProp("gpu_execution_verified", 0)
+    gpuReflectionSpecializations(builder, module)
+    let written = gpuWriteReflectionEntries(builder, module, selected, validation, options.backend, target); selected.free(); builder.endObject()
+    if not written or builder.buffer.totalLength > 4194304 {
+        if validation.valid { validation.reject("E_GPU_REFLECTION_LIMIT", "GPU reflection exceeds its 4 MiB byte ceiling", -1, -1, -1) }
+        destroyJsonBuilder(builder); return Err<String, GpuIrValidation>(validation)
+    }
+    let text = builder.build(); destroyJsonBuilder(builder); validation.release(); return Ok<String, GpuIrValidation>(text)
+}

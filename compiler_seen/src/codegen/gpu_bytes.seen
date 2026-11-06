@@ -1,0 +1,40 @@
+/// Convert an exclusively owned, bounded array of byte-valued Ints into owned
+/// binary text. Compaction stays in Seen and needs no packed-array bootstrap ABI.
+import core.result.{Result, Ok, Err}
+import codegen.gpu_ir_model.{GpuIrDiagnostic, gpuIrDiagnostic}
+import json.builder.{seen_string_clone_owned}
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+
+fun consumeGpuBytes(bytes: Array<Int>) r: Result<String, GpuIrDiagnostic> {
+    let length = bytes.length()
+    if length > 33554432 {
+        bytes.free(); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT_LIMIT", "GPU byte string exceeds its 32 MiB ceiling"))
+    }
+    var i = 0
+    while i < length {
+        if bytes[i] < 0 or bytes[i] > 255 {
+            bytes.free(); return Err<String, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_INPUT", "GPU byte string contains a non-byte value"))
+        }; i = i + 1
+    }
+    i = 0; var destination = 0
+    // Supported compiler hosts use little-endian 64-bit Int storage. Read a
+    // complete source group before replacing an already-consumed Int slot.
+    // This avoids narrow pointer stores in the immutable bootstrap compiler.
+    while i < length {
+        var word = 0 as UInt64; var shift = 0
+        while i < length and shift < 64 {
+            word = word | ((bytes[i] as UInt64) << (shift as UInt64))
+            i = i + 1; shift = shift + 8
+        }
+        bytes[destination] = word as Int; destination = destination + 1
+    }
+    // SeenArray has three 64-bit header words before its storage pointer.
+    // Read through a wide slot because Array.data() and indexed address-of
+    // are unavailable in the immutable bootstrap. This is a borrowed view;
+    // bytes remains the sole owner until the string clone completes.
+    let header: UInt64 = *((&bytes) as *UInt64)
+    let storage: UInt64 = *((header + (24 as UInt64)) as *UInt64)
+    let packed = storage as *UInt8
+    let text = seen_string_clone_owned(seen_string_view_bytes(packed, length as Int64)); bytes.free()
+    return Ok<String, GpuIrDiagnostic>(text)
+}

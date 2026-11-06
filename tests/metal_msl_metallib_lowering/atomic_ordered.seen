@@ -1,0 +1,39 @@
+// Acquire/release fences require the Apple-silicon MSL 3.2 profile.
+@compute(1)
+fun signedAtomics(data: Buffer<Int32>, output: WriteBuffer<Int32>) {
+    atomicStore(data, 0, -7, Release, DeviceScope)
+    output[0] = atomicLoad(data, 0, Acquire, DeviceScope)
+    output[1] = atomicExchange(data, 0, 5, Relaxed, DeviceScope)
+    output[2] = atomicAdd(data, 0, 3, AcquireRelease, DeviceScope)
+    output[3] = atomicSub(data, 0, 2, Acquire, DeviceScope)
+    output[4] = atomicMin(data, 0, -11, Relaxed, DeviceScope)
+    output[5] = atomicMax(data, 0, -3, AcquireRelease, DeviceScope)
+    output[6] = atomicAnd(data, 0, 15, Relaxed, DeviceScope)
+    output[7] = atomicOr(data, 0, 16, Release, DeviceScope)
+    output[8] = atomicXor(data, 0, 3, Acquire, DeviceScope)
+    output[9] = atomicCompareExchange(data, 0, 30, 42, AcquireRelease, Acquire, DeviceScope)
+    output[10] = atomicCompareExchange(data, 0, 99, 1, Acquire, Acquire, DeviceScope)
+    output[11] = atomicLoad(data, 0, Acquire, DeviceScope)
+    output[12] = atomicAdd(data, -1, 1, Relaxed, DeviceScope)
+    output[13] = atomicCompareExchange(data, 1, 0, 1, AcquireRelease, Acquire, DeviceScope)
+}
+
+@compute(1)
+fun unsignedAtomics(data: Buffer<UInt32>, output: WriteBuffer<UInt32>) {
+    atomicStore(data, 0, 4294967295 as UInt32, Relaxed, DeviceScope)
+    output[0] = atomicMin(data, 0, 2147483648 as UInt32, AcquireRelease, DeviceScope)
+    output[1] = atomicMax(data, 0, 1 as UInt32, Relaxed, DeviceScope)
+    output[2] = atomicLoad(data, 0, Relaxed, DeviceScope)
+    atomicStore(data, 1, 0 as UInt32, Release, DeviceScope)
+}
+
+@compute(1)
+fun sharedAtomics(output: WriteBuffer<Int32>) {
+    let scratch: SharedBuffer<Int32> = sharedBuffer(1)
+    atomicStore(scratch, 0, 9, Release, WorkgroupScope)
+    output[0] = atomicAdd(scratch, 0, 4, AcquireRelease, WorkgroupScope)
+    output[1] = atomicCompareExchange(scratch, 0, 13, -5, AcquireRelease, Acquire, WorkgroupScope)
+    output[2] = atomicLoad(scratch, 0, Acquire, WorkgroupScope)
+    atomicStore(scratch, -1, 100, Relaxed, WorkgroupScope)
+    output[3] = atomicLoad(scratch, 0, Relaxed, WorkgroupScope)
+}
