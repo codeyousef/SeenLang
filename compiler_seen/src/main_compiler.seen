@@ -13905,7 +13905,7 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
     }
-    if g_releaseMode or pgoMode != "" or g_ltoMode != "" {
+    if pgoMode != "" or g_ltoMode != "" {
         var effectiveLtoMode = g_ltoMode
         if effectiveLtoMode == "" { effectiveLtoMode = "full" }
         let releasePolicy = ReleaseOptimizationPolicy{
@@ -13928,6 +13928,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             return 1
         }
         g_ltoMode = effectiveLtoMode
+    }
+    // Plain release keeps full merged optimization on every supported target.
+    // Only explicit PGO/LTO selection uses the platform-specific policy above.
+    if g_releaseMode and g_ltoMode == "" {
+        g_ltoMode = "full"
     }
     let moduleInstrumentationFlags =
         buildInstrumentationClangFlags(sanitizePolicy)

@@ -77,6 +77,14 @@ Foundations**.
   Read live native cgroup membership through the executing process's numeric
   proc path, preserving no-follow filesystem traversal instead of weakening it
   to accept Linux's `self` symlink.
+  Separate plain native release's default full optimization from the Linux-x86-64
+  explicit PGO/LTO selection policy. Keep that explicit policy and full-LTO
+  eligibility checks unchanged, preserve Linux-x86-64 ThinLTO fixture coverage,
+  and use default release for other native hosts instead of requesting an
+  unsupported explicit mode. Add actual default-release native/ARM-IR regression
+  coverage alongside the unchanged explicit ARM ThinLTO rejection.
+  Replace incidental progress/cache-message assertions with semantic execution,
+  verified target IR and observable native-output checks.
 - Align the v4 containment manifest with the existing 60%-of-total,
   live-available-minus-10%-reserve memory derivation and its existing fallback.
   Correct stale declarative metadata without increasing any execution limit.

@@ -70,6 +70,12 @@ cache cleanup and artifact-preflight flags remain forbidden for focused runs.
 Scope membership is read through `/proc/<current-pid>/cgroup`, matching the
 receipt validator. The secure reader still refuses symlink traversal; Linux's
 `/proc/self` alias is not passed through that no-follow boundary.
+All four native SIMD profiles remain mandatory. Shared release fixtures request
+explicit ThinLTO only on Linux x86-64; other hosts use plain native `--release`
+with the compiler's default full merged optimization and unchanged eligibility
+checks. Explicit PGO/LTO platform restrictions are not relaxed. Maintained CLI
+regressions execute native default-release semantics, verify raw default-release
+ARM IR and retain the explicit ARM ThinLTO rejection.
 On native failure, the wrapper prints at most 32 KiB from the setup log and
 preserves the original exit status. Diagnostic collection also retains direct
 `setup.log`, `suite.log` and `native-version.log` tails from the native artifact

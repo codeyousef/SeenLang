@@ -332,6 +332,10 @@ PGO modes require `--release`. Profile-use accepts only a canonical relative
 `.profdata` path and fails closed when it is missing or invalid. Select
 `--lto=full` for merged whole-program optimization or `--lto=thin` for bounded
 per-module ThinLTO; no mode silently falls back to the other.
+PGO and explicit `--lto` options currently require Linux x86-64. Plain native
+`--release` retains full merged optimization on eligible targets, including ARM64,
+without requesting that explicit-selection policy. Cross-target, object-manifest
+and exported-module full-LTO eligibility restrictions are unchanged.
 
 ## Unsupported Source-Wrapper Commands
 

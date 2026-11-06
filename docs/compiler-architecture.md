@@ -662,7 +662,10 @@ contract is bound by `seen-object-cache-abi-v3`.
 
 ### PGO and explicit LTO modes
 
-Release compilation normalizes to the native `ReleaseOptimizationPolicy`.
+PGO and explicit LTO requests normalize to `ReleaseOptimizationPolicy` and remain
+restricted to Linux x86-64. Plain native `--release` separately defaults to full
+merged optimization on eligible targets; it does not request the platform-specific
+selection policy. Existing full-LTO eligibility and toolchain checks still apply.
 `--lto=full` requires a complete merged-IR path; `--lto=thin` retains bounded
 per-module ThinLTO. Missing tools, partial IR, or optimizer/object failures are
 typed `core.rel.003.*` errors and never switch modes implicitly.

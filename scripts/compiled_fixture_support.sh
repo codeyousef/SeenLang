@@ -7,6 +7,10 @@
 : "${FIXTURE_ARTIFACT_PREFIX:?}" "${ATTESTED_SEEN:?}" "${TMP_DIR:?}"
 ulimit -c 0
 FIXTURE_COMPILE_FLAGS=()
+seen_fixture_release_flags=(--release)
+case "$(uname -s):$(uname -m)" in
+    Linux:x86_64|Linux:amd64) seen_fixture_release_flags+=(--lto=thin) ;;
+esac
 : "${FIXTURE_RUN_SECONDS:=120}"
 case "$FIXTURE_RUN_SECONDS" in ''|*[!0-9]*) echo 'invalid fixture run time limit' >&2; exit 126 ;; esac
 [ "$FIXTURE_RUN_SECONDS" -ge 1 ] && [ "$FIXTURE_RUN_SECONDS" -le 900 ] || exit 126
@@ -31,7 +35,7 @@ trap cleanup EXIT
 compile_fixture() {
     local profile=$1 name=$2 source=$3
     local flags=(--fast)
-    if [ "$profile" = release ]; then flags=(--release --lto=thin); fi
+    if [ "$profile" = release ]; then flags=("${seen_fixture_release_flags[@]}"); fi
     if [ "$profile" = undefined ] || [ "$profile" = address ]; then flags+=("--sanitize=$profile"); fi
     local log="$TMP_DIR/00-active.log" status=0
     printf '126\n' > "$TMP_DIR/$name-$profile.compile.status" || return
