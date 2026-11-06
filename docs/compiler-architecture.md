@@ -652,6 +652,12 @@ bytes reach compilation without a rewrite transform.
 every Seen LLVM module, retained runtime object, and compiled ledgered ABI shim.
 Unsupported targets and malformed or excessive report paths fail with stable
 `core.rel.002.*` errors; instrumentation is never silently dropped.
+Linux ARM64 accepts address and undefined-behavior sanitizers, optionally with
+debug information, through the same module/runtime/shim instrumentation path.
+Coverage, thread/memory sanitizers, and debug-only instrumentation remain
+Linux-x86-64-only. ARM sanitizer admission does not certify native execution;
+the native qualification gate still requires all profiles and fresh finite-limit
+ASan controls.
 
 `--instrumentation-report <relative-path>` writes canonical
 `seen-build-instrumentation-evidence-v1` JSON after a successful link. Its

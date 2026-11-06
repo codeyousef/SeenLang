@@ -34,6 +34,9 @@ check_ir() {
     local flags=(--fast) cache_flags=() cpu_flags=()
     if [ "$profile" = release ]; then flags=(--release --lto=thin); fi
     if [ "$profile" = default-release ]; then flags=(--release); fi
+    if [ "$profile" = address ] || [ "$profile" = undefined ]; then
+        flags=(--fast "--sanitize=$profile")
+    fi
     if [ "$cache" = cold ] || [ "$cache" = generated-cold ]; then cache_flags=(--no-cache); fi
     if [ "$target" = linux-x86_64 ]; then cpu_flags=(--target-cpu=x86-64); fi
     native_snapshot > "$TMP_DIR/$name.before"
@@ -58,6 +61,9 @@ check_ir() {
         [ -f "$ir" ] && [ ! -L "$ir" ] && [ "$(wc -c < "$ir")" -le 16777216 ] || fail "$name raw module missing or oversized"
         grep -Fq "target triple = \"$triple" "$ir" || fail "$name changed target to host"
         timeout --foreground --kill-after=5s 60s opt -passes=verify -disable-output "$ir"
+        if [ "$profile" = address ]; then
+            grep -Fq sanitize_address "$ir" || fail "$name dropped address instrumentation"
+        fi
     done
     printf 'PASS: raw IR target=%s profile=%s cache=%s modules=%s\n' "$target" "$profile" "$cache" "${#modules[@]}"
 }
@@ -83,6 +89,23 @@ for target in linux-arm64 linux-riscv64 android-arm64; do
     for cache in cold enabled; do check_ir "$target" fast "$cache"; done
 done
 check_ir linux-arm64 default-release cold
+for sanitizer in address undefined; do check_ir linux-arm64 "$sanitizer" cold; done
+
+# ARM address/undefined support does not admit other instrumentation modes.
+for mode in thread memory debug coverage; do
+    flags=("--sanitize=$mode")
+    if [ "$mode" = debug ]; then flags=(--debug); fi
+    if [ "$mode" = coverage ]; then flags=(--coverage); fi
+    status=0
+    run_compiler compile "$SOURCE" "$TMP_DIR/unsupported-$mode-output" \
+        --fast --no-cache --target=linux-arm64 "${flags[@]}" --stop-after-ir \
+        --emit-module-ir-dir "$TMP_DIR/unsupported-$mode-ir" \
+        > "$TMP_DIR/00-active.log" 2>&1 || status=$?
+    [ "$status" -eq 1 ] || fail "ARM $mode policy returned $status"
+    grep -Fq core.rel.002.platform "$TMP_DIR/00-active.log"
+    [ ! -e "$TMP_DIR/unsupported-$mode-output" ] || fail "ARM $mode published an executable"
+    [ ! -e "$TMP_DIR/unsupported-$mode-ir" ] || fail "ARM $mode published raw IR"
+done
 
 # Generated test mains intentionally produce module objects, not an executable.
 # Warm that real cache, then require raw IR to bypass both cache and child-object

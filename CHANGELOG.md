@@ -85,6 +85,11 @@ Foundations**.
   coverage alongside the unchanged explicit ARM ThinLTO rejection.
   Replace incidental progress/cache-message assertions with semantic execution,
   verified target IR and observable native-output checks.
+  Admit Linux ARM64 address/undefined sanitizers through the existing target-aware
+  module, runtime and shim instrumentation paths. Preserve platform errors for
+  coverage, thread/memory sanitizers and debug-only ARM builds. Exercise actual
+  ARM sanitizer IR generation and unsupported-mode rejection, plus public-policy
+  allow/deny combinations; retain every native profile and finite ASan control.
 - Align the v4 containment manifest with the existing 60%-of-total,
   live-available-minus-10%-reserve memory derivation and its existing fallback.
   Correct stale declarative metadata without increasing any execution limit.

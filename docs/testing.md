@@ -76,6 +76,12 @@ with the compiler's default full merged optimization and unchanged eligibility
 checks. Explicit PGO/LTO platform restrictions are not relaxed. Maintained CLI
 regressions execute native default-release semantics, verify raw default-release
 ARM IR and retain the explicit ARM ThinLTO rejection.
+ARM address/undefined sanitizer profiles use the same module/runtime/shim path
+as x64, optionally with debug information but never coverage. The public-policy
+fixture checks both accepted modes and coverage/thread/memory/debug-only
+rejections. Maintained CLI regressions verify ARM sanitizer IR and typed
+unsupported-mode failures before any IR or executable publication. These
+cross-target checks do not replace native execution or finite ASan controls.
 On native failure, the wrapper prints at most 32 KiB from the setup log and
 preserves the original exit status. Diagnostic collection also retains direct
 `setup.log`, `suite.log` and `native-version.log` tails from the native artifact

@@ -79,6 +79,11 @@ ios-arm64, ios-sim-arm64, android-arm64
 See [Compilation Targets](targets.md) for target triples, aliases, and
 RISC-V/QEMU verification commands.
 
+`--sanitize=address` and `--sanitize=undefined` also support Linux ARM64, with
+optional `--debug` but without `--coverage`. Coverage, thread/memory sanitizers,
+and debug-only instrumentation remain Linux-x86-64-only; unsupported combinations
+fail with `core.rel.002.platform` rather than dropping instrumentation.
+
 By default, `seen compile` prints bounded progress at useful phase checkpoints
 instead of one line per internal action. Warning diagnostics remain visible, and
 `--verbose` expands progress and warnings when debugging a specific module.
