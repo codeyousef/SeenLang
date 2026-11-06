@@ -94,7 +94,10 @@ Foundations**.
   stdout/stderr diagnostics under the existing shared bounds. Prioritize failure
   metadata and stderr, publish bounded escaped failure tails without replacing
   the original rejection, and distinguish C-control precondition failures.
-  This closes a diagnostic gap, not the underlying native-control failure.
+  Distinguish verbose leak-check progress from actual LSan errors: require a
+  complete zero-exit clean control with exact limits/mapping, while still
+  rejecting sanitizer findings, fatal diagnostics and summaries. Validate the
+  real retained native control output rather than weakening its finite allowance.
 - Align the v4 containment manifest with the existing 60%-of-total,
   live-available-minus-10%-reserve memory derivation and its existing fallback.
   Correct stale declarative metadata without increasing any execution limit.

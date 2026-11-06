@@ -121,6 +121,9 @@ The unchanged finite ASan allowance is 64 TiB; the negative control uses
 128 MiB. Actual runtime shadow boundaries and kernel mappings must agree.
 Failed controls stop execution; no unlimited allowance, ASLR change,
 sanitizer suppression or architecture-only authorization is accepted.
+Verbose `LeakSanitizer: checking for leaks` is an informational observation, not a
+finding. Clean admission still requires exit zero, exact limits/mapping markers,
+completion, and no ASan/LSan error, fatal diagnostic or finding summary.
 
 The finalizer verifies the transported ARM compiler/client manifest, source
 identities, full-suite logs, native compiler version, kernel limits/events,

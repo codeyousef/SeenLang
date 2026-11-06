@@ -216,7 +216,10 @@ def validate_control(mode, status, out, err):
     if mode == 'clean':
         require(status == 0 and out.startswith(marker) and
                 out.endswith(b'ARM_ASAN_CONTROL clean-complete\n') and
-                b'ERROR: AddressSanitizer' not in err and b'LeakSanitizer:' not in err and
+                b'ERROR: AddressSanitizer' not in err and
+                b'ERROR: LeakSanitizer:' not in err and
+                b'LeakSanitizer has encountered a fatal error' not in err and
+                b'SUMMARY: LeakSanitizer' not in err and
                 b'SUMMARY: AddressSanitizer' not in err,
                 'native ARM ASan clean control failed under 64 TiB (no admission)')
     elif mode == 'heap':

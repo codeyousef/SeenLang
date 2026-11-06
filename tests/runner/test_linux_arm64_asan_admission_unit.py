@@ -48,6 +48,17 @@ class ControlDecisionTests(unittest.TestCase):
             with self.subTest(status=status, out=out, err=err), self.assertRaises(RuntimeError):
                 admission.validate_control('clean', status, out, err)
 
+    def test_clean_accepts_verbose_leak_check_but_never_a_leak_finding(self):
+        clean = MARKER + MAPS + b'ARM_ASAN_CONTROL clean-complete\n'
+        verbose = b'==17==LeakSanitizer: checking for leaks\n'
+        admission.validate_control('clean', 0, clean, verbose)
+        for report in (
+                b'ERROR: LeakSanitizer: detected memory leaks\n',
+                b'LeakSanitizer has encountered a fatal error\n',
+                b'SUMMARY: LeakSanitizer: detected memory leaks\n'):
+            with self.subTest(report=report), self.assertRaises(RuntimeError):
+                admission.validate_control('clean', 0, clean, verbose + report)
+
     def test_heap_requires_complete_real_finding_not_just_failure(self):
         admission.validate_control('heap', -signal.SIGABRT, MARKER, HEAP_REPORT)
         for status, out, err in ((1, MARKER, HEAP_REPORT), (0, MARKER, HEAP_REPORT),
