@@ -232,6 +232,23 @@ def validate_control(mode, status, out, err):
                 'insufficient finite address-space control lacked a real ASan reservation failure')
 
 
+def report_control_failure(proof, mode):
+    """Publish bounded escaped tails; diagnostics cannot admit a control."""
+    from collect_verification_logs import read_tail
+    require(mode in ('clean', 'heap', 'insufficient'), 'unknown native control')
+    for suffix in ('status.json', 'out', 'err'):
+        name = mode + '.' + suffix
+        try:
+            original, content, snapshot = read_tail(ROOT, proof / name, 2048)
+            print(f'native ARM ASan {name} tail={len(content)}/{original} '
+                  f'truncated={snapshot["truncated"]} '
+                  f'changed={snapshot["changed_during_read"]}: {content!r}',
+                  file=sys.stderr, flush=True)
+        except (OSError, ValueError) as error:
+            print(f'native ARM ASan {name} diagnostic unavailable: {error}',
+                  file=sys.stderr, flush=True)
+
+
 def layout_evidence(out, err):
     ranges = {}
     for match in re.finditer(rb'\[0x([0-9a-f]+), 0x([0-9a-f]+)\].*?\|\|\s+(HighMem|HighShadow|ShadowGap|LowShadow|LowMem)', err):
@@ -289,6 +306,7 @@ def main():
                    'helpers': {name: digest(SCRIPTS / name) for name in
                                ('linux_arm64_asan_admission.py', 'linux_arm64_asan_control.c',
                                 'run_asan_in_hard_memory_scope.sh')}}
+    active_control = None
     try:
         env = environment()
         cap = min(2 * 1024**3, int(env['SEEN_OPT_VMEM_KB']) * 1024)
@@ -340,10 +358,11 @@ def main():
         for mode in ('clean', 'heap', 'insufficient'):
             verify_scope(proof, mode, env)
             limit = INSUFFICIENT_CAP if mode == 'insufficient' else CAP
+            active_control = mode
             status, out, err = command([control, 'heap' if mode == 'heap' else 'clean'],
                                        proof, mode, control_env, cap=limit)
-            validate_control(mode, status, out, err)
             observation['controls'][mode] = {'returncode': status, 'rlimit_as_bytes': limit}
+            validate_control(mode, status, out, err)
             if mode == 'clean':
                 observation['layout'] = layout_evidence(out, err)
         after = verify_scope(proof, 'final', env)
@@ -366,6 +385,12 @@ def main():
         observation['accepted'] = False
         observation['failure'] = str(error)
         (proof / 'admission.json').write_text(json.dumps(observation, sort_keys=True, indent=2) + '\n')
+        if active_control is not None:
+            try:
+                report_control_failure(proof, active_control)
+            except Exception as diagnostic_error:
+                print(f'native ARM ASan diagnostic failure: {diagnostic_error}',
+                      file=sys.stderr, flush=True)
         raise
 
 

@@ -89,6 +89,13 @@ scope, even when no safe-rebuild scope was created. These logs share the existin
 discovery, 128-file and 32 MiB aggregate bounds, with at most 1 MiB per log.
 Transported binaries, unrelated files and nested artifact directories are not
 traversed; symlinks and nonregular selected logs fail closed.
+The same budgets cover direct native ASan admission observations and the explicit
+compile/clean/heap/insufficient command, status, stdout and stderr files.
+Admission metadata, child statuses and stderr precede unrelated bulk logs.
+Failed controls print escaped 2 KiB status/stdout/stderr tails and retain their
+actual status before rejection; C-control preconditions distinguish failed limit
+and personality queries from disabled ASLR. Diagnostics never authorize execution
+or turn a failed control into native qualification.
 
 On Ubuntu, the installed GNU cross toolchain uses filesystem sysroot `/`
 with GCC toolchain root `/usr`. `/usr/aarch64-linux-gnu` is the target

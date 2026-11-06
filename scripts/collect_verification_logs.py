@@ -26,6 +26,11 @@ GATE_FILE = re.compile(
     r"seen_[a-z0-9_]+\.(?:log|status|before\.json|snapshot\.log|observation\.log|observation\.status)\Z")
 GATE_METADATA = {"active-child.json", "checks.json", "harness-exit.log",
                  "accelerator-c-evidence.json"}
+ARM_ADMISSION_FILES = {"admission.json"} | {
+    name + suffix
+    for name in ("clean", "heap", "insufficient", "compile")
+    for suffix in (".out", ".err", ".status.json", ".command.json")
+}
 
 
 open_directory = crash.open_directory
@@ -96,6 +101,26 @@ def candidates(root):
             if (child.name == "safe-rebuild.trace.jsonl" or
                     (child.name.startswith("safe_rebuild") and child.suffix in (".log", ".metrics"))):
                 result.append((2, child))
+            elif child.name.startswith("asan-arm64-admission-"):
+                # Only this direct diagnostic directory, never its executables,
+                # transported sources, or nested artifacts.
+                for item in entries(root, child):
+                    examined += 1
+                    if examined > MAX_ENTRIES:
+                        raise ValueError("verification log discovery exceeds its bound")
+                    if item.name not in ARM_ADMISSION_FILES:
+                        continue
+                    if item.name == "admission.json":
+                        priority = -3
+                    elif item.name.endswith(".status.json"):
+                        priority = -2
+                    elif item.name.endswith(".err"):
+                        priority = -1
+                    elif item.name.endswith(".command.json"):
+                        priority = 1
+                    else:
+                        priority = 3
+                    result.append((priority, child / item.name))
             elif child.name.startswith("p0-accel-c."):
                 # Exactly one extra level, with an explicit diagnostic allowlist.
                 # Do not walk children/, IR directories, caches, or binaries.

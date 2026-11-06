@@ -90,6 +90,11 @@ Foundations**.
   coverage, thread/memory sanitizers and debug-only ARM builds. Exercise actual
   ARM sanitizer IR generation and unsupported-mode rejection, plus public-policy
   allow/deny combinations; retain every native profile and finite ASan control.
+  Retain native ASan admission observations and direct control command/status/
+  stdout/stderr diagnostics under the existing shared bounds. Prioritize failure
+  metadata and stderr, publish bounded escaped failure tails without replacing
+  the original rejection, and distinguish C-control precondition failures.
+  This closes a diagnostic gap, not the underlying native-control failure.
 - Align the v4 containment manifest with the existing 60%-of-total,
   live-available-minus-10%-reserve memory derivation and its existing fallback.
   Correct stale declarative metadata without increasing any execution limit.

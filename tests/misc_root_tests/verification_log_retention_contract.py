@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Filesystem and budget regressions for failed-verification diagnostics."""
+import hashlib
 import importlib.util
 import json
 import os
@@ -38,6 +39,22 @@ class Retention(unittest.TestCase):
         (gate / (child + ".log")).write_text("still compiling\n")
         (gate / (child + ".status")).write_text("incomplete\n")
         return gate
+
+    def admission(self):
+        proof = self.run / "asan-arm64-admission-fixture"
+        proof.mkdir()
+        (proof / "admission.json").write_text(json.dumps({
+            "accepted": False,
+            "failure": "native ARM ASan clean control failed under 64 TiB (no admission)",
+        }) + "\n")
+        (proof / "clean.out").write_bytes(b"")
+        (proof / "clean.err").write_bytes(b"AddressSanitizer: failed to allocate shadow memory\n")
+        (proof / "clean.status.json").write_text(json.dumps({
+            "returncode": -6, "elapsed_seconds": 0.04,
+            "timeout_seconds": 60, "rlimit_as_bytes": 64 * 1024 ** 4,
+        }) + "\n")
+        (proof / "clean.command.json").write_text(json.dumps([str(proof / "control"), "clean"]) + "\n")
+        return proof
 
     def retained(self, result):
         destination = self.root / "target/seen-build/verification-logs"
@@ -120,6 +137,185 @@ class Retention(unittest.TestCase):
         (native / "run.fixture").symlink_to(outside, target_is_directory=True)
         with self.assertRaises(ValueError):
             logs.collect(self.root)
+
+    def test_failed_arm_admission_retains_real_diagnostics_and_snapshot_hashes(self):
+        proof = self.admission()
+        for name, returncode in (("heap", -6), ("insufficient", -6), ("compile", 0)):
+            (proof / (name + ".out")).write_bytes((name + " stdout\n").encode())
+            (proof / (name + ".err")).write_bytes((name + " stderr\n").encode())
+            (proof / (name + ".status.json")).write_text(json.dumps({
+                "returncode": returncode, "elapsed_seconds": 0.1,
+                "timeout_seconds": 60,
+                "rlimit_as_bytes": 128 * 1024 ** 2 if name == "insufficient" else 64 * 1024 ** 4,
+            }) + "\n")
+            (proof / (name + ".command.json")).write_text(json.dumps([name, "--fixture"]) + "\n")
+        expected = {path.name: path.read_bytes() for path in proof.iterdir()}
+        result = logs.collect(self.root)
+        retained = self.retained(result)
+        self.assertEqual(retained, expected)
+        self.assertFalse(json.loads(retained["admission.json"])["accepted"])
+        self.assertEqual(json.loads(retained["clean.status.json"])["returncode"], -6)
+        self.assertEqual(json.loads(retained["insufficient.status.json"])["rlimit_as_bytes"], 128 * 1024 ** 2)
+        self.assertEqual(json.loads(retained["compile.status.json"])["returncode"], 0)
+        self.assertEqual(json.loads(retained["clean.command.json"]), [str(proof / "control"), "clean"])
+        for row in result["files"]:
+            content = expected[Path(row["source"]).name]
+            self.assertEqual(row["source"], (proof / Path(row["source"]).name).relative_to(self.root).as_posix())
+            self.assertEqual(row["original_bytes"], len(content))
+            self.assertEqual(row["retained_bytes"], len(content))
+            self.assertEqual(row["sha256"], hashlib.sha256(content).hexdigest())
+            self.assertFalse(row["truncated"])
+            self.assertFalse(row["changed_during_read"])
+            if row["source"].endswith(".json"):
+                self.assertFalse(row["incomplete_json"])
+        self.assertEqual(result["retained_bytes"], sum(map(len, expected.values())))
+        self.assertEqual(result["omitted_files"], 0)
+        self.assertEqual(json.loads(
+            (self.root / "target/seen-build/verification-logs/index.json").read_text()), result)
+
+    def test_arm_admission_allowlist_excludes_sources_binaries_and_nested_diagnostics(self):
+        proof = self.admission()
+        expected = {path.name: path.read_bytes() for path in proof.iterdir()}
+        for name in ("control", "control.c", "module.ll", "clean.log", "compiler.err",
+                     "admission.json.bak", "other.status.json"):
+            with (proof / name).open("wb") as output:
+                output.truncate(logs.MAX_TOTAL_BYTES * 2)
+        (proof / "inputs").mkdir()
+        os.mkfifo(proof / "inputs/clean.err")
+        (proof / "unlisted.err").symlink_to(self.root / "outside")
+        os.mkfifo(proof / "unused.bc")
+        sibling = self.run / "asan-arm64-admission.fixture"
+        sibling.mkdir()
+        (sibling / "clean.err").write_bytes(b"not a selected admission directory")
+        result = logs.collect(self.root)
+        self.assertEqual(self.retained(result), expected)
+
+    def test_arm_failure_metadata_and_stderr_precede_unrelated_output_under_file_cap(self):
+        proof = self.admission()
+        native = self.root / ".seen/agent-tools/linux-arm64-milestone/run.fixture"
+        native.mkdir(parents=True)
+        (native / "setup.log").write_bytes(b"x" * 10000)
+        (self.run / "safe_rebuild_verify.log").write_bytes(b"y" * 10000)
+        with patch.object(logs, "MAX_FILES", 4):
+            result = logs.collect(self.root)
+        self.assertEqual(self.retained(result), {
+            name: (proof / name).read_bytes()
+            for name in ("admission.json", "clean.status.json", "clean.err")
+        })
+        self.assertEqual(len(result["files"]), 3)
+        self.assertEqual(result["omitted_files"], 4)
+
+    def test_arm_diagnostics_share_the_tail_and_total_byte_caps(self):
+        proof = self.admission()
+        admission = b'{"accepted":false}\n'
+        status = b'{"returncode":-6}\n'
+        tail = b"failed\n"
+        (proof / "admission.json").write_bytes(admission)
+        (proof / "clean.status.json").write_bytes(status)
+        (proof / "clean.err").write_bytes(b"x" * 200 + tail)
+        (self.run / "safe_rebuild_verify.log").write_bytes(b"unrelated output")
+        maximum = len(admission) + len(status) + len(tail)
+        with patch.object(logs, "MAX_FILE_BYTES", 24), patch.object(
+                logs, "MAX_TOTAL_BYTES", logs.MAX_INDEX_BYTES + maximum):
+            result = logs.collect(self.root)
+        self.assertEqual(self.retained(result), {
+            "admission.json": admission, "clean.status.json": status, "clean.err": tail})
+        self.assertEqual(result["retained_bytes"], maximum)
+        self.assertEqual(result["omitted_files"], 3)
+        self.assertTrue(all(row["retained_bytes"] <= 24 for row in result["files"]))
+        stderr = next(row for row in result["files"] if row["source"].endswith("/clean.err"))
+        self.assertEqual(stderr["original_bytes"], 200 + len(tail))
+        self.assertEqual(stderr["sha256"], hashlib.sha256(tail).hexdigest())
+        self.assertTrue(stderr["truncated"])
+        destination = self.root / "target/seen-build/verification-logs"
+        self.assertLessEqual(sum(path.stat().st_size for path in destination.iterdir()),
+                             logs.MAX_INDEX_BYTES + maximum)
+
+    def test_arm_status_truncation_is_not_claimed_as_complete_json(self):
+        proof = self.run / "asan-arm64-admission-fixture"
+        proof.mkdir()
+        content = b'{"returncode":-6,"timeout_seconds":60}\n'
+        (proof / "clean.status.json").write_bytes(content)
+        with patch.object(logs, "MAX_FILE_BYTES", 8):
+            result = logs.collect(self.root)
+        self.assertEqual(self.retained(result), {"clean.status.json": content[-8:]})
+        row = result["files"][0]
+        self.assertTrue(row["truncated"])
+        self.assertTrue(row["incomplete_json"])
+        self.assertFalse(row["changed_during_read"])
+        self.assertEqual(row["sha256"], hashlib.sha256(content[-8:]).hexdigest())
+
+    def test_arm_discovery_counts_excluded_entries_in_the_shared_budget(self):
+        proof = self.admission()
+        (proof / "unused.ll").write_bytes(b"not retained")
+        native = self.root / ".seen/agent-tools/linux-arm64-milestone/run.fixture"
+        native.mkdir(parents=True)
+        (native / "setup.log").write_bytes(b"native failure")
+        # Native run/log + rebuild run/admission + six admission entries.
+        with patch.object(logs, "MAX_ENTRIES", 9), self.assertRaises(ValueError):
+            logs.collect(self.root)
+        shutil.rmtree(self.root / "target/seen-build/verification-logs")
+        with patch.object(logs, "MAX_ENTRIES", 10):
+            result = logs.collect(self.root)
+        self.assertEqual(set(self.retained(result)), {
+            "setup.log", "admission.json", "clean.out", "clean.err",
+            "clean.status.json", "clean.command.json"})
+
+    def test_arm_selected_diagnostic_aliases_fail_closed(self):
+        names = ["admission.json"] + [
+            name + suffix
+            for name in ("clean", "heap", "insufficient", "compile")
+            for suffix in (".out", ".err", ".status.json", ".command.json")
+        ]
+        outside = self.root / "outside.log"
+        outside.write_bytes(b"must not retain external bytes")
+        for name in names:
+            for kind in ("symlink", "fifo", "directory"):
+                with self.subTest(name=name, kind=kind):
+                    proof = self.admission()
+                    source = proof / name
+                    source.unlink(missing_ok=True)
+                    if kind == "symlink":
+                        source.symlink_to(outside)
+                    elif kind == "fifo":
+                        os.mkfifo(source)
+                    else:
+                        source.mkdir()
+                    with self.assertRaises((OSError, ValueError)):
+                        logs.collect(self.root)
+                    shutil.rmtree(proof)
+                    shutil.rmtree(self.root / "target/seen-build/verification-logs")
+
+    def test_arm_source_directory_aliases_fail_closed_even_without_retention_budget(self):
+        components = (".seen", ".seen/agent-tools", ".seen/agent-tools/safe-rebuild",
+                      ".seen/agent-tools/safe-rebuild/run.fixture",
+                      ".seen/agent-tools/safe-rebuild/run.fixture/asan-arm64-admission-fixture")
+        for index, component in enumerate(components):
+            with self.subTest(component=component):
+                root = self.root / f"alias-{index}"
+                proof = root / components[-1]
+                proof.mkdir(parents=True)
+                (proof / "clean.err").write_bytes(b"must not retain aliased bytes")
+                source = root / component
+                outside = root / "outside"
+                source.rename(outside)
+                source.symlink_to(outside, target_is_directory=True)
+                with patch.object(logs, "MAX_FILES", 1), patch.object(
+                        logs, "MAX_TOTAL_BYTES", logs.MAX_INDEX_BYTES), self.assertRaises((OSError, ValueError)):
+                    logs.collect(root)
+
+    def test_arm_admission_non_directory_sources_fail_closed(self):
+        for kind in ("fifo", "file"):
+            with self.subTest(kind=kind):
+                source = self.run / "asan-arm64-admission-fixture"
+                if kind == "fifo":
+                    os.mkfifo(source)
+                else:
+                    source.write_bytes(b"not a diagnostic directory")
+                with self.assertRaises((OSError, ValueError)):
+                    logs.collect(self.root)
+                source.unlink()
+                shutil.rmtree(self.root / "target/seen-build/verification-logs")
 
     def test_file_limit_is_explicit(self):
         for index in range(3):
