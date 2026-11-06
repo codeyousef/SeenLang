@@ -67,6 +67,9 @@ neither ARM ELF headers nor successful cross-linking qualify native execution.
 Both ARM entrypoints use the canonical focused-regression route without selecting
 a rebuild tier. That route derives its own quick setup; explicit tier selection,
 cache cleanup and artifact-preflight flags remain forbidden for focused runs.
+Scope membership is read through `/proc/<current-pid>/cgroup`, matching the
+receipt validator. The secure reader still refuses symlink traversal; Linux's
+`/proc/self` alias is not passed through that no-follow boundary.
 On native failure, the wrapper prints at most 32 KiB from the setup log and
 preserves the original exit status. Diagnostic collection also retains direct
 `setup.log`, `suite.log` and `native-version.log` tails from the native artifact

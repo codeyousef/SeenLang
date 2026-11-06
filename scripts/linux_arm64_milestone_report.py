@@ -123,7 +123,7 @@ def validate_scope(controls, cap, tasks):
 
 
 def scope_snapshot():
-    membership = virtual(Path("/proc/self/cgroup"))
+    membership = virtual(Path(f"/proc/{os.getpid()}/cgroup"))
     require(membership.startswith("0::/") and "\n" not in membership,
             "unified cgroup membership is required")
     relative = membership[3:]

@@ -74,6 +74,9 @@ Foundations**.
   Retain native setup, suite and version diagnostics from their actual artifact
   scope under the existing shared discovery/file/byte budgets, without following
   links or traversing transported binaries and nested build output.
+  Read live native cgroup membership through the executing process's numeric
+  proc path, preserving no-follow filesystem traversal instead of weakening it
+  to accept Linux's `self` symlink.
 - Align the v4 containment manifest with the existing 60%-of-total,
   live-available-minus-10%-reserve memory derivation and its existing fallback.
   Correct stale declarative metadata without increasing any execution limit.
