@@ -67,6 +67,60 @@ class Retention(unittest.TestCase):
         self.assertEqual(self.retained(result), {trace.name: b'{"status":"begin"}\n'})
         self.assertTrue(result["files"][0]["truncated"])
 
+    def test_native_only_failure_keeps_bounded_tails_without_bulk_inputs(self):
+        shutil.rmtree(self.run.parent)
+        native = self.root / ".seen/agent-tools/linux-arm64-milestone/run.fixture"
+        native.mkdir(parents=True)
+        (native / "setup.log").write_bytes(b"old setup prefix\nFAIL126\n")
+        (native / "suite.log").write_bytes(b"old suite prefix\nHANG")
+        (native / "unrelated.log").write_bytes(b"must not publish")
+        (native / "inputs").mkdir()
+        (native / "inputs/seen").write_bytes(b"must not publish binary")
+        (native / "inputs/setup.log").write_bytes(b"must not recurse")
+        with patch.object(logs, "MAX_FILE_BYTES", 8), patch.object(
+                logs, "MAX_TOTAL_BYTES", logs.MAX_INDEX_BYTES + 12):
+            result = logs.collect(self.root)
+        self.assertEqual(self.retained(result), {
+            "setup.log": b"FAIL126\n", "suite.log": b"HANG"})
+        self.assertTrue(all(row["truncated"] for row in result["files"]))
+        self.assertEqual(json.loads(
+            (self.root / "target/seen-build/verification-logs/index.json").read_text()), result)
+
+    def test_native_and_rebuild_share_the_discovery_budget(self):
+        native = self.root / ".seen/agent-tools/linux-arm64-milestone/run.fixture"
+        native.mkdir(parents=True)
+        (native / "setup.log").write_bytes(b"native failure\n")
+        (self.run / "safe_rebuild_verify.log").write_bytes(b"rebuild failure\n")
+        with patch.object(logs, "MAX_ENTRIES", 3), self.assertRaises(ValueError):
+            logs.collect(self.root)
+
+    def test_native_diagnostic_links_and_fifo_fail_closed(self):
+        native = self.root / ".seen/agent-tools/linux-arm64-milestone/run.fixture"
+        outside = self.root / "outside.log"
+        outside.write_bytes(b"must not copy outside bytes")
+        for kind in ("symlink", "fifo"):
+            with self.subTest(kind=kind):
+                native.mkdir(parents=True)
+                source = native / "setup.log"
+                if kind == "symlink":
+                    source.symlink_to(outside)
+                else:
+                    os.mkfifo(source)
+                with self.assertRaises((OSError, ValueError)):
+                    logs.collect(self.root)
+                shutil.rmtree(native)
+                shutil.rmtree(self.root / "target/seen-build/verification-logs")
+
+    def test_native_run_directory_link_fails_closed(self):
+        native = self.root / ".seen/agent-tools/linux-arm64-milestone"
+        native.mkdir()
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "setup.log").write_bytes(b"must not copy outside bytes")
+        (native / "run.fixture").symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            logs.collect(self.root)
+
     def test_file_limit_is_explicit(self):
         for index in range(3):
             (self.run / f"safe_rebuild_{index}.log").write_text("x")

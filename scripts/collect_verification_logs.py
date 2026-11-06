@@ -52,13 +52,33 @@ def active_child(content, original, snapshot):
 
 
 def candidates(root):
+    result = []
+    examined = 0
+    native = root / ".seen/agent-tools/linux-arm64-milestone"
+    if any(parent.is_symlink() for parent in (root / ".seen", native.parent, native)):
+        raise ValueError("unsafe native verification source directory")
+    if native.exists():
+        for entry in entries(root, native):
+            run = native / entry.name
+            examined += 1
+            if examined > MAX_ENTRIES:
+                raise ValueError("verification log discovery exceeds its bound")
+            if not run.name.startswith("run."):
+                continue
+            if run.is_symlink() or not run.is_dir():
+                raise ValueError("unsafe native verification run directory")
+            # No recursion into transported inputs, binaries or suite artifacts.
+            for entry in entries(root, run):
+                examined += 1
+                if examined > MAX_ENTRIES:
+                    raise ValueError("verification log discovery exceeds its bound")
+                if entry.name in {"setup.log", "suite.log", "native-version.log"}:
+                    result.append((0, run / entry.name))
     base = root / ".seen/agent-tools/safe-rebuild"
     if any(parent.is_symlink() for parent in (root / ".seen", base.parent, base)):
         raise ValueError("unsafe verification source directory")
     if not base.exists():
-        return []
-    result = []
-    examined = 0
+        return [path for _, path in sorted(result)]
     for entry in entries(root, base):
         run = base / entry.name
         examined += 1

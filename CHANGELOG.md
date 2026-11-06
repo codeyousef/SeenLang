@@ -70,6 +70,10 @@ Foundations**.
   Route both cross-building and native qualification through focused admission
   without an explicit rebuild tier; retain the canonical guard against mixing
   focused regressions with rebuild-tier, cache-cleanup or preflight options.
+  Expose a bounded native setup-log tail on failure without masking its status.
+  Retain native setup, suite and version diagnostics from their actual artifact
+  scope under the existing shared discovery/file/byte budgets, without following
+  links or traversing transported binaries and nested build output.
 - Align the v4 containment manifest with the existing 60%-of-total,
   live-available-minus-10%-reserve memory derivation and its existing fallback.
   Correct stale declarative metadata without increasing any execution limit.

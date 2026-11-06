@@ -74,6 +74,18 @@ env -u LD_PRELOAD -u SEEN_FORK_SERIALIZER_SO -u SEEN_FORK_SERIALIZER_ATTESTATION
     >"$work/setup.log" 2>&1 || status=$?
 if [ "$status" -ne 0 ]; then
     printf 'Native ARM64 qualification failed (status %s); no report published. Logs: %s\n' "$status" "$work" >&2
+    if ! python3 - "$ROOT_DIR" "$work/setup.log" <<'PY'
+import sys
+from pathlib import Path
+root, path = map(Path, sys.argv[1:])
+sys.path.insert(0, str(root / "scripts"))
+from collect_verification_logs import read_tail
+_, content, _ = read_tail(root, path, 32768)
+sys.stderr.buffer.write(content)
+PY
+    then
+        printf 'Native ARM64 setup diagnostic tail unavailable; original failure status preserved.\n' >&2
+    fi
     exit "$status"
 fi
 # Publication follows the complete guarded route, not merely the fixture child.

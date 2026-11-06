@@ -67,6 +67,13 @@ neither ARM ELF headers nor successful cross-linking qualify native execution.
 Both ARM entrypoints use the canonical focused-regression route without selecting
 a rebuild tier. That route derives its own quick setup; explicit tier selection,
 cache cleanup and artifact-preflight flags remain forbidden for focused runs.
+On native failure, the wrapper prints at most 32 KiB from the setup log and
+preserves the original exit status. Diagnostic collection also retains direct
+`setup.log`, `suite.log` and `native-version.log` tails from the native artifact
+scope, even when no safe-rebuild scope was created. These logs share the existing
+discovery, 128-file and 32 MiB aggregate bounds, with at most 1 MiB per log.
+Transported binaries, unrelated files and nested artifact directories are not
+traversed; symlinks and nonregular selected logs fail closed.
 
 On Ubuntu, the installed GNU cross toolchain uses filesystem sysroot `/`
 with GCC toolchain root `/usr`. `/usr/aarch64-linux-gnu` is the target
