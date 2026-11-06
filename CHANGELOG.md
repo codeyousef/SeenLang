@@ -67,6 +67,9 @@ Foundations**.
   Read the input transport version from the actual workspace `[project]` table,
   reject missing or malformed project versions, and cover root-level version
   ambiguity rather than validating only a synthetic manifest shape.
+  Route both cross-building and native qualification through focused admission
+  without an explicit rebuild tier; retain the canonical guard against mixing
+  focused regressions with rebuild-tier, cache-cleanup or preflight options.
 - Align the v4 containment manifest with the existing 60%-of-total,
   live-available-minus-10%-reserve memory derivation and its existing fallback.
   Correct stale declarative metadata without increasing any execution limit.

@@ -64,6 +64,9 @@ not an unrelated root-level value; missing or malformed project versions fail
 before cross-building.
 Its bounded three-member archive is explicitly `cross-built-unverified`;
 neither ARM ELF headers nor successful cross-linking qualify native execution.
+Both ARM entrypoints use the canonical focused-regression route without selecting
+a rebuild tier. That route derives its own quick setup; explicit tier selection,
+cache cleanup and artifact-preflight flags remain forbidden for focused runs.
 
 On Ubuntu, the installed GNU cross toolchain uses filesystem sysroot `/`
 with GCC toolchain root `/usr`. `/usr/aarch64-linux-gnu` is the target

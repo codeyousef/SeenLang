@@ -70,7 +70,7 @@ env -u LD_PRELOAD -u SEEN_FORK_SERIALIZER_SO -u SEEN_FORK_SERIALIZER_ATTESTATION
     SEEN_DISABLE_IR_RECOVERY=1 SEEN_KEEP_TMP=1 SEEN_REQUIRE_ARM_PERF=1 \
     FIXTURE_TARGET_CPU=native FIXTURE_RUN_SECONDS=120 \
     SEEN_TIER_TIMEOUT_SECS="${SEEN_TIER_TIMEOUT_SECS:-2400}" \
-    bash "$ROOT_DIR/scripts/safe_rebuild.sh" --tier quick --regression-script "$SELF" \
+    bash "$ROOT_DIR/scripts/safe_rebuild.sh" --regression-script "$SELF" \
     >"$work/setup.log" 2>&1 || status=$?
 if [ "$status" -ne 0 ]; then
     printf 'Native ARM64 qualification failed (status %s); no report published. Logs: %s\n' "$status" "$work" >&2

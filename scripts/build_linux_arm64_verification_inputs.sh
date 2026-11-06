@@ -41,7 +41,7 @@ inputs.binding(root, candidate)
 PY
     # Routing is not attestation: safe_rebuild derives live RAM limits and
     # creates the scope-bound serializer independently of the inner marker.
-    exec bash "$ROOT_DIR/scripts/safe_rebuild.sh" --tier quick --regression-script "$SELF"
+    exec bash "$ROOT_DIR/scripts/safe_rebuild.sh" --regression-script "$SELF"
 fi
 
 [ "$#" -eq 0 ] || fail 'inner build does not accept arguments'
