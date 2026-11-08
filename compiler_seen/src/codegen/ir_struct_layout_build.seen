@@ -14,6 +14,86 @@ import codegen.type_registry_core.{findStructReg}
 
 var g_structLayoutReprCClassNames: String = ""
 
+///
+Class field initializer registry (FEL-3092). Each entry names a class, one of
+its fields that has an initializer, and the class that declares the
+initializer's hidden `seenFieldDefault_<field>` static method. Inherited
+entries point at the declaring parent. Entries are keyed and deduplicated, so
+re-registering a class layout for another module is harmless.
+///
+var g_fieldDefaultClassNames: Array<String> = Array<String>()
+var g_fieldDefaultFieldNames: Array<String> = Array<String>()
+var g_fieldDefaultOwnerNames: Array<String> = Array<String>()
+
+fun findStructFieldDefaultImpl(className: String, fieldName: String) r: Int {
+    var i = 0
+    while i < g_fieldDefaultClassNames.length() {
+        if g_fieldDefaultClassNames[i] == className and
+            g_fieldDefaultFieldNames[i] == fieldName {
+
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fun addStructFieldDefaultImpl(className: String, fieldName: String,
+    ownerName: String) r: Void {
+
+    if findStructFieldDefaultImpl(className, fieldName) >= 0 {
+        return
+    }
+    g_fieldDefaultClassNames.push(className)
+    g_fieldDefaultFieldNames.push(fieldName)
+    g_fieldDefaultOwnerNames.push(ownerName)
+}
+
+fun registerClassFieldDefaultsImpl(classNode: ClassNode) r: Void {
+    var decoratorIdx = 0
+    while decoratorIdx < classNode.decorators.length() {
+        let decorator = classNode.decorators[decoratorIdx]
+        if decorator.name == "field_default" and
+            decorator.arguments.length() > 0 {
+
+            addStructFieldDefaultImpl(classNode.name, decorator.arguments[0],
+                classNode.name)
+        }
+        decoratorIdx = decoratorIdx + 1
+    }
+    if classNode.parentName == "" {
+        return
+    }
+    // Parent layouts register first; inherit their initializers unless this
+    // class declares its own initializer for the same field.
+    let parentCount = g_fieldDefaultClassNames.length()
+    var entryIdx = 0
+    while entryIdx < parentCount {
+        if g_fieldDefaultClassNames[entryIdx] == classNode.parentName {
+            addStructFieldDefaultImpl(classNode.name,
+                g_fieldDefaultFieldNames[entryIdx],
+                g_fieldDefaultOwnerNames[entryIdx])
+        }
+        entryIdx = entryIdx + 1
+    }
+}
+
+fun structFieldDefaultCountImpl() r: Int {
+    return g_fieldDefaultClassNames.length()
+}
+
+fun structFieldDefaultClassAtImpl(index: Int) r: String {
+    return g_fieldDefaultClassNames[index]
+}
+
+fun structFieldDefaultFieldAtImpl(index: Int) r: String {
+    return g_fieldDefaultFieldNames[index]
+}
+
+fun structFieldDefaultOwnerAtImpl(index: Int) r: String {
+    return g_fieldDefaultOwnerNames[index]
+}
+
 fun setStructLayoutReprCClassNamesImpl(classNames: String) r: Void {
     g_structLayoutReprCClassNames = classNames
 }
@@ -220,6 +300,7 @@ fun prepareStructLayoutRegistrationSnapshotImpl(classNode: ClassNode,
     r: StructLayoutRegistrationSnapshot {
 
     let snapshot = StructLayoutRegistrationSnapshot.new()
+    registerClassFieldDefaultsImpl(classNode)
 
     let constGenericNamesBox = Array<String>()
     constGenericNamesBox.push(constGenericNames)

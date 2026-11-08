@@ -267,6 +267,7 @@ class MacroExpander {
         if name == "executor" { return true }
         if name == "hot_reload" { return true }
         if name == "derive" { return true }
+        if name == "field_default" { return true }
         return false
     }
 

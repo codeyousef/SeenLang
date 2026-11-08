@@ -76,7 +76,7 @@ The compiling example is
 TEST-002A defines the source-level `seen-test-instrumentation-v1` contract with
 `default`, `ci`, `coverage`, `sanitizer-undefined`, and `sanitizer-thread`
 profiles. These are maintainer interfaces, not packaged CLI options: Seen
-0.22.11 does not expose a test subcommand. The maintained acceptance harnesses
+0.22.12 does not expose a test subcommand. The maintained acceptance harnesses
 are `tests/misc_root_tests/seen_test_instrumentation_contract.sh` and
 `tests/misc_root_tests/seen_test_runner_contract.sh`; compiler-capable invocations
 must use the verified containment described in [bootstrap.md](bootstrap.md).

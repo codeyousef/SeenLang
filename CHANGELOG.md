@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.12] - 2026-11-08
+
+### Fixed
+
+- Keep both quotes in a string literal whose payload starts and ends with an
+  escaped quote, such as `"\"quoted\""` (FEL-3077). The parser stripped a
+  second pair of quotes from the lexer's already-unquoted payload, so the
+  string silently lost them, and `"\"\""` became empty. This also corrects
+  compiler-generated GLSL reflection JSON keys and WASM import names, which
+  used such literals.
+- Zero-initialize class and struct literal storage, so fields omitted from a
+  literal read as `0`, `0.0`, or `false` instead of stale heap bytes
+  (FEL-3078). Optimized builds could previously return arbitrary values or
+  trap when reading an omitted field.
+- Apply class field initializers such as `var budget: Int = LIMIT` or
+  `var items: Array<Int> = Array<Int>()` when a class literal omits the field
+  (FEL-3092). Initializers were previously parsed and silently discarded. An
+  initializer is evaluated in the declaring module, runs only when its field is
+  omitted, works for literals written in other modules, and is inherited by
+  subclasses. Initializers are type-checked against the field type, and they
+  cannot refer to `this` or to other fields.
+
 ## [0.22.11] - 2026-11-04
 
 ### Fixed

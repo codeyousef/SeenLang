@@ -1,0 +1,34 @@
+// FEL-3077: a string literal whose payload starts and ends with an escaped
+// quote must keep both quotes. The parser used to strip them a second time.
+fun literalFailure(message: String) r: Int {
+    println(message)
+    return 1
+}
+
+fun main() r: Int {
+    let quoted = "\"quoted\""
+    if quoted.length() != 8 { return literalFailure("escaped-quote literal lost its quotes") }
+    if quoted != "\"" + "quoted" + "\"" { return literalFailure("escaped-quote literal content differs") }
+
+    let joined = "{" + "\"tile_x\""
+    if joined != "{\"tile_x\"" { return literalFailure("concatenated escaped-quote literal differs") }
+    if joined.length() != 9 { return literalFailure("concatenated escaped-quote literal length differs") }
+
+    let pair = "\"\""
+    if pair.length() != 2 { return literalFailure("two-quote literal was emptied") }
+
+    let single = "\""
+    if single.length() != 1 { return literalFailure("single-quote literal length differs") }
+
+    let spaced = "\" \""
+    if spaced.length() != 3 { return literalFailure("quoted space literal lost its quotes") }
+
+    let json = "\"name\": \""
+    if json.length() != 9 { return literalFailure("JSON key literal lost its quotes") }
+
+    let inner = "{\"tile_x\":1"
+    if inner.length() != 11 { return literalFailure("interior escaped quotes changed") }
+
+    println("\"tile_x\"")
+    return 0
+}

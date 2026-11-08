@@ -1,0 +1,39 @@
+// FEL-3092 support module: classes whose field initializers must be applied
+// by class literals written in another module.
+let SUPPORT_BUDGET: Int = 250
+
+var g_counterCreations: Int = 0
+
+class Counter {
+    var hits: Int
+
+    static fun new() r: Counter {
+        g_counterCreations = g_counterCreations + 1
+        return Counter { hits: 11 }
+    }
+}
+
+fun counterCreations() r: Int {
+    return g_counterCreations
+}
+
+class Settings {
+    var name: String = "default"
+    var budget: Int = SUPPORT_BUDGET
+    var offset: Int = -4
+    var scale: Float = 1.5
+    var enabled: Bool = true
+    var initial: Char = 'q'
+    var counter: Counter = Counter.new()
+    var items: Array<Int> = Array<Int>()
+    var plain: Int
+}
+
+class BaseSettings {
+    var depth: Int = 9
+    var label: String = "base"
+}
+
+class DerivedSettings extends BaseSettings {
+    var extra: Int = 5
+}

@@ -1,0 +1,67 @@
+// FEL-3092: class field initializers must be applied when a class literal
+// omits the field, including literals in other modules and inherited fields,
+// and must not run when the field is given explicitly.
+import field_initializer_support.{Settings, Counter, DerivedSettings, counterCreations}
+
+let LOCAL_LIMIT: Int = 64
+
+class Local {
+    var a: Int
+    var b: Int = 7
+    var limit: Int = LOCAL_LIMIT + 1
+    var tag: String = "local"
+
+    static fun new() r: Local { return Local { a: 1 } }
+}
+
+fun initializerFailure(message: String) r: Int {
+    println(message)
+    return 1
+}
+
+fun main() r: Int {
+    let local = Local.new()
+    if local.a != 1 { return initializerFailure("explicit local field differs") }
+    if local.b != 7 { return initializerFailure("local scalar initializer was not applied") }
+    if local.limit != 65 { return initializerFailure("local constant expression initializer differs") }
+    if local.tag != "local" { return initializerFailure("local string initializer differs") }
+
+    let overridden = Local { a: 2, b: 70, tag: "given" }
+    if overridden.b != 70 or overridden.tag != "given" {
+        return initializerFailure("explicit field lost to its initializer")
+    }
+    if overridden.limit != 65 { return initializerFailure("partial override dropped another initializer") }
+
+    let before = counterCreations()
+    let settings = Settings { plain: 3 }
+    if settings.name != "default" { return initializerFailure("imported string initializer differs") }
+    if settings.budget != 250 { return initializerFailure("imported module-constant initializer differs") }
+    if settings.offset != -4 { return initializerFailure("negative initializer differs") }
+    if settings.scale != 1.5 { return initializerFailure("float initializer differs") }
+    if not settings.enabled { return initializerFailure("bool initializer differs") }
+    if settings.initial != 'q' { return initializerFailure("char initializer differs") }
+    if settings.counter.hits != 11 { return initializerFailure("constructor-call initializer differs") }
+    if settings.items.length() != 0 { return initializerFailure("array initializer differs") }
+    settings.items.push(4)
+    if settings.items.length() != 1 { return initializerFailure("array initializer is not usable") }
+    if settings.plain != 3 { return initializerFailure("explicit imported field differs") }
+    if counterCreations() != before + 1 {
+        return initializerFailure("constructor-call initializer ran an unexpected number of times")
+    }
+
+    let explicitCounter = Counter { hits: 2 }
+    let withCounter = Settings { plain: 0, counter: explicitCounter }
+    if withCounter.counter.hits != 2 { return initializerFailure("explicit object field lost") }
+    if counterCreations() != before + 1 {
+        return initializerFailure("initializer ran even though the field was given")
+    }
+
+    let derived = DerivedSettings { }
+    if derived.extra != 5 { return initializerFailure("derived initializer differs") }
+    if derived.depth != 9 or derived.label != "base" {
+        return initializerFailure("inherited initializer was not applied")
+    }
+
+    println("class field initializers applied")
+    return 0
+}

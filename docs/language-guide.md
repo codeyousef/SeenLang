@@ -269,6 +269,28 @@ Use `static fun new(...)` by convention:
 let p = Point.new(3.0, 4.0)
 ```
 
+A field may declare an initializer. A class literal that omits the field uses
+the initializer; a literal that gives the field uses the given value, and the
+initializer does not run:
+
+```seen
+class Config {
+    var name: String = "default"
+    var retries: Int = MAX_RETRIES
+    var tags: Array<String> = Array<String>()
+}
+
+let c = Config { name: "worker" }   // retries and tags use their initializers
+```
+
+Initializers are evaluated in the module that declares the class, so they can
+use that module's constants, functions, and classes. They cannot refer to
+`this` or to other fields. Subclasses inherit their parent's initializers.
+
+Fields omitted from a literal without an initializer start zeroed: numbers are
+`0` or `0.0` and `Bool` is `false`. Set reference fields such as `String` or
+`Array` explicitly or give them an initializer before using them.
+
 ### `this` keyword
 
 Instance methods access fields via `this`:

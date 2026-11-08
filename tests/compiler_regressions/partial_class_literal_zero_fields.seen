@@ -1,0 +1,66 @@
+// FEL-3078: fields omitted from a class literal must read as zero, not as
+// stale bytes from reused pool or heap storage.
+class Small {
+    var a: Int
+    var b: Int
+    var c: Int
+    static fun new() r: Small { return Small { a: 1 } }
+}
+
+class Wide {
+    var first: Int
+    var f0: Int
+    var f1: Int
+    var f2: Int
+    var f3: Int
+    var f4: Int
+    var f5: Int
+    var f6: Int
+    var f7: Int
+    var f8: Int
+    var f9: Int
+    var ratio: Float
+    var flag: Bool
+    var last: Int
+}
+
+fun literalFailure(message: String) r: Int {
+    println(message)
+    return 1
+}
+
+fun dirtySmall(round: Int) r: Int {
+    let filled = Small { a: round, b: -1, c: 123456789 }
+    return filled.a + filled.b + filled.c
+}
+
+fun dirtyWide(round: Int) r: Int {
+    let filled = Wide { first: round, f0: -1, f1: -1, f2: -1, f3: -1, f4: -1,
+        f5: -1, f6: -1, f7: -1, f8: -1, f9: -1, ratio: 3.5, flag: true,
+        last: -1 }
+    return filled.first + filled.last
+}
+
+fun main() r: Int {
+    var round = 0
+    while round < 64 {
+        // Populate storage with nonzero bytes so reuse would expose garbage.
+        var sink = dirtySmall(round) + dirtyWide(round)
+        if sink == 42424242 { println("unreachable") }
+
+        let small = Small.new()
+        if small.a != 1 { return literalFailure("listed small field differs") }
+        if small.b != 0 or small.c != 0 { return literalFailure("omitted small field was not zero") }
+
+        let wide = Wide { first: 7, last: 9 }
+        if wide.first != 7 or wide.last != 9 { return literalFailure("listed wide field differs") }
+        if wide.f0 != 0 or wide.f4 != 0 or wide.f9 != 0 {
+            return literalFailure("omitted wide integer field was not zero")
+        }
+        if wide.ratio != 0.0 { return literalFailure("omitted wide float field was not zero") }
+        if wide.flag { return literalFailure("omitted wide bool field was not false") }
+        round = round + 1
+    }
+    println("partial class literals zero omitted fields")
+    return 0
+}

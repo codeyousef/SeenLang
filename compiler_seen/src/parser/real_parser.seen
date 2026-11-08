@@ -49,6 +49,11 @@ class AnnotationNode {
     }
 }
 
+// Hidden static method that evaluates a class field initializer (FEL-3092).
+fun fieldDefaultMethodName(fieldName: String) r: String {
+    return "seenFieldDefault_" + fieldName
+}
+
 fun genericParameterCount(decorators: Array<AnnotationNode>) r: Int {
     var count = 0
     var i = 0
@@ -2903,6 +2908,10 @@ class RealParser {
                         field.line = fieldName.getLine()
                         field.column = fieldName.getColumn()
                         classNode.fields.push(field)
+                        if matchTokenStr(SeenTokenType.Equal) {
+                            addFieldDefaultInitializer(classNode, field,
+                                parseExpression())
+                        }
                         // trace
                         classTokenHandled = true
                     }
@@ -3045,6 +3054,10 @@ class RealParser {
                                 bareField2.line = bareFieldName2.getLine()
                                 bareField2.column = bareFieldName2.getColumn()
                                 classNode.fields.push(bareField2)
+                                if matchTokenStr(SeenTokenType.Equal) {
+                                    addFieldDefaultInitializer(classNode,
+                                        bareField2, parseExpression())
+                                }
                                 if matchTokenStr(SeenTokenType.Semicolon) { }
                                 if matchTokenStr(SeenTokenType.Comma) { }
                                 classTokenHandled = true
@@ -3175,6 +3188,10 @@ class RealParser {
                         field.line = fieldName.getLine()
                         field.column = fieldName.getColumn()
                         classNode.fields.push(field)
+                        if matchTokenStr(SeenTokenType.Equal) {
+                            addFieldDefaultInitializer(classNode, field,
+                                parseExpression())
+                        }
                         // trace
                         classIntoTokenHandled = true
                     }
@@ -3335,6 +3352,10 @@ class RealParser {
                                 bareField.line = bareFieldName.getLine()
                                 bareField.column = bareFieldName.getColumn()
                                 classNode.fields.push(bareField)
+                                if matchTokenStr(SeenTokenType.Equal) {
+                                    addFieldDefaultInitializer(classNode,
+                                        bareField, parseExpression())
+                                }
                                 if matchTokenStr(SeenTokenType.Semicolon) { }
                                 if matchTokenStr(SeenTokenType.Comma) { }
                                 classIntoTokenHandled = true
@@ -3401,8 +3422,42 @@ class RealParser {
         field.line = fieldName.getLine()
         field.column = fieldName.getColumn()
         classNode.fields.push(field)
+        if matchTokenStr(SeenTokenType.Equal) {
+            addFieldDefaultInitializer(classNode, field, parseExpression())
+        }
         if matchTokenStr(SeenTokenType.Semicolon) { }
         if matchTokenStr(SeenTokenType.Comma) { }
+    }
+
+    ///
+    A field initializer (`var x: Int = expr`) becomes a hidden static method
+    `seenFieldDefault_x() r: Int { return expr }` on the class, plus a
+    parser-owned `field_default` class annotation naming the field (FEL-3092).
+    The initializer is therefore parsed, resolved and type-checked in the
+    declaring module, and enters the declaration fingerprint without any AST
+    layout change. A class literal that omits the field calls the method, so
+    the initializer runs only when the field is not given explicitly.
+    ///
+    fun addFieldDefaultInitializer(classNode: ClassNode, field: ParamNode,
+        valueExpr: ParserExpressionNode) r: Void {
+
+        let returnStmt = StatementNode.new()
+        returnStmt.kind = "Return"
+        returnStmt.line = field.line
+        returnStmt.column = field.column
+        returnStmt.returnValue = valueExpr
+        let method = FunctionNode.new()
+        method.name = fieldDefaultMethodName(field.name)
+        method.returnType = field.paramType
+        method.isStatic = true
+        method.line = field.line
+        method.column = field.column
+        method.body = BlockNode.new()
+        method.body.statements.push(returnStmt)
+        classNode.methods.push(method)
+        let annotation = AnnotationNode.new("field_default")
+        annotation.addArgument(field.name)
+        classNode.decorators.push(annotation)
     }
 
     fun parseOperatorMethodNameDeclarationOnly() r: String {
@@ -6472,21 +6527,14 @@ class RealParser {
         }
 
         ///
-        StringLiteral tokens already carry the unquoted payload from the lexer.
-        Do not re-check for surrounding quotes here or they fall through into
-        the name-like path and become VarExpr nodes.
+        StringLiteral tokens already carry the unquoted, unescaped payload from
+        the lexer. Do not strip surrounding quotes here: a payload that starts
+        and ends with an escaped quote, such as "\"x\"", would lose both
+        quotes (FEL-3077).
         ///
         if checkToken(SeenTokenType.StringLiteral) {
             let token = advance()
-            let rawValue = token.getValue()
-            // Strip quotes from the token value if present
-            var strValue = rawValue
-            if rawValue.length() >= 2 {
-                if rawValue.startsWith("\"") and rawValue.endsWith("\"") {
-                    strValue = rawValue.substring(1, rawValue.length() - 1)
-                }
-            }
-            return makeLiteral(strValue, "String")
+            return makeLiteral(token.getValue(), "String")
         }
 
         // CharLiteral this.tokens also carry the raw character payload.

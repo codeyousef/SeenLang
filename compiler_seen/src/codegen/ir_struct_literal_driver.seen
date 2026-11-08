@@ -18,6 +18,8 @@ import codegen.ir_type_layout.{getLlvmTypeSizeImpl, computeStructSizeFromLayoutI
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
 import codegen.ir_assignment_gen.{coerceMethodCallHandleAssignmentImpl}
 import codegen.type_registry_core.{findStructReg}
+import codegen.ir_struct_layout_build.{structFieldDefaultCountImpl, structFieldDefaultClassAtImpl, structFieldDefaultFieldAtImpl, structFieldDefaultOwnerAtImpl}
+import parser.real_parser.{fieldDefaultMethodName}
 
 fun inferStructLiteralFieldTypeFromValueExprState(
     valueExpr: ParserExpressionNode, varNames: Array<String>,
@@ -122,6 +124,14 @@ fun allocateStructLiteralStorageState(output: StringBuilder,
         output.append("  " + mallocReg + " = call ptr @seen_checked_malloc(i64 " +
             structSize.toString() + ")\n")
     }
+    ///
+    Pool and checked-malloc storage is reused without clearing. Zero it so
+    fields omitted from the literal read as defined zeros rather than stale
+    heap bytes (FEL-3078). Dead-store elimination drops this memset when the
+    literal stores every field.
+    ///
+    output.append("  call void @llvm.memset.p0.i64(ptr " + mallocReg +
+        ", i8 0, i64 " + structSize.toString() + ", i1 false)\n")
     output.append("  ; escape-analysis: heap-to-stack candidate (" +
         structSize.toString() + " bytes)\n")
     return mallocReg
@@ -190,6 +200,56 @@ fun resolveStructLiteralFieldValueState(ctx: CodegenLoweringContext,
     return valueReg
 }
 
+///
+Return the literal's explicit fields followed by one synthesized entry for
+each omitted field that has a class initializer (FEL-3092). A synthesized
+entry is `field: Owner.seenFieldDefault_field()`, so it is lowered and
+coerced exactly like an explicit field, and the initializer runs only when
+the field is omitted. The parsed literal itself is not modified.
+///
+fun structLiteralFieldsWithDefaults(structName: String, structIdx: Int,
+    explicitFields: Array<ParserExpressionNode>) r: Array<ParserExpressionNode> {
+
+    let fields = Array<ParserExpressionNode>()
+    var explicitIdx = 0
+    while explicitIdx < explicitFields.length() {
+        fields.push(explicitFields[explicitIdx])
+        explicitIdx = explicitIdx + 1
+    }
+    if structIdx < 0 {
+        return fields
+    }
+    var defaultIdx = 0
+    while defaultIdx < structFieldDefaultCountImpl() {
+        if structFieldDefaultClassAtImpl(defaultIdx) == structName {
+            let fieldName = structFieldDefaultFieldAtImpl(defaultIdx)
+            var given = false
+            var givenIdx = 0
+            while givenIdx < explicitFields.length() {
+                if explicitFields[givenIdx].variableName == fieldName {
+                    given = true
+                }
+                givenIdx = givenIdx + 1
+            }
+            if not given {
+                let methodName = fieldDefaultMethodName(fieldName)
+                let callExpr = ParserExpressionNode.new()
+                callExpr.kind = "MethodCall"
+                callExpr.literalValue = structFieldDefaultOwnerAtImpl(defaultIdx)
+                callExpr.variableName = methodName
+                callExpr.callee = methodName
+                let fieldExpr = ParserExpressionNode.new()
+                fieldExpr.kind = "StructField"
+                fieldExpr.variableName = fieldName
+                fieldExpr.operands.push(callExpr)
+                fields.push(fieldExpr)
+            }
+        }
+        defaultIdx = defaultIdx + 1
+    }
+    return fields
+}
+
 fun generateStructLiteralState(ctx: CodegenLoweringContext,
     output: StringBuilder, expr: ParserExpressionNode,
     varNames: Array<String>, varTypes: Array<String>,
@@ -203,12 +263,14 @@ fun generateStructLiteralState(ctx: CodegenLoweringContext,
     let structLayout = layoutInfo[1]
     let mallocReg = allocateStructLiteralStorageState(output, structSize)
 
+    let literalFields = structLiteralFieldsWithDefaults(structName,
+        structIdx, expr.arguments)
     var slFieldRegs = Array<String>()
     var slFieldTypes = Array<String>()
     var slGepIndices = Array<Int>()
     var fieldIdx = 0
-    while fieldIdx < expr.arguments.length() {
-        let fieldExpr = expr.arguments[fieldIdx]
+    while fieldIdx < literalFields.length() {
+        let fieldExpr = literalFields[fieldIdx]
         let fieldName = fieldExpr.variableName
         let fieldInfo = splitPipe(resolveStructLiteralFieldInfoState(
             structName, structIdx, fieldName, fieldExpr, fieldIdx,
