@@ -15,6 +15,8 @@ https://github.com/llvm/llvm-project/blob/main/clang/include/clang/Options/Optio
 
 No SDK or executable hashes are shipped as a purported official installation.
 """
+from __future__ import annotations
+
 import argparse
 import ctypes
 import errno
