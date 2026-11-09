@@ -76,6 +76,10 @@ run_fixture() {
             preload_args=(--fixture-preload "$FIXTURE_ASAN_PRELOAD_LIBRARY"
                 --fixture-preload-sha256 "$(sha256sum -- "$FIXTURE_ASAN_PRELOAD_LIBRARY" | cut -d ' ' -f1)")
         fi
+        if [ -n "${FIXTURE_ASAN_DRIVER_LEAK_PROFILE:-}" ]; then
+            preload_args+=(--driver-leak-profile "$FIXTURE_ASAN_DRIVER_LEAK_PROFILE"
+                --driver-leak-control "${FIXTURE_ASAN_DRIVER_LEAK_CONTROL:-}")
+        fi
         timeout --foreground --kill-after=5s "${FIXTURE_RUN_SECONDS}s" bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
             --address-layout "${FIXTURE_ASAN_ADDRESS_LAYOUT:-default}" \
             --target-root "$TMP_DIR" --compile-log "$log" "${preload_args[@]}" -- "$TMP_DIR/$name-$profile" "$@" >>"$log" 2>&1 || status=$?

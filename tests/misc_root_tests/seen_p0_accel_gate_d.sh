@@ -92,6 +92,23 @@ for backend in cuda vulkan; do
             timeout --foreground --kill-after=5s 30s "$TMP_DIR/$backend-sdk-abi-oracle" || :
     fi
 done
+# SDK-only ASan leak baselines for the owner-approved scoped driver attribution.
+# They link only the installed driver/loader; a failed build leaves the address
+# rows under unchanged strict leak checking.
+for backend in cuda vulkan; do
+    control="$ROOT_DIR/tests/expanded_gate_0_accelerator_certification/driver_leak_controls/vulkan_instance_control.c"
+    includes=()
+    library=-lvulkan
+    if [ "$backend" = cuda ]; then
+        control="$ROOT_DIR/tests/expanded_gate_0_accelerator_certification/driver_leak_controls/cuda_init_control.c"
+        includes=("${cuda_include[@]}")
+        library=-lcuda
+    fi
+    capture "$backend-driver-leak-control-build" native-cpu compile-only \
+        'SDK-only ASan driver leak baseline; same-run bound for scoped driver attribution, not GPU execution' \
+        timeout --foreground --kill-after=5s 60s clang -std=c11 -O1 -g -fno-omit-frame-pointer -fsanitize=address \
+        -Wall -Wextra -Werror "${includes[@]}" "$control" "$library" -o "$TMP_DIR/$backend-driver-leak-control" || :
+done
 # Compile the H tracing SDK interceptor with exactly H's warning, optimization,
 # linking and ASan flags. It forwards real NVIDIA calls and records hot owners.
 for variant in plain address; do
@@ -189,8 +206,9 @@ for row in rows:
         row['logs'].extend(sys.argv[2:])
 path.write_text(json.dumps(rows, indent=2) + '\n')
 PY
-# Keep sanitizer policy untouched: the known NVIDIA libcuda and Vulkan/dbus
-# leaks must remain nonzero failures even if evidence was printed before exit.
+# Known NVIDIA libcuda and Vulkan loader/ICD/dbus leaks are accepted only through
+# the owner-approved scoped attribution: allocated by approved driver modules and
+# no larger than the same-run SDK-only control. Any other leak still fails.
 for profile in fast release undefined address; do
     for backend in cuda vulkan; do
         name="$backend"
@@ -198,6 +216,12 @@ for profile in fast release undefined address; do
         # default inaccessible gap. Bounds/UAF/poison/leak checks stay enabled.
         FIXTURE_ASAN_ADDRESS_LAYOUT=default
         if [ "$backend" = cuda ]; then FIXTURE_ASAN_ADDRESS_LAYOUT=cuda; fi
+        FIXTURE_ASAN_DRIVER_LEAK_PROFILE=
+        FIXTURE_ASAN_DRIVER_LEAK_CONTROL=
+        if prerequisites_passed "$TMP_DIR/$backend-driver-leak-control-build.status"; then
+            FIXTURE_ASAN_DRIVER_LEAK_PROFILE=$backend
+            FIXTURE_ASAN_DRIVER_LEAK_CONTROL="$TMP_DIR/$backend-driver-leak-control"
+        fi
         source="$ROOT_DIR/tests/expanded_gate_0_accelerator_certification/cuda_foundation/src/main.seen"
         compile_status=0
         if [ "$backend" = vulkan ]; then

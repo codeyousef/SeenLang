@@ -3,6 +3,8 @@
 
 Native exit statuses and raw logs are authoritative, including sanitizer failures
 that occur after a complete hardware observation. Never turn those into passes.
+The only accepted leaks are those the ASan runner's owner-approved scoped driver
+attribution already admitted before producing the native status (FEL-1111).
 """
 import argparse
 import hashlib

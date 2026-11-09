@@ -34,6 +34,8 @@ TARGET_ROOT=""
 COMPILE_LOG=""
 FIXTURE_PRELOAD=""
 FIXTURE_PRELOAD_SHA256=""
+DRIVER_LEAK_PROFILE=""
+DRIVER_LEAK_CONTROL=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --sanitizer)
@@ -66,6 +68,16 @@ while [ "$#" -gt 0 ]; do
             FIXTURE_PRELOAD_SHA256=$2
             shift 2
             ;;
+        --driver-leak-profile)
+            [ "$#" -ge 2 ] && [ -z "$DRIVER_LEAK_PROFILE" ] || fail "--driver-leak-profile requires one value"
+            DRIVER_LEAK_PROFILE=$2
+            shift 2
+            ;;
+        --driver-leak-control)
+            [ "$#" -ge 2 ] && [ -z "$DRIVER_LEAK_CONTROL" ] || fail "--driver-leak-control requires one path"
+            DRIVER_LEAK_CONTROL=$2
+            shift 2
+            ;;
         --)
             shift
             break
@@ -94,6 +106,14 @@ case "$ADDRESS_LAYOUT" in
         ;;
     *) fail "--address-layout must be default or cuda" ;;
 esac
+case "$DRIVER_LEAK_PROFILE" in
+    '') [ -z "$DRIVER_LEAK_CONTROL" ] || fail "--driver-leak-control requires --driver-leak-profile" ;;
+    cuda|vulkan)
+        [ "$SANITIZER" = address ] || fail "GPU driver leak attribution requires AddressSanitizer"
+        [ -n "$DRIVER_LEAK_CONTROL" ] || fail "--driver-leak-profile requires an SDK-only --driver-leak-control"
+        ;;
+    *) fail "--driver-leak-profile must be cuda or vulkan" ;;
+esac
 [ -n "$TARGET_ROOT" ] && [ -n "$COMPILE_LOG" ] && [ "$#" -ge 1 ] ||
     fail "usage: $0 --target-root DIR --compile-log FILE -- /absolute/generated/executable [args...]"
 
@@ -106,6 +126,7 @@ case "$(uname -m)" in
             fail "native ARM admits only controlled default AddressSanitizer, not TSan or CUDA"
         [ -z "$FIXTURE_PRELOAD" ] && [ -z "$FIXTURE_PRELOAD_SHA256" ] ||
             fail "native ARM sanitizer fixture preloads have no reviewed admission"
+        [ -z "$DRIVER_LEAK_PROFILE" ] || fail "native ARM has no reviewed GPU driver leak attribution"
         NATIVE_ARM_ASAN=1
         ;;
     *) fail "no finite sanitizer admission exists for this Linux architecture" ;;
@@ -224,10 +245,22 @@ if ! grep -Fq "$compile_evidence" "$canonical_compile_log" &&
         "$canonical_compile_log"; then
     fail "the compiler log does not attest $sanitizer_label instrumentation"
 fi
-timeout 10 readelf -Ws -- "$canonical_binary" 2>/dev/null |
-    awk -v symbol="$runtime_symbol" '{ split($NF, name, "@"); if (name[1] == symbol) found = 1 }
-        END { exit(found ? 0 : 1) }' ||
+has_sanitizer_runtime() {
+    timeout 10 readelf -Ws -- "$1" 2>/dev/null |
+        awk -v symbol="$runtime_symbol" '{ split($NF, name, "@"); if (name[1] == symbol) found = 1 }
+            END { exit(found ? 0 : 1) }'
+}
+has_sanitizer_runtime "$canonical_binary" ||
     fail "the generated executable has no $sanitizer_label runtime symbol"
+if [ -n "$DRIVER_LEAK_PROFILE" ]; then
+    # The SDK-only control is the leak baseline; it must be ASan-built in the
+    # same exact target root, never an arbitrary or inherited executable.
+    [ "${DRIVER_LEAK_CONTROL%/*}" = "$canonical_target_root" ] &&
+        [ -f "$DRIVER_LEAK_CONTROL" ] && [ -x "$DRIVER_LEAK_CONTROL" ] && [ ! -L "$DRIVER_LEAK_CONTROL" ] ||
+        fail "driver leak control escaped the exact target root or is unsafe"
+    [ "$DRIVER_LEAK_CONTROL" != "$canonical_binary" ] || fail "driver leak control cannot be the fixture"
+    has_sanitizer_runtime "$DRIVER_LEAK_CONTROL" || fail "driver leak control has no $sanitizer_label runtime symbol"
+fi
 
 is_positive_integer "${SEEN_MAIN_VMEM_KB:-}" ||
     fail "the inherited main virtual-memory cap is missing"
@@ -300,15 +333,41 @@ if [ -n "$FIXTURE_PRELOAD" ]; then
 fi
 
 
-exec env \
-    -u LD_PRELOAD \
-    -u SEEN_FORK_SERIALIZER_TARGET \
-    -u SEEN_FORK_SERIALIZER_ROOT_PID \
-    -u LSAN_OPTIONS \
-    -u ASAN_SYMBOLIZER_PATH \
-    ASAN_OPTIONS="abort_on_error=1:halt_on_error=1:detect_leaks=1:symbolize=0:$address_layout_options" \
-    LSAN_OPTIONS=exitcode=23 \
-    UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0 \
-    TSAN_OPTIONS=halt_on_error=1:exitcode=66:report_signal_unsafe=1 \
-    "${fixture_preload_env[@]}" \
-    "$canonical_binary" "$@"
+sanitizer_env=(
+    -u LD_PRELOAD
+    -u SEEN_FORK_SERIALIZER_TARGET
+    -u SEEN_FORK_SERIALIZER_ROOT_PID
+    -u LSAN_OPTIONS
+    -u ASAN_SYMBOLIZER_PATH
+    UBSAN_OPTIONS=abort_on_error=1:halt_on_error=1:print_stacktrace=0
+    TSAN_OPTIONS=halt_on_error=1:exitcode=66:report_signal_unsafe=1
+)
+asan_options="abort_on_error=1:halt_on_error=1:detect_leaks=1:symbolize=0:$address_layout_options"
+if [ -z "$DRIVER_LEAK_PROFILE" ]; then
+    exec env "${sanitizer_env[@]}" ASAN_OPTIONS="$asan_options" LSAN_OPTIONS=exitcode=23 \
+        "${fixture_preload_env[@]}" "$canonical_binary" "$@"
+fi
+
+# Owner-approved scoped GPU driver leak attribution (FEL-1111). LSan reports
+# without exiting so driver destructors still run; ASan errors still abort.
+# The attribution owner, not LSan's exit code, then decides: only leaks
+# allocated by approved driver modules, bounded by the same-run SDK-only
+# control, are accepted. Every other leak exits 23 exactly as before.
+reports=$(mktemp -d "$canonical_target_root/driver-leak-reports.XXXXXX") ||
+    fail "driver leak report directory could not be created"
+control_status=0
+env "${sanitizer_env[@]}" ASAN_OPTIONS="$asan_options:log_path=$reports/control" LSAN_OPTIONS=exitcode=0 \
+    "$DRIVER_LEAK_CONTROL" >/dev/null 2>"$reports/control.stderr" || control_status=$?
+[ "$control_status" = 0 ] || { cat -- "$reports/control.stderr" >&2; fail "SDK-only $DRIVER_LEAK_PROFILE control failed with status $control_status"; }
+fixture_status=0
+env "${sanitizer_env[@]}" ASAN_OPTIONS="$asan_options:log_path=$reports/fixture" LSAN_OPTIONS=exitcode=0 \
+    "${fixture_preload_env[@]}" "$canonical_binary" "$@" || fixture_status=$?
+shopt -s nullglob
+control_reports=("$reports"/control.[0-9]*)
+fixture_reports=("$reports"/fixture.[0-9]*)
+shopt -u nullglob
+# Keep every fixture sanitizer report in the caller's log.
+if [ "${#fixture_reports[@]}" -gt 0 ]; then cat -- "${fixture_reports[@]}" >&2; fi
+[ "$fixture_status" = 0 ] || exit "$fixture_status"
+python3 "$SCRIPT_DIR/gpu_driver_leak_attribution.py" --backend "$DRIVER_LEAK_PROFILE" \
+    --control "${control_reports[@]}" --fixture "${fixture_reports[@]}" || exit 23

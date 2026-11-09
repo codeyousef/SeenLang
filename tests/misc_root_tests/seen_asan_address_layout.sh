@@ -51,4 +51,38 @@ for args in '--address-layout invalid' '--sanitizer thread --address-layout cuda
         --target-root "$work" --compile-log "$work/compile.log" -- "$work/control" clean > "$work/rejected.log" 2>&1 || status=$?
     [ "$status" = 126 ] || exit 1
 done
-echo "PASS: both ASan layouts retain heap/UAF/stack/global/leak detection; CUDA gap mappings retain poison checks: $work"
+# Scoped GPU driver leak attribution: an SDK-only control bounds the run, but a
+# leak allocated by the fixture itself, or any ASan error, is never accepted.
+for result in 0 1; do
+    printf 'int main(void) { return %s; }\n' "$result" > "$work/driver-control-$result.c"
+    (set -x; clang -std=c11 -O0 -g -fno-omit-frame-pointer -fsanitize=address \
+        "$work/driver-control-$result.c" -o "$work/driver-control-$result") >> "$work/compile.log" 2>&1
+done
+driver_case() {
+    local expected=$1 profile=$2 layout=$3 control=$4 mode=$5 status=0
+    timeout --foreground --kill-after=5s 30s bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
+        --address-layout "$layout" --driver-leak-profile "$profile" --driver-leak-control "$control" \
+        --target-root "$work" --compile-log "$work/compile.log" -- "$work/control" "$mode" \
+        > "$work/driver-$profile-$mode.log" 2>&1 || status=$?
+    [ "$status" = "$expected" ] || { echo "FAIL: driver $profile $mode exited $status, expected $expected" >&2; exit 1; }
+}
+driver_case 0 cuda cuda "$work/driver-control-0" clean
+rg -Fq 'gpu-driver-leak-attribution backend=cuda fixture=0B/0 control=0B/0' "$work/driver-cuda-clean.log"
+driver_case 23 vulkan default "$work/driver-control-0" leak
+rg -Fq '37 byte(s) leaked in 1 allocation(s)' "$work/driver-vulkan-leak.log"
+rg -Fq 'not an approved vulkan driver module' "$work/driver-vulkan-leak.log"
+driver_case 134 cuda cuda "$work/driver-control-0" heap
+rg -Fq 'heap-buffer-overflow' "$work/driver-cuda-heap.log"
+driver_case 126 cuda cuda "$work/driver-control-1" clean
+driver_case 126 cuda cuda "$work/control" clean
+driver_case 126 cuda cuda "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" clean
+for args in '--driver-leak-profile cuda' "--driver-leak-control $work/driver-control-0" \
+    "--driver-leak-profile metal --driver-leak-control $work/driver-control-0" \
+    "--sanitizer thread --driver-leak-profile cuda --driver-leak-control $work/driver-control-0"; do
+    status=0
+    read -r -a options <<< "$args"
+    bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" "${options[@]}" \
+        --target-root "$work" --compile-log "$work/compile.log" -- "$work/control" clean > "$work/rejected.log" 2>&1 || status=$?
+    [ "$status" = 126 ] || { echo "FAIL: accepted invalid driver options: $args" >&2; exit 1; }
+done
+echo "PASS: both ASan layouts retain heap/UAF/stack/global/leak detection; CUDA gap mappings retain poison checks; scoped driver attribution rejects fixture leaks and errors: $work"

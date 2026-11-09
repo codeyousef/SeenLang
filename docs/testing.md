@@ -126,6 +126,21 @@ Verbose `LeakSanitizer: checking for leaks` is an informational observation, not
 finding. Clean admission still requires exit zero, exact limits/mapping markers,
 completion, and no ASan/LSan error, fatal diagnostic or finding summary.
 
+RTX 4090 Gate D address rows use the owner-approved scoped driver leak
+attribution (FEL-1111). SDK-only controls show that `cuInit` alone leaks
+183 bytes in libcuda. A Vulkan instance alone leaks in the loader, in dbus and in
+the NVIDIA ICD, which is unloaded before LSan reports. Native LSan suppressions
+cannot match the unloaded ICD frames. Instead, `run_asan_in_hard_memory_scope.sh
+--driver-leak-profile cuda|vulkan --driver-leak-control EXE` runs the ASan-built
+control from `tests/expanded_gate_0_accelerator_certification/driver_leak_controls/`
+and the fixture in the same scope, with LSan in report-only mode.
+`scripts/gpu_driver_leak_attribution.py` accepts the fixture only when every
+leak's allocator caller is an approved module for that backend and its leaked
+bytes and allocations do not exceed the control's. Seen, libc or test-driver
+allocations, non-leak sanitizer errors and leaks above the control still fail.
+ARM and TSan reject the profile. `seen_asan_address_layout.sh` covers the
+runner's CPU-side accept, reject and abort paths.
+
 The finalizer verifies the transported ARM compiler/client manifest, source
 identities, full-suite logs, native compiler version, kernel limits/events,
 sanitizer control executable and raw findings, and paired benchmark telemetry.

@@ -1,8 +1,8 @@
 # CLI Reference
 
 This page documents the current **0.23.0 development source (unreleased)**.
-The latest published compiler is **0.22.11**. Both use `seen compile`, not the
-legacy `seen build`; canonical `seen test` is available in current source but
+The latest published compiler is **0.22.11**. Both use `seen compile`; the
+legacy build subcommand is unsupported. Canonical `seen test` is available in current source but
 is not a command in published 0.22.11.
 
 ## Commands

@@ -293,9 +293,11 @@ python3 -m py_compile \
     scripts/ci_linux_arm64_inputs.py \
     scripts/linux_arm64_milestone_report.py \
     scripts/linux_arm64_asan_admission.py \
+    scripts/gpu_driver_leak_attribution.py \
     tests/runner/test_ci_linux_arm64_inputs_unit.py \
     tests/runner/test_linux_arm64_milestone_unit.py \
     tests/runner/test_linux_arm64_asan_admission_unit.py \
+    tests/runner/test_gpu_driver_leak_attribution_unit.py \
     tests/runner/test_ci_bootstrap_candidate_unit.py \
     tests/runner/test_memory_budget_unit.py \
     tests/runner/test_ci_workflow_policy_unit.py \
@@ -321,6 +323,7 @@ python3 -m unittest \
     tests.runner.test_ci_linux_arm64_inputs_unit \
     tests.runner.test_linux_arm64_milestone_unit \
     tests.runner.test_linux_arm64_asan_admission_unit \
+    tests.runner.test_gpu_driver_leak_attribution_unit \
     tests.runner.test_ci_workflow_policy_unit \
     tests.runner.test_memory_budget_unit \
     tests.runner.test_finite_tsan_sdk_unit \

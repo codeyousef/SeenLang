@@ -12,6 +12,17 @@ Foundations**.
 
 ### Added
 
+- Add owner-approved scoped GPU driver leak attribution for RTX 4090 Gate D
+  address rows (FEL-1111). `run_asan_in_hard_memory_scope.sh
+  --driver-leak-profile cuda|vulkan --driver-leak-control EXE` runs an ASan-built
+  SDK-only control (`cuInit`; Vulkan instance plus device) and the fixture in the
+  same scope. LSan reports without aborting, so driver destructors still run.
+  `gpu_driver_leak_attribution.py` accepts a leak only when its allocator caller
+  is an approved driver/loader module (libcuda; Vulkan loader, dbus or the
+  unloaded ICD). The fixture's totals must also be no larger than the control's.
+  Any other leak still exits 23, and ASan errors still abort. Native LSan
+  suppressions cannot express this, because the NVIDIA ICD is unloaded before
+  the leak report.
 - Add explicit finite-address TSan SDK provisioning for core and async CI:
   authenticate pinned LLVM sources, build serially under the existing hard
   resource limits, require real clean/race/insufficient-limit controls, and bind
