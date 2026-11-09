@@ -83,7 +83,7 @@ static inline void* seen_aligned_alloc(size_t alignment, size_t size) {
 
 #endif // _WIN32
 
-#if defined(_WIN32)
+#if defined(_MSC_VER) && !defined(__clang__)
 #define SEEN_WEAK
 #else
 #define SEEN_WEAK __attribute__((weak))
