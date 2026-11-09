@@ -47,9 +47,15 @@ def yaml_document(value, depth=0):
     return rows
 
 
+# The native Windows job has no Linux scope, uptime clock or Go toolchain; its
+# kernel job object caps are asserted by the script and the finalized report.
+NATIVE_WINDOWS = "native-windows"
+
+
 class WorkflowPolicy(unittest.TestCase):
     def setUp(self):
         self.ci = policy.parse_workflow((ROOT / policy.WORKFLOW).read_bytes())
+        self.linux_jobs = [name for name in self.ci["jobs"] if name != NATIVE_WINDOWS]
         self.release = policy.parse_workflow((ROOT / policy.RELEASE_WORKFLOW).read_bytes())
 
     def validate(self, ci=None, release=None):
@@ -129,7 +135,7 @@ class WorkflowPolicy(unittest.TestCase):
             self.validate(ci=ci)
 
     def test_every_phase_preserves_scopes_toolchain_and_deadlines(self):
-        for name in self.ci["jobs"]:
+        for name in self.linux_jobs:
             for key, value in (("timeout-minutes", 360), ("runs-on", "ubuntu-latest"),
                                ("permissions", {"contents": "write"})):
                 ci = copy.deepcopy(self.ci)
@@ -150,8 +156,8 @@ class WorkflowPolicy(unittest.TestCase):
                 self.validate(ci=ci)
 
     def test_hosted_clock_and_bounded_diagnostics_cannot_be_removed_or_delayed(self):
-        for name, job in self.ci["jobs"].items():
-            steps = job["steps"]
+        for name in self.linux_jobs:
+            steps = self.ci["jobs"][name]["steps"]
             self.assertEqual(steps[0]["if"], "${{ !cancelled() }}")
             for mutation in ("remove-clock", "late-clock", "unbound-diagnostic",
                              "cancelled-diagnostic", "unbound-publication"):
@@ -177,8 +183,8 @@ class WorkflowPolicy(unittest.TestCase):
                     self.validate(ci=ci)
 
     def test_every_diagnostic_and_post_gate_publication_has_a_one_minute_bound(self):
-        for job in self.ci["jobs"].values():
-            steps = job["steps"]
+        for name in self.linux_jobs:
+            steps = self.ci["jobs"][name]["steps"]
             gate_index = next(index for index, step in enumerate(steps)
                               if step.get("run", "").startswith("scripts/run_ci_required.sh"))
             diagnostics = [step for step in steps[gate_index + 1:]
@@ -206,6 +212,33 @@ class WorkflowPolicy(unittest.TestCase):
         ci["jobs"]["acceptance"]["steps"].append({"run": "scripts/prepare_release_toolchain_artifact.sh"})
         with self.assertRaises(policy.WorkflowError):
             self.validate(ci=ci)
+
+    def test_native_windows_execution_cannot_be_skipped_moved_or_unbounded(self):
+        def verify_step(doc):
+            return next(step for step in doc["jobs"][NATIVE_WINDOWS]["steps"]
+                        if "verify_windows_iocp.ps1" in step.get("run", ""))
+        mutations = {
+            "linux-runner": lambda doc: doc["jobs"][NATIVE_WINDOWS].update({"runs-on": "ubuntu-24.04"}),
+            "unpinned-runner": lambda doc: doc["jobs"][NATIVE_WINDOWS].update({"runs-on": "windows-latest"}),
+            "deadline": lambda doc: doc["jobs"][NATIVE_WINDOWS].update({"timeout-minutes": 360}),
+            "skip-run": lambda doc: doc["jobs"][NATIVE_WINDOWS]["steps"].remove(verify_step(doc)),
+            "tolerate": lambda doc: verify_step(doc).update({"continue-on-error": True}),
+            "unbounded-step": lambda doc: verify_step(doc).pop("timeout-minutes"),
+            "other-script": lambda doc: verify_step(doc).update(
+                {"run": verify_step(doc)["run"].replace("verify_windows_iocp", "verify_windows_release_draft")}),
+            "optional-dependency": lambda doc: doc["jobs"]["required"]["needs"].remove(NATIVE_WINDOWS),
+            "ignored-result": lambda doc: next(
+                step for step in doc["jobs"]["required"]["steps"]
+                if "WINDOWS_RESULT" in step.get("env", {}))["env"].pop("WINDOWS_RESULT"),
+            "unverified-report": lambda doc: doc["jobs"]["required"]["steps"].remove(next(
+                step for step in doc["jobs"]["required"]["steps"]
+                if step.get("with", {}).get("name", "").startswith("seen-windows-iocp-qualification-"))),
+        }
+        for name, mutate in mutations.items():
+            ci = copy.deepcopy(self.ci)
+            mutate(ci)
+            with self.subTest(mutation=name), self.assertRaises(policy.WorkflowError):
+                self.validate(ci=ci)
 
     def test_failed_evidence_never_uploads_bulk_ir(self):
         ci = copy.deepcopy(self.ci)
@@ -324,7 +357,8 @@ class HostedBudget(unittest.TestCase):
         if self.now() < 192:
             self.skipTest("requires at least 192s host uptime")
         for phase, limit in (("bootstrap", 7200), ("acceptance", 11700),
-                             ("native-arm-inputs", 8700), ("native-arm", 3000), ("finalize", 1800)):
+                             ("native-arm-inputs", 8700), ("native-arm", 3000),
+                             ("native-windows-inputs", 3000), ("finalize", 1800)):
             result = self.preflight(phase, self.now() - 192)
             self.assertEqual(result.returncode, 126, result.stderr)
             budget = re.search(r"setup=(\d+)s workload=(\d+)s reserve=(\d+)s rounding=(\d+)s",
@@ -353,7 +387,8 @@ class HostedBudget(unittest.TestCase):
         self.assertEqual(result.returncode, 126, result.stderr)
 
     def test_local_full_and_named_phases_do_not_consume_hosted_reserve(self):
-        for phase in ("all", "bootstrap", "acceptance", "native-arm-inputs", "native-arm", "finalize"):
+        for phase in ("all", "bootstrap", "acceptance", "native-arm-inputs", "native-arm",
+                      "native-windows-inputs", "finalize"):
             result = self.preflight(phase, hosted=False)
             self.assertEqual(result.returncode, 126, result.stderr)
             self.assertNotIn("hosted phase=", result.stderr)

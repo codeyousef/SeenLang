@@ -42,6 +42,7 @@ case "$CI_PHASE" in
         ;;
     native-arm-inputs) TIMEOUT_SECS=8700 ;;
     native-arm) TIMEOUT_SECS=3000 ;;
+    native-windows-inputs) TIMEOUT_SECS=3000 ;;
     finalize) TIMEOUT_SECS=1800 ;;
     *) fail "unknown required CI phase: $CI_PHASE" ;;
 esac
@@ -78,7 +79,7 @@ if [ "${GITHUB_ACTIONS:-false}" = true ]; then
     echo "ci-containment: hosted phase=$CI_PHASE setup=${setup_elapsed}s workload=${TIMEOUT_SECS}s reserve=600s rounding=1s" >&2
 fi
 case "$CI_PHASE" in
-    acceptance|native-arm-inputs|native-arm)
+    acceptance|native-arm-inputs|native-arm|native-windows-inputs)
         export SEEN_TIER_TIMEOUT_SECS="$TIMEOUT_SECS"
         ;;
 esac

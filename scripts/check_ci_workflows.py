@@ -134,6 +134,31 @@ def ci_policy() -> dict:
          "timeout-minutes": 1},
     ] + diagnostics("native-arm"), needs=["bootstrap", "native-arm-inputs"],
         **{"runs-on": "ubuntu-24.04-arm", "env": {"GOTOOLCHAIN": "local"}})
+    windows_inputs = hosted_job("native-windows-inputs", 50, provision_steps() + [
+        {"run": "sudo -n apt-get install --yes --no-install-recommends gcc-mingw-w64-x86-64"},
+    ] + candidate_steps() + [
+        {"run": "scripts/run_ci_required.sh --phase native-windows-inputs"},
+        {**artifact_upload(f"seen-windows-iocp-inputs-{SOURCE_SHA}",
+                           "target/seen-build/windows-iocp-inputs.tar.gz", compression=0),
+         "timeout-minutes": 1},
+    ] + diagnostics("native-windows-inputs"), needs="bootstrap")
+    windows_archive = {"uses": DOWNLOAD_ARTIFACT, "with": {
+        "name": f"seen-windows-iocp-inputs-{SOURCE_SHA}",
+        "path": "target/seen-build/windows-iocp-transfer/",
+    }}
+    # Native Windows execution is bounded by a kernel job object inside the script.
+    windows = {"name": "native-windows", "runs-on": "windows-2025", "timeout-minutes": 30,
+               "needs": "native-windows-inputs", "defaults": {"run": {"shell": "pwsh"}}, "steps": [
+        {"uses": CHECKOUT, "with": {"ref": SOURCE_SHA}},
+        windows_archive,
+        {"timeout-minutes": 20,
+         "run": "./scripts/verify_windows_iocp.ps1 "
+                "-Archive target/seen-build/windows-iocp-transfer/windows-iocp-inputs.tar.gz "
+                "-Report target/seen-build/windows-iocp-qualification/report.json"},
+        {**artifact_upload(f"seen-windows-iocp-qualification-{SOURCE_SHA}",
+                           "target/seen-build/windows-iocp-qualification/"),
+         "timeout-minutes": 1},
+    ]}
     required_provision = provision_steps()
     # Diagnostics still need exact source when an upstream dependency fails.
     required_provision[1]["if"] = DIAGNOSTIC_IF
@@ -141,9 +166,12 @@ def ci_policy() -> dict:
         {"env": {"BOOTSTRAP_RESULT": "${{ needs.bootstrap.result }}",
                  "ACCEPTANCE_RESULT": "${{ needs.acceptance.result }}",
                  "NATIVE_INPUTS_RESULT": "${{ needs.native-arm-inputs.result }}",
-                 "NATIVE_RESULT": "${{ needs.native-arm.result }}"},
+                 "NATIVE_RESULT": "${{ needs.native-arm.result }}",
+                 "WINDOWS_INPUTS_RESULT": "${{ needs.native-windows-inputs.result }}",
+                 "WINDOWS_RESULT": "${{ needs.native-windows.result }}"},
          "run": '[[ "$BOOTSTRAP_RESULT" == success && "$ACCEPTANCE_RESULT" == success '
-                '&& "$NATIVE_INPUTS_RESULT" == success && "$NATIVE_RESULT" == success ]]'},
+                '&& "$NATIVE_INPUTS_RESULT" == success && "$NATIVE_RESULT" == success '
+                '&& "$WINDOWS_INPUTS_RESULT" == success && "$WINDOWS_RESULT" == success ]]'},
     ] + required_provision[2:] + candidate_steps() + [
         {"uses": DOWNLOAD_ARTIFACT, "with": {
             "pattern": f"seen-acceptance-receipt-*-{SOURCE_SHA}",
@@ -154,11 +182,17 @@ def ci_policy() -> dict:
             "name": f"seen-linux-arm64-qualification-{SOURCE_SHA}",
             "path": "target/seen-build/linux-arm64-qualification/",
         }},
+        windows_archive,
+        {"uses": DOWNLOAD_ARTIFACT, "with": {
+            "name": f"seen-windows-iocp-qualification-{SOURCE_SHA}",
+            "path": "target/seen-build/windows-iocp-qualification/",
+        }},
         {"run": "scripts/run_ci_required.sh --phase finalize"},
         {**artifact_upload(f"seen-release-toolchain-{SOURCE_SHA}",
                            "target/seen-build/release-toolchain.tar.gz", compression=0),
          "timeout-minutes": 1},
-    ] + diagnostics("required"), needs=["bootstrap", "acceptance", "native-arm-inputs", "native-arm"],
+    ] + diagnostics("required"), needs=["bootstrap", "acceptance", "native-arm-inputs", "native-arm",
+                                        "native-windows-inputs", "native-windows"],
         **{"if": "${{ always() }}"})
     return {
         "name": "CI",
@@ -170,7 +204,9 @@ def ci_policy() -> dict:
                                    "contains(github.event.head_commit.message, '[replace-ci]') }}",
         },
         "jobs": {"bootstrap": bootstrap, "acceptance": acceptance,
-                 "native-arm-inputs": native_inputs, "native-arm": native, "required": required},
+                 "native-arm-inputs": native_inputs, "native-arm": native,
+                 "native-windows-inputs": windows_inputs, "native-windows": windows,
+                 "required": required},
     }
 
 
@@ -510,6 +546,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
             "clang-20",
             "gcc-aarch64-linux-gnu",
             "g++-aarch64-linux-gnu",
+            "gcc-mingw-w64-x86-64",
             "libc6-dev-arm64-cross",
             "libclang-rt-20-dev",
             "libvulkan-dev",
@@ -530,11 +567,14 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         ],
         "host_tools_provisioning": "ubuntu-packages-pinned-assembler-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
-        "job_count": 4 + len(ACCEPTANCE_GROUPS),
+        "job_count": 6 + len(ACCEPTANCE_GROUPS),
         "job_graph": {"bootstrap": [], "acceptance": ["bootstrap"],
                       "native-arm-inputs": ["bootstrap"],
                       "native-arm": ["bootstrap", "native-arm-inputs"],
-                      "required": ["bootstrap", "acceptance", "native-arm-inputs", "native-arm"]},
+                      "native-windows-inputs": ["bootstrap"],
+                      "native-windows": ["native-windows-inputs"],
+                      "required": ["bootstrap", "acceptance", "native-arm-inputs", "native-arm",
+                                   "native-windows-inputs", "native-windows"]},
         "acceptance_groups": list(ACCEPTANCE_GROUPS),
         "candidate": "same-run-source-bound-unverified-stage3",
         "release_artifact_producer": "required-only-after-all-five-receipts-and-native-arm-proof",
@@ -542,7 +582,7 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
             "linux-arm64": "required-native-qualification",
             "linux-x86_64": "required",
             "macos-arm64": "release-required-input",
-            "windows-x86_64": "release-required-input",
+            "windows-x86_64": "required-native-iocp-qualification",
         },
         "required_check": "CI / required",
         "release_cosign": "v3.1.3",
@@ -555,14 +595,16 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
         "native_arm_runner": "ubuntu-24.04-arm",
+        "native_windows_runner": "windows-2025-job-object-capped",
         "timeout_minutes": {"bootstrap": 120, "acceptance": 195,
-                            "native-arm-inputs": 145, "native-arm": 50, "required": 30},
+                            "native-arm-inputs": 145, "native-arm": 50,
+                            "native-windows-inputs": 50, "native-windows": 30, "required": 30},
         "critical_path_seconds": 20700,
         "hosted_workload_budget": "phase-limit-minus-monotonic-setup-minus-600s-reserve-minus-1s-rounding",
         "diagnostic_step_timeout_seconds": 60,
         "trigger": "push-main-or-release-0.23.0-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 14,
+        "version": 15,
         "download_artifact": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
     }
 

@@ -527,22 +527,34 @@ The authoritative `.github/workflows/ci.yml` preserves the required check
    profiles, 60-second fuzz, four cross-object targets and thirty paired samples.
    Native ASan additionally requires fresh pinned-runtime clean/fault/finite-limit
    controls under the unchanged finite virtual and aggregate kernel limits.
-5. `required` (30 minutes) always runs and explicitly rejects unsuccessful,
+5. `native-windows-inputs` (50 minutes) cross-builds the IOCP native and
+   contract fixtures for `windows-x86_64` in fast and release profiles with the
+   exact candidate. The archive binds each PE32+ image to the source and
+   candidate identity; it is cross-built input, not native evidence.
+6. `native-windows` (30 minutes, `windows-2025`) verifies those digests, places
+   itself in a kernel job object (2 GiB job memory, 1 GiB per process, 24
+   processes, kill on close) with read-back, and runs every fixture under a
+   300-second deadline. Native fixtures must print the verified IOCP
+   classification with zero fallbacks.
+7. `required` (30 minutes) always runs and explicitly rejects unsuccessful,
    skipped, or missing dependencies. It downloads the candidate, all five
-   receipts and the ARM input/qualification bundles, verifies their common
+   receipts, the ARM input/qualification bundles and the Windows inputs and
+   report, verifies their common
    source identity and retained native evidence, then installs and certifies
    the compiler, performs installed Gate 0 checks, writes the full stamp,
    and produces `seen-release-toolchain-${sha}`. No other job produces an eligible
    release toolchain artifact.
 
 The longest configured dependency path remains 345 minutes (20,700 seconds):
-the 145+50-minute ARM branch does not exceed the 195-minute acceptance branch.
+the 145+50-minute ARM branch and the 50+30-minute Windows branch do not exceed
+the 195-minute acceptance branch.
 Build-capable jobs use Ubuntu 24.04, commit-pinned checkout/Go/artifact actions,
 exact Go 1.26.5, read-only repository permissions and architecture-appropriate
 pinned host provisioning. The portable x86-64 baseline remains required for x64
 candidates; ARM qualification uses native ARM instructions and fresh bindings.
 `scripts/run_ci_required.sh --phase bootstrap`, `--phase acceptance --group GROUP`,
-`--phase native-arm-inputs`, `--phase native-arm` and `--phase finalize` are the
+`--phase native-arm-inputs`, `--phase native-arm`, `--phase native-windows-inputs`
+and `--phase finalize` are the
 hosted entries. The default still runs the complete local CI surface with its
 14,400-second full acceptance timeout.
 Hosted workload deadlines subtract elapsed setup, a 600-second bounded

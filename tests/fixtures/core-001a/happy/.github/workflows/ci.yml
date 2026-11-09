@@ -329,6 +329,101 @@ jobs:
           include-hidden-files: true
         if: "${{ !cancelled() }}"
         timeout-minutes: 1
+  native-windows-inputs:
+    name: "native-windows-inputs"
+    runs-on: "ubuntu-24.04"
+    timeout-minutes: 50
+    env:
+      GOTOOLCHAIN: "local"
+      SEEN_RELEASE_CPU_BASELINE: "x86-64"
+    needs: "bootstrap"
+    steps:
+      - if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+        run: |
+          IFS=" " read -r uptime _ < /proc/uptime
+          printf 'SEEN_CI_JOB_STARTED_UPTIME_SECS=%s\n' "${uptime%%.*}" >> "$GITHUB_ENV"
+      - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+        with:
+          ref: "${{ github.sha }}"
+      - uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+        with:
+          go-version: "1.26.5"
+          cache: false
+      - run: "scripts/provision_ci_host.sh"
+      - run: "sudo -n apt-get install --yes --no-install-recommends gcc-mingw-w64-x86-64"
+      - uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+        with:
+          name: "seen-bootstrap-candidate-${{ github.sha }}"
+          path: "target/seen-build/candidate-transfer/"
+      - run: "python3 scripts/ci_bootstrap_candidate.py unpack --root \"$PWD\" --archive \"$PWD/target/seen-build/candidate-transfer/bootstrap-candidate.tar.gz\" --output \"$PWD/target/seen-build/bootstrap-candidate\""
+      - run: "scripts/run_ci_required.sh --phase native-windows-inputs"
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-windows-iocp-inputs-${{ github.sha }}"
+          path: "target/seen-build/windows-iocp-inputs.tar.gz"
+          if-no-files-found: "error"
+          retention-days: 14
+          compression-level: 0
+        timeout-minutes: 1
+      - if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+        run: "python3 scripts/collect_verification_logs.py"
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-verification-logs-native-windows-inputs-${{ github.sha }}"
+          path: "target/seen-build/verification-logs/"
+          if-no-files-found: "error"
+          retention-days: 7
+          compression-level: 6
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-accelerator-evidence-native-windows-inputs-${{ github.sha }}"
+          path: ".seen/accelerator-gate-evidence/*.tar.gz\n.seen/accelerator-gate-evidence/index.json\n"
+          if-no-files-found: "ignore"
+          retention-days: 14
+          compression-level: 0
+          include-hidden-files: true
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-io-overlap-native-windows-inputs-${{ github.sha }}"
+          path: ".seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json"
+          if-no-files-found: "ignore"
+          retention-days: 14
+          compression-level: 6
+          include-hidden-files: true
+        if: "${{ !cancelled() }}"
+        timeout-minutes: 1
+  native-windows:
+    name: "native-windows"
+    runs-on: "windows-2025"
+    timeout-minutes: 30
+    needs: "native-windows-inputs"
+    defaults:
+      run:
+        shell: "pwsh"
+    steps:
+      - uses: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+        with:
+          ref: "${{ github.sha }}"
+      - uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+        with:
+          name: "seen-windows-iocp-inputs-${{ github.sha }}"
+          path: "target/seen-build/windows-iocp-transfer/"
+      - timeout-minutes: 20
+        run: "./scripts/verify_windows_iocp.ps1 -Archive target/seen-build/windows-iocp-transfer/windows-iocp-inputs.tar.gz -Report target/seen-build/windows-iocp-qualification/report.json"
+      - uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+        with:
+          name: "seen-windows-iocp-qualification-${{ github.sha }}"
+          path: "target/seen-build/windows-iocp-qualification/"
+          if-no-files-found: "error"
+          retention-days: 14
+          compression-level: 6
+        timeout-minutes: 1
   required:
     name: "required"
     runs-on: "ubuntu-24.04"
@@ -341,6 +436,8 @@ jobs:
       - "acceptance"
       - "native-arm-inputs"
       - "native-arm"
+      - "native-windows-inputs"
+      - "native-windows"
     if: "${{ always() }}"
     steps:
       - name: "Start monotonic hosted job budget"
@@ -360,7 +457,9 @@ jobs:
           ACCEPTANCE_RESULT: "${{ needs.acceptance.result }}"
           NATIVE_INPUTS_RESULT: "${{ needs.native-arm-inputs.result }}"
           NATIVE_RESULT: "${{ needs.native-arm.result }}"
-        run: "[[ \"$BOOTSTRAP_RESULT\" == success && \"$ACCEPTANCE_RESULT\" == success && \"$NATIVE_INPUTS_RESULT\" == success && \"$NATIVE_RESULT\" == success ]]"
+          WINDOWS_INPUTS_RESULT: "${{ needs.native-windows-inputs.result }}"
+          WINDOWS_RESULT: "${{ needs.native-windows.result }}"
+        run: "[[ \"$BOOTSTRAP_RESULT\" == success && \"$ACCEPTANCE_RESULT\" == success && \"$NATIVE_INPUTS_RESULT\" == success && \"$NATIVE_RESULT\" == success && \"$WINDOWS_INPUTS_RESULT\" == success && \"$WINDOWS_RESULT\" == success ]]"
       - name: "Set up pinned Go"
         uses: "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
         with:
@@ -389,6 +488,16 @@ jobs:
         with:
           name: "seen-linux-arm64-qualification-${{ github.sha }}"
           path: "target/seen-build/linux-arm64-qualification/"
+      - name: "Download same-run Windows IOCP inputs"
+        uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+        with:
+          name: "seen-windows-iocp-inputs-${{ github.sha }}"
+          path: "target/seen-build/windows-iocp-transfer/"
+      - name: "Download native Windows IOCP qualification"
+        uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+        with:
+          name: "seen-windows-iocp-qualification-${{ github.sha }}"
+          path: "target/seen-build/windows-iocp-qualification/"
       - name: "Finalize all-group certification"
         run: "scripts/run_ci_required.sh --phase finalize"
       - name: "Retain exact-commit release toolchain"

@@ -12,6 +12,11 @@ Foundations**.
 
 ### Added
 
+- Required CI now executes the Windows IOCP backend on a native `windows-2025`
+  runner. `native-windows-inputs` cross-builds the native and contract fixtures
+  for both profiles with the exact candidate, and `native-windows` runs them
+  inside a read-back-verified kernel job object. Finalization rejects any report
+  that is not verified, ran different bytes or exceeded the job caps.
 - Add owner-approved scoped GPU driver leak attribution for RTX 4090 Gate D
   address rows (FEL-1111). `run_asan_in_hard_memory_scope.sh
   --driver-leak-profile cuda|vulkan --driver-leak-control EXE` runs an ASan-built
@@ -646,6 +651,10 @@ Foundations**.
 
 ### Fixed
 
+- Windows programs that use `Result` or `Option` link again. The runtime's
+  fallback `Ok`, `Err`, `Some`, `None` and `Result_*` helpers were strong symbols
+  on every Windows toolchain and collided with the standard library's
+  definitions. They are now weak on MinGW and clang, and strong only for MSVC.
 - Use the filesystem root for Ubuntu ARM64 cross-linking rather than treating
   the GNU target installation prefix as a sysroot. Check real C and C++ runtime
   links before the full compiler input build, preserving SDK linker-script

@@ -43,6 +43,11 @@ case "${SEEN_CI_PHASE:-all}" in
             --candidate "$ROOT_DIR/target/seen-build/bootstrap-candidate" \
             --output "$ROOT_DIR/target/seen-build/linux-arm64-inputs.tar.gz"
         ;;
+    native-windows-inputs)
+        exec bash "$ROOT_DIR/scripts/build_windows_iocp_inputs.sh" \
+            --candidate "$ROOT_DIR/target/seen-build/bootstrap-candidate" \
+            --output "$ROOT_DIR/target/seen-build/windows-iocp-inputs.tar.gz"
+        ;;
     native-arm)
         mkdir -- "$ROOT_DIR/target/seen-build/linux-arm64-qualification"
         exec bash "$ROOT_DIR/scripts/verify_linux_arm64_milestone.sh" \
@@ -56,6 +61,11 @@ case "${SEEN_CI_PHASE:-all}" in
             --candidate "$ROOT_DIR/target/seen-build/bootstrap-candidate" \
             --archive "$ROOT_DIR/target/seen-build/linux-arm64-transfer/linux-arm64-inputs.tar.gz" \
             --report "$ROOT_DIR/target/seen-build/linux-arm64-qualification/report.json"
+        python3 "$ROOT_DIR/scripts/ci_windows_iocp.py" verify-report \
+            --root "$ROOT_DIR" \
+            --candidate "$ROOT_DIR/target/seen-build/bootstrap-candidate" \
+            --archive "$ROOT_DIR/target/seen-build/windows-iocp-transfer/windows-iocp-inputs.tar.gz" \
+            --report "$ROOT_DIR/target/seen-build/windows-iocp-qualification/report.json"
         "$ROOT_DIR/scripts/certify_gate0_clean_checkout.sh" --finalize-candidate
         # Release preparation includes real package/compiler verification.
         # Keep that owned work inside the same bounded scope as finalization.
@@ -74,6 +84,7 @@ bash -n \
     scripts/ci_linux_namespace_preflight.sh \
     scripts/build_linux_arm64_verification_inputs.sh \
     scripts/verify_linux_arm64_milestone.sh \
+    scripts/build_windows_iocp_inputs.sh \
     scripts/verify_ci_native_host_inputs.sh \
     scripts/memory_budget.sh \
     scripts/seen_stage1_acceptance.sh \
@@ -291,10 +302,12 @@ python3 -m py_compile \
     scripts/ci_bootstrap_candidate.py \
     scripts/ci_candidate_io.py \
     scripts/ci_linux_arm64_inputs.py \
+    scripts/ci_windows_iocp.py \
     scripts/linux_arm64_milestone_report.py \
     scripts/linux_arm64_asan_admission.py \
     scripts/gpu_driver_leak_attribution.py \
     tests/runner/test_ci_linux_arm64_inputs_unit.py \
+    tests/runner/test_ci_windows_iocp_unit.py \
     tests/runner/test_linux_arm64_milestone_unit.py \
     tests/runner/test_linux_arm64_asan_admission_unit.py \
     tests/runner/test_gpu_driver_leak_attribution_unit.py \
@@ -321,6 +334,7 @@ python3 tests/gpu_artifacts/metal_toolchain_lifecycle_contract.py
 python3 -m unittest \
     tests.runner.test_ci_bootstrap_candidate_unit \
     tests.runner.test_ci_linux_arm64_inputs_unit \
+    tests.runner.test_ci_windows_iocp_unit \
     tests.runner.test_linux_arm64_milestone_unit \
     tests.runner.test_linux_arm64_asan_admission_unit \
     tests.runner.test_gpu_driver_leak_attribution_unit \
