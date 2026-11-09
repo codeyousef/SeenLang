@@ -44,6 +44,17 @@ class Tests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     report.metrics(telemetry)
 
+    def test_compiler_identity_is_first_stdout_line(self):
+        stdout = b"Seen 0.23.0\nLanguage: Seen\nEntrypoint: shipped compiler\n"
+        self.assertEqual(report.compiler_identity(stdout, "0.23.0"), "Seen 0.23.0")
+
+    def test_compiler_identity_rejects_diagnostics_mismatch_and_empty(self):
+        for stdout in (b"memory_guard[x]: verified cgroup=/s\nSeen 0.23.0\n",
+                       b"Seen 0.22.12\n", b"Seen 0.23.0-dirty\n", b""):
+            with self.subTest(stdout=stdout):
+                with self.assertRaises(ValueError):
+                    report.compiler_identity(stdout, "0.23.0")
+
     def test_unbounded_or_oversized_scope_rejected(self):
         for memory, swap, tasks in (("max", "0", "24"), ("1025", "0", "24"),
                                     ("1024", "1", "24"), ("1024", "0", "25")):

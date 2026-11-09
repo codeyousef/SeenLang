@@ -98,6 +98,10 @@ Foundations**.
   complete zero-exit clean control with exact limits/mapping, while still
   rejecting sanitizer findings, fatal diagnostics and summaries. Validate the
   real retained native control output rather than weakening its finite allowance.
+  Read native compiler identity from `--version` stdout only. Containment
+  read-back diagnostics now go to a retained `native-version.err`, so they can no
+  longer replace the first line. The report records exactly `Seen <version>`
+  rather than every stdout line, which `publish` already required.
 - Align the v4 containment manifest with the existing 60%-of-total,
   live-available-minus-10%-reserve memory derivation and its existing fallback.
   Correct stale declarative metadata without increasing any execution limit.

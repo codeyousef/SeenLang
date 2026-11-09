@@ -84,7 +84,8 @@ unsupported-mode failures before any IR or executable publication. These
 cross-target checks do not replace native execution or finite ASan controls.
 On native failure, the wrapper prints at most 32 KiB from the setup log and
 preserves the original exit status. Diagnostic collection also retains direct
-`setup.log`, `suite.log` and `native-version.log` tails from the native artifact
+`setup.log`, `suite.log`, `native-version.log` (compiler stdout, the identity
+source) and `native-version.err` (containment diagnostics) tails from the native artifact
 scope, even when no safe-rebuild scope was created. These logs share the existing
 discovery, 128-file and 32 MiB aggregate bounds, with at most 1 MiB per log.
 Transported binaries, unrelated files and nested artifact directories are not

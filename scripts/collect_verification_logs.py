@@ -77,7 +77,7 @@ def candidates(root):
                 examined += 1
                 if examined > MAX_ENTRIES:
                     raise ValueError("verification log discovery exceeds its bound")
-                if entry.name in {"setup.log", "suite.log", "native-version.log"}:
+                if entry.name in {"setup.log", "suite.log", "native-version.log", "native-version.err"}:
                     result.append((0, run / entry.name))
     base = root / ".seen/agent-tools/safe-rebuild"
     if any(parent.is_symlink() for parent in (root / ".seen", base.parent, base)):

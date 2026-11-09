@@ -310,6 +310,14 @@ def collect_asan_files(root, artifact, raw, executable):
     return files
 
 
+def compiler_identity(stdout, source_version):
+    lines = stdout.decode().splitlines()
+    expected = f"Seen {source_version}"
+    require(bool(lines) and lines[0] == expected,
+            "actual native compiler version does not match its source")
+    return expected
+
+
 def successful_status(path):
     require(io.read_file(path, 16) == b"0\n", f"fixture did not succeed: {path.name}")
 
@@ -346,15 +354,16 @@ def run(args):
     if result.returncode:
         return result.returncode if result.returncode > 0 else 128 - result.returncode
     elapsed = time.monotonic_ns() - started
-    with (args.work / "native-version.log").open("xb") as version_log:
+    # Containment read-back diagnostics go to stderr; only compiler stdout is identity.
+    with (args.work / "native-version.log").open("xb") as version_log, \
+            (args.work / "native-version.err").open("xb") as version_err:
         version_status = subprocess.run(
             ["bash", str(args.root / "scripts/run_attested_seen.sh"), str(compiler), "--version"],
-            stdout=version_log, stderr=subprocess.STDOUT, check=False).returncode
+            stdout=version_log, stderr=version_err, check=False).returncode
     if version_status:
         return version_status if version_status > 0 else 128 - version_status
     version_bytes = io.read_file(args.work / "native-version.log", 4096)
-    require(version_bytes.decode().splitlines()[0] == f"Seen {manifest['source_version']}",
-            "actual native compiler version does not match its source")
+    compiler_version = compiler_identity(version_bytes, manifest["source_version"])
     serializer_record = io.read_file(Path(os.environ["SEEN_FORK_SERIALIZER_ATTESTATION"]), 8192)
     serializer = io.read_file(Path(os.environ["SEEN_FORK_SERIALIZER_SO"]), MAX_LOG)
     after = scope_snapshot()
@@ -418,7 +427,7 @@ def run(args):
               "production_certified": False, "hardware_certified": False,
               "native_compiler_executed": True, "input_manifest": manifest,
               "input_manifest_sha256": state(args.work)["native_manifest_sha256"],
-              "compiler_version": version_bytes.decode().strip(),
+              "compiler_version": compiler_version,
               "compiler_version_status": version_status,
               "compiler_version_log": {"path": str(args.work / "native-version.log"), **identity(version_bytes)},
               "serializer": identity(serializer), "serializer_attestation": serializer_record.decode(),
