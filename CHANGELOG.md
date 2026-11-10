@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   could trap, and an out-of-range read could panic. Selects are now formed
   only when every assigned value is a literal, a local, a negation, or
   `+ - *` of integer or float operands.
+- Let the shipped macOS compiler build programs natively (FEL-3108). The
+  bundled C runtime defined `_POSIX_C_SOURCE`, which on Darwin hides `flock`,
+  `arc4random_buf`, `st_mtimespec`, `fstore_t`, and
+  `pthread_cond_timedwait_relative_np`, so every native Mac compile failed with
+  "runtime object cache compilation failed". Release cross-builds passed only
+  because the cross wrapper adds `-D_DARWIN_C_SOURCE`. The runtime now defines
+  it on Apple targets, and the macOS release build checks the runtime without
+  the wrapper flag.
 
 ## [0.22.12] - 2026-11-08
 

@@ -23,6 +23,12 @@
 // ============================================================================
 #define _GNU_SOURCE
 #define _POSIX_C_SOURCE 200809L
+// On Darwin _POSIX_C_SOURCE hides flock, arc4random_buf, st_mtimespec and
+// fstore_t. The cross-build wrapper passes -D_DARWIN_C_SOURCE; a native Mac
+// compile of the shipped runtime does not.
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
 
 #include "seen_runtime.h"
 #include <errno.h>
