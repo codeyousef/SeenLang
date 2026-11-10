@@ -248,6 +248,7 @@ import codegen.ir_egraph_rules.{egraphLookup, egraphLookupFloat, egraphSelfCompa
 import codegen.ir_egraph_emit.{emitEgraphPeepholeImpl, emitEgraphFloatPeepholeImpl}
 import codegen.ir_inline_heuristics.{mlShouldInlineWeighted, selfCallCheck}
 import codegen.ir_codegen_metrics_state.{cseLookup, cseRecord, cseClear, callCountRecord, callCountClear, selfCallClear, initCollectionBoxes, syncCollectionBoxes, getOptStats, resetOptCounters, loadMLWeights}
+import codegen.ir_win64_abi.{lowerWin64AggregateAbi as _seedWin64Abi}
 import codegen.ir_codegen_target_state.{detectHostPlatform, overrideTargetTripleImpl,
     configureLlvmCoroutineEndAbi}
 import codegen.ir_generator_config_driver.{setGeneratorTypeHeaderPathState}
@@ -9764,6 +9765,7 @@ fun collectModulePaths(inputFile: String, quiet: Bool) r: Array<String> {
         modules.push("codegen.ir_ml_logging")
         modules.push("codegen.ir_codegen_metrics_state")
         modules.push("codegen.ir_codegen_target_state")
+        modules.push("codegen.ir_win64_abi")
         modules.push("codegen.ir_codegen_global_state")
         modules.push("codegen.ir_codegen_module_state")
         modules.push("codegen.ir_codegen_feature_state")

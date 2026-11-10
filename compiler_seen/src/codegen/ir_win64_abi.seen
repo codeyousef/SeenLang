@@ -1,0 +1,576 @@
+// ir_win64_abi.seen - Win64 C ABI lowering for external aggregate signatures.
+///
+LLVM passes a first-class aggregate argument as split scalars and returns one
+in RAX:RDX. The Win64 C ABI passes aggregates that are not 1, 2, 4 or 8 bytes
+by reference, returns them through a hidden sret pointer, and coerces the
+remaining sizes to integers. Every external symbol with an aggregate signature
+gets the C ABI so Seen modules, the C runtime and system libraries agree.
+References inside the module keep the Seen signature through an internal
+thunk that opt inlines.
+///
+import str.string.{StringBuilder, indexOf}
+import io.file.{writeText}
+import codegen.ir_codegen_target_state.{getCodegenTargetTripleImpl}
+
+class W64Signature {
+    var keyword: String
+    var prefix: String
+    var returnType: String
+    var name: String
+    var params: Array<String>
+    var rest: String
+}
+
+fun w64IsSpace(b: Int) r: Bool { return b == 32 or b == 9 or b == 13 }
+
+fun w64IsIdentByte(b: Int) r: Bool {
+    return (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or
+        (b >= 97 and b <= 122) or b == 95 or b == 46 or b == 36 or b == 45
+}
+
+fun w64IsOpen(b: Int) r: Bool { return b == 40 or b == 123 or b == 91 or b == 60 }
+fun w64IsClose(b: Int) r: Bool { return b == 41 or b == 125 or b == 93 or b == 62 }
+
+fun w64Trim(text: String) r: String {
+    var start = 0
+    var end = text.length()
+    while start < end and w64IsSpace(text.byteAt(start)) { start = start + 1 }
+    while end > start and w64IsSpace(text.byteAt(end - 1)) { end = end - 1 }
+    return text.substring(start, end)
+}
+
+fun w64HasWord(text: String, word: String) r: Bool {
+    return (" " + text + " ").contains(" " + word + " ")
+}
+
+// Index just past the bracket closing text[start]; -1 when unbalanced.
+fun w64MatchClose(text: String, start: Int) r: Int {
+    var depth = 0
+    var i = start
+    while i < text.length() {
+        let b = text.byteAt(i)
+        if w64IsOpen(b) { depth = depth + 1 }
+        if w64IsClose(b) {
+            depth = depth - 1
+            if depth == 0 { return i + 1 }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// Index of the bracket opening the one that ends text; -1 when unbalanced.
+fun w64MatchOpen(text: String) r: Int {
+    var depth = 0
+    var i = text.length() - 1
+    while i >= 0 {
+        let b = text.byteAt(i)
+        if w64IsClose(b) { depth = depth + 1 }
+        if w64IsOpen(b) {
+            depth = depth - 1
+            if depth == 0 { return i }
+        }
+        i = i - 1
+    }
+    return -1
+}
+
+fun w64SplitTop(text: String) r: Array<String> {
+    let parts = Array<String>()
+    var depth = 0
+    var start = 0
+    var i = 0
+    while i < text.length() {
+        let b = text.byteAt(i)
+        if w64IsOpen(b) { depth = depth + 1 }
+        if w64IsClose(b) { depth = depth - 1 }
+        if b == 44 and depth == 0 {
+            parts.push(w64Trim(text.substring(start, i)))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    let last = w64Trim(text.substring(start, text.length()))
+    if last.length() > 0 or parts.length() > 0 { parts.push(last) }
+    return parts
+}
+
+// Length of the type that starts a parameter; 0 when it cannot be read.
+fun w64TypeLength(text: String) r: Int {
+    if text.length() == 0 { return 0 }
+    let b = text.byteAt(0)
+    if w64IsOpen(b) {
+        let end = w64MatchClose(text, 0)
+        if end < 0 { return 0 }
+        return end
+    }
+    var i = 0
+    while i < text.length() and not w64IsSpace(text.byteAt(i)) { i = i + 1 }
+    return i
+}
+
+fun w64ParamType(param: String) r: String {
+    return param.substring(0, w64TypeLength(param))
+}
+
+// Parameter attributes without the type or a trailing %name.
+fun w64ParamAttributes(param: String) r: String {
+    var rest = w64Trim(param.substring(w64TypeLength(param), param.length()))
+    var cut = rest.length()
+    while cut > 0 and not w64IsSpace(rest.byteAt(cut - 1)) { cut = cut - 1 }
+    if cut < rest.length() and rest.byteAt(cut) == 37 {
+        rest = w64Trim(rest.substring(0, cut))
+    }
+    return rest
+}
+
+// Size * 64 + alignment under the Win64 data layout; -1 when unknown.
+fun w64Layout(t: String, names: Array<String>, bodies: Array<String>,
+    depth: Int) r: Int {
+
+    if depth > 32 { return -1 }
+    if t == "i1" or t == "i8" { return 64 + 1 }
+    if t == "i16" or t == "half" or t == "bfloat" { return 2 * 64 + 2 }
+    if t == "i32" or t == "float" { return 4 * 64 + 4 }
+    if t == "i64" or t == "ptr" or t == "double" { return 8 * 64 + 8 }
+    if t == "i128" or t == "x86_fp80" or t == "fp128" { return 16 * 64 + 16 }
+    if t.startsWith("%") {
+        var i = 0
+        while i < names.length() {
+            if names[i] == t {
+                return w64Layout(bodies[i], names, bodies, depth + 1)
+            }
+            i = i + 1
+        }
+        return -1
+    }
+    let packed = t.startsWith("<{")
+    if packed or t.startsWith("{") {
+        var inner = t.substring(1, t.length() - 1)
+        if packed { inner = t.substring(2, t.length() - 2) }
+        let fields = w64SplitTop(inner)
+        var size = 0
+        var align = 1
+        var k = 0
+        while k < fields.length() {
+            let field = w64Layout(fields[k], names, bodies, depth + 1)
+            if field < 0 { return -1 }
+            var fieldAlign = field % 64
+            if packed { fieldAlign = 1 }
+            size = (size + fieldAlign - 1) / fieldAlign * fieldAlign + field / 64
+            if fieldAlign > align { align = fieldAlign }
+            k = k + 1
+        }
+        size = (size + align - 1) / align * align
+        return size * 64 + align
+    }
+    if t.startsWith("[") or t.startsWith("<") {
+        let x = t.indexOf(" x ", 0)
+        if x < 0 { return -1 }
+        let count = w64Trim(t.substring(1, x)).toInt()
+        let element = w64Layout(w64Trim(t.substring(x + 3, t.length() - 1)),
+            names, bodies, depth + 1)
+        if element < 0 or count < 0 { return -1 }
+        if t.startsWith("[") { return count * (element / 64) * 64 + element % 64 }
+        var size = 1
+        while size < count * (element / 64) { size = size * 2 }
+        var align = size
+        if align > 16 { align = 16 }
+        return size * 64 + align
+    }
+    return -1
+}
+
+// "" passes unchanged, "ptr" by reference or sret, "iN" as an integer, and
+// "?" leaves the whole symbol untouched because its layout is unknown.
+fun w64Class(t: String, names: Array<String>, bodies: Array<String>) r: String {
+    if not (t.startsWith("%") or t.startsWith("{") or t.startsWith("<{") or
+        t.startsWith("[")) {
+        return ""
+    }
+    let layout = w64Layout(t, names, bodies, 0)
+    if layout < 0 { return "?" }
+    let size = layout / 64
+    if size == 1 or size == 2 or size == 4 or size == 8 {
+        return "i" + (size * 8).toString()
+    }
+    return "ptr"
+}
+
+fun w64Align(t: String, names: Array<String>, bodies: Array<String>) r: String {
+    let layout = w64Layout(t, names, bodies, 0)
+    if layout < 0 { return "8" }
+    return (layout % 64).toString()
+}
+
+fun w64ParseHeader(line: String) r: W64Signature {
+    let result = W64Signature{keyword: "", prefix: "", returnType: "", name: "",
+        params: Array<String>(), rest: ""}
+    var keyword = ""
+    if line.startsWith("declare ") { keyword = "declare" }
+    if line.startsWith("define ") { keyword = "define" }
+    if keyword == "" { return result }
+    let at = line.indexOf(" @", 0)
+    if at < 0 { return result }
+    var end = at + 2
+    if end < line.length() and line.byteAt(end) == 34 {
+        end = end + 1
+        while end < line.length() and line.byteAt(end) != 34 { end = end + 1 }
+        end = end + 1
+    } else {
+        while end < line.length() and w64IsIdentByte(line.byteAt(end)) { end = end + 1 }
+    }
+    if end >= line.length() or line.byteAt(end) != 40 { return result }
+    let close = w64MatchClose(line, end)
+    if close < 0 { return result }
+    let head = w64Trim(line.substring(keyword.length(), at))
+    var typeStart = head.length()
+    if head.endsWith("}") or head.endsWith(">") {
+        typeStart = w64MatchOpen(head)
+        if typeStart < 0 { return result }
+    } else {
+        while typeStart > 0 and not w64IsSpace(head.byteAt(typeStart - 1)) {
+            typeStart = typeStart - 1
+        }
+    }
+    result.keyword = keyword
+    result.prefix = w64Trim(head.substring(0, typeStart))
+    result.returnType = head.substring(typeStart, head.length())
+    result.name = line.substring(at + 2, end)
+    result.params = w64SplitTop(line.substring(end + 1, close - 1))
+    result.rest = line.substring(close, line.length())
+    return result
+}
+
+fun w64IsLinkageWord(word: String) r: Bool {
+    return word == "weak" or word == "weak_odr" or word == "linkonce" or
+        word == "linkonce_odr" or word == "extern_weak" or word == "external" or
+        word == "hidden" or word == "protected" or word == "dso_local" or
+        word == "dso_preemptable" or word == "dllexport" or word == "dllimport"
+}
+
+// Prefix words that are (or are not) linkage and visibility, each followed
+// by one space.
+fun w64PrefixWords(prefix: String, linkage: Bool) r: String {
+    var result = ""
+    var start = 0
+    var i = 0
+    while i <= prefix.length() {
+        if i == prefix.length() or w64IsSpace(prefix.byteAt(i)) {
+            if i > start {
+                let word = prefix.substring(start, i)
+                if w64IsLinkageWord(word) == linkage { result = result + word + " " }
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fun w64NaiveName(name: String) r: String {
+    if name.startsWith("\"") { return "\"__seen_w64n." + name.substring(1, name.length()) }
+    return "__seen_w64n." + name
+}
+
+// Pipe-delimited symbols whose external signature needs Win64 lowering.
+fun w64Candidates(lines: Array<String>, names: Array<String>,
+    bodies: Array<String>) r: String {
+
+    var result = "|"
+    var i = 0
+    while i < lines.length() {
+        let line = lines[i]
+        if line.startsWith("declare ") or line.startsWith("define ") {
+            let sig = w64ParseHeader(line)
+            let external = sig.keyword == "declare" or not (
+                w64HasWord(sig.prefix, "internal") or w64HasWord(sig.prefix, "private") or
+                w64HasWord(sig.prefix, "available_externally"))
+            if sig.keyword != "" and external and not sig.name.startsWith("llvm.") {
+                var needed = false
+                var known = true
+                let retClass = w64Class(sig.returnType, names, bodies)
+                if retClass == "?" { known = false }
+                if retClass != "" { needed = true }
+                var p = 0
+                while p < sig.params.length() {
+                    let param = sig.params[p]
+                    if param == "..." { known = false }
+                    let cls = w64Class(w64ParamType(param), names, bodies)
+                    if cls == "?" { known = false }
+                    if cls != "" { needed = true }
+                    p = p + 1
+                }
+                if needed and known { result = result + sig.name + "|" }
+            }
+        }
+        i = i + 1
+    }
+    return result
+}
+
+// Point references to candidate symbols at their Seen-signature thunks.
+fun w64RenameRefs(line: String, candidates: String, out: StringBuilder) r: Void {
+    if line.indexOf("@", 0) < 0 {
+        out.append(line)
+        return
+    }
+    var copied = 0
+    var i = 0
+    while i < line.length() {
+        let b = line.byteAt(i)
+        if b == 59 {
+            i = line.length()
+        } else if b == 34 {
+            i = i + 1
+            while i < line.length() and line.byteAt(i) != 34 { i = i + 1 }
+            i = i + 1
+        } else if b == 64 {
+            var end = i + 1
+            if end < line.length() and line.byteAt(end) == 34 {
+                end = end + 1
+                while end < line.length() and line.byteAt(end) != 34 { end = end + 1 }
+                end = end + 1
+            } else {
+                while end < line.length() and w64IsIdentByte(line.byteAt(end)) { end = end + 1 }
+            }
+            if end > line.length() { end = line.length() }
+            let name = line.substring(i + 1, end)
+            if name.length() > 0 and candidates.contains("|" + name + "|") {
+                out.append(line.substring(copied, i + 1))
+                out.append(w64NaiveName(name))
+                copied = end
+            }
+            i = end
+        } else {
+            i = i + 1
+        }
+    }
+    out.append(line.substring(copied, line.length()))
+}
+
+fun w64CReturn(retType: String, retClass: String) r: String {
+    if retClass == "ptr" { return "void" }
+    if retClass != "" { return retClass }
+    return retType
+}
+
+// C ABI parameter list; names are appended only when a body uses them.
+fun w64CParams(sig: W64Signature, retClass: String, names: Array<String>,
+    bodies: Array<String>, named: Bool) r: String {
+
+    var result = ""
+    if retClass == "ptr" {
+        result = "ptr sret(" + sig.returnType + ") align " +
+            w64Align(sig.returnType, names, bodies)
+        if named { result = result + " %w64.sret" }
+    }
+    var i = 0
+    while i < sig.params.length() {
+        let pt = w64ParamType(sig.params[i])
+        let cls = w64Class(pt, names, bodies)
+        var piece = cls
+        if cls == "" {
+            piece = pt
+            let attrs = w64ParamAttributes(sig.params[i])
+            if attrs.length() > 0 { piece = piece + " " + attrs }
+        }
+        if named { piece = piece + " %w64.a" + i.toString() }
+        if result.length() > 0 { result = result + ", " }
+        result = result + piece
+        i = i + 1
+    }
+    return result
+}
+
+fun w64DeclareAttributes(rest: String) r: String {
+    var result = ""
+    if w64HasWord(rest, "nounwind") { result = result + " nounwind" }
+    if w64HasWord(rest, "willreturn") { result = result + " willreturn" }
+    if w64HasWord(rest, "noreturn") { result = result + " noreturn" }
+    return result
+}
+
+// External declaration: the real C ABI plus a Seen-signature internal thunk.
+fun w64EmitDeclare(sig: W64Signature, names: Array<String>,
+    bodies: Array<String>, out: StringBuilder) r: Void {
+
+    let retType = sig.returnType
+    let retClass = w64Class(retType, names, bodies)
+    out.append("declare " + w64PrefixWords(sig.prefix, true) +
+        w64CReturn(retType, retClass) + " @" + sig.name + "(" +
+        w64CParams(sig, retClass, names, bodies, false) + ")" +
+        w64DeclareAttributes(sig.rest) + "\n")
+    var params = ""
+    var args = ""
+    let body = StringBuilder.new()
+    if retClass == "ptr" {
+        let ra = w64Align(retType, names, bodies)
+        body.append("  %w64.rp = alloca " + retType + ", align " + ra + "\n")
+        args = "ptr sret(" + retType + ") align " + ra + " %w64.rp"
+    }
+    var i = 0
+    while i < sig.params.length() {
+        let pt = w64ParamType(sig.params[i])
+        let cls = w64Class(pt, names, bodies)
+        let a = "%w64.a" + i.toString()
+        let p = "%w64.p" + i.toString()
+        if params.length() > 0 { params = params + ", " }
+        params = params + pt + " " + a
+        var arg = pt + " " + a
+        if cls == "ptr" {
+            let pa = w64Align(pt, names, bodies)
+            body.append("  " + p + " = alloca " + pt + ", align " + pa + "\n")
+            body.append("  store " + pt + " " + a + ", ptr " + p + ", align " + pa + "\n")
+            arg = "ptr " + p
+        } else if cls != "" {
+            let c = "%w64.c" + i.toString()
+            body.append("  " + p + " = alloca " + pt + ", align 8\n")
+            body.append("  store " + pt + " " + a + ", ptr " + p + ", align 8\n")
+            body.append("  " + c + " = load " + cls + ", ptr " + p + ", align 8\n")
+            arg = cls + " " + c
+        }
+        if args.length() > 0 { args = args + ", " }
+        args = args + arg
+        i = i + 1
+    }
+    let callee = " @" + sig.name + "(" + args + ")\n"
+    if retClass == "ptr" {
+        body.append("  call void" + callee)
+        body.append("  %w64.r = load " + retType + ", ptr %w64.rp, align " +
+            w64Align(retType, names, bodies) + "\n")
+        body.append("  ret " + retType + " %w64.r\n")
+    } else if retClass != "" {
+        body.append("  %w64.rp = alloca " + retType + ", align 8\n")
+        body.append("  %w64.ri = call " + retClass + callee)
+        body.append("  store " + retClass + " %w64.ri, ptr %w64.rp, align 8\n")
+        body.append("  %w64.r = load " + retType + ", ptr %w64.rp, align 8\n")
+        body.append("  ret " + retType + " %w64.r\n")
+    } else if retType == "void" {
+        body.append("  call void" + callee)
+        body.append("  ret void\n")
+    } else {
+        body.append("  %w64.r = call " + retType + callee)
+        body.append("  ret " + retType + " %w64.r\n")
+    }
+    out.append("define internal " + retType + " @" + w64NaiveName(sig.name) +
+        "(" + params + ") alwaysinline {\n")
+    out.append(body.toString())
+    out.append("}\n")
+}
+
+// External definition: a C ABI entry point that calls the renamed body.
+fun w64EmitWrapper(sig: W64Signature, names: Array<String>,
+    bodies: Array<String>, out: StringBuilder) r: Void {
+
+    let retType = sig.returnType
+    let retClass = w64Class(retType, names, bodies)
+    let body = StringBuilder.new()
+    var args = ""
+    var i = 0
+    while i < sig.params.length() {
+        let pt = w64ParamType(sig.params[i])
+        let cls = w64Class(pt, names, bodies)
+        let a = "%w64.a" + i.toString()
+        let v = "%w64.v" + i.toString()
+        var arg = pt + " " + a
+        if cls == "ptr" {
+            body.append("  " + v + " = load " + pt + ", ptr " + a + ", align " +
+                w64Align(pt, names, bodies) + "\n")
+            arg = pt + " " + v
+        } else if cls != "" {
+            let t = "%w64.t" + i.toString()
+            body.append("  " + t + " = alloca " + pt + ", align 8\n")
+            body.append("  store " + cls + " " + a + ", ptr " + t + ", align 8\n")
+            body.append("  " + v + " = load " + pt + ", ptr " + t + ", align 8\n")
+            arg = pt + " " + v
+        }
+        if args.length() > 0 { args = args + ", " }
+        args = args + arg
+        i = i + 1
+    }
+    let callee = " @" + w64NaiveName(sig.name) + "(" + args + ")\n"
+    if retType == "void" {
+        body.append("  call void" + callee)
+        body.append("  ret void\n")
+    } else {
+        body.append("  %w64.r = call " + retType + callee)
+        if retClass == "ptr" {
+            body.append("  store " + retType + " %w64.r, ptr %w64.sret, align " +
+                w64Align(retType, names, bodies) + "\n")
+            body.append("  ret void\n")
+        } else if retClass != "" {
+            body.append("  %w64.rt = alloca " + retType + ", align 8\n")
+            body.append("  store " + retType + " %w64.r, ptr %w64.rt, align 8\n")
+            body.append("  %w64.ri = load " + retClass + ", ptr %w64.rt, align 8\n")
+            body.append("  ret " + retClass + " %w64.ri\n")
+        } else {
+            body.append("  ret " + retType + " %w64.r\n")
+        }
+    }
+    out.append("define " + w64PrefixWords(sig.prefix, true) +
+        w64CReturn(retType, retClass) + " @" + sig.name + "(" +
+        w64CParams(sig, retClass, names, bodies, true) + ") {\n")
+    out.append(body.toString())
+    out.append("}\n")
+}
+
+fun lowerWin64AggregateAbi(ir: String) r: String {
+    let lines = Array<String>()
+    let names = Array<String>()
+    let bodies = Array<String>()
+    var pos = 0
+    while pos < ir.length() {
+        var lineEnd = ir.indexOf("\n", pos)
+        if lineEnd < 0 { lineEnd = ir.length() }
+        let line = ir.substring(pos, lineEnd)
+        if line.startsWith("%") {
+            let eq = line.indexOf(" = type ", 0)
+            if eq > 0 {
+                names.push(line.substring(0, eq))
+                bodies.push(w64Trim(line.substring(eq + 8, line.length())))
+            }
+        }
+        lines.push(line)
+        pos = lineEnd + 1
+    }
+    let candidates = w64Candidates(lines, names, bodies)
+    if candidates == "|" { return ir }
+    let out = StringBuilder.new()
+    var i = 0
+    while i < lines.length() {
+        let line = lines[i]
+        var handled = false
+        if line.startsWith("declare ") or line.startsWith("define ") {
+            let sig = w64ParseHeader(line)
+            if sig.keyword != "" and candidates.contains("|" + sig.name + "|") {
+                handled = true
+                if sig.keyword == "declare" {
+                    w64EmitDeclare(sig, names, bodies, out)
+                } else {
+                    w64EmitWrapper(sig, names, bodies, out)
+                    let open = line.indexOf(" @", 0) + 2 + sig.name.length()
+                    w64RenameRefs("define internal " + w64PrefixWords(sig.prefix, false) +
+                        sig.returnType + " @" + w64NaiveName(sig.name) +
+                        line.substring(open, line.length()), candidates, out)
+                    out.append("\n")
+                }
+            }
+        }
+        if not handled {
+            w64RenameRefs(line, candidates, out)
+            if i + 1 < lines.length() or ir.endsWith("\n") { out.append("\n") }
+        }
+        i = i + 1
+    }
+    return out.toString()
+}
+
+// Write one module's IR, applying the target C ABI where LLVM does not.
+fun writeTargetModuleIrImpl(output: StringBuilder, path: String) r: Bool {
+    let triple = getCodegenTargetTripleImpl()
+    if not (triple.contains("windows") or triple.contains("mingw")) {
+        return output.writeToFile(path)
+    }
+    return writeText(path, lowerWin64AggregateAbi(output.toString()))
+}

@@ -23,4 +23,17 @@ for profile in fast release undefined address; do
     fi
 done
 compile_case fast fuzz "$ROOT_DIR/tests/cross_platform_asynchronous_i_o/iocp_fuzz.seen"
+# Win64 passes 16-byte aggregates by reference and returns them through sret;
+# LLVM's split-scalar lowering crashed every Windows binary at the first call.
+WIN64_IR="$TMP_DIR/win64-ir"
+run_compiler compile "$ROOT_DIR/tests/cross_platform_asynchronous_i_o/iocp_windows.seen" \
+    "$TMP_DIR/win64" --target windows-x86_64 --no-cache --emit-module-ir-dir "$WIN64_IR" \
+    --stop-after-ir > "$TMP_DIR/win64-ir.log" 2>&1
+rg -Fq 'declare void @seen_cstr_to_str(ptr sret(%SeenString) align 8, ptr)' "$WIN64_IR"/*.ll
+rg -Fq 'declare void @println(ptr)' "$WIN64_IR"/*.ll
+if rg -q '^declare %SeenString ' "$WIN64_IR"/*.ll; then
+    echo 'FAIL: Win64 external aggregate signature left unlowered' >&2
+    exit 1
+fi
+for ir in "$WIN64_IR"/*.ll; do opt -passes=verify -disable-output "$ir"; done
 echo 'PASS: overlapped completion contracts; platform classification retained in fixture evidence'

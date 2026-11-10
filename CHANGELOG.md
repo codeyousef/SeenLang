@@ -655,6 +655,14 @@ Foundations**.
   fallback `Ok`, `Err`, `Some`, `None` and `Result_*` helpers were strong symbols
   on every Windows toolchain and collided with the standard library's
   definitions. They are now weak on MinGW and clang, and strong only for MSVC.
+- Windows programs no longer crash at their first string operation. Functions
+  that take or return a struct, such as `String`, now use the Win64 C calling
+  convention: large structs by reference, returns through a hidden result
+  pointer, and 1, 2, 4 or 8 byte structs as integers. Before this, Seen code
+  and the C runtime disagreed about where arguments were.
+- `seen_async_process_pipe` now creates a real pipe on Windows instead of
+  reporting the platform as unsupported, and the runtime's per-thread counters
+  are thread-local under MinGW and clang, which ignored `__declspec(thread)`.
 - Use the filesystem root for Ubuntu ARM64 cross-linking rather than treating
   the GNU target installation prefix as a sysroot. Check real C and C++ runtime
   links before the full compiler input build, preserving SDK linker-script

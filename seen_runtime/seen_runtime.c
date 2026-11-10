@@ -1881,7 +1881,7 @@ enum {
 #endif
 
 #if defined(SEEN_TEST_ATOMIC_IO_FAILURE_INJECTION)
-#if defined(_WIN32)
+#if defined(_MSC_VER)
 static __declspec(thread) int64_t seen_atomic_io_failure_stage = 0;
 static __declspec(thread) int64_t seen_atomic_io_forced_collisions = 0;
 #else
@@ -12566,7 +12566,7 @@ typedef struct {
 #define SEEN_PFOR_THREAD_CREATE_ERROR INT64_C(-7102)
 #define SEEN_PFOR_THREAD_JOIN_ERROR INT64_C(-7103)
 
-#if defined(_WIN32)
+#if defined(_MSC_VER)
 static __declspec(thread) int64_t seen_pfor_depth = 0;
 #else
 static _Thread_local int64_t seen_pfor_depth = 0;

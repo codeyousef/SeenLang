@@ -107,7 +107,32 @@ uint64_t seen_async_process_live_children(void) {
 }
 
 #else
+#if defined(_WIN32)
+#include <windows.h>
+// Asynchronous spawn is unsupported on Windows, so neither end is inheritable.
+// The parent end is nonblocking like the Linux endpoint; handles close through
+// seen_reactor_native_handle_close.
+int32_t seen_async_process_pipe(int32_t parent_write, int64_t *read_fd, int64_t *write_fd) {
+    if (!read_fd || !write_fd || *read_fd != -1 || *write_fd != -1 ||
+        (parent_write != 0 && parent_write != 1)) return 1;
+    HANDLE ends[2] = { NULL, NULL };
+    DWORD error = ERROR_SUCCESS;
+    DWORD mode = PIPE_READMODE_BYTE | PIPE_NOWAIT;
+    if (!CreatePipe(&ends[0], &ends[1], NULL, 0)) {
+        error = GetLastError();
+    } else if (!SetNamedPipeHandleState(ends[parent_write ? 1 : 0], &mode, NULL, NULL)) {
+        error = GetLastError();
+        CloseHandle(ends[0]); CloseHandle(ends[1]);
+    }
+    if (error == ERROR_INVALID_PARAMETER) return 1;
+    if (error == ERROR_NOT_ENOUGH_MEMORY || error == ERROR_NO_SYSTEM_RESOURCES ||
+        error == ERROR_TOO_MANY_OPEN_FILES) return 2;
+    if (error != ERROR_SUCCESS) return 3;
+    *read_fd = (int64_t)(uintptr_t)ends[0]; *write_fd = (int64_t)(uintptr_t)ends[1]; return 0;
+}
+#else
 int32_t seen_async_process_pipe(int32_t p,int64_t*r,int64_t*w) {(void)p;(void)r;(void)w;return 4;}
+#endif
 int32_t seen_async_process_spawn(const void*p,const void*a,const void*e,int64_t i,int64_t o,int64_t r,int64_t*c) {(void)p;(void)a;(void)e;(void)i;(void)o;(void)r;(void)c;return 4;}
 int32_t seen_async_process_pidfd(int64_t p,int64_t*d) {(void)p;(void)d;return 4;}
 int32_t seen_async_process_signal(int64_t d,int32_t s) {(void)d;(void)s;return 4;}
